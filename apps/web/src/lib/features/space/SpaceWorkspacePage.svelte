@@ -90,6 +90,11 @@ import type { LocalUploadEntry } from "$lib/upload-entries";
 import type { WorkspaceFileLinkTarget } from "$lib/workspace-file-links";
 import { createCanvasPreviewController } from "./modules/canvas-preview-controller.svelte";
 import { createFileWorkspaceController } from "./modules/file-workspace-controller.svelte";
+import {
+	FLOAT_PANEL_GAP,
+	FLOAT_PREVIEW_MIN_WIDTH,
+	floatPanelsFit,
+} from "./modules/float-layout";
 import NewChatSpaceProfile from "./modules/NewChatSpaceProfile.svelte";
 import PortReadyToastView from "./modules/PortReadyToast.svelte";
 import { createPortPreviewController } from "./modules/port-preview-controller.svelte";
@@ -155,6 +160,7 @@ type Props = {
 type ActiveFsSource =
 	| { kind: "live" }
 	| { kind: "checkpoint"; checkpointId: string };
+
 const props = $props();
 const data = $derived((props as Props).data);
 const spaceId = $derived(data.spaceId);
@@ -624,7 +630,13 @@ const filesColumnMounted = $derived(filesColumnMount.mounted);
 const immersiveChatVisible = $derived(
 	!previewImmersiveMode || previewLayout.immersiveMainVisible,
 );
+const immersiveFilesInset = $derived(
+	previewImmersiveMode && !effectiveRightSidebarCollapsed
+		? uiState.rightSidebarWidth + FLOAT_PANEL_GAP * 2
+		: FLOAT_PANEL_GAP,
+);
 
+let workspaceWidthTick = $state(0);
 let pageMounted = $state(false);
 const spaceBootstrap = createSpaceBootstrapController({
 	getSpaceId: () => spaceId,
@@ -646,6 +658,8 @@ $effect(() => {
 	}
 	if (lastImmersiveChatSessionId === sessionId) return;
 	lastImmersiveChatSessionId = sessionId;
+	// Chat re-shows on session switch; the float mutual-exclusion effect
+	// below will hide it if the workspace is too narrow.
 	previewLayout.setImmersiveMainVisible(true);
 });
 
@@ -659,6 +673,31 @@ $effect(() => {
 	const currentSpaceId = spaceId;
 	void uiState.workspacePresentation;
 	void previewLayout.syncFromPrefs(currentSpaceId);
+});
+
+// Centralized Float mutual-exclusion: if Chat and Files are both visible but
+// the workspace can't fit Chat-min + Files + Preview-min, hide Chat.  This
+// catches cases that bypass the click handlers: session switch (re-shows
+// chat), syncFromPrefs (refresh restore), and enterImmersive (defaults chat
+// visible).  `workspaceWidthTick` bumps on resize so the effect re-runs.
+$effect(() => {
+	void previewImmersiveMode;
+	void immersiveChatVisible;
+	void effectiveRightSidebarCollapsed;
+	void uiState.rightSidebarWidth;
+	void workspaceWidthTick;
+	if (
+		previewImmersiveMode &&
+		immersiveChatVisible &&
+		!effectiveRightSidebarCollapsed &&
+		!floatPanelsFit(
+			workspaceBodyEl?.clientWidth ?? window.innerWidth,
+			uiState.rightSidebarWidth,
+			IMMERSIVE_CHAT_MIN,
+		)
+	) {
+		previewLayout.setImmersiveMainVisible(false);
+	}
 });
 
 // Re-fit the preview once the reserved geometry settles. On first paint the
@@ -1319,7 +1358,11 @@ function beginRightSidebarResize(event: PointerEvent) {
 	rightSidebarResizeCleanup?.();
 	const startX = event.clientX;
 	const startWidth = uiState.rightSidebarWidth;
-	const minMainWidth = previewImmersiveMode ? 96 : 720;
+	const minMainWidth = previewImmersiveMode
+		? (immersiveChatVisible ? IMMERSIVE_CHAT_MIN : 0) +
+			FLOAT_PREVIEW_MIN_WIDTH +
+			FLOAT_PANEL_GAP * 3
+		: 720;
 	const onPointerMove = (moveEvent: PointerEvent) => {
 		const delta = startX - moveEvent.clientX;
 		const viewportLimit = window.innerWidth - minMainWidth;
@@ -1355,11 +1398,16 @@ function beginImmersiveChatResize(event: PointerEvent) {
 	const startX = event.clientX;
 	const startWidth = uiState.immersiveChatWidth;
 	const rightReserved = effectiveRightSidebarCollapsed
-		? 0
-		: uiState.rightSidebarWidth + 36;
+		? FLOAT_PANEL_GAP
+		: uiState.rightSidebarWidth + FLOAT_PANEL_GAP * 2;
 	const onPointerMove = (moveEvent: PointerEvent) => {
 		const delta = moveEvent.clientX - startX;
-		const viewportLimit = window.innerWidth - rightReserved - 48;
+		const workspaceWidth = workspaceBodyEl?.clientWidth ?? window.innerWidth;
+		const viewportLimit =
+			workspaceWidth -
+			rightReserved -
+			FLOAT_PREVIEW_MIN_WIDTH -
+			FLOAT_PANEL_GAP;
 		const nextWidth = Math.min(
 			IMMERSIVE_CHAT_MAX,
 			Math.max(IMMERSIVE_CHAT_MIN, Math.min(startWidth + delta, viewportLimit)),
@@ -1397,6 +1445,19 @@ function closePreviewFocusMode() {
 }
 function handlePreviewWindowResize() {
 	previewLayout.handleWindowResize();
+	workspaceWidthTick++;
+	if (
+		previewImmersiveMode &&
+		immersiveChatVisible &&
+		!effectiveRightSidebarCollapsed &&
+		!floatPanelsFit(
+			workspaceBodyEl?.clientWidth ?? window.innerWidth,
+			uiState.rightSidebarWidth,
+			IMMERSIVE_CHAT_MIN,
+		)
+	) {
+		void previewLayout.toggleTree(false);
+	}
 }
 function beginPreviewPanelResize(event: PointerEvent) {
 	previewLayout.beginPreviewResize(event);
@@ -1406,8 +1467,40 @@ async function toggleRightSidebar() {
 	// Handles empty-rail (tree collapsed, no preview) so the first click always paints.
 	await previewLayout.toggleFilesChrome();
 }
+function toggleImmersiveChat() {
+	const nextVisible = !immersiveChatVisible;
+	if (
+		nextVisible &&
+		previewImmersiveMode &&
+		!effectiveRightSidebarCollapsed &&
+		!floatPanelsFit(
+			workspaceBodyEl?.clientWidth ?? window.innerWidth,
+			uiState.rightSidebarWidth,
+			IMMERSIVE_CHAT_MIN,
+		)
+	) {
+		void previewLayout.toggleTree(false).then(() => {
+			previewLayout.setImmersiveMainVisible(true);
+		});
+		return;
+	}
+	previewLayout.setImmersiveMainVisible(nextVisible);
+}
+
 async function toggleFilesTree() {
-	// Files column internal tree collapse.
+	const openingFiles = effectiveRightSidebarCollapsed;
+	if (
+		previewImmersiveMode &&
+		openingFiles &&
+		immersiveChatVisible &&
+		!floatPanelsFit(
+			workspaceBodyEl?.clientWidth ?? window.innerWidth,
+			uiState.rightSidebarWidth,
+			IMMERSIVE_CHAT_MIN,
+		)
+	) {
+		previewLayout.setImmersiveMainVisible(false);
+	}
 	await previewLayout.toggleTree();
 }
 
@@ -1972,6 +2065,51 @@ $effect(() => {
 $effect(() => {
 	if (previewImmersiveMode) danmakuController.clear();
 });
+$effect(() => {
+	if (
+		previewImmersiveMode &&
+		pageMounted &&
+		!activePreviewKind &&
+		!routePreviewRef
+	) {
+		previewLayout.exitPresentation();
+	}
+});
+// Port deep-link guard: if a ?preview=port:XXXX URL is pending but the endpoint
+// never arrives (stale link, sandbox not running), the user would be stuck in
+// Float with no active preview and no exit control.  After a timeout, clear
+// the preview param and exit Float.
+let portDeepLinkTimer: ReturnType<typeof setTimeout> | null = null;
+$effect(() => {
+	const ref = routePreviewRef;
+	const hasActive = activePreviewKind;
+	if (
+		ref?.kind === "port" &&
+		!hasActive &&
+		previewImmersiveMode &&
+		pageMounted
+	) {
+		if (portDeepLinkTimer) clearTimeout(portDeepLinkTimer);
+		portDeepLinkTimer = setTimeout(() => {
+			portDeepLinkTimer = null;
+			// Re-check: endpoint may have arrived during the wait.
+			if (
+				routePreviewRef?.kind === "port" &&
+				!activePreviewKind &&
+				previewImmersiveMode
+			) {
+				syncPreviewQuery(null, true);
+				previewLayout.exitPresentation();
+			}
+		}, 8000);
+		return () => {
+			if (portDeepLinkTimer) {
+				clearTimeout(portDeepLinkTimer);
+				portDeepLinkTimer = null;
+			}
+		};
+	}
+});
 // React to space changes: subscribe to WS events for the new space
 $effect(() => {
 	const currentSpaceId = spaceId;
@@ -2065,6 +2203,7 @@ const spaceFileDomainProps = $derived.by<
 	previewPanelWidth,
 	previewFocusMode,
 	previewImmersiveMode,
+	immersiveChatVisible,
 	rightSidebarCollapsed: effectiveRightSidebarCollapsed,
 	rightSidebarWidth: uiState.rightSidebarWidth,
 	rightDragOffsetPx: uiState.rightDragOffsetPx,
@@ -2151,11 +2290,14 @@ const spaceFileDomainProps = $derived.by<
 	onBeginPreviewPanelResize: beginPreviewPanelResize,
 	onTogglePreviewFocusMode: togglePreviewFocusMode,
 	onTogglePreviewImmersiveMode: togglePreviewImmersiveMode,
+	onToggleImmersiveChat: toggleImmersiveChat,
 	onBeginRightSidebarResize: beginRightSidebarResize,
 	treeVisible: !effectiveRightSidebarCollapsed,
-	onToggleTree: () => {
-		void toggleFilesTree();
-	},
+	onToggleTree: rightSidebarAvailable
+		? () => {
+				void toggleFilesTree();
+			}
+		: undefined,
 	onEditResourceLabels: editResourceLabels,
 	onInsertFilePathReference: insertFilePathReference,
 	onGetFileActionNode: getFileActionNode,
@@ -2378,7 +2520,7 @@ const headerActions = {
 	bind:this={workspaceBodyEl}
 	class="workspace-body relative flex-1 min-h-0 flex overflow-hidden bg-[var(--chat-bg)]"
 	class:workspace-body--preview-immersive={previewImmersiveMode}
-	style={`--immersive-chat-width: ${uiState.immersiveChatWidth}px`}
+	style={`--immersive-chat-width: ${uiState.immersiveChatWidth}px; --immersive-chat-max-width: calc(100% - ${immersiveFilesInset}px - ${FLOAT_PREVIEW_MIN_WIDTH + FLOAT_PANEL_GAP}px); --preview-safe-left: ${previewImmersiveMode && immersiveChatVisible ? "calc(min(var(--immersive-chat-width), var(--immersive-chat-max-width)) + 20px)" : "10px"}; --preview-safe-right: ${immersiveFilesInset}px`}
 >
   <SpaceDanmakuLayer controller={danmakuController} {spaceId} hidden={previewImmersiveMode} />
   <div
@@ -2391,11 +2533,7 @@ const headerActions = {
           context={headerContext}
           sessionRename={sessionRenameState}
           resourceActions={resourceActionState}
-          actions={{
-            ...headerActions,
-            exitImmersivePreview: togglePreviewImmersiveMode,
-          }}
-          presentation="default"
+          actions={headerActions}
         />
       </div>
     {/if}
@@ -2607,8 +2745,8 @@ const headerActions = {
     .workspace-body--preview-immersive .workspace-main {
       position: relative;
       z-index: 20;
-      flex: 0 0 min(var(--immersive-chat-width), calc(100vw - 96px));
-      max-width: min(var(--immersive-chat-width), calc(100vw - 96px));
+      flex: 0 0 min(var(--immersive-chat-width), var(--immersive-chat-max-width));
+      max-width: min(var(--immersive-chat-width), var(--immersive-chat-max-width));
       min-width: min(320px, calc(100vw - 96px));
       margin: 10px 0 10px 10px;
       overflow: hidden;

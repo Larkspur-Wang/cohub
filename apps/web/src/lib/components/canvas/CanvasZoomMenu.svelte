@@ -2,12 +2,15 @@
 import { LocateFixed, Minus, Plus } from "lucide-svelte";
 import type { CanvasEditor } from "$lib/canvas/editor.svelte";
 
-const { editor }: { editor: CanvasEditor } = $props();
+const {
+	editor,
+	immersive = false,
+}: { editor: CanvasEditor; immersive?: boolean } = $props();
 
 const zoomPercent = $derived(Math.round(editor.camera.zoom * 100));
 </script>
 
-<div class="canvas-zoom-menu">
+<div class="canvas-zoom-menu" class:canvas-zoom-menu--immersive={immersive}>
 	<button type="button" class="zoom-btn" title="Zoom out" aria-label="Zoom out" onclick={() => editor.zoomOut()}>
 		<Minus class="h-3.5 w-3.5" />
 	</button>
@@ -44,6 +47,10 @@ const zoomPercent = $derived(Math.round(editor.camera.zoom * 100));
 		padding: 4px;
 		box-shadow: 0 8px 20px color-mix(in srgb, var(--overlay-scrim-strong) 14%, transparent);
 		backdrop-filter: blur(12px);
+	}
+
+	.canvas-zoom-menu--immersive {
+		right: var(--preview-safe-right, 10px);
 	}
 
 	/* Touch: park zoom top-right so it never collides with the tool dock. */

@@ -12,6 +12,7 @@ import type {
 import { isCovasFile } from "$lib/canvas/canvas-file";
 import type { CovasDocument } from "$lib/canvas/canvas-schema";
 import type { FileViewMode } from "$lib/components/file-diff-view";
+import PreviewExpandMenu from "$lib/components/PreviewExpandMenu.svelte";
 import WorkPublishDialog from "$lib/components/WorkPublishDialog.svelte";
 import WorkspacePreviewPane from "$lib/components/WorkspacePreviewPane.svelte";
 import type { SpaceFsNode } from "$lib/space-fs";
@@ -25,6 +26,7 @@ import FilesSidebarPanel from "./FilesSidebarPanel.svelte";
 import type { FileWorkspaceInlineFile } from "./file-workspace-controller.svelte";
 import InlineFilePanel from "./InlineFilePanel.svelte";
 import PortPreviewPanel from "./PortPreviewPanel.svelte";
+import PreviewTabs from "./PreviewTabs.svelte";
 
 type PanHandlers = {
 	start: (event: MouseEvent) => void;
@@ -48,6 +50,7 @@ export type SpaceFileDomainProps = {
 	previewPanelWidth: number;
 	previewFocusMode: boolean;
 	previewImmersiveMode: boolean;
+	immersiveChatVisible: boolean;
 	rightSidebarCollapsed: boolean;
 	rightSidebarWidth: number;
 	rightDragOffsetPx: number;
@@ -142,6 +145,7 @@ export type SpaceFileDomainProps = {
 	onBeginPreviewPanelResize: (event: PointerEvent) => void;
 	onTogglePreviewFocusMode: () => void | Promise<void>;
 	onTogglePreviewImmersiveMode: () => void | Promise<void>;
+	onToggleImmersiveChat: () => void;
 	onBeginRightSidebarResize: (event: PointerEvent) => void;
 	treeVisible?: boolean;
 	onToggleTree?: () => void;
@@ -185,6 +189,7 @@ let {
 	previewPanelWidth,
 	previewFocusMode,
 	previewImmersiveMode,
+	immersiveChatVisible,
 	rightSidebarCollapsed,
 	rightSidebarWidth,
 	rightDragOffsetPx,
@@ -271,6 +276,7 @@ let {
 	onBeginPreviewPanelResize,
 	onTogglePreviewFocusMode,
 	onTogglePreviewImmersiveMode,
+	onToggleImmersiveChat,
 	onBeginRightSidebarResize,
 	treeVisible = true,
 	onToggleTree,
@@ -351,6 +357,27 @@ function closePreviewTab(kind: "file" | "canvas" | "port", key: string) {
 		onResizeStart={onBeginPreviewPanelResize}
 		immersive={previewImmersiveMode}
 	>
+		<div class="relative flex h-full min-w-0 flex-col overflow-hidden">
+			{#if !isMobile && !previewImmersiveMode}
+				<PreviewTabs
+					tabs={previewTabs}
+					onActivate={activatePreviewTab}
+					onClose={closePreviewTab}
+					{treeVisible}
+					{onToggleTree}
+				>
+					{#snippet trailing()}
+						<PreviewExpandMenu
+							focused={previewFocusMode}
+							immersive={previewImmersiveMode}
+							size="sm"
+							onToggleFocus={onTogglePreviewFocusMode}
+							onToggleImmersive={onTogglePreviewImmersiveMode}
+						/>
+					{/snippet}
+				</PreviewTabs>
+			{/if}
+			<div class="relative min-h-0 flex-1">
 {#if activePreviewKind === "file" && inlineFile}
 		<InlineFilePanel
 		{inlineFile}
@@ -379,8 +406,9 @@ function closePreviewTab(kind: "file" | "canvas" | "port", key: string) {
 		{inlineFileDataUrl}
 		inlineFileSpaceId={spaceId}
 		{inlineFileWork}
-		previewFocusMode={previewFocusMode}
 		previewImmersiveMode={previewImmersiveMode}
+		{immersiveChatVisible}
+		onToggleImmersiveChat={onToggleImmersiveChat}
 		{isMobile}
 		bind:fileActionMenuOpenPath
 		bind:inlineFileZoom
@@ -399,7 +427,6 @@ function closePreviewTab(kind: "file" | "canvas" | "port", key: string) {
 		onOverwriteInlineFile={onOverwriteInlineFile}
 		onReloadInlineFile={onReloadInlineFile}
 		onPublishInlineFile={publishInlineFile}
-		onTogglePreviewFocusMode={onTogglePreviewFocusMode}
 		onTogglePreviewImmersiveMode={onTogglePreviewImmersiveMode}
 		onLabelFile={(path: string, anchorEl?: HTMLElement | null) =>
 			onEditResourceLabels("file", path, anchorEl)}
@@ -420,10 +447,10 @@ function closePreviewTab(kind: "file" | "canvas" | "port", key: string) {
 		{onToggleTree}
 		onActivatePreviewTab={activatePreviewTab}
 		onClosePreviewTab={closePreviewTab}
-		focused={previewFocusMode}
 		immersive={previewImmersiveMode}
+		{immersiveChatVisible}
 		{isMobile}
-		onToggleFocus={onTogglePreviewFocusMode}
+		onToggleImmersiveChat={onToggleImmersiveChat}
 		onToggleImmersive={onTogglePreviewImmersiveMode}
 		onCommit={onCommitInlineCanvas}
 		onRetrySave={onRetryInlineCanvasSave}
@@ -442,14 +469,16 @@ function closePreviewTab(kind: "file" | "canvas" | "port", key: string) {
 		url={inlinePortEndpoint?.url ?? inlinePortPreview.url}
 		status={inlinePortEndpoint?.status ?? "unknown"}
 		observedAt={inlinePortEndpoint?.observedAt}
-		focused={previewFocusMode}
 		immersive={previewImmersiveMode}
+		{immersiveChatVisible}
 		{isMobile}
-		onToggleFocus={onTogglePreviewFocusMode}
+		onToggleImmersiveChat={onToggleImmersiveChat}
 		onToggleImmersive={onTogglePreviewImmersiveMode}
 		onPublish={() => onOpenWorkPublish("port", inlinePortPreview!.port)}
 		/>
 {/if}
+			</div>
+		</div>
 	</WorkspacePreviewPane>
 {/if}
 

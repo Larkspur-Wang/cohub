@@ -6,6 +6,7 @@ import {
 	type WorkspaceLayoutSnapshot,
 	type WorkspacePresentation,
 } from "$lib/stores/ui.svelte";
+import { nextTreeSnapshot } from "./float-layout";
 
 const MAIN_PANEL_MIN_WIDTH = 320;
 const PREVIEW_PANEL_MIN_WIDTH = 280;
@@ -197,7 +198,8 @@ export function createWorkspaceLayoutController(options: {
 	async function syncFromPrefs(spaceId: string) {
 		const spaceChanged = syncedSpaceId !== spaceId;
 		syncedSpaceId = spaceId;
-		immersiveMainVisible = true;
+		// Do NOT unconditionally show chat here — the centralized
+		// float-mutual-exclusion effect handles visibility constraints.
 
 		if (options.getIsCompact()) {
 			if (uiState.workspacePresentation !== "default") exitPresentation();
@@ -381,8 +383,14 @@ export function createWorkspaceLayoutController(options: {
 		toggleFilesColumn();
 	}
 
-	/** Files-column internal: collapse/expand file tree only. */
-	async function toggleTree() {
+	/** Files-column internal: collapse/expand file tree only.
+	 *
+	 * `persist` controls whether the layout snapshot is updated.  Auto layout
+	 * adjustments (resize, mutual-exclusion cascade) pass `persist: false` so
+	 * exit-Float restores the original tree state.  User-initiated toggles keep
+	 * the default `true` so their preference is remembered.
+	 */
+	async function toggleTree(persist = true) {
 		if (isCompactViewport()) {
 			const nextOpen = !uiState.mobileRightDrawerOpen;
 			uiState.mobileRightDrawerOpen = nextOpen;
@@ -397,11 +405,14 @@ export function createWorkspaceLayoutController(options: {
 		const treeWidth = uiState.rightSidebarWidth;
 		uiState.setRightSidebarCollapsed(nextCollapsed);
 		if (uiState.workspaceLayoutSnapshot) {
-			uiState.setWorkspaceLayoutSnapshot({
-				...uiState.workspaceLayoutSnapshot,
-				rightSidebarCollapsed: nextCollapsed,
-				treeVisible: !nextCollapsed,
-			});
+			const next = nextTreeSnapshot(
+				uiState.workspaceLayoutSnapshot,
+				nextCollapsed,
+				persist,
+			);
+			if (next !== uiState.workspaceLayoutSnapshot) {
+				uiState.setWorkspaceLayoutSnapshot(next);
+			}
 		}
 		// Collapsing the tree with no preview leaves a 0-width empty rail —
 		// fold the whole Files column so header state stays consistent.

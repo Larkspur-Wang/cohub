@@ -10,8 +10,10 @@ import {
 	Copy,
 	Download,
 	ListTree,
+	Minus,
 	MoreHorizontal,
 	Pencil,
+	Plus,
 	Rocket,
 	TextCursorInput,
 	Trash2,
@@ -21,7 +23,6 @@ import { floatNear } from "$lib/actions/portal";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import type { FileViewMode } from "$lib/components/file-diff-view";
 import MarkdownView from "$lib/components/MarkdownView.svelte";
-import PreviewExpandMenu from "$lib/components/PreviewExpandMenu.svelte";
 import type { PreviewCaptureTarget } from "$lib/features/preview-mark";
 import PreviewMarkHost from "$lib/features/preview-mark/ui/PreviewMarkHost.svelte";
 import { createLazyModuleLoader } from "$lib/lazy-module";
@@ -31,7 +32,7 @@ import type {
 } from "$lib/workspace-file-links";
 import { formatFileSize } from "../space-utils";
 import MobilePreviewTabsChrome from "./MobilePreviewTabsChrome.svelte";
-import PreviewTabs from "./PreviewTabs.svelte";
+import PreviewFloatChrome from "./PreviewFloatChrome.svelte";
 import type { PreviewSyncStatus } from "./preview-sync-status";
 import type { PreviewTab } from "./preview-tabs";
 
@@ -75,10 +76,11 @@ type Props = {
 	inlineFileDataUrl: string | null;
 	inlineFileSpaceId: string;
 	inlineFileWork: WorkRecord | null;
-	previewFocusMode: boolean;
 	previewImmersiveMode: boolean;
+	immersiveChatVisible: boolean;
 	treeVisible?: boolean;
-	onToggleTree?: () => void;
+	onToggleTree?: () => void | Promise<void>;
+	onToggleImmersiveChat: () => void;
 	isMobile: boolean;
 	fileActionMenuOpenPath: string | null;
 	inlineFileZoom: number;
@@ -101,7 +103,6 @@ type Props = {
 	onOverwriteInlineFile: () => void | Promise<void>;
 	onReloadInlineFile: () => void | Promise<void>;
 	onPublishInlineFile: () => void;
-	onTogglePreviewFocusMode: () => void | Promise<void>;
 	onTogglePreviewImmersiveMode: () => void | Promise<void>;
 	onLabelFile: (
 		path: string,
@@ -140,10 +141,11 @@ let {
 	inlineFileDataUrl,
 	inlineFileSpaceId,
 	inlineFileWork,
-	previewFocusMode,
 	previewImmersiveMode,
+	immersiveChatVisible,
 	treeVisible = true,
 	onToggleTree,
+	onToggleImmersiveChat,
 	isMobile,
 	fileActionMenuOpenPath = $bindable(),
 	inlineFileZoom = $bindable(),
@@ -164,7 +166,6 @@ let {
 	onOverwriteInlineFile,
 	onReloadInlineFile,
 	onPublishInlineFile,
-	onTogglePreviewFocusMode,
 	onTogglePreviewImmersiveMode,
 	onLabelFile,
 	onInsertFilePathReference,
@@ -297,14 +298,114 @@ $effect(() => {
 	</div>
 {/snippet}
 
-{#snippet PreviewFocusButton()}
-	{#if !isMobile}
-		<PreviewExpandMenu
-			focused={previewFocusMode}
-			immersive={previewImmersiveMode}
-			onToggleFocus={onTogglePreviewFocusMode}
-			onToggleImmersive={onTogglePreviewImmersiveMode}
-		/>
+{#snippet FloatFileActions()}
+	{#if inlineFileCanGoBack}
+		<button
+			type="button"
+			class="icon-btn"
+			onclick={() => void onBackInlineFile()}
+			title="Back"
+			aria-label="Back"
+		>
+			<ArrowLeft class="h-4 w-4" />
+		</button>
+	{/if}
+	{@render FileHeaderCoreActions(activeResponsePath || activeFilePath)}
+	{#if hasUsableText && (inlineFileHasRenderedPreview || showDiffMode)}
+		<div class="float-view-mode">
+			<button
+				type="button"
+				class="segmented-btn"
+				class:active={inlineFileViewMode === "source"}
+				onclick={() => (inlineFileViewMode = "source")}
+				title="Edit source"
+			>Source</button>
+			{#if inlineFileHasRenderedPreview}
+				<button
+					type="button"
+					class="segmented-btn"
+					class:active={inlineFileViewMode === "preview"}
+					onclick={() => (inlineFileViewMode = "preview")}
+					title={inlineFileIsMarkdown ? "Preview markdown" : "Preview HTML"}
+				>Preview</button>
+			{/if}
+			{#if showDiffMode}
+				<button
+					type="button"
+					class="segmented-btn"
+					class:active={inlineFileViewMode === "diff"}
+					onclick={() => (inlineFileViewMode = "diff")}
+					title="Diff since last save"
+				>Diff</button>
+			{/if}
+		</div>
+	{/if}
+	{#if inlineFileIsHtml && inlineFileViewMode === "preview"}
+		<button
+			type="button"
+			class="icon-btn preview-context-secondary"
+			onclick={onPublishInlineFile}
+			title="Publish work"
+			aria-label="Publish work"
+		>
+			<Rocket class="h-4 w-4" />
+		</button>
+	{/if}
+	{#if showHtmlMark}
+		<div class="preview-context-secondary">
+			<PreviewMarkHost bind:open={htmlMarkOpen} target={htmlMarkTarget} />
+		</div>
+	{/if}
+	{#if hasUsableText}
+		<button
+			type="button"
+			class="icon-btn preview-context-secondary"
+			onclick={() => void onCopyInlineFileContent()}
+			title="Copy content"
+			aria-label="Copy content"
+		>
+			{#if inlineFileCopied}
+				<Check class="h-4 w-4 text-success-soft" />
+			{:else}
+				<Copy class="h-4 w-4" />
+			{/if}
+		</button>
+	{/if}
+	{#if inlineFileIsImage && inlineFileDataUrl}
+		{#if imageMarkTarget}
+			<PreviewMarkHost bind:open={imageMarkOpen} target={imageMarkTarget} />
+		{/if}
+		<div class="float-image-zoom">
+			<button
+				type="button"
+				class="zoom-btn"
+				onclick={() => {
+					inlineFileZoom = Math.max(0.25, inlineFileZoom - 0.25);
+					inlineFilePanX = 0;
+					inlineFilePanY = 0;
+				}}
+				title="Zoom out"
+				aria-label="Zoom out"
+			>
+				<Minus class="h-4 w-4" />
+			</button>
+			<span class="w-10 text-center text-[11px] tabular-nums text-text-tertiary">
+				{Math.round(inlineFileZoom * 100)}%
+			</span>
+			<button
+				type="button"
+				class="zoom-btn"
+				onclick={() => {
+					inlineFileZoom = Math.min(4, inlineFileZoom + 0.25);
+					inlineFilePanX = 0;
+					inlineFilePanY = 0;
+				}}
+				title="Zoom in"
+				aria-label="Zoom in"
+			>
+				<Plus class="h-4 w-4" />
+			</button>
+		</div>
 	{/if}
 {/snippet}
 
@@ -369,7 +470,7 @@ $effect(() => {
 
 {#snippet SoftFailBanner()}
 	{#if inlineFile?.error && (hasUsableText || hasUsableMedia)}
-		<div class="flex shrink-0 items-center gap-2 border-b border-error-soft/20 bg-error-bg px-3 py-1.5 text-[11px] text-error-soft">
+		<div class="file-status-banner flex shrink-0 items-center gap-2 border-b border-error-soft/20 bg-error-bg px-3 py-1.5 text-[11px] text-error-soft">
 			<span class="min-w-0 flex-1 truncate">{inlineFile.error}</span>
 			{#if onRetryInlineFile}
 				<button type="button" class="action-btn" onclick={() => void onRetryInlineFile()}>Retry</button>
@@ -384,7 +485,7 @@ $effect(() => {
 
 {#snippet SyncIssueBanner()}
 	{#if inlineFile?.saveError}
-		<div class="flex shrink-0 items-center gap-2 border-b border-error-soft/20 bg-error-bg px-3 py-1.5 text-[11px] text-error-soft">
+		<div class="file-status-banner flex shrink-0 items-center gap-2 border-b border-error-soft/20 bg-error-bg px-3 py-1.5 text-[11px] text-error-soft">
 			<span class="min-w-0 flex-1 truncate">{inlineFile.saveError}</span>
 			{#if inlineFile.syncStatus === "conflict"}
 				<button type="button" class="action-btn" onclick={() => void onReloadInlineFile()}>Reload</button>
@@ -571,12 +672,21 @@ $effect(() => {
       {/if}
 		</div>
 	{:else}
-      <div class="inline-file-preview flex h-full min-w-0 flex-col bg-bg-content" class:inline-file-preview--immersive={previewImmersiveMode}>
-        <PreviewTabs tabs={previewTabs} onActivate={onActivatePreviewTab} onClose={onClosePreviewTab} treeVisible={treeVisible} onToggleTree={onToggleTree}>
-          {#snippet trailing()}
-            {@render PreviewFocusButton()}
-          {/snippet}
-        </PreviewTabs>
+      <div class="inline-file-preview relative flex h-full min-w-0 flex-col bg-bg-content" class:inline-file-preview--immersive={previewImmersiveMode}>
+        {#if previewImmersiveMode}
+          <PreviewFloatChrome
+            tabs={previewTabs}
+            chatVisible={immersiveChatVisible}
+            filesVisible={treeVisible}
+            onActivate={onActivatePreviewTab}
+            onClose={onClosePreviewTab}
+            onToggleChat={onToggleImmersiveChat}
+            onToggleFiles={onToggleTree}
+            onExit={onTogglePreviewImmersiveMode}
+          >
+            {#snippet context()}{@render FloatFileActions()}{/snippet}
+          </PreviewFloatChrome>
+        {/if}
         {#if inlineFile?.loading}
           <div class="preview-chrome flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
             <span class="preview-chrome-path flex-1 truncate text-xs text-text-secondary">{activeFilePath}</span>
@@ -766,46 +876,28 @@ $effect(() => {
 {/if}
 
 <style>
-  /* Float mode: content fills stage; chrome becomes a compact floating pill. */
-  .inline-file-preview--immersive {
-    position: relative;
-  }
-
-  /* Hide tab strip — tabs are not useful full-bleed in float mode. */
-  .inline-file-preview--immersive > :global(:first-child) {
-    display: none;
-  }
-
   .inline-file-preview--immersive :global(.preview-chrome) {
-    position: absolute;
-    top: 12px;
-    right: 12px;
-    left: auto;
-    z-index: 25;
-    width: auto;
-    max-width: min(520px, calc(100% - 24px));
-    height: auto;
-    min-height: 40px;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    gap: 6px;
-    border: 1px solid var(--border-subtle);
-    border-radius: 12px;
-    border-bottom: 1px solid var(--border-subtle);
-    background: color-mix(in srgb, var(--bg-elevated) 92%, transparent);
-    padding: 6px 8px;
-    box-shadow: 0 12px 28px color-mix(in srgb, var(--overlay-scrim-strong) 16%, transparent);
-    backdrop-filter: blur(14px);
-  }
-
-  /* Long path wastes space in the pill — keep actions only. */
-  .inline-file-preview--immersive :global(.preview-chrome-path) {
     display: none;
   }
 
-  /* Body fills the stage under the floating chrome. */
-  .inline-file-preview--immersive > :global(.preview-chrome + *) {
-    flex: 1 1 auto;
-    min-height: 0;
+  .inline-file-preview--immersive :global(.preview-float-chrome + .file-status-banner) {
+    margin-top: 58px;
+  }
+
+  .float-view-mode,
+  .float-image-zoom {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
+    background: var(--bg-input);
+    padding: 2px;
+  }
+
+  @container (max-width: 620px) {
+    .float-view-mode .segmented-btn:not(.active) {
+      display: none;
+    }
   }
 </style>

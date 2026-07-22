@@ -309,7 +309,10 @@ onDestroy(() => {
 	data-drawer-swipe-ignore
 >
 	{#if syncError || editor.saveError}
-		<div class="flex shrink-0 items-center gap-2 border-b border-error-soft/20 bg-error-bg px-3 py-1.5 text-[11px] text-error-soft">
+		<div
+			class="canvas-sync-notice flex shrink-0 items-center gap-2 border-b border-error-soft/20 bg-error-bg px-3 py-1.5 text-[11px] text-error-soft"
+			class:canvas-sync-notice--immersive={immersive}
+		>
 			<span class="min-w-0 flex-1 truncate">Sync paused</span>
 			<button type="button" class="action-btn" onclick={retrySync}>Retry</button>
 		</div>
@@ -334,8 +337,8 @@ onDestroy(() => {
 		<CanvasTextEditor {editor} />
 		<CanvasVideoPlayer {editor} {spaceId} />
 		<CanvasSelectionToolbar {editor} />
-		<CanvasFloatingToolbar {editor} />
-		<CanvasZoomMenu {editor} />
+		<CanvasFloatingToolbar {editor} {immersive} />
+		<CanvasZoomMenu {editor} {immersive} />
 
 		{#if contextMenu}
 			<CanvasContextMenu
@@ -350,5 +353,16 @@ onDestroy(() => {
 <style>
 	.canvas-panel--immersive {
 		position: relative;
+	}
+
+	.canvas-sync-notice--immersive {
+		position: absolute;
+		top: 58px;
+		right: var(--preview-safe-right, 10px);
+		z-index: 30;
+		max-width: min(420px, calc(100% - var(--preview-safe-left, 10px) - var(--preview-safe-right, 10px)));
+		border: 1px solid var(--error-soft);
+		border-radius: 7px;
+		box-shadow: 0 8px 20px color-mix(in srgb, var(--overlay-scrim-strong) 12%, transparent);
 	}
 </style>

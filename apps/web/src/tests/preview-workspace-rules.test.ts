@@ -37,12 +37,22 @@ test("preview kinds share one workspace pane", () => {
 		"CanvasPreviewPanel.svelte",
 		"PortPreviewPanel.svelte",
 	].map((file) => readFileSync(new URL(file, modules), "utf8"));
+	const portPreview = readFileSync(
+		new URL("../lib/components/PortPreview.svelte", import.meta.url),
+		"utf8",
+	);
 
 	assert.equal(domain.match(/<WorkspacePreviewPane\b/g)?.length, 1);
+	assert.equal(domain.match(/<PreviewTabs\b/g)?.length, 1);
 	for (const panel of panels) {
 		assert.doesNotMatch(panel, /WorkspacePreviewPane/);
+		assert.doesNotMatch(panel, /<PreviewTabs\b/);
+		assert.doesNotMatch(panel, /PreviewExpandMenu/);
 		assert.match(panel, /MobilePreviewTabsChrome/);
 	}
+	assert.match(panels[0], /PreviewFloatChrome/);
+	assert.match(panels[1], /PreviewFloatChrome/);
+	assert.match(portPreview, /PreviewFloatChrome/);
 	assert.doesNotMatch(panels[0], /lg:hidden fixed inset-0 z-50/);
 
 	const mobileChrome = panels[0].slice(

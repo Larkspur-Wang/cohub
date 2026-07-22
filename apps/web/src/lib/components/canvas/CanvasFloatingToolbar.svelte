@@ -17,7 +17,10 @@ import { CANVAS_COLORS, canvasColorCssVar } from "$lib/canvas/core/palette";
 import { GEO_KINDS } from "$lib/canvas/core/shape-types";
 import type { CanvasEditor, CanvasToolId } from "$lib/canvas/editor.svelte";
 
-const { editor }: { editor: CanvasEditor } = $props();
+const {
+	editor,
+	immersive = false,
+}: { editor: CanvasEditor; immersive?: boolean } = $props();
 
 let lockTimer: ReturnType<typeof setTimeout> | null = null;
 let moreOpen = $state(false);
@@ -124,7 +127,7 @@ function toolTitle(tool: ToolDef) {
 }
 </script>
 
-<div class="canvas-toolbar-wrap">
+<div class="canvas-toolbar-wrap" class:canvas-toolbar-wrap--immersive={immersive}>
 	{#if showPalette}
 		<div class="canvas-style-row" role="toolbar" aria-label="Shape style">
 			{#each CANVAS_COLORS as color (color.id)}
@@ -278,6 +281,12 @@ function toolTitle(tool: ToolDef) {
 		align-items: center;
 		gap: 6px;
 		transform: translateX(-50%);
+	}
+
+	.canvas-toolbar-wrap--immersive {
+		left: var(--preview-safe-left, 10px);
+		right: var(--preview-safe-right, 10px);
+		transform: none;
 	}
 
 	.canvas-style-row {

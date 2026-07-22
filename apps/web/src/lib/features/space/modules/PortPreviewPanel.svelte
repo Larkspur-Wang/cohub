@@ -1,9 +1,7 @@
 <script lang="ts">
 import type { SpacePortStatus } from "@cohub/protocol/ports";
 import PortPreview from "$lib/components/PortPreview.svelte";
-import PreviewExpandMenu from "$lib/components/PreviewExpandMenu.svelte";
 import MobilePreviewTabsChrome from "./MobilePreviewTabsChrome.svelte";
-import PreviewTabs from "./PreviewTabs.svelte";
 
 import type { PreviewTab } from "./preview-tabs";
 
@@ -13,12 +11,12 @@ type Props = {
 	url: string;
 	status: SpacePortStatus | "unknown";
 	observedAt?: number;
-	focused: boolean;
 	immersive: boolean;
+	immersiveChatVisible: boolean;
 	isMobile: boolean;
 	treeVisible?: boolean;
-	onToggleTree?: () => void;
-	onToggleFocus: () => void | Promise<void>;
+	onToggleTree?: () => void | Promise<void>;
+	onToggleImmersiveChat: () => void;
 	onToggleImmersive: () => void | Promise<void>;
 	onPublish: () => void;
 	onActivatePreviewTab: (kind: PreviewTab["kind"], key: string) => void;
@@ -31,12 +29,12 @@ let {
 	url,
 	status,
 	observedAt,
-	focused,
 	immersive,
+	immersiveChatVisible,
 	isMobile,
 	treeVisible = true,
 	onToggleTree,
-	onToggleFocus,
+	onToggleImmersiveChat,
 	onToggleImmersive,
 	onPublish,
 	onActivatePreviewTab,
@@ -51,24 +49,6 @@ let {
 			onActivate={onActivatePreviewTab}
 			onClose={onClosePreviewTab}
 		/>
-	{:else}
-		<PreviewTabs
-			tabs={previewTabs}
-			onActivate={onActivatePreviewTab}
-			onClose={onClosePreviewTab}
-			treeVisible={treeVisible}
-			onToggleTree={immersive ? undefined : onToggleTree}
-		>
-			{#snippet trailing()}
-				<PreviewExpandMenu
-					{focused}
-					{immersive}
-					size="sm"
-					{onToggleFocus}
-					{onToggleImmersive}
-				/>
-			{/snippet}
-		</PreviewTabs>
 	{/if}
 	<div class="min-h-0 flex-1">
 		<PortPreview
@@ -77,6 +57,14 @@ let {
 			{status}
 			{observedAt}
 			{immersive}
+			previewTabs={previewTabs}
+			chatVisible={immersiveChatVisible}
+			filesVisible={treeVisible}
+			onActivatePreview={onActivatePreviewTab}
+			onClosePreview={onClosePreviewTab}
+			onToggleChat={onToggleImmersiveChat}
+			onToggleFiles={onToggleTree}
+			onExitFloat={onToggleImmersive}
 			onPublish={onPublish}
 		/>
 	</div>

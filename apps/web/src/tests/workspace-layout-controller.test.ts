@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import {
+	floatPanelsFit,
+	nextTreeSnapshot,
+} from "../lib/features/space/modules/float-layout.ts";
 
 /**
  * Pure presentation rules for layout snapshot behavior and Files chrome
@@ -101,6 +105,33 @@ test("preview drag paints CSS live width and commits once on release", () => {
 	// pointerup commits once
 	previewWidth = paintedWidth;
 	assert.equal(previewWidth, 540);
+});
+
+test("float panels coexist only when the preview corridor stays usable", () => {
+	// Production values: chatMinWidth=320 (IMMERSIVE_CHAT_MIN), filesWidth varies.
+	assert.equal(floatPanelsFit(960, 260, 320), false);
+	assert.equal(floatPanelsFit(1024, 260, 320), true);
+	assert.equal(floatPanelsFit(1440, 520, 320), true);
+});
+
+test("auto tree collapse does not pollute the layout snapshot", () => {
+	// Enter Float with files tree open: snapshot captures treeVisible=true.
+	const snapshot = {
+		leftSidebarCollapsed: true,
+		rightSidebarCollapsed: false,
+		filesColumnHidden: false,
+		previewWidth: 480,
+		treeVisible: true,
+	};
+
+	// Auto-collapse (persist=false) must leave snapshot untouched.
+	const autoResult = nextTreeSnapshot(snapshot, true, false);
+	assert.deepEqual(autoResult, snapshot);
+
+	// User toggle (persist=true) updates the snapshot.
+	const userResult = nextTreeSnapshot(snapshot, true, true);
+	assert.equal(userResult?.rightSidebarCollapsed, true);
+	assert.equal(userResult?.treeVisible, false);
 });
 
 /**

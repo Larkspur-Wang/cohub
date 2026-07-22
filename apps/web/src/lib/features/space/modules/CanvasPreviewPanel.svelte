@@ -1,10 +1,9 @@
 <script lang="ts">
 import type { CanvasSemanticOp } from "@neta-art/cohub";
 import type { CovasDocument } from "$lib/canvas/canvas-schema";
-import PreviewExpandMenu from "$lib/components/PreviewExpandMenu.svelte";
 import { createLazyModuleLoader } from "$lib/lazy-module";
 import MobilePreviewTabsChrome from "./MobilePreviewTabsChrome.svelte";
-import PreviewTabs from "./PreviewTabs.svelte";
+import PreviewFloatChrome from "./PreviewFloatChrome.svelte";
 import type { PreviewTab } from "./preview-tabs";
 
 type InlineCanvasPanelState = {
@@ -21,12 +20,12 @@ type Props = {
 	canvas: InlineCanvasPanelState;
 	previewTabs: PreviewTab[];
 	spaceId: string;
-	focused: boolean;
 	immersive: boolean;
+	immersiveChatVisible: boolean;
 	isMobile: boolean;
 	treeVisible?: boolean;
-	onToggleTree?: () => void;
-	onToggleFocus: () => void | Promise<void>;
+	onToggleTree?: () => void | Promise<void>;
+	onToggleImmersiveChat: () => void;
 	onToggleImmersive: () => void | Promise<void>;
 	onCommit: (
 		document: CovasDocument,
@@ -52,12 +51,12 @@ let {
 	canvas,
 	previewTabs,
 	spaceId,
-	focused,
 	immersive,
+	immersiveChatVisible,
 	isMobile,
 	treeVisible = true,
 	onToggleTree,
-	onToggleFocus,
+	onToggleImmersiveChat,
 	onToggleImmersive,
 	onCommit,
 	onRetrySave,
@@ -76,18 +75,6 @@ const canvasPanelModulePromise = $derived.by(() => {
 });
 </script>
 
-{#snippet ExpandActions()}
-	{#if !isMobile}
-		<PreviewExpandMenu
-			{focused}
-			{immersive}
-			size="sm"
-			{onToggleFocus}
-			{onToggleImmersive}
-		/>
-	{/if}
-{/snippet}
-
 {#snippet TabsChrome()}
 	{#if isMobile}
 		<MobilePreviewTabsChrome
@@ -95,18 +82,17 @@ const canvasPanelModulePromise = $derived.by(() => {
 			onActivate={onActivatePreviewTab}
 			onClose={onClosePreviewTab}
 		/>
-	{:else}
-		<PreviewTabs
+	{:else if immersive}
+		<PreviewFloatChrome
 			tabs={previewTabs}
+			chatVisible={immersiveChatVisible}
+			filesVisible={treeVisible}
 			onActivate={onActivatePreviewTab}
 			onClose={onClosePreviewTab}
-			treeVisible={treeVisible}
-			onToggleTree={immersive ? undefined : onToggleTree}
-		>
-			{#snippet trailing()}
-				{@render ExpandActions()}
-			{/snippet}
-		</PreviewTabs>
+			onToggleChat={onToggleImmersiveChat}
+			onToggleFiles={onToggleTree}
+			onExit={onToggleImmersive}
+		/>
 	{/if}
 {/snippet}
 
