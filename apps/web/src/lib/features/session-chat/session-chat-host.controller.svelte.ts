@@ -47,7 +47,10 @@ import {
 	isInlineMediaUrl,
 } from "$lib/generation-task-media";
 import { extractSpaceMentionsFromText } from "$lib/mentions/space";
-import type { ModelThinkingLevel } from "$lib/model-catalog";
+import {
+	formatThinkingLevelShort,
+	type ModelThinkingLevel,
+} from "$lib/model-catalog";
 import {
 	uploadChatAttachmentFile,
 	uploadChatAttachmentImage,
@@ -4155,8 +4158,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		},
 		get activeSessionThinkingLevelLabel() {
 			if (!activeSessionThinkingLevel) return null;
-			const level = activeSessionThinkingLevel;
-			return level.charAt(0).toUpperCase() + level.slice(1);
+			return formatThinkingLevelShort(activeSessionThinkingLevel);
 		},
 		get generationPolicyLabel() {
 			return generationPolicyLabel;

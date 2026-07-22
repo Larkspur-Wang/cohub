@@ -190,9 +190,13 @@ const modelControlTitle = $derived(
 		.join(" · "),
 );
 const modelControlAriaLabel = $derived(
-	generationPolicyLabel
-		? `Model ${modelControlLabel}, generation ${generationPolicyLabel}`
-		: `Model ${modelControlLabel}`,
+	[
+		`Model ${modelControlLabel}`,
+		thinkingLevelLabel ? `thinking ${thinkingLevelLabel}` : null,
+		generationPolicyLabel ? `generation ${generationPolicyLabel}` : null,
+	]
+		.filter(Boolean)
+		.join(", "),
 );
 
 function isComposerImageAttachment(
@@ -1381,26 +1385,26 @@ $effect(() => {
 									title={modelControlTitle}
 									aria-label={modelControlAriaLabel}
 								>
-									<span class="min-w-0 shrink truncate">
+									<span class="min-w-0 shrink truncate text-text-tertiary group-hover:text-text-secondary">
 										{modelControlLabel}
 									</span>
 									{#if thinkingLevelLabel}
 										<span
-											class="flex min-w-0 max-w-[5rem] shrink-[2] items-center gap-0.5 text-text-placeholder transition-colors group-hover:text-text-tertiary"
+											class="flex min-w-0 max-w-[4.25rem] shrink-[3] items-center gap-0.5 text-[10px] leading-none text-text-placeholder/80 transition-colors group-hover:text-text-placeholder"
 											aria-hidden="true"
 										>
-											<span class="shrink-0 opacity-50">·</span>
-											<span class="min-w-0 truncate tabular-nums">
+											<span class="shrink-0 opacity-40">·</span>
+											<span class="min-w-0 truncate tracking-tight tabular-nums">
 												{thinkingLevelLabel}
 											</span>
 										</span>
 									{/if}
 									{#if generationPolicyLabel}
 										<span
-											class="flex min-w-0 max-w-[6.5rem] shrink-[3] items-center gap-1 text-text-placeholder transition-colors group-hover:text-text-tertiary"
+											class="flex min-w-0 max-w-[6.5rem] shrink-[4] items-center gap-0.5 text-[10px] leading-none text-text-placeholder/80 transition-colors group-hover:text-text-placeholder"
 											aria-hidden="true"
 										>
-											<span class="shrink-0 opacity-50">·</span>
+											<span class="shrink-0 opacity-40">·</span>
 											<span class="min-w-0 truncate tracking-tight tabular-nums">
 												{generationPolicyLabel}
 											</span>

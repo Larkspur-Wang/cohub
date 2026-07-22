@@ -13,6 +13,40 @@ export type ModelThinkingLevel =
 	| "xhigh"
 	| "max";
 
+/** Compact labels for dense controls (composer, chips). */
+export function formatThinkingLevelShort(level: ModelThinkingLevel): string {
+	switch (level) {
+		case "minimal":
+			return "Min";
+		case "medium":
+			return "Med";
+		case "xhigh":
+			return "xHigh";
+		default:
+			return level.charAt(0).toUpperCase() + level.slice(1);
+	}
+}
+
+/** Full labels for menus, titles, and aria. */
+export function formatThinkingLevelFull(level: ModelThinkingLevel): string {
+	switch (level) {
+		case "off":
+			return "Off";
+		case "minimal":
+			return "Minimal";
+		case "low":
+			return "Low";
+		case "medium":
+			return "Medium";
+		case "high":
+			return "High";
+		case "xhigh":
+			return "Extra high";
+		case "max":
+			return "Max";
+	}
+}
+
 const ALL_THINKING_LEVELS: ModelThinkingLevel[] = [
 	"off",
 	"minimal",
