@@ -654,6 +654,26 @@ $effect(() => {
 	void previewLayout.syncFromPrefs(currentSpaceId);
 });
 
+// Re-fit the preview once the reserved geometry settles. On first paint the
+// preview may be sized while the space is still loading (tree reserves 0) or
+// before the tree reveals; when Files then claims its column the Main/chat
+// panel could be squeezed below its minimum. Clamp again whenever preview
+// presence, files availability, tree collapse, or tree width changes.
+$effect(() => {
+	if (isMobile) return;
+	const hasPreview = Boolean(activePreviewKind);
+	if (!hasPreview) return;
+	// Track the inputs that feed getMaxPreviewWidth / tree reservation.
+	void rightSidebarAvailable;
+	void uiState.rightSidebarCollapsed;
+	void uiState.rightSidebarWidth;
+	void previewImmersiveMode;
+	untrack(() => {
+		if (previewImmersiveMode) return;
+		void tick().then(() => previewLayout.ensurePreviewFits());
+	});
+});
+
 // Apply the space's configured default layout as a fallback — only on a fresh
 // entry (no local layout prefs for this space yet) and never overriding an
 // explicit `?preview=` in the URL. Runs once per space via uiState guard.
