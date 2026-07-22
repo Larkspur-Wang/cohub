@@ -4153,6 +4153,11 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		get activeSessionThinkingLevel() {
 			return activeSessionThinkingLevel;
 		},
+		get activeSessionThinkingLevelLabel() {
+			if (!activeSessionThinkingLevel) return null;
+			const level = activeSessionThinkingLevel;
+			return level.charAt(0).toUpperCase() + level.slice(1);
+		},
 		get generationPolicyLabel() {
 			return generationPolicyLabel;
 		},

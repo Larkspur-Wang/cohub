@@ -99,6 +99,11 @@ let expandedGenerationParameters = $state<Set<string>>(new Set());
 let containerEl = $state<HTMLElement | null>(null);
 let searchInputEl = $state<HTMLInputElement | null>(null);
 let thinkingMenuOpenFor = $state<string | null>(null);
+let thinkingMenuEl = $state<HTMLElement | null>(null);
+
+function closeThinkingMenu() {
+	thinkingMenuOpenFor = null;
+}
 
 function getVisibleSearchInput() {
 	if (searchInputEl && searchInputEl.getClientRects().length > 0) {
@@ -709,19 +714,27 @@ const selectedGenerationCount = $derived(selectedGenerationModels.size);
 							<div class="relative mt-1">
 								<button
 									type="button"
-									class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-text-tertiary transition-colors hover:bg-bg-surface hover:text-text-secondary"
+									class="inline-flex min-h-[28px] items-center gap-1 rounded px-2 py-1 text-[11px] text-text-tertiary transition-colors hover:bg-bg-surface hover:text-text-secondary"
 									onclick={(e) => toggleThinkingMenu(item, e)}
 								>
-									<Brain class="h-3 w-3" />
+									<Brain class="h-3.5 w-3.5" />
 									<span>{formatLevel(candidateThinkingLevel(item))}</span>
-									<ChevronDown class="h-2.5 w-2.5 opacity-50" />
+									<ChevronDown class="h-3 w-3 opacity-50" />
 								</button>
 								{#if thinkingMenuOpenFor === tMenuKey}
-									<div class="absolute left-0 top-full z-10 mt-0.5 min-w-[120px] rounded-md border border-border-subtle bg-bg-surface py-0.5 shadow-lg">
+									<!-- Click-outside overlay -->
+									<button
+										type="button"
+										class="fixed inset-0 z-[5] cursor-default"
+										aria-hidden="true"
+										tabindex="-1"
+										onclick={(e) => { e.stopPropagation(); closeThinkingMenu(); }}
+									></button>
+									<div class="relative z-[6] mt-0.5 rounded-md border border-border-subtle bg-bg-surface py-0.5 shadow-lg" bind:this={thinkingMenuEl}>
 										{#each tLevels as level (level)}
 											<button
 												type="button"
-												class="flex w-full items-center justify-between gap-2 px-2.5 py-1 text-left text-[11px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary"
+												class="flex w-full min-h-[36px] items-center justify-between gap-2 px-3 py-1.5 text-left text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary"
 												onclick={(e) => { e.stopPropagation(); selectThinkingLevel(item, level); }}
 											>
 												<span>{formatLevel(level)}</span>

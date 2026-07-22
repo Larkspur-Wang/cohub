@@ -74,6 +74,8 @@ type Props = {
 	attachments?: ComposerAttachment[];
 	viewportContexts?: ViewportContext[];
 	currentModel?: SelectedModel | null;
+	/** Compact thinking level suffix; null/empty hides. */
+	thinkingLevelLabel?: string | null;
 	/** Compact generation-policy suffix; null/empty hides (Auto). */
 	generationPolicyLabel?: string | null;
 	promptTemplates?: PromptTemplateCatalogEntry[];
@@ -104,6 +106,7 @@ let {
 	attachments = [],
 	viewportContexts = [],
 	currentModel = null,
+	thinkingLevelLabel = null,
 	generationPolicyLabel = null,
 	promptTemplates = [],
 	promptTemplatesLoaded = true,
@@ -178,9 +181,13 @@ const modelControlLabel = $derived(
 	currentModel?.name ?? currentModel?.id ?? "Model",
 );
 const modelControlTitle = $derived(
-	generationPolicyLabel
-		? `Select model · Generation: ${generationPolicyLabel}`
-		: "Select model",
+	[
+		"Select model",
+		thinkingLevelLabel ? `Thinking: ${thinkingLevelLabel}` : null,
+		generationPolicyLabel ? `Generation: ${generationPolicyLabel}` : null,
+	]
+		.filter(Boolean)
+		.join(" · "),
 );
 const modelControlAriaLabel = $derived(
 	generationPolicyLabel
@@ -1377,6 +1384,17 @@ $effect(() => {
 									<span class="min-w-0 shrink truncate">
 										{modelControlLabel}
 									</span>
+									{#if thinkingLevelLabel}
+										<span
+											class="flex min-w-0 max-w-[5rem] shrink-[2] items-center gap-0.5 text-text-placeholder transition-colors group-hover:text-text-tertiary"
+											aria-hidden="true"
+										>
+											<span class="shrink-0 opacity-50">·</span>
+											<span class="min-w-0 truncate tabular-nums">
+												{thinkingLevelLabel}
+											</span>
+										</span>
+									{/if}
 									{#if generationPolicyLabel}
 										<span
 											class="flex min-w-0 max-w-[6.5rem] shrink-[3] items-center gap-1 text-text-placeholder transition-colors group-hover:text-text-tertiary"

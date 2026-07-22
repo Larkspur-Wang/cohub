@@ -379,6 +379,7 @@ async function handleDraftDrop(event: DragEvent) {
 					attachments={host.attachments}
 					viewportContexts={host.viewportContexts}
 					currentModel={host.activeSessionModel}
+					thinkingLevelLabel={host.activeSessionThinkingLevelLabel}
 					generationPolicyLabel={host.generationPolicyLabel}
 					currentSpaceId={host.spaceId}
 					mobileAutoFocusOnMount={isNewSessionRoute && !activeSessionId}
