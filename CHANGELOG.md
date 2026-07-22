@@ -4,6 +4,13 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v1.107 — 2026-07-22
+
+- **Canvas Media Renderer**: Native image and video node types with aspect-preserving frames, natural sizing, optimized asset caching, and media-first geometry for seamless multi-device collaboration.
+- **Schema Refactor**: Forward-compatible canvas schema with media snapshots, lossless unknown item handling, refined zoom viewport (0.05-8x), and updated geometry utilities.
+- **Color Engine & SVG Export**: Production-ready CSS color resolver supporting oklch/HEX/RGB with theme vars, plus enhanced SVG export for all shapes including transparent media.
+- **Editor Performance & Interaction**: Svelte canvas editor polish with continuous creation tools, snapping, drag/resize refinements, and zero layout thrashing for buttery UX.
+
 ## v1.106 — 2026-07-22
 
 - **tldraw-inspired infinite canvas**: Rebuild `.covas` around a renderer-independent shape core and editor model (select/hand/text/note/geo/draw/arrow/eraser/frame) with branded coordinates, serial commit queue, multi-tab realtime sync, txId idempotency, and 409 rebase recovery that never drops local work.

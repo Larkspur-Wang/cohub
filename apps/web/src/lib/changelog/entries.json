@@ -1,5 +1,16 @@
 [
 	{
+		"version": "1.107",
+		"date": "2026-07-22",
+		"tags": ["v1.107.0"],
+		"highlights": [
+			"**Canvas Media Renderer**: Native image and video node types with aspect-preserving frames, natural sizing, optimized asset caching, and media-first geometry for seamless multi-device collaboration.",
+			"**Schema Refactor**: Forward-compatible canvas schema with media snapshots, lossless unknown item handling, refined zoom viewport (0.05-8x), and updated geometry utilities.",
+			"**Color Engine & SVG Export**: Production-ready CSS color resolver supporting oklch/HEX/RGB with theme vars, plus enhanced SVG export for all shapes including transparent media.",
+			"**Editor Performance & Interaction**: Svelte canvas editor polish with continuous creation tools, snapping, drag/resize refinements, and zero layout thrashing for buttery UX."
+		]
+	},
+	{
 		"version": "1.106",
 		"date": "2026-07-22",
 		"tags": ["v1.106.0"],
