@@ -87,3 +87,30 @@ test("first open pushes history; later open replaces", () => {
 	open("b.md");
 	assert.deepEqual(historyMode, ["push", "replace"]);
 });
+
+test("route hydration is idempotent for current active preview", () => {
+	let openCalls = 0;
+	let activeKind: "file" | "canvas" | "port" | null = "file";
+	const currentRef = () =>
+		activeKind ? ({ kind: activeKind, key: "a.md" } as const) : null;
+
+	const hydrateFromRoute = (ref: { kind: "file"; key: string } | null) => {
+		if (!ref) {
+			activeKind = null;
+			return;
+		}
+		const current = currentRef();
+		if (current && current.kind === ref.kind && current.key === ref.key) {
+			activeKind = ref.kind;
+			return;
+		}
+		openCalls += 1;
+		activeKind = ref.kind;
+	};
+
+	hydrateFromRoute({ kind: "file", key: "a.md" });
+	assert.equal(openCalls, 0);
+
+	hydrateFromRoute({ kind: "file", key: "b.md" });
+	assert.equal(openCalls, 1);
+});

@@ -271,6 +271,7 @@ export function createPreviewWorkspaceController(
 
 	function closeAll(opts: { syncUrl?: boolean } = {}) {
 		const syncUrl = opts.syncUrl ?? true;
+		activeKind = null;
 		for (const tab of [...options.getFileTabs()]) {
 			options.closeFile(tab.path, true);
 		}
@@ -280,7 +281,6 @@ export function createPreviewWorkspaceController(
 		for (const tab of [...options.getPortTabs()]) {
 			options.closePort(tab.port);
 		}
-		activeKind = null;
 		if (syncUrl) options.syncUrl(null, true);
 	}
 
@@ -296,6 +296,12 @@ export function createPreviewWorkspaceController(
 	function hydrateFromRoute(ref: WorkspacePreviewRef | null) {
 		if (!ref) {
 			closeAll({ syncUrl: false });
+			return { ok: true as const };
+		}
+		const current = currentRef();
+		if (current && current.kind === ref.kind && current.key === ref.key) {
+			activeKind = ref.kind;
+			touch(ref.kind, ref.key);
 			return { ok: true as const };
 		}
 		if (ref.kind === "file") {

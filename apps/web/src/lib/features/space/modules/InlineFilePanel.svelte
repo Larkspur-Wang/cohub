@@ -206,12 +206,17 @@ let imageMarkOpen = $state(false);
 let htmlMarkOpen = $state(false);
 let htmlMarkTarget: PreviewCaptureTarget | null = $state(null);
 
+const activeFilePath = $derived(inlineFile?.path ?? "");
+const activeResponsePath = $derived(
+	inlineFile?.response?.path ?? activeFilePath,
+);
+
 const imageMarkTarget = $derived.by((): PreviewCaptureTarget | null => {
-	if (!inlineFileIsImage || !inlineFileDataUrl || !inlineFile.path) return null;
+	if (!inlineFileIsImage || !inlineFileDataUrl || !activeFilePath) return null;
 	return {
 		kind: "image",
 		src: inlineFileDataUrl,
-		path: inlineFile.path,
+		path: activeFilePath,
 	};
 });
 const showHtmlMark = $derived(
@@ -223,18 +228,21 @@ const showHtmlMark = $derived(
 // Soft-fail: keep content surface when we still have something usable.
 // Empty text files (content === "") are still editable when open succeeded.
 const hasUsableText = $derived(
-	inlineFileIsText &&
-		Boolean(inlineFile.response) &&
-		(!inlineFile.error ||
-			Boolean(inlineFile.response?.content) ||
-			Boolean(inlineFile.draft)),
+	Boolean(
+		inlineFile &&
+			inlineFileIsText &&
+			inlineFile.response &&
+			(!inlineFile.error ||
+				Boolean(inlineFile.response?.content) ||
+				Boolean(inlineFile.draft)),
+	),
 );
 const hasUsableMedia = $derived(
 	Boolean((inlineFileIsImage || inlineFileIsVideo) && inlineFileDataUrl),
 );
 const showExclusiveFallback = $derived(
 	Boolean(
-		inlineFile.error &&
+		inlineFile?.error &&
 			!inlineFile.loading &&
 			!hasUsableText &&
 			!hasUsableMedia &&
@@ -360,7 +368,7 @@ $effect(() => {
 {/snippet}
 
 {#snippet SoftFailBanner()}
-	{#if inlineFile.error && (hasUsableText || hasUsableMedia)}
+	{#if inlineFile?.error && (hasUsableText || hasUsableMedia)}
 		<div class="flex shrink-0 items-center gap-2 border-b border-error-soft/20 bg-error-bg px-3 py-1.5 text-[11px] text-error-soft">
 			<span class="min-w-0 flex-1 truncate">{inlineFile.error}</span>
 			{#if onRetryInlineFile}
@@ -375,7 +383,7 @@ $effect(() => {
 {/snippet}
 
 {#snippet SyncIssueBanner()}
-	{#if inlineFile.saveError}
+	{#if inlineFile?.saveError}
 		<div class="flex shrink-0 items-center gap-2 border-b border-error-soft/20 bg-error-bg px-3 py-1.5 text-[11px] text-error-soft">
 			<span class="min-w-0 flex-1 truncate">{inlineFile.saveError}</span>
 			{#if inlineFile.syncStatus === "conflict"}
@@ -389,7 +397,7 @@ $effect(() => {
 {/snippet}
 
 {#snippet MarkdownFilePreview()}
-	{#if inlineFile.response}
+	{#if inlineFile?.response}
 		<MarkdownView
 			source={inlineFile.draft}
 			variant="document"
@@ -400,7 +408,7 @@ $effect(() => {
 {/snippet}
 
 {#snippet HtmlFilePreview()}
-	{#if inlineFile.response}
+	{#if inlineFile?.response}
 		{#await htmlPreviewModulePromise then previewModule}
 			{@const LazyRenderedFilePreview = previewModule.default}
 			<LazyRenderedFilePreview
@@ -442,7 +450,7 @@ $effect(() => {
 		{:else}
 			{@render HtmlFilePreview()}
 		{/if}
-	{:else}
+	{:else if inlineFile}
 		{#await codeEditorModulePromise then editorModule}
 			{@const LazyCodeEditor = editorModule.default}
 			{@const editorPath = inlineFile.path}
@@ -482,12 +490,12 @@ $effect(() => {
 							<ArrowLeft class="h-4 w-4" />
 						</button>
 					{/if}
-					{@render FileHeaderCoreActions(inlineFile.path)}
+					{@render FileHeaderCoreActions(activeFilePath)}
 				{/snippet}
 			</MobilePreviewTabsChrome>
-      {#if inlineFile.loading}
+      {#if inlineFile?.loading}
         <CenteredLoading label="Loading file…" size="panel" />
-      {:else if inlineFile.tooLarge}
+      {:else if inlineFile?.tooLarge}
         {@render FileOpenFallback({
           title: "File too large to preview",
           detail: "This file exceeds 10MB and cannot be opened in the web editor.",
@@ -497,10 +505,10 @@ $effect(() => {
       {:else if showExclusiveFallback}
         {@render FileOpenFallback({
           title: "Couldn't open file",
-          detail: inlineFile.error ?? "Failed to open file",
+          detail: inlineFile?.error ?? "Failed to open file",
           variant: "error",
         })}
-      {:else if inlineFile.response}
+      {:else if inlineFile?.response}
         {@render SoftFailBanner()}
         {@render SyncIssueBanner()}
         {#if hasUsableText}
@@ -569,19 +577,19 @@ $effect(() => {
             {@render PreviewFocusButton()}
           {/snippet}
         </PreviewTabs>
-        {#if inlineFile.loading}
+        {#if inlineFile?.loading}
           <div class="preview-chrome flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
-            <span class="preview-chrome-path flex-1 truncate text-xs text-text-secondary">{inlineFile.path}</span>
-            {@render FileHeaderCoreActions(inlineFile.path)}
+            <span class="preview-chrome-path flex-1 truncate text-xs text-text-secondary">{activeFilePath}</span>
+            {@render FileHeaderCoreActions(activeFilePath)}
             <button type="button" class="icon-btn" onclick={onCloseInlineFile} title="Close file">
               <X class="w-4 h-4" />
             </button>
           </div>
           <CenteredLoading label="Loading file…" size="panel" />
-        {:else if inlineFile.tooLarge}
+        {:else if inlineFile?.tooLarge}
           <div class="preview-chrome flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
-            <span class="preview-chrome-path flex-1 truncate text-xs text-text-secondary">{inlineFile.path}</span>
-            {@render FileHeaderCoreActions(inlineFile.path)}
+            <span class="preview-chrome-path flex-1 truncate text-xs text-text-secondary">{activeFilePath}</span>
+            {@render FileHeaderCoreActions(activeFilePath)}
             <button type="button" class="icon-btn" onclick={onCloseInlineFile} title="Close file">
               <X class="w-4 h-4" />
             </button>
@@ -594,18 +602,18 @@ $effect(() => {
           })}
         {:else if showExclusiveFallback}
           <div class="preview-chrome flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
-            <span class="preview-chrome-path flex-1 truncate text-xs text-text-secondary">{inlineFile.path}</span>
-            {@render FileHeaderCoreActions(inlineFile.path)}
+            <span class="preview-chrome-path flex-1 truncate text-xs text-text-secondary">{activeFilePath}</span>
+            {@render FileHeaderCoreActions(activeFilePath)}
             <button type="button" class="icon-btn" onclick={onCloseInlineFile} title="Close file">
               <X class="w-4 h-4" />
             </button>
           </div>
           {@render FileOpenFallback({
             title: "Couldn't open file",
-            detail: inlineFile.error ?? "Failed to open file",
+            detail: inlineFile?.error ?? "Failed to open file",
             variant: "error",
           })}
-        {:else if inlineFile.response}
+        {:else if inlineFile?.response}
           {@render SoftFailBanner()}
           {@render SyncIssueBanner()}
           {#if hasUsableText}
@@ -616,9 +624,9 @@ $effect(() => {
                 </button>
               {/if}
               <div class="preview-chrome-path min-w-0 flex-1 truncate text-xs sm:text-sm text-text-secondary">
-                {inlineFile.response.path}
+                {activeResponsePath}
               </div>
-              {@render FileHeaderCoreActions(inlineFile.response.path)}
+              {@render FileHeaderCoreActions(activeResponsePath)}
               {#if inlineFileIsHtml && inlineFileViewMode === "preview"}
                 <button type="button" class="action-btn" onclick={onPublishInlineFile} title="Publish work">
                   <Rocket class="w-3.5 h-3.5 shrink-0" />
@@ -687,10 +695,10 @@ $effect(() => {
             <div class="relative flex min-h-0 flex-1 flex-col">
               <div class="preview-chrome flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
                 <div class="preview-chrome-path min-w-0 flex-1 truncate text-xs sm:text-sm text-text-secondary">
-                  {inlineFile.response.path}
+                  {activeResponsePath}
                 </div>
                 <div class="text-xs text-text-tertiary hidden sm:inline">{formatFileSize(inlineFile.response.size)}</div>
-                {@render FileHeaderCoreActions(inlineFile.response.path)}
+                {@render FileHeaderCoreActions(activeResponsePath)}
                 {#if imageMarkTarget}
                   <PreviewMarkHost bind:open={imageMarkOpen} target={imageMarkTarget} />
                 {/if}
@@ -720,10 +728,10 @@ $effect(() => {
           {:else if inlineFileIsVideo && inlineFileDataUrl}
             <div class="preview-chrome flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
               <div class="preview-chrome-path min-w-0 flex-1 truncate text-xs sm:text-sm text-text-secondary">
-                {inlineFile.response.path}
+                {activeResponsePath}
               </div>
               <div class="text-xs text-text-tertiary hidden sm:inline">{formatFileSize(inlineFile.response.size)}</div>
-              {@render FileHeaderCoreActions(inlineFile.response.path)}
+              {@render FileHeaderCoreActions(activeResponsePath)}
               <button type="button" class="icon-btn" onclick={onCloseInlineFile} title="Close file">
                 <X class="w-4 h-4" />
               </button>
@@ -736,10 +744,10 @@ $effect(() => {
           {:else}
             <div class="preview-chrome flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
               <div class="preview-chrome-path min-w-0 flex-1 truncate text-xs sm:text-sm text-text-secondary">
-                {inlineFile.response.path}
+                {activeResponsePath}
               </div>
-              <div class="text-xs text-text-tertiary hidden sm:inline">{formatFileSize(inlineFile.response.size)}</div>
-              {@render FileHeaderCoreActions(inlineFile.response.path)}
+              <div class="text-xs text-text-tertiary hidden sm:inline">{formatFileSize(inlineFile?.response ? inlineFile.response.size : 0)}</div>
+              {@render FileHeaderCoreActions(activeResponsePath)}
               <button type="button" class="icon-btn" onclick={onCloseInlineFile} title="Close file">
                 <X class="w-4 h-4" />
               </button>
