@@ -462,7 +462,9 @@ function closePreviewTab(kind: "file" | "canvas" | "port", key: string) {
 		? "Files are not available for this shared session."
 		: fileTreeError}
 	subtitle={activeFsSidebarSubtitle}
-	activePort={spaceHasMinimalAccess ? null : (inlinePortPreview?.port ?? null)}
+	activePort={spaceHasMinimalAccess || activePreviewKind !== "port"
+		? null
+		: activeInlinePort}
 	canWrite={!spaceHasMinimalAccess && canEditFiles && !activeFsReadonly}
 	showItemActions={!spaceHasMinimalAccess && !activeFsReadonly}
 	draggable={!spaceHasMinimalAccess}

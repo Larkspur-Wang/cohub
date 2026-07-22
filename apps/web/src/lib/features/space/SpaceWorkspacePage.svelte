@@ -94,6 +94,7 @@ import NewChatSpaceProfile from "./modules/NewChatSpaceProfile.svelte";
 import PortReadyToastView from "./modules/PortReadyToast.svelte";
 import { createPortPreviewController } from "./modules/port-preview-controller.svelte";
 import { extractPublicEndpoints } from "./modules/port-preview-utils";
+import { activePreviewFilePath } from "./modules/preview-tabs";
 import { createPreviewWorkspaceController } from "./modules/preview-workspace-controller.svelte";
 import SessionShareDialog from "./modules/SessionShareDialog.svelte";
 import SpaceDanmakuLayer from "./modules/SpaceDanmakuLayer.svelte";
@@ -441,7 +442,6 @@ const inlineFileCanGoBack = $derived(fileWorkspace.inlineFileCanGoBack);
 const inlineCanvas = $derived(canvasPreview.canvas);
 const inlineCanvasTabs = $derived(canvasPreview.canvases);
 const activeInlineCanvasPath = $derived(canvasPreview.activeCanvasPath);
-const selectedFilePath = $derived(inlineCanvas?.path ?? inlineFile?.path ?? "");
 
 const previewWorkspace = createPreviewWorkspaceController({
 	getFileTabs: () => fileWorkspace.inlineFileTabs,
@@ -547,6 +547,13 @@ const inlinePortEndpoint = $derived.by(() => {
 	return previewEndpoints[inlinePortPreview.port] ?? null;
 });
 const activePreviewKind = $derived(previewWorkspace.activeKind);
+const selectedFilePath = $derived(
+	activePreviewFilePath(
+		activePreviewKind,
+		activeInlineFilePath,
+		activeInlineCanvasPath,
+	),
+);
 
 $effect(() => {
 	if (activePreviewKind === "file" && inlineFile?.path) {
