@@ -15,6 +15,11 @@ export type {
 export type ChannelProvider = "web" | "discord" | "feishu" | "wechat" | "qq" | "telegram" | "slack";
 export const GATEWAY_CHANNEL_COMMAND_SPECS = [
   {
+    name: "help",
+    slash: "/help",
+    description: "Show available commands and usage info.",
+  },
+  {
     name: "new",
     slash: "/new",
     description: "Start a new Cohub session for this conversation.",
@@ -28,6 +33,11 @@ export const GATEWAY_CHANNEL_COMMAND_SPECS = [
     name: "model",
     slash: "/model",
     description: "Show or change the model for this conversation.",
+  },
+  {
+    name: "models",
+    slash: "/models",
+    description: "List all available models.",
   },
 ] as const;
 
