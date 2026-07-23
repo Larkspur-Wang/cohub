@@ -787,10 +787,17 @@ const hoveredLevel = $derived(
 	hoveredModelId ? getAvailabilityLevel(hoveredModelId) : "available",
 );
 
+// Card width is fixed at 288px (see .model-avail-card). Estimate height for
+// flip-above calculation; we don't depend on hoverCardEl here to avoid a
+// render cycle: card renders only when hoverCardPos is non-null, but
+// hoverCardEl is only bound once the card renders.
+const HOVER_CARD_WIDTH = 288;
+const HOVER_CARD_EST_HEIGHT = 240;
+
 const hoverCardPos = $derived.by(() => {
-	if (!hoverAnchorRect || !hoverCardEl) return null;
-	const cw = hoverCardEl.offsetWidth;
-	const ch = hoverCardEl.offsetHeight;
+	if (!hoverAnchorRect) return null;
+	const cw = HOVER_CARD_WIDTH;
+	const ch = hoverCardEl?.offsetHeight ?? HOVER_CARD_EST_HEIGHT;
 	let left = hoverAnchorRect.left + hoverAnchorRect.width / 2 - cw / 2;
 	let top = hoverAnchorRect.bottom + 8;
 	if (top + ch > window.innerHeight - 8) top = hoverAnchorRect.top - ch - 8;
