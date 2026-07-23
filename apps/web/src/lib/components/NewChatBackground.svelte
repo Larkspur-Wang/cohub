@@ -23,13 +23,20 @@ function getBackgroundOrigin() {
 	}
 }
 
+// Memoize by origin+pathname so ?preview= changes don't produce a new
+// object identity and trigger a guide refetch.
+let workUrlKey = "";
+let workUrlCache: CohubWorkUrl | null = null;
 const workUrl = $derived.by((): CohubWorkUrl | null => {
 	if (background.type !== "html") return null;
-	// Derive from pathname only — query param changes (e.g. ?preview=) must not
-	// produce a new object identity and trigger a guide refetch.
-	const base = new URL(page.url.href);
-	base.search = "";
-	return parseCohubWorkUrl(background.url, base.href);
+	const key = `${background.url}|${page.url.origin}${page.url.pathname}`;
+	if (key === workUrlKey) return workUrlCache;
+	workUrlKey = key;
+	workUrlCache = parseCohubWorkUrl(
+		background.url,
+		`${page.url.origin}${page.url.pathname}`,
+	);
+	return workUrlCache;
 });
 
 const sandbox = $derived.by(() => {
