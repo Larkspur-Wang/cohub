@@ -59,8 +59,22 @@ type RawOnlineHeartbeat = {
 	sample_count?: number;
 };
 
+type RawOnlineMetric = {
+	status?: string;
+	sample_count?: number;
+	failure_count?: number;
+	success_rate?: number;
+};
+
+type RawOnlineWindow = {
+	minutes?: number;
+	metric?: RawOnlineMetric;
+};
+
 type RawOnlineModel = {
 	model: string;
+	status?: string;
+	windows?: RawOnlineWindow[];
 	heartbeats?: RawOnlineHeartbeat[];
 };
 
@@ -90,6 +104,18 @@ function windowRate(
 	return typeof w.success_rate === "number" ? w.success_rate : null;
 }
 
+/** Real-traffic success rate for a fixed window from the online snapshot, or
+ *  null when that window is absent / has no samples (caller falls back to the
+ *  probe window of the same length). */
+function onlineWindowRate(
+	windows: RawOnlineWindow[] | null | undefined,
+	minutes: number,
+): number | null {
+	const m = windows?.find((w) => w.minutes === minutes)?.metric;
+	if (!m?.sample_count) return null;
+	return typeof m.success_rate === "number" ? m.success_rate : null;
+}
+
 /** 24h uptime from history buckets; null if no usable samples. */
 function uptime24h(history: RawCheck["history"]): number | null {
 	if (!history?.length) return null;
@@ -107,12 +133,16 @@ function slimCheck(
 	c: RawCheck,
 	heartbeats8h: Array<number | null> | null,
 	heartbeatsWindowMinutes: number | null,
+	onlineWindows: RawOnlineWindow[] | null,
 ): ModelStatusEntry {
 	const windows = c.windows ?? {};
 	const l = c.latency_1h;
 	return {
 		status: normalizeStatus(c.status),
-		successRate5m: windowRate(windows, "5m"),
+		// 5m drives the dot: real observed traffic first, probe self-test as a
+		// fallback — same online-first strategy as the bar chart, so a
+		// real-traffic fault the probe missed still turns the dot amber/red.
+		successRate5m: onlineWindowRate(onlineWindows, 5) ?? windowRate(windows, "5m"),
 		successRate2h: windowRate(windows, "2h"),
 		successRate24h: uptime24h(c.history),
 		latencyAvgMs: l?.average_duration_ms ?? null,
@@ -187,8 +217,10 @@ async function fetchUpstream(): Promise<ModelStatusResponse> {
 
 	const onlineModels = raw.online?.models ?? [];
 	const onlineHeartbeatsByModel = new Map<string, Array<number | null> | null>();
+	const onlineWindowsByModel = new Map<string, RawOnlineWindow[] | null>();
 	for (const m of onlineModels) {
 		onlineHeartbeatsByModel.set(m.model, m.heartbeats ? resampleHeartbeats(m.heartbeats) : null);
+		onlineWindowsByModel.set(m.model, m.windows ?? null);
 	}
 	const onlineWindowMinutes = windowMinutes;
 	const HISTORY_WINDOW_MINUTES = 24 * 60;
@@ -206,10 +238,11 @@ async function fetchUpstream(): Promise<ModelStatusResponse> {
 	const models: Record<string, ModelStatusEntry> = {};
 	for (const [id, c] of byModel) {
 		const online = onlineHeartbeatsByModel.get(id) ?? null;
+		const onlineWindows = onlineWindowsByModel.get(id) ?? null;
 		if (online?.some((r) => r != null)) {
-			models[id] = slimCheck(c, online, onlineWindowMinutes);
+			models[id] = slimCheck(c, online, onlineWindowMinutes, onlineWindows);
 		} else {
-			models[id] = slimCheck(c, historyRates(c), HISTORY_WINDOW_MINUTES);
+			models[id] = slimCheck(c, historyRates(c), HISTORY_WINDOW_MINUTES, onlineWindows);
 		}
 	}
 

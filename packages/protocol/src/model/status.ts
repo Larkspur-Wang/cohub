@@ -8,7 +8,8 @@ export type ModelAvailabilityStatus = "operational" | "degraded" | "outage";
  */
 export type ModelStatusEntry = {
 	status: ModelAvailabilityStatus;
-	/** 5-minute window success rate — drives the selector dot color. */
+	/** 5-minute success rate — drives the selector dot color. Real observed
+	 *  traffic (`online`) when available, else the probe self-test window. */
 	successRate5m: number | null;
 	successRate2h: number | null;
 	successRate24h: number | null;
