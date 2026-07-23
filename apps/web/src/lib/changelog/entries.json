@@ -1,5 +1,19 @@
 [
 	{
+		"version": "1.109",
+		"date": "2026-07-23",
+		"tags": ["v1.109.0"],
+		"highlights": [
+			"**Model availability in selector**: Live per-model status (operational / degraded / outage) with success-rate dots driven by observed traffic first, probe history as fallback, plus hover charts from 8h online heartbeats and 24h history.",
+			"**Models status API & protocol**: New slim Redis-cached `/models/status` route and `@cohub/protocol` status types that compress the large router-status probe payload into UI-ready fields (rates, latency, heartbeats, history).",
+			"**Thinking level presentation**: Clearer thinking-level UX across the composer, message bubble, and model catalog."
+		],
+		"fixes": [
+			"File preview URL no longer reverts to the previous tab when opening a preview.",
+			"Hover-card availability tooltip no longer thrashing from a render cycle; history buckets and bar colors aligned with router-status windows."
+		]
+	},
+	{
 		"version": "1.108",
 		"date": "2026-07-23",
 		"tags": ["v1.108.0"],

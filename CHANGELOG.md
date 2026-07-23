@@ -4,6 +4,17 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v1.109 — 2026-07-23
+
+- **Model availability in selector**: Live per-model status (operational / degraded / outage) with success-rate dots driven by observed traffic first, probe history as fallback, plus hover charts from 8h online heartbeats and 24h history.
+- **Models status API & protocol**: New slim Redis-cached `/models/status` route and `@cohub/protocol` status types that compress the large router-status probe payload into UI-ready fields (rates, latency, heartbeats, history).
+- **Thinking level presentation**: Clearer thinking-level UX across the composer, message bubble, and model catalog.
+
+### Bug Fixes
+
+- File preview URL no longer reverts to the previous tab when opening a preview.
+- Hover-card availability tooltip no longer thrashing from a render cycle; history buckets and bar colors aligned with router-status windows.
+
 ## v1.108 — 2026-07-23
 
 - **Conflict-aware file autosave**: File writes carry optional baselines and `mutationId`s so concurrent edits surface as 409 conflicts instead of silent overwrites; the web client keeps pending drafts, shows sync status, and recovers safely across File and Canvas previews.
