@@ -3816,7 +3816,7 @@ $effect(() => {
         class="mt-1 flex h-8 w-8 items-center justify-center rounded-[6px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"
         onclick={() => uiState.setLeftSidebarCollapsed(false)}
         aria-label="Expand sidebar"
-        title="Expand sidebar"
+        title="Expand sidebar (Ctrl+Alt+← / ⌃⌥←)"
       >
         <PanelLeftOpen class="h-4 w-4" />
       </button>
@@ -4075,7 +4075,7 @@ $effect(() => {
           type="button"
           class="flex h-7 w-7 shrink-0 items-center justify-center rounded-[5px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"
           onclick={() => uiState.setLeftSidebarCollapsed(true)}
-          title="Collapse sidebar"
+          title="Collapse sidebar (Ctrl+Alt+← / ⌃⌥←)"
           aria-label="Collapse sidebar"
         >
           <PanelLeftClose class="h-4 w-4" />

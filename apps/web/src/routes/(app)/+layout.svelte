@@ -408,6 +408,19 @@ $effect(() => {
 			if (isEditableShortcutTarget(e.target)) return;
 			e.preventDefault();
 			showHelpPanel = true;
+			return;
+		}
+		if (e.ctrlKey && e.altKey && !e.metaKey && !e.shiftKey) {
+			if (e.key === "ArrowLeft") {
+				e.preventDefault();
+				uiState.toggleLeftSidebarCollapsed();
+				return;
+			}
+			if (e.key === "ArrowRight") {
+				e.preventDefault();
+				uiState.toggleRightSidebarCollapsed();
+				return;
+			}
 		}
 	}
 	window.addEventListener("cohub:open-help-panel", openHelpPanel);

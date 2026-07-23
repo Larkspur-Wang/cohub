@@ -228,7 +228,7 @@ function handleSessionRenameKeydown(event: KeyboardEvent) {
 			type="button"
 			class="header-action-btn"
 			onclick={() => runAction(actions.toggleRightSidebar)}
-			title={context.rightSidebarCollapsed ? "Show files" : "Hide files"}
+			title={context.rightSidebarCollapsed ? "Show files (Ctrl+Alt+→ / ⌃⌥→)" : "Hide files (Ctrl+Alt+→ / ⌃⌥→)"}
 			aria-label={context.rightSidebarCollapsed ? "Show files" : "Hide files"}
 		>
 			{#if context.rightSidebarCollapsed}
