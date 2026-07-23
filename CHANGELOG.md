@@ -4,6 +4,20 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v1.108 — 2026-07-23
+
+- **Conflict-aware file autosave**: File writes carry optional baselines and `mutationId`s so concurrent edits surface as 409 conflicts instead of silent overwrites; the web client keeps pending drafts, shows sync status, and recovers safely across File and Canvas previews.
+- **Unified Preview Float mode**: File, Canvas, and Port previews share one `PreviewFloatChrome` shell with centralized layout coordination, adaptive Chat/Files mutual exclusion, and restore-friendly auto-collapse that does not pollute the layout snapshot.
+- **Space default workspace layout**: Spaces can declare `ui.workspace.defaultLayout` in `.cohub/space.json` as a first-entry fallback; explicit `?preview=` and existing local prefs always win, and async config never clobbers a layout the user just changed.
+- **Per-prompt thinking level**: Optional `thinkingLevel` flows through protocol, API, Agent, Worker, Gateway, SDK, CLI, and web—with a model-driven selector, one-shot overrides, and effective level persisted on turn meta for multi-client recovery.
+- **Codex request profiles**: Models can opt into a Codex affinity profile that stamps session/thread headers, and forked sessions preserve affinity so prompt caching stays stable across continuations.
+
+### Bug Fixes
+
+- Recover context overflow from Chinese proxy messages and HTTP 413 with force-compact retry; allow turn finalize to recover from a premature interrupted status.
+- Recover from stale dynamic imports; stop file preview crashes and duplicate reads on space switch; re-fit preview width after workspace geometry settles.
+- Align sidebar highlight with the active preview, protect system sidebar labels, and fix Float-mode rail/tabs plus mobile thinking-level UX.
+
 ## v1.107 — 2026-07-22
 
 - **Unified preview workspace**: File, port, and canvas previews now share one responsive shell with consistent tabs, mobile chrome, and pinned Focus / Float controls.
