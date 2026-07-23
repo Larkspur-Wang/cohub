@@ -53,10 +53,26 @@ type RawCheck = {
 	}>;
 };
 
+type RawOnlineHeartbeat = {
+	start?: string;
+	success_rate?: number;
+};
+
+type RawOnlineModel = {
+	model: string;
+	heartbeats?: RawOnlineHeartbeat[];
+};
+
+type RawOnline = {
+	window?: { start?: string; minutes?: number };
+	models?: RawOnlineModel[];
+};
+
 type RawStatus = {
 	generated_at?: string;
 	overall_status?: string;
 	checks?: RawCheck[];
+	online?: RawOnline;
 };
 
 function normalizeStatus(value: string | undefined): ModelAvailabilityStatus {
@@ -86,7 +102,7 @@ function uptime24h(history: RawCheck["history"]): number | null {
 	return total > 0 ? (op / total) * 100 : null;
 }
 
-function slimCheck(c: RawCheck): ModelStatusEntry {
+function slimCheck(c: RawCheck, heartbeats8h: number[] | null): ModelStatusEntry {
 	const windows = c.windows ?? {};
 	const l = c.latency_1h;
 	return {
@@ -99,6 +115,7 @@ function slimCheck(c: RawCheck): ModelStatusEntry {
 		samples1h: l?.sample_count ?? null,
 		checkedAt: c.checked_at ?? null,
 		probeIntervalSeconds: c.probe_interval_seconds ?? null,
+		heartbeats8h,
 		history: c.history?.length
 			? c.history.map((b) => ({
 					t: b.started_at ?? "",
@@ -128,8 +145,23 @@ async function fetchUpstream(): Promise<ModelStatusResponse> {
 		}
 	}
 
+	// 8h/2min heartbeats from the online section (fine-grained bar chart data).
+	const onlineModels = raw.online?.models ?? [];
+	const heartbeatsByModel = new Map<string, number[]>();
+	for (const m of onlineModels) {
+		if (!m.heartbeats?.length) continue;
+		heartbeatsByModel.set(
+			m.model,
+			m.heartbeats.map((hb) =>
+				typeof hb.success_rate === "number" ? Math.round(hb.success_rate * 10) / 10 : 0,
+			),
+		);
+	}
+	const heartbeats8hStart = raw.online?.window?.start ?? null;
+
 	const models: Record<string, ModelStatusEntry> = {};
-	for (const [id, c] of byModel) models[id] = slimCheck(c);
+	for (const [id, c] of byModel)
+		models[id] = slimCheck(c, heartbeatsByModel.get(id) ?? null);
 
 	const overall = raw.overall_status;
 	const response: ModelStatusResponse = {
@@ -138,6 +170,7 @@ async function fetchUpstream(): Promise<ModelStatusResponse> {
 			overall === "operational" || overall === "degraded" || overall === "outage"
 				? overall
 				: "unknown",
+		heartbeats8hStart,
 		models,
 	};
 
