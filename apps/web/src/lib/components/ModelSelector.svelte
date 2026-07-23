@@ -1154,7 +1154,7 @@ const hoverCardPos = $derived.by(() => {
 	{/if}
 </Dialog>
 
-{#if hoveredModelId && hoveredEntry && hoverCardPos}
+{#if hoveredModelId && hoverCardPos}
 	<div
 		bind:this={hoverCardEl}
 		class="model-avail-card"
@@ -1169,49 +1169,53 @@ const hoverCardPos = $derived.by(() => {
 				{AVAILABILITY_LABEL[hoveredLevel]}
 			</span>
 			<span class="text-[16px] font-semibold tabular-nums leading-none {`avail-rate--${hoveredLevel}`}">
-				{fmtRate(hoveredEntry.successRate5m)}<span class="text-[10px] font-medium text-text-tertiary">% 5m</span>
+				{hoveredEntry?.successRate5m != null ? fmtRate(hoveredEntry.successRate5m) : "—"}{#if hoveredEntry?.successRate5m != null}<span class="text-[10px] font-medium text-text-tertiary">% 5m</span>{/if}
 			</span>
 		</div>
 		<div class="mt-0.5 font-mono text-[10px] text-text-tertiary">{hoveredModelId}</div>
 		<div class="my-2 h-px bg-border-subtle"></div>
-		<div class="mb-1 text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">Past {hoveredHeartbeatHours} hours</div>
-		{#if hoveredHeartbeats.length}
-			<div class="flex items-stretch gap-px h-[26px]">
-				{#each hoveredHeartbeats as rate, i}
-					<i
-						class="avail-bar"
-						style={`background:${rateToBarColor(rate)}`}
-						title={`${fmtAgoMs((hoveredHeartbeats.length - 1 - i) * hoveredHeartbeatPerBucketMin * 60 * 1000)} · ${fmtRate(rate)}`}
-					></i>
-				{/each}
+		{#if hoveredEntry}
+			<div class="mb-1 text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">Past {hoveredHeartbeatHours} hours</div>
+			{#if hoveredHeartbeats.length}
+				<div class="flex items-stretch gap-px h-[26px]">
+					{#each hoveredHeartbeats as rate, i}
+						<i
+							class="avail-bar"
+							style={`background:${rateToBarColor(rate)}`}
+							title={`${fmtAgoMs((hoveredHeartbeats.length - 1 - i) * hoveredHeartbeatPerBucketMin * 60 * 1000)} · ${fmtRate(rate)}`}
+						></i>
+					{/each}
+				</div>
+				<div class="mt-1 flex justify-between text-[9px] text-text-tertiary">
+					<span>{hoveredHeartbeatHours}h ago</span><span>now</span>
+				</div>
+			{:else}
+				<div class="text-[11px] text-text-tertiary">No history</div>
+			{/if}
+			<div class="mt-1.5 flex gap-3 text-[11px] tabular-nums">
+				{#if hoveredEntry.successRate2h != null}
+					<span><b class="font-semibold text-text-secondary">{fmtRate(hoveredEntry.successRate2h)}</b> <small class="text-text-tertiary">2h</small></span>
+				{/if}
+				{#if hoveredEntry.successRate24h != null}
+					<span><b class="font-semibold text-text-secondary">{fmtRate(hoveredEntry.successRate24h)}</b> <small class="text-text-tertiary">24h</small></span>
+				{/if}
 			</div>
-			<div class="mt-1 flex justify-between text-[9px] text-text-tertiary">
-				<span>{hoveredHeartbeatHours}h ago</span><span>now</span>
-			</div>
+			<div class="my-2 h-px bg-border-subtle"></div>
+			<dl class="grid grid-cols-[auto_1fr] gap-x-2.5 gap-y-0.5">
+				<dt class="text-[11px] text-text-tertiary">Latency 1h</dt>
+				<dd class="text-right text-[11px] tabular-nums text-text-secondary">
+					{hoveredEntry.latencyAvgMs != null ? `${fmtMs(hoveredEntry.latencyAvgMs)} avg · ${fmtMs(hoveredEntry.latencyP90Ms)} p90` : "—"}
+				</dd>
+				<dt class="text-[11px] text-text-tertiary">Checked</dt>
+				<dd class="text-right text-[11px] text-text-secondary">
+					{hoveredEntry.checkedAt ? `${fmtAgo(hoveredEntry.checkedAt)}${hoveredEntry.probeIntervalSeconds ? ` · every ${hoveredEntry.probeIntervalSeconds}s` : ''}` : '—'}
+				</dd>
+				<dt class="text-[11px] text-text-tertiary">Samples 1h</dt>
+				<dd class="text-right text-[11px] tabular-nums text-text-secondary">{hoveredEntry.samples1h ?? '—'}</dd>
+			</dl>
 		{:else}
-			<div class="text-[11px] text-text-tertiary">No history</div>
+			<div class="py-1 text-[11px] text-text-tertiary">No status data available for this model yet.</div>
 		{/if}
-		<div class="mt-1.5 flex gap-3 text-[11px] tabular-nums">
-			{#if hoveredEntry.successRate2h != null}
-				<span><b class="font-semibold text-text-secondary">{fmtRate(hoveredEntry.successRate2h)}</b> <small class="text-text-tertiary">2h</small></span>
-			{/if}
-			{#if hoveredEntry.successRate24h != null}
-				<span><b class="font-semibold text-text-secondary">{fmtRate(hoveredEntry.successRate24h)}</b> <small class="text-text-tertiary">24h</small></span>
-			{/if}
-		</div>
-		<div class="my-2 h-px bg-border-subtle"></div>
-		<dl class="grid grid-cols-[auto_1fr] gap-x-2.5 gap-y-0.5">
-			<dt class="text-[11px] text-text-tertiary">Latency 1h</dt>
-			<dd class="text-right text-[11px] tabular-nums text-text-secondary">
-				{fmtMs(hoveredEntry.latencyAvgMs)} avg · {fmtMs(hoveredEntry.latencyP90Ms)} p90
-			</dd>
-			<dt class="text-[11px] text-text-tertiary">Checked</dt>
-			<dd class="text-right text-[11px] text-text-secondary">
-				{fmtAgo(hoveredEntry.checkedAt)}{hoveredEntry.probeIntervalSeconds ? ` · every ${hoveredEntry.probeIntervalSeconds}s` : ''}
-			</dd>
-			<dt class="text-[11px] text-text-tertiary">Samples 1h</dt>
-			<dd class="text-right text-[11px] tabular-nums text-text-secondary">{hoveredEntry.samples1h ?? '—'}</dd>
-		</dl>
 	</div>
 {/if}
 
@@ -1252,6 +1256,10 @@ const hoverCardPos = $derived.by(() => {
 		background: var(--error-500);
 		box-shadow: 0 0 0 3px color-mix(in srgb, var(--error-500) 14%, transparent);
 	}
+	.avail-dot--unknown {
+		background: var(--neutral-40);
+		box-shadow: 0 0 0 2px color-mix(in srgb, var(--neutral-40) 20%, transparent);
+	}
 	@keyframes avail-pulse {
 		0%, 100% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning-500) 16%, transparent); }
 		50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--warning-500) 8%, transparent); }
@@ -1276,6 +1284,7 @@ const hoverCardPos = $derived.by(() => {
 	.avail-rate--available { color: var(--success-500); }
 	.avail-rate--degraded { color: var(--warning-500); }
 	.avail-rate--outage { color: var(--error-500); }
+	.avail-rate--unknown { color: var(--text-tertiary); }
 
 	.avail-bar {
 		flex: 1 1 0;
