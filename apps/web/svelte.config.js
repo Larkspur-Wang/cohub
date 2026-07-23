@@ -24,6 +24,7 @@ const config = {
 			"@cohub/protocol/gateway/types": `${protocolDir}/gateway/types.ts`,
 			"@cohub/protocol/gateway": `${protocolDir}/gateway/index.ts`,
 			"@cohub/protocol/model": `${protocolDir}/model/session.ts`,
+			"@cohub/protocol/model/status": `${protocolDir}/model/status.ts`,
 			"@cohub/protocol/ports": `${protocolDir}/ports/index.ts`,
 			"@cohub/protocol/realtime/types": `${protocolDir}/realtime/types.ts`,
 			"@cohub/protocol/realtime/schema": `${protocolDir}/realtime/schema.ts`,
