@@ -121,6 +121,34 @@ let runPollTimer: number | null = null;
 type SpaceFilter = "all" | "mine" | "pinned";
 let spaceFilter = $state<SpaceFilter>("all");
 
+// Pagination for Space Picker mode: load larger page sizes (e.g. 50 items per page)
+// and dynamically render more as user scrolls.
+const SPACE_PAGE_SIZE = 50;
+let spaceDisplayLimit = $state(SPACE_PAGE_SIZE);
+
+function handleResultsScroll(event: Event) {
+	if (!isSpacePickerMode || runMode) return;
+	const target = event.currentTarget as HTMLElement | null;
+	if (!target) return;
+	// When scrolled within 100px of bottom, reveal next page
+	if (target.scrollTop + target.clientHeight >= target.scrollHeight - 100) {
+		const totalAvailable = filteredSpaceItems
+			? filteredSpaceItems(mergedItemsRaw).length
+			: mergedItemsRaw.length;
+		if (spaceDisplayLimit < totalAvailable) {
+			spaceDisplayLimit += SPACE_PAGE_SIZE;
+		}
+	}
+}
+
+// Space filter reset on change
+$effect(() => {
+	spaceFilter;
+	query;
+	open;
+	spaceDisplayLimit = SPACE_PAGE_SIZE;
+});
+
 const currentSpaceId = $derived.by(() => {
 	const match = page.url.pathname.match(/^\/spaces\/([^/]+)/);
 	const id = match?.[1] ?? null;
@@ -161,7 +189,7 @@ const filteredSpaceItems = $derived.by(() => {
 			return true;
 		});
 });
-const mergedItems = $derived.by(() => {
+const mergedItemsRaw = $derived.by(() => {
 	let raw =
 		trimmedQuery.length < MIN_QUERY_LENGTH && !hasLabelScope
 			? withLocalCommands(
@@ -189,6 +217,12 @@ const mergedItems = $derived.by(() => {
 	// Apply Mine / Pinned filter in space picker mode
 	if (filteredSpaceItems) raw = filteredSpaceItems(raw);
 	return raw;
+});
+const mergedItems = $derived.by(() => {
+	if (isSpacePickerMode) {
+		return mergedItemsRaw.slice(0, spaceDisplayLimit);
+	}
+	return mergedItemsRaw;
 });
 const isSearching = $derived(!localDone || !remoteDone || !defaultDone);
 const renderedItems = $derived(
@@ -795,7 +829,7 @@ onMount(() => {
 					{/if}
 				</div>
 			{:else}
-				<div bind:this={resultsEl} class:searching={showingSettledItems} class="command-results" role="listbox" aria-label="Search results">
+				<div bind:this={resultsEl} class:searching={showingSettledItems} class="command-results" role="listbox" aria-label="Search results" onscroll={handleResultsScroll}>
 					{#if renderedItems.length === 0}
 						<div class="command-empty">
 							<div class="command-empty-mark"><CornerDownRight class="h-4 w-4" /></div>
@@ -891,6 +925,11 @@ onMount(() => {
 								{/if}
 							</div>
 						{/each}
+						{#if isSpacePickerMode && mergedItemsRaw.length > spaceDisplayLimit}
+							<div class="flex items-center justify-center py-2 text-[11px] text-text-tertiary">
+								<span>Showing {spaceDisplayLimit} of {mergedItemsRaw.length} spaces · scroll for more</span>
+							</div>
+						{/if}
 					{/if}
 				</div>
 			{/if}
