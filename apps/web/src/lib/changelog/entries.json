@@ -1,5 +1,20 @@
 [
 	{
+		"version": "1.110",
+		"date": "2026-07-23",
+		"tags": ["v1.110.0"],
+		"highlights": [
+			"**Space pinning via user-scoped labels**: Replaced legacy space marks table with a unified user-scoped label system (`user:pinned`) powering space bookmarking across core services, REST API, SDK, CLI (`spaces pin/unpin`), and Web command palette with realtime sync.",
+			"**Model availability in selector**: Added live per-model status (operational, degraded, outage) driven by traffic metrics and probe heartbeats, backed by a Redis-cached `/models/status` API endpoint and hover cards with 8-hour heartbeat history.",
+			"**Thinking level presentation**: Refined thinking-level UX and indicator components across the session composer, message bubbles, and model catalog selector."
+		],
+		"fixes": [
+			"Optimistically update command palette item state when toggling space pins to avoid UI latency.",
+			"Mount user label API routes under `/api/me` to match SDK endpoint expectations.",
+			"Prevent file preview URLs from unexpectedly reverting to previously active tabs on open."
+		]
+	},
+	{
 		"version": "1.109",
 		"date": "2026-07-23",
 		"tags": ["v1.109.0"],

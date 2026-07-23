@@ -4,6 +4,18 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v1.110 — 2026-07-23
+
+- **Space pinning via user-scoped labels**: Replaced legacy space marks table with a unified user-scoped label system (`user:pinned`) powering space bookmarking across core services, REST API, SDK, CLI (`spaces pin/unpin`), and Web command palette with realtime sync.
+- **Model availability in selector**: Added live per-model status (operational, degraded, outage) driven by traffic metrics and probe heartbeats, backed by a Redis-cached `/models/status` API endpoint and hover cards with 8-hour heartbeat history.
+- **Thinking level presentation**: Refined thinking-level UX and indicator components across the session composer, message bubbles, and model catalog selector.
+
+### Bug Fixes
+
+- Optimistically update command palette item state when toggling space pins to avoid UI latency.
+- Mount user label API routes under `/api/me` to match SDK endpoint expectations.
+- Prevent file preview URLs from unexpectedly reverting to previously active tabs on open.
+
 ## v1.109 — 2026-07-23
 
 - **Model availability in selector**: Live per-model status (operational / degraded / outage) with success-rate dots driven by observed traffic first, probe history as fallback, plus hover charts from 8h online heartbeats and 24h history.
