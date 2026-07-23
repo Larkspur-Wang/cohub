@@ -736,6 +736,25 @@ function fmtRate(rate: number | null | undefined): string {
 	return typeof rate === "number" ? `${Math.round(rate)}%` : "—";
 }
 
+/**
+ * Rate-based bar color, matching router-status.neta.art's 6-tier scheme.
+ * Used for hover-card history bars; the selector dot itself stays 3-level.
+ */
+function rateToBarColor(rate: number | null | undefined): string {
+	if (rate == null) return "#94a3b8"; // no samples — gray
+	if (rate >= 95) return "#16a34a"; // green
+	if (rate >= 90) return "#84cc16"; // yellow-green
+	if (rate >= 85) return "#f59e0b"; // yellow-orange
+	if (rate >= 80) return "#f97316"; // orange
+	if (rate >= 75) return "#c2410c"; // red-orange
+	return "#dc2626"; // red
+}
+
+/** Last 8h of history (32 × 15-min buckets). */
+const hoveredHistory8h = $derived(
+	hoveredEntry?.history ? hoveredEntry.history.slice(-32) : [],
+);
+
 // ── Hover card ───────────────────────────────────────────────────────────────
 
 function onDotMouseEnter(modelId: string, e: MouseEvent) {
@@ -1135,18 +1154,19 @@ const hoverCardPos = $derived.by(() => {
 		</div>
 		<div class="mt-0.5 font-mono text-[10px] text-text-tertiary">{hoveredModelId}</div>
 		<div class="my-2 h-px bg-border-subtle"></div>
-		<div class="mb-1 text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">Past 24 hours</div>
-		{#if hoveredEntry.history?.length}
+		<div class="mb-1 text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">Past 8 hours</div>
+		{#if hoveredHistory8h.length}
 			<div class="flex items-stretch gap-px h-[26px]">
-				{#each hoveredEntry.history as bucket}
+				{#each hoveredHistory8h as bucket}
 					<i
-						class={`avail-bar avail-bar--${bucket.status}`}
+						class="avail-bar"
+						style={`background:${rateToBarColor(bucket.rate)}`}
 						title={`${new Date(bucket.t).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})} · ${fmtRate(bucket.rate)}${bucket.samples ? ` (${bucket.samples})` : ''}`}
 					></i>
 				{/each}
 			</div>
 			<div class="mt-1 flex justify-between text-[9px] text-text-tertiary">
-				<span>24h ago</span><span>now</span>
+				<span>8h ago</span><span>now</span>
 			</div>
 		{:else}
 			<div class="text-[11px] text-text-tertiary">No history</div>
@@ -1231,7 +1251,4 @@ const hoverCardPos = $derived.by(() => {
 		background: var(--neutral-60);
 		opacity: 0.85;
 	}
-	.avail-bar--operational { background: var(--success-500); }
-	.avail-bar--degraded { background: var(--warning-500); }
-	.avail-bar--outage { background: var(--error-500); }
 </style>
