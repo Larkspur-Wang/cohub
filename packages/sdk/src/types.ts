@@ -7,6 +7,10 @@ import type {
   SessionTurnSegmentRecord,
 } from "@cohub/protocol/model";
 import type {
+  ModelStatusEntry,
+  ModelStatusResponse,
+} from "@cohub/protocol/model/status";
+import type {
   ChannelConfig,
   ChannelHealth,
 } from "@cohub/protocol/gateway/types";
@@ -494,6 +498,8 @@ export type {
   GenerationUsageBilling,
   ListGenerationModelsResponse,
   PublicGenerationDeclaration,
+  ModelStatusEntry,
+  ModelStatusResponse,
 };
 
 export type SpaceFsEntry = {

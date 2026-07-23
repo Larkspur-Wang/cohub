@@ -1,5 +1,6 @@
 <script lang="ts">
 import type { PublicGenerationDeclaration } from "@cohub/protocol/generation";
+import type { ModelStatusEntry } from "@cohub/protocol/model/status";
 import ModelSelector from "$lib/components/ModelSelector.svelte";
 import type { ModelCatalogItem, ModelThinkingLevel } from "$lib/model-catalog";
 
@@ -25,6 +26,7 @@ type Props = {
 	/** Model the session thinking level is bound to. Defaults to currentModel. */
 	thinkingLevelModel?: SelectedModel | null;
 	currentThinkingLevel?: ModelThinkingLevel | null;
+	modelStatus?: Record<string, ModelStatusEntry> | null;
 	generationModels: PublicGenerationDeclaration[];
 	generationPolicyMode: "auto" | "limited";
 	selectedGenerationModels: Set<string>;
@@ -70,6 +72,7 @@ let {
 	currentModel,
 	thinkingLevelModel = null,
 	currentThinkingLevel = null,
+	modelStatus = null,
 	generationModels,
 	generationPolicyMode,
 	selectedGenerationModels,
@@ -95,6 +98,7 @@ let {
 	{currentModel}
 	{thinkingLevelModel}
 	{currentThinkingLevel}
+	{modelStatus}
 	{generationModels}
 	{generationPolicyMode}
 	{selectedGenerationModels}

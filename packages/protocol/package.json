@@ -18,6 +18,10 @@
       "types": "./dist/model/session.d.ts",
       "default": "./dist/model/session.js"
     },
+    "./model/status": {
+      "types": "./dist/model/status.d.ts",
+      "default": "./dist/model/status.js"
+    },
     "./realtime": {
       "types": "./dist/realtime/index.d.ts",
       "default": "./dist/realtime/index.js"

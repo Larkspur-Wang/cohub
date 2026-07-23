@@ -23,6 +23,7 @@ import SessionModelSelectorDialog from "$lib/features/space/modules/SessionModel
 import type { NewChatBackgroundConfig } from "$lib/space-config";
 import { insertComposerSnippet } from "$lib/stores/composer-insert";
 import { modelsCatalogStore } from "$lib/stores/models-catalog.svelte";
+import { modelsStatusStore } from "$lib/stores/models-status.svelte";
 import { entriesFromDataTransfer } from "$lib/upload-entries";
 import type { SessionChatHost } from "./session-chat-host.controller.svelte";
 
@@ -64,6 +65,7 @@ let showModelSelector = $state(false);
 let draftDropKind = $state<ChatDraftDropKind | null>(null);
 let draftDropCounter = 0;
 const modelsCatalog = $derived(modelsCatalogStore.items);
+const modelsStatus = $derived(modelsStatusStore.status);
 const generationModelsCatalog = $derived(host.generationModelsCatalog);
 const generationPolicyMode = $derived(host.generationPolicyMode);
 const selectedGenerationModels = $derived(host.selectedGenerationModels);
@@ -401,6 +403,7 @@ async function handleDraftDrop(event: DragEvent) {
 					onModelSelect={() => {
 						void host.loadModelsCatalog();
 						void host.loadGenerationModelsCatalog();
+						void modelsStatusStore.load();
 						showModelSelector = true;
 					}}
 				/>
@@ -516,6 +519,7 @@ async function handleDraftDrop(event: DragEvent) {
 			currentModel={activeSessionModel}
 			thinkingLevelModel={host.activeSessionTurnModel ?? activeSessionModel}
 			currentThinkingLevel={host.activeSessionThinkingLevel}
+			modelStatus={modelsStatus?.models ?? null}
 			generationModels={generationModelsCatalog ?? []}
 			{generationPolicyMode}
 			{selectedGenerationModels}

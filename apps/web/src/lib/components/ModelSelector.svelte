@@ -1,5 +1,6 @@
 <script lang="ts">
 import type { PublicGenerationDeclaration } from "@cohub/protocol/generation";
+import type { ModelStatusEntry } from "@cohub/protocol/model/status";
 import { Brain, Check, ChevronDown, Image } from "lucide-svelte";
 import Dialog from "$lib/components/Dialog.svelte";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
@@ -11,6 +12,11 @@ import {
 	getSupportedThinkingLevels,
 	type ModelThinkingLevel,
 } from "$lib/model-catalog";
+import {
+	availabilityLevel,
+	AVAILABILITY_LABEL,
+	type AvailabilityLevel,
+} from "$lib/model-availability";
 
 type ModelItem = {
 	provider: string;
@@ -40,6 +46,7 @@ type Props = {
 	/** Model the session thinking level is bound to. Defaults to currentModel. */
 	thinkingLevelModel?: { provider: string; id: string } | null;
 	currentThinkingLevel?: ModelThinkingLevel | null;
+	modelStatus?: Record<string, ModelStatusEntry> | null;
 	generationModels?: PublicGenerationDeclaration[];
 	generationPolicyMode?: "auto" | "limited";
 	selectedGenerationModels?: Set<string>;
@@ -81,6 +88,7 @@ const {
 	currentModel = null,
 	thinkingLevelModel = null,
 	currentThinkingLevel = null,
+	modelStatus = null,
 	generationModels = [],
 	generationPolicyMode = "auto",
 	selectedGenerationModels = new Set<string>(),
@@ -167,6 +175,13 @@ $effect(() => {
 		scrollRoot?.removeEventListener("scroll", onViewportChange);
 	};
 });
+
+// Hover card for model availability detail.
+let hoveredModelId = $state<string | null>(null);
+let hoverCardEl = $state<HTMLElement | null>(null);
+let hoverAnchorRect = $state<DOMRect | null>(null);
+let hoverShowTimer: ReturnType<typeof setTimeout> | null = null;
+let hoverHideTimer: ReturnType<typeof setTimeout> | null = null;
 
 function getVisibleSearchInput() {
 	if (searchInputEl && searchInputEl.getClientRects().length > 0) {
@@ -592,6 +607,7 @@ function moveSelection(delta: number) {
 		selectedIndex = 0;
 		return;
 	}
+	hideHoverCard();
 	navigationMode = "keyboard";
 	selectedIndex = Math.min(
 		Math.max(selectedIndex + delta, 0),
@@ -684,7 +700,103 @@ function subsequenceScore(query: string, text: string): number {
 	if (qi < query.length) return 0;
 	return query.length / (query.length + gaps);
 }
+
 const selectedGenerationCount = $derived(selectedGenerationModels.size);
+
+// ── Availability helpers ─────────────────────────────────────────────────────
+
+function getModelStatusEntry(modelId: string): ModelStatusEntry | null {
+	return modelStatus?.[modelId] ?? null;
+}
+
+function getAvailabilityLevel(modelId: string): AvailabilityLevel {
+	return availabilityLevel(getModelStatusEntry(modelId));
+}
+
+function fmtMs(ms: number | null | undefined): string {
+	if (typeof ms !== "number" || !ms) return "—";
+	const s = ms / 1000;
+	if (s < 1) return `${Math.round(s * 1000)}ms`;
+	if (s < 60) return `${s.toFixed(s < 10 ? 1 : 0)}s`;
+	const m = Math.floor(s / 60);
+	const rs = Math.round(s % 60);
+	return `${m}m${rs}s`;
+}
+
+function fmtAgo(iso: string | null | undefined): string {
+	if (!iso) return "—";
+	const s = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+	if (s < 60) return `${s}s ago`;
+	const m = Math.floor(s / 60);
+	if (m < 60) return `${m}m ago`;
+	return `${Math.floor(m / 60)}h ago`;
+}
+
+function fmtRate(rate: number | null | undefined): string {
+	return typeof rate === "number" ? `${Math.round(rate)}%` : "—";
+}
+
+// ── Hover card ───────────────────────────────────────────────────────────────
+
+function onDotMouseEnter(modelId: string, e: MouseEvent) {
+	const target = e.currentTarget as HTMLElement;
+	clearTimeout(hoverHideTimer ?? undefined);
+	if (hoveredModelId) {
+		hoveredModelId = modelId;
+		hoverAnchorRect = target.getBoundingClientRect();
+	} else {
+		clearTimeout(hoverShowTimer ?? undefined);
+		hoverShowTimer = setTimeout(() => {
+			hoveredModelId = modelId;
+			hoverAnchorRect = target.getBoundingClientRect();
+		}, 220);
+	}
+}
+
+function onDotMouseLeave() {
+	clearTimeout(hoverShowTimer ?? undefined);
+	hoverHideTimer = setTimeout(() => {
+		hoveredModelId = null;
+		hoverAnchorRect = null;
+	}, 140);
+}
+
+function onCardMouseEnter() {
+	clearTimeout(hoverHideTimer ?? undefined);
+}
+
+function onCardMouseLeave() {
+	hoverHideTimer = setTimeout(() => {
+		hoveredModelId = null;
+		hoverAnchorRect = null;
+	}, 140);
+}
+
+// Hide the card immediately on keyboard navigation to avoid stale anchoring.
+function hideHoverCard() {
+	clearTimeout(hoverShowTimer ?? undefined);
+	clearTimeout(hoverHideTimer ?? undefined);
+	hoveredModelId = null;
+	hoverAnchorRect = null;
+}
+
+const hoveredEntry = $derived(
+	hoveredModelId ? getModelStatusEntry(hoveredModelId) : null,
+);
+const hoveredLevel = $derived(
+	hoveredModelId ? getAvailabilityLevel(hoveredModelId) : "available",
+);
+
+const hoverCardPos = $derived.by(() => {
+	if (!hoverAnchorRect || !hoverCardEl) return null;
+	const cw = hoverCardEl.offsetWidth;
+	const ch = hoverCardEl.offsetHeight;
+	let left = hoverAnchorRect.left + hoverAnchorRect.width / 2 - cw / 2;
+	let top = hoverAnchorRect.bottom + 8;
+	if (top + ch > window.innerHeight - 8) top = hoverAnchorRect.top - ch - 8;
+	left = Math.max(8, Math.min(left, window.innerWidth - cw - 8));
+	return { left, top };
+});
 </script>
 
 <Dialog {open} {onClose} title="Models" maxWidth="540px">
@@ -768,6 +880,14 @@ const selectedGenerationCount = $derived(selectedGenerationModels.size);
 									</span>
 									{#if hasVision(item)}
 										<Image class="h-3.5 w-3.5 shrink-0 text-text-tertiary" />
+									{/if}
+									{#if modelStatus}
+										<span
+											class={`avail-dot avail-dot--${getAvailabilityLevel(item.id)}`}
+											onmouseenter={(e) => onDotMouseEnter(item.id, e)}
+											onmouseleave={onDotMouseLeave}
+											role="presentation"
+										></span>
 									{/if}
 								</div>
 								{#if costText}
@@ -987,3 +1107,124 @@ const selectedGenerationCount = $derived(selectedGenerationModels.size);
 		</div>
 	{/if}
 </Dialog>
+
+{#if hoveredModelId && hoveredEntry && hoverCardPos}
+	<div
+		bind:this={hoverCardEl}
+		class="model-avail-card"
+		style={`left:${hoverCardPos.left}px;top:${hoverCardPos.top}px`}
+		onmouseenter={onCardMouseEnter}
+		onmouseleave={onCardMouseLeave}
+		role="tooltip"
+	>
+		<div class="flex items-center justify-between gap-2">
+			<span class="flex items-center gap-1.5 text-[12px] font-semibold text-text-primary">
+				<span class={`avail-dot avail-dot--${hoveredLevel}`}></span>
+				{AVAILABILITY_LABEL[hoveredLevel]}
+			</span>
+			<span class="text-[16px] font-semibold tabular-nums leading-none {`avail-rate--${hoveredLevel}`}">
+				{fmtRate(hoveredEntry.successRate5m)}<span class="text-[10px] font-medium text-text-tertiary">% 5m</span>
+			</span>
+		</div>
+		<div class="mt-0.5 font-mono text-[10px] text-text-tertiary">{hoveredModelId}</div>
+		<div class="my-2 h-px bg-border-subtle"></div>
+		<div class="mb-1 text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">Past 24 hours</div>
+		{#if hoveredEntry.history?.length}
+			<div class="flex items-stretch gap-px h-[26px]">
+				{#each hoveredEntry.history as bucket}
+					<i
+						class={`avail-bar avail-bar--${bucket.status}`}
+						title={`${new Date(bucket.t).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})} · ${fmtRate(bucket.rate)}${bucket.samples ? ` (${bucket.samples})` : ''}`}
+					></i>
+				{/each}
+			</div>
+			<div class="mt-1 flex justify-between text-[9px] text-text-tertiary">
+				<span>24h ago</span><span>now</span>
+			</div>
+		{:else}
+			<div class="text-[11px] text-text-tertiary">No history</div>
+		{/if}
+		<div class="mt-1.5 flex gap-3 text-[11px] tabular-nums">
+			{#if hoveredEntry.successRate2h != null}
+				<span><b class="font-semibold text-text-secondary">{fmtRate(hoveredEntry.successRate2h)}</b> <small class="text-text-tertiary">2h</small></span>
+			{/if}
+			{#if hoveredEntry.successRate24h != null}
+				<span><b class="font-semibold text-text-secondary">{fmtRate(hoveredEntry.successRate24h)}</b> <small class="text-text-tertiary">24h</small></span>
+			{/if}
+		</div>
+		<div class="my-2 h-px bg-border-subtle"></div>
+		<dl class="grid grid-cols-[auto_1fr] gap-x-2.5 gap-y-0.5">
+			<dt class="text-[11px] text-text-tertiary">Latency 1h</dt>
+			<dd class="text-right text-[11px] tabular-nums text-text-secondary">
+				{fmtMs(hoveredEntry.latencyAvgMs)} avg · {fmtMs(hoveredEntry.latencyP90Ms)} p90
+			</dd>
+			<dt class="text-[11px] text-text-tertiary">Checked</dt>
+			<dd class="text-right text-[11px] text-text-secondary">
+				{fmtAgo(hoveredEntry.checkedAt)}{hoveredEntry.probeIntervalSeconds ? ` · every ${hoveredEntry.probeIntervalSeconds}s` : ''}
+			</dd>
+			<dt class="text-[11px] text-text-tertiary">Samples 1h</dt>
+			<dd class="text-right text-[11px] tabular-nums text-text-secondary">{hoveredEntry.samples1h ?? '—'}</dd>
+		</dl>
+	</div>
+{/if}
+
+<style>
+	.avail-dot {
+		display: inline-block;
+		flex: 0 0 auto;
+		width: 6px;
+		height: 6px;
+		border-radius: 999px;
+		background: var(--neutral-40);
+		margin-left: 2px;
+		cursor: help;
+	}
+	.avail-dot--available {
+		background: var(--success-500);
+		box-shadow: 0 0 0 3px color-mix(in srgb, var(--success-500) 14%, transparent);
+	}
+	.avail-dot--degraded {
+		background: var(--warning-500);
+		box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning-500) 16%, transparent);
+		animation: avail-pulse 1.8s ease-in-out infinite;
+	}
+	.avail-dot--outage {
+		background: var(--error-500);
+		box-shadow: 0 0 0 3px color-mix(in srgb, var(--error-500) 14%, transparent);
+	}
+	@keyframes avail-pulse {
+		0%, 100% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning-500) 16%, transparent); }
+		50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--warning-500) 8%, transparent); }
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.avail-dot--degraded { animation: none; }
+	}
+
+	.model-avail-card {
+		position: fixed;
+		z-index: 300;
+		width: 288px;
+		border-radius: 10px;
+		border: 1px solid var(--border-subtle);
+		background: var(--bg-surface);
+		box-shadow: 0 12px 32px -8px oklch(0% 0 0 / 0.55);
+		padding: 10px 12px;
+		font-size: 12px;
+		color: var(--text-secondary);
+		transition: opacity 0.12s ease, transform 0.12s ease;
+	}
+	.avail-rate--available { color: var(--success-500); }
+	.avail-rate--degraded { color: var(--warning-500); }
+	.avail-rate--outage { color: var(--error-500); }
+
+	.avail-bar {
+		flex: 1 1 0;
+		min-width: 1px;
+		border-radius: 1px 1px 0 0;
+		background: var(--neutral-60);
+		opacity: 0.85;
+	}
+	.avail-bar--operational { background: var(--success-500); }
+	.avail-bar--degraded { background: var(--warning-500); }
+	.avail-bar--outage { background: var(--error-500); }
+</style>

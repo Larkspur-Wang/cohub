@@ -47,6 +47,8 @@ export type AppConfig = {
   checkpointAssetOssBucket?: string;
   checkpointAssetOssAccessKeyId?: string;
   checkpointAssetOssSecretAccessKey?: string;
+  /** Router status probe API base URL, used to derive per-model availability. */
+  routerStatusUrl: string;
 };
 
 export type SandboxToleration = {
@@ -167,6 +169,7 @@ export const config: AppConfig = {
   checkpointAssetOssBucket: process.env.CHECKPOINT_ASSET_OSS_BUCKET ?? process.env.TURN_OBJECT_S3_BUCKET,
   checkpointAssetOssAccessKeyId: process.env.CHECKPOINT_ASSET_OSS_ACCESS_KEY_ID ?? process.env.TURN_OBJECT_S3_ACCESS_KEY_ID,
   checkpointAssetOssSecretAccessKey: process.env.CHECKPOINT_ASSET_OSS_SECRET_ACCESS_KEY ?? process.env.TURN_OBJECT_S3_SECRET_ACCESS_KEY,
+  routerStatusUrl: (process.env.ROUTER_STATUS_URL ?? "https://router-status.neta.art/api/v1/status").trim(),
 };
 
 export const sessionsNamespace = getSessionsNamespace(config.env);
