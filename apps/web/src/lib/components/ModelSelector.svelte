@@ -750,11 +750,6 @@ function rateToBarColor(rate: number | null | undefined): string {
 	return "#dc2626"; // red
 }
 
-/** Last 8h of history (32 × 15-min buckets). */
-const hoveredHistory8h = $derived(
-	hoveredEntry?.history ? hoveredEntry.history.slice(-32) : [],
-);
-
 // ── Hover card ───────────────────────────────────────────────────────────────
 
 function onDotMouseEnter(modelId: string, e: MouseEvent) {
@@ -804,6 +799,11 @@ const hoveredEntry = $derived(
 );
 const hoveredLevel = $derived(
 	hoveredModelId ? getAvailabilityLevel(hoveredModelId) : "available",
+);
+
+/** Last 8h of history (32 × 15-min buckets). */
+const hoveredHistory8h = $derived(
+	hoveredEntry?.history ? hoveredEntry.history.slice(-32) : [],
 );
 
 // Card width is fixed at 288px (see .model-avail-card). Estimate height for
