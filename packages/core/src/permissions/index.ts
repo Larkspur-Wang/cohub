@@ -139,6 +139,7 @@ export const ROLE_PERMISSIONS: Record<SpaceRole, ReadonlySet<Permission>> = {
     "references.view",
     "channel.view",
     "cronjob.view",
+    "cronjob.manage",
     "taskrun.view",
     "command.execute",
     "sandbox.view",
