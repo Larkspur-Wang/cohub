@@ -562,10 +562,11 @@ export type LabelAssignmentsUpdatedEvent = {
   domain: "label";
   type: "label.assignments.updated";
   requestId?: string | null;
-  spaceId: string;
+  /** Space room target; null for user-scoped label events (delivered to user room). */
+  spaceId: string | null;
   sessionId?: string | null;
   payload: {
-    resourceType: "session" | "checkpoint" | "file";
+    resourceType: "session" | "checkpoint" | "file" | "space";
     resourceRef: string;
     labels: unknown[];
     assignments: unknown[];

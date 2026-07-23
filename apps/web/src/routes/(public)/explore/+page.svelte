@@ -5,7 +5,6 @@ import {
 	GitFork,
 	Grid2X2,
 	LayoutList,
-	Pin,
 	Save,
 	Sparkles,
 } from "lucide-svelte";
@@ -66,7 +65,6 @@ function getPrimaryMeta(item: ExploreSpaceItem): string | null {
 function getSecondaryMeta(item: ExploreSpaceItem): string {
 	const signals = [
 		item.saveCount != null ? `${formatCount(item.saveCount)} saves` : null,
-		item.pinCount != null ? `${formatCount(item.pinCount)} pins` : null,
 		item.ownerDisplayName ? `by ${item.ownerDisplayName}` : null,
 	].filter(Boolean);
 	return signals.slice(0, 2).join(" · ") || item.accessLabel;
@@ -316,7 +314,6 @@ $effect(() => {
 															<p class="mt-3 max-w-3xl text-[13px] leading-6 text-text-tertiary sm:text-[14px]">{item.summary}</p>
 														{/if}
 														<div class="mt-4 flex flex-wrap items-center gap-2">
-															<span class="inline-flex items-center gap-1 rounded-full border border-border-subtle bg-bg-primary px-2.5 py-1 text-[11px] text-text-secondary"><Pin class="h-3.5 w-3.5 text-text-tertiary" /> {formatCount(item.pinCount)}</span>
 															<span class="inline-flex items-center gap-1 rounded-full border border-border-subtle bg-bg-primary px-2.5 py-1 text-[11px] text-text-secondary"><Save class="h-3.5 w-3.5 text-text-tertiary" /> {formatCount(item.saveCount)}</span>
 															<span class="inline-flex items-center gap-1 rounded-full border border-border-subtle bg-bg-primary px-2.5 py-1 text-[11px] text-text-secondary"><GitFork class="h-3.5 w-3.5 text-text-tertiary" /> {formatCount(item.forkCount)}</span>
 														</div>

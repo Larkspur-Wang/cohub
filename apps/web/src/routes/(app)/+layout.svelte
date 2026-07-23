@@ -36,6 +36,7 @@ import {
 	resolveMobileSessionNavTransition,
 } from "$lib/navigation-transition";
 import { authStore } from "$lib/stores/auth.svelte";
+import { initSpacePinRealtime } from "$lib/stores/space-pins.svelte";
 import { turnNotifications } from "$lib/stores/turn-notifications.svelte";
 import {
 	LEFT_SIDEBAR_MAX,
@@ -507,6 +508,7 @@ onMount(() => {
 		authReady = true;
 		scheduleCacheCleanup();
 		if (authStore.isAuthenticated) turnNotifications.start();
+		initSpacePinRealtime();
 	});
 
 	// Register PWA Service Worker (conservative update: closes all tabs to activate)

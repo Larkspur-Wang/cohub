@@ -49,7 +49,7 @@ import { fallbackBoundChannelHealth, getChannelHealthMap } from "../../channel-h
 import { createCronJob, enqueueTask } from "../../tasks.js";
 import { RUN_COMMAND_TASK_TYPE } from "@cohub/core/commands";
 import { sanitizePostgresJsonValue } from "@cohub/core/content/sanitize";
-import { assignLabelsToSession, parseLabelRefs, resolveLabelPaths, resolveOrCreateLabelPaths } from "@cohub/core/labels";
+import { assignLabelsToSession, getPinnedSpaceIds, parseLabelRefs, resolveLabelPaths, resolveOrCreateLabelPaths } from "@cohub/core/labels";
 import { assignSessionSourceSystemLabel } from "@cohub/core/labels/session-source";
 import { hasPermission, getSpaceMemberRole, filterSessionsByPermission, resolvePermissionAccess, asAccountIdentity } from "../../permissions.js";
 import { checkpoints } from "@cohub/db";
@@ -740,8 +740,13 @@ router.get("/", async (c) => {
     .orderBy(sql`${spaces.lastActivityAt} desc nulls last`, desc(spaces.createdAt));
 
   const items = await buildSpaceListItems(spaceList);
+  const pinnedSpaceIds = await getPinnedSpaceIds(db, identity.uuid);
+  const itemsWithPins = items.map((item) => ({
+    ...item,
+    isPinned: pinnedSpaceIds.has(item.id),
+  }));
   const workSession = getWorkSessionPrincipal(c);
-  return c.json(workSession ? items.map(stripSensitiveSpaceFields) : items);
+  return c.json(workSession ? itemsWithPins.map(stripSensitiveSpaceFields) : itemsWithPins);
 });
 
 router.get("/default", async (c) => {

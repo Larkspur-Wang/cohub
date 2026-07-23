@@ -706,6 +706,8 @@ export type SpaceRecord = {
   access?: SpaceAccess;
   accessLevel?: "minimal";
   ownerProfile?: Pick<UserProfile, "userUuid" | "username" | "displayName" | "avatarUrl"> | null;
+  /** Whether the viewer has pinned this space (only present in list responses). */
+  isPinned?: boolean;
 };
 
 export type SpaceBootstrapSource =
@@ -1295,7 +1297,7 @@ export type LabelScopeType = "space" | "user" | "org";
 
 export type LabelSource = "user" | "system";
 
-export type LabelResourceType = "session" | "checkpoint" | "file";
+export type LabelResourceType = "session" | "checkpoint" | "file" | "space";
 
 export type LabelRecord = {
   id: string;
@@ -1330,6 +1332,9 @@ export type LabelAssignmentRecord = {
   meta: Record<string, unknown> | null;
   createdAt: string | null;
   updatedAt: string | null;
+  /** Label metadata joined in user-scope assignment responses. */
+  labelSystemKey?: string | null;
+  labelName?: string;
 };
 
 export type LabelAssignmentListItem = LabelAssignmentRecord & {
@@ -1409,7 +1414,6 @@ export type ExploreSpaceItem = {
   category: string | null;
   tags: string[];
   saveCount: number;
-  pinCount: number;
   forkCount: number;
   updatedAt: string | null;
   accessLabel: "public" | "sign-in-required" | "unknown";

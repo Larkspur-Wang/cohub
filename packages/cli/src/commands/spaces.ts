@@ -435,15 +435,27 @@ export function registerSpaces(program: Command): void {
     .command("ls")
     .alias("list")
     .description("List all spaces")
+    .option("--mine", "Only spaces you own")
+    .option("--pinned", "Only pinned spaces")
     .option("--json", "Output as JSON")
-    .action(async (opts: { json?: boolean }) => {
+    .action(async (opts: { mine?: boolean; pinned?: boolean; json?: boolean }) => {
       const client = createClient();
       try {
-        const items = await client.spaces.list();
-        if (jsonRequested(opts)) return outJson(items);
-        table(items, [
+        const [items, me] = await Promise.all([
+          client.spaces.list(),
+          opts.mine ? client.user.getMe() : Promise.resolve(null),
+        ]);
+        const myUuid = me?.uuid ?? null;
+        const filtered = items.filter((item) => {
+          if (opts.mine && myUuid && item.userUuid !== myUuid) return false;
+          if (opts.pinned && !item.isPinned) return false;
+          return true;
+        });
+        if (jsonRequested(opts)) return outJson(filtered);
+        table(filtered, [
           { key: "id", label: "ID" },
           { key: "name", label: "Name" },
+          { key: "isPinned", label: "Pinned" },
           { key: "createdAt", label: "Created" },
         ]);
       } catch (e: unknown) {
@@ -661,6 +673,33 @@ export function registerSpaces(program: Command): void {
 
   // ── spaces labels ──
   registerLabels(spacesCmd);
+
+  // ── spaces pin / unpin (user-scope label convenience) ──
+  spacesCmd
+    .command("pin <id>")
+    .description("Pin a space (add the Pinned user label)")
+    .action(async (id: string) => {
+      const client = createClient();
+      try {
+        await client.user.labels.patchResourceLabels("space", id.trim(), { addLabelRefs: ["Pinned"] });
+        ok("Space pinned");
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
+  spacesCmd
+    .command("unpin <id>")
+    .description("Unpin a space (remove the Pinned user label)")
+    .action(async (id: string) => {
+      const client = createClient();
+      try {
+        await client.user.labels.patchResourceLabels("space", id.trim(), { removeLabelRefs: ["Pinned"] });
+        ok("Space unpinned");
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
 
   // ── spaces commerce ──
   registerSpaceCommerce(spacesCmd);
