@@ -6,15 +6,16 @@ All notable changes to Cohub are documented in this file.
 
 ## v1.110 — 2026-07-23
 
-- **Space pinning via user-scoped labels**: Replaced legacy space marks table with a unified user-scoped label system (`user:pinned`) powering space bookmarking across core services, REST API, SDK, CLI (`spaces pin/unpin`), and Web command palette with realtime sync.
-- **Model availability in selector**: Added live per-model status (operational, degraded, outage) driven by traffic metrics and probe heartbeats, backed by a Redis-cached `/models/status` API endpoint and hover cards with 8-hour heartbeat history.
-- **Thinking level presentation**: Refined thinking-level UX and indicator components across the session composer, message bubbles, and model catalog selector.
+- **User-scoped label system for space pinning**: Replaced legacy space marks with a unified user-scoped label architecture (`user:pinned`), extending space bookmarking across core services, REST APIs, SDK, CLI (`spaces pin/unpin`), realtime events, and UI components.
+- **Real-time model availability monitoring**: Introduced a slim Redis-cached `/api/models/status` endpoint aggregating probe telemetry and observed traffic metrics to display operational health dots and 8-hour heartbeat charts in the model selector.
+- **Command palette space picker & tab filtering**: Added space tab filters (All, Mine, Pinned) with preference persistence, paginated scroll loading for space selection, and keyboard shortcuts to toggle sidebars.
+- **Channel help and model management commands**: Introduced `/help` and `/models` channel commands to inspect model configurations, catalog options, and session status directly within gateway chat channels.
 
 ### Bug Fixes
 
-- Optimistically update command palette item state when toggling space pins to avoid UI latency.
-- Mount user label API routes under `/api/me` to match SDK endpoint expectations.
-- Prevent file preview URLs from unexpectedly reverting to previously active tabs on open.
+- Restored migrated user-scoped sidebar labels following schema transition.
+- Prevented file preview URLs from reverting to previously selected tabs when opened.
+- Optimistically update space pin states in command palette items to eliminate toggle latency.
 
 ## v1.109 — 2026-07-23
 
