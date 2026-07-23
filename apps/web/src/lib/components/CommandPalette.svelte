@@ -47,6 +47,18 @@ import {
 } from "$lib/stores/space-list-cache";
 import { toggleSpacePin } from "$lib/stores/space-pins.svelte";
 
+/** Immediately reflect pin state on rendered items after a toggle. */
+function syncPinStateInItems(spaceId: string, isPinned: boolean) {
+	const patch = (items: CommandPaletteItem[]) =>
+		items.map((item) =>
+			item.type === "space" && item.spaceId === spaceId
+				? { ...item, isPinned }
+				: item,
+		);
+	defaultItems = patch(defaultItems);
+	localItems = patch(localItems);
+}
+
 const MIN_QUERY_LENGTH = 2;
 const RESULT_LIMIT = 30;
 const DEBOUNCE_MS = 180;
@@ -864,7 +876,15 @@ onMount(() => {
 										class:pinned={item.isPinned}
 										title={item.isPinned ? "Unpin" : "Pin"}
 										aria-label={item.isPinned ? `Unpin ${item.title}` : `Pin ${item.title}`}
-										onclick={(e) => { e.stopPropagation(); void toggleSpacePin(item.spaceId).catch((err) => console.warn("[palette] pin toggle failed", err)); }}
+										onclick={(e) => {
+									e.stopPropagation();
+									const wasPinned = item.isPinned ?? false;
+									syncPinStateInItems(item.spaceId, !wasPinned);
+									void toggleSpacePin(item.spaceId).catch((err) => {
+										console.warn("[palette] pin toggle failed", err);
+										syncPinStateInItems(item.spaceId, wasPinned);
+									});
+								}}
 									>
 										<Pin class="h-3.5 w-3.5" />
 									</button>
