@@ -1164,12 +1164,7 @@ async function loadLabelsForSpace(spaceId: string, force = false) {
 			if (!isCurrentLoad()) return;
 			if (cached) {
 				applyLabels(cached.labels);
-				if (!cached.stale) {
-					// Restored expanded rows may have raced before the tree existed.
-					refreshExpandedLabelItems(spaceId);
-					return;
-				}
-				// Stale cache is already applied; refresh in the background.
+				// Cache drives first paint; always revalidate for cross-client changes.
 				refreshingLabels = true;
 				loadingLabels = false;
 			}
