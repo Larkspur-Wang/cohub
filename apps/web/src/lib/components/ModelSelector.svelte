@@ -801,8 +801,8 @@ const hoveredLevel = $derived(
 	hoveredModelId ? getAvailabilityLevel(hoveredModelId) : "available",
 );
 
-/** 8h heartbeats (2-min buckets) for the fine-grained bar chart. */
-const hoveredHeartbeats = $derived(hoveredEntry?.heartbeats8h ?? []);
+/** 24h history (96 × 15-min buckets) for the bar chart. */
+const hoveredHistory = $derived(hoveredEntry?.history ?? []);
 
 // Card width is fixed at 288px (see .model-avail-card). Estimate height for
 // flip-above calculation; we don't depend on hoverCardEl here to avoid a
@@ -1152,18 +1152,19 @@ const hoverCardPos = $derived.by(() => {
 		</div>
 		<div class="mt-0.5 font-mono text-[10px] text-text-tertiary">{hoveredModelId}</div>
 		<div class="my-2 h-px bg-border-subtle"></div>
-		<div class="mb-1 text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">Past 8 hours</div>
-		{#if hoveredHeartbeats.length}
+		<div class="mb-1 text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">Past 24 hours</div>
+		{#if hoveredHistory.length}
 			<div class="flex items-stretch gap-px h-[26px]">
-				{#each hoveredHeartbeats as rate}
+				{#each hoveredHistory as bucket}
 					<i
 						class="avail-bar"
-						style={`background:${rateToBarColor(rate)}`}
+						style={`background:${rateToBarColor(bucket.rate)}`}
+						title={`${new Date(bucket.t).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})} · ${fmtRate(bucket.rate)}${bucket.samples ? ` (${bucket.samples})` : ''}`}
 					></i>
 				{/each}
 			</div>
 			<div class="mt-1 flex justify-between text-[9px] text-text-tertiary">
-				<span>8h ago</span><span>now</span>
+				<span>24h ago</span><span>now</span>
 			</div>
 		{:else}
 			<div class="text-[11px] text-text-tertiary">No history</div>
