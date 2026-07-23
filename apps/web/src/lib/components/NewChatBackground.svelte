@@ -4,7 +4,7 @@ import NewChatWorkBackground from "$lib/components/NewChatWorkBackground.svelte"
 import { parseNewChatBackgroundAction } from "$lib/new-chat-background-bridge";
 import type { NewChatBackgroundConfig } from "$lib/space-config";
 import { emitSpaceConfigBackgroundAction } from "$lib/space-config";
-import { parseCohubWorkUrl } from "$lib/work-url";
+import { type CohubWorkUrl, parseCohubWorkUrl } from "$lib/work-url";
 
 type Props = {
 	background: NewChatBackgroundConfig;
@@ -23,11 +23,14 @@ function getBackgroundOrigin() {
 	}
 }
 
-const workUrl = $derived(
-	background.type === "html"
-		? parseCohubWorkUrl(background.url, page.url.href)
-		: null,
-);
+const workUrl = $derived.by((): CohubWorkUrl | null => {
+	if (background.type !== "html") return null;
+	// Derive from pathname only — query param changes (e.g. ?preview=) must not
+	// produce a new object identity and trigger a guide refetch.
+	const base = new URL(page.url.href);
+	base.search = "";
+	return parseCohubWorkUrl(background.url, base.href);
+});
 
 const sandbox = $derived.by(() => {
 	if (background.type !== "html" || workUrl) return undefined;

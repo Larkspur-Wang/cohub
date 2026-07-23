@@ -1485,6 +1485,8 @@ async function toggleFilesTree() {
 	await previewLayout.toggleTree();
 }
 
+let pendingPreviewUrl: string | null = null;
+
 function syncPreviewQuery(ref: WorkspacePreviewRef | null, replace = true) {
 	if (typeof window === "undefined") return;
 	const next = withPreviewParam(
@@ -1494,10 +1496,18 @@ function syncPreviewQuery(ref: WorkspacePreviewRef | null, replace = true) {
 	);
 	const current = `${window.location.pathname}${window.location.search}`;
 	if (next === current) return;
+	// Skip when a goto to the same URL is already in flight. openFile syncs
+	// before and after domain I/O; the re-assert goto would abort the first
+	// navigation (new nav_token) and the route-hydration effect can observe
+	// a stale page.data during the abort, reverting the URL to the old tab.
+	if (next === pendingPreviewUrl) return;
+	pendingPreviewUrl = next;
 	void goto(next, {
 		replaceState: replace,
 		noScroll: true,
 		keepFocus: true,
+	}).finally(() => {
+		if (pendingPreviewUrl === next) pendingPreviewUrl = null;
 	});
 }
 
