@@ -16,7 +16,9 @@ import {
 } from "$lib/format-usage";
 import {
 	findModelCatalogItem,
+	formatThinkingLevelShort,
 	getModelDisplayName,
+	getRequestedThinkingLevel,
 	type ModelCatalogItem,
 } from "$lib/model-catalog";
 import type { ChatMessage } from "$lib/session-tree";
@@ -256,6 +258,14 @@ const modelHoverText = $derived(
 		: "",
 );
 
+const requestedThinkingLevel = $derived(getRequestedThinkingLevel(turnMeta));
+
+const requestedThinkingLevelShort = $derived(
+	requestedThinkingLevel
+		? formatThinkingLevelShort(requestedThinkingLevel)
+		: "",
+);
+
 const hasDuration = $derived.by(() => {
 	const durationMs = message.meta?.durationMs;
 	return (
@@ -486,6 +496,12 @@ function handleCopy() {
           {#if modelDisplayName}
             <span class="min-w-0 truncate cursor-default" title={modelHoverText}>
               {modelDisplayName}
+            </span>
+          {/if}
+
+          {#if requestedThinkingLevel}
+            <span class="shrink-0 text-text-placeholder/65">
+              {requestedThinkingLevelShort}
             </span>
           {/if}
 

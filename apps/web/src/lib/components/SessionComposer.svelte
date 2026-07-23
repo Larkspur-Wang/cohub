@@ -180,15 +180,6 @@ const submitDisabled = $derived(
 const modelControlLabel = $derived(
 	currentModel?.name ?? currentModel?.id ?? "Model",
 );
-const modelControlTitle = $derived(
-	[
-		"Select model",
-		thinkingLevelLabel ? `Thinking: ${thinkingLevelLabel}` : null,
-		generationPolicyLabel ? `Generation: ${generationPolicyLabel}` : null,
-	]
-		.filter(Boolean)
-		.join(" · "),
-);
 const modelControlAriaLabel = $derived(
 	[
 		`Model ${modelControlLabel}`,
@@ -1382,34 +1373,35 @@ $effect(() => {
 									class="group flex h-7 max-w-[min(100%,17rem)] items-center gap-1 overflow-hidden rounded-full border border-border-subtle px-2 text-[11px] leading-none text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand/40 disabled:cursor-not-allowed disabled:opacity-50"
 									onclick={() => onModelSelect?.()}
 									disabled={disabled || sending}
-									title={modelControlTitle}
 									aria-label={modelControlAriaLabel}
 								>
-									<span class="min-w-0 shrink truncate text-text-tertiary group-hover:text-text-secondary">
-										{modelControlLabel}
+									<span class="flex min-w-0 flex-1 items-baseline gap-1 overflow-hidden">
+										<span class="min-w-0 shrink truncate text-text-tertiary group-hover:text-text-secondary">
+											{modelControlLabel}
+										</span>
+										{#if thinkingLevelLabel}
+											<span
+												class="flex min-w-0 max-w-[4.25rem] shrink-[3] items-baseline gap-0.5 text-[10px] leading-none text-text-placeholder/80 transition-colors group-hover:text-text-placeholder"
+												aria-hidden="true"
+											>
+												<span class="shrink-0 opacity-40">·</span>
+												<span class="min-w-0 truncate tracking-tight tabular-nums">
+													{thinkingLevelLabel}
+												</span>
+											</span>
+										{/if}
+										{#if generationPolicyLabel}
+											<span
+												class="flex min-w-0 max-w-[6.5rem] shrink-[4] items-baseline gap-0.5 text-[10px] leading-none text-text-placeholder/80 transition-colors group-hover:text-text-placeholder"
+												aria-hidden="true"
+											>
+												<span class="shrink-0 opacity-40">·</span>
+												<span class="min-w-0 truncate tracking-tight tabular-nums">
+													{generationPolicyLabel}
+												</span>
+											</span>
+										{/if}
 									</span>
-									{#if thinkingLevelLabel}
-										<span
-											class="flex min-w-0 max-w-[4.25rem] shrink-[3] items-center gap-0.5 text-[10px] leading-none text-text-placeholder/80 transition-colors group-hover:text-text-placeholder"
-											aria-hidden="true"
-										>
-											<span class="shrink-0 opacity-40">·</span>
-											<span class="min-w-0 truncate tracking-tight tabular-nums">
-												{thinkingLevelLabel}
-											</span>
-										</span>
-									{/if}
-									{#if generationPolicyLabel}
-										<span
-											class="flex min-w-0 max-w-[6.5rem] shrink-[4] items-center gap-0.5 text-[10px] leading-none text-text-placeholder/80 transition-colors group-hover:text-text-placeholder"
-											aria-hidden="true"
-										>
-											<span class="shrink-0 opacity-40">·</span>
-											<span class="min-w-0 truncate tracking-tight tabular-nums">
-												{generationPolicyLabel}
-											</span>
-										</span>
-									{/if}
 									<ChevronDown class="h-3 w-3 shrink-0 opacity-40 transition-opacity group-hover:opacity-65" />
 								</button>
 							{/if}

@@ -49,6 +49,7 @@ import {
 import { extractSpaceMentionsFromText } from "$lib/mentions/space";
 import {
 	formatThinkingLevelShort,
+	getRequestedThinkingLevel,
 	type ModelThinkingLevel,
 } from "$lib/model-catalog";
 import {
@@ -439,16 +440,13 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			name: catalogItem?.model.name as string | undefined,
 		} satisfies SelectedModel;
 	});
-	const activeSessionLastTurnThinkingLevel =
+	const activeSessionLastRequestedThinkingLevel =
 		$derived.by<ModelThinkingLevel | null>(() => {
-			// Only full turn records carry thinkingLevel (index items don't include meta).
-			const turns = [...(activeSessionState?.turns ?? [])]
-				.filter(
-					(turn) =>
-						typeof turn.thinkingLevel === "string" && turn.thinkingLevel.trim(),
-				)
-				.sort((a, b) => a.sequence - b.sequence);
-			return (turns.at(-1)?.thinkingLevel as ModelThinkingLevel | null) ?? null;
+			const lastPersistedTurn = [...(activeSessionState?.turns ?? [])]
+				.filter((turn) => asRecord(turn.meta)?.optimistic !== true)
+				.sort((a, b) => a.sequence - b.sequence)
+				.at(-1);
+			return getRequestedThinkingLevel(lastPersistedTurn?.meta);
 		});
 	const activeSessionModel = $derived.by(() => {
 		if (!activeSessionId) return draftSessionModel ?? firstCatalogModel;
@@ -458,16 +456,14 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			firstCatalogModel
 		);
 	});
+	// Explicit choices remain sticky across turns. Effective model defaults are
+	// never promoted into a request, and a pending null explicitly resets to default.
 	const activeSessionThinkingLevel = $derived.by<ModelThinkingLevel | null>(
 		() => {
 			if (!activeSessionId) return draftThinkingLevel;
-			// Pending override takes priority (one-shot, cleared after send),
-			// otherwise recover from the latest server turn.
-			return (
-				sessionThinkingLevelById[activeSessionId] ??
-				activeSessionLastTurnThinkingLevel ??
-				null
-			);
+			return Object.hasOwn(sessionThinkingLevelById, activeSessionId)
+				? (sessionThinkingLevelById[activeSessionId] ?? null)
+				: activeSessionLastRequestedThinkingLevel;
 		},
 	);
 	const activeGenerationState = $derived.by(() =>
@@ -3125,16 +3121,6 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			if (sendResult.mode !== "immediate") {
 				throw new Error("Expected immediate prompt response");
 			}
-			// Clear the one-shot pending thinking level override —
-			// subsequent sends should recover from the latest server turn.
-			if (sessionId) {
-				sessionThinkingLevelById = {
-					...sessionThinkingLevelById,
-					[sessionId]: null,
-				};
-			} else {
-				draftThinkingLevel = null;
-			}
 			// Prompt already accepted server-side. If we left the space, skip local
 			// adopt; other hosts / re-enter will load via WS or session fetch.
 			if (disposed || spaceId !== opSpaceId) {
@@ -3186,6 +3172,14 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 					},
 				};
 			}
+			// The accepted turn now owns the explicit request state. Clear the local
+			// override only after merging it to avoid briefly showing the older level.
+			if (sessionId) {
+				const nextThinkingLevels = { ...sessionThinkingLevelById };
+				delete nextThinkingLevels[sessionId];
+				sessionThinkingLevelById = nextThinkingLevels;
+			}
+			draftThinkingLevel = null;
 			if (sessionId && options.getConnectionState() !== "open") {
 				schedulePostSendRecoveryCheck(sessionId);
 			}

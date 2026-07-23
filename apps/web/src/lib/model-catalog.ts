@@ -13,6 +13,28 @@ export type ModelThinkingLevel =
 	| "xhigh"
 	| "max";
 
+const THINKING_LEVELS = new Set<ModelThinkingLevel>([
+	"off",
+	"minimal",
+	"low",
+	"medium",
+	"high",
+	"xhigh",
+	"max",
+]);
+
+/** Read only an explicitly requested level; effective defaults are intentionally ignored. */
+export function getRequestedThinkingLevel(
+	meta: unknown,
+): ModelThinkingLevel | null {
+	if (!meta || typeof meta !== "object" || Array.isArray(meta)) return null;
+	const value = (meta as Record<string, unknown>).requestedThinkingLevel;
+	return typeof value === "string" &&
+		THINKING_LEVELS.has(value as ModelThinkingLevel)
+		? (value as ModelThinkingLevel)
+		: null;
+}
+
 /** Compact labels for dense controls (composer, chips). */
 export function formatThinkingLevelShort(level: ModelThinkingLevel): string {
 	switch (level) {

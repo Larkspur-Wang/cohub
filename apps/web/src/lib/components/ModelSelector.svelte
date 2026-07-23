@@ -777,15 +777,15 @@ const selectedGenerationCount = $derived(selectedGenerationModels.size);
 								{/if}
 							</button>
 
-							<div class="flex shrink-0 flex-col items-end gap-1 pt-0.5">
-								<span class="max-w-[7.5rem] truncate text-[11px] text-text-tertiary/70">
+							<div class="flex shrink-0 flex-col items-end">
+								<span class="max-w-[7.5rem] truncate text-right text-[11px] leading-4 text-text-tertiary/70">
 									{item.provider}
 								</span>
 								{#if showThinking}
-									<div class="relative">
+									<div class="relative self-end">
 										<button
 											type="button"
-											class={`inline-flex min-h-[28px] items-center gap-1 rounded-md border px-1.5 text-[10px] leading-none transition-colors ${
+											class={`inline-flex h-5 items-center justify-end gap-1 rounded border px-1 text-[10px] leading-none transition-colors ${
 												thinkingOpen
 													? "border-border-subtle bg-bg-surface text-text-secondary"
 													: "border-transparent text-text-tertiary hover:border-border-subtle/80 hover:bg-bg-surface hover:text-text-secondary"
