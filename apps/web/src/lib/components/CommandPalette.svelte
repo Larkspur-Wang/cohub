@@ -45,6 +45,11 @@ import {
 	getCachedSpaceListMeta,
 	onSpaceListCacheUpdated,
 } from "$lib/stores/space-list-cache";
+import {
+	getCachedSpaceFilterPref,
+	type SpaceFilterPref,
+	setCachedSpaceFilterPref,
+} from "$lib/stores/space-picker-filter";
 import { toggleSpacePin } from "$lib/stores/space-pins.svelte";
 
 /** Immediately reflect pin state on rendered items after a toggle. */
@@ -118,7 +123,7 @@ let runPollTimer: number | null = null;
 
 // Space picker filter (All / Mine / Pinned) — shown when the palette operates
 // in space-selection mode (query starts with `a:` or intent is new-chat).
-type SpaceFilter = "all" | "mine" | "pinned";
+type SpaceFilter = SpaceFilterPref;
 let spaceFilter = $state<SpaceFilter>("all");
 
 // Pagination for Space Picker mode: load larger page sizes (e.g. 50 items per page)
@@ -361,7 +366,7 @@ function openPalette(detail?: OpenCommandPaletteDetail) {
 	placeholder = detail?.placeholder ?? DEFAULT_PLACEHOLDER;
 	query = detail?.query ?? "";
 	openIntent = detail?.intent ?? "navigate";
-	spaceFilter = "all";
+	spaceFilter = getCachedSpaceFilterPref();
 	forceSpaceRefreshForNextSearch = Boolean(detail?.refreshSpaces);
 	activeIndex = 0;
 	armPointerHover();
@@ -376,7 +381,7 @@ function closePalette() {
 	title = "Command search";
 	placeholder = DEFAULT_PLACEHOLDER;
 	openIntent = "navigate";
-	spaceFilter = "all";
+	spaceFilter = getCachedSpaceFilterPref();
 	activeIndex = 0;
 	settledItems = [];
 	refreshingSpaces = false;
@@ -792,7 +797,7 @@ onMount(() => {
 							class:active={spaceFilter === filter.key}
 							role="tab"
 							aria-selected={spaceFilter === filter.key}
-							onclick={() => { spaceFilter = filter.key as SpaceFilter; activeIndex = 0; }}
+							onclick={() => { spaceFilter = filter.key as SpaceFilter; setCachedSpaceFilterPref(filter.key as SpaceFilter); activeIndex = 0; }}
 						>{filter.label}</button>
 					{/each}
 				</div>
