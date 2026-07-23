@@ -36,7 +36,7 @@ router.route("/api/models", modelsRouter);
 router.route("/api/prompts", promptsRouter);
 router.route("/api/skills", skillsRouter);
 router.route("/api/me", meRouter);
-router.route("/api/me/labels", meLabelsRouter);
+router.route("/api/me", meLabelsRouter);
 router.route("/api/channels", channelsRouter);
 router.route("/api/spaces", spacesRouter);
 router.route("/api/sessions", sessionsRouter);
