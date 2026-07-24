@@ -1,44 +1,23 @@
 import { SPACE_CONFIG_PATH } from "@cohub/protocol";
 import { HttpError } from "@neta-art/cohub";
+import { sdk } from "$lib/sdk";
 import {
-	parseWorkspaceDefaultLayout,
+	type NewChatBackgroundConfig,
+	type NewChatComposerApplyPayload,
+	parseSpaceConfig,
+	type SpaceConfig,
 	type WorkspaceDefaultLayout,
 	type WorkspaceLayoutPresentation,
-} from "$lib/features/space/modules/workspace-default-layout";
-import { sdk } from "$lib/sdk";
+} from "$lib/space-config-parse";
 
-export type { WorkspaceDefaultLayout, WorkspaceLayoutPresentation };
-
-export type NewChatBackgroundConfig = {
-	type: "html" | "image" | "video";
-	url: string;
-	opacity: number;
-	fit: "cover" | "contain" | "fill";
-	position: string;
+export type {
+	NewChatBackgroundConfig,
+	NewChatComposerApplyPayload,
+	SpaceConfig,
+	WorkspaceDefaultLayout,
+	WorkspaceLayoutPresentation,
 };
-
-export type NewChatComposerApplyPayload = {
-	prompt?: string;
-	model?: {
-		provider: string;
-		id: string;
-	};
-	images?: Array<{
-		url: string;
-		name?: string;
-	}>;
-};
-
-export type SpaceConfig = {
-	ui?: {
-		newChat?: {
-			background?: NewChatBackgroundConfig;
-		};
-		workspace?: {
-			defaultLayout?: WorkspaceDefaultLayout;
-		};
-	};
-};
+export { parseSpaceConfig };
 
 type SpaceConfigListener = (config: SpaceConfig | null) => void;
 export type NewChatBackgroundActionListener = (
@@ -96,84 +75,6 @@ function clearRetryTimer() {
 function publish(config: SpaceConfig | null) {
 	activeConfig = config;
 	for (const listener of listeners) listener(config);
-}
-
-function parseBackgroundUrl(value: unknown) {
-	if (typeof value !== "string") return null;
-	const trimmed = value.trim();
-	if (trimmed.startsWith("/") && !trimmed.startsWith("//")) return trimmed;
-	try {
-		const url = new URL(trimmed);
-		return url.protocol === "https:" ? url.href : null;
-	} catch {
-		return null;
-	}
-}
-
-function parseOptionalNumber(
-	value: unknown,
-	fallback: number,
-	min: number,
-	max: number,
-) {
-	if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
-	return Math.min(max, Math.max(min, value));
-}
-
-function parseBackground(value: unknown): NewChatBackgroundConfig | undefined {
-	if (!value || typeof value !== "object") return undefined;
-	const record = value as Record<string, unknown>;
-	if (record.enabled === false) return undefined;
-	const url = parseBackgroundUrl(record.url);
-	if (!url) return undefined;
-	const type =
-		record.type === "image" || record.type === "video" || record.type === "html"
-			? record.type
-			: "html";
-	const fit =
-		record.fit === "contain" || record.fit === "fill" || record.fit === "cover"
-			? record.fit
-			: "cover";
-	return {
-		type,
-		url,
-		opacity: parseOptionalNumber(record.opacity, 1, 0, 1),
-		fit,
-		position: typeof record.position === "string" ? record.position : "center",
-	};
-}
-
-function parseSpaceConfig(raw: string): SpaceConfig | null {
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(raw);
-	} catch {
-		return null;
-	}
-	if (!parsed || typeof parsed !== "object") return null;
-	const record = parsed as Record<string, unknown>;
-	if (record.version !== undefined && record.version !== 1) return null;
-	const ui =
-		record.ui && typeof record.ui === "object"
-			? (record.ui as Record<string, unknown>)
-			: undefined;
-	const newChat =
-		ui?.newChat && typeof ui.newChat === "object"
-			? (ui.newChat as Record<string, unknown>)
-			: undefined;
-	const workspace =
-		ui?.workspace && typeof ui.workspace === "object"
-			? (ui.workspace as Record<string, unknown>)
-			: undefined;
-	const background = parseBackground(newChat?.background);
-	const defaultLayout = parseWorkspaceDefaultLayout(workspace?.defaultLayout);
-	const next: SpaceConfig = {};
-	if (background || defaultLayout) {
-		next.ui = {};
-		if (background) next.ui.newChat = { background };
-		if (defaultLayout) next.ui.workspace = { defaultLayout };
-	}
-	return next;
 }
 
 function scheduleRetry(

@@ -32,6 +32,7 @@ let {
 	newChatProfile,
 	shouldShowNewChatBackground = false,
 	newChatBackground = null,
+	newChatBackgroundSpaceId = null,
 	shouldShowNewChatProfile = false,
 	newChatProfileExpanded = false,
 	newChatProfileViewportEl = $bindable(),
@@ -40,6 +41,7 @@ let {
 	newChatProfile?: Snippet;
 	shouldShowNewChatBackground?: boolean;
 	newChatBackground?: NewChatBackgroundConfig | null;
+	newChatBackgroundSpaceId?: string | null;
 	shouldShowNewChatProfile?: boolean;
 	newChatProfileExpanded?: boolean;
 	newChatProfileViewportEl?: HTMLDivElement | null;
@@ -289,7 +291,7 @@ async function handleDraftDrop(event: DragEvent) {
 			onOpenGenerationMedia={host.handleOpenGenerationTaskMedia}
 		/>
 		{#if shouldShowNewChatBackground && newChatBackground}
-			<NewChatBackground background={newChatBackground} />
+			<NewChatBackground background={newChatBackground} spaceId={newChatBackgroundSpaceId} />
 			<div class="relative z-10 flex-1 min-h-0 pointer-events-none"></div>
 		{:else if shouldShowNewChatProfile}
 			<div

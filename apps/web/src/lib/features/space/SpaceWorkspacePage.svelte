@@ -2559,6 +2559,7 @@ const headerActions = {
         host={sessionChat}
         {shouldShowNewChatBackground}
         {newChatBackground}
+        newChatBackgroundSpaceId={spaceId}
         {shouldShowNewChatProfile}
         {newChatProfileExpanded}
         bind:newChatProfileViewportEl
