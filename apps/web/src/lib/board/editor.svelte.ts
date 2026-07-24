@@ -1,4 +1,4 @@
-import type { BoardSemanticOp } from "@neta-art/cohub";
+import type { BoardOperation } from "@neta-art/cohub";
 import { untrack } from "svelte";
 import { createCommitQueue } from "$lib/board/board-commit-queue";
 import {
@@ -217,7 +217,7 @@ export type BoardEditorOptions = {
 	key?: string;
 	onCommit: (
 		document: BoardDocument,
-		ops: BoardSemanticOp[],
+		ops: BoardOperation[],
 	) => void | Promise<void>;
 	onViewStateChange?: (state: BoardViewState) => void;
 };
@@ -262,8 +262,8 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		width: 0,
 		height: 0,
 	});
-	let undoStack = $state<BoardSemanticOp[][]>([]);
-	let redoStack = $state<BoardSemanticOp[][]>([]);
+	let undoStack = $state<BoardOperation[][]>([]);
+	let redoStack = $state<BoardOperation[][]>([]);
 	let localRev = $state(0);
 	let committedRev = $state(0);
 	let draftId = $state<string | null>(null);

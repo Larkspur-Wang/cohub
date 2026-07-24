@@ -6,6 +6,7 @@ import type { SessionTurnSummary } from "../model/turn.js";
 import type { TaskRunStatus } from "../task/index.js";
 import type { SpaceFsChangedPayload } from "../fs/index.js";
 import type { SpacePortsChangedPayload } from "../ports/index.js";
+import type { BoardOperation, BoardPlaybackSnapshot } from "../board.js";
 
 export const WS_COMPACT_STREAM_CAPABILITY = "session.compact_stream.v1";
 export const WS_ROOM_SUBSCRIPTION_CAPABILITY = "realtime.rooms.v1";
@@ -43,7 +44,6 @@ export type WsClientEvent =
   | { type: "subscribe"; requestId?: string; payload: { rooms: string[] } }
   | { type: "unsubscribe"; requestId?: string; payload: { rooms: string[] } }
   | { type: "session.message.create"; requestId?: string; payload: { spaceId: string; sessionId: string; clientMessageId?: string; content: ContentBlock[]; model?: string; provider?: string; thinkingLevel?: ModelThinkingLevel } }
-  | { type: "board.tx"; requestId?: string; payload: { spaceId: string; documentId: string; txId: string; baseVersion?: number | null; clientId?: string | null; undoGroupId?: string | null; ops: Array<Record<string, unknown>> } }
   | { type: "presence.update"; requestId?: string; payload: { spaceId: string; meta?: Record<string, unknown> | null } }
   | { type: "ping"; requestId?: string; payload?: Record<string, unknown> }
   | { type: "ack"; requestId?: string; payload?: { eventId?: string } };
@@ -472,47 +472,28 @@ export type BoardTransactionAppliedEvent = {
   id: string;
   timestamp: number;
   domain: "space";
-  type: "board.tx.applied";
+  type: "board.transaction.applied";
   requestId?: string | null;
   spaceId: string;
   sessionId?: string | null;
   payload: {
-    documentId: string;
+    boardId: string;
     actorId: string;
     txId: string;
     version: number;
-    ops: Array<Record<string, unknown>>;
+    operations: BoardOperation[];
   };
 };
 
-export type BoardTransactionAckEvent = {
+export type BoardPlaybackChangedEvent = {
   id: string;
   timestamp: number;
   domain: "space";
-  type: "board.tx.ack";
+  type: "board.playback.changed";
   requestId?: string | null;
   spaceId: string;
   sessionId?: string | null;
-  payload: {
-    documentId: string;
-    txId: string;
-    version: number;
-  };
-};
-
-export type BoardTransactionErrorEvent = {
-  id: string;
-  timestamp: number;
-  domain: "space";
-  type: "board.tx.error";
-  requestId?: string | null;
-  spaceId?: string | null;
-  sessionId?: string | null;
-  payload: {
-    documentId?: string | null;
-    txId?: string | null;
-    message: string;
-  };
+  payload: BoardPlaybackSnapshot;
 };
 
 export type RealtimeTaskRecord = {
@@ -599,8 +580,7 @@ export type RealtimeServerEvent =
   | SpacePortsChangedEvent
   | SpacePresenceUpdatedEvent
   | BoardTransactionAppliedEvent
-  | BoardTransactionAckEvent
-  | BoardTransactionErrorEvent
+  | BoardPlaybackChangedEvent
   | TaskCreatedEvent
   | TaskUpdatedEvent
   | LabelAssignmentsUpdatedEvent;

@@ -401,32 +401,6 @@ export class WebsocketClient {
     }
   }
 
-  async sendBoardTransaction(input: {
-    spaceId: string;
-    documentId: string;
-    txId: string;
-    ops: Array<Record<string, unknown>>;
-    baseVersion?: number | null;
-    clientId?: string | null;
-    undoGroupId?: string | null;
-    requestId?: string;
-  }) {
-    await this.ensureOpen();
-    this.send({
-      type: "board.tx",
-      requestId: input.requestId,
-      payload: {
-        spaceId: input.spaceId,
-        documentId: input.documentId,
-        txId: input.txId,
-        baseVersion: input.baseVersion ?? null,
-        clientId: input.clientId ?? null,
-        undoGroupId: input.undoGroupId ?? null,
-        ops: input.ops,
-      },
-    });
-  }
-
   async updatePresence(input: {
     spaceId: string;
     meta?: Record<string, unknown> | null;

@@ -1,169 +1,581 @@
-import { and, eq, isNull } from "drizzle-orm";
-import { boardDocuments, boardNodes, boardUpdates } from "@cohub/db";
+import { and, eq, gt, isNull, lt, sql } from "drizzle-orm";
+import {
+  boardClips,
+  boardEffects,
+  boardNodes,
+  boardOperations,
+  boardPlaybackStates,
+  boardSequences,
+  boardTransactions,
+  boards,
+} from "@cohub/db";
+import type {
+  BoardAssetRef,
+  BoardBootstrap,
+  BoardCapabilities,
+  BoardClip,
+  BoardEffect,
+  BoardInspectInput,
+  BoardOperation,
+  BoardPlaybackCommand,
+  BoardPlaybackSnapshot,
+  BoardSequence,
+  BoardTarget,
+  BoardValidationResult,
+} from "@cohub/protocol";
+import {
+  BOARD_BUILTIN_CAPABILITIES,
+  DEFAULT_BOARD_RENDER_LIMITS,
+} from "@cohub/protocol";
 import { db } from "./db/index.js";
-import { dispatchBoardTransactionApplied } from "./board-events.js";
+import { dispatchBoardPlaybackChanged, dispatchBoardTransactionApplied } from "./board-events.js";
 import {
   BoardServiceError,
-  normalizeBoardOps,
-  type normalizeNode,
-  type BoardSemanticOp,
-  type NormalizedPatch,
+  contextualValidation,
+  normalizeBoardTransaction,
+  type BoardValidationContext,
+  type NormalizedNodePatch,
+  ZERO_BOARD_COST,
 } from "./board-ops.js";
 
 export * from "./board-ops.js";
 
+const BOARD_CAPABILITIES: BoardCapabilities = {
+  protocolVersion: 1,
+  capabilities: BOARD_BUILTIN_CAPABILITIES,
+  limits: DEFAULT_BOARD_RENDER_LIMITS,
+};
+
+function dateString(value: Date | null | undefined): string | null {
+  return value?.toISOString() ?? null;
+}
+
+function effectFromRow(row: typeof boardEffects.$inferSelect): BoardEffect {
+  return {
+    id: row.id,
+    boardId: row.boardId,
+    target: row.targetType === "node" && row.targetId
+      ? { type: "node", nodeId: row.targetId }
+      : { type: "board" },
+    kind: row.kind,
+    kindVersion: row.kindVersion,
+    enabled: row.enabled,
+    lifecycle: row.lifecycle as BoardEffect["lifecycle"],
+    timeOrigin: row.timeOrigin as BoardEffect["timeOrigin"],
+    layer: row.layer as BoardEffect["layer"],
+    seed: row.seed,
+    params: row.params,
+    assetRefs: row.assetRefs as BoardAssetRef[],
+    metadata: row.metadata,
+    revision: row.revision,
+  };
+}
+
+function sequenceFromRow(row: typeof boardSequences.$inferSelect): BoardSequence {
+  return {
+    id: row.id,
+    boardId: row.boardId,
+    name: row.name,
+    duration: row.duration,
+    seed: row.seed,
+    restPose: row.restPose,
+    metadata: row.metadata,
+    revision: row.revision,
+  };
+}
+
+function clipFromRow(row: typeof boardClips.$inferSelect): BoardClip {
+  return {
+    id: row.id,
+    sequenceId: row.sequenceId,
+    kind: row.kind,
+    kindVersion: row.kindVersion,
+    target: row.target as BoardTarget,
+    start: row.start,
+    duration: row.duration,
+    layer: row.layer as BoardClip["layer"],
+    fill: row.fill as BoardClip["fill"],
+    easing: row.easing,
+    params: row.params,
+    keyframes: row.keyframes as BoardClip["keyframes"],
+    assetRefs: row.assetRefs as BoardAssetRef[],
+    seed: row.seed,
+    metadata: row.metadata,
+  };
+}
+
+function playbackFromRow(row: typeof boardPlaybackStates.$inferSelect): BoardPlaybackSnapshot {
+  return {
+    boardId: row.boardId,
+    playbackId: row.playbackId,
+    sequenceId: row.sequenceId,
+    sequenceRevision: row.sequenceRevision,
+    playbackRevision: row.playbackRevision,
+    status: row.status as BoardPlaybackSnapshot["status"],
+    position: row.position,
+    effectiveAt: row.effectiveAt.getTime(),
+    timeScale: row.timeScale,
+    seed: row.seed,
+  };
+}
+
+export async function inspectBoard(
+  spaceId: string,
+  boardId: string,
+  input: BoardInspectInput = {},
+): Promise<BoardBootstrap> {
+  const [board] = await db.select().from(boards).where(and(eq(boards.id, boardId), eq(boards.spaceId, spaceId))).limit(1);
+  if (!board) throw new BoardServiceError(404, "board not found", "BOARD_NOT_FOUND");
+  const included = input.include ? new Set(input.include) : null;
+  const wants = (section: NonNullable<BoardInspectInput["include"]>[number]) => !included || included.has(section);
+  const viewport = input.viewport;
+  const nodeWhere = viewport
+    ? and(
+        eq(boardNodes.boardId, boardId),
+        isNull(boardNodes.deletedAt),
+        lt(boardNodes.x, viewport.x + viewport.width),
+        gt(sql<number>`${boardNodes.x} + ${boardNodes.width}`, viewport.x),
+        lt(boardNodes.y, viewport.y + viewport.height),
+        gt(sql<number>`${boardNodes.y} + ${boardNodes.height}`, viewport.y),
+      )
+    : and(eq(boardNodes.boardId, boardId), isNull(boardNodes.deletedAt));
+  const [nodes, effects, sequences, clips, playback] = await Promise.all([
+    wants("nodes") ? db.select().from(boardNodes).where(nodeWhere).orderBy(boardNodes.orderKey) : Promise.resolve([]),
+    wants("effects") ? db.select().from(boardEffects).where(eq(boardEffects.boardId, boardId)) : Promise.resolve([]),
+    wants("sequences") ? db.select().from(boardSequences).where(eq(boardSequences.boardId, boardId)) : Promise.resolve([]),
+    wants("clips") ? db.select().from(boardClips).where(eq(boardClips.boardId, boardId)).orderBy(boardClips.sequenceId, boardClips.start) : Promise.resolve([]),
+    wants("playback") ? db.select().from(boardPlaybackStates).where(eq(boardPlaybackStates.boardId, boardId)).limit(1) : Promise.resolve([]),
+  ]);
+  return {
+    board: {
+      id: board.id,
+      spaceId: board.spaceId,
+      title: board.title,
+      version: board.version,
+      metadata: board.metadata,
+      createdAt: dateString(board.createdAt),
+      updatedAt: dateString(board.updatedAt),
+    },
+    nodes: nodes.map(({ deletedAt: _deletedAt, ...node }) => ({
+      ...node,
+      createdAt: dateString(node.createdAt),
+      updatedAt: dateString(node.updatedAt),
+    })),
+    effects: effects.map(effectFromRow),
+    sequences: sequences.map(sequenceFromRow),
+    clips: clips.map(clipFromRow),
+    playback: playback[0] ? playbackFromRow(playback[0]) : null,
+  };
+}
+
+export async function getBoardCapabilities(spaceId: string, boardId: string): Promise<BoardCapabilities> {
+  const [board] = await db.select({ id: boards.id }).from(boards).where(and(eq(boards.id, boardId), eq(boards.spaceId, spaceId))).limit(1);
+  if (!board) throw new BoardServiceError(404, "board not found", "BOARD_NOT_FOUND");
+  return BOARD_CAPABILITIES;
+}
+
+function createValidationContext(input: {
+  boardVersion: number;
+  nodes: Array<{ nodeId: string }>;
+  effects: Array<typeof boardEffects.$inferSelect>;
+  sequences: Array<typeof boardSequences.$inferSelect>;
+  clips: Array<typeof boardClips.$inferSelect>;
+}): BoardValidationContext {
+  const clipsBySequence = new Map<string, BoardClip[]>();
+  for (const clip of input.clips) {
+    const list = clipsBySequence.get(clip.sequenceId) ?? [];
+    list.push(clipFromRow(clip));
+    clipsBySequence.set(clip.sequenceId, list);
+  }
+  return {
+    boardVersion: input.boardVersion,
+    nodeIds: input.nodes.map((node) => node.nodeId),
+    effects: input.effects.map(effectFromRow),
+    sequences: input.sequences.map((sequence) => ({
+      id: sequence.id,
+      clips: clipsBySequence.get(sequence.id) ?? [],
+    })),
+  };
+}
+
+export async function validateBoardTransaction(input: {
+  spaceId: string;
+  value: unknown;
+}): Promise<BoardValidationResult> {
+  const transaction = normalizeBoardTransaction(input.value);
+  const [board] = await db.select({ id: boards.id, version: boards.version }).from(boards)
+    .where(and(eq(boards.id, transaction.boardId), eq(boards.spaceId, input.spaceId))).limit(1);
+  if (!board) throw new BoardServiceError(404, "board not found", "BOARD_NOT_FOUND");
+  const [nodes, effects, sequences, clips] = await Promise.all([
+    db.select({ nodeId: boardNodes.nodeId }).from(boardNodes).where(and(eq(boardNodes.boardId, board.id), isNull(boardNodes.deletedAt))),
+    db.select().from(boardEffects).where(eq(boardEffects.boardId, board.id)),
+    db.select().from(boardSequences).where(eq(boardSequences.boardId, board.id)),
+    db.select().from(boardClips).where(eq(boardClips.boardId, board.id)),
+  ]);
+  return contextualValidation(transaction, createValidationContext({
+    boardVersion: board.version,
+    nodes,
+    effects,
+    sequences,
+    clips,
+  }));
+}
+
+function effectValues(boardId: string, effect: BoardOperation & { type: "effect.upsert" }, revision: number, now: Date) {
+  const value = effect.payload.effect;
+  return {
+    id: value.id,
+    boardId,
+    targetType: value.target.type,
+    targetId: value.target.type === "node" ? value.target.nodeId : null,
+    kind: value.kind,
+    kindVersion: value.kindVersion,
+    enabled: value.enabled,
+    lifecycle: value.lifecycle,
+    timeOrigin: value.timeOrigin,
+    layer: value.layer,
+    seed: value.seed,
+    params: value.params,
+    assetRefs: value.assetRefs,
+    metadata: value.metadata,
+    revision,
+    updatedAt: now,
+  };
+}
+
+function clipValues(boardId: string, sequenceId: string, clip: BoardClip) {
+  return {
+    id: clip.id,
+    boardId,
+    sequenceId,
+    kind: clip.kind,
+    kindVersion: clip.kindVersion,
+    target: clip.target,
+    start: clip.start,
+    duration: clip.duration,
+    layer: clip.layer,
+    fill: clip.fill,
+    easing: clip.easing,
+    params: clip.params,
+    keyframes: clip.keyframes,
+    assetRefs: clip.assetRefs,
+    seed: clip.seed,
+    metadata: clip.metadata,
+  };
+}
+
+async function assertNodeTarget(tx: Parameters<Parameters<typeof db.transaction>[0]>[0], boardId: string, target: BoardTarget): Promise<void> {
+  if (target.type !== "node") return;
+  const [node] = await tx.select({ nodeId: boardNodes.nodeId }).from(boardNodes)
+    .where(and(eq(boardNodes.boardId, boardId), eq(boardNodes.nodeId, target.nodeId), isNull(boardNodes.deletedAt))).limit(1);
+  if (!node) throw new BoardServiceError(400, `target node does not exist: ${target.nodeId}`, "INVALID_REFERENCE");
+}
+
 export async function applyBoardTransaction(input: {
   spaceId: string;
-  documentId: string;
   actorId: string;
-  txId: string;
-  baseVersion?: number | null;
-  clientId?: string | null;
-  undoGroupId?: string | null;
-  ops: BoardSemanticOp[];
+  transaction: unknown;
   broadcast?: boolean;
-}) {
-  const normalizedOps = normalizeBoardOps(input.ops);
+}): Promise<BoardBootstrap> {
+  const transaction = normalizeBoardTransaction(input.transaction);
   const now = new Date();
   const result = await db.transaction(async (tx) => {
-    const [document] = await tx
-      .select()
-      .from(boardDocuments)
-      .where(and(eq(boardDocuments.id, input.documentId), eq(boardDocuments.spaceId, input.spaceId), isNull(boardDocuments.deletedAt)))
-      .for("update")
-      .limit(1);
-    if (!document) throw new BoardServiceError(404, "board not found");
+    const [board] = await tx.select().from(boards)
+      .where(and(eq(boards.id, transaction.boardId), eq(boards.spaceId, input.spaceId))).for("update").limit(1);
+    if (!board) throw new BoardServiceError(404, "board not found", "BOARD_NOT_FOUND");
 
-    // Idempotency via the partial unique index on (document_id, tx_id). Checked
-    // before the version guard so a retried tx (stale baseVersion) still resolves
-    // as success rather than a spurious 409. After migration, tx_id is always set
-    // for new rows and the index is used directly — no JSON fallback.
-    const [existing] = await tx
-      .select({ version: boardUpdates.version, payload: boardUpdates.payload })
-      .from(boardUpdates)
-      .where(and(eq(boardUpdates.documentId, input.documentId), eq(boardUpdates.txId, input.txId)))
-      .limit(1);
-    if (existing) {
-      const nodes = await tx.select().from(boardNodes).where(and(eq(boardNodes.documentId, input.documentId), isNull(boardNodes.deletedAt))).orderBy(boardNodes.orderKey);
-      const existingOps = Array.isArray(existing.payload.ops) ? existing.payload.ops as BoardSemanticOp[] : normalizedOps;
-      return { document, nodes, version: document.version, ops: existingOps, idempotent: true };
+    const [existing] = await tx.select({ resultVersion: boardTransactions.resultVersion })
+      .from(boardTransactions)
+      .where(and(eq(boardTransactions.boardId, transaction.boardId), eq(boardTransactions.txId, transaction.txId))).limit(1);
+    if (existing) return { idempotent: true, version: existing.resultVersion, playback: null };
+
+    const [validationNodes, validationEffects, validationSequences, validationClips] = await Promise.all([
+      tx.select({ nodeId: boardNodes.nodeId }).from(boardNodes).where(and(eq(boardNodes.boardId, board.id), isNull(boardNodes.deletedAt))),
+      tx.select().from(boardEffects).where(eq(boardEffects.boardId, board.id)),
+      tx.select().from(boardSequences).where(eq(boardSequences.boardId, board.id)),
+      tx.select().from(boardClips).where(eq(boardClips.boardId, board.id)),
+    ]);
+    const validation = contextualValidation(transaction, createValidationContext({
+      boardVersion: board.version,
+      nodes: validationNodes,
+      effects: validationEffects,
+      sequences: validationSequences,
+      clips: validationClips,
+    }));
+    const validationError = validation.diagnostics.find((diagnostic) => diagnostic.severity === "error");
+    if (validationError) {
+      const conflict = validationError.code === "VERSION_CONFLICT" || validationError.code.endsWith("_EXISTS") || validationError.code.endsWith("_REFERENCED");
+      const status = conflict ? 409 : validationError.code.endsWith("_NOT_FOUND") ? 404 : 400;
+      throw new BoardServiceError(status, validationError.message, validationError.code);
     }
 
-    if (input.baseVersion != null && input.baseVersion !== document.version) {
-      throw new BoardServiceError(409, "board version conflict");
-    }
-    const nextVersion = document.version + 1;
-    const effectiveOps: BoardSemanticOp[] = [];
-    let documentMeta = document.meta;
+    const nextVersion = board.version + 1;
+    const operationRows: Array<{ type: string; payload: Record<string, unknown>; inverse: Record<string, unknown> | null }> = [];
+    let title = board.title;
+    let metadata = board.metadata;
+    let playback: BoardPlaybackSnapshot | null = null;
 
-    for (const op of normalizedOps) {
-      if (op.type === "document.patch") {
-        const meta = (op.payload as { patch: { meta: Record<string, unknown> | null } }).patch.meta;
-        effectiveOps.push({ ...op, inverse: { meta: documentMeta ?? null } });
-        documentMeta = meta;
+    for (const operation of transaction.operations) {
+      if (operation.type === "board.patch") {
+        operationRows.push({ type: operation.type, payload: operation.payload, inverse: { patch: { title, metadata } } });
+        title = operation.payload.patch.title ?? title;
+        metadata = operation.payload.patch.metadata ?? metadata;
         continue;
       }
-      if (op.type === "node.create") {
-        const node = (op.payload as { node: ReturnType<typeof normalizeNode> }).node;
-        await tx.insert(boardNodes).values({
-          documentId: input.documentId,
-          nodeId: node.nodeId,
-          type: node.type,
-          parentId: node.parentId,
-          orderKey: node.orderKey,
-          x: node.x,
-          y: node.y,
-          width: node.width,
-          height: node.height,
-          rotation: node.rotation,
-          refKind: node.refKind,
-          refPath: node.refPath,
-          refUrl: node.refUrl,
-          view: node.view,
-          style: node.style,
-          animation: node.animation,
-          data: node.data,
-          version: nextVersion,
-          createdAt: now,
-          updatedAt: now,
-          deletedAt: null,
-        }).onConflictDoUpdate({
-          target: [boardNodes.documentId, boardNodes.nodeId],
-          set: {
-            type: node.type,
-            parentId: node.parentId,
-            orderKey: node.orderKey,
-            x: node.x,
-            y: node.y,
-            width: node.width,
-            height: node.height,
-            rotation: node.rotation,
-            refKind: node.refKind,
-            refPath: node.refPath,
-            refUrl: node.refUrl,
-            view: node.view,
-            style: node.style,
-            animation: node.animation,
-            data: node.data,
-            version: nextVersion,
-            updatedAt: now,
-            deletedAt: null,
-          },
+      if (operation.type === "node.create") {
+        const node = operation.payload.node;
+        const [exists] = await tx.select({ nodeId: boardNodes.nodeId }).from(boardNodes)
+          .where(and(eq(boardNodes.boardId, transaction.boardId), eq(boardNodes.nodeId, node.nodeId))).limit(1);
+        if (exists) throw new BoardServiceError(409, `node already exists: ${node.nodeId}`, "NODE_EXISTS");
+        if (node.parentId) await assertNodeTarget(tx, transaction.boardId, { type: "node", nodeId: node.parentId });
+        await tx.insert(boardNodes).values({ ...node, boardId: transaction.boardId, version: nextVersion, createdAt: now, updatedAt: now });
+        operationRows.push({ type: operation.type, payload: operation.payload, inverse: { type: "node.delete", payload: { nodeId: node.nodeId } } });
+        continue;
+      }
+      if (operation.type === "node.patch") {
+        const [previous] = await tx.select().from(boardNodes)
+          .where(and(eq(boardNodes.boardId, transaction.boardId), eq(boardNodes.nodeId, operation.payload.nodeId), isNull(boardNodes.deletedAt))).limit(1);
+        if (!previous) throw new BoardServiceError(404, "board node not found", "NODE_NOT_FOUND");
+        const patch = operation.payload.patch as NormalizedNodePatch;
+        if (patch.parentId) await assertNodeTarget(tx, transaction.boardId, { type: "node", nodeId: patch.parentId });
+        await tx.update(boardNodes).set({ ...patch, version: nextVersion, updatedAt: now })
+          .where(and(eq(boardNodes.boardId, transaction.boardId), eq(boardNodes.nodeId, operation.payload.nodeId)));
+        const inversePatch: Record<string, unknown> = {};
+        for (const key of Object.keys(patch)) inversePatch[key] = previous[key as keyof typeof previous];
+        operationRows.push({ type: operation.type, payload: operation.payload, inverse: { type: "node.patch", payload: { nodeId: operation.payload.nodeId, patch: inversePatch } } });
+        continue;
+      }
+      if (operation.type === "node.delete") {
+        const [dependentEffect] = await tx.select({ id: boardEffects.id }).from(boardEffects)
+          .where(and(eq(boardEffects.boardId, transaction.boardId), eq(boardEffects.targetType, "node"), eq(boardEffects.targetId, operation.payload.nodeId))).limit(1);
+        if (dependentEffect) throw new BoardServiceError(409, "delete node effects before deleting the node", "NODE_REFERENCED");
+        const referencingClips = await tx.select({ target: boardClips.target }).from(boardClips)
+          .where(eq(boardClips.boardId, transaction.boardId));
+        if (referencingClips.some(({ target }) => {
+          const value = target as BoardTarget;
+          return value.type === "node" && value.nodeId === operation.payload.nodeId;
+        })) {
+          throw new BoardServiceError(409, "delete node clips before deleting the node", "NODE_REFERENCED");
+        }
+        const [deleted] = await tx.delete(boardNodes).where(and(
+          eq(boardNodes.boardId, transaction.boardId),
+          eq(boardNodes.nodeId, operation.payload.nodeId),
+          isNull(boardNodes.deletedAt),
+        )).returning();
+        if (!deleted) throw new BoardServiceError(404, "board node not found", "NODE_NOT_FOUND");
+        const { boardId: _boardId, version: _version, createdAt: _createdAt, updatedAt: _updatedAt, deletedAt: _deletedAt, ...node } = deleted;
+        operationRows.push({ type: operation.type, payload: operation.payload, inverse: { type: "node.create", payload: { node } } });
+        continue;
+      }
+      if (operation.type === "effect.upsert") {
+        await assertNodeTarget(tx, transaction.boardId, operation.payload.effect.target);
+        const [previous] = await tx.select().from(boardEffects)
+          .where(and(eq(boardEffects.boardId, transaction.boardId), eq(boardEffects.id, operation.payload.effect.id))).limit(1);
+        const values = effectValues(transaction.boardId, operation, (previous?.revision ?? -1) + 1, now);
+        await tx.insert(boardEffects).values({ ...values, createdAt: previous?.createdAt ?? now })
+          .onConflictDoUpdate({ target: [boardEffects.boardId, boardEffects.id], set: values });
+        operationRows.push({
+          type: operation.type,
+          payload: operation.payload,
+          inverse: previous
+            ? { type: "effect.upsert", payload: { effect: effectFromRow(previous) } }
+            : { type: "effect.delete", payload: { effectId: operation.payload.effect.id } },
         });
-        effectiveOps.push(op);
         continue;
       }
-      if (op.type === "node.patch") {
-        const { nodeId, patch } = op.payload as { nodeId: string; patch: NormalizedPatch };
-        const updated = await tx.update(boardNodes)
-          .set({ ...patch, updatedAt: now, version: nextVersion })
-          .where(and(eq(boardNodes.documentId, input.documentId), eq(boardNodes.nodeId, nodeId), isNull(boardNodes.deletedAt)))
-          .returning({ nodeId: boardNodes.nodeId });
-        if (updated.length === 0) throw new BoardServiceError(404, "board node not found");
-        effectiveOps.push(op);
+      if (operation.type === "effect.delete") {
+        const clips = await tx.select({ id: boardClips.id, target: boardClips.target }).from(boardClips).where(eq(boardClips.boardId, transaction.boardId));
+        if (clips.some((clip) => (clip.target as BoardTarget).type === "effect" && (clip.target as { type: "effect"; effectId: string }).effectId === operation.payload.effectId)) {
+          throw new BoardServiceError(409, "effect is referenced by a sequence", "EFFECT_REFERENCED");
+        }
+        const [deleted] = await tx.delete(boardEffects).where(and(eq(boardEffects.boardId, transaction.boardId), eq(boardEffects.id, operation.payload.effectId))).returning();
+        if (!deleted) throw new BoardServiceError(404, "board effect not found", "EFFECT_NOT_FOUND");
+        operationRows.push({ type: operation.type, payload: operation.payload, inverse: { type: "effect.upsert", payload: { effect: effectFromRow(deleted) } } });
         continue;
       }
-      const nodeId = (op.payload as { nodeId: string }).nodeId;
-      const [deleted] = await tx.update(boardNodes)
-        .set({ deletedAt: now, updatedAt: now, version: nextVersion })
-        .where(and(eq(boardNodes.documentId, input.documentId), eq(boardNodes.nodeId, nodeId), isNull(boardNodes.deletedAt)))
-        .returning();
-      if (!deleted) throw new BoardServiceError(404, "board node not found");
-      const { documentId: _documentId, version: _version, createdAt: _createdAt, updatedAt: _updatedAt, deletedAt: _deletedAt, ...node } = deleted;
-      effectiveOps.push({ ...op, inverse: { node } });
+      if (operation.type === "sequence.upsert") {
+        const value = operation.payload.sequence;
+        for (const clip of operation.payload.clips) {
+          await assertNodeTarget(tx, transaction.boardId, clip.target);
+          if (clip.target.type === "effect") {
+            const [effect] = await tx.select({ id: boardEffects.id }).from(boardEffects)
+              .where(and(eq(boardEffects.boardId, transaction.boardId), eq(boardEffects.id, clip.target.effectId))).limit(1);
+            if (!effect) throw new BoardServiceError(400, `target effect does not exist: ${clip.target.effectId}`, "INVALID_REFERENCE");
+          }
+        }
+        const [previous] = await tx.select().from(boardSequences)
+          .where(and(eq(boardSequences.boardId, transaction.boardId), eq(boardSequences.id, value.id))).limit(1);
+        const previousClips = previous
+          ? await tx.select().from(boardClips).where(and(eq(boardClips.boardId, transaction.boardId), eq(boardClips.sequenceId, value.id)))
+          : [];
+        const revision = (previous?.revision ?? -1) + 1;
+        const sequenceValues = { ...value, boardId: transaction.boardId, revision, updatedAt: now };
+        await tx.insert(boardSequences).values({ ...sequenceValues, createdAt: previous?.createdAt ?? now })
+          .onConflictDoUpdate({ target: [boardSequences.boardId, boardSequences.id], set: sequenceValues });
+        await tx.delete(boardClips).where(and(eq(boardClips.boardId, transaction.boardId), eq(boardClips.sequenceId, value.id)));
+        if (operation.payload.clips.length) {
+          await tx.insert(boardClips).values(operation.payload.clips.map((clip) => clipValues(transaction.boardId, value.id, { ...clip, sequenceId: value.id })));
+        }
+        const [activePlayback] = await tx.select().from(boardPlaybackStates).where(and(
+          eq(boardPlaybackStates.boardId, transaction.boardId),
+          eq(boardPlaybackStates.sequenceId, value.id),
+        )).limit(1);
+        if (activePlayback) {
+          const [stopped] = await tx.update(boardPlaybackStates).set({
+            sequenceRevision: revision,
+            playbackRevision: activePlayback.playbackRevision + 1,
+            status: "stopped",
+            position: Math.min(value.duration, currentPosition(activePlayback, now)),
+            effectiveAt: now,
+            seed: value.seed,
+            commandId: `sequence-update:${transaction.txId}`,
+            updatedAt: now,
+          }).where(eq(boardPlaybackStates.boardId, transaction.boardId)).returning();
+          if (!stopped) throw new BoardServiceError(500, "failed to stop stale playback");
+          playback = playbackFromRow(stopped);
+        }
+        operationRows.push({
+          type: operation.type,
+          payload: operation.payload,
+          inverse: previous
+            ? { type: "sequence.upsert", payload: { sequence: sequenceFromRow(previous), clips: previousClips.map(clipFromRow) } }
+            : { type: "sequence.delete", payload: { sequenceId: value.id } },
+        });
+        continue;
+      }
+      const [previous] = await tx.select().from(boardSequences)
+        .where(and(eq(boardSequences.boardId, transaction.boardId), eq(boardSequences.id, operation.payload.sequenceId))).limit(1);
+      if (!previous) throw new BoardServiceError(404, "board sequence not found", "SEQUENCE_NOT_FOUND");
+      const previousClips = await tx.select().from(boardClips)
+        .where(and(eq(boardClips.boardId, transaction.boardId), eq(boardClips.sequenceId, operation.payload.sequenceId)));
+      await tx.delete(boardPlaybackStates).where(and(eq(boardPlaybackStates.boardId, transaction.boardId), eq(boardPlaybackStates.sequenceId, operation.payload.sequenceId)));
+      if (playback?.sequenceId === operation.payload.sequenceId) playback = null;
+      await tx.delete(boardClips).where(and(eq(boardClips.boardId, transaction.boardId), eq(boardClips.sequenceId, operation.payload.sequenceId)));
+      await tx.delete(boardSequences).where(and(eq(boardSequences.boardId, transaction.boardId), eq(boardSequences.id, operation.payload.sequenceId)));
+      operationRows.push({ type: operation.type, payload: operation.payload, inverse: { type: "sequence.upsert", payload: { sequence: sequenceFromRow(previous), clips: previousClips.map(clipFromRow) } } });
     }
 
-    // Document row is locked FOR UPDATE above, so same-document requests are
-    // serialised; the pre-insert txId lookup is sufficient for idempotency.
-    // Do not catch unique violations here — after 23505 the transaction is
-    // aborted and further SELECTs would fail with 25P02.
-    await tx.insert(boardUpdates).values({
-      documentId: input.documentId,
-      version: nextVersion,
+    const [storedTransaction] = await tx.insert(boardTransactions).values({
+      boardId: transaction.boardId,
+      txId: transaction.txId,
+      baseVersion: transaction.baseVersion,
+      resultVersion: nextVersion,
       actorId: input.actorId,
-      clientId: input.clientId ?? null,
-      txId: input.txId,
-      type: "board.tx",
-      payload: { txId: input.txId, baseVersion: input.baseVersion ?? null, ops: effectiveOps },
-      undoGroupId: input.undoGroupId ?? null,
+      clientId: transaction.clientId ?? null,
+      undoGroupId: transaction.undoGroupId ?? null,
+      operations: transaction.operations,
       createdAt: now,
-    });
-    const [updated] = await tx.update(boardDocuments).set({ version: nextVersion, meta: documentMeta, updatedAt: now }).where(eq(boardDocuments.id, input.documentId)).returning();
-    const nodes = await tx.select().from(boardNodes).where(and(eq(boardNodes.documentId, input.documentId), isNull(boardNodes.deletedAt))).orderBy(boardNodes.orderKey);
-    return { document: updated ?? { ...document, version: nextVersion, meta: documentMeta, updatedAt: now }, nodes, version: nextVersion, ops: effectiveOps, idempotent: false };
+    }).returning({ id: boardTransactions.id });
+    if (!storedTransaction) throw new BoardServiceError(500, "failed to store board transaction");
+    await tx.insert(boardOperations).values(operationRows.map((operation, index) => ({
+      boardId: transaction.boardId,
+      transactionId: storedTransaction.id,
+      operationIndex: index,
+      type: operation.type,
+      payload: operation.payload,
+      inverse: operation.inverse,
+      createdAt: now,
+    })));
+    await tx.update(boards).set({ title, metadata, version: nextVersion, updatedAt: now }).where(eq(boards.id, transaction.boardId));
+    return { idempotent: false, version: nextVersion, playback };
   });
 
-  // Only broadcast when a new version was actually written; an idempotent replay
-  // must not re-emit an event for a change that was already announced.
   if (input.broadcast !== false && !result.idempotent) {
     await dispatchBoardTransactionApplied({
       spaceId: input.spaceId,
-      documentId: input.documentId,
+      boardId: transaction.boardId,
       actorId: input.actorId,
-      txId: input.txId,
+      txId: transaction.txId,
       version: result.version,
-      ops: result.ops as Array<Record<string, unknown>>,
+      operations: transaction.operations,
     }).catch(() => undefined);
+    if (result.playback) {
+      await dispatchBoardPlaybackChanged({
+        spaceId: input.spaceId,
+        snapshot: result.playback,
+      }).catch(() => undefined);
+    }
   }
-  return { document: result.document, nodes: result.nodes, version: result.version };
+  return inspectBoard(input.spaceId, transaction.boardId);
+}
+
+function currentPosition(row: typeof boardPlaybackStates.$inferSelect, now: Date): number {
+  if (row.status !== "playing") return row.position;
+  return row.position + Math.max(0, now.getTime() - row.effectiveAt.getTime()) * row.timeScale;
+}
+
+export async function applyBoardPlaybackCommand(input: {
+  spaceId: string;
+  boardId: string;
+  command: BoardPlaybackCommand;
+}): Promise<BoardPlaybackSnapshot> {
+  if (input.command.type === "play" && input.command.shared === false) {
+    throw new BoardServiceError(400, "local playback must be handled by a Board runtime", "LOCAL_PLAYBACK_REQUIRES_RUNTIME");
+  }
+  const now = new Date();
+  const snapshot = await db.transaction(async (tx) => {
+    const [board] = await tx.select({ id: boards.id }).from(boards)
+      .where(and(eq(boards.id, input.boardId), eq(boards.spaceId, input.spaceId))).for("update").limit(1);
+    if (!board) throw new BoardServiceError(404, "board not found", "BOARD_NOT_FOUND");
+    const [existing] = await tx.select().from(boardPlaybackStates).where(eq(boardPlaybackStates.boardId, input.boardId)).limit(1);
+    if (existing?.commandId === input.command.commandId) return playbackFromRow(existing);
+
+    if (input.command.type === "play") {
+      const [sequence] = await tx.select().from(boardSequences).where(and(
+        eq(boardSequences.boardId, input.boardId),
+        eq(boardSequences.id, input.command.sequenceId),
+      )).limit(1);
+      if (!sequence) throw new BoardServiceError(404, "board sequence not found", "SEQUENCE_NOT_FOUND");
+      const position = Math.min(sequence.duration, Math.max(0, input.command.position ?? 0));
+      const timeScale = input.command.timeScale ?? 1;
+      const values = {
+        boardId: input.boardId,
+        playbackId: crypto.randomUUID(),
+        sequenceId: sequence.id,
+        sequenceRevision: sequence.revision,
+        playbackRevision: (existing?.playbackRevision ?? 0) + 1,
+        status: "playing",
+        position,
+        effectiveAt: now,
+        timeScale,
+        seed: input.command.seed ?? sequence.seed,
+        commandId: input.command.commandId,
+        updatedAt: now,
+      };
+      const [row] = await tx.insert(boardPlaybackStates).values(values)
+        .onConflictDoUpdate({ target: boardPlaybackStates.boardId, set: values }).returning();
+      if (!row) throw new BoardServiceError(500, "failed to store playback state");
+      return playbackFromRow(row);
+    }
+
+    if (!existing || existing.playbackId !== input.command.playbackId) {
+      throw new BoardServiceError(409, "playback is no longer current", "PLAYBACK_CONFLICT");
+    }
+    const [sequence] = await tx.select({ duration: boardSequences.duration }).from(boardSequences).where(and(
+      eq(boardSequences.boardId, input.boardId),
+      eq(boardSequences.id, existing.sequenceId),
+    )).limit(1);
+    if (!sequence) throw new BoardServiceError(404, "board sequence not found", "SEQUENCE_NOT_FOUND");
+    const position = Math.min(
+      sequence.duration,
+      input.command.type === "seek" ? input.command.position : currentPosition(existing, now),
+    );
+    const status = input.command.type === "pause" ? "paused" : input.command.type === "stop" ? "stopped" : existing.status;
+    const [row] = await tx.update(boardPlaybackStates).set({
+      status,
+      position,
+      effectiveAt: now,
+      playbackRevision: existing.playbackRevision + 1,
+      commandId: input.command.commandId,
+      updatedAt: now,
+    }).where(eq(boardPlaybackStates.boardId, input.boardId)).returning();
+    if (!row) throw new BoardServiceError(500, "failed to update playback state");
+    return playbackFromRow(row);
+  });
+  await dispatchBoardPlaybackChanged({ spaceId: input.spaceId, snapshot }).catch(() => undefined);
+  return snapshot;
+}
+
+export function emptyBoardValidation(): BoardValidationResult {
+  return { valid: true, diagnostics: [], peakCost: { ...ZERO_BOARD_COST } };
 }

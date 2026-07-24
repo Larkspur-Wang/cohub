@@ -103,8 +103,20 @@ export type {
 } from "./session-generation-stream.js";
 export * from "./types.js";
 export type { ChannelEnvelope, LabelAssignmentsUpdatedEvent, RealtimeServerEvent } from "@cohub/protocol/realtime";
-export type { SessionEventName, SessionSubscriptionHandlers, SpaceChannelBindingRecord, SpaceEventName, WebSocketConnectionState } from "./apis/spaces.js";
-export { BoardTransactionError } from "./apis/spaces.js";
+export type {
+  BoardEventName,
+  BoardPlaybackChangedEvent,
+  BoardSubscriptionHandlers,
+  BoardTransactionAppliedEvent,
+  BoardTransactionInput,
+  SessionEventName,
+  SessionSubscriptionHandlers,
+  SpaceChannelBindingRecord,
+  SpaceEventName,
+  WebSocketConnectionState,
+} from "./apis/spaces.js";
+export { BoardClient, BoardTransactionError } from "./apis/spaces.js";
+export * from "./board.js";
 export type { CreatePublicAssetUploadInput, CreatePublicAssetUploadResponse, PublicAssetMimeType, PublicAssetPurpose, UploadChatAttachmentInput, UploadChatImageAttachmentInput, UploadPublicAssetInput } from "./apis/public-assets.js";
 export type { WorkAuthorizeResponse, WorkCreateInput, WorkDetailResponse, WorkExtractedPageMeta, WorkGetResponse, WorkMeta, WorkPresentationMeta, WorkPublicOwnerRecord, WorkPublicSpaceRecord, WorkRecord, WorkResolveResponse, WorkSessionResponse, WorkStatus, WorkTargetType, WorkUpdateInput, WorkVersionRecord, WorkVisibility } from "./apis/works.js";
 export type { WorkCommerceCheckoutStatus, WorkCommerceCreditConsumeResponse, WorkCommerceCreditConsumeStatus, WorkCommerceEntitlement, WorkCommerceEntitlementsResponse, WorkCommerceOrder, WorkCommerceProductResolveResponse, WorkCommercePurchaseResponse } from "./apis/work-commerce.js";

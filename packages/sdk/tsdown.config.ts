@@ -6,6 +6,7 @@ const entry = {
   websocket: "src/websocket.ts",
   "voice-input": "src/voice-input.ts",
   debugger: "src/debugger.ts",
+  board: "src/board.ts",
 };
 
 export default defineConfig({

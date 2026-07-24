@@ -31,7 +31,7 @@ import {
   wsClientEventSchema,
 } from "@cohub/protocol/realtime";
 import { getOrCreateRequestId } from "@cohub/infra/tracing";
-import { authenticateRealtimeToken, authorizeRealtimeRooms, BoardTransactionError, notifySpacePresenceUpdated, requestGatewayChannelReconcile, submitBoardTransaction, submitInternalSessionPrompt, InternalPromptError, type RealtimeAuthResult } from "./api-client.js";
+import { authenticateRealtimeToken, authorizeRealtimeRooms, notifySpacePresenceUpdated, requestGatewayChannelReconcile, submitInternalSessionPrompt, InternalPromptError, type RealtimeAuthResult } from "./api-client.js";
 import { listenOutboundCommands, initOutboundConsumerGroup } from "./bus.js";
 import { summarizeRedisUrl } from "./logging.js";
 import { gatewayConfig } from "./config.js";
@@ -930,55 +930,6 @@ async function main() {
           ctx.presenceMetaBySpace.set(spaceId, message.payload.meta ?? null);
           await writeSpacePresenceConnection(ctx, spaceId);
           scheduleSpacePresenceUpdate(spaceId);
-          return;
-        }
-
-        if (message.type === "board.tx") {
-          try {
-            const payload = message.payload ?? {};
-            const spaceId = typeof payload.spaceId === "string" ? payload.spaceId : "";
-            const documentId = typeof payload.documentId === "string" ? payload.documentId : "";
-            const txId = typeof payload.txId === "string" ? payload.txId : "";
-            const ops = Array.isArray(payload.ops) ? payload.ops.filter((op): op is Record<string, unknown> => Boolean(op && typeof op === "object" && !Array.isArray(op))) : [];
-            if (!spaceId || !documentId || !txId || ops.length === 0) throw new WsClientInputError("invalid board transaction");
-            const result = await submitBoardTransaction({
-              userId: ctx.userId,
-              spaceId,
-              documentId,
-              txId,
-              baseVersion: typeof payload.baseVersion === "number" ? payload.baseVersion : null,
-              clientId: typeof payload.clientId === "string" ? payload.clientId : null,
-              undoGroupId: typeof payload.undoGroupId === "string" ? payload.undoGroupId : null,
-              ops,
-            });
-            sendWsEnvelope(socket, buildRealtimeEnvelope({
-              domain: "space",
-              type: "board.tx.ack",
-              requestId: requestId ?? null,
-              spaceId,
-              sessionId: null,
-              payload: { documentId, txId, version: result.document.version },
-            }));
-          } catch (error) {
-            if (error instanceof WsClientInputError) throw error;
-            const payload = message.payload ?? {};
-            const status = error instanceof BoardTransactionError ? error.status : undefined;
-            const code = error instanceof BoardTransactionError ? error.code : undefined;
-            sendWsEnvelope(socket, buildRealtimeEnvelope({
-              domain: "space",
-              type: "board.tx.error",
-              requestId: requestId ?? null,
-              spaceId: typeof payload.spaceId === "string" ? payload.spaceId : null,
-              sessionId: null,
-              payload: {
-                documentId: typeof payload.documentId === "string" ? payload.documentId : null,
-                txId: typeof payload.txId === "string" ? payload.txId : null,
-                message: error instanceof Error ? error.message : String(error),
-                ...(status !== undefined ? { status } : {}),
-                ...(code !== undefined ? { code } : {}),
-              },
-            }));
-          }
           return;
         }
 

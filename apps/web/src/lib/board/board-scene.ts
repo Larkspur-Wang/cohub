@@ -60,8 +60,14 @@ export type SceneOverlayInput = {
 	arrowEndpoints?: Array<{ x: number; y: number }>;
 };
 
+export type BoardSceneNode = {
+	item: BoardItem;
+	container: Container;
+};
+
 export type BoardScene = {
 	sync: (input: SceneSyncInput) => void;
+	getNode: (nodeId: string) => BoardSceneNode | null;
 	drawOverlay: (input: SceneOverlayInput, palette: BoardRenderPalette) => void;
 	destroy: (context: BoardRenderContext) => void;
 };
@@ -285,5 +291,13 @@ export function createBoardScene(options: {
 		renderedOrder = [];
 	}
 
-	return { sync, drawOverlay, destroy };
+	return {
+		sync,
+		getNode: (nodeId) => {
+			const entry = cards.get(nodeId);
+			return entry ? { item: entry.item, container: entry.container } : null;
+		},
+		drawOverlay,
+		destroy,
+	};
 }

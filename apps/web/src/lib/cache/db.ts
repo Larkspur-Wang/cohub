@@ -4,7 +4,7 @@ import type {
 	SessionTurnRecord,
 } from "@cohub/protocol/model";
 import type {
-	BoardSemanticOp,
+	BoardOperation,
 	LabelAssignmentListItem,
 	LabelAssignmentPageInfo,
 	LabelAssignmentRecord,
@@ -18,7 +18,7 @@ import type {
 import type { SessionListPageInfo } from "$lib/cache/types";
 
 export const DB_NAME = "cohub-web-cache";
-export const DB_VERSION = 12;
+export const DB_VERSION = 13;
 
 export type SessionListForkRecord = Partial<SessionForkRecord> & {
 	childSessionId: string;
@@ -233,10 +233,10 @@ export type BoardPendingTransactionCacheRecord = {
 	key: string;
 	userKey: string;
 	spaceId: string;
-	documentId: string;
+	boardId: string;
 	txId: string;
-	baseVersion: number | null;
-	ops: BoardSemanticOp[];
+	baseVersion: number;
+	ops: BoardOperation[];
 	attemptCount: number;
 	createdAt: number;
 	updatedAt: number;
@@ -587,8 +587,14 @@ export async function openCacheDb(): Promise<IDBDatabase | null> {
 			watchedOpenPromise = null;
 			reject(new Error("IndexedDB open blocked"));
 		};
-		request.onupgradeneeded = () => {
+		request.onupgradeneeded = (event) => {
 			const db = request.result;
+			if (
+				(event as IDBVersionChangeEvent).oldVersion < 13 &&
+				db.objectStoreNames.contains("board_pending_txs")
+			) {
+				db.deleteObjectStore("board_pending_txs");
+			}
 			createStore(db, "space_records", [
 				{ name: "by_user_space", keyPath: ["userKey", "spaceId"] },
 				{ name: "by_last_accessed", keyPath: "lastAccessedAt" },
@@ -676,8 +682,8 @@ export async function openCacheDb(): Promise<IDBDatabase | null> {
 			createStore(db, "board_pending_txs", [
 				{ name: "by_user_space", keyPath: ["userKey", "spaceId"] },
 				{
-					name: "by_user_space_document",
-					keyPath: ["userKey", "spaceId", "documentId"],
+					name: "by_user_space_board",
+					keyPath: ["userKey", "spaceId", "boardId"],
 				},
 				{ name: "by_created_at", keyPath: "createdAt" },
 			]);

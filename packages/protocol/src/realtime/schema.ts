@@ -91,19 +91,6 @@ export const wsClientEventSchema = z.discriminatedUnion("type", [
     }),
   }),
   z.object({
-    type: z.literal("board.tx"),
-    requestId: z.string().optional(),
-    payload: z.object({
-      spaceId: z.string().uuid(),
-      documentId: z.string().min(1),
-      txId: z.string().min(1),
-      baseVersion: z.number().nullable().optional(),
-      clientId: z.string().nullable().optional(),
-      undoGroupId: z.string().nullable().optional(),
-      ops: z.array(z.record(z.string(), z.unknown())).min(1),
-    }),
-  }),
-  z.object({
     type: z.literal("presence.update"),
     requestId: z.string().optional(),
     payload: z.object({

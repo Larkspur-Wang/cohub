@@ -343,29 +343,27 @@ export const spaceCommerceBusinesses = v2.table(
   }),
 );
 
-export const boardDocuments = v2.table(
-  "board_documents",
+export const boards = v2.table(
+  "boards",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     spaceId: uuid("space_id").notNull(),
-    filePath: text("file_path").notNull(),
     title: text("title").notNull(),
     version: integer("version").notNull().default(0),
-    meta: jsonb("meta").$type<Record<string, unknown>>(),
-    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
-    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
-    spaceIdx: index("v2_idx_board_documents_space_id").on(table.spaceId),
-    spacePathUniqueIdx: uniqueIndex("v2_uq_board_documents_space_path").on(table.spaceId, table.filePath),
+    spaceIdx: index("v2_idx_boards_space_id").on(table.spaceId),
+    updatedAtIdx: index("v2_idx_boards_updated_at").on(table.updatedAt),
   }),
 );
 
 export const boardNodes = v2.table(
   "board_nodes",
   {
-    documentId: uuid("document_id").notNull(),
+    boardId: uuid("board_id").notNull().references(() => boards.id, { onDelete: "cascade" }),
     nodeId: text("node_id").notNull(),
     type: varchar("type", { length: 40 }).notNull(),
     parentId: text("parent_id"),
@@ -380,60 +378,167 @@ export const boardNodes = v2.table(
     refUrl: text("ref_url"),
     view: jsonb("view").$type<Record<string, unknown>>().notNull().default({}),
     style: jsonb("style").$type<Record<string, unknown>>().notNull().default({}),
-    animation: jsonb("animation").$type<Record<string, unknown>>().notNull().default({}),
     data: jsonb("data").$type<Record<string, unknown>>().notNull().default({}),
     version: integer("version").notNull().default(0),
-    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
   (table) => ({
-    primary: uniqueIndex("v2_uq_board_nodes_document_node").on(table.documentId, table.nodeId),
-    documentIdx: index("v2_idx_board_nodes_document_id").on(table.documentId),
-    viewportIdx: index("v2_idx_board_nodes_viewport").on(table.documentId, table.x, table.y, table.width, table.height),
-    refPathIdx: index("v2_idx_board_nodes_ref_path").on(table.documentId, table.refPath),
+    primary: uniqueIndex("v2_uq_board_nodes_board_node").on(table.boardId, table.nodeId),
+    boardIdx: index("v2_idx_board_nodes_board_id").on(table.boardId),
+    viewportIdx: index("v2_idx_board_nodes_viewport").on(table.boardId, table.x, table.y, table.width, table.height),
+    refPathIdx: index("v2_idx_board_nodes_ref_path").on(table.boardId, table.refPath),
   }),
 );
 
-export const boardUpdates = v2.table(
-  "board_updates",
+export const boardEffects = v2.table(
+  "board_effects",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
-    documentId: uuid("document_id").notNull(),
-    version: integer("version").notNull(),
-    actorId: varchar("actor_id", { length: 255 }).notNull(),
-    clientId: text("client_id"),
-    /** Client-supplied transaction id for idempotent apply. */
-    txId: text("tx_id"),
-    type: varchar("type", { length: 80 }).notNull(),
-    payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
-    undoGroupId: text("undo_group_id"),
-    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    id: text("id").notNull(),
+    boardId: uuid("board_id").notNull().references(() => boards.id, { onDelete: "cascade" }),
+    targetType: varchar("target_type", { length: 20 }).notNull(),
+    targetId: text("target_id"),
+    kind: varchar("kind", { length: 160 }).notNull(),
+    kindVersion: integer("kind_version").notNull(),
+    enabled: boolean("enabled").notNull().default(true),
+    lifecycle: varchar("lifecycle", { length: 24 }).notNull(),
+    timeOrigin: varchar("time_origin", { length: 24 }).notNull(),
+    layer: varchar("layer", { length: 20 }).notNull(),
+    seed: text("seed").notNull(),
+    params: jsonb("params").$type<Record<string, unknown>>().notNull().default({}),
+    assetRefs: jsonb("asset_refs").$type<Array<Record<string, unknown>>>().notNull().default([]),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+    revision: integer("revision").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
-    documentVersionUniqueIdx: uniqueIndex("v2_uq_board_updates_document_version").on(table.documentId, table.version),
-    documentIdx: index("v2_idx_board_updates_document_id").on(table.documentId),
-    documentTxUniqueIdx: uniqueIndex("v2_uq_board_updates_document_tx")
-      .on(table.documentId, table.txId)
-      .where(sql`${table.txId} is not null`),
+    primary: uniqueIndex("v2_uq_board_effects_board_id").on(table.boardId, table.id),
+    boardIdx: index("v2_idx_board_effects_board_id").on(table.boardId),
+    targetIdx: index("v2_idx_board_effects_target").on(table.boardId, table.targetType, table.targetId),
   }),
 );
 
-export const boardCheckpointSnapshots = v2.table(
-  "board_checkpoint_snapshots",
+export const boardSequences = v2.table(
+  "board_sequences",
+  {
+    id: text("id").notNull(),
+    boardId: uuid("board_id").notNull().references(() => boards.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    duration: doublePrecision("duration").notNull(),
+    seed: text("seed").notNull(),
+    restPose: jsonb("rest_pose").$type<Record<string, unknown>>().notNull().default({}),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+    revision: integer("revision").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    primary: uniqueIndex("v2_uq_board_sequences_board_id").on(table.boardId, table.id),
+    boardIdx: index("v2_idx_board_sequences_board_id").on(table.boardId),
+  }),
+);
+
+export const boardClips = v2.table(
+  "board_clips",
+  {
+    id: text("id").notNull(),
+    boardId: uuid("board_id").notNull().references(() => boards.id, { onDelete: "cascade" }),
+    sequenceId: text("sequence_id").notNull(),
+    kind: varchar("kind", { length: 160 }).notNull(),
+    kindVersion: integer("kind_version").notNull(),
+    target: jsonb("target").$type<Record<string, unknown>>().notNull(),
+    start: doublePrecision("start").notNull(),
+    duration: doublePrecision("duration").notNull(),
+    layer: varchar("layer", { length: 20 }).notNull(),
+    fill: varchar("fill", { length: 20 }).notNull(),
+    easing: varchar("easing", { length: 80 }).notNull(),
+    params: jsonb("params").$type<Record<string, unknown>>().notNull().default({}),
+    keyframes: jsonb("keyframes").$type<Array<Record<string, unknown>>>().notNull().default([]),
+    assetRefs: jsonb("asset_refs").$type<Array<Record<string, unknown>>>().notNull().default([]),
+    seed: text("seed").notNull(),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+  },
+  (table) => ({
+    primary: uniqueIndex("v2_uq_board_clips_sequence_id").on(table.boardId, table.sequenceId, table.id),
+    timelineIdx: index("v2_idx_board_clips_timeline").on(table.boardId, table.sequenceId, table.start),
+  }),
+);
+
+export const boardTransactions = v2.table(
+  "board_transactions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    boardId: uuid("board_id").notNull().references(() => boards.id, { onDelete: "cascade" }),
+    txId: text("tx_id").notNull(),
+    baseVersion: integer("base_version").notNull(),
+    resultVersion: integer("result_version").notNull(),
+    actorId: varchar("actor_id", { length: 255 }).notNull(),
+    clientId: text("client_id"),
+    undoGroupId: text("undo_group_id"),
+    operations: jsonb("operations").$type<Array<Record<string, unknown>>>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    boardTxUniqueIdx: uniqueIndex("v2_uq_board_transactions_board_tx").on(table.boardId, table.txId),
+    boardVersionUniqueIdx: uniqueIndex("v2_uq_board_transactions_board_version").on(table.boardId, table.resultVersion),
+  }),
+);
+
+export const boardOperations = v2.table(
+  "board_operations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    boardId: uuid("board_id").notNull().references(() => boards.id, { onDelete: "cascade" }),
+    transactionId: uuid("transaction_id").notNull().references(() => boardTransactions.id, { onDelete: "cascade" }),
+    operationIndex: integer("operation_index").notNull(),
+    type: varchar("type", { length: 80 }).notNull(),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+    inverse: jsonb("inverse").$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    transactionOrderUniqueIdx: uniqueIndex("v2_uq_board_operations_tx_order").on(table.transactionId, table.operationIndex),
+    boardIdx: index("v2_idx_board_operations_board_id").on(table.boardId),
+  }),
+);
+
+export const boardCheckpoints = v2.table(
+  "board_checkpoints",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     checkpointId: uuid("checkpoint_id").notNull(),
-    sourceDocumentId: uuid("source_document_id").notNull(),
+    sourceBoardId: uuid("source_board_id").notNull(),
     sourceSpaceId: uuid("source_space_id").notNull(),
-    sourceFilePath: text("source_file_path").notNull(),
     sourceVersion: integer("source_version").notNull(),
-    manifest: jsonb("manifest").$type<Record<string, unknown>>().notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    snapshot: jsonb("snapshot").$type<Record<string, unknown>>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
-    checkpointPathUniqueIdx: uniqueIndex("v2_uq_board_checkpoint_snapshots_path").on(table.checkpointId, table.sourceFilePath),
-    checkpointIdx: index("v2_idx_board_checkpoint_snapshots_checkpoint_id").on(table.checkpointId),
+    checkpointBoardUniqueIdx: uniqueIndex("v2_uq_board_checkpoints_board").on(table.checkpointId, table.sourceBoardId),
+    checkpointIdx: index("v2_idx_board_checkpoints_checkpoint_id").on(table.checkpointId),
+  }),
+);
+
+export const boardPlaybackStates = v2.table(
+  "board_playback_states",
+  {
+    boardId: uuid("board_id").primaryKey().references(() => boards.id, { onDelete: "cascade" }),
+    playbackId: uuid("playback_id").notNull(),
+    sequenceId: text("sequence_id").notNull(),
+    sequenceRevision: integer("sequence_revision").notNull(),
+    playbackRevision: integer("playback_revision").notNull(),
+    status: varchar("status", { length: 20 }).notNull(),
+    position: doublePrecision("position").notNull(),
+    effectiveAt: timestamp("effective_at", { withTimezone: true }).notNull(),
+    timeScale: doublePrecision("time_scale").notNull(),
+    seed: text("seed").notNull(),
+    commandId: text("command_id").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    playbackIdx: uniqueIndex("v2_uq_board_playback_id").on(table.playbackId),
   }),
 );
 

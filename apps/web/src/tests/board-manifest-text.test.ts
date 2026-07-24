@@ -5,7 +5,7 @@ import { resolveBoardManifestText } from "../lib/board/board-manifest-text.ts";
 const manifest = `{
   "kind": "cohub.board.manifest",
   "version": 1,
-  "documentId": "doc_123",
+  "boardId": "doc_123",
   "title": "Untitled.board"
 }
 `;

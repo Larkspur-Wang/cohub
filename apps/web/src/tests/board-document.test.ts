@@ -57,8 +57,8 @@ test("document patches preserve items and sync appearance", () => {
 	};
 	const result = applyBoardOps(document, [
 		{
-			type: "document.patch",
-			payload: { patch: { meta: { appearance } } },
+			type: "board.patch",
+			payload: { patch: { metadata: { appearance } } },
 		},
 	]);
 	assert.deepEqual(result.items, document.items);
@@ -68,15 +68,15 @@ test("document patches preserve items and sync appearance", () => {
 test("document patch inverse restores the previous meta", () => {
 	const [inverse] = invertBoardOps([
 		{
-			type: "document.patch",
-			payload: { patch: { meta: { modelKind: "next" } } },
-			inverse: { meta: { modelKind: "previous" } },
+			type: "board.patch",
+			payload: { patch: { metadata: { modelKind: "next" } } },
+			inverse: { patch: { metadata: { modelKind: "previous" } } },
 		},
 	]);
 	assert.deepEqual(inverse, {
-		type: "document.patch",
-		payload: { patch: { meta: { modelKind: "previous" } } },
-		inverse: { meta: { modelKind: "next" } },
+		type: "board.patch",
+		payload: { patch: { metadata: { modelKind: "previous" } } },
+		inverse: { patch: { metadata: { modelKind: "next" } } },
 	});
 });
 

@@ -1,38 +1,41 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { Hono } from "hono";
-import { boardDocuments, boardNodes } from "@cohub/db";
-import { BOARD_EXTENSION, BOARD_MANIFEST_KIND, isBoardPath } from "@cohub/protocol";
-import { applyBoardTransaction, BoardServiceError, normalizeNodes, type BoardSemanticOp } from "../../board-service.js";
+import { boardNodes, boards } from "@cohub/db";
+import {
+  BOARD_EXTENSION,
+  BoardInspectInputSchema,
+  BoardPlaybackCommandSchema,
+  isBoardPath,
+  serializeBoardManifest,
+  type BoardCreateInput,
+  type BoardOperation,
+} from "@cohub/protocol";
+import {
+  applyBoardPlaybackCommand,
+  applyBoardTransaction,
+  BoardServiceError,
+  getBoardCapabilities,
+  inspectBoard,
+  normalizeNodes,
+  validateBoardTransaction,
+} from "../../board-service.js";
 import { db } from "../../db/index.js";
 import { authzDenied, getOptionalAuth, requireValidId, useAuth } from "../../lib/middleware.js";
 import { hasPermission } from "../../permissions.js";
-import { assertSafeRelativePath, createSpaceFileExclusive, deleteSpaceNode, SpaceFsError } from "../../space-fs-backend.js";
+import {
+  assertSafeRelativePath,
+  createSpaceFileExclusive,
+  deleteSpaceNode,
+  SpaceFsError,
+} from "../../space-fs-backend.js";
 import { dispatchSpaceFsChanged } from "../../space-events.js";
 
 const router = new Hono();
 
-const MAX_TITLE_LENGTH = 255;
-
-const serializeManifest = (input: { documentId: string; title: string }) => `${JSON.stringify({
-  kind: BOARD_MANIFEST_KIND,
-  version: 1,
-  documentId: input.documentId,
-  title: input.title,
-}, null, 2)}\n`;
-
-function boardErrorResponse(error: unknown) {
-  if (error instanceof BoardServiceError) return { status: error.status, message: error.message };
-  if (error instanceof SpaceFsError) return { status: error.status, message: error.message };
-  return { status: 500, message: "Board operation failed" };
-}
-
-async function loadDocumentForSpace(spaceId: string, documentId: string) {
-  const [document] = await db
-    .select()
-    .from(boardDocuments)
-    .where(and(eq(boardDocuments.id, documentId), eq(boardDocuments.spaceId, spaceId), isNull(boardDocuments.deletedAt)))
-    .limit(1);
-  return document ?? null;
+function errorResponse(error: unknown) {
+  if (error instanceof BoardServiceError) return { status: error.status, message: error.message, code: error.code };
+  if (error instanceof SpaceFsError) return { status: error.status, message: error.message, code: undefined };
+  return { status: 500, message: "Board operation failed", code: undefined };
 }
 
 router.post("/", async (c) => {
@@ -42,148 +45,165 @@ router.post("/", async (c) => {
   if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
   if (!(await hasPermission(user, "file.edit", { spaceId }))) return authzDenied(c);
 
-  const body = await c.req.json<unknown>().catch(() => null);
-  if (!body || typeof body !== "object" || Array.isArray(body)) return c.json({ message: "invalid request body" }, 400);
-  const input = body as Record<string, unknown>;
-  if (typeof input.path !== "string" || !input.path.trim()) return c.json({ message: "path is required" }, 400);
-  if (input.title !== undefined && typeof input.title !== "string") return c.json({ message: "title must be a string" }, 400);
-  if (input.nodes !== undefined && !Array.isArray(input.nodes)) return c.json({ message: "nodes must be an array" }, 400);
+  const body = await c.req.json<BoardCreateInput>().catch(() => null);
+  if (!body || typeof body.path !== "string") return c.json({ message: "path is required" }, 400);
   let path: string;
   try {
-    path = assertSafeRelativePath(input.path);
+    path = assertSafeRelativePath(body.path);
   } catch (error) {
-    const response = boardErrorResponse(error);
-    return c.json({ message: response.message }, response.status as never);
+    const response = errorResponse(error);
+    return c.json({ message: response.message, code: response.code }, response.status as never);
   }
   if (!isBoardPath(path)) return c.json({ message: `path must end with ${BOARD_EXTENSION}` }, 400);
-  const title = ((input.title as string | undefined)?.trim() || path.split("/").at(-1) || "Board").slice(0, MAX_TITLE_LENGTH);
-  const now = new Date();
+  const title = (body.title?.trim() || path.split("/").at(-1) || "Board").slice(0, 255);
   let nodes: ReturnType<typeof normalizeNodes>;
   try {
-    nodes = normalizeNodes(input.nodes ?? []);
+    nodes = normalizeNodes(body.nodes ?? []);
   } catch (error) {
-    const response = boardErrorResponse(error);
-    return c.json({ message: response.message }, response.status as never);
+    const response = errorResponse(error);
+    return c.json({ message: response.message, code: response.code }, response.status as never);
   }
 
+  const boardId = crypto.randomUUID();
   let written: Awaited<ReturnType<typeof createSpaceFileExclusive>> | null = null;
   try {
-    const manifestId = crypto.randomUUID();
-    const createdFile = await createSpaceFileExclusive(spaceId, { path, content: serializeManifest({ documentId: manifestId, title }), encoding: "utf-8" });
-    written = createdFile;
-    const result = await db.transaction(async (tx) => {
-      const [document] = await tx.insert(boardDocuments).values({
-        id: manifestId,
-        spaceId,
-        filePath: createdFile.path,
-        title,
-        version: 0,
-        createdAt: now,
-        updatedAt: now,
-      }).returning();
-      if (!document) throw new BoardServiceError(500, "Board operation failed");
+    written = await createSpaceFileExclusive(spaceId, {
+      path,
+      content: serializeBoardManifest({ kind: "cohub.board.manifest", version: 1, boardId, title }),
+      encoding: "utf-8",
+    });
+    const now = new Date();
+    await db.transaction(async (tx) => {
+      await tx.insert(boards).values({ id: boardId, spaceId, title, version: 0, metadata: {}, createdAt: now, updatedAt: now });
       if (nodes.length) {
         await tx.insert(boardNodes).values(nodes.map((node, index) => ({
-          documentId: document.id,
-          nodeId: node.nodeId,
-          type: node.type,
-          parentId: node.parentId,
+          ...node,
+          boardId,
           orderKey: node.orderKey ?? String(index).padStart(8, "0"),
-          x: node.x,
-          y: node.y,
-          width: node.width,
-          height: node.height,
-          rotation: node.rotation,
-          refKind: node.refKind,
-          refPath: node.refPath,
-          refUrl: node.refUrl,
-          view: node.view,
-          style: node.style,
-          animation: node.animation,
-          data: node.data,
           version: 0,
           createdAt: now,
           updatedAt: now,
         })));
       }
-      return document;
     });
 
-    await dispatchSpaceFsChanged(spaceId, { source: "api-fs", changes: [{ path: written.path, kind: "create", nodeType: "file", size: written.size, mtimeMs: written.mtimeMs }] }).catch(() => undefined);
-    return c.json({ document: result, nodes });
+    const operations: BoardOperation[] = [
+      ...(body.effects ?? []).map((effect): BoardOperation => ({ type: "effect.upsert", payload: { effect } })),
+      ...(body.sequences ?? []).map(({ sequence, clips }): BoardOperation => ({ type: "sequence.upsert", payload: { sequence, clips } })),
+    ];
+    const result = operations.length
+      ? await applyBoardTransaction({
+          spaceId,
+          actorId: user.uuid,
+          transaction: { txId: crypto.randomUUID(), boardId, baseVersion: 0, operations },
+        })
+      : await inspectBoard(spaceId, boardId);
+
+    await dispatchSpaceFsChanged(spaceId, {
+      source: "api-fs",
+      changes: [{ path: written.path, kind: "create", nodeType: "file", size: written.size, mtimeMs: written.mtimeMs }],
+    }).catch(() => undefined);
+    return c.json(result);
   } catch (error) {
+    await db.delete(boards).where(and(eq(boards.id, boardId), eq(boards.spaceId, spaceId))).catch(() => undefined);
     if (written) await deleteSpaceNode(spaceId, written.path).catch(() => undefined);
-    const response = boardErrorResponse(error);
-    return c.json({ message: response.message }, response.status as never);
+    const response = errorResponse(error);
+    return c.json({ message: response.message, code: response.code }, response.status as never);
   }
 });
 
-router.get("/by-path", async (c) => {
+router.get("/:boardId", async (c) => {
   const user = getOptionalAuth(c);
   const spaceId = c.req.param("id");
-  if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
+  const boardId = c.req.param("boardId");
+  if (!spaceId || !boardId || !requireValidId(spaceId) || !requireValidId(boardId)) return c.json({ message: "board not found" }, 404);
   if (!(await hasPermission(user, "file.view", { spaceId }))) return authzDenied(c);
-  const rawPath = c.req.query("path");
-  if (!rawPath?.trim()) return c.json({ message: "path is required" }, 400);
-  let path: string;
+  let viewport: unknown;
+  const viewportParam = c.req.query("viewport");
+  if (viewportParam) {
+    try {
+      viewport = JSON.parse(viewportParam);
+    } catch {
+      return c.json({ message: "viewport must be valid JSON" }, 400);
+    }
+  }
+  const include = c.req.queries("include") ?? [];
+  const parsedInput = BoardInspectInputSchema.safeParse({
+    include: include.length > 0 ? include : undefined,
+    viewport,
+  });
+  if (!parsedInput.success) return c.json({ message: parsedInput.error.issues[0]?.message ?? "invalid inspect input" }, 400);
   try {
-    path = assertSafeRelativePath(rawPath);
+    return c.json(await inspectBoard(spaceId, boardId, parsedInput.data));
   } catch (error) {
-    const response = boardErrorResponse(error);
-    return c.json({ message: response.message }, response.status as never);
+    const response = errorResponse(error);
+    return c.json({ message: response.message, code: response.code }, response.status as never);
   }
-
-  const [document] = await db
-    .select()
-    .from(boardDocuments)
-    .where(and(eq(boardDocuments.spaceId, spaceId), eq(boardDocuments.filePath, path), isNull(boardDocuments.deletedAt)))
-    .limit(1);
-  if (!document) return c.json({ message: "board not found" }, 404);
-  return c.json({ document });
 });
 
-router.get("/:documentId/bootstrap", async (c) => {
+router.get("/:boardId/capabilities", async (c) => {
   const user = getOptionalAuth(c);
   const spaceId = c.req.param("id");
-  const documentId = c.req.param("documentId");
-  if (!spaceId || !documentId || !requireValidId(spaceId) || !requireValidId(documentId)) return c.json({ message: "board not found" }, 404);
+  const boardId = c.req.param("boardId");
+  if (!spaceId || !boardId || !requireValidId(spaceId) || !requireValidId(boardId)) return c.json({ message: "board not found" }, 404);
   if (!(await hasPermission(user, "file.view", { spaceId }))) return authzDenied(c);
-
-  const document = await loadDocumentForSpace(spaceId, documentId);
-  if (!document) return c.json({ message: "board not found" }, 404);
-  const nodes = await db
-    .select()
-    .from(boardNodes)
-    .where(and(eq(boardNodes.documentId, documentId), isNull(boardNodes.deletedAt)))
-    .orderBy(boardNodes.orderKey);
-  return c.json({ document, nodes });
+  try {
+    return c.json(await getBoardCapabilities(spaceId, boardId));
+  } catch (error) {
+    const response = errorResponse(error);
+    return c.json({ message: response.message, code: response.code }, response.status as never);
+  }
 });
 
-router.post("/:documentId/ops", async (c) => {
+router.post("/:boardId/validate", async (c) => {
   const user = useAuth(c);
   if (user instanceof Response) return user;
   const spaceId = c.req.param("id");
-  const documentId = c.req.param("documentId");
-  if (!spaceId || !documentId || !requireValidId(spaceId) || !requireValidId(documentId)) return c.json({ message: "board not found" }, 404);
+  const boardId = c.req.param("boardId");
+  if (!spaceId || !boardId || !requireValidId(spaceId) || !requireValidId(boardId)) return c.json({ message: "board not found" }, 404);
   if (!(await hasPermission(user, "file.edit", { spaceId }))) return authzDenied(c);
-
-  const body = await c.req.json<{ txId?: string; baseVersion?: number; clientId?: string; undoGroupId?: string; ops?: BoardSemanticOp[] }>().catch(() => null);
-  if (!Array.isArray(body?.ops)) return c.json({ message: "ops are required" }, 400);
+  const body = await c.req.json<unknown>().catch(() => null);
   try {
-    const result = await applyBoardTransaction({
-      spaceId,
-      documentId,
-      actorId: user.uuid,
-      txId: body.txId || crypto.randomUUID(),
-      baseVersion: body.baseVersion ?? null,
-      clientId: body.clientId ?? null,
-      undoGroupId: body.undoGroupId ?? null,
-      ops: body.ops,
-    });
-    return c.json(result);
+    if ((body as { boardId?: unknown })?.boardId !== boardId) throw new BoardServiceError(400, "transaction boardId does not match route");
+    return c.json(await validateBoardTransaction({ spaceId, value: body }));
   } catch (error) {
-    const response = boardErrorResponse(error);
-    return c.json({ message: response.message }, response.status as never);
+    const response = errorResponse(error);
+    return c.json({ message: response.message, code: response.code }, response.status as never);
+  }
+});
+
+router.post("/:boardId/transactions", async (c) => {
+  const user = useAuth(c);
+  if (user instanceof Response) return user;
+  const spaceId = c.req.param("id");
+  const boardId = c.req.param("boardId");
+  if (!spaceId || !boardId || !requireValidId(spaceId) || !requireValidId(boardId)) return c.json({ message: "board not found" }, 404);
+  if (!(await hasPermission(user, "file.edit", { spaceId }))) return authzDenied(c);
+  const body = await c.req.json<unknown>().catch(() => null);
+  try {
+    if ((body as { boardId?: unknown })?.boardId !== boardId) throw new BoardServiceError(400, "transaction boardId does not match route");
+    return c.json(await applyBoardTransaction({ spaceId, actorId: user.uuid, transaction: body }));
+  } catch (error) {
+    const response = errorResponse(error);
+    return c.json({ message: response.message, code: response.code }, response.status as never);
+  }
+});
+
+router.post("/:boardId/playback", async (c) => {
+  const user = useAuth(c);
+  if (user instanceof Response) return user;
+  const spaceId = c.req.param("id");
+  const boardId = c.req.param("boardId");
+  if (!spaceId || !boardId || !requireValidId(spaceId) || !requireValidId(boardId)) return c.json({ message: "board not found" }, 404);
+  if (!(await hasPermission(user, "file.edit", { spaceId }))) return authzDenied(c);
+  const body = await c.req.json<unknown>().catch(() => null);
+  const parsed = BoardPlaybackCommandSchema.safeParse(body);
+  if (!parsed.success) return c.json({ message: parsed.error.issues[0]?.message ?? "invalid playback command" }, 400);
+  try {
+    return c.json(await applyBoardPlaybackCommand({ spaceId, boardId, command: parsed.data }));
+  } catch (error) {
+    const response = errorResponse(error);
+    return c.json({ message: response.message, code: response.code }, response.status as never);
   }
 });
 

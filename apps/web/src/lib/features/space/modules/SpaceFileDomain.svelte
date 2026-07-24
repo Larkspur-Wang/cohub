@@ -4,7 +4,7 @@ import type {
 	SpacePublicEndpoints,
 } from "@cohub/protocol/ports";
 import type {
-	BoardSemanticOp,
+	BoardOperation,
 	SpacePendingDiffFileResponse,
 	SpaceRecord,
 	WorkRecord,
@@ -138,7 +138,7 @@ export type SpaceFileDomainProps = {
 	onOpenInlinePort: (port: string, url: string) => void;
 	onCommitInlineBoard: (
 		document: BoardDocument,
-		ops: BoardSemanticOp[],
+		ops: BoardOperation[],
 	) => void | Promise<void>;
 	onRetryInlineBoardSave: () => void | Promise<void>;
 	onBeginPreviewPanelResize: (event: PointerEvent) => void;

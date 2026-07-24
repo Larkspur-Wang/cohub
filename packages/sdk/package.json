@@ -43,6 +43,10 @@
       "./debugger": {
         "types": "./dist/debugger.d.ts",
         "import": "./dist/debugger.js"
+      },
+      "./board": {
+        "types": "./dist/board.d.ts",
+        "import": "./dist/board.js"
       }
     },
     "types": "./dist/index.d.ts"
@@ -67,6 +71,10 @@
     "./debugger": {
       "types": "./src/debugger.ts",
       "import": "./src/debugger.ts"
+    },
+    "./board": {
+      "types": "./src/board.ts",
+      "import": "./src/board.ts"
     }
   },
   "types": "./src/index.ts",

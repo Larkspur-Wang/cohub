@@ -1,5 +1,9 @@
 import type { SpacePublicEndpoints } from "@cohub/protocol/ports";
-import { getRealtimeSpaceRoom } from "@cohub/protocol/realtime/types";
+import {
+  getRealtimeSpaceRoom,
+  type BoardPlaybackChangedEvent as ProtocolBoardPlaybackChangedEvent,
+  type BoardTransactionAppliedEvent as ProtocolBoardTransactionAppliedEvent,
+} from "@cohub/protocol/realtime/types";
 import { ensureRealtimeConnected } from "../realtime.js";
 import type { WebsocketClient, WebsocketEventPayload } from "../websocket.js";
 import { HttpError, type HttpTransport, type Fetch } from "../transport.js";
@@ -71,12 +75,16 @@ import type {
   SpaceConfigInput,
   SpaceConfigResponse,
   SpaceConfigUpdateResponse,
-  BoardBootstrapResponse,
+  BoardBootstrap,
+  BoardCapabilities,
   BoardCreateInput,
+  BoardInspectInput,
+  BoardPlaybackCommand,
+  BoardPlaybackSnapshot,
+  BoardTransaction,
+  BoardValidationResult,
   ChannelConfig,
   ChannelHealth,
-  BoardDocumentRecord,
-  BoardTransactionInput,
 } from "../types.js";
 import { SpaceInvitationsApi } from "./invitations.js";
 
@@ -107,8 +115,10 @@ export class BoardTransactionError extends Error {
     message: string,
     readonly status?: number,
     readonly code?: string,
+    readonly body?: unknown,
+    options?: ErrorOptions,
   ) {
-    super(message);
+    super(message, options);
     this.name = "BoardTransactionError";
   }
 
@@ -116,6 +126,16 @@ export class BoardTransactionError extends Error {
     return this.status === 409 || this.code === "VERSION_CONFLICT";
   }
 }
+
+export type BoardTransactionInput = Omit<BoardTransaction, "boardId">;
+export type BoardTransactionAppliedEvent = ProtocolBoardTransactionAppliedEvent;
+export type BoardPlaybackChangedEvent = ProtocolBoardPlaybackChangedEvent;
+export type BoardEventName = "transaction" | "playback";
+export type BoardSubscriptionHandlers = {
+  transaction?: (event: BoardTransactionAppliedEvent) => void;
+  playback?: (event: BoardPlaybackChangedEvent) => void;
+  event?: (event: BoardTransactionAppliedEvent | BoardPlaybackChangedEvent) => void;
+};
 
 export type SessionSubscriptionHandlers = {
   patch?: (event: WebsocketEventPayload) => void;
@@ -129,7 +149,7 @@ export type SessionSubscriptionHandlers = {
 };
 
 export type SessionEventName = "created" | "updated" | "turn.created" | "turn.patch" | "turn.lifecycle" | "turn.updated" | "turn.finalized" | "turn.error" | "message.persisted";
-export type SpaceEventName = SessionEventName | "fs.changed" | "ports.changed" | "presence.updated" | "board.tx.applied" | "board.tx.ack" | "board.tx.error" | "task.created" | "task.updated" | "event";
+export type SpaceEventName = SessionEventName | "fs.changed" | "ports.changed" | "presence.updated" | "board.transaction.applied" | "board.playback.changed" | "task.created" | "task.updated" | "event";
 
 const toSessionEventName = (type: WebsocketEventPayload["type"]): SessionEventName | null => {
   switch (type) {
@@ -858,15 +878,11 @@ export class SpaceEventsApi {
         handler(event);
         return;
       }
-      if (type === "board.tx.applied" && event.type === "board.tx.applied") {
+      if (type === "board.transaction.applied" && event.type === "board.transaction.applied") {
         handler(event);
         return;
       }
-      if (type === "board.tx.ack" && event.type === "board.tx.ack") {
-        handler(event);
-        return;
-      }
-      if (type === "board.tx.error" && event.type === "board.tx.error") {
+      if (type === "board.playback.changed" && event.type === "board.playback.changed") {
         handler(event);
         return;
       }
@@ -1406,14 +1422,129 @@ export class SpaceCommerceApi {
   }
 }
 
+class BoardRealtimeClient {
+  constructor(
+    private readonly websocketClient: WebsocketClient | null,
+    private readonly spaceId: string,
+    private readonly boardId: string,
+  ) {}
+
+  subscribe(handlers: BoardSubscriptionHandlers) {
+    if (!this.websocketClient) {
+      throw new Error("realtime transport is not configured for this client");
+    }
+    ensureRealtimeConnected(this.websocketClient);
+    const releaseRoom = this.websocketClient.retainRooms([getRealtimeSpaceRoom(this.spaceId)]);
+    const unsubscribe = this.websocketClient.on("event", (event) => {
+      if (event.spaceId !== this.spaceId) return;
+      if (event.type === "board.transaction.applied" && event.payload.boardId === this.boardId) {
+        const transactionEvent = event as BoardTransactionAppliedEvent;
+        handlers.event?.(transactionEvent);
+        handlers.transaction?.(transactionEvent);
+      }
+      if (event.type === "board.playback.changed" && event.payload.boardId === this.boardId) {
+        const playbackEvent = event as BoardPlaybackChangedEvent;
+        handlers.event?.(playbackEvent);
+        handlers.playback?.(playbackEvent);
+      }
+    });
+    return () => {
+      unsubscribe();
+      releaseRoom();
+    };
+  }
+
+  on(type: "transaction", handler: (event: BoardTransactionAppliedEvent) => void): () => void;
+  on(type: "playback", handler: (event: BoardPlaybackChangedEvent) => void): () => void;
+  on(
+    type: BoardEventName,
+    handler: ((event: BoardTransactionAppliedEvent) => void) | ((event: BoardPlaybackChangedEvent) => void),
+  ) {
+    return type === "transaction"
+      ? this.subscribe({ transaction: handler as (event: BoardTransactionAppliedEvent) => void })
+      : this.subscribe({ playback: handler as (event: BoardPlaybackChangedEvent) => void });
+  }
+}
+
+export class BoardClient {
+  readonly realtime: BoardRealtimeClient;
+  private readonly boards: SpaceBoardsApi;
+
+  constructor(
+    readonly spaceId: string,
+    readonly id: string,
+    transport: HttpTransport,
+    websocketClient: WebsocketClient | null,
+  ) {
+    this.boards = new SpaceBoardsApi(transport, spaceId, websocketClient);
+    this.realtime = new BoardRealtimeClient(websocketClient, spaceId, id);
+  }
+
+  inspect(input: BoardInspectInput = {}, customFetch?: Fetch) {
+    return this.boards.inspect(this.id, input, customFetch);
+  }
+
+  capabilities(customFetch?: Fetch) {
+    return this.boards.capabilities(this.id, customFetch);
+  }
+
+  validate(transaction: BoardTransactionInput) {
+    return this.boards.validate({ ...transaction, boardId: this.id });
+  }
+
+  apply(transaction: BoardTransactionInput) {
+    return this.boards.apply({ ...transaction, boardId: this.id });
+  }
+
+  playback(command: BoardPlaybackCommand) {
+    return this.boards.playback(this.id, command);
+  }
+
+  play(command: Omit<Extract<BoardPlaybackCommand, { type: "play" }>, "shared"> & { shared?: true }) {
+    return this.boards.play(this.id, command);
+  }
+
+  pause(command: Extract<BoardPlaybackCommand, { type: "pause" }>) {
+    return this.boards.pause(this.id, command);
+  }
+
+  seek(command: Extract<BoardPlaybackCommand, { type: "seek" }>) {
+    return this.boards.seek(this.id, command);
+  }
+
+  stop(command: Extract<BoardPlaybackCommand, { type: "stop" }>) {
+    return this.boards.stop(this.id, command);
+  }
+
+  subscribe(handlers: BoardSubscriptionHandlers) {
+    return this.realtime.subscribe(handlers);
+  }
+
+  on(type: "transaction", handler: (event: BoardTransactionAppliedEvent) => void): () => void;
+  on(type: "playback", handler: (event: BoardPlaybackChangedEvent) => void): () => void;
+  on(
+    type: BoardEventName,
+    handler: ((event: BoardTransactionAppliedEvent) => void) | ((event: BoardPlaybackChangedEvent) => void),
+  ) {
+    return type === "transaction"
+      ? this.realtime.on("transaction", handler as (event: BoardTransactionAppliedEvent) => void)
+      : this.realtime.on("playback", handler as (event: BoardPlaybackChangedEvent) => void);
+  }
+}
+
 export class SpaceBoardsApi {
   constructor(
     private readonly transport: HttpTransport,
     private readonly spaceId: string,
+    private readonly websocketClient: WebsocketClient | null,
   ) {}
 
+  byId(boardId: string) {
+    return new BoardClient(this.spaceId, boardId, this.transport, this.websocketClient);
+  }
+
   create(input: BoardCreateInput) {
-    return this.transport.request<BoardBootstrapResponse>(
+    return this.transport.request<BoardBootstrap>(
       `/api/spaces/${this.spaceId}/boards`,
       {
         method: "POST",
@@ -1423,30 +1554,81 @@ export class SpaceBoardsApi {
     );
   }
 
-  getByPath(path: string, customFetch?: Fetch) {
-    const params = new URLSearchParams({ path });
-    return this.transport.request<{ document: BoardDocumentRecord }>(
-      `/api/spaces/${this.spaceId}/boards/by-path?${params.toString()}`,
+  inspect(boardId: string, input: BoardInspectInput = {}, customFetch?: Fetch) {
+    const params = new URLSearchParams();
+    for (const section of input.include ?? []) params.append("include", section);
+    if (input.viewport) params.set("viewport", JSON.stringify(input.viewport));
+    const query = params.toString();
+    return this.transport.request<BoardBootstrap>(
+      `/api/spaces/${this.spaceId}/boards/${boardId}${query ? `?${query}` : ""}`,
       { fetch: customFetch },
     );
   }
 
-  bootstrap(documentId: string, customFetch?: Fetch) {
-    return this.transport.request<BoardBootstrapResponse>(
-      `/api/spaces/${this.spaceId}/boards/${documentId}/bootstrap`,
+  capabilities(boardId: string, customFetch?: Fetch) {
+    return this.transport.request<BoardCapabilities>(
+      `/api/spaces/${this.spaceId}/boards/${boardId}/capabilities`,
       { fetch: customFetch },
     );
   }
 
-  sendTransaction(documentId: string, input: BoardTransactionInput) {
-    return this.transport.request<BoardBootstrapResponse>(
-      `/api/spaces/${this.spaceId}/boards/${documentId}/ops`,
+  validate(transaction: BoardTransaction) {
+    return this.transport.request<BoardValidationResult>(
+      `/api/spaces/${this.spaceId}/boards/${transaction.boardId}/validate`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
+        body: JSON.stringify(transaction),
       },
     );
+  }
+
+  async apply(transaction: BoardTransaction) {
+    try {
+      return await this.transport.request<BoardBootstrap>(
+        `/api/spaces/${this.spaceId}/boards/${transaction.boardId}/transactions`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(transaction),
+        },
+      );
+    } catch (cause) {
+      if (cause instanceof HttpError) {
+        throw new BoardTransactionError(cause.message, cause.status, cause.code ?? undefined, cause.body, { cause });
+      }
+      throw cause;
+    }
+  }
+
+  playback(boardId: string, command: BoardPlaybackCommand) {
+    return this.transport.request<BoardPlaybackSnapshot>(
+      `/api/spaces/${this.spaceId}/boards/${boardId}/playback`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(command),
+      },
+    );
+  }
+
+  play(
+    boardId: string,
+    command: Omit<Extract<BoardPlaybackCommand, { type: "play" }>, "shared"> & { shared?: true },
+  ) {
+    return this.playback(boardId, command);
+  }
+
+  pause(boardId: string, command: Extract<BoardPlaybackCommand, { type: "pause" }>) {
+    return this.playback(boardId, command);
+  }
+
+  seek(boardId: string, command: Extract<BoardPlaybackCommand, { type: "seek" }>) {
+    return this.playback(boardId, command);
+  }
+
+  stop(boardId: string, command: Extract<BoardPlaybackCommand, { type: "stop" }>) {
+    return this.playback(boardId, command);
   }
 
 }
@@ -1655,7 +1837,7 @@ export class SpaceClient {
     this.sandbox = new SpaceSandboxApi(transport, id);
     this.invitations = new SpaceInvitationsApi(transport, id);
     this.labels = new SpaceLabelsApi(transport, id);
-    this.boards = new SpaceBoardsApi(transport, id);
+    this.boards = new SpaceBoardsApi(transport, id, websocketClient);
     this.commerce = new SpaceCommerceApi(transport, id);
   }
 
@@ -1847,55 +2029,6 @@ export class SpaceClient {
     return this.update({ name });
   }
 
-  async sendBoardTransactionRealtime(documentId: string, input: BoardTransactionInput) {
-    if (!this.websocketClient) return this.boards.sendTransaction(documentId, input);
-    const requestId = `board-${input.txId}`;
-    const result = new Promise<{ document: { version: number } }>((resolve, reject) => {
-      let settled = false;
-      let timeout: ReturnType<typeof setTimeout> | null = null;
-      const settle = (fn: () => void) => {
-        if (settled) return;
-        settled = true;
-        if (timeout) clearTimeout(timeout);
-        cleanupAck?.();
-        cleanupError?.();
-        fn();
-      };
-      const cleanupAck = this.websocketClient?.on("event", (event) => {
-        if (event.type !== "board.tx.ack" || event.requestId !== requestId) return;
-        const version = event.payload.version;
-        settle(() => {
-          if (typeof version === "number") resolve({ document: { version } });
-          else reject(new Error("Invalid board ack"));
-        });
-      });
-      const cleanupError = this.websocketClient?.on("event", (event) => {
-        if (event.type !== "board.tx.error" || event.requestId !== requestId) return;
-        settle(() =>
-          reject(
-            new BoardTransactionError(
-              typeof event.payload.message === "string" ? event.payload.message : "Board sync failed",
-              typeof event.payload.status === "number" ? event.payload.status : undefined,
-              typeof event.payload.code === "string" ? event.payload.code : undefined,
-            ),
-          ),
-        );
-      });
-      timeout = setTimeout(() => settle(() => reject(new Error("Board sync timed out"))), 15_000);
-    });
-    await this.websocketClient.sendBoardTransaction({
-      spaceId: this.id,
-      documentId,
-      txId: input.txId,
-      baseVersion: input.baseVersion ?? null,
-      clientId: input.clientId ?? null,
-      undoGroupId: input.undoGroupId ?? null,
-      ops: input.ops,
-      requestId,
-    });
-    return result;
-  }
-
   profile(body: { description?: string | null; avatarUrl?: string | null }) {
     return this.transport.request<{ space: SpaceRecord }>(
       `/api/spaces/${this.id}/profile`,
@@ -1937,6 +2070,10 @@ export class SpaceClient {
 
   session(sessionId: string) {
     return new SessionClient(this.id, sessionId, this.transport, this.websocketClient);
+  }
+
+  board(boardId: string) {
+    return new BoardClient(this.id, boardId, this.transport, this.websocketClient);
   }
 
   updatePresence(meta?: Record<string, unknown> | null) {

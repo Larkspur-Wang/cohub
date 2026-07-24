@@ -1,4 +1,4 @@
-import type { BoardSemanticOp } from "@neta-art/cohub";
+import type { BoardOperation } from "@neta-art/cohub";
 import {
 	type BoardPendingTransactionCacheRecord,
 	idbDelete,
@@ -9,10 +9,10 @@ import { boardPendingTransactionKey, getCacheUserKey } from "$lib/cache/keys";
 
 export type BoardPendingTransaction = {
 	spaceId: string;
-	documentId: string;
+	boardId: string;
 	txId: string;
-	baseVersion: number | null;
-	ops: BoardSemanticOp[];
+	baseVersion: number;
+	ops: BoardOperation[];
 };
 
 export async function writeBoardPendingTransaction(
@@ -23,14 +23,14 @@ export async function writeBoardPendingTransaction(
 	const key = boardPendingTransactionKey(
 		userKey,
 		input.spaceId,
-		input.documentId,
+		input.boardId,
 		input.txId,
 	);
 	const record: BoardPendingTransactionCacheRecord = {
 		key,
 		userKey,
 		spaceId: input.spaceId,
-		documentId: input.documentId,
+		boardId: input.boardId,
 		txId: input.txId,
 		baseVersion: input.baseVersion,
 		ops: input.ops,
@@ -45,7 +45,7 @@ export async function writeBoardPendingTransaction(
 
 export async function deleteBoardPendingTransaction(input: {
 	spaceId: string;
-	documentId: string;
+	boardId: string;
 	txId: string;
 }) {
 	await idbDelete(
@@ -53,7 +53,7 @@ export async function deleteBoardPendingTransaction(input: {
 		boardPendingTransactionKey(
 			getCacheUserKey(),
 			input.spaceId,
-			input.documentId,
+			input.boardId,
 			input.txId,
 		),
 	);
@@ -61,12 +61,12 @@ export async function deleteBoardPendingTransaction(input: {
 
 export async function listBoardPendingTransactions(
 	spaceId: string,
-	documentId: string,
+	boardId: string,
 ) {
 	const rows = await idbGetAllByIndex<BoardPendingTransactionCacheRecord>(
 		"board_pending_txs",
-		"by_user_space_document",
-		IDBKeyRange.only([getCacheUserKey(), spaceId, documentId]),
+		"by_user_space_board",
+		IDBKeyRange.only([getCacheUserKey(), spaceId, boardId]),
 	);
 	return rows.sort((a, b) => a.createdAt - b.createdAt);
 }

@@ -1,107 +1,119 @@
-import { mkdir, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, relative, resolve } from "node:path";
-import { eq } from "drizzle-orm";
-import { boardCheckpointSnapshots, boardDocuments, boardNodes } from "@cohub/db";
-import { BOARD_CHECKPOINT_KIND, BOARD_MANIFEST_KIND } from "@cohub/protocol";
+import { readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { join, relative, resolve } from "node:path";
+import { and, eq, isNull } from "drizzle-orm";
+import {
+  boardCheckpoints,
+  boardClips,
+  boardEffects,
+  boardNodes,
+  boardSequences,
+  boards,
+} from "@cohub/db";
+import {
+  BOARD_CHECKPOINT_KIND,
+  isBoardPath,
+  parseBoardManifest,
+  serializeBoardManifest,
+} from "@cohub/protocol";
 import { db } from "../db.js";
 
-function assertSafeRelativePath(path: string) {
-  const normalized = path.replace(/\\/g, "/").trim();
-  if (!normalized || normalized.includes("\0") || isAbsolute(normalized) || normalized === ".." || normalized.startsWith("../") || normalized.includes("/../")) {
-    throw new Error(`unsafe board path: ${path}`);
+async function listBoardFiles(root: string, directory = root): Promise<string[]> {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const paths: string[] = [];
+  for (const entry of entries) {
+    if (entry.name === ".git" || entry.name === "node_modules") continue;
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) paths.push(...await listBoardFiles(root, path));
+    else if (entry.isFile() && isBoardPath(entry.name)) paths.push(path);
   }
-  return normalized;
-}
-
-function safeJoin(root: string, path: string) {
-  const safePath = assertSafeRelativePath(path);
-  const target = resolve(root, safePath);
-  const rel = relative(resolve(root), target);
-  if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) throw new Error(`path escapes root: ${path}`);
-  return target;
-}
-
-function manifestContent(input: { documentId: string; title: string }) {
-  return `${JSON.stringify({ kind: BOARD_MANIFEST_KIND, version: 1, documentId: input.documentId, title: input.title }, null, 2)}\n`;
+  return paths;
 }
 
 export async function saveBoardCheckpointSnapshots(input: { checkpointId: string; spaceId: string }) {
-  const documents = await db.select().from(boardDocuments).where(eq(boardDocuments.spaceId, input.spaceId));
-  const activeDocuments = documents.filter((document) => !document.deletedAt);
-  const snapshots = [];
-  for (const document of activeDocuments) {
-    const nodes = await db.select().from(boardNodes).where(eq(boardNodes.documentId, document.id));
-    const activeNodes = nodes.filter((node) => !node.deletedAt);
-    const manifest = {
-      kind: BOARD_CHECKPOINT_KIND,
-      version: 1,
-      document: {
-        id: document.id,
-        filePath: document.filePath,
-        title: document.title,
-        version: document.version,
-        meta: document.meta ?? null,
-      },
-      nodes: activeNodes,
-    };
-    const [snapshot] = await db.insert(boardCheckpointSnapshots).values({
-      checkpointId: input.checkpointId,
-      sourceDocumentId: document.id,
-      sourceSpaceId: input.spaceId,
-      sourceFilePath: document.filePath,
-      sourceVersion: document.version,
-      manifest,
-    }).returning();
-    if (snapshot) snapshots.push(snapshot);
-  }
-  return { count: snapshots.length };
+  return db.transaction(async (tx) => {
+    const sourceBoards = await tx.select().from(boards).where(eq(boards.spaceId, input.spaceId));
+    for (const board of sourceBoards) {
+      const [nodes, effects, sequences, clips] = await Promise.all([
+        tx.select().from(boardNodes).where(and(eq(boardNodes.boardId, board.id), isNull(boardNodes.deletedAt))),
+        tx.select().from(boardEffects).where(eq(boardEffects.boardId, board.id)),
+        tx.select().from(boardSequences).where(eq(boardSequences.boardId, board.id)),
+        tx.select().from(boardClips).where(eq(boardClips.boardId, board.id)),
+      ]);
+      await tx.insert(boardCheckpoints).values({
+        checkpointId: input.checkpointId,
+        sourceBoardId: board.id,
+        sourceSpaceId: input.spaceId,
+        sourceVersion: board.version,
+        snapshot: {
+          kind: BOARD_CHECKPOINT_KIND,
+          version: 1,
+          board,
+          nodes,
+          effects,
+          sequences,
+          clips,
+        },
+      });
+    }
+    return { count: sourceBoards.length };
+  }, { isolationLevel: "repeatable read" });
 }
 
-export async function restoreBoardCheckpointSnapshots(input: { checkpointId: string; targetSpaceId: string; workspaceDir: string }) {
-  const snapshots = await db.select().from(boardCheckpointSnapshots).where(eq(boardCheckpointSnapshots.checkpointId, input.checkpointId));
-  const restored = [];
-  for (const snapshot of snapshots) {
-    const manifest = snapshot.manifest as {
-      document?: {
-        filePath?: string;
-        title?: string;
-        meta?: Record<string, unknown> | null;
-      };
-      nodes?: Array<Record<string, unknown>>;
-    };
-    const filePath = manifest.document?.filePath ?? snapshot.sourceFilePath;
-    const title = manifest.document?.title ?? filePath.split("/").at(-1) ?? "Board";
-    const target = safeJoin(input.workspaceDir, filePath);
-    const now = new Date();
-    const documentId = crypto.randomUUID();
-    let insertedDocument = false;
-    try {
-      const [document] = await db.insert(boardDocuments).values({
-        id: documentId,
-        spaceId: input.targetSpaceId,
-        filePath,
-        title,
-        version: 1,
-        createdAt: now,
-        updatedAt: now,
-        meta: {
-          ...(manifest.document?.meta ?? {}),
-          restoredFrom: {
-            checkpointId: input.checkpointId,
-            sourceDocumentId: snapshot.sourceDocumentId,
-            sourceVersion: snapshot.sourceVersion,
-          },
-        },
-      }).returning();
-      if (!document) throw new Error("failed to restore board document");
-      insertedDocument = true;
+function records(value: unknown): Array<Record<string, unknown>> {
+  return Array.isArray(value)
+    ? value.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item)))
+    : [];
+}
 
-      const nodes = manifest.nodes ?? [];
-      if (nodes.length) {
-        await db.insert(boardNodes).values(nodes.map((node, index) => ({
-          documentId: document.id,
+export async function restoreBoardCheckpointSnapshots(input: {
+  checkpointId: string;
+  targetSpaceId: string;
+  workspaceDir: string;
+}) {
+  const snapshots = await db.select().from(boardCheckpoints).where(eq(boardCheckpoints.checkpointId, input.checkpointId));
+  const snapshotBySourceId = new Map(snapshots.map((snapshot) => [snapshot.sourceBoardId, snapshot]));
+  const files = await listBoardFiles(resolve(input.workspaceDir));
+  const restored: Array<{ path: string; boardId: string }> = [];
+
+  for (const absolutePath of files) {
+    let manifest: ReturnType<typeof parseBoardManifest>;
+    try {
+      manifest = parseBoardManifest(await readFile(absolutePath, "utf8"));
+    } catch {
+      continue;
+    }
+    const source = snapshotBySourceId.get(manifest.boardId);
+    if (!source) continue;
+    const snapshot = source.snapshot;
+    const sourceBoard = snapshot.board && typeof snapshot.board === "object" && !Array.isArray(snapshot.board)
+      ? snapshot.board as Record<string, unknown>
+      : {};
+    const boardId = crypto.randomUUID();
+    const now = new Date();
+    try {
+      await db.transaction(async (tx) => {
+        await tx.insert(boards).values({
+          id: boardId,
+          spaceId: input.targetSpaceId,
+          title: typeof sourceBoard.title === "string" ? sourceBoard.title : manifest.title,
+          version: source.sourceVersion,
+          metadata: {
+            ...(sourceBoard.metadata && typeof sourceBoard.metadata === "object" ? sourceBoard.metadata as Record<string, unknown> : {}),
+            restoredFrom: {
+              checkpointId: input.checkpointId,
+              sourceBoardId: source.sourceBoardId,
+              sourceVersion: source.sourceVersion,
+            },
+          },
+          createdAt: now,
+          updatedAt: now,
+        });
+
+        const nodes = records(snapshot.nodes);
+        if (nodes.length) await tx.insert(boardNodes).values(nodes.map((node, index) => ({
+          boardId,
           nodeId: String(node.nodeId),
-          type: String(node.type ?? "file"),
+          type: String(node.type ?? "unknown"),
           parentId: typeof node.parentId === "string" ? node.parentId : null,
           orderKey: typeof node.orderKey === "string" ? node.orderKey : String(index).padStart(8, "0"),
           x: typeof node.x === "number" ? node.x : 0,
@@ -112,21 +124,81 @@ export async function restoreBoardCheckpointSnapshots(input: { checkpointId: str
           refKind: typeof node.refKind === "string" ? node.refKind : null,
           refPath: typeof node.refPath === "string" ? node.refPath : null,
           refUrl: typeof node.refUrl === "string" ? node.refUrl : null,
-          view: node.view && typeof node.view === "object" && !Array.isArray(node.view) ? node.view as Record<string, unknown> : {},
-          style: node.style && typeof node.style === "object" && !Array.isArray(node.style) ? node.style as Record<string, unknown> : {},
-          animation: node.animation && typeof node.animation === "object" && !Array.isArray(node.animation) ? node.animation as Record<string, unknown> : {},
-          data: node.data && typeof node.data === "object" && !Array.isArray(node.data) ? node.data as Record<string, unknown> : {},
-          version: 1,
+          view: node.view && typeof node.view === "object" ? node.view as Record<string, unknown> : {},
+          style: node.style && typeof node.style === "object" ? node.style as Record<string, unknown> : {},
+          data: node.data && typeof node.data === "object" ? node.data as Record<string, unknown> : {},
+          version: source.sourceVersion,
           createdAt: now,
           updatedAt: now,
         })));
-      }
 
-      await mkdir(dirname(target), { recursive: true, mode: 0o775 });
-      await writeFile(target, manifestContent({ documentId: document.id, title }));
-      restored.push({ path: filePath, documentId: document.id });
+        const effects = records(snapshot.effects);
+        if (effects.length) await tx.insert(boardEffects).values(effects.map((effect) => ({
+          id: String(effect.id),
+          boardId,
+          targetType: String(effect.targetType),
+          targetId: typeof effect.targetId === "string" ? effect.targetId : null,
+          kind: String(effect.kind),
+          kindVersion: Number(effect.kindVersion),
+          enabled: effect.enabled !== false,
+          lifecycle: String(effect.lifecycle),
+          timeOrigin: String(effect.timeOrigin),
+          layer: String(effect.layer),
+          seed: String(effect.seed),
+          params: effect.params as Record<string, unknown> ?? {},
+          assetRefs: records(effect.assetRefs),
+          metadata: effect.metadata as Record<string, unknown> ?? {},
+          revision: Number(effect.revision ?? 0),
+          createdAt: now,
+          updatedAt: now,
+        })));
+
+        const sequences = records(snapshot.sequences);
+        if (sequences.length) await tx.insert(boardSequences).values(sequences.map((sequence) => ({
+          id: String(sequence.id),
+          boardId,
+          name: String(sequence.name),
+          duration: Number(sequence.duration),
+          seed: String(sequence.seed),
+          restPose: sequence.restPose as Record<string, unknown> ?? {},
+          metadata: sequence.metadata as Record<string, unknown> ?? {},
+          revision: Number(sequence.revision ?? 0),
+          createdAt: now,
+          updatedAt: now,
+        })));
+
+        const clips = records(snapshot.clips);
+        if (clips.length) await tx.insert(boardClips).values(clips.map((clip) => ({
+          id: String(clip.id),
+          boardId,
+          sequenceId: String(clip.sequenceId),
+          kind: String(clip.kind),
+          kindVersion: Number(clip.kindVersion),
+          target: clip.target as Record<string, unknown>,
+          start: Number(clip.start),
+          duration: Number(clip.duration),
+          layer: String(clip.layer),
+          fill: String(clip.fill),
+          easing: String(clip.easing),
+          params: clip.params as Record<string, unknown> ?? {},
+          keyframes: records(clip.keyframes),
+          assetRefs: records(clip.assetRefs),
+          seed: String(clip.seed),
+          metadata: clip.metadata as Record<string, unknown> ?? {},
+        })));
+      });
+
+      const temporaryPath = `${absolutePath}.cohub-restore-${boardId}.tmp`;
+      try {
+        await writeFile(temporaryPath, serializeBoardManifest({ ...manifest, boardId }), { flag: "wx" });
+        await rename(temporaryPath, absolutePath);
+      } catch (error) {
+        await rm(temporaryPath, { force: true }).catch(() => undefined);
+        throw error;
+      }
+      restored.push({ path: relative(resolve(input.workspaceDir), absolutePath).replaceAll("\\", "/"), boardId });
     } catch (error) {
-      if (insertedDocument) await db.update(boardDocuments).set({ deletedAt: new Date(), updatedAt: new Date() }).where(eq(boardDocuments.id, documentId)).catch(() => undefined);
+      await db.delete(boards).where(and(eq(boards.id, boardId), eq(boards.spaceId, input.targetSpaceId))).catch(() => undefined);
       throw error;
     }
   }

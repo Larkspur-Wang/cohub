@@ -1,27 +1,43 @@
 import { randomUUID } from "node:crypto";
+import type { BoardOperation, BoardPlaybackSnapshot } from "@cohub/protocol";
 import { dispatchRealtimeEvent } from "./channels.js";
 
 export async function dispatchBoardTransactionApplied(input: {
   spaceId: string;
-  documentId: string;
+  boardId: string;
   actorId: string;
   txId: string;
   version: number;
-  ops: Array<Record<string, unknown>>;
+  operations: BoardOperation[];
 }) {
   await dispatchRealtimeEvent({
     id: randomUUID(),
     timestamp: Date.now(),
     domain: "space",
-    type: "board.tx.applied",
+    type: "board.transaction.applied",
     spaceId: input.spaceId,
     sessionId: null,
     payload: {
-      documentId: input.documentId,
+      boardId: input.boardId,
       actorId: input.actorId,
       txId: input.txId,
       version: input.version,
-      ops: input.ops,
+      operations: input.operations,
     },
+  });
+}
+
+export async function dispatchBoardPlaybackChanged(input: {
+  spaceId: string;
+  snapshot: BoardPlaybackSnapshot;
+}) {
+  await dispatchRealtimeEvent({
+    id: randomUUID(),
+    timestamp: Date.now(),
+    domain: "space",
+    type: "board.playback.changed",
+    spaceId: input.spaceId,
+    sessionId: null,
+    payload: input.snapshot,
   });
 }

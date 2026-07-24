@@ -15,6 +15,7 @@ import BoardZoomMenu from "$lib/components/board/BoardZoomMenu.svelte";
 const {
 	path,
 	document: initialDocument,
+	runtime,
 	spaceId,
 	immersive = false,
 	syncError = null,
@@ -303,6 +304,7 @@ onDestroy(() => {
 	>
 		<BoardStage
 			{editor}
+			{runtime}
 			{spaceId}
 			onSurfaceChange={(size) => { editor.surfaceSize = size; }}
 		/>

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import type { BoardOperation } from "@neta-art/cohub";
 import {
 	boardBootstrapToDocument,
 	boardItemToNode,
@@ -51,9 +52,30 @@ import type {
 	BoardFrame,
 	BoardGeoItem,
 } from "../lib/board/board-schema.ts";
-import { resolveBoardRuntime } from "../lib/board/runtime/board-runtime.ts";
+import {
+	operationsRequireBoardRuntimeRefresh,
+	resolveBoardRuntime,
+} from "../lib/board/runtime/board-runtime.ts";
 
 const frame: BoardFrame = { x: 0, y: 0, width: 100, height: 100, rotation: 0 };
+
+test("runtime operations require an atomic bootstrap refresh", () => {
+	const boardOperation = {
+		type: "board.patch",
+		payload: { patch: { title: "Board" } },
+	} as BoardOperation;
+	const effectOperation = {
+		type: "effect.delete",
+		payload: { effectId: "effect-1" },
+	} as BoardOperation;
+	const sequenceOperation = {
+		type: "sequence.delete",
+		payload: { sequenceId: "sequence-1" },
+	} as BoardOperation;
+	assert.equal(operationsRequireBoardRuntimeRefresh([boardOperation]), false);
+	assert.equal(operationsRequireBoardRuntimeRefresh([effectOperation]), true);
+	assert.equal(operationsRequireBoardRuntimeRefresh([sequenceOperation]), true);
+});
 
 // ─── Schema: forward-compatible parsing ─────────────────────────────
 
@@ -122,11 +144,10 @@ test("note item round-trips through node mapping", () => {
 	const node = boardItemToNode(item, 0);
 	assert.equal(node.type, "note");
 	const back = boardNodeToItem({
-		documentId: "d",
+		boardId: "d",
 		version: 0,
 		createdAt: null,
 		updatedAt: null,
-		deletedAt: null,
 		...node,
 	});
 	assert.equal(back.type, "note");
@@ -176,11 +197,10 @@ test("unknown item round-trips through node mapping without losing fields", () =
 	assert.equal(node.type, "hologram");
 	assert.equal((node.data as Record<string, unknown>).intensity, 0.7);
 	const back = boardNodeToItem({
-		documentId: "d",
+		boardId: "d",
 		version: 0,
 		createdAt: null,
 		updatedAt: null,
-		deletedAt: null,
 		...node,
 	});
 	assert.equal(isUnknownItem(back), true);
@@ -202,11 +222,10 @@ test("unknown locked survives node mapping round-trip", () => {
 	const node = boardItemToNode(item, 0);
 	assert.equal((node.data as Record<string, unknown>).locked, true);
 	const back = boardNodeToItem({
-		documentId: "d",
+		boardId: "d",
 		version: 0,
 		createdAt: null,
 		updatedAt: null,
-		deletedAt: null,
 		...node,
 	});
 	assert.equal(isUnknownItem(back), true);
@@ -215,7 +234,7 @@ test("unknown locked survives node mapping round-trip", () => {
 
 test("known item edits preserve wire fields owned by another runtime", () => {
 	const item = boardNodeToItem({
-		documentId: "d",
+		boardId: "d",
 		nodeId: "n1",
 		type: "note",
 		parentId: "page:one",
@@ -230,7 +249,6 @@ test("known item edits preserve wire fields owned by another runtime", () => {
 		refUrl: "https://example.com/asset",
 		view: { runtimeView: true },
 		style: { runtimeStyle: true },
-		animation: { spin: 1 },
 		data: {
 			text: "Before",
 			color: "green",
@@ -240,7 +258,6 @@ test("known item edits preserve wire fields owned by another runtime", () => {
 		version: 1,
 		createdAt: null,
 		updatedAt: null,
-		deletedAt: null,
 	});
 	assert.deepEqual(item.metadata, { source: "other-runtime" });
 	const edited = item.type === "note" ? { ...item, text: "After" } : item;
@@ -251,7 +268,6 @@ test("known item edits preserve wire fields owned by another runtime", () => {
 	assert.equal(node.refPath, "asset:one");
 	assert.equal(node.refUrl, "https://example.com/asset");
 	assert.deepEqual(node.view, { runtimeView: true });
-	assert.deepEqual(node.animation, { spin: 1 });
 	assert.deepEqual(node.style, { runtimeStyle: true });
 	assert.deepEqual(node.data.runtimeProps, { opacity: 0.5 });
 	assert.deepEqual(node.data.metadata, { source: "other-runtime" });
@@ -260,20 +276,18 @@ test("known item edits preserve wire fields owned by another runtime", () => {
 
 test("bootstrap preserves the wire envelope through schema parsing", () => {
 	const document = boardBootstrapToDocument({
-		document: {
+		board: {
 			id: "d",
 			spaceId: "s",
-			filePath: "board.board",
 			title: "Board",
 			version: 1,
-			meta: {},
+			metadata: {},
 			createdAt: null,
 			updatedAt: null,
-			deletedAt: null,
 		},
 		nodes: [
 			{
-				documentId: "d",
+				boardId: "d",
 				nodeId: "n1",
 				type: "note",
 				parentId: "page:one",
@@ -288,7 +302,6 @@ test("bootstrap preserves the wire envelope through schema parsing", () => {
 				refUrl: "https://example.com/asset",
 				view: { runtimeView: true },
 				style: { runtimeStyle: true },
-				animation: { spin: 1 },
 				data: {
 					text: "Before",
 					color: "green",
@@ -297,7 +310,6 @@ test("bootstrap preserves the wire envelope through schema parsing", () => {
 				version: 1,
 				createdAt: null,
 				updatedAt: null,
-				deletedAt: null,
 			},
 		],
 	});
@@ -311,14 +323,13 @@ test("bootstrap preserves the wire envelope through schema parsing", () => {
 	assert.equal(node.refPath, "asset:one");
 	assert.equal(node.refUrl, "https://example.com/asset");
 	assert.deepEqual(node.view, { runtimeView: true });
-	assert.deepEqual(node.animation, { spin: 1 });
 	assert.deepEqual(node.data.runtimeProps, { opacity: 0.5 });
 	assert.equal(node.data.text, "After");
 });
 
 test("unknown item round-trip preserves the complete wire envelope", () => {
 	const item = boardNodeToItem({
-		documentId: "d",
+		boardId: "d",
 		nodeId: "x1",
 		type: "runtime:shape",
 		parentId: "page:one",
@@ -333,12 +344,10 @@ test("unknown item round-trip preserves the complete wire envelope", () => {
 		refUrl: "https://example.com/asset",
 		view: { runtimeView: true },
 		style: { runtimeStyle: true },
-		animation: { spin: 1 },
 		data: { runtimeProps: { opacity: 0.5 } },
 		version: 1,
 		createdAt: null,
 		updatedAt: null,
-		deletedAt: null,
 	});
 	const node = boardItemToNode(item, 0);
 	assert.equal(node.parentId, "page:one");
@@ -347,7 +356,6 @@ test("unknown item round-trip preserves the complete wire envelope", () => {
 	assert.equal(node.refPath, "asset:one");
 	assert.equal(node.refUrl, "https://example.com/asset");
 	assert.deepEqual(node.view, { runtimeView: true });
-	assert.deepEqual(node.animation, { spin: 1 });
 	assert.deepEqual(node.style, { runtimeStyle: true });
 	assert.deepEqual(node.data.runtimeProps, { opacity: 0.5 });
 });
@@ -628,13 +636,12 @@ test("runtime resolution follows the persisted semantic model", () => {
 
 test("board bootstrap restores persisted document appearance", () => {
 	const document = boardBootstrapToDocument({
-		document: {
+		board: {
 			id: "d",
 			spaceId: "s",
-			filePath: "board.board",
 			title: "Board",
 			version: 1,
-			meta: {
+			metadata: {
 				appearance: {
 					theme: "clean",
 					background: { kind: "grid", color: "#123456" },
@@ -644,7 +651,6 @@ test("board bootstrap restores persisted document appearance", () => {
 			},
 			createdAt: null,
 			updatedAt: null,
-			deletedAt: null,
 		},
 		nodes: [],
 	});

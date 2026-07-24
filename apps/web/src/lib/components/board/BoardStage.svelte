@@ -36,15 +36,19 @@ import {
 	type BoardRenderPalette,
 	getBoardCardRenderer,
 } from "$lib/board/renderers/board-renderer-registry";
+import type { BoardRuntimeData } from "$lib/board/runtime/board-runtime";
+import { createBoardAnimationRuntime } from "$lib/board/runtime/pixi-animation";
 import { getBoardThemeRenderer } from "$lib/board/themes/board-theme-registry";
 import { getResolvedTheme } from "$lib/theme.svelte";
 
 const {
 	editor,
+	runtime,
 	spaceId,
 	onSurfaceChange,
 }: {
 	editor: BoardEditor;
+	runtime: BoardRuntimeData;
 	spaceId: string;
 	onSurfaceChange?: (size: { width: number; height: number }) => void;
 } = $props();
@@ -52,10 +56,16 @@ const {
 let host: HTMLDivElement | null = $state(null);
 let app: Application | null = null;
 let world: Container | null = null;
+let effectsBehind: Container | null = null;
+let nodeLayer: Container | null = null;
+let effectsFront: Container | null = null;
+let screenEffects: Container | null = null;
 let background: Container | null = null;
 let backgroundThemeId: string | null = null;
 let overlay: Graphics | null = null;
 let scene: ReturnType<typeof createBoardScene> | null = null;
+let animationRuntime: ReturnType<typeof createBoardAnimationRuntime> | null =
+	null;
 let resizeObserver: ResizeObserver | null = null;
 let resizeFrame = 0;
 // Render-on-demand: Pixi's ticker is disabled (autoStart: false) so an idle
@@ -227,6 +237,8 @@ function syncStage() {
 	world.y = editor.camera.y;
 	world.scale.set(editor.camera.zoom);
 	if (world.parent !== app.stage) app.stage.addChild(world);
+	if (screenEffects && screenEffects.parent !== app.stage)
+		app.stage.addChild(screenEffects);
 
 	const context = buildContext(palette);
 	const visibleIds = computeVisibleIds();
@@ -250,6 +262,7 @@ function syncStage() {
 		pinnedIds,
 		globalSig,
 	});
+	animationRuntime?.invalidatePoses();
 
 	const single = editor.selection.length === 1 ? editor.selectedItems[0] : null;
 	const hideBoxHandles = Boolean(
@@ -589,14 +602,36 @@ onMount(async () => {
 	}
 	app = instance;
 	host.appendChild(instance.canvas);
-	world = new Container();
-	overlay = new Graphics();
-	world.addChild(overlay);
+	world = new Container({ isRenderGroup: true, label: "board-world" });
+	effectsBehind = new Container({ label: "board-effects-behind" });
+	nodeLayer = new Container({ label: "board-nodes" });
+	effectsFront = new Container({ label: "board-effects-front" });
+	screenEffects = new Container({
+		isRenderGroup: true,
+		label: "board-screen-effects",
+	});
+	overlay = new Graphics({ label: "board-interaction-overlay" });
+	world.addChild(effectsBehind, nodeLayer, effectsFront, overlay);
 	scene = createBoardScene({
-		world,
+		world: nodeLayer,
 		overlay,
 		getRenderer: getBoardCardRenderer,
 	});
+	animationRuntime = createBoardAnimationRuntime({
+		getNode: (nodeId) => scene?.getNode(nodeId) ?? null,
+		getWorld: () => world,
+		getLayers: () =>
+			effectsBehind && effectsFront && screenEffects
+				? { behind: effectsBehind, front: effectsFront, screen: screenEffects }
+				: null,
+		getScreen: () => ({
+			width: app?.screen.width ?? 0,
+			height: app?.screen.height ?? 0,
+		}),
+		getAccentColor: () => getPalette().brand,
+		render: () => app?.render(),
+	});
+	animationRuntime.setData(runtime);
 
 	host.addEventListener("pointerdown", handlePointerDown);
 	host.addEventListener("pointermove", handlePointerMove);
@@ -608,6 +643,10 @@ onMount(async () => {
 	resizeObserver = new ResizeObserver(resizeStage);
 	resizeObserver.observe(host);
 	resizeStage();
+});
+
+$effect(() => {
+	animationRuntime?.setData(runtime);
 });
 
 $effect(() => {
@@ -640,13 +679,21 @@ onDestroy(() => {
 		host.removeEventListener("wheel", handleWheel);
 		host.removeEventListener("dblclick", handleDoubleClick);
 	}
-	// Destroy cards first (releasing their texture refs), then the manager.
+	// Stop animation and restore transient poses before releasing scene resources.
+	animationRuntime?.destroy();
+	animationRuntime = null;
 	const context = buildContext(getPalette());
 	scene?.destroy(context);
 	scene = null;
 	assets.destroy();
 	background?.destroy({ children: true });
 	background = null;
+	effectsBehind = null;
+	nodeLayer = null;
+	effectsFront = null;
+	screenEffects = null;
+	world = null;
+	overlay = null;
 	app?.destroy(true);
 	app = null;
 });

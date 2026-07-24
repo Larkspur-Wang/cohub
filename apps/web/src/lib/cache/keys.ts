@@ -105,10 +105,10 @@ export function filePendingDraftKey(
 export function boardPendingTransactionKey(
 	userKey: string,
 	spaceId: string,
-	documentId: string,
+	boardId: string,
 	txId: string,
 ) {
-	return [userKey, spaceId, documentId, txId].map(encodeKeyPart).join(":");
+	return [userKey, spaceId, boardId, txId].map(encodeKeyPart).join(":");
 }
 
 export function taskRunKey(

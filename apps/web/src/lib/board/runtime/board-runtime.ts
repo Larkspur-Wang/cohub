@@ -1,4 +1,4 @@
-import type { BoardSemanticOp } from "@neta-art/cohub";
+import type { BoardBootstrap, BoardOperation } from "@neta-art/cohub";
 import {
 	BOARD_DOCUMENT_KIND,
 	type BoardDocument,
@@ -17,16 +17,33 @@ export type BoardRuntimeViewState = {
 	selectedNodes: Array<{ id: string; type: string; title?: string }>;
 };
 
+export type BoardRuntimeData = Pick<
+	BoardBootstrap,
+	"effects" | "sequences" | "clips" | "playback"
+>;
+
+/** Runtime operations carry server-assigned revisions, so refresh them atomically. */
+export function operationsRequireBoardRuntimeRefresh(
+	operations: BoardOperation[],
+): boolean {
+	return operations.some(
+		(operation) =>
+			operation.type.startsWith("effect.") ||
+			operation.type.startsWith("sequence."),
+	);
+}
+
 /** Stable host contract for a complete board editor and renderer runtime. */
 export type BoardRuntimeProps = {
 	path: string;
 	document: BoardDocument;
+	runtime: BoardRuntimeData;
 	spaceId: string;
 	immersive?: boolean;
 	syncError?: string | null;
 	onCommit: (
 		document: BoardDocument,
-		ops: BoardSemanticOp[],
+		ops: BoardOperation[],
 	) => void | Promise<void>;
 	onRetrySync?: () => void | Promise<void>;
 	onViewStateChange?: (state: BoardRuntimeViewState) => void;

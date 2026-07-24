@@ -1,6 +1,7 @@
 <script lang="ts">
 import type { BoardDocument } from "$lib/board/board-schema";
 import {
+	type BoardRuntimeData,
 	type BoardRuntimeProps,
 	type BoardRuntimeViewState,
 	resolveBoardRuntime,
@@ -11,8 +12,9 @@ import type { PreviewTab } from "./preview-tabs";
 
 type InlineBoardPanelState = {
 	path: string;
-	documentId: string | null;
+	boardId: string | null;
 	document: BoardDocument | null;
+	runtime: BoardRuntimeData | null;
 	loading: boolean;
 	saving: boolean;
 	error: string | null;
@@ -88,7 +90,7 @@ const boardRuntimeModulePromise = $derived.by(() => {
 		{@render TabsChrome()}
 		<div class="m-4 rounded-lg border border-error-soft/30 bg-error-bg p-4 text-sm text-error-soft">{board.error}</div>
 	</div>
-{:else if board.document}
+{:else if board.document && board.runtime}
 	{#await boardRuntimeModulePromise then boardRuntimeModule}
 		{@const BoardRuntime = boardRuntimeModule.default}
 		<div class="relative flex h-full min-w-0 flex-col bg-bg-primary">
@@ -97,6 +99,7 @@ const boardRuntimeModulePromise = $derived.by(() => {
 				<BoardRuntime
 					path={board.path}
 					document={board.document}
+					runtime={board.runtime}
 					spaceId={spaceId}
 					{immersive}
 					syncError={board.saveError}

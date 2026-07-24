@@ -1,9 +1,9 @@
-import { BOARD_MANIFEST_KIND } from "@cohub/protocol";
+import { parseBoardManifest } from "@cohub/protocol";
 import type {
-	BoardDocumentRecord,
 	BoardNodeInput,
 	BoardNodeRecord,
-	BoardSemanticOp,
+	BoardOperation,
+	BoardRecord,
 } from "@neta-art/cohub";
 import {
 	BOARD_DOCUMENT_KIND,
@@ -78,28 +78,7 @@ export function serializeBoardDocument(document: BoardDocument) {
 	return `${JSON.stringify(wire, null, 2)}\n`;
 }
 
-export type BoardManifest = {
-	kind: typeof BOARD_MANIFEST_KIND;
-	version: 1;
-	documentId: string;
-	title: string;
-};
-
-export function parseBoardManifest(content: string): BoardManifest | null {
-	try {
-		const raw = JSON.parse(content || "{}");
-		if (
-			raw?.kind === BOARD_MANIFEST_KIND &&
-			raw.version === 1 &&
-			typeof raw.documentId === "string" &&
-			typeof raw.title === "string"
-		)
-			return raw as BoardManifest;
-		return null;
-	} catch {
-		return null;
-	}
-}
+export { parseBoardManifest };
 
 /**
  * Fields of an item record that are stored in dedicated node columns rather
@@ -143,7 +122,6 @@ function nodeInputFromRecord(node: BoardNodeRecord): BoardNodeInput {
 		refUrl: node.refUrl ?? null,
 		view: node.view ?? {},
 		style: node.style ?? {},
-		animation: node.animation ?? {},
 		data: node.data ?? {},
 	};
 }
@@ -364,7 +342,6 @@ function boardItemToNodeWithOrder(
 		height: item.frame.height,
 		rotation: item.frame.rotation,
 		style: item.style ?? source?.style ?? {},
-		animation: source?.animation ?? {},
 	};
 	const preservedRef = {
 		refKind: source?.refKind ?? null,
@@ -519,11 +496,11 @@ export function boardItemToNode(
 }
 
 export function boardBootstrapToDocument(input: {
-	document: BoardDocumentRecord;
+	board: BoardRecord;
 	nodes: BoardNodeRecord[];
 }): BoardDocument {
 	const appearance = BoardAppearanceSchema.safeParse(
-		input.document.meta?.appearance,
+		input.board.metadata.appearance,
 	);
 	const document = BoardDocumentSchema.parse({
 		kind: BOARD_DOCUMENT_KIND,
@@ -546,11 +523,10 @@ export function boardBootstrapToDocument(input: {
 
 function nodeInputToItem(node: BoardNodeInput): BoardItem {
 	return boardNodeToItem({
-		documentId: "",
+		boardId: "",
 		version: 0,
 		createdAt: null,
 		updatedAt: null,
-		deletedAt: null,
 		...node,
 	});
 }
@@ -575,7 +551,6 @@ function nodePatch(before: BoardNodeInput, after: BoardNodeInput) {
 		"refUrl",
 		"view",
 		"style",
-		"animation",
 		"data",
 	] as const;
 	for (const key of keys) {
@@ -590,7 +565,7 @@ function nodePatch(before: BoardNodeInput, after: BoardNodeInput) {
 export function diffBoardDocuments(
 	before: BoardDocument,
 	after: BoardDocument,
-): BoardSemanticOp[] {
+): BoardOperation[] {
 	const orderChanged =
 		before.items.length !== after.items.length ||
 		before.items.some((item, index) => after.items[index]?.id !== item.id);
@@ -603,7 +578,7 @@ export function diffBoardDocuments(
 			boardItemToNodeWithOrder(item, index, orderChanged),
 		]),
 	);
-	const ops: BoardSemanticOp[] = [];
+	const ops: BoardOperation[] = [];
 	for (const [nodeId, node] of afterNodes) {
 		const previous = beforeNodes.get(nodeId);
 		if (!previous) {
@@ -629,19 +604,15 @@ export function diffBoardDocuments(
 	return ops;
 }
 
-export function invertBoardOps(ops: BoardSemanticOp[]): BoardSemanticOp[] {
-	const inverseOps: BoardSemanticOp[] = [];
+export function invertBoardOps(ops: BoardOperation[]): BoardOperation[] {
+	const inverseOps: BoardOperation[] = [];
 	for (const op of [...ops].reverse()) {
-		if (op.type === "document.patch") {
-			const previousMeta = op.inverse?.meta;
+		if (op.type === "board.patch") {
+			const previous = isRecord(op.inverse?.patch) ? op.inverse.patch : {};
 			inverseOps.push({
-				type: "document.patch",
-				payload: {
-					patch: {
-						meta: isRecord(previousMeta) ? previousMeta : null,
-					},
-				},
-				inverse: { meta: op.payload.patch.meta },
+				type: "board.patch",
+				payload: { patch: previous },
+				inverse: { patch: op.payload.patch },
 			});
 			continue;
 		}
@@ -663,6 +634,7 @@ export function invertBoardOps(ops: BoardSemanticOp[]): BoardSemanticOp[] {
 			});
 			continue;
 		}
+		if (op.type !== "node.patch") continue;
 		inverseOps.push({
 			type: "node.patch",
 			payload: {
@@ -677,14 +649,14 @@ export function invertBoardOps(ops: BoardSemanticOp[]): BoardSemanticOp[] {
 
 export function applyBoardOps(
 	document: BoardDocument,
-	ops: BoardSemanticOp[],
+	ops: BoardOperation[],
 ): BoardDocument {
 	let items = [...document.items];
 	let appearance = document.appearance;
 	for (const op of ops) {
-		if (op.type === "document.patch") {
+		if (op.type === "board.patch") {
 			const parsed = BoardAppearanceSchema.safeParse(
-				op.payload.patch.meta?.appearance,
+				op.payload.patch.metadata?.appearance,
 			);
 			appearance = parsed.success ? parsed.data : DEFAULT_BOARD_APPEARANCE;
 			continue;
@@ -701,6 +673,7 @@ export function applyBoardOps(
 				items = items.filter((item) => item.id !== nodeId);
 			continue;
 		}
+		if (op.type !== "node.patch") continue;
 		const nodeId = op.payload.nodeId;
 		const patch = op.payload.patch as Partial<BoardNodeInput> | undefined;
 		if (typeof nodeId !== "string" || !patch) continue;

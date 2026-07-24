@@ -1,5 +1,7 @@
 import type {
-	BoardSemanticOp,
+	BoardBootstrap,
+	BoardOperation,
+	BoardPlaybackSnapshot,
 	SpaceFsFileResponse,
 	SpaceFsPreparingFile,
 } from "@neta-art/cohub";
@@ -11,6 +13,10 @@ import {
 } from "$lib/board/board-document";
 import { resolveBoardManifestText } from "$lib/board/board-manifest-text";
 import type { BoardDocument } from "$lib/board/board-schema";
+import {
+	type BoardRuntimeData,
+	operationsRequireBoardRuntimeRefresh,
+} from "$lib/board/runtime/board-runtime";
 import {
 	deleteBoardPendingTransaction,
 	listBoardPendingTransactions,
@@ -27,8 +33,9 @@ const MAX_CONFLICT_RECOVERY = 5;
 
 export type InlineBoardPanelState = {
 	path: string;
-	documentId: string | null;
+	boardId: string | null;
 	document: BoardDocument | null;
+	runtime: BoardRuntimeData | null;
 	loading: boolean;
 	saving: boolean;
 	error: string | null;
@@ -53,11 +60,11 @@ export function createBoardPreviewController(
 	let boards = $state<InlineBoardPanelState[]>([]);
 	let activeBoardPath = $state<string | null>(null);
 	let requestTokenByPath = $state<Record<string, number>>({});
-	let syncVersionByDocumentId = $state<Record<string, number | null>>({});
-	const pendingFlushByDocumentId = new Map<string, Promise<void>>();
+	let syncVersionByBoardId = $state<Record<string, number | null>>({});
+	const pendingFlushByBoardId = new Map<string, Promise<void>>();
 	const pendingFlushRequested = new Set<string>();
 	/** Conflict-recovery attempts per document, to bound rebase retries. */
-	let conflictAttemptsByDocumentId: Record<string, number> = {};
+	let conflictAttemptsByBoardId: Record<string, number> = {};
 	/**
 	 * Remote events deferred while a save is in flight. Never dropped: drained in
 	 * version order after the commit settles. When the queued sequence is
@@ -65,10 +72,10 @@ export function createBoardPreviewController(
 	 * falls back to a full bootstrap.
 	 */
 	type PendingRemoteEvent = {
-		documentId: string;
+		boardId: string;
 		version: number;
 		txId: string;
-		ops: BoardSemanticOp[];
+		ops: BoardOperation[];
 	};
 	let pendingRemoteEvents: PendingRemoteEvent[] = [];
 	/** Documents that need a full bootstrap (version gap / missing ops). */
@@ -117,8 +124,9 @@ export function createBoardPreviewController(
 		activeBoardPath = path;
 		const loadingBoard: InlineBoardPanelState = {
 			path,
-			documentId: null,
+			boardId: null,
 			document: null,
+			runtime: null,
 			loading: true,
 			saving: false,
 			error: null,
@@ -147,18 +155,24 @@ export function createBoardPreviewController(
 			if (!manifest) throw new Error("Board manifest is invalid.");
 			const bootstrap = await sdk
 				.space(options.getSpaceId())
-				.boards.bootstrap(manifest.documentId);
+				.boards.inspect(manifest.boardId);
 			if (!isCurrent(token, path, sourceKey)) return;
-			syncVersionByDocumentId = {
-				...syncVersionByDocumentId,
-				[bootstrap.document.id]: bootstrap.document.version,
+			syncVersionByBoardId = {
+				...syncVersionByBoardId,
+				[bootstrap.board.id]: bootstrap.board.version,
 			};
 			boards = boards.map((item) =>
 				item.path === path
 					? {
 							path,
-							documentId: bootstrap.document.id,
+							boardId: bootstrap.board.id,
 							document: boardBootstrapToDocument(bootstrap),
+							runtime: {
+								effects: bootstrap.effects,
+								sequences: bootstrap.sequences,
+								clips: bootstrap.clips,
+								playback: bootstrap.playback,
+							},
 							loading: false,
 							saving: false,
 							error: null,
@@ -167,9 +181,9 @@ export function createBoardPreviewController(
 					: item,
 			);
 			if (!options.getReadonly?.()) {
-				void flushPendingTransactions(bootstrap.document.id).catch((error) => {
+				void flushPendingTransactions(bootstrap.board.id).catch((error) => {
 					setBoardError(
-						bootstrap.document.id,
+						bootstrap.board.id,
 						error instanceof Error
 							? error.message
 							: "Board changes are saved locally and will retry.",
@@ -182,8 +196,9 @@ export function createBoardPreviewController(
 				item.path === path
 					? {
 							path,
-							documentId: null,
+							boardId: null,
 							document: null,
+							runtime: null,
 							loading: false,
 							saving: false,
 							error:
@@ -216,20 +231,20 @@ export function createBoardPreviewController(
 		options.onOpenPanel?.();
 	}
 
-	function flushPendingTransactions(documentId: string): Promise<void> {
-		const activeFlush = pendingFlushByDocumentId.get(documentId);
+	function flushPendingTransactions(boardId: string): Promise<void> {
+		const activeFlush = pendingFlushByBoardId.get(boardId);
 		if (activeFlush) {
-			pendingFlushRequested.add(documentId);
+			pendingFlushRequested.add(boardId);
 			return activeFlush;
 		}
 		const flush = (async () => {
 			try {
 				do {
-					pendingFlushRequested.delete(documentId);
+					pendingFlushRequested.delete(boardId);
 					while (true) {
 						const pending = await listBoardPendingTransactions(
 							options.getSpaceId(),
-							documentId,
+							boardId,
 						);
 						if (pending.length === 0) break;
 						const tx = pending[0];
@@ -238,17 +253,18 @@ export function createBoardPreviewController(
 						try {
 							const result = await sdk
 								.space(options.getSpaceId())
-								.sendBoardTransactionRealtime(documentId, {
+								.boards.apply({
 									txId: tx.txId,
+									boardId,
 									baseVersion: tx.baseVersion,
-									ops: tx.ops,
+									operations: tx.ops,
 								});
-							syncVersionByDocumentId = {
-								...syncVersionByDocumentId,
-								[documentId]: result.document.version,
+							syncVersionByBoardId = {
+								...syncVersionByBoardId,
+								[boardId]: result.board.version,
 							};
 							// A successful commit resets the conflict-recovery budget.
-							delete conflictAttemptsByDocumentId[documentId];
+							delete conflictAttemptsByBoardId[boardId];
 							// Remember our own txId so the echoed realtime event is skipped.
 							ownTxIds.add(tx.txId);
 							if (ownTxIds.size > 256) {
@@ -257,33 +273,33 @@ export function createBoardPreviewController(
 							}
 							await deleteBoardPendingTransaction({
 								spaceId: options.getSpaceId(),
-								documentId,
+								boardId,
 								txId: tx.txId,
 							});
 						} catch (error) {
-							const attempts = conflictAttemptsByDocumentId[documentId] ?? 0;
+							const attempts = conflictAttemptsByBoardId[boardId] ?? 0;
 							if (
 								isVersionConflict(error) &&
 								attempts < MAX_CONFLICT_RECOVERY
 							) {
 								// A recovery is already in flight: this stale tx will be superseded
 								// by the rebase re-commit, so stop rather than re-recovering.
-								if (pendingRecoveryCleanup.has(documentId)) break;
-								conflictAttemptsByDocumentId[documentId] = attempts + 1;
+								if (pendingRecoveryCleanup.has(boardId)) break;
+								conflictAttemptsByBoardId[boardId] = attempts + 1;
 								// Rebase onto the server truth and restart the loop; the editor
 								// re-commits a fresh transaction with the correct base version.
-								await recoverFromConflict(documentId);
+								await recoverFromConflict(boardId);
 								break;
 							}
 							throw error;
 						}
 					}
-				} while (pendingFlushRequested.delete(documentId));
+				} while (pendingFlushRequested.delete(boardId));
 			} finally {
-				pendingFlushByDocumentId.delete(documentId);
+				pendingFlushByBoardId.delete(boardId);
 			}
 		})();
-		pendingFlushByDocumentId.set(documentId, flush);
+		pendingFlushByBoardId.set(boardId, flush);
 		return flush;
 	}
 
@@ -295,24 +311,30 @@ export function createBoardPreviewController(
 	 * rebase transaction is durably written, so local changes survive a crash or
 	 * board-close mid-recovery (the stale txs simply replay and re-recover).
 	 */
-	async function recoverFromConflict(documentId: string) {
+	async function recoverFromConflict(boardId: string) {
 		const bootstrap = await sdk
 			.space(options.getSpaceId())
-			.boards.bootstrap(documentId);
-		syncVersionByDocumentId = {
-			...syncVersionByDocumentId,
-			[documentId]: bootstrap.document.version,
+			.boards.inspect(boardId);
+		syncVersionByBoardId = {
+			...syncVersionByBoardId,
+			[boardId]: bootstrap.board.version,
 		};
 		// Mark recovery in flight; commitBoard performs the stale-tx cleanup once
 		// the fresh rebase transaction is persisted.
-		pendingRecoveryCleanup.add(documentId);
+		pendingRecoveryCleanup.add(boardId);
 		// Push the remote document to the editor (clearing `saving` so it is
 		// accepted); the rebase + re-commit happens inside the editor.
 		boards = boards.map((item) =>
-			item.documentId === documentId
+			item.boardId === boardId
 				? {
 						...item,
 						document: boardBootstrapToDocument(bootstrap),
+						runtime: {
+							effects: bootstrap.effects,
+							sequences: bootstrap.sequences,
+							clips: bootstrap.clips,
+							playback: bootstrap.playback,
+						},
 						saving: false,
 						saveError: null,
 					}
@@ -326,36 +348,33 @@ export function createBoardPreviewController(
 	 * durable, so the stale pre-conflict txs are dropped only after their changes
 	 * are safely re-recorded — never before.
 	 */
-	async function cleanupStaleTransactions(
-		documentId: string,
-		keepTxId: string,
-	) {
-		pendingRecoveryCleanup.delete(documentId);
+	async function cleanupStaleTransactions(boardId: string, keepTxId: string) {
+		pendingRecoveryCleanup.delete(boardId);
 		const remaining = await listBoardPendingTransactions(
 			options.getSpaceId(),
-			documentId,
+			boardId,
 		);
 		for (const other of remaining) {
 			if (other.txId === keepTxId) continue;
 			await deleteBoardPendingTransaction({
 				spaceId: options.getSpaceId(),
-				documentId,
+				boardId,
 				txId: other.txId,
 			});
 		}
 	}
 
-	async function commitBoard(document: BoardDocument, ops: BoardSemanticOp[]) {
+	async function commitBoard(document: BoardDocument, ops: BoardOperation[]) {
 		const board = boards.find((item) => item.path === activeBoardPath);
-		if (options.getReadonly?.() || !board?.documentId) return;
-		const documentId = board.documentId;
+		if (options.getReadonly?.() || !board?.boardId) return;
+		const boardId = board.boardId;
 		const savingPath = board.path;
 		const txId = crypto.randomUUID();
 		// A recovery re-commit with no resulting ops still must clear the stale
 		// pending txs (their changes are already reflected server-side).
 		if (ops.length === 0) {
-			if (pendingRecoveryCleanup.has(documentId))
-				await cleanupStaleTransactions(documentId, txId);
+			if (pendingRecoveryCleanup.has(boardId))
+				await cleanupStaleTransactions(boardId, txId);
 			return;
 		}
 		options.onMarkSavePending?.(savingPath);
@@ -365,11 +384,13 @@ export function createBoardPreviewController(
 				: item,
 		);
 		try {
+			const baseVersion = syncVersionByBoardId[boardId];
+			if (baseVersion == null) throw new Error("Board version is unavailable");
 			await writeBoardPendingTransaction({
 				spaceId: options.getSpaceId(),
-				documentId,
+				boardId,
 				txId,
-				baseVersion: syncVersionByDocumentId[documentId] ?? null,
+				baseVersion,
 				ops,
 			});
 		} catch (error) {
@@ -383,18 +404,18 @@ export function createBoardPreviewController(
 					: item,
 			);
 			options.onClearSavePendingSoon?.(savingPath);
-			void drainRemoteRefresh(documentId);
+			void drainRemoteRefresh(boardId);
 			throw error;
 		}
 		// The fresh (rebase) transaction is now durable; it supersedes any stale
 		// pending txs from an in-flight recovery, so they can be safely removed.
-		if (pendingRecoveryCleanup.has(documentId))
-			await cleanupStaleTransactions(documentId, txId);
+		if (pendingRecoveryCleanup.has(boardId))
+			await cleanupStaleTransactions(boardId, txId);
 		boards = boards.map((item) =>
 			item.path === savingPath ? { ...item, document } : item,
 		);
 		try {
-			await flushPendingTransactions(documentId);
+			await flushPendingTransactions(boardId);
 			boards = boards.map((item) =>
 				item.path === savingPath
 					? { ...item, saving: false, saveError: null }
@@ -416,7 +437,7 @@ export function createBoardPreviewController(
 		} finally {
 			options.onClearSavePendingSoon?.(savingPath);
 			// Apply any remote refresh that arrived while this save was in flight.
-			void drainRemoteRefresh(documentId);
+			void drainRemoteRefresh(boardId);
 		}
 	}
 
@@ -425,85 +446,89 @@ export function createBoardPreviewController(
 		return typeof txId === "string" && ownTxIds.has(txId);
 	}
 
-	function isBusy(documentId: string): boolean {
-		const board = boards.find((item) => item.documentId === documentId);
-		return Boolean(board?.saving || pendingFlushByDocumentId.has(documentId));
+	function isBusy(boardId: string): boolean {
+		const board = boards.find((item) => item.boardId === boardId);
+		return Boolean(board?.saving || pendingFlushByBoardId.has(boardId));
 	}
 
 	/**
 	 * Full-document remote refresh (bootstrap). Used as a fallback when ops are
 	 * missing or the version sequence has a gap.
 	 */
-	function requestRemoteRefresh(documentId: string) {
-		pendingRemoteBootstrap.add(documentId);
-		if (isBusy(documentId)) return;
-		void drainRemoteRefresh(documentId);
+	function requestRemoteRefresh(boardId: string) {
+		pendingRemoteBootstrap.add(boardId);
+		if (isBusy(boardId)) return;
+		void drainRemoteRefresh(boardId);
 	}
 
 	/**
 	 * Prefer incremental ops application. Falls back to bootstrap on gaps.
 	 */
 	function requestRemoteOps(
-		documentId: string,
-		event: { version: number; txId: string; ops: BoardSemanticOp[] },
+		boardId: string,
+		event: { version: number; txId: string; ops: BoardOperation[] },
 	) {
 		pendingRemoteEvents.push({
-			documentId,
+			boardId,
 			version: event.version,
 			txId: event.txId,
 			ops: event.ops,
 		});
-		if (isBusy(documentId)) return;
-		void drainRemoteRefresh(documentId);
+		if (isBusy(boardId)) return;
+		void drainRemoteRefresh(boardId);
 	}
 
 	function applyRemoteOpsLocally(
-		documentId: string,
+		boardId: string,
 		version: number,
-		ops: BoardSemanticOp[],
+		ops: BoardOperation[],
 	): boolean {
-		const board = boards.find((item) => item.documentId === documentId);
+		const board = boards.find((item) => item.boardId === boardId);
 		if (!board || board.saving || !board.document) return false;
-		const localVersion = syncVersionByDocumentId[documentId] ?? null;
+		const localVersion = syncVersionByBoardId[boardId] ?? null;
 		if (localVersion == null) return false;
 		if (version <= localVersion) return true; // already applied / stale
 		if (version !== localVersion + 1) return false; // gap → bootstrap
+		// Runtime revisions are assigned by the server and are not represented in
+		// the document codec. Refresh the full bootstrap rather than advancing the
+		// version while silently retaining stale effects or sequences.
+		if (operationsRequireBoardRuntimeRefresh(ops)) return false;
 		const nextDoc = applyBoardOps(board.document, ops);
-		syncVersionByDocumentId = {
-			...syncVersionByDocumentId,
-			[documentId]: version,
+		syncVersionByBoardId = {
+			...syncVersionByBoardId,
+			[boardId]: version,
 		};
 		boards = boards.map((item) =>
-			item.documentId === documentId
+			item.boardId === boardId
 				? { ...item, document: nextDoc, error: null }
 				: item,
 		);
 		return true;
 	}
 
-	async function drainRemoteRefresh(documentId: string) {
+	async function drainRemoteRefresh(boardId: string) {
 		// Still saving: leave queue intact for the commit's finally block.
-		if (isBusy(documentId)) return;
+		if (isBusy(boardId)) return;
 		// One drain at a time per document. Concurrent callers just queue; the
 		// active drain re-checks the queue before exiting.
-		if (drainingDocuments.has(documentId)) return;
-		drainingDocuments.add(documentId);
+		if (drainingDocuments.has(boardId)) return;
+		drainingDocuments.add(boardId);
 		try {
 			let guard = 0;
 			while (guard < 8) {
 				guard += 1;
-				if (isBusy(documentId)) return;
+				if (isBusy(boardId)) return;
 
 				// Snapshot and remove this document's queued events for this pass.
 				const events = pendingRemoteEvents
-					.filter((event) => event.documentId === documentId)
+					.filter((event) => event.boardId === boardId)
 					.sort((a, b) => a.version - b.version);
 				pendingRemoteEvents = pendingRemoteEvents.filter(
-					(event) => event.documentId !== documentId,
+					(event) => event.boardId !== boardId,
 				);
 
-				let needsBootstrap = pendingRemoteBootstrap.has(documentId);
-				pendingRemoteBootstrap.delete(documentId);
+				let needsBootstrap = pendingRemoteBootstrap.has(boardId);
+				pendingRemoteBootstrap.delete(boardId);
 
 				// Events that failed contiguous apply are put back after bootstrap.
 				let remainder: PendingRemoteEvent[] = [];
@@ -511,11 +536,7 @@ export function createBoardPreviewController(
 					for (let i = 0; i < events.length; i += 1) {
 						const event = events[i];
 						if (!event) continue;
-						const ok = applyRemoteOpsLocally(
-							documentId,
-							event.version,
-							event.ops,
-						);
+						const ok = applyRemoteOpsLocally(boardId, event.version, event.ops);
 						if (!ok) {
 							needsBootstrap = true;
 							remainder = events.slice(i);
@@ -529,8 +550,8 @@ export function createBoardPreviewController(
 				if (!needsBootstrap) {
 					// Fresh events may have arrived while we applied ops.
 					if (
-						pendingRemoteEvents.some((e) => e.documentId === documentId) ||
-						pendingRemoteBootstrap.has(documentId)
+						pendingRemoteEvents.some((e) => e.boardId === boardId) ||
+						pendingRemoteBootstrap.has(boardId)
 					) {
 						continue;
 					}
@@ -540,39 +561,38 @@ export function createBoardPreviewController(
 				try {
 					const bootstrap = await sdk
 						.space(options.getSpaceId())
-						.boards.bootstrap(documentId);
-					applyBootstrap(documentId, bootstrap);
-					const bootVersion = bootstrap.document.version;
+						.boards.inspect(boardId);
+					applyBootstrap(boardId, bootstrap);
+					const bootVersion = bootstrap.board.version;
 					// Re-queue only events newer than the bootstrap; drop the rest.
 					const newer = remainder.filter(
 						(event) => event.version > bootVersion,
 					);
 					if (newer.length > 0) pendingRemoteEvents.push(...newer);
 					pendingRemoteEvents = pendingRemoteEvents.filter(
-						(event) =>
-							event.documentId !== documentId || event.version > bootVersion,
+						(event) => event.boardId !== boardId || event.version > bootVersion,
 					);
 				} catch (error) {
 					// Put unapplied events back so a later drain can retry.
 					if (remainder.length > 0) pendingRemoteEvents.push(...remainder);
 					setError(
-						documentId,
+						boardId,
 						error instanceof Error ? error.message : "Failed to sync board",
 					);
 					return;
 				}
 			}
 		} finally {
-			drainingDocuments.delete(documentId);
+			drainingDocuments.delete(boardId);
 			// If the guard capped us (or events arrived as we exited), schedule
 			// another pass. Concurrent callers that bounced on the draining set
 			// will not retry themselves.
 			const stillPending =
-				pendingRemoteBootstrap.has(documentId) ||
-				pendingRemoteEvents.some((event) => event.documentId === documentId);
-			if (stillPending && !isBusy(documentId)) {
+				pendingRemoteBootstrap.has(boardId) ||
+				pendingRemoteEvents.some((event) => event.boardId === boardId);
+			if (stillPending && !isBusy(boardId)) {
 				queueMicrotask(() => {
-					void drainRemoteRefresh(documentId);
+					void drainRemoteRefresh(boardId);
 				});
 			}
 		}
@@ -595,24 +615,24 @@ export function createBoardPreviewController(
 		}
 	}
 
-	function setBoardError(documentId: string, error: string) {
+	function setBoardError(boardId: string, error: string) {
 		boards = boards.map((board) =>
-			board.documentId === documentId ? { ...board, saveError: error } : board,
+			board.boardId === boardId ? { ...board, saveError: error } : board,
 		);
 	}
 
-	function setError(documentId: string, error: string) {
-		setBoardError(documentId, error);
+	function setError(boardId: string, error: string) {
+		setBoardError(boardId, error);
 	}
 
 	async function retryBoardSave(path = activeBoardPath) {
 		const board = boards.find((item) => item.path === path);
-		if (!board?.documentId || options.getReadonly?.()) return;
+		if (!board?.boardId || options.getReadonly?.()) return;
 		boards = boards.map((item) =>
 			item.path === path ? { ...item, saving: true, saveError: null } : item,
 		);
 		try {
-			await flushPendingTransactions(board.documentId);
+			await flushPendingTransactions(board.boardId);
 			boards = boards.map((item) =>
 				item.path === path ? { ...item, saving: false, saveError: null } : item,
 			);
@@ -629,21 +649,32 @@ export function createBoardPreviewController(
 		}
 	}
 
-	function applyBootstrap(
-		documentId: string,
-		bootstrap: Parameters<typeof boardBootstrapToDocument>[0],
-	) {
-		const board = boards.find((item) => item.documentId === documentId);
+	function applyPlayback(playback: BoardPlaybackSnapshot) {
+		boards = boards.map((item) =>
+			item.boardId === playback.boardId && item.runtime
+				? { ...item, runtime: { ...item.runtime, playback } }
+				: item,
+		);
+	}
+
+	function applyBootstrap(boardId: string, bootstrap: BoardBootstrap) {
+		const board = boards.find((item) => item.boardId === boardId);
 		if (!board || board.saving) return;
-		syncVersionByDocumentId = {
-			...syncVersionByDocumentId,
-			[documentId]: bootstrap.document.version,
+		syncVersionByBoardId = {
+			...syncVersionByBoardId,
+			[boardId]: bootstrap.board.version,
 		};
 		boards = boards.map((item) =>
-			item.documentId === documentId
+			item.boardId === boardId
 				? {
 						...item,
 						document: boardBootstrapToDocument(bootstrap),
+						runtime: {
+							effects: bootstrap.effects,
+							sequences: bootstrap.sequences,
+							clips: bootstrap.clips,
+							playback: bootstrap.playback,
+						},
 						saveError: null,
 					}
 				: item,
@@ -671,6 +702,7 @@ export function createBoardPreviewController(
 		isOwnTransaction,
 		renamePath,
 		setError,
+		applyPlayback,
 		applyBootstrap,
 	};
 }

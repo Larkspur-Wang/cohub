@@ -38,7 +38,7 @@ describe("space-file-text", () => {
 
 	it("recovers misclassified inline .board binary as JSON text", () => {
 		const content =
-			'{"kind":"cohub.board.manifest","version":1,"documentId":"d1","title":"Board"}\n';
+			'{"kind":"cohub.board.manifest","version":1,"boardId":"d1","title":"Board"}\n';
 		const recovered = coerceInlineTextFile({
 			path: "Board.board",
 			name: "Board.board",

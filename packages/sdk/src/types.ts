@@ -32,7 +32,32 @@ import type {
 import type { MessageRecord } from "@cohub/protocol/model";
 import type { ModelThinkingLevel } from "@cohub/protocol";
 
-export type { SpaceStartupResponse } from "@cohub/protocol";
+export type {
+  BoardAssetRef,
+  BoardBootstrap,
+  BoardCapabilities,
+  BoardCapability,
+  BoardClip,
+  BoardCreateInput,
+  BoardDeleteReason,
+  BoardDiagnostic,
+  BoardEffect,
+  BoardInspectInput,
+  BoardKeyframe,
+  BoardManifest,
+  BoardNodeInput,
+  BoardNodeRecord,
+  BoardOperation,
+  BoardPlaybackCommand,
+  BoardPlaybackSnapshot,
+  BoardRecord,
+  BoardRenderCost,
+  BoardSequence,
+  BoardTarget,
+  BoardTransaction,
+  BoardValidationResult,
+  SpaceStartupResponse,
+} from "@cohub/protocol";
 
 export type {
   ChannelConfig,
@@ -758,95 +783,6 @@ export type SpaceConfigUpdateResponse = {
     skipped?: boolean;
     message?: string;
   };
-};
-
-export type BoardDocumentRecord = {
-  id: string;
-  spaceId: string;
-  filePath: string;
-  title: string;
-  version: number;
-  meta?: Record<string, unknown> | null;
-  createdAt: string | null;
-  updatedAt: string | null;
-  deletedAt?: string | null;
-};
-
-export type BoardNodeRecord = {
-  documentId: string;
-  nodeId: string;
-  type: string;
-  parentId?: string | null;
-  orderKey?: string | null;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  rotation: number;
-  refKind?: string | null;
-  refPath?: string | null;
-  refUrl?: string | null;
-  view: Record<string, unknown>;
-  style: Record<string, unknown>;
-  animation: Record<string, unknown>;
-  data: Record<string, unknown>;
-  version: number;
-  createdAt: string | null;
-  updatedAt: string | null;
-  deletedAt?: string | null;
-};
-
-export type BoardNodeInput = Omit<BoardNodeRecord, "documentId" | "version" | "createdAt" | "updatedAt" | "deletedAt">;
-
-export const BOARD_DELETE_REASONS = [
-  "user-delete",
-  "orphan-cleanup",
-  "layout-replace",
-  "placeholder-cascade",
-] as const;
-
-export type BoardDeleteReason = (typeof BOARD_DELETE_REASONS)[number] | (string & {});
-
-type BoardOpBase = {
-  opId?: string;
-  inverse?: Record<string, unknown>;
-};
-
-export type BoardSemanticOp =
-  | (BoardOpBase & {
-      type: "document.patch";
-      payload: { patch: { meta: Record<string, unknown> | null } };
-    })
-  | (BoardOpBase & {
-      type: "node.create";
-      payload: { node: BoardNodeInput };
-    })
-  | (BoardOpBase & {
-      type: "node.patch";
-      payload: { nodeId: string; patch: Partial<BoardNodeInput> };
-    })
-  | (BoardOpBase & {
-      type: "node.delete";
-      payload: { nodeId: string; reason?: BoardDeleteReason };
-    });
-
-export type BoardTransactionInput = {
-  txId: string;
-  baseVersion?: number | null;
-  clientId?: string | null;
-  undoGroupId?: string | null;
-  ops: BoardSemanticOp[];
-};
-
-export type BoardCreateInput = {
-  path: string;
-  title?: string;
-  nodes?: BoardNodeInput[];
-};
-
-export type BoardBootstrapResponse = {
-  document: BoardDocumentRecord;
-  nodes: BoardNodeRecord[];
 };
 
 export type SpaceCreateResponse = {

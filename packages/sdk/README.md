@@ -74,6 +74,62 @@ await session.messages.send({
 });
 ```
 
+## Boards
+
+Use `space.boards` for collection operations and bind an ID with
+`space.board(boardId)` for entity operations:
+
+```ts
+const created = await space.boards.create({
+  path: "boards/plan.board",
+  title: "Plan",
+  nodes: [],
+});
+
+const board = space.board(created.board.id);
+// Equivalent: space.boards.byId(created.board.id)
+
+const snapshot = await board.inspect({
+  include: ["nodes", "effects", "sequences", "clips", "playback"],
+});
+
+await board.apply({
+  txId: crypto.randomUUID(),
+  baseVersion: snapshot.board.version,
+  operations: [
+    { type: "board.patch", payload: { patch: { title: "Updated plan" } } },
+  ],
+});
+```
+
+A bound `BoardClient` injects its `boardId` into validation and transaction
+requests. Realtime subscriptions are also scoped to that Board:
+
+```ts
+const stop = board.subscribe({
+  transaction(event) {
+    console.log("version", event.payload.version);
+  },
+  playback(event) {
+    console.log("playback", event.payload.status);
+  },
+});
+
+stop();
+```
+
+Import timeline compilation and extension registry helpers from the lightweight
+Board entry point:
+
+```ts
+import {
+  clip,
+  compileSequence,
+  createBoardExtensionRegistry,
+  timeline,
+} from "@neta-art/cohub/board";
+```
+
 ## Session subscriptions
 
 ```ts

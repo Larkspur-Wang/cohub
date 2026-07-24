@@ -1,7 +1,7 @@
 <script lang="ts">
 import type { ChannelEnvelope } from "@cohub/protocol/realtime";
 import type {
-	BoardSemanticOp,
+	BoardOperation,
 	Permission,
 	SpaceRecord,
 	TaskRunRecord,
@@ -766,8 +766,8 @@ const spaceRealtime = createSpaceRealtimeController({
 	onTransportOpen: () => sessionChat.onTransportOpen(),
 	onConnectionOpened: () => {
 		fileWorkspace.retryFailedInlineFiles();
-		if (inlineBoard?.documentId) {
-			void flushInlineBoardPendingTransactions(inlineBoard.documentId).catch(
+		if (inlineBoard?.boardId) {
+			void flushInlineBoardPendingTransactions(inlineBoard.boardId).catch(
 				() => undefined,
 			);
 		}
@@ -787,8 +787,8 @@ const spaceRealtime = createSpaceRealtimeController({
 		if (wsConnectionState === "open") {
 			void sessionChat.refreshSessions(false);
 		}
-		if (inlineBoard?.documentId) {
-			void flushInlineBoardPendingTransactions(inlineBoard.documentId).catch(
+		if (inlineBoard?.boardId) {
+			void flushInlineBoardPendingTransactions(inlineBoard.boardId).catch(
 				() => undefined,
 			);
 		}
@@ -1598,12 +1598,12 @@ function closeInlineBoard() {
 	if (path) previewWorkspace.close("board", path);
 	else previewWorkspace.closeActive();
 }
-async function flushInlineBoardPendingTransactions(documentId: string) {
-	await boardPreview.flushPendingTransactions(documentId);
+async function flushInlineBoardPendingTransactions(boardId: string) {
+	await boardPreview.flushPendingTransactions(boardId);
 }
 async function commitInlineBoard(
 	document: BoardDocument,
-	ops: BoardSemanticOp[],
+	ops: BoardOperation[],
 ) {
 	await boardPreview.commitBoard(document, ops);
 }
@@ -1860,17 +1860,17 @@ onMount(() => {
 	);
 	const offBoardTxApplied = sdk
 		.space(spaceId)
-		.on("board.tx.applied", (event) => {
+		.on("board.transaction.applied", (event) => {
 			const payload = event.payload as {
-				documentId?: unknown;
+				boardId?: unknown;
 				version?: unknown;
 				actorId?: unknown;
 				txId?: unknown;
-				ops?: unknown;
+				operations?: unknown;
 			};
 			if (
-				typeof payload.documentId !== "string" ||
-				payload.documentId !== inlineBoard?.documentId
+				typeof payload.boardId !== "string" ||
+				payload.boardId !== inlineBoard?.boardId
 			)
 				return;
 			// Skip only this client's own committed transactions (already reflected
@@ -1880,11 +1880,11 @@ onMount(() => {
 			const version =
 				typeof payload.version === "number" ? payload.version : null;
 			const txId = typeof payload.txId === "string" ? payload.txId : null;
-			const ops = Array.isArray(payload.ops)
-				? (payload.ops as import("@neta-art/cohub").BoardSemanticOp[])
+			const ops = Array.isArray(payload.operations)
+				? (payload.operations as import("@neta-art/cohub").BoardOperation[])
 				: null;
 			if (version != null && txId && ops && ops.length > 0) {
-				boardPreview.requestRemoteOps(payload.documentId, {
+				boardPreview.requestRemoteOps(payload.boardId, {
 					version,
 					txId,
 					ops,
@@ -1892,7 +1892,15 @@ onMount(() => {
 				return;
 			}
 			// Missing/empty ops or version → full bootstrap fallback.
-			boardPreview.requestRemoteRefresh(payload.documentId);
+			boardPreview.requestRemoteRefresh(payload.boardId);
+		});
+	const offBoardPlaybackChanged = sdk
+		.space(spaceId)
+		.on("board.playback.changed", (event) => {
+			const snapshot =
+				event.payload as import("@neta-art/cohub").BoardPlaybackSnapshot;
+			if (snapshot.boardId !== inlineBoard?.boardId) return;
+			boardPreview.applyPlayback(snapshot);
 		});
 	const offSpaceConfigUpdated = subscribeSpaceConfig((config) => {
 		spaceConfig = config;
@@ -1954,6 +1962,7 @@ onMount(() => {
 		window.removeEventListener("keydown", handleSessionVimKeydown);
 		offSessionListCacheUpdated();
 		offBoardTxApplied();
+		offBoardPlaybackChanged();
 		offSpaceConfigUpdated();
 		offSpaceConfigBackgroundAction();
 		offDanmakuPrefs();

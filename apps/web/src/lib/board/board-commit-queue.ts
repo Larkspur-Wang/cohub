@@ -1,14 +1,14 @@
-import type { BoardSemanticOp } from "@neta-art/cohub";
+import type { BoardOperation } from "@neta-art/cohub";
 import { diffBoardDocuments } from "$lib/board/board-document";
 import type { BoardDocument } from "$lib/board/board-schema";
 
 export type CommitFn = (
 	document: BoardDocument,
-	ops: BoardSemanticOp[],
+	ops: BoardOperation[],
 ) => Promise<void>;
 
 export type CommitOutcome =
-	| { ok: true; ops: BoardSemanticOp[] }
+	| { ok: true; ops: BoardOperation[] }
 	| { ok: false; error: unknown };
 
 /**
