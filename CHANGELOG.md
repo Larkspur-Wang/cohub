@@ -4,6 +4,14 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v1.111 — 2026-07-24
+
+- **Space-local New Chat backgrounds**: New chat boards can load HTML backgrounds from a relative Space file path via authenticated preview sessions.
+
+### Bug Fixes
+
+- Unified workspace route context so sidebar layout prefs and turn notifications stay consistent across space/session targets.
+
 ## v1.110 — 2026-07-23
 
 - **User-scoped label system for space pinning**: Replaced legacy space marks with a unified user-scoped label architecture (`user:pinned`), extending space bookmarking across core services, REST APIs, SDK, CLI (`spaces pin/unpin`), realtime events, and UI components.

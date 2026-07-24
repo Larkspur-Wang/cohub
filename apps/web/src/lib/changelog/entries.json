@@ -1,5 +1,16 @@
 [
 	{
+		"version": "1.111",
+		"date": "2026-07-24",
+		"tags": ["v1.111.0"],
+		"highlights": [
+			"**Space-local New Chat backgrounds**: New chat boards can load HTML backgrounds from a relative Space file path via authenticated preview sessions."
+		],
+		"fixes": [
+			"Unified workspace route context so sidebar layout prefs and turn notifications stay consistent across space/session targets."
+		]
+	},
+	{
 		"version": "1.110",
 		"date": "2026-07-23",
 		"tags": ["v1.110.0", "v1.110.1"],
