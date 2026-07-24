@@ -401,7 +401,7 @@ export class WebsocketClient {
     }
   }
 
-  async sendCanvasTransaction(input: {
+  async sendBoardTransaction(input: {
     spaceId: string;
     documentId: string;
     txId: string;
@@ -413,7 +413,7 @@ export class WebsocketClient {
   }) {
     await this.ensureOpen();
     this.send({
-      type: "canvas.tx",
+      type: "board.tx",
       requestId: input.requestId,
       payload: {
         spaceId: input.spaceId,

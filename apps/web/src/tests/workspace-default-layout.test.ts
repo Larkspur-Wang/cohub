@@ -24,7 +24,7 @@ test("parses sidebar / column / tree enums, ignoring unknown values", () => {
 	);
 });
 
-test("normalizes file preview path and accepts canvas", () => {
+test("normalizes file preview path and accepts board", () => {
 	assert.deepEqual(
 		parseWorkspaceDefaultLayout({
 			preview: { kind: "file", path: "./docs/a.md" },
@@ -33,9 +33,9 @@ test("normalizes file preview path and accepts canvas", () => {
 	);
 	assert.deepEqual(
 		parseWorkspaceDefaultLayout({
-			preview: { kind: "canvas", path: "/board.covas" },
+			preview: { kind: "board", path: "/board.board" },
 		}),
-		{ preview: { kind: "canvas", key: "board.covas" } },
+		{ preview: { kind: "board", key: "board.board" } },
 	);
 });
 

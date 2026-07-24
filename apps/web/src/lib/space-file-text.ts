@@ -1,3 +1,4 @@
+import { BOARD_MIME_TYPE, isBoardPath } from "@cohub/protocol";
 import type { SpaceFsFileResponse } from "@neta-art/cohub";
 
 /** Strip parameters (`text/plain; charset=utf-8` → `text/plain`) and lowercase. */
@@ -51,11 +52,6 @@ export function isDotfilePath(path: string) {
 	return name.startsWith(".") && name !== "." && name !== "..";
 }
 
-/** Canvas manifests (.covas) are JSON text by convention. */
-export function isCovasPath(path: string) {
-	return basenameOf(path).toLowerCase().endsWith(".covas");
-}
-
 function looksLikeUtf8Text(bytes: Uint8Array) {
 	if (bytes.length === 0) return true;
 	// Reject obvious binary (NUL) and high control-char density.
@@ -85,8 +81,8 @@ export function coerceInlineTextFile(
 	const recoverable =
 		isDotfilePath(file.path) ||
 		isDotfilePath(file.name) ||
-		isCovasPath(file.path) ||
-		isCovasPath(file.name);
+		isBoardPath(file.path) ||
+		isBoardPath(file.name);
 	if (!recoverable) return file;
 
 	try {
@@ -98,8 +94,8 @@ export function coerceInlineTextFile(
 		if (!looksLikeUtf8Text(bytes)) return file;
 		const content = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
 		const defaultMime =
-			isCovasPath(file.path) || isCovasPath(file.name)
-				? "application/json"
+			isBoardPath(file.path) || isBoardPath(file.name)
+				? BOARD_MIME_TYPE
 				: "text/plain";
 		return {
 			...file,

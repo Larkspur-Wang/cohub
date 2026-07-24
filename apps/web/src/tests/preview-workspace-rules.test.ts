@@ -34,7 +34,7 @@ test("preview kinds share one workspace pane", () => {
 	);
 	const panels = [
 		"InlineFilePanel.svelte",
-		"CanvasPreviewPanel.svelte",
+		"BoardPreviewPanel.svelte",
 		"PortPreviewPanel.svelte",
 	].map((file) => readFileSync(new URL(file, modules), "utf8"));
 	const portPreview = readFileSync(

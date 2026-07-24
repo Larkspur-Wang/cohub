@@ -160,7 +160,7 @@ export const authorizeRealtimeRooms = async (input: {
   };
 };
 
-export const submitCanvasTransaction = async (input: {
+export const submitBoardTransaction = async (input: {
   userId: string;
   spaceId: string;
   documentId: string;
@@ -170,7 +170,7 @@ export const submitCanvasTransaction = async (input: {
   undoGroupId?: string | null;
   ops: Array<Record<string, unknown>>;
 }): Promise<{ document: { version: number }; nodes: unknown[] }> => {
-  const response = await fetch(`${gatewayConfig.apiBaseUrl}/internal/canvas/${input.spaceId}/${input.documentId}/tx`, {
+  const response = await fetch(`${gatewayConfig.apiBaseUrl}/internal/boards/${input.spaceId}/${input.documentId}/tx`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -188,32 +188,32 @@ export const submitCanvasTransaction = async (input: {
   });
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    throw new CanvasTransactionError(response.status, text || `Internal canvas transaction failed ${response.status}`);
+    throw new BoardTransactionError(response.status, text || `Internal board transaction failed ${response.status}`);
   }
   const data = await parseJson<{ document?: { version?: number }; nodes?: unknown[] }>(response);
   if (!data?.document || typeof data.document.version !== "number" || !Array.isArray(data.nodes)) {
-    throw new Error("Internal canvas transaction returned an invalid response");
+    throw new Error("Internal board transaction returned an invalid response");
   }
   return { document: { version: data.document.version }, nodes: data.nodes };
 };
 
 /**
- * A canvas transaction rejected by the API. Carries the HTTP status so callers
+ * A board transaction rejected by the API. Carries the HTTP status so callers
  * (the WS handler, and ultimately the client) can distinguish a recoverable
  * version conflict (409) from other failures without parsing message strings.
  */
-export class CanvasTransactionError extends Error {
+export class BoardTransactionError extends Error {
   constructor(
     readonly status: number,
     message: string,
   ) {
     super(message);
-    this.name = "CanvasTransactionError";
+    this.name = "BoardTransactionError";
   }
 
   /** Stable code for a version conflict, used to trigger client-side rebase. */
   get code(): string {
-    return this.status === 409 ? "VERSION_CONFLICT" : "CANVAS_TX_FAILED";
+    return this.status === 409 ? "VERSION_CONFLICT" : "BOARD_TX_FAILED";
   }
 }
 

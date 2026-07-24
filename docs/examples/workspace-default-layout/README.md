@@ -17,11 +17,11 @@ All fields are optional; unset fields fall back to Cohub built-in defaults.
 | `leftSidebar`  | `expanded` \| `collapsed`           | App navigation rail on the left.                  |
 | `filesColumn`  | `visible` \| `hidden`               | The whole Files column (preview + tree).          |
 | `fileTree`     | `expanded` \| `collapsed`           | The file tree inside the Files column.            |
-| `preview`      | `{ kind, path }` / `{ kind, port }` | File/canvas/port to open on first entry.          |
+| `preview`      | `{ kind, path }` / `{ kind, port }` | File/board/port to open on first entry.          |
 | `presentation` | `split` \| `focus` \| `fullscreen`  | Preview presentation (needs `preview` to apply).  |
 
-`preview.kind` is one of `file`, `canvas`, or `port`. Use `path` for file and
-canvas, `port` for a port preview.
+`preview.kind` is one of `file`, `board`, or `port`. Use `path` for file and
+board, `port` for a port preview.
 
 - `split` — normal side-by-side preview.
 - `focus` — preview expands, main panel stays at its minimum width.

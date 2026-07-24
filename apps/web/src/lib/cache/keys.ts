@@ -102,7 +102,7 @@ export function filePendingDraftKey(
 	return [userKey, spaceId, path, "file-draft"].map(encodeKeyPart).join(":");
 }
 
-export function canvasPendingTransactionKey(
+export function boardPendingTransactionKey(
 	userKey: string,
 	spaceId: string,
 	documentId: string,

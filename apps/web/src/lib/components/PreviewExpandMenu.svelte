@@ -12,7 +12,7 @@ const {
 }: {
 	focused?: boolean;
 	immersive?: boolean;
-	/** md = standard 32px chrome button, sm = compact 28px (canvas toolbar). */
+	/** md = standard 32px chrome button, sm = compact 28px (board toolbar). */
 	size?: "md" | "sm";
 	onToggleFocus: () => void | Promise<void>;
 	onToggleImmersive: () => void | Promise<void>;

@@ -5,15 +5,15 @@ import type {
 } from "@neta-art/cohub";
 import { HttpError } from "@neta-art/cohub";
 import {
+	boardItemToNode,
+	createEmptyBoardDocument,
+} from "$lib/board/board-document";
+import { ensureBoardExtension, isBoardFile } from "$lib/board/board-file";
+import {
 	deleteFilePendingDraft,
 	readFilePendingDraft,
 	writeFilePendingDraft,
 } from "$lib/cache/repositories/file-pending-draft-repo";
-import {
-	canvasItemToNode,
-	createEmptyCovasDocument,
-} from "$lib/canvas/canvas-document";
-import { ensureCovasExtension, isCovasFile } from "$lib/canvas/canvas-file";
 import {
 	defaultFileViewMode,
 	type FileViewMode,
@@ -86,9 +86,9 @@ type FileWorkspaceControllerOptions = {
 	getCanEditFiles: () => boolean;
 	getActiveFsReadonly: () => boolean;
 	getSpaceHasMinimalAccess: () => boolean;
-	onOpenInlineCanvas: (path: string) => Promise<void>;
-	onCloseInlineCanvas: () => void;
-	onRenameInlineCanvas?: (fromPath: string, toPath: string) => void;
+	onOpenInlineBoard: (path: string) => Promise<void>;
+	onCloseInlineBoard: () => void;
+	onRenameInlineBoard?: (fromPath: string, toPath: string) => void;
 	onOpenInlinePort: (
 		port: string,
 		url: string,
@@ -678,8 +678,8 @@ export function createFileWorkspaceController(
 
 	/** Open a file in the unified preview surface (Files column). */
 	async function openSpaceFile(path: string) {
-		if (isCovasFile(path) && !options.getActiveFsReadonly()) {
-			await options.onOpenInlineCanvas(path);
+		if (isBoardFile(path) && !options.getActiveFsReadonly()) {
+			await options.onOpenInlineBoard(path);
 			return;
 		}
 		await openInlineFile(path);
@@ -1235,7 +1235,7 @@ export function createFileWorkspaceController(
 				...entries,
 				buildFsEntry(path, "file"),
 			]);
-			if (isCovasFile(path)) await options.onOpenInlineCanvas(path);
+			if (isBoardFile(path)) await options.onOpenInlineBoard(path);
 			else await openInlineFile(path);
 		} catch (error) {
 			fileTreeError =
@@ -1243,26 +1243,26 @@ export function createFileWorkspaceController(
 		}
 	}
 
-	async function handleCreateCanvas(parentPath: string) {
+	async function handleCreateBoard(parentPath: string) {
 		if (options.getActiveFsReadonly() || !options.getCanEditFiles()) return;
-		const name = prompt("New canvas name", "Untitled.covas");
+		const name = prompt("New board name", "Untitled.board");
 		if (!name?.trim()) return;
-		const fileName = ensureCovasExtension(name);
+		const fileName = ensureBoardExtension(name);
 		const path = parentPath ? `${parentPath}/${fileName}` : fileName;
 		try {
-			await sdk.space(options.getSpaceId()).canvas.create({
+			await sdk.space(options.getSpaceId()).boards.create({
 				path,
 				title: fileName,
-				nodes: createEmptyCovasDocument().items.map(canvasItemToNode),
+				nodes: createEmptyBoardDocument().items.map(boardItemToNode),
 			});
 			await patchFsDirectory(parentPath, (entries) => [
 				...entries,
 				buildFsEntry(path, "file"),
 			]);
-			await options.onOpenInlineCanvas(path);
+			await options.onOpenInlineBoard(path);
 		} catch (error) {
 			fileTreeError =
-				error instanceof Error ? error.message : "Failed to create canvas";
+				error instanceof Error ? error.message : "Failed to create board";
 		}
 	}
 
@@ -1328,7 +1328,7 @@ export function createFileWorkspaceController(
 		}
 
 		renameOpenPaths(fromPath, toPath);
-		options.onRenameInlineCanvas?.(fromPath, toPath);
+		options.onRenameInlineBoard?.(fromPath, toPath);
 	}
 
 	async function moveNodeToPath(node: SpaceFsNode, toPath: string) {
@@ -1739,7 +1739,7 @@ export function createFileWorkspaceController(
 		downloadInlineFile,
 		downloadActiveFsFile,
 		handleCreateFile,
-		handleCreateCanvas,
+		handleCreateBoard,
 		handleCreateDir,
 		handleRenameNode,
 		handleMoveNode,

@@ -1,7 +1,7 @@
 import type { PreviewSyncStatus } from "./preview-sync-status";
 
 export type PreviewTab = {
-	kind: "file" | "canvas" | "port";
+	kind: "file" | "board" | "port";
 	key: string;
 	label: string;
 	title: string;
@@ -12,9 +12,9 @@ export type PreviewTab = {
 export function activePreviewFilePath(
 	kind: PreviewTab["kind"] | null,
 	filePath: string | null,
-	canvasPath: string | null,
+	boardPath: string | null,
 ): string {
 	if (kind === "file") return filePath ?? "";
-	if (kind === "canvas") return canvasPath ?? "";
+	if (kind === "board") return boardPath ?? "";
 	return "";
 }

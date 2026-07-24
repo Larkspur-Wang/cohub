@@ -2,6 +2,14 @@
 // fs-api deployment. See deploy/fs-api/manifests/httproute.tmpl.yaml.
 import { createLogger } from "@cohub/infra/logging";
 import { Hono } from "hono";
+import {
+  applyBoardPathMoves,
+  markBoardsDeleted,
+  planBoardDelete,
+  planBoardPathMove,
+  restoreBoardsAfterDeleteFailure,
+} from "../../board-file-lifecycle.js";
+import { BoardServiceError } from "../../board-ops.js";
 import { readFile } from "node:fs/promises";
 import { ensureFsCdnManifest, shouldUseFsCdnForMeta } from "../../space-fs-cdn-cache.js";
 import { FS_CDN_DOWNLOAD_WAIT_TIMEOUT_MS } from "../../space-fs-cdn-constants.js";
@@ -267,16 +275,29 @@ router.delete("/node", async (c) => {
   if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
   if (!(await hasPermission(user, "file.edit", { spaceId }))) return authzDenied(c);
 
-  const path = c.req.query("path") ?? "";
+  const rawPath = c.req.query("path") ?? "";
   const recursive = c.req.query("recursive") === "true";
   try {
-    const result = await deleteSpaceNode(spaceId, path, recursive);
+    const path = assertSafeRelativePath(rawPath);
+    const boardPlan = await planBoardDelete(spaceId, path);
+    const deletedAt = new Date();
+    await markBoardsDeleted(boardPlan, deletedAt);
+    let result: Awaited<ReturnType<typeof deleteSpaceNode>>;
+    try {
+      result = await deleteSpaceNode(spaceId, path, recursive);
+    } catch (error) {
+      await restoreBoardsAfterDeleteFailure(boardPlan, deletedAt).catch((rollbackError) => {
+        logger.error("[SpaceFS] failed to restore Board records after delete failure", rollbackError);
+      });
+      throw error;
+    }
     await dispatchSpaceFsChanged(spaceId, {
       source: "api-fs",
       changes: [{ path: result.path, kind: "delete", nodeType: result.nodeType === "symlink" ? "unknown" : result.nodeType }],
     }).catch((error) => logger.error("[SpaceFS] failed to publish file-system change", error));
     return c.json(result);
   } catch (error) {
+    if (error instanceof BoardServiceError) return c.json({ message: error.message }, error.status as never);
     const { status, body: errBody } = spaceFsJsonError(error);
     return c.json(errBody, status as never);
   }
@@ -289,16 +310,32 @@ router.post("/move", async (c) => {
   if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
   if (!(await hasPermission(user, "file.edit", { spaceId }))) return authzDenied(c);
 
-  const body = await c.req.json<{ fromPath: string; toPath: string }>().catch(() => null);
-  if (!body?.fromPath || !body?.toPath) return c.json({ message: "fromPath and toPath are required" }, 400);
+  const body = await c.req.json<unknown>().catch(() => null);
+  if (!body || typeof body !== "object" || Array.isArray(body)) return c.json({ message: "fromPath and toPath are required" }, 400);
+  const input = body as Record<string, unknown>;
+  if (typeof input.fromPath !== "string" || typeof input.toPath !== "string") return c.json({ message: "fromPath and toPath are required" }, 400);
   try {
-    const result = await moveSpaceNode(spaceId, body);
+    const move = {
+      fromPath: assertSafeRelativePath(input.fromPath),
+      toPath: assertSafeRelativePath(input.toPath),
+    };
+    const boardMoves = await planBoardPathMove({ spaceId, ...move });
+    const result = await moveSpaceNode(spaceId, move);
+    try {
+      await applyBoardPathMoves(boardMoves);
+    } catch (error) {
+      await moveSpaceNode(spaceId, { fromPath: result.toPath, toPath: result.fromPath }).catch((rollbackError) => {
+        logger.error("[SpaceFS] failed to roll back file move after Board path update failure", rollbackError);
+      });
+      throw error;
+    }
     await dispatchSpaceFsChanged(spaceId, {
       source: "api-fs",
-      changes: [{ path: result.toPath, oldPath: result.fromPath, kind: "rename", nodeType: "unknown" }],
+      changes: [{ path: result.toPath, oldPath: result.fromPath, kind: "rename", nodeType: result.nodeType === "symlink" ? "unknown" : result.nodeType }],
     }).catch((error) => logger.error("[SpaceFS] failed to publish file-system change", error));
     return c.json(result);
   } catch (error) {
+    if (error instanceof BoardServiceError) return c.json({ message: error.message }, error.status as never);
     const { status, body: errBody } = spaceFsJsonError(error);
     return c.json(errBody, status as never);
   }

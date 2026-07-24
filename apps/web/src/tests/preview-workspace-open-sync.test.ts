@@ -10,7 +10,7 @@ import { resolvePreviewRouteSync } from "../lib/features/space/modules/workspace
  * a brief no-preview URL while UI already opened a file and call closeAll.
  */
 
-type PreviewRef = { kind: "file" | "canvas" | "port"; key: string } | null;
+type PreviewRef = { kind: "file" | "board" | "port"; key: string } | null;
 
 test("sync-after-await can close preview while open is in flight", () => {
 	// Drive the old path carefully with explicit steps (no races in the harness).
@@ -95,7 +95,7 @@ test("first open pushes history; later open replaces", () => {
 
 test("route hydration is idempotent for current active preview", () => {
 	let openCalls = 0;
-	let activeKind: "file" | "canvas" | "port" | null = "file";
+	let activeKind: "file" | "board" | "port" | null = "file";
 	const currentRef = () =>
 		activeKind ? ({ kind: activeKind, key: "a.md" } as const) : null;
 

@@ -184,9 +184,9 @@
 	--avatar-placeholder-bg: var(--bg-hover-strong);
 	--avatar-placeholder-fg: var(--text-placeholder);
 
-	/* App background — Neta Studio slate canvas texture. The chat surface
+	/* App background — Neta Studio slate board texture. The chat surface
 	   below is intentionally semi-transparent so this shows through, while
-	   the sidebar stays opaque (matching Neta's canvas-vs-panel split). */
+	   the sidebar stays opaque (matching Neta's board-vs-panel split). */
 	--app-bg-image: url("https://neta.art/studio/03834db7-ab27-40e6-8da8-1783002a4fcf.webp");
 	--app-bg-overlay: none;
 	--app-bg-size: 720px;

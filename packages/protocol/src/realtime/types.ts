@@ -43,7 +43,7 @@ export type WsClientEvent =
   | { type: "subscribe"; requestId?: string; payload: { rooms: string[] } }
   | { type: "unsubscribe"; requestId?: string; payload: { rooms: string[] } }
   | { type: "session.message.create"; requestId?: string; payload: { spaceId: string; sessionId: string; clientMessageId?: string; content: ContentBlock[]; model?: string; provider?: string; thinkingLevel?: ModelThinkingLevel } }
-  | { type: "canvas.tx"; requestId?: string; payload: { spaceId: string; documentId: string; txId: string; baseVersion?: number | null; clientId?: string | null; undoGroupId?: string | null; ops: Array<Record<string, unknown>> } }
+  | { type: "board.tx"; requestId?: string; payload: { spaceId: string; documentId: string; txId: string; baseVersion?: number | null; clientId?: string | null; undoGroupId?: string | null; ops: Array<Record<string, unknown>> } }
   | { type: "presence.update"; requestId?: string; payload: { spaceId: string; meta?: Record<string, unknown> | null } }
   | { type: "ping"; requestId?: string; payload?: Record<string, unknown> }
   | { type: "ack"; requestId?: string; payload?: { eventId?: string } };
@@ -468,11 +468,11 @@ export type SpacePresenceUpdatedEvent = {
   payload: SpacePresenceSnapshot;
 };
 
-export type CanvasTransactionAppliedEvent = {
+export type BoardTransactionAppliedEvent = {
   id: string;
   timestamp: number;
   domain: "space";
-  type: "canvas.tx.applied";
+  type: "board.tx.applied";
   requestId?: string | null;
   spaceId: string;
   sessionId?: string | null;
@@ -485,11 +485,11 @@ export type CanvasTransactionAppliedEvent = {
   };
 };
 
-export type CanvasTransactionAckEvent = {
+export type BoardTransactionAckEvent = {
   id: string;
   timestamp: number;
   domain: "space";
-  type: "canvas.tx.ack";
+  type: "board.tx.ack";
   requestId?: string | null;
   spaceId: string;
   sessionId?: string | null;
@@ -500,11 +500,11 @@ export type CanvasTransactionAckEvent = {
   };
 };
 
-export type CanvasTransactionErrorEvent = {
+export type BoardTransactionErrorEvent = {
   id: string;
   timestamp: number;
   domain: "space";
-  type: "canvas.tx.error";
+  type: "board.tx.error";
   requestId?: string | null;
   spaceId?: string | null;
   sessionId?: string | null;
@@ -598,9 +598,9 @@ export type RealtimeServerEvent =
   | SpaceFsChangedEvent
   | SpacePortsChangedEvent
   | SpacePresenceUpdatedEvent
-  | CanvasTransactionAppliedEvent
-  | CanvasTransactionAckEvent
-  | CanvasTransactionErrorEvent
+  | BoardTransactionAppliedEvent
+  | BoardTransactionAckEvent
+  | BoardTransactionErrorEvent
   | TaskCreatedEvent
   | TaskUpdatedEvent
   | LabelAssignmentsUpdatedEvent;

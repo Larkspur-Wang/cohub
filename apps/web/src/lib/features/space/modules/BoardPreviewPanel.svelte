@@ -1,0 +1,123 @@
+<script lang="ts">
+import type { BoardDocument } from "$lib/board/board-schema";
+import {
+	type BoardRuntimeProps,
+	type BoardRuntimeViewState,
+	resolveBoardRuntime,
+} from "$lib/board/runtime/board-runtime";
+import MobilePreviewTabsChrome from "./MobilePreviewTabsChrome.svelte";
+import PreviewFloatChrome from "./PreviewFloatChrome.svelte";
+import type { PreviewTab } from "./preview-tabs";
+
+type InlineBoardPanelState = {
+	path: string;
+	documentId: string | null;
+	document: BoardDocument | null;
+	loading: boolean;
+	saving: boolean;
+	error: string | null;
+	saveError: string | null;
+};
+
+type Props = {
+	board: InlineBoardPanelState;
+	previewTabs: PreviewTab[];
+	spaceId: string;
+	immersive: boolean;
+	isMobile: boolean;
+	treeVisible?: boolean;
+	onToggleTree?: () => void | Promise<void>;
+	onToggleImmersive: () => void | Promise<void>;
+	onCommit: BoardRuntimeProps["onCommit"];
+	onRetrySave: () => void | Promise<void>;
+	onActivatePreviewTab: (kind: PreviewTab["kind"], key: string) => void;
+	onClosePreviewTab: (kind: PreviewTab["kind"], key: string) => void;
+	onViewStateChange?: (state: BoardRuntimeViewState) => void;
+};
+
+let {
+	board,
+	previewTabs,
+	spaceId,
+	immersive,
+	isMobile,
+	treeVisible = true,
+	onToggleTree,
+	onToggleImmersive,
+	onCommit,
+	onRetrySave,
+	onActivatePreviewTab,
+	onClosePreviewTab,
+	onViewStateChange,
+}: Props = $props();
+
+let boardRuntimeLoadAttempt = $state(0);
+const boardRuntimeModulePromise = $derived.by(() => {
+	boardRuntimeLoadAttempt;
+	if (!board.document) throw new Error("Board data is unavailable.");
+	return resolveBoardRuntime(board.document).load();
+});
+</script>
+
+{#snippet TabsChrome()}
+	{#if isMobile}
+		<MobilePreviewTabsChrome
+			tabs={previewTabs}
+			onActivate={onActivatePreviewTab}
+			onClose={onClosePreviewTab}
+		/>
+	{:else if immersive}
+		<PreviewFloatChrome
+			tabs={previewTabs}
+			filesVisible={treeVisible}
+			onActivate={onActivatePreviewTab}
+			onClose={onClosePreviewTab}
+			onToggleFiles={onToggleTree}
+			onExit={onToggleImmersive}
+		/>
+	{/if}
+{/snippet}
+
+{#if board.loading}
+	<div class="flex h-full min-w-0 flex-col bg-bg-primary">
+		{@render TabsChrome()}
+		<div class="flex flex-1 items-center justify-center text-xs text-text-tertiary">Loading…</div>
+	</div>
+{:else if board.error}
+	<div class="flex h-full min-w-0 flex-col bg-bg-primary">
+		{@render TabsChrome()}
+		<div class="m-4 rounded-lg border border-error-soft/30 bg-error-bg p-4 text-sm text-error-soft">{board.error}</div>
+	</div>
+{:else if board.document}
+	{#await boardRuntimeModulePromise then boardRuntimeModule}
+		{@const BoardRuntime = boardRuntimeModule.default}
+		<div class="relative flex h-full min-w-0 flex-col bg-bg-primary">
+			{@render TabsChrome()}
+			<div class="min-h-0 flex-1">
+				<BoardRuntime
+					path={board.path}
+					document={board.document}
+					spaceId={spaceId}
+					{immersive}
+					syncError={board.saveError}
+					onCommit={(document, ops) => onCommit(document, ops)}
+					onRetrySync={onRetrySave}
+					{onViewStateChange}
+				/>
+			</div>
+		</div>
+	{:catch}
+		<div class="flex h-full min-w-0 flex-col bg-bg-primary">
+			{@render TabsChrome()}
+			<div class="m-4 flex flex-col items-start gap-2 rounded-lg border border-error-soft/30 bg-error-bg p-4 text-sm text-error-soft">
+				<span>Board failed to load.</span>
+				<button type="button" class="action-btn" onclick={() => { boardRuntimeLoadAttempt += 1; }}>Retry</button>
+			</div>
+		</div>
+	{/await}
+{:else}
+	<div class="flex h-full min-w-0 flex-col bg-bg-primary">
+		{@render TabsChrome()}
+		<div class="m-4 rounded-lg border border-error-soft/30 bg-error-bg p-4 text-sm text-error-soft">Board data is unavailable.</div>
+	</div>
+{/if}

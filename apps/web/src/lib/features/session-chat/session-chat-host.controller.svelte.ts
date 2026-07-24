@@ -159,7 +159,7 @@ import type {
 } from "./types";
 import {
 	type ActiveViewportSource,
-	type CanvasViewportObservation,
+	type BoardViewportObservation,
 	createViewportContextController,
 } from "./viewport-context-controller.svelte";
 
@@ -4023,8 +4023,8 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		if (!path) return;
 		viewport.setFileVisibleLines(path, range);
 	}
-	function reportCanvasView(state: CanvasViewportObservation) {
-		viewport.setCanvasViewState(state.path, {
+	function reportBoardView(state: BoardViewportObservation) {
+		viewport.setBoardViewState(state.path, {
 			camera: state.camera,
 			visibleRect: state.visibleRect,
 			selectedNodes: state.selectedNodes,
@@ -4331,7 +4331,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		onVisibilityChanged,
 		reportActiveSource,
 		reportFileVisibleLines,
-		reportCanvasView,
+		reportBoardView,
 		flushComposerDraft: flushActiveComposerDraft,
 		refreshSessions: refreshSessionsList,
 		renameActiveSession,

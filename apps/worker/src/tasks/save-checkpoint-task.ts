@@ -24,7 +24,7 @@ import {
 } from "../checkpoint/diff-precompute.js";
 import { ensureGitRepo, runGit, runGitWithOutput } from "../checkpoint/git.js";
 import { collectUserGitRepos } from "../checkpoint/git-bundles.js";
-import { saveCanvasCheckpointSnapshots } from "../checkpoint/canvas.js";
+import { saveBoardCheckpointSnapshots } from "../checkpoint/board.js";
 import { materializeLatest } from "../checkpoint/materialize.js";
 import { CHECKPOINT_ASSET_MANIFEST_PATH, CHECKPOINT_META_PATH, USER_GIT_REPOS_PATH, ensureCheckpointDirs, getCheckpointLatestSubPath } from "../checkpoint/paths.js";
 import { syncSystemRepo, type CheckpointAsset } from "../checkpoint/repo-sync.js";
@@ -281,8 +281,8 @@ export const saveCheckpointForSpace = async (input: SaveCheckpointInput): Promis
       }),
     ]);
   }
-  const canvasSnapshots = await timeIt(timings, "saveCanvasCheckpointSnapshots", () => saveCanvasCheckpointSnapshots({ checkpointId: checkpoint.id, spaceId }));
-  await timeIt(timings, "updateCheckpointCanvasMeta", () => db.update(checkpoints).set({ meta: { ...(checkpoint.meta as Record<string, unknown> | null), timings, canvas: { snapshotCount: canvasSnapshots.count } } }).where(eq(checkpoints.id, checkpoint.id)));
+  const boardSnapshots = await timeIt(timings, "saveBoardCheckpointSnapshots", () => saveBoardCheckpointSnapshots({ checkpointId: checkpoint.id, spaceId }));
+  await timeIt(timings, "updateCheckpointBoardMeta", () => db.update(checkpoints).set({ meta: { ...(checkpoint.meta as Record<string, unknown> | null), timings, board: { snapshotCount: boardSnapshots.count } } }).where(eq(checkpoints.id, checkpoint.id)));
   await timeIt(timings, "updateSpaceHead", () => db.update(spaces).set({ headCheckpointId: checkpoint.id, updatedAt: new Date() }).where(eq(spaces.id, spaceId)));
 
   await progress("mirror_gitea");

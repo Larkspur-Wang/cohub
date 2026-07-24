@@ -9,6 +9,7 @@ import {
   fillIconFromSiteFiles,
   normalizeLocalPageAssetRef,
 } from "@cohub/core/works";
+import { BOARD_EXTENSION, BOARD_MIME_TYPE } from "@cohub/protocol";
 import type { Job } from "bullmq";
 import { config } from "../../../config.js";
 import { registerSystemJob } from "../../registry.js";
@@ -56,8 +57,7 @@ const mimeByExt: Record<string, string> = {
   ".markdown": "text/markdown",
   ".json": "application/json",
   ".jsonl": "application/x-ndjson",
-  // Canvas manifest (JSON pointer to document id)
-  ".covas": "application/json",
+  [BOARD_EXTENSION]: BOARD_MIME_TYPE,
   ".js": "text/javascript",
   ".mjs": "text/javascript",
   ".cjs": "text/javascript",

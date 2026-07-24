@@ -1,10 +1,11 @@
 
 import type { Stats } from "node:fs";
 import { chmod, lstat, mkdir, open, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
-import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, posix, relative, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
 import { context, SpanStatusCode, trace, type Span } from "@opentelemetry/api";
 import { createLogger } from "@cohub/infra/logging";
+import { BOARD_EXTENSION, BOARD_MIME_TYPE } from "@cohub/protocol";
 import { getTracer } from "@cohub/infra/tracing/propagator";
 import {
   buildPreparingFile,
@@ -62,8 +63,7 @@ const mimeByExt: Record<string, string> = {
   ".markdown": "text/markdown",
   ".json": "application/json",
   ".jsonl": "application/x-ndjson",
-  // Canvas manifest (JSON pointer to document id)
-  ".covas": "application/json",
+  [BOARD_EXTENSION]: BOARD_MIME_TYPE,
   ".js": "text/javascript",
   ".mjs": "text/javascript",
   ".cjs": "text/javascript",
@@ -181,7 +181,15 @@ export function assertSafeRelativePath(input: string, options?: { allowEmpty?: b
   if (value.startsWith("/") || value.includes("\0")) {
     throw new SpaceFsError(400, "path_invalid", "Invalid path.");
   }
-  return value;
+  const normalized = posix.normalize(value);
+  if (normalized === ".") {
+    if (options?.allowEmpty) return "";
+    throw new SpaceFsError(400, "path_invalid", "Invalid path.");
+  }
+  if (normalized === ".." || normalized.startsWith("../") || posix.isAbsolute(normalized)) {
+    throw new SpaceFsError(400, "path_invalid", "Invalid path.");
+  }
+  return normalized;
 }
 
 type CachedSpaceRealRoot = {
@@ -1330,9 +1338,10 @@ export const deleteSpaceNode = async (spaceId: string, path: string, recursive =
 export async function moveSpaceNode(spaceId: string, input: SpaceFsMoveInput) {
   const from = await resolveTarget(spaceId, input.fromPath);
   const to = await resolveTarget(spaceId, input.toPath);
+  const nodeType = entryType(await lstat(from.target));
   await mkdir(dirname(to.target), { recursive: true });
   await rename(from.target, to.target);
-  return { fromPath: from.relativePath, toPath: to.relativePath };
+  return { fromPath: from.relativePath, toPath: to.relativePath, nodeType };
 }
 
 export function sanitizeFileName(name: string): string | null {

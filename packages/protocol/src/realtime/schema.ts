@@ -91,7 +91,7 @@ export const wsClientEventSchema = z.discriminatedUnion("type", [
     }),
   }),
   z.object({
-    type: z.literal("canvas.tx"),
+    type: z.literal("board.tx"),
     requestId: z.string().optional(),
     payload: z.object({
       spaceId: z.string().uuid(),

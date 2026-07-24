@@ -6,6 +6,7 @@ import {
   CHECKPOINT_HARD_EXCLUDES,
   CHECKPOINT_PLATFORM_IGNORE,
 } from "@cohub/core/checkpoint/ignore";
+import { BOARD_EXTENSION, BOARD_MIME_TYPE } from "@cohub/protocol";
 import ignore, { type Ignore } from "ignore";
 
 export type DiscoveredGitRepo = {
@@ -38,8 +39,7 @@ const mimeByExt: Record<string, string> = {
   ".txt": "text/plain",
   ".md": "text/markdown",
   ".json": "application/json",
-  // Canvas manifest (JSON pointer to document id)
-  ".covas": "application/json",
+  [BOARD_EXTENSION]: BOARD_MIME_TYPE,
   ".js": "text/javascript",
   ".ts": "text/typescript",
   ".tsx": "text/tsx",

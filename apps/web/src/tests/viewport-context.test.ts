@@ -6,7 +6,7 @@ import {
 	formatViewportContextLabel,
 	viewportContextId,
 } from "@cohub/protocol";
-import { visibleWorldRect } from "../lib/canvas/canvas-geometry";
+import { visibleWorldRect } from "../lib/board/board-geometry";
 import {
 	activeViewportSourceId,
 	nextDismissedIdsAfterSourceChange,
@@ -48,8 +48,8 @@ test("viewport reference text stays agent-readable", () => {
 test("viewport content block meta round-trips for timeline chips", () => {
 	const contexts = [
 		{
-			kind: "canvas" as const,
-			path: "board.covas",
+			kind: "board" as const,
+			path: "board.board",
 			camera: { x: 0, y: 0, zoom: 1 },
 			selectedNodes: [{ id: "card-1", type: "text", title: "Note" }],
 		},
@@ -57,10 +57,10 @@ test("viewport content block meta round-trips for timeline chips", () => {
 	const block = buildViewportContentBlock(contexts);
 	assert.ok(block);
 	assert.equal(block?._meta?.attachmentKind, "viewport");
-	assert.equal(viewportContextId(contexts[0]), "canvas:board.covas");
+	assert.equal(viewportContextId(contexts[0]), "board:board.board");
 	assert.equal(
 		formatViewportContextLabel(contexts[0]),
-		"board.covas · 1 selected",
+		"board.board · 1 selected",
 	);
 });
 
@@ -70,8 +70,8 @@ test("activeViewportSourceId matches viewportContextId shape", () => {
 		"file:src/main.ts",
 	);
 	assert.equal(
-		activeViewportSourceId({ kind: "canvas", path: "board.covas" }),
-		"canvas:board.covas",
+		activeViewportSourceId({ kind: "board", path: "board.board" }),
+		"board:board.board",
 	);
 	assert.equal(
 		activeViewportSourceId({
@@ -85,7 +85,7 @@ test("activeViewportSourceId matches viewportContextId shape", () => {
 });
 
 test("dismiss sticks across send; only real source change prunes it", () => {
-	const board = "canvas:board.covas";
+	const board = "board:board.board";
 	const other = "file:src/main.ts";
 	const dismissed = [board];
 

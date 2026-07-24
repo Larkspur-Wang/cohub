@@ -330,6 +330,13 @@
       "when": 1784821679667,
       "tag": "0046_young_tigra",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1784897960484,
+      "tag": "0047_board_domain_rename",
+      "breakpoints": true
     }
   ]
 }

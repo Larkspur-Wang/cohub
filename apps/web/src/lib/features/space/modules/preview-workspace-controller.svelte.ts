@@ -12,7 +12,7 @@ type FileTabLike = {
 	draft: string;
 };
 
-type CanvasTabLike = {
+type BoardTabLike = {
 	path: string;
 	saving: boolean;
 };
@@ -25,8 +25,8 @@ type PortTabLike = {
 type PreviewWorkspaceOptions = {
 	getFileTabs: () => FileTabLike[];
 	getActiveFilePath: () => string | null;
-	getCanvasTabs: () => CanvasTabLike[];
-	getActiveCanvasPath: () => string | null;
+	getBoardTabs: () => BoardTabLike[];
+	getActiveBoardPath: () => string | null;
 	getPortTabs: () => PortTabLike[];
 	getActivePort: () => string | null;
 	openFile: (
@@ -36,9 +36,9 @@ type PreviewWorkspaceOptions = {
 	activateFile: (path: string) => void;
 	closeFile: (path?: string | null, skipConfirm?: boolean) => void;
 	goBackFile: () => Promise<string | null>;
-	openCanvas: (path: string) => Promise<void>;
-	activateCanvas: (path: string) => void;
-	closeCanvas: (path?: string | null) => void;
+	openBoard: (path: string) => Promise<void>;
+	activateBoard: (path: string) => void;
+	closeBoard: (path?: string | null) => void;
 	openPort: (
 		port: string,
 		url: string,
@@ -74,9 +74,9 @@ function isDirtyFileTab(tab: FileTabLike) {
 }
 
 /**
- * Single active-tab coordinator over file/canvas/port domain controllers.
+ * Single active-tab coordinator over file/board/port domain controllers.
  * Owns: active kind, access order, budget, URL sync, open/activate/close.
- * Does not own: file drafts, canvas docs, port endpoints (domain controllers do).
+ * Does not own: file drafts, board docs, port endpoints (domain controllers do).
  */
 export function createPreviewWorkspaceController(
 	options: PreviewWorkspaceOptions,
@@ -98,9 +98,9 @@ export function createPreviewWorkspaceController(
 			const path = options.getActiveFilePath();
 			return path ? { kind: "file", key: path } : null;
 		}
-		if (activeKind === "canvas") {
-			const path = options.getActiveCanvasPath();
-			return path ? { kind: "canvas", key: path } : null;
+		if (activeKind === "board") {
+			const path = options.getActiveBoardPath();
+			return path ? { kind: "board", key: path } : null;
 		}
 		if (activeKind === "port") {
 			const port = options.getActivePort();
@@ -109,8 +109,8 @@ export function createPreviewWorkspaceController(
 		// Fallback if kind drifted but a surface is still open.
 		const filePath = options.getActiveFilePath();
 		if (filePath) return { kind: "file", key: filePath };
-		const canvasPath = options.getActiveCanvasPath();
-		if (canvasPath) return { kind: "canvas", key: canvasPath };
+		const boardPath = options.getActiveBoardPath();
+		if (boardPath) return { kind: "board", key: boardPath };
 		const port = options.getActivePort();
 		if (port) return { kind: "port", key: port };
 		return null;
@@ -118,11 +118,10 @@ export function createPreviewWorkspaceController(
 
 	function resolveKind(): PreviewTabKind | null {
 		if (activeKind === "port" && options.getActivePort()) return "port";
-		if (activeKind === "canvas" && options.getActiveCanvasPath())
-			return "canvas";
+		if (activeKind === "board" && options.getActiveBoardPath()) return "board";
 		if (activeKind === "file" && options.getActiveFilePath()) return "file";
 		if (options.getActiveFilePath()) return "file";
-		if (options.getActiveCanvasPath()) return "canvas";
+		if (options.getActiveBoardPath()) return "board";
 		if (options.getActivePort()) return "port";
 		return null;
 	}
@@ -135,8 +134,8 @@ export function createPreviewWorkspaceController(
 				weight: isBinaryFileTab(tab) ? 2 : 1,
 				protected: isDirtyFileTab(tab),
 			})),
-			...options.getCanvasTabs().map((tab) => ({
-				kind: "canvas" as const,
+			...options.getBoardTabs().map((tab) => ({
+				kind: "board" as const,
 				key: tab.path,
 				weight: 2,
 				protected: tab.saving,
@@ -161,7 +160,7 @@ export function createPreviewWorkspaceController(
 		for (const tab of removable) {
 			if (total <= weightLimit) break;
 			if (tab.kind === "file") options.closeFile(tab.key, true);
-			else if (tab.kind === "canvas") options.closeCanvas(tab.key);
+			else if (tab.kind === "board") options.closeBoard(tab.key);
 			else options.closePort(tab.key);
 			total -= tab.weight;
 			closed += 1;
@@ -205,15 +204,15 @@ export function createPreviewWorkspaceController(
 		}
 	}
 
-	async function openCanvas(path: string, opts: { syncUrl?: boolean } = {}) {
+	async function openBoard(path: string, opts: { syncUrl?: boolean } = {}) {
 		const syncUrl = opts.syncUrl ?? true;
 		const hadPreview = Boolean(currentRef());
-		activeKind = "canvas";
-		touch("canvas", path);
+		activeKind = "board";
+		touch("board", path);
 		if (syncUrl) {
-			options.syncUrl({ kind: "canvas", key: path }, hadPreview);
+			options.syncUrl({ kind: "board", key: path }, hadPreview);
 		}
-		await options.openCanvas(path);
+		await options.openBoard(path);
 		enforceBudget();
 		if (syncUrl) {
 			const ref = currentRef();
@@ -246,7 +245,7 @@ export function createPreviewWorkspaceController(
 		activeKind = kind;
 		touch(kind, key);
 		if (kind === "file") options.activateFile(key);
-		else if (kind === "canvas") options.activateCanvas(key);
+		else if (kind === "board") options.activateBoard(key);
 		else options.activatePort(key);
 		if (syncUrl) options.syncUrl({ kind, key }, true);
 	}
@@ -257,7 +256,7 @@ export function createPreviewWorkspaceController(
 		skipConfirm = false,
 	) {
 		if (kind === "file") options.closeFile(key, skipConfirm);
-		else if (kind === "canvas") options.closeCanvas(key);
+		else if (kind === "board") options.closeBoard(key);
 		else options.closePort(key);
 		activeKind = resolveKind();
 		options.syncUrl(currentRef(), true);
@@ -275,8 +274,8 @@ export function createPreviewWorkspaceController(
 		for (const tab of [...options.getFileTabs()]) {
 			options.closeFile(tab.path, true);
 		}
-		for (const tab of [...options.getCanvasTabs()]) {
-			options.closeCanvas(tab.path);
+		for (const tab of [...options.getBoardTabs()]) {
+			options.closeBoard(tab.path);
 		}
 		for (const tab of [...options.getPortTabs()]) {
 			options.closePort(tab.port);
@@ -308,8 +307,8 @@ export function createPreviewWorkspaceController(
 			void openFile(ref.key, { syncUrl: false });
 			return { ok: true as const };
 		}
-		if (ref.kind === "canvas") {
-			void openCanvas(ref.key, { syncUrl: false });
+		if (ref.kind === "board") {
+			void openBoard(ref.key, { syncUrl: false });
 			return { ok: true as const };
 		}
 		// port: only open when a trusted endpoint URL is available
@@ -335,7 +334,7 @@ export function createPreviewWorkspaceController(
 		currentRef,
 		touch,
 		openFile,
-		openCanvas,
+		openBoard,
 		openPort,
 		activate,
 		close,

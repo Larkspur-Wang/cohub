@@ -1,4 +1,4 @@
-import { basename, posix } from "node:path";
+import { basename } from "node:path";
 import { SandboxRpcError } from "@cohub/sandbox-client";
 import type {
   SpaceFsEntry,
@@ -10,7 +10,7 @@ import type {
   SpaceFsWriteFileInput,
 } from "@cohub/protocol/fs";
 import type { RpcEventPayload } from "@cohub/protocol/sandbox";
-import { getMimeType, isTextMime, resolveReadMimeType, sanitizeFileName, SpaceFsError } from "./space-fs.js";
+import { assertSafeRelativePath, getMimeType, isTextMime, resolveReadMimeType, sanitizeFileName, SpaceFsError } from "./space-fs.js";
 import type { SpaceFsVisibility } from "./space-fs-ignore.js";
 import { matchesSpaceFsVersion } from "./space-fs-version.js";
 import { callSandboxRpc, SandboxOfflineError } from "./space-sandbox-rpc.js";
@@ -43,17 +43,7 @@ function assertFullVisibility(visibility: SpaceFsVisibility) {
 // lexical containment check here for every path we hand to the backend, keeping
 // local parity with the cloud backend's assertInsideRoot guard. Symlink-based
 // escape is out of scope (owner-only spaces on the user's own machine).
-function assertSafeSubpath(input: string): string {
-  const value = String(input ?? "").replace(/\\/g, "/").trim();
-  if (!value || value.includes("\0") || value.startsWith("/")) {
-    throw new SpaceFsError(400, "path_invalid", "Invalid path.");
-  }
-  const normalized = posix.normalize(value);
-  if (normalized === ".." || normalized.startsWith("../") || posix.isAbsolute(normalized)) {
-    throw new SpaceFsError(400, "path_invalid", "Invalid path.");
-  }
-  return normalized;
-}
+const assertSafeSubpath = assertSafeRelativePath;
 
 // Translate sandbox RPC failures into the SpaceFsError vocabulary the routes
 // and web client already understand. Offline errors bubble up as 503.
@@ -358,9 +348,10 @@ export async function moveSpaceNode(spaceId: string, input: SpaceFsMoveInput) {
   try {
     const stat = await callSandboxRpc(spaceId, "fs.stat", { path: from });
     if (!stat.exists) throw new SpaceFsError(404, "path_not_found", "File or directory not found.");
+    const nodeType: SpaceFsEntry["type"] | "unknown" = stat.isDirectory ? "dir" : "file";
     const { exitCode, stderr } = await runProcess(spaceId, ["mv", "--", from, to]);
     if (exitCode !== 0) throw new SpaceFsError(400, "move_failed", stderr || "failed to move");
-    return { fromPath: from, toPath: to };
+    return { fromPath: from, toPath: to, nodeType };
   } catch (error) {
     mapRpcError(error);
   }

@@ -4,7 +4,7 @@ import type {
 	SessionTurnRecord,
 } from "@cohub/protocol/model";
 import type {
-	CanvasSemanticOp,
+	BoardSemanticOp,
 	LabelAssignmentListItem,
 	LabelAssignmentPageInfo,
 	LabelAssignmentRecord,
@@ -18,7 +18,7 @@ import type {
 import type { SessionListPageInfo } from "$lib/cache/types";
 
 export const DB_NAME = "cohub-web-cache";
-export const DB_VERSION = 11;
+export const DB_VERSION = 12;
 
 export type SessionListForkRecord = Partial<SessionForkRecord> & {
 	childSessionId: string;
@@ -229,14 +229,14 @@ export type FilePendingDraftCacheRecord = {
 	updatedAt: number;
 };
 
-export type CanvasPendingTransactionCacheRecord = {
+export type BoardPendingTransactionCacheRecord = {
 	key: string;
 	userKey: string;
 	spaceId: string;
 	documentId: string;
 	txId: string;
 	baseVersion: number | null;
-	ops: CanvasSemanticOp[];
+	ops: BoardSemanticOp[];
 	attemptCount: number;
 	createdAt: number;
 	updatedAt: number;
@@ -270,7 +270,7 @@ type StoreName =
 	| "resource_labels"
 	| "user_profiles"
 	| "file_pending_drafts"
-	| "canvas_pending_txs"
+	| "board_pending_txs"
 	| "task_run_summaries"
 	| "task_run_details";
 
@@ -673,7 +673,7 @@ export async function openCacheDb(): Promise<IDBDatabase | null> {
 				},
 				{ name: "by_updated_at", keyPath: "updatedAt" },
 			]);
-			createStore(db, "canvas_pending_txs", [
+			createStore(db, "board_pending_txs", [
 				{ name: "by_user_space", keyPath: ["userKey", "spaceId"] },
 				{
 					name: "by_user_space_document",

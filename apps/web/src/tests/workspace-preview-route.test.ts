@@ -10,7 +10,7 @@ import {
 	withPreviewParam,
 } from "../lib/features/space/modules/workspace-preview-route.ts";
 
-test("parsePreviewParam accepts file/canvas/port", () => {
+test("parsePreviewParam accepts file/board/port", () => {
 	assert.deepEqual(parsePreviewParam("file:docs/a.md"), {
 		kind: "file",
 		key: "docs/a.md",
@@ -57,8 +57,8 @@ test("readPreviewFromSearch reads query", () => {
 		key: "readme.md",
 	});
 	assert.deepEqual(
-		readPreviewFromSearch(new URLSearchParams("preview=canvas:board.covas")),
-		{ kind: "canvas", key: "board.covas" },
+		readPreviewFromSearch(new URLSearchParams("preview=board:board.board")),
+		{ kind: "board", key: "board.board" },
 	);
 });
 

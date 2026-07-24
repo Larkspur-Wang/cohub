@@ -42,8 +42,8 @@ describe("space-fs-mime", () => {
 		);
 	});
 
-	it("treats canvas manifest mime (application/json) as text", () => {
-		// .covas is registered as application/json in space-fs getMimeType.
+	it("treats board manifest mime (application/json) as text", () => {
+		// .board is registered as application/json in space-fs getMimeType.
 		assert.equal(isTextMime("application/json"), true);
 		assert.equal(
 			resolveReadMimeType("application/json", "application/octet-stream"),

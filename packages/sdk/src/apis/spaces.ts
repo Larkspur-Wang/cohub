@@ -71,12 +71,12 @@ import type {
   SpaceConfigInput,
   SpaceConfigResponse,
   SpaceConfigUpdateResponse,
-  CanvasBootstrapResponse,
-  CanvasCreateInput,
+  BoardBootstrapResponse,
+  BoardCreateInput,
   ChannelConfig,
   ChannelHealth,
-  CanvasDocumentRecord,
-  CanvasTransactionInput,
+  BoardDocumentRecord,
+  BoardTransactionInput,
 } from "../types.js";
 import { SpaceInvitationsApi } from "./invitations.js";
 
@@ -98,18 +98,18 @@ const getFilenameFromContentDisposition = (value: string | null) => {
 };
 
 /**
- * A canvas transaction rejected by the server. `status`/`code` let callers
+ * A board transaction rejected by the server. `status`/`code` let callers
  * distinguish a recoverable version conflict (409 / "VERSION_CONFLICT") from
  * transient failures, so they can rebase and retry instead of surfacing an error.
  */
-export class CanvasTransactionError extends Error {
+export class BoardTransactionError extends Error {
   constructor(
     message: string,
     readonly status?: number,
     readonly code?: string,
   ) {
     super(message);
-    this.name = "CanvasTransactionError";
+    this.name = "BoardTransactionError";
   }
 
   get isVersionConflict(): boolean {
@@ -129,7 +129,7 @@ export type SessionSubscriptionHandlers = {
 };
 
 export type SessionEventName = "created" | "updated" | "turn.created" | "turn.patch" | "turn.lifecycle" | "turn.updated" | "turn.finalized" | "turn.error" | "message.persisted";
-export type SpaceEventName = SessionEventName | "fs.changed" | "ports.changed" | "presence.updated" | "canvas.tx.applied" | "canvas.tx.ack" | "canvas.tx.error" | "task.created" | "task.updated" | "event";
+export type SpaceEventName = SessionEventName | "fs.changed" | "ports.changed" | "presence.updated" | "board.tx.applied" | "board.tx.ack" | "board.tx.error" | "task.created" | "task.updated" | "event";
 
 const toSessionEventName = (type: WebsocketEventPayload["type"]): SessionEventName | null => {
   switch (type) {
@@ -858,15 +858,15 @@ export class SpaceEventsApi {
         handler(event);
         return;
       }
-      if (type === "canvas.tx.applied" && event.type === "canvas.tx.applied") {
+      if (type === "board.tx.applied" && event.type === "board.tx.applied") {
         handler(event);
         return;
       }
-      if (type === "canvas.tx.ack" && event.type === "canvas.tx.ack") {
+      if (type === "board.tx.ack" && event.type === "board.tx.ack") {
         handler(event);
         return;
       }
-      if (type === "canvas.tx.error" && event.type === "canvas.tx.error") {
+      if (type === "board.tx.error" && event.type === "board.tx.error") {
         handler(event);
         return;
       }
@@ -1406,15 +1406,15 @@ export class SpaceCommerceApi {
   }
 }
 
-export class SpaceCanvasApi {
+export class SpaceBoardsApi {
   constructor(
     private readonly transport: HttpTransport,
     private readonly spaceId: string,
   ) {}
 
-  create(input: CanvasCreateInput) {
-    return this.transport.request<CanvasBootstrapResponse>(
-      `/api/spaces/${this.spaceId}/canvas`,
+  create(input: BoardCreateInput) {
+    return this.transport.request<BoardBootstrapResponse>(
+      `/api/spaces/${this.spaceId}/boards`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1425,22 +1425,22 @@ export class SpaceCanvasApi {
 
   getByPath(path: string, customFetch?: Fetch) {
     const params = new URLSearchParams({ path });
-    return this.transport.request<{ document: CanvasDocumentRecord }>(
-      `/api/spaces/${this.spaceId}/canvas/by-path?${params.toString()}`,
+    return this.transport.request<{ document: BoardDocumentRecord }>(
+      `/api/spaces/${this.spaceId}/boards/by-path?${params.toString()}`,
       { fetch: customFetch },
     );
   }
 
   bootstrap(documentId: string, customFetch?: Fetch) {
-    return this.transport.request<CanvasBootstrapResponse>(
-      `/api/spaces/${this.spaceId}/canvas/${documentId}/bootstrap`,
+    return this.transport.request<BoardBootstrapResponse>(
+      `/api/spaces/${this.spaceId}/boards/${documentId}/bootstrap`,
       { fetch: customFetch },
     );
   }
 
-  sendTransaction(documentId: string, input: CanvasTransactionInput) {
-    return this.transport.request<CanvasBootstrapResponse>(
-      `/api/spaces/${this.spaceId}/canvas/${documentId}/ops`,
+  sendTransaction(documentId: string, input: BoardTransactionInput) {
+    return this.transport.request<BoardBootstrapResponse>(
+      `/api/spaces/${this.spaceId}/boards/${documentId}/ops`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1634,7 +1634,7 @@ export class SpaceClient {
   readonly sandbox: SpaceSandboxApi;
   readonly invitations: SpaceInvitationsApi;
   readonly labels: SpaceLabelsApi;
-  readonly canvas: SpaceCanvasApi;
+  readonly boards: SpaceBoardsApi;
   readonly commerce: SpaceCommerceApi;
 
   constructor(
@@ -1655,7 +1655,7 @@ export class SpaceClient {
     this.sandbox = new SpaceSandboxApi(transport, id);
     this.invitations = new SpaceInvitationsApi(transport, id);
     this.labels = new SpaceLabelsApi(transport, id);
-    this.canvas = new SpaceCanvasApi(transport, id);
+    this.boards = new SpaceBoardsApi(transport, id);
     this.commerce = new SpaceCommerceApi(transport, id);
   }
 
@@ -1847,9 +1847,9 @@ export class SpaceClient {
     return this.update({ name });
   }
 
-  async sendCanvasTransactionRealtime(documentId: string, input: CanvasTransactionInput) {
-    if (!this.websocketClient) return this.canvas.sendTransaction(documentId, input);
-    const requestId = `canvas-${input.txId}`;
+  async sendBoardTransactionRealtime(documentId: string, input: BoardTransactionInput) {
+    if (!this.websocketClient) return this.boards.sendTransaction(documentId, input);
+    const requestId = `board-${input.txId}`;
     const result = new Promise<{ document: { version: number } }>((resolve, reject) => {
       let settled = false;
       let timeout: ReturnType<typeof setTimeout> | null = null;
@@ -1862,28 +1862,28 @@ export class SpaceClient {
         fn();
       };
       const cleanupAck = this.websocketClient?.on("event", (event) => {
-        if (event.type !== "canvas.tx.ack" || event.requestId !== requestId) return;
+        if (event.type !== "board.tx.ack" || event.requestId !== requestId) return;
         const version = event.payload.version;
         settle(() => {
           if (typeof version === "number") resolve({ document: { version } });
-          else reject(new Error("Invalid canvas ack"));
+          else reject(new Error("Invalid board ack"));
         });
       });
       const cleanupError = this.websocketClient?.on("event", (event) => {
-        if (event.type !== "canvas.tx.error" || event.requestId !== requestId) return;
+        if (event.type !== "board.tx.error" || event.requestId !== requestId) return;
         settle(() =>
           reject(
-            new CanvasTransactionError(
-              typeof event.payload.message === "string" ? event.payload.message : "Canvas sync failed",
+            new BoardTransactionError(
+              typeof event.payload.message === "string" ? event.payload.message : "Board sync failed",
               typeof event.payload.status === "number" ? event.payload.status : undefined,
               typeof event.payload.code === "string" ? event.payload.code : undefined,
             ),
           ),
         );
       });
-      timeout = setTimeout(() => settle(() => reject(new Error("Canvas sync timed out"))), 15_000);
+      timeout = setTimeout(() => settle(() => reject(new Error("Board sync timed out"))), 15_000);
     });
-    await this.websocketClient.sendCanvasTransaction({
+    await this.websocketClient.sendBoardTransaction({
       spaceId: this.id,
       documentId,
       txId: input.txId,

@@ -31,7 +31,7 @@ import {
   wsClientEventSchema,
 } from "@cohub/protocol/realtime";
 import { getOrCreateRequestId } from "@cohub/infra/tracing";
-import { authenticateRealtimeToken, authorizeRealtimeRooms, CanvasTransactionError, notifySpacePresenceUpdated, requestGatewayChannelReconcile, submitCanvasTransaction, submitInternalSessionPrompt, InternalPromptError, type RealtimeAuthResult } from "./api-client.js";
+import { authenticateRealtimeToken, authorizeRealtimeRooms, BoardTransactionError, notifySpacePresenceUpdated, requestGatewayChannelReconcile, submitBoardTransaction, submitInternalSessionPrompt, InternalPromptError, type RealtimeAuthResult } from "./api-client.js";
 import { listenOutboundCommands, initOutboundConsumerGroup } from "./bus.js";
 import { summarizeRedisUrl } from "./logging.js";
 import { gatewayConfig } from "./config.js";
@@ -933,15 +933,15 @@ async function main() {
           return;
         }
 
-        if (message.type === "canvas.tx") {
+        if (message.type === "board.tx") {
           try {
             const payload = message.payload ?? {};
             const spaceId = typeof payload.spaceId === "string" ? payload.spaceId : "";
             const documentId = typeof payload.documentId === "string" ? payload.documentId : "";
             const txId = typeof payload.txId === "string" ? payload.txId : "";
             const ops = Array.isArray(payload.ops) ? payload.ops.filter((op): op is Record<string, unknown> => Boolean(op && typeof op === "object" && !Array.isArray(op))) : [];
-            if (!spaceId || !documentId || !txId || ops.length === 0) throw new WsClientInputError("invalid canvas transaction");
-            const result = await submitCanvasTransaction({
+            if (!spaceId || !documentId || !txId || ops.length === 0) throw new WsClientInputError("invalid board transaction");
+            const result = await submitBoardTransaction({
               userId: ctx.userId,
               spaceId,
               documentId,
@@ -953,7 +953,7 @@ async function main() {
             });
             sendWsEnvelope(socket, buildRealtimeEnvelope({
               domain: "space",
-              type: "canvas.tx.ack",
+              type: "board.tx.ack",
               requestId: requestId ?? null,
               spaceId,
               sessionId: null,
@@ -962,11 +962,11 @@ async function main() {
           } catch (error) {
             if (error instanceof WsClientInputError) throw error;
             const payload = message.payload ?? {};
-            const status = error instanceof CanvasTransactionError ? error.status : undefined;
-            const code = error instanceof CanvasTransactionError ? error.code : undefined;
+            const status = error instanceof BoardTransactionError ? error.status : undefined;
+            const code = error instanceof BoardTransactionError ? error.code : undefined;
             sendWsEnvelope(socket, buildRealtimeEnvelope({
               domain: "space",
-              type: "canvas.tx.error",
+              type: "board.tx.error",
               requestId: requestId ?? null,
               spaceId: typeof payload.spaceId === "string" ? payload.spaceId : null,
               sessionId: null,

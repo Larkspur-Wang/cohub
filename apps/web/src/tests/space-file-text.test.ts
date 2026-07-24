@@ -36,12 +36,12 @@ describe("space-file-text", () => {
 		assert.equal(recovered.content, content);
 	});
 
-	it("recovers misclassified inline .covas binary as JSON text", () => {
+	it("recovers misclassified inline .board binary as JSON text", () => {
 		const content =
-			'{"kind":"cohub.canvas.manifest","version":1,"documentId":"d1","title":"Board"}\n';
+			'{"kind":"cohub.board.manifest","version":1,"documentId":"d1","title":"Board"}\n';
 		const recovered = coerceInlineTextFile({
-			path: "Board.covas",
-			name: "Board.covas",
+			path: "Board.board",
+			name: "Board.board",
 			size: content.length,
 			mimeType: null,
 			mtimeMs: Date.now(),

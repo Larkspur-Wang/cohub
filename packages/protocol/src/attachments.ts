@@ -46,8 +46,8 @@ export type ViewportFileContext = {
   visibleLines?: ViewportVisibleLines;
 };
 
-export type ViewportCanvasContext = {
-  kind: "canvas";
+export type ViewportBoardContext = {
+  kind: "board";
   path: string;
   camera?: ViewportCamera;
   visibleRect?: ViewportVisibleRect;
@@ -62,7 +62,7 @@ export type ViewportPortContext = {
 
 export type ViewportContext =
   | ViewportFileContext
-  | ViewportCanvasContext
+  | ViewportBoardContext
   | ViewportPortContext;
 
 export function viewportContextId(context: ViewportContext): string {
@@ -110,7 +110,7 @@ export function formatViewportContextLabel(context: ViewportContext): string {
     const lines = formatVisibleLines(context.visibleLines);
     return lines ? `${name} ${lines}` : name;
   }
-  if (context.kind === "canvas") {
+  if (context.kind === "board") {
     const name = context.path.split("/").pop() || context.path;
     const selected = context.selectedNodes?.length
       ? ` · ${context.selectedNodes.length} selected`
@@ -126,14 +126,14 @@ export function formatViewportContextLine(context: ViewportContext): string {
     const suffix = lines ? ` (${lines})` : "";
     return `- file: \`${escapeAttachmentPath(context.path)}\`${suffix}`;
   }
-  if (context.kind === "canvas") {
+  if (context.kind === "board") {
     const details = [
       formatCamera(context.camera),
       formatVisibleRect(context.visibleRect),
       formatSelectedNodes(context.selectedNodes),
     ].filter(Boolean);
     const suffix = details.length > 0 ? ` (${details.join("; ")})` : "";
-    return `- canvas: \`${escapeAttachmentPath(context.path)}\`${suffix}`;
+    return `- board: \`${escapeAttachmentPath(context.path)}\`${suffix}`;
   }
   const url = context.url?.trim();
   const suffix = url ? ` (${escapeAttachmentUrl(url)})` : "";
@@ -200,7 +200,7 @@ export function parseViewportContextsFromMeta(
       });
       continue;
     }
-    if (record.kind === "canvas" && typeof record.path === "string") {
+    if (record.kind === "board" && typeof record.path === "string") {
       const camera =
         record.camera &&
         typeof record.camera === "object" &&
@@ -230,7 +230,7 @@ export function parseViewportContextsFromMeta(
           })
         : undefined;
       result.push({
-        kind: "canvas",
+        kind: "board",
         path: record.path,
         ...(camera &&
         typeof camera.x === "number" &&

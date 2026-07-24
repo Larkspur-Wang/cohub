@@ -2384,7 +2384,7 @@ function openSpacePalette() {
 }
 
 function buildPreferredSessionRoute(spaceId: string, sessionId: string) {
-	// Keep open file/canvas/port preview when switching chats.
+	// Keep open file/board/port preview when switching chats.
 	return withCurrentPreview(buildSpaceSessionRoute(spaceId, sessionId));
 }
 

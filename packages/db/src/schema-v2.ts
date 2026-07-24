@@ -343,8 +343,8 @@ export const spaceCommerceBusinesses = v2.table(
   }),
 );
 
-export const canvasDocuments = v2.table(
-  "canvas_documents",
+export const boardDocuments = v2.table(
+  "board_documents",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     spaceId: uuid("space_id").notNull(),
@@ -357,13 +357,13 @@ export const canvasDocuments = v2.table(
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
   (table) => ({
-    spaceIdx: index("v2_idx_canvas_documents_space_id").on(table.spaceId),
-    spacePathUniqueIdx: uniqueIndex("v2_uq_canvas_documents_space_path").on(table.spaceId, table.filePath),
+    spaceIdx: index("v2_idx_board_documents_space_id").on(table.spaceId),
+    spacePathUniqueIdx: uniqueIndex("v2_uq_board_documents_space_path").on(table.spaceId, table.filePath),
   }),
 );
 
-export const canvasNodes = v2.table(
-  "canvas_nodes",
+export const boardNodes = v2.table(
+  "board_nodes",
   {
     documentId: uuid("document_id").notNull(),
     nodeId: text("node_id").notNull(),
@@ -388,15 +388,15 @@ export const canvasNodes = v2.table(
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
   (table) => ({
-    primary: uniqueIndex("v2_uq_canvas_nodes_document_node").on(table.documentId, table.nodeId),
-    documentIdx: index("v2_idx_canvas_nodes_document_id").on(table.documentId),
-    viewportIdx: index("v2_idx_canvas_nodes_viewport").on(table.documentId, table.x, table.y, table.width, table.height),
-    refPathIdx: index("v2_idx_canvas_nodes_ref_path").on(table.documentId, table.refPath),
+    primary: uniqueIndex("v2_uq_board_nodes_document_node").on(table.documentId, table.nodeId),
+    documentIdx: index("v2_idx_board_nodes_document_id").on(table.documentId),
+    viewportIdx: index("v2_idx_board_nodes_viewport").on(table.documentId, table.x, table.y, table.width, table.height),
+    refPathIdx: index("v2_idx_board_nodes_ref_path").on(table.documentId, table.refPath),
   }),
 );
 
-export const canvasUpdates = v2.table(
-  "canvas_updates",
+export const boardUpdates = v2.table(
+  "board_updates",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     documentId: uuid("document_id").notNull(),
@@ -411,16 +411,16 @@ export const canvasUpdates = v2.table(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (table) => ({
-    documentVersionUniqueIdx: uniqueIndex("v2_uq_canvas_updates_document_version").on(table.documentId, table.version),
-    documentIdx: index("v2_idx_canvas_updates_document_id").on(table.documentId),
-    documentTxUniqueIdx: uniqueIndex("v2_uq_canvas_updates_document_tx")
+    documentVersionUniqueIdx: uniqueIndex("v2_uq_board_updates_document_version").on(table.documentId, table.version),
+    documentIdx: index("v2_idx_board_updates_document_id").on(table.documentId),
+    documentTxUniqueIdx: uniqueIndex("v2_uq_board_updates_document_tx")
       .on(table.documentId, table.txId)
       .where(sql`${table.txId} is not null`),
   }),
 );
 
-export const canvasCheckpointSnapshots = v2.table(
-  "canvas_checkpoint_snapshots",
+export const boardCheckpointSnapshots = v2.table(
+  "board_checkpoint_snapshots",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     checkpointId: uuid("checkpoint_id").notNull(),
@@ -432,8 +432,8 @@ export const canvasCheckpointSnapshots = v2.table(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (table) => ({
-    checkpointPathUniqueIdx: uniqueIndex("v2_uq_canvas_checkpoint_snapshots_path").on(table.checkpointId, table.sourceFilePath),
-    checkpointIdx: index("v2_idx_canvas_checkpoint_snapshots_checkpoint_id").on(table.checkpointId),
+    checkpointPathUniqueIdx: uniqueIndex("v2_uq_board_checkpoint_snapshots_path").on(table.checkpointId, table.sourceFilePath),
+    checkpointIdx: index("v2_idx_board_checkpoint_snapshots_checkpoint_id").on(table.checkpointId),
   }),
 );
 

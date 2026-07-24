@@ -4,16 +4,16 @@ import { activePreviewFilePath } from "../lib/features/space/modules/preview-tab
 
 test("file-tree selection follows the active preview kind", () => {
 	const filePath = "docs/readme.md";
-	const retainedCanvasPath = "boards/plan.covas";
+	const retainedBoardPath = "boards/plan.board";
 
 	assert.equal(
-		activePreviewFilePath("file", filePath, retainedCanvasPath),
+		activePreviewFilePath("file", filePath, retainedBoardPath),
 		filePath,
 	);
 	assert.equal(
-		activePreviewFilePath("canvas", filePath, retainedCanvasPath),
-		retainedCanvasPath,
+		activePreviewFilePath("board", filePath, retainedBoardPath),
+		retainedBoardPath,
 	);
-	assert.equal(activePreviewFilePath("port", filePath, retainedCanvasPath), "");
-	assert.equal(activePreviewFilePath(null, filePath, retainedCanvasPath), "");
+	assert.equal(activePreviewFilePath("port", filePath, retainedBoardPath), "");
+	assert.equal(activePreviewFilePath(null, filePath, retainedBoardPath), "");
 });

@@ -1,4 +1,4 @@
-export type WorkspacePreviewKind = "file" | "canvas" | "port";
+export type WorkspacePreviewKind = "file" | "board" | "port";
 
 export type WorkspacePreviewRef = {
 	kind: WorkspacePreviewKind;
@@ -29,7 +29,7 @@ export function parsePreviewParam(
 	const kind = value.slice(0, separator);
 	const key = value.slice(separator + 1);
 	if (!key) return null;
-	if (kind !== "file" && kind !== "canvas" && kind !== "port") return null;
+	if (kind !== "file" && kind !== "board" && kind !== "port") return null;
 	if (kind === "port" && !isValidPortKey(key)) return null;
 	return { kind, key };
 }

@@ -33,7 +33,7 @@ const {
 	onToggle,
 	onSelect,
 	onCreateFile,
-	onCreateCanvas,
+	onCreateBoard,
 	onCreateDir,
 	onRename,
 	onMove,
@@ -52,7 +52,7 @@ const {
 	onToggle: (node: SpaceFsNode) => void;
 	onSelect: (node: SpaceFsNode) => void;
 	onCreateFile: (parentPath: string) => void;
-	onCreateCanvas?: (parentPath: string) => void;
+	onCreateBoard?: (parentPath: string) => void;
 	onCreateDir: (parentPath: string) => void;
 	onRename: (node: SpaceFsNode) => void;
 	onMove?: (node: SpaceFsNode, targetDir: string) => void;
@@ -342,8 +342,8 @@ $effect(() => {
               {/if}
               <div class="dropdown-sep"></div>
               <button type="button" class="dropdown-item" onclick={stopAndCloseMenu(() => onCreateFile(node.path))}>New file</button>
-              {#if onCreateCanvas}
-                <button type="button" class="dropdown-item" onclick={stopAndCloseMenu(() => onCreateCanvas(node.path))}>New canvas</button>
+              {#if onCreateBoard}
+                <button type="button" class="dropdown-item" onclick={stopAndCloseMenu(() => onCreateBoard(node.path))}>New board</button>
               {/if}
               <button type="button" class="dropdown-item" onclick={stopAndCloseMenu(() => onCreateDir(node.path))}>New folder</button>
               {#if onPublishDirectory}
@@ -388,7 +388,7 @@ $effect(() => {
       {onToggle}
       {onSelect}
       {onCreateFile}
-      {onCreateCanvas}
+      {onCreateBoard}
       {onCreateDir}
       {onRename}
       {onMove}

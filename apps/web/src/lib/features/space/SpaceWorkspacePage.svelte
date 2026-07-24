@@ -1,7 +1,7 @@
 <script lang="ts">
 import type { ChannelEnvelope } from "@cohub/protocol/realtime";
 import type {
-	CanvasSemanticOp,
+	BoardSemanticOp,
 	Permission,
 	SpaceRecord,
 	TaskRunRecord,
@@ -33,9 +33,9 @@ import {
 	isBlockingAccessState,
 } from "$lib/access/access-state";
 import { floatNear } from "$lib/actions/portal";
+import type { BoardDocument } from "$lib/board/board-schema";
 import { spaceFsRepo } from "$lib/cache/repositories/space-fs-repo";
 import { spaceRecordRepo } from "$lib/cache/repositories/space-record-repo";
-import type { CovasDocument } from "$lib/canvas/canvas-schema";
 import AccessStateView from "$lib/components/AccessStateView.svelte";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import ResourceLabelPicker from "$lib/components/ResourceLabelPicker.svelte";
@@ -96,7 +96,7 @@ import {
 import type { LocalUploadEntry } from "$lib/upload-entries";
 import type { WorkspaceFileLinkTarget } from "$lib/workspace-file-links";
 import { resolveWorkspaceSpaceId } from "$lib/workspace-route";
-import { createCanvasPreviewController } from "./modules/canvas-preview-controller.svelte";
+import { createBoardPreviewController } from "./modules/board-preview-controller.svelte";
 import { createFileWorkspaceController } from "./modules/file-workspace-controller.svelte";
 import {
 	FLOAT_PANEL_GAP,
@@ -159,7 +159,7 @@ type Props = {
 			| "task";
 		sessionId?: string | null;
 		filePath?: string | null;
-		previewKind?: "file" | "canvas" | "port" | null;
+		previewKind?: "file" | "board" | "port" | null;
 		previewKey?: string | null;
 		checkpointId?: string | null;
 		cronjobId?: string | null;
@@ -279,7 +279,7 @@ const sessionChat = createSessionChatHost({
 	openPath: (target) => openLinkedInlineFile(target),
 	router: {
 		toSession: async (sessionId, opts) => {
-			// Keep open file/canvas/port preview when new chat becomes a real session.
+			// Keep open file/board/port preview when new chat becomes a real session.
 			await goto(
 				withCurrentPreview(buildSpaceSessionRoute(spaceId, sessionId)),
 				{
@@ -413,10 +413,10 @@ const fileWorkspace = createFileWorkspaceController({
 	getCanEditFiles: () => canEditFiles,
 	getActiveFsReadonly: () => activeFsReadonly,
 	getSpaceHasMinimalAccess: () => spaceHasMinimalAccess,
-	onOpenInlineCanvas: (path) => openInlineCanvas(path),
-	onCloseInlineCanvas: () => closeInlineCanvas(),
-	onRenameInlineCanvas: (fromPath, toPath) =>
-		canvasPreview.renamePath(fromPath, toPath),
+	onOpenInlineBoard: (path) => openInlineBoard(path),
+	onCloseInlineBoard: () => closeInlineBoard(),
+	onRenameInlineBoard: (fromPath, toPath) =>
+		boardPreview.renamePath(fromPath, toPath),
 	onOpenInlinePort: (port, url, optionsArg) =>
 		openInlinePort(port, url, optionsArg),
 	onCloseInlinePort: () => closeInlinePort(),
@@ -434,14 +434,14 @@ const fileWorkspace = createFileWorkspaceController({
 	},
 	onEnsurePreviewPanelFits: ensurePreviewPanelFits,
 });
-const canvasPreview = createCanvasPreviewController({
+const boardPreview = createBoardPreviewController({
 	getSpaceId: () => spaceId,
 	getSourceKey: () => activeFsSourceKey,
 	getReadonly: () => activeFsReadonly,
 	readFile: fileWorkspace.readActiveFsFile,
 	onOpenPanel: () => {
 		if (uiState.filesColumnHidden) uiState.setFilesColumnHidden(false);
-		// Keep focus/immersive when switching canvas tabs.
+		// Keep focus/immersive when switching board tabs.
 		ensurePreviewPanelFits();
 	},
 	onClosePanel: () => {
@@ -449,7 +449,7 @@ const canvasPreview = createCanvasPreviewController({
 			if (!activePreviewKind) closePreviewFocusMode();
 		});
 	},
-	onBeforeOpenCanvas: () => {},
+	onBeforeOpenBoard: () => {},
 	onMarkSavePending: fileWorkspace.markFileSavePending,
 	onClearSavePendingSoon: fileWorkspace.clearFileSavePendingSoon,
 });
@@ -460,15 +460,15 @@ const inlineFile = $derived(fileWorkspace.inlineFile);
 const inlineFileTabs = $derived(fileWorkspace.inlineFileTabs);
 const activeInlineFilePath = $derived(fileWorkspace.activeInlineFilePath);
 const inlineFileCanGoBack = $derived(fileWorkspace.inlineFileCanGoBack);
-const inlineCanvas = $derived(canvasPreview.canvas);
-const inlineCanvasTabs = $derived(canvasPreview.canvases);
-const activeInlineCanvasPath = $derived(canvasPreview.activeCanvasPath);
+const inlineBoard = $derived(boardPreview.board);
+const inlineBoardTabs = $derived(boardPreview.boards);
+const activeInlineBoardPath = $derived(boardPreview.activeBoardPath);
 
 const previewWorkspace = createPreviewWorkspaceController({
 	getFileTabs: () => fileWorkspace.inlineFileTabs,
 	getActiveFilePath: () => fileWorkspace.activeInlineFilePath,
-	getCanvasTabs: () => canvasPreview.canvases,
-	getActiveCanvasPath: () => canvasPreview.activeCanvasPath,
+	getBoardTabs: () => boardPreview.boards,
+	getActiveBoardPath: () => boardPreview.activeBoardPath,
 	getPortTabs: () => portPreview.previews,
 	getActivePort: () => portPreview.activePort,
 	openFile: (path, optionsArg) =>
@@ -477,9 +477,9 @@ const previewWorkspace = createPreviewWorkspaceController({
 	closeFile: (path, skipConfirm) =>
 		fileWorkspace.closeInlineFileTab(path, skipConfirm),
 	goBackFile: () => fileWorkspace.goBackInlineFile(),
-	openCanvas: (path) => canvasPreview.openCanvas(path),
-	activateCanvas: (path) => canvasPreview.activateCanvas(path),
-	closeCanvas: (path) => canvasPreview.closeCanvas(path ?? undefined),
+	openBoard: (path) => boardPreview.openBoard(path),
+	activateBoard: (path) => boardPreview.activateBoard(path),
+	closeBoard: (path) => boardPreview.closeBoard(path ?? undefined),
 	openPort: (port, url, optionsArg) =>
 		portPreview.openPort(port, url, optionsArg),
 	activatePort: (port) => portPreview.activatePort(port),
@@ -572,7 +572,7 @@ const selectedFilePath = $derived(
 	activePreviewFilePath(
 		activePreviewKind,
 		activeInlineFilePath,
-		activeInlineCanvasPath,
+		activeInlineBoardPath,
 	),
 );
 
@@ -584,10 +584,10 @@ $effect(() => {
 		});
 		return;
 	}
-	if (activePreviewKind === "canvas" && inlineCanvas?.path) {
+	if (activePreviewKind === "board" && inlineBoard?.path) {
 		sessionChat.reportActiveSource({
-			kind: "canvas",
-			path: inlineCanvas.path,
+			kind: "board",
+			path: inlineBoard.path,
 		});
 		return;
 	}
@@ -766,8 +766,8 @@ const spaceRealtime = createSpaceRealtimeController({
 	onTransportOpen: () => sessionChat.onTransportOpen(),
 	onConnectionOpened: () => {
 		fileWorkspace.retryFailedInlineFiles();
-		if (inlineCanvas?.documentId) {
-			void flushInlineCanvasPendingTransactions(inlineCanvas.documentId).catch(
+		if (inlineBoard?.documentId) {
+			void flushInlineBoardPendingTransactions(inlineBoard.documentId).catch(
 				() => undefined,
 			);
 		}
@@ -787,8 +787,8 @@ const spaceRealtime = createSpaceRealtimeController({
 		if (wsConnectionState === "open") {
 			void sessionChat.refreshSessions(false);
 		}
-		if (inlineCanvas?.documentId) {
-			void flushInlineCanvasPendingTransactions(inlineCanvas.documentId).catch(
+		if (inlineBoard?.documentId) {
+			void flushInlineBoardPendingTransactions(inlineBoard.documentId).catch(
 				() => undefined,
 			);
 		}
@@ -1532,8 +1532,8 @@ async function refreshFileTree() {
 async function handleCreateFile(parentPath: string) {
 	await fileWorkspace.handleCreateFile(parentPath);
 }
-async function handleCreateCanvas(parentPath: string) {
-	await fileWorkspace.handleCreateCanvas(parentPath);
+async function handleCreateBoard(parentPath: string) {
+	await fileWorkspace.handleCreateBoard(parentPath);
 }
 async function handleCreateDir(parentPath: string) {
 	await fileWorkspace.handleCreateDir(parentPath);
@@ -1558,7 +1558,7 @@ async function handleDownloadNode(node: SpaceFsNode) {
 }
 async function handleDeleteNode(node: SpaceFsNode) {
 	await fileWorkspace.handleDeleteNode(node);
-	if (inlineCanvas?.path === node.path) closeInlineCanvas();
+	if (inlineBoard?.path === node.path) closeInlineBoard();
 }
 async function openInlineFile(
 	path: string,
@@ -1582,7 +1582,7 @@ async function goBackInlineFile() {
 function closeInlineFile() {
 	previewWorkspace.closeActive();
 }
-async function openInlineCanvas(
+async function openInlineBoard(
 	path: string,
 	options: { syncUrl?: boolean } = {},
 ) {
@@ -1591,24 +1591,24 @@ async function openInlineCanvas(
 		return;
 	}
 	if (filesColumnHidden) previewLayout.setFilesColumnHidden(false);
-	await previewWorkspace.openCanvas(path, options);
+	await previewWorkspace.openBoard(path, options);
 }
-function closeInlineCanvas() {
-	const path = activeInlineCanvasPath;
-	if (path) previewWorkspace.close("canvas", path);
+function closeInlineBoard() {
+	const path = activeInlineBoardPath;
+	if (path) previewWorkspace.close("board", path);
 	else previewWorkspace.closeActive();
 }
-async function flushInlineCanvasPendingTransactions(documentId: string) {
-	await canvasPreview.flushPendingTransactions(documentId);
+async function flushInlineBoardPendingTransactions(documentId: string) {
+	await boardPreview.flushPendingTransactions(documentId);
 }
-async function commitInlineCanvas(
-	document: CovasDocument,
-	ops: CanvasSemanticOp[],
+async function commitInlineBoard(
+	document: BoardDocument,
+	ops: BoardSemanticOp[],
 ) {
-	await canvasPreview.commitCanvas(document, ops);
+	await boardPreview.commitBoard(document, ops);
 }
-async function retryInlineCanvasSave() {
-	await canvasPreview.retryCanvasSave();
+async function retryInlineBoardSave() {
+	await boardPreview.retryBoardSave();
 }
 function openInlinePort(
 	port: string,
@@ -1621,8 +1621,8 @@ function openInlinePort(
 function activateInlineFileTab(path: string) {
 	previewWorkspace.activate("file", path);
 }
-function activateInlineCanvasTab(path: string) {
-	previewWorkspace.activate("canvas", path);
+function activateInlineBoardTab(path: string) {
+	previewWorkspace.activate("board", path);
 }
 function activateInlinePortTab(port: string) {
 	previewWorkspace.activate("port", port);
@@ -1635,8 +1635,8 @@ function closeInlinePort() {
 function closeInlineFileTab(path: string, skipConfirm = false) {
 	previewWorkspace.close("file", path, skipConfirm);
 }
-function closeInlineCanvasTab(path?: string) {
-	previewWorkspace.close("canvas", path ?? activeInlineCanvasPath);
+function closeInlineBoardTab(path?: string) {
+	previewWorkspace.close("board", path ?? activeInlineBoardPath);
 }
 function closeInlinePortTab(port?: string) {
 	previewWorkspace.close("port", port ?? activeInlinePort);
@@ -1858,9 +1858,9 @@ onMount(() => {
 			sessionChat.applySessionsSnapshot(sessions);
 		},
 	);
-	const offCanvasTxApplied = sdk
+	const offBoardTxApplied = sdk
 		.space(spaceId)
-		.on("canvas.tx.applied", (event) => {
+		.on("board.tx.applied", (event) => {
 			const payload = event.payload as {
 				documentId?: unknown;
 				version?: unknown;
@@ -1870,21 +1870,21 @@ onMount(() => {
 			};
 			if (
 				typeof payload.documentId !== "string" ||
-				payload.documentId !== inlineCanvas?.documentId
+				payload.documentId !== inlineBoard?.documentId
 			)
 				return;
 			// Skip only this client's own committed transactions (already reflected
 			// locally). Keying on txId — not actorId — means the same user's other
 			// tabs/devices still reconcile, so multi-tab editing stays in sync.
-			if (canvasPreview.isOwnTransaction(payload.txId)) return;
+			if (boardPreview.isOwnTransaction(payload.txId)) return;
 			const version =
 				typeof payload.version === "number" ? payload.version : null;
 			const txId = typeof payload.txId === "string" ? payload.txId : null;
 			const ops = Array.isArray(payload.ops)
-				? (payload.ops as import("@neta-art/cohub").CanvasSemanticOp[])
+				? (payload.ops as import("@neta-art/cohub").BoardSemanticOp[])
 				: null;
 			if (version != null && txId && ops && ops.length > 0) {
-				canvasPreview.requestRemoteOps(payload.documentId, {
+				boardPreview.requestRemoteOps(payload.documentId, {
 					version,
 					txId,
 					ops,
@@ -1892,7 +1892,7 @@ onMount(() => {
 				return;
 			}
 			// Missing/empty ops or version → full bootstrap fallback.
-			canvasPreview.requestRemoteRefresh(payload.documentId);
+			boardPreview.requestRemoteRefresh(payload.documentId);
 		});
 	const offSpaceConfigUpdated = subscribeSpaceConfig((config) => {
 		spaceConfig = config;
@@ -1953,7 +1953,7 @@ onMount(() => {
 			sessionChat.captureCurrentScrollAnchor(activeSessionId);
 		window.removeEventListener("keydown", handleSessionVimKeydown);
 		offSessionListCacheUpdated();
-		offCanvasTxApplied();
+		offBoardTxApplied();
 		offSpaceConfigUpdated();
 		offSpaceConfigBackgroundAction();
 		offDanmakuPrefs();
@@ -2002,7 +2002,7 @@ function resetSpaceScopedState(currentSpaceId: string) {
 	spaceRealtime.resetRecoveredConnection();
 	// Chat-owned UI (turn rail / route turn) is reset by sessionChat.enterSpace.
 	fileWorkspace.resetForSpace(currentSpaceId, { force: true });
-	canvasPreview.closeCanvas();
+	boardPreview.closeBoard();
 	portPreview.setEndpoints({});
 	portPreview.closePort();
 	portPreview.closeReadyToast();
@@ -2140,8 +2140,8 @@ $effect(() => {
 			// beforeNavigate already confirmed discard when FS source changes.
 			fileWorkspace.switchSource(sourceKey, { force: true });
 			// Source change invalidates non-file previews; file tabs already cleared by switchSource.
-			for (const tab of [...canvasPreview.canvases])
-				canvasPreview.closeCanvas(tab.path);
+			for (const tab of [...boardPreview.boards])
+				boardPreview.closeBoard(tab.path);
 			for (const tab of [...portPreview.previews])
 				portPreview.closePort(tab.port);
 			previewWorkspace.setActiveKind(null);
@@ -2151,7 +2151,7 @@ $effect(() => {
 
 		// 2) Preview route hydration / teardown
 		const target =
-			preview?.kind === "canvas" && activeFsReadonly
+			preview?.kind === "board" && activeFsReadonly
 				? { kind: "file" as const, key: preview.key }
 				: preview;
 		const action = resolvePreviewRouteSync(target, reconciledPreview);
@@ -2203,9 +2203,9 @@ const spaceFileDomainProps = $derived.by<
 	inlineFileTabs,
 	activeInlineFilePath,
 	inlineFileCanGoBack,
-	inlineCanvas,
-	inlineCanvasTabs,
-	activeInlineCanvasPath,
+	inlineBoard,
+	inlineBoardTabs,
+	activeInlineBoardPath,
 	inlinePortPreview,
 	inlinePortTabs,
 	activeInlinePort,
@@ -2245,7 +2245,7 @@ const spaceFileDomainProps = $derived.by<
 	onToggleDirectory: expandDirectory,
 	onRefreshFileTree: refreshFileTree,
 	onCreateFile: handleCreateFile,
-	onCreateCanvas: handleCreateCanvas,
+	onCreateBoard: handleCreateBoard,
 	onCreateDir: handleCreateDir,
 	onRenameNode: handleRenameNode,
 	onMoveNode: handleMoveNode,
@@ -2255,10 +2255,10 @@ const spaceFileDomainProps = $derived.by<
 	onInsertPathReference: insertPathReference,
 	onOpenInlineFile: openInlineFile,
 	onOpenLinkedInlineFile: openLinkedInlineFile,
-	onOpenInlineCanvas: openInlineCanvas,
+	onOpenInlineBoard: openInlineBoard,
 	onCloseInlineFile: closeInlineFile,
-	onActivateInlineCanvas: activateInlineCanvasTab,
-	onCloseInlineCanvasTab: closeInlineCanvasTab,
+	onActivateInlineBoard: activateInlineBoardTab,
+	onCloseInlineBoardTab: closeInlineBoardTab,
 	onActivateInlinePort: activateInlinePortTab,
 	onCloseInlinePortTab: closeInlinePortTab,
 	onActivateInlineFile: activateInlineFileTab,
@@ -2272,8 +2272,8 @@ const spaceFileDomainProps = $derived.by<
 	onOverwriteInlineFile: overwriteInlineFile,
 	onReloadInlineFile: reloadInlineFile,
 	onOpenInlinePort: openInlinePort,
-	onCommitInlineCanvas: commitInlineCanvas,
-	onRetryInlineCanvasSave: retryInlineCanvasSave,
+	onCommitInlineBoard: commitInlineBoard,
+	onRetryInlineBoardSave: retryInlineBoardSave,
 	onBeginPreviewPanelResize: beginPreviewPanelResize,
 	onTogglePreviewFocusMode: togglePreviewFocusMode,
 	onTogglePreviewImmersiveMode: togglePreviewImmersiveMode,
@@ -2294,7 +2294,7 @@ const spaceFileDomainProps = $derived.by<
 	},
 	onVisibleLinesChange: (path, range) =>
 		sessionChat.reportFileVisibleLines(path, range),
-	onCanvasViewStateChange: (state) => sessionChat.reportCanvasView(state),
+	onBoardViewStateChange: (state) => sessionChat.reportBoardView(state),
 }));
 
 const headerContext = $derived({

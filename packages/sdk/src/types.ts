@@ -760,7 +760,7 @@ export type SpaceConfigUpdateResponse = {
   };
 };
 
-export type CanvasDocumentRecord = {
+export type BoardDocumentRecord = {
   id: string;
   spaceId: string;
   filePath: string;
@@ -772,7 +772,7 @@ export type CanvasDocumentRecord = {
   deletedAt?: string | null;
 };
 
-export type CanvasNodeRecord = {
+export type BoardNodeRecord = {
   documentId: string;
   nodeId: string;
   type: string;
@@ -796,57 +796,57 @@ export type CanvasNodeRecord = {
   deletedAt?: string | null;
 };
 
-export type CanvasNodeInput = Omit<CanvasNodeRecord, "documentId" | "version" | "createdAt" | "updatedAt" | "deletedAt">;
+export type BoardNodeInput = Omit<BoardNodeRecord, "documentId" | "version" | "createdAt" | "updatedAt" | "deletedAt">;
 
-export const CANVAS_DELETE_REASONS = [
+export const BOARD_DELETE_REASONS = [
   "user-delete",
   "orphan-cleanup",
   "layout-replace",
   "placeholder-cascade",
 ] as const;
 
-export type CanvasDeleteReason = (typeof CANVAS_DELETE_REASONS)[number] | (string & {});
+export type BoardDeleteReason = (typeof BOARD_DELETE_REASONS)[number] | (string & {});
 
-type CanvasOpBase = {
+type BoardOpBase = {
   opId?: string;
   inverse?: Record<string, unknown>;
 };
 
-export type CanvasSemanticOp =
-  | (CanvasOpBase & {
+export type BoardSemanticOp =
+  | (BoardOpBase & {
       type: "document.patch";
       payload: { patch: { meta: Record<string, unknown> | null } };
     })
-  | (CanvasOpBase & {
+  | (BoardOpBase & {
       type: "node.create";
-      payload: { node: CanvasNodeInput };
+      payload: { node: BoardNodeInput };
     })
-  | (CanvasOpBase & {
+  | (BoardOpBase & {
       type: "node.patch";
-      payload: { nodeId: string; patch: Partial<CanvasNodeInput> };
+      payload: { nodeId: string; patch: Partial<BoardNodeInput> };
     })
-  | (CanvasOpBase & {
+  | (BoardOpBase & {
       type: "node.delete";
-      payload: { nodeId: string; reason?: CanvasDeleteReason };
+      payload: { nodeId: string; reason?: BoardDeleteReason };
     });
 
-export type CanvasTransactionInput = {
+export type BoardTransactionInput = {
   txId: string;
   baseVersion?: number | null;
   clientId?: string | null;
   undoGroupId?: string | null;
-  ops: CanvasSemanticOp[];
+  ops: BoardSemanticOp[];
 };
 
-export type CanvasCreateInput = {
+export type BoardCreateInput = {
   path: string;
   title?: string;
-  nodes?: CanvasNodeInput[];
+  nodes?: BoardNodeInput[];
 };
 
-export type CanvasBootstrapResponse = {
-  document: CanvasDocumentRecord;
-  nodes: CanvasNodeRecord[];
+export type BoardBootstrapResponse = {
+  document: BoardDocumentRecord;
+  nodes: BoardNodeRecord[];
 };
 
 export type SpaceCreateResponse = {

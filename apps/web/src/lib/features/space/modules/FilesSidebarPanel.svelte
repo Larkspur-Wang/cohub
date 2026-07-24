@@ -34,7 +34,7 @@ type Props = {
 	onSelect: (node: SpaceFsNode, options: { mobile: boolean }) => void;
 	onRefresh: () => void | Promise<void>;
 	onCreateFile: (parentPath: string) => void | Promise<void>;
-	onCreateCanvas: (parentPath: string) => void | Promise<void>;
+	onCreateBoard: (parentPath: string) => void | Promise<void>;
 	onCreateDir: (parentPath: string) => void | Promise<void>;
 	onRename: (node: SpaceFsNode) => void | Promise<void>;
 	onMove?: (node: SpaceFsNode, targetDir: string) => void | Promise<void>;
@@ -75,7 +75,7 @@ let {
 	onSelect,
 	onRefresh,
 	onCreateFile,
-	onCreateCanvas,
+	onCreateBoard,
 	onCreateDir,
 	onRename,
 	onMove = undefined,
@@ -124,7 +124,7 @@ const desktopShellWidth = $derived(desktopCollapsed ? 0 : desktopWidth);
 					onSelect={(node) => onSelect(node, { mobile: false })}
 					onRefresh={onRefresh}
 					onCreateFile={onCreateFile}
-					onCreateCanvas={onCreateCanvas}
+					onCreateBoard={onCreateBoard}
 					onCreateDir={onCreateDir}
 					onRename={onRename}
 					onMove={onMove}
@@ -179,7 +179,7 @@ const desktopShellWidth = $derived(desktopCollapsed ? 0 : desktopWidth);
 		onSelect={(node) => onSelect(node, { mobile: true })}
 		onRefresh={onRefresh}
 		onCreateFile={onCreateFile}
-		onCreateCanvas={onCreateCanvas}
+		onCreateBoard={onCreateBoard}
 		onCreateDir={onCreateDir}
 		onRename={onRename}
 		onMove={onMove}

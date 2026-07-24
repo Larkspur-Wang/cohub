@@ -33,7 +33,7 @@ const {
 
 const kindIcon = {
 	file: FileIcon,
-	canvas: MousePointer2,
+	board: MousePointer2,
 	port: Globe,
 } as const;
 

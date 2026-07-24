@@ -1,6 +1,6 @@
 export const SPACE_CONFIG_PATH = ".cohub/space.json";
 
-export type WorkspacePreviewKind = "file" | "canvas" | "port";
+export type WorkspacePreviewKind = "file" | "board" | "port";
 
 export type WorkspacePreviewRef = {
   kind: WorkspacePreviewKind;
@@ -97,7 +97,7 @@ function parsePreview(value: unknown): WorkspacePreviewRef | undefined {
   if (!value || typeof value !== "object") return undefined;
   const record = value as Record<string, unknown>;
   const kind = record.kind;
-  if (kind === "file" || kind === "canvas") {
+  if (kind === "file" || kind === "board") {
     const key = normalizePreviewPath(record.path ?? record.key);
     return key ? { kind, key } : undefined;
   }
