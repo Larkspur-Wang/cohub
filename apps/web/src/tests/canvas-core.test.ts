@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+	canvasBootstrapToDocument,
 	canvasItemToNode,
 	canvasNodeToItem,
 	createEmptyCovasDocument,
@@ -50,6 +51,7 @@ import type {
 	CanvasFrame,
 	CanvasGeoItem,
 } from "../lib/canvas/canvas-schema.ts";
+import { resolveCanvasRuntime } from "../lib/canvas/runtime/canvas-runtime.ts";
 
 const frame: CanvasFrame = { x: 0, y: 0, width: 100, height: 100, rotation: 0 };
 
@@ -209,6 +211,145 @@ test("unknown locked survives node mapping round-trip", () => {
 	});
 	assert.equal(isUnknownItem(back), true);
 	assert.equal(back.locked, true);
+});
+
+test("known item edits preserve wire fields owned by another runtime", () => {
+	const item = canvasNodeToItem({
+		documentId: "d",
+		nodeId: "n1",
+		type: "note",
+		parentId: "page:one",
+		orderKey: "a1",
+		x: 1,
+		y: 2,
+		width: 100,
+		height: 80,
+		rotation: 0,
+		refKind: "runtime_asset",
+		refPath: "asset:one",
+		refUrl: "https://example.com/asset",
+		view: { runtimeView: true },
+		style: { runtimeStyle: true },
+		animation: { spin: 1 },
+		data: {
+			text: "Before",
+			color: "green",
+			metadata: { source: "other-runtime" },
+			runtimeProps: { opacity: 0.5 },
+		},
+		version: 1,
+		createdAt: null,
+		updatedAt: null,
+		deletedAt: null,
+	});
+	assert.deepEqual(item.metadata, { source: "other-runtime" });
+	const edited = item.type === "note" ? { ...item, text: "After" } : item;
+	const node = canvasItemToNode(edited, 0);
+	assert.equal(node.parentId, "page:one");
+	assert.equal(node.orderKey, "a1");
+	assert.equal(node.refKind, "runtime_asset");
+	assert.equal(node.refPath, "asset:one");
+	assert.equal(node.refUrl, "https://example.com/asset");
+	assert.deepEqual(node.view, { runtimeView: true });
+	assert.deepEqual(node.animation, { spin: 1 });
+	assert.deepEqual(node.style, { runtimeStyle: true });
+	assert.deepEqual(node.data.runtimeProps, { opacity: 0.5 });
+	assert.deepEqual(node.data.metadata, { source: "other-runtime" });
+	assert.equal(node.data.text, "After");
+});
+
+test("bootstrap preserves the wire envelope through schema parsing", () => {
+	const document = canvasBootstrapToDocument({
+		document: {
+			id: "d",
+			spaceId: "s",
+			filePath: "board.covas",
+			title: "Board",
+			version: 1,
+			meta: {},
+			createdAt: null,
+			updatedAt: null,
+			deletedAt: null,
+		},
+		nodes: [
+			{
+				documentId: "d",
+				nodeId: "n1",
+				type: "note",
+				parentId: "page:one",
+				orderKey: "a1",
+				x: 1,
+				y: 2,
+				width: 100,
+				height: 80,
+				rotation: 0,
+				refKind: "runtime_asset",
+				refPath: "asset:one",
+				refUrl: "https://example.com/asset",
+				view: { runtimeView: true },
+				style: { runtimeStyle: true },
+				animation: { spin: 1 },
+				data: {
+					text: "Before",
+					color: "green",
+					runtimeProps: { opacity: 0.5 },
+				},
+				version: 1,
+				createdAt: null,
+				updatedAt: null,
+				deletedAt: null,
+			},
+		],
+	});
+	const item = document.items[0];
+	assert.ok(item);
+	const edited = item.type === "note" ? { ...item, text: "After" } : item;
+	const node = canvasItemToNode(edited, 0);
+	assert.equal(node.parentId, "page:one");
+	assert.equal(node.orderKey, "a1");
+	assert.equal(node.refKind, "runtime_asset");
+	assert.equal(node.refPath, "asset:one");
+	assert.equal(node.refUrl, "https://example.com/asset");
+	assert.deepEqual(node.view, { runtimeView: true });
+	assert.deepEqual(node.animation, { spin: 1 });
+	assert.deepEqual(node.data.runtimeProps, { opacity: 0.5 });
+	assert.equal(node.data.text, "After");
+});
+
+test("unknown item round-trip preserves the complete wire envelope", () => {
+	const item = canvasNodeToItem({
+		documentId: "d",
+		nodeId: "x1",
+		type: "runtime:shape",
+		parentId: "page:one",
+		orderKey: "z9",
+		x: 1,
+		y: 2,
+		width: 100,
+		height: 80,
+		rotation: 15,
+		refKind: "runtime_asset",
+		refPath: "asset:one",
+		refUrl: "https://example.com/asset",
+		view: { runtimeView: true },
+		style: { runtimeStyle: true },
+		animation: { spin: 1 },
+		data: { runtimeProps: { opacity: 0.5 } },
+		version: 1,
+		createdAt: null,
+		updatedAt: null,
+		deletedAt: null,
+	});
+	const node = canvasItemToNode(item, 0);
+	assert.equal(node.parentId, "page:one");
+	assert.equal(node.orderKey, "z9");
+	assert.equal(node.refKind, "runtime_asset");
+	assert.equal(node.refPath, "asset:one");
+	assert.equal(node.refUrl, "https://example.com/asset");
+	assert.deepEqual(node.view, { runtimeView: true });
+	assert.deepEqual(node.animation, { spin: 1 });
+	assert.deepEqual(node.style, { runtimeStyle: true });
+	assert.deepEqual(node.data.runtimeProps, { opacity: 0.5 });
 });
 
 // ─── Draw geometry ──────────────────────────────────────────────────
@@ -477,6 +618,40 @@ test("shapeBounds falls back to frame bounds for box shapes", () => {
 test("createEmptyCovasDocument yields an empty document", () => {
 	const doc = createEmptyCovasDocument();
 	assert.equal(doc.items.length, 0);
+});
+
+test("runtime resolution follows the persisted semantic model", () => {
+	const runtime = resolveCanvasRuntime(createEmptyCovasDocument());
+	assert.equal(runtime.id, "cohub-pixi");
+	assert.equal(runtime.modelKind, "cohub.canvas");
+});
+
+test("canvas bootstrap restores persisted document appearance", () => {
+	const document = canvasBootstrapToDocument({
+		document: {
+			id: "d",
+			spaceId: "s",
+			filePath: "board.covas",
+			title: "Board",
+			version: 1,
+			meta: {
+				appearance: {
+					theme: "clean",
+					background: { kind: "grid", color: "#123456" },
+					grid: { visible: true, size: 40, opacity: 0.2 },
+					mood: "natural",
+				},
+			},
+			createdAt: null,
+			updatedAt: null,
+			deletedAt: null,
+		},
+		nodes: [],
+	});
+	assert.equal(document.appearance.background.kind, "grid");
+	assert.equal(document.appearance.background.color, "#123456");
+	assert.equal(document.appearance.grid.size, 40);
+	assert.equal(document.appearance.mood, "natural");
 });
 
 // ─── Item creation helpers ───────────────────────────────────────

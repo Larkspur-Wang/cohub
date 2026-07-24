@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+	applyCanvasOps,
+	diffCanvasDocuments,
+	invertCanvasOps,
 	rebaseOnRemote,
 	reconcileExternal,
 } from "../lib/canvas/canvas-document.ts";
@@ -36,6 +39,46 @@ const texts = (d: CovasDocument) =>
 	new Map(
 		d.items.map((item) => [item.id, item.type === "text" ? item.text : ""]),
 	);
+
+test("diff marks interactive deletes with a structured reason", () => {
+	const [op] = diffCanvasDocuments(doc([textItem("a", "delete")]), doc([]));
+	assert.equal(op?.type, "node.delete");
+	if (op?.type === "node.delete")
+		assert.equal(op.payload.reason, "user-delete");
+});
+
+test("document patches preserve items and sync appearance", () => {
+	const document = doc([textItem("a", "keep")]);
+	const appearance = {
+		theme: "clean",
+		background: { kind: "solid" as const, color: "#123456" },
+		grid: { visible: false, size: 24, opacity: 0.12 },
+		mood: "natural" as const,
+	};
+	const result = applyCanvasOps(document, [
+		{
+			type: "document.patch",
+			payload: { patch: { meta: { appearance } } },
+		},
+	]);
+	assert.deepEqual(result.items, document.items);
+	assert.deepEqual(result.appearance, appearance);
+});
+
+test("document patch inverse restores the previous meta", () => {
+	const [inverse] = invertCanvasOps([
+		{
+			type: "document.patch",
+			payload: { patch: { meta: { modelKind: "next" } } },
+			inverse: { meta: { modelKind: "previous" } },
+		},
+	]);
+	assert.deepEqual(inverse, {
+		type: "document.patch",
+		payload: { patch: { meta: { modelKind: "previous" } } },
+		inverse: { meta: { modelKind: "next" } },
+	});
+});
 
 test("rebase with no local changes adopts the remote document", () => {
 	const baseline = doc([textItem("a", "1")]);

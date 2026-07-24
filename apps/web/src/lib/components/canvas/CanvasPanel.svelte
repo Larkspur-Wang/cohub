@@ -1,9 +1,8 @@
 <script lang="ts">
-import type { CanvasSemanticOp } from "@neta-art/cohub";
 import { onDestroy, onMount, untrack } from "svelte";
 import { screenToWorld } from "$lib/canvas/canvas-geometry";
-import type { CovasDocument } from "$lib/canvas/canvas-schema";
 import { createCanvasEditor } from "$lib/canvas/editor.svelte";
+import type { CanvasRuntimeProps } from "$lib/canvas/runtime/canvas-runtime";
 import CanvasContextMenu from "$lib/components/canvas/CanvasContextMenu.svelte";
 import CanvasEmptyState from "$lib/components/canvas/CanvasEmptyState.svelte";
 import CanvasFloatingToolbar from "$lib/components/canvas/CanvasFloatingToolbar.svelte";
@@ -22,29 +21,7 @@ const {
 	onCommit,
 	onRetrySync,
 	onViewStateChange,
-}: {
-	path: string;
-	document: CovasDocument;
-	spaceId: string;
-	immersive?: boolean;
-	syncError?: string | null;
-	onCommit: (
-		document: CovasDocument,
-		ops: CanvasSemanticOp[],
-	) => void | Promise<void>;
-	onRetrySync?: () => void | Promise<void>;
-	onViewStateChange?: (state: {
-		path: string;
-		camera: CovasDocument["viewport"];
-		visibleRect: {
-			x: number;
-			y: number;
-			width: number;
-			height: number;
-		} | null;
-		selectedNodes: Array<{ id: string; type: string; title?: string }>;
-	}) => void;
-} = $props();
+}: CanvasRuntimeProps = $props();
 
 let stageWrap: HTMLDivElement | null = $state(null);
 let contextMenu = $state<{ x: number; y: number } | null>(null);

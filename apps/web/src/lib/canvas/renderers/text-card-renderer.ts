@@ -2,18 +2,17 @@ import { Container, Text } from "pixi.js";
 import { textResolutionForZoom } from "$lib/canvas/canvas-rendering";
 import type { CanvasItem, CanvasTextItem } from "$lib/canvas/canvas-schema";
 import { pickCanvasColor } from "$lib/canvas/core/palette";
+import {
+	TEXT_FONT_FAMILY,
+	TEXT_FONT_SIZE,
+	TEXT_LINE_HEIGHT,
+	TEXT_MIN_WIDTH,
+} from "$lib/canvas/core/text-layout";
 import { positionShell } from "$lib/canvas/renderers/base-card-renderer";
 import type {
 	CanvasCardRenderer,
 	CanvasRenderContext,
 } from "$lib/canvas/renderers/canvas-renderer-registry";
-
-/** World-space typography for freestanding text. */
-export const TEXT_FONT_SIZE = 18;
-export const TEXT_LINE_HEIGHT = 24;
-export const TEXT_FONT_FAMILY = "Geist";
-export const TEXT_MIN_WIDTH = 16;
-export const TEXT_MIN_HEIGHT = TEXT_LINE_HEIGHT;
 
 type TextParts = {
 	root: Container;
@@ -23,104 +22,6 @@ type TextParts = {
 };
 
 const partsByContainer = new WeakMap<Container, TextParts>();
-
-/**
- * Measure plain text into world-space bounds. Used by the editor when autosize
- * text is committed so the frame tracks content instead of a card shell.
- */
-let measureCtx: CanvasRenderingContext2D | null | undefined;
-
-function getMeasureContext(): CanvasRenderingContext2D | null {
-	if (measureCtx !== undefined) return measureCtx;
-	if (typeof document === "undefined") {
-		measureCtx = null;
-		return null;
-	}
-	const canvas = document.createElement("canvas");
-	measureCtx = canvas.getContext("2d");
-	return measureCtx;
-}
-
-/**
- * Measure plain text into world-space bounds. Prefer Canvas2D metrics so the
- * frame matches Geist rendering; fall back to a stable approximation in tests.
- */
-export function measureCanvasText(
-	text: string,
-	maxWidth?: number | null,
-): { width: number; height: number } {
-	const lines = (text || " ").split("\n");
-	const ctx = getMeasureContext();
-	if (ctx) {
-		ctx.font = `500 ${TEXT_FONT_SIZE}px ${TEXT_FONT_FAMILY}, system-ui, sans-serif`;
-		if (maxWidth && maxWidth > 0) {
-			const width = Math.max(TEXT_MIN_WIDTH, maxWidth);
-			let rows = 0;
-			for (const line of lines) {
-				if (!line) {
-					rows += 1;
-					continue;
-				}
-				// Greedy wrap by measured width.
-				let remaining = line;
-				while (remaining.length > 0) {
-					if (ctx.measureText(remaining).width <= width) {
-						rows += 1;
-						break;
-					}
-					let lo = 1;
-					let hi = remaining.length;
-					while (lo < hi) {
-						const mid = Math.ceil((lo + hi) / 2);
-						if (ctx.measureText(remaining.slice(0, mid)).width <= width)
-							lo = mid;
-						else hi = mid - 1;
-					}
-					const take = Math.max(1, lo);
-					rows += 1;
-					remaining = remaining.slice(take);
-				}
-			}
-			return {
-				width,
-				height: Math.max(TEXT_MIN_HEIGHT, rows * TEXT_LINE_HEIGHT),
-			};
-		}
-		let width = TEXT_MIN_WIDTH;
-		for (const line of lines) {
-			width = Math.max(
-				width,
-				Math.ceil(ctx.measureText(line || " ").width) + 2,
-			);
-		}
-		return {
-			width,
-			height: Math.max(TEXT_MIN_HEIGHT, lines.length * TEXT_LINE_HEIGHT),
-		};
-	}
-	// Test / SSR fallback.
-	const charW = TEXT_FONT_SIZE * 0.52;
-	let width = TEXT_MIN_WIDTH;
-	if (maxWidth && maxWidth > 0) {
-		width = Math.max(TEXT_MIN_WIDTH, maxWidth);
-		let rows = 0;
-		for (const line of lines) {
-			const chars = Math.max(1, line.length);
-			rows += Math.max(1, Math.ceil((chars * charW) / width));
-		}
-		return {
-			width,
-			height: Math.max(TEXT_MIN_HEIGHT, rows * TEXT_LINE_HEIGHT),
-		};
-	}
-	for (const line of lines) {
-		width = Math.max(width, Math.ceil(line.length * charW) + 2);
-	}
-	return {
-		width,
-		height: Math.max(TEXT_MIN_HEIGHT, lines.length * TEXT_LINE_HEIGHT),
-	};
-}
 
 function sync(
 	container: Container,

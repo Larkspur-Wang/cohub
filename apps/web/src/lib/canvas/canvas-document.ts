@@ -116,6 +116,45 @@ const ITEM_BASE_KEYS = [
 	"metadata",
 ] as const;
 
+/**
+ * Original wire data follows an item through immutable object spreads while
+ * remaining invisible to JSON serialization. Codecs can then patch only the
+ * fields this client understands instead of rebuilding and truncating a node.
+ */
+const CANVAS_NODE_SOURCE = Symbol("canvas-node-source");
+type WireBackedCanvasItem = CanvasItem & {
+	[CANVAS_NODE_SOURCE]?: CanvasNodeInput;
+};
+
+function nodeInputFromRecord(node: CanvasNodeRecord): CanvasNodeInput {
+	return {
+		nodeId: node.nodeId,
+		type: node.type,
+		parentId: node.parentId ?? null,
+		orderKey: node.orderKey ?? null,
+		x: node.x,
+		y: node.y,
+		width: node.width,
+		height: node.height,
+		rotation: node.rotation,
+		refKind: node.refKind ?? null,
+		refPath: node.refPath ?? null,
+		refUrl: node.refUrl ?? null,
+		view: node.view ?? {},
+		style: node.style ?? {},
+		animation: node.animation ?? {},
+		data: node.data ?? {},
+	};
+}
+
+function sourceForItem(item: CanvasItem): CanvasNodeInput | undefined {
+	return (item as WireBackedCanvasItem)[CANVAS_NODE_SOURCE];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
 function frameFromNode(node: CanvasNodeRecord): CanvasItem["frame"] {
 	return {
 		x: node.x,
@@ -142,7 +181,7 @@ function spaceFilePathFromNode(node: CanvasNodeRecord): string | null {
 	return null;
 }
 
-export function canvasNodeToItem(node: CanvasNodeRecord): CanvasItem {
+function canvasNodeToItemValue(node: CanvasNodeRecord): CanvasItem {
 	const frame = frameFromNode(node);
 	const style = styleFromNode(node);
 	const data = (node.data ?? {}) as Record<string, unknown>;
@@ -288,101 +327,129 @@ export function canvasNodeToItem(node: CanvasNodeRecord): CanvasItem {
 	}
 }
 
+export function canvasNodeToItem(node: CanvasNodeRecord): CanvasItem {
+	const item = canvasNodeToItemValue(node);
+	const metadata = isRecord(node.data?.metadata)
+		? node.data.metadata
+		: undefined;
+	return {
+		...item,
+		...(metadata ? { metadata } : {}),
+		[CANVAS_NODE_SOURCE]: nodeInputFromRecord(node),
+	} as unknown as CanvasItem;
+}
+
 /**
- * Map a canvas item to a server node input. Known shapes write their props into
- * the opaque `data` blob; unknown shapes reproduce their preserved fields so a
- * round-trip through this client is lossless.
+ * Map a canvas item to a server node input. Known shapes patch their semantic
+ * fields over the original wire record, preserving fields owned by newer
+ * clients or another runtime.
  */
-export function canvasItemToNode(
+function canvasItemToNodeWithOrder(
 	item: CanvasItem,
 	index: number,
+	rewriteOrderKey: boolean,
 ): CanvasNodeInput {
+	const source = sourceForItem(item);
 	const base = {
 		nodeId: item.id,
-		parentId: null,
-		orderKey: String(index).padStart(8, "0"),
+		parentId: source?.parentId ?? null,
+		orderKey:
+			rewriteOrderKey || !source
+				? String(index).padStart(8, "0")
+				: (source.orderKey ?? String(index).padStart(8, "0")),
 		x: item.frame.x,
 		y: item.frame.y,
 		width: item.frame.width,
 		height: item.frame.height,
 		rotation: item.frame.rotation,
-		style: item.style ?? {},
-		animation: {},
+		style: item.style ?? source?.style ?? {},
+		animation: source?.animation ?? {},
 	};
-	const noRef = { refKind: null, refPath: null, refUrl: null } as const;
+	const preservedRef = {
+		refKind: source?.refKind ?? null,
+		refPath: source?.refPath ?? null,
+		refUrl: source?.refUrl ?? null,
+	};
+	const preservedView = source?.view ?? {};
+	const dataWith = (fields: Record<string, unknown>) => {
+		const data = { ...(source?.data ?? {}), ...fields };
+		delete data.locked;
+		delete data.metadata;
+		if (item.locked) data.locked = true;
+		if (item.metadata) data.metadata = item.metadata;
+		return data;
+	};
 
 	// Unknown items (unrecognised or malformed) are reproduced from their
 	// preserved record before any type-specific handling. The node type comes from
 	// the real type stored in `raw`, not the reserved "unknown" discriminant.
 	if (isUnknownItem(item)) {
-		const data: Record<string, unknown> = {};
+		const rawData: Record<string, unknown> = {};
 		for (const [key, value] of Object.entries(item.raw)) {
 			if (!(ITEM_BASE_KEYS as readonly string[]).includes(key))
-				data[key] = value;
+				rawData[key] = value;
 		}
-		// `locked` is a base field (not in raw after ITEM_BASE_KEYS strip); write
-		// it explicitly so a lock survives node round-trip.
-		if (item.locked) data.locked = true;
-		return { ...base, ...noRef, type: unknownRealType(item), view: {}, data };
+		return {
+			...base,
+			...preservedRef,
+			type: unknownRealType(item),
+			view: preservedView,
+			data: dataWith(rawData),
+		};
 	}
-
-	const lockedData = item.locked ? { locked: true as const } : {};
 	switch (item.type) {
 		case "text":
 			return {
 				...base,
-				...noRef,
+				...preservedRef,
 				type: "text",
-				view: {},
-				data: {
+				view: preservedView,
+				data: dataWith({
 					text: item.text,
 					color: item.color,
 					autoSize: item.autoSize,
-					...lockedData,
-				},
+				}),
 			};
 		case "note":
 			return {
 				...base,
-				...noRef,
+				...preservedRef,
 				type: "note",
-				view: {},
-				data: { text: item.text, color: item.color, ...lockedData },
+				view: preservedView,
+				data: dataWith({ text: item.text, color: item.color }),
 			};
 		case "geo":
 			return {
 				...base,
-				...noRef,
+				...preservedRef,
 				type: "geo",
-				view: {},
-				data: {
+				view: preservedView,
+				data: dataWith({
 					geo: item.geo,
 					text: item.text,
 					color: item.color,
 					fillOpacity: item.fillOpacity,
-					...lockedData,
-				},
+				}),
 			};
 		case "draw":
 			return {
 				...base,
-				...noRef,
+				...preservedRef,
 				type: "draw",
-				view: {},
-				data: {
+				view: preservedView,
+				data: dataWith({
 					points: item.points,
 					color: item.color,
 					size: item.size,
-					...lockedData,
-				},
+				}),
 			};
 		case "arrow":
 			return {
 				...base,
-				...noRef,
+				...preservedRef,
 				type: "arrow",
-				view: {},
-				data: {
+				view: preservedView,
+				data: dataWith({
 					start: item.start,
 					end: item.end,
 					bend: item.bend,
@@ -391,34 +458,30 @@ export function canvasItemToNode(
 					arrowStart: item.arrowStart,
 					arrowEnd: item.arrowEnd,
 					label: item.label,
-					...lockedData,
-				},
+				}),
 			};
 		case "frame":
 			return {
 				...base,
-				...noRef,
+				...preservedRef,
 				type: "frame",
-				view: {},
-				data: {
-					label: item.label,
-					color: item.color,
-					...lockedData,
-				},
+				view: preservedView,
+				data: dataWith({ label: item.label, color: item.color }),
 			};
-		case "image":
+		case "image": {
+			const data = dataWith({});
+			delete data.crop;
+			if (item.crop) data.crop = item.crop;
 			return {
 				...base,
 				type: "image",
 				refKind: "space_file",
 				refPath: item.ref.path,
 				refUrl: null,
-				view: item.snapshot ?? {},
-				data: {
-					...(item.crop ? { crop: item.crop } : {}),
-					...lockedData,
-				},
+				view: { ...preservedView, ...(item.snapshot ?? {}) },
+				data,
 			};
+		}
 		case "video":
 			return {
 				...base,
@@ -426,35 +489,60 @@ export function canvasItemToNode(
 				refKind: "space_file",
 				refPath: item.ref.path,
 				refUrl: null,
-				view: item.snapshot ?? {},
-				data: { ...lockedData },
+				view: { ...preservedView, ...(item.snapshot ?? {}) },
+				data: dataWith({}),
 			};
 		default: {
-			// Unreachable for validated items (unknowns are handled above); kept as a
-			// defensive fallback that still preserves the item's opaque data.
 			const fallback = item as { type: string; raw?: Record<string, unknown> };
-			const data: Record<string, unknown> = {};
-			const raw = fallback.raw ?? {};
-			for (const [key, value] of Object.entries(raw)) {
+			const rawData: Record<string, unknown> = {};
+			for (const [key, value] of Object.entries(fallback.raw ?? {})) {
 				if (!(ITEM_BASE_KEYS as readonly string[]).includes(key))
-					data[key] = value;
+					rawData[key] = value;
 			}
-			return { ...base, ...noRef, type: fallback.type, view: {}, data };
+			return {
+				...base,
+				...preservedRef,
+				type: fallback.type,
+				view: preservedView,
+				data: dataWith(rawData),
+			};
 		}
 	}
+}
+
+export function canvasItemToNode(
+	item: CanvasItem,
+	index: number,
+): CanvasNodeInput {
+	return canvasItemToNodeWithOrder(item, index, false);
 }
 
 export function canvasBootstrapToDocument(input: {
 	document: CanvasDocumentRecord;
 	nodes: CanvasNodeRecord[];
 }): CovasDocument {
-	return CovasDocumentSchema.parse({
+	const appearance = CanvasAppearanceSchema.safeParse(
+		input.document.meta?.appearance,
+	);
+	const document = CovasDocumentSchema.parse({
 		kind: CANVAS_DOCUMENT_KIND,
 		version: 1,
-		appearance: DEFAULT_CANVAS_APPEARANCE,
+		appearance: appearance.success
+			? appearance.data
+			: DEFAULT_CANVAS_APPEARANCE,
 		viewport: { x: 0, y: 0, zoom: 1 },
 		items: input.nodes.map(canvasNodeToItem),
 	});
+	const sources = new Map(
+		input.nodes.map((node) => [node.nodeId, nodeInputFromRecord(node)]),
+	);
+	return {
+		...document,
+		items: document.items.map((item) => ({
+			...item,
+			[CANVAS_NODE_SOURCE]: sources.get(item.id),
+		})) as CanvasItem[],
+	};
 }
 
 function nodeInputToItem(node: CanvasNodeInput): CanvasItem {
@@ -504,11 +592,17 @@ export function diffCanvasDocuments(
 	before: CovasDocument,
 	after: CovasDocument,
 ): CanvasSemanticOp[] {
+	const orderChanged =
+		before.items.length !== after.items.length ||
+		before.items.some((item, index) => after.items[index]?.id !== item.id);
 	const beforeNodes = new Map(
 		before.items.map((item, index) => [item.id, canvasItemToNode(item, index)]),
 	);
 	const afterNodes = new Map(
-		after.items.map((item, index) => [item.id, canvasItemToNode(item, index)]),
+		after.items.map((item, index) => [
+			item.id,
+			canvasItemToNodeWithOrder(item, index, orderChanged),
+		]),
 	);
 	const ops: CanvasSemanticOp[] = [];
 	for (const [nodeId, node] of afterNodes) {
@@ -527,34 +621,59 @@ export function diffCanvasDocuments(
 	}
 	for (const [nodeId, node] of beforeNodes) {
 		if (!afterNodes.has(nodeId))
-			ops.push({ type: "node.delete", payload: { nodeId }, inverse: { node } });
+			ops.push({
+				type: "node.delete",
+				payload: { nodeId, reason: "user-delete" },
+				inverse: { node },
+			});
 	}
 	return ops;
 }
 
 export function invertCanvasOps(ops: CanvasSemanticOp[]): CanvasSemanticOp[] {
-	return [...ops].reverse().map((op) => {
+	const inverseOps: CanvasSemanticOp[] = [];
+	for (const op of [...ops].reverse()) {
+		if (op.type === "document.patch") {
+			const previousMeta = op.inverse?.meta;
+			inverseOps.push({
+				type: "document.patch",
+				payload: {
+					patch: {
+						meta: isRecord(previousMeta) ? previousMeta : null,
+					},
+				},
+				inverse: { meta: op.payload.patch.meta },
+			});
+			continue;
+		}
 		if (op.type === "node.create") {
-			const node = op.payload.node as CanvasNodeInput | undefined;
-			return {
+			inverseOps.push({
 				type: "node.delete",
-				payload: { nodeId: node?.nodeId },
+				payload: { nodeId: op.payload.node.nodeId },
 				inverse: op.payload,
-			};
+			});
+			continue;
 		}
 		if (op.type === "node.delete") {
-			return {
+			const node = op.inverse?.node;
+			if (!isRecord(node)) continue;
+			inverseOps.push({
 				type: "node.create",
-				payload: { node: op.inverse?.node },
+				payload: { node: node as CanvasNodeInput },
 				inverse: op.payload,
-			};
+			});
+			continue;
 		}
-		return {
+		inverseOps.push({
 			type: "node.patch",
-			payload: { nodeId: op.payload.nodeId, patch: op.inverse ?? {} },
-			inverse: op.payload.patch as Record<string, unknown>,
-		};
-	});
+			payload: {
+				nodeId: op.payload.nodeId,
+				patch: op.inverse ?? {},
+			},
+			inverse: op.payload.patch,
+		});
+	}
+	return inverseOps;
 }
 
 export function applyCanvasOps(
@@ -562,7 +681,15 @@ export function applyCanvasOps(
 	ops: CanvasSemanticOp[],
 ): CovasDocument {
 	let items = [...document.items];
+	let appearance = document.appearance;
 	for (const op of ops) {
+		if (op.type === "document.patch") {
+			const parsed = CanvasAppearanceSchema.safeParse(
+				op.payload.patch.meta?.appearance,
+			);
+			appearance = parsed.success ? parsed.data : DEFAULT_CANVAS_APPEARANCE;
+			continue;
+		}
 		if (op.type === "node.create") {
 			const node = op.payload.node as CanvasNodeInput | undefined;
 			if (node && !items.some((item) => item.id === node.nodeId))
@@ -587,7 +714,7 @@ export function applyCanvasOps(
 			});
 		});
 	}
-	return { ...document, items };
+	return { ...document, appearance, items };
 }
 
 /**

@@ -91,7 +91,7 @@ import {
 	createSpatialIndex,
 	type SpatialEntry,
 } from "$lib/canvas/canvas-spatial";
-import { measureCanvasText } from "$lib/canvas/renderers/text-card-renderer";
+import { measureCanvasText } from "$lib/canvas/core/text-layout";
 
 export type CanvasToolId =
 	| "select"

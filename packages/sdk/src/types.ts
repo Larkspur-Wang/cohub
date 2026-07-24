@@ -798,12 +798,37 @@ export type CanvasNodeRecord = {
 
 export type CanvasNodeInput = Omit<CanvasNodeRecord, "documentId" | "version" | "createdAt" | "updatedAt" | "deletedAt">;
 
-export type CanvasSemanticOp = {
+export const CANVAS_DELETE_REASONS = [
+  "user-delete",
+  "orphan-cleanup",
+  "layout-replace",
+  "placeholder-cascade",
+] as const;
+
+export type CanvasDeleteReason = (typeof CANVAS_DELETE_REASONS)[number] | (string & {});
+
+type CanvasOpBase = {
   opId?: string;
-  type: "node.create" | "node.patch" | "node.delete";
-  payload: Record<string, unknown>;
   inverse?: Record<string, unknown>;
 };
+
+export type CanvasSemanticOp =
+  | (CanvasOpBase & {
+      type: "document.patch";
+      payload: { patch: { meta: Record<string, unknown> | null } };
+    })
+  | (CanvasOpBase & {
+      type: "node.create";
+      payload: { node: CanvasNodeInput };
+    })
+  | (CanvasOpBase & {
+      type: "node.patch";
+      payload: { nodeId: string; patch: Partial<CanvasNodeInput> };
+    })
+  | (CanvasOpBase & {
+      type: "node.delete";
+      payload: { nodeId: string; reason?: CanvasDeleteReason };
+    });
 
 export type CanvasTransactionInput = {
   txId: string;

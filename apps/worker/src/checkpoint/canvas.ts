@@ -41,6 +41,7 @@ export async function saveCanvasCheckpointSnapshots(input: { checkpointId: strin
         filePath: document.filePath,
         title: document.title,
         version: document.version,
+        meta: document.meta ?? null,
       },
       nodes: activeNodes,
     };
@@ -61,7 +62,14 @@ export async function restoreCanvasCheckpointSnapshots(input: { checkpointId: st
   const snapshots = await db.select().from(canvasCheckpointSnapshots).where(eq(canvasCheckpointSnapshots.checkpointId, input.checkpointId));
   const restored = [];
   for (const snapshot of snapshots) {
-    const manifest = snapshot.manifest as { document?: { filePath?: string; title?: string }; nodes?: Array<Record<string, unknown>> };
+    const manifest = snapshot.manifest as {
+      document?: {
+        filePath?: string;
+        title?: string;
+        meta?: Record<string, unknown> | null;
+      };
+      nodes?: Array<Record<string, unknown>>;
+    };
     const filePath = manifest.document?.filePath ?? snapshot.sourceFilePath;
     const title = manifest.document?.title ?? filePath.split("/").at(-1) ?? "Canvas";
     const target = safeJoin(input.workspaceDir, filePath);
@@ -78,6 +86,7 @@ export async function restoreCanvasCheckpointSnapshots(input: { checkpointId: st
         createdAt: now,
         updatedAt: now,
         meta: {
+          ...(manifest.document?.meta ?? {}),
           restoredFrom: {
             checkpointId: input.checkpointId,
             sourceDocumentId: snapshot.sourceDocumentId,

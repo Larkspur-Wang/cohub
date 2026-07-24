@@ -1,7 +1,10 @@
 <script lang="ts">
-import type { CanvasSemanticOp } from "@neta-art/cohub";
 import type { CovasDocument } from "$lib/canvas/canvas-schema";
-import { createLazyModuleLoader } from "$lib/lazy-module";
+import {
+	type CanvasRuntimeProps,
+	type CanvasRuntimeViewState,
+	resolveCanvasRuntime,
+} from "$lib/canvas/runtime/canvas-runtime";
 import MobilePreviewTabsChrome from "./MobilePreviewTabsChrome.svelte";
 import PreviewFloatChrome from "./PreviewFloatChrome.svelte";
 import type { PreviewTab } from "./preview-tabs";
@@ -25,24 +28,11 @@ type Props = {
 	treeVisible?: boolean;
 	onToggleTree?: () => void | Promise<void>;
 	onToggleImmersive: () => void | Promise<void>;
-	onCommit: (
-		document: CovasDocument,
-		ops: CanvasSemanticOp[],
-	) => void | Promise<void>;
+	onCommit: CanvasRuntimeProps["onCommit"];
 	onRetrySave: () => void | Promise<void>;
 	onActivatePreviewTab: (kind: PreviewTab["kind"], key: string) => void;
 	onClosePreviewTab: (kind: PreviewTab["kind"], key: string) => void;
-	onViewStateChange?: (state: {
-		path: string;
-		camera: CovasDocument["viewport"];
-		visibleRect: {
-			x: number;
-			y: number;
-			width: number;
-			height: number;
-		} | null;
-		selectedNodes: Array<{ id: string; type: string; title?: string }>;
-	}) => void;
+	onViewStateChange?: (state: CanvasRuntimeViewState) => void;
 };
 
 let {
@@ -61,13 +51,11 @@ let {
 	onViewStateChange,
 }: Props = $props();
 
-const loadCanvasPanelModule = createLazyModuleLoader(
-	() => import("$lib/components/canvas/CanvasPanel.svelte"),
-);
-let canvasPanelLoadAttempt = $state(0);
-const canvasPanelModulePromise = $derived.by(() => {
-	canvasPanelLoadAttempt;
-	return loadCanvasPanelModule();
+let canvasRuntimeLoadAttempt = $state(0);
+const canvasRuntimeModulePromise = $derived.by(() => {
+	canvasRuntimeLoadAttempt;
+	if (!canvas.document) throw new Error("Canvas data is unavailable.");
+	return resolveCanvasRuntime(canvas.document).load();
 });
 </script>
 
@@ -101,12 +89,12 @@ const canvasPanelModulePromise = $derived.by(() => {
 		<div class="m-4 rounded-lg border border-error-soft/30 bg-error-bg p-4 text-sm text-error-soft">{canvas.error}</div>
 	</div>
 {:else if canvas.document}
-	{#await canvasPanelModulePromise then canvasPanelModule}
-		{@const LazyCanvasPanel = canvasPanelModule.default}
+	{#await canvasRuntimeModulePromise then canvasRuntimeModule}
+		{@const CanvasRuntime = canvasRuntimeModule.default}
 		<div class="relative flex h-full min-w-0 flex-col bg-bg-primary">
 			{@render TabsChrome()}
 			<div class="min-h-0 flex-1">
-				<LazyCanvasPanel
+				<CanvasRuntime
 					path={canvas.path}
 					document={canvas.document}
 					spaceId={spaceId}
@@ -123,7 +111,7 @@ const canvasPanelModulePromise = $derived.by(() => {
 			{@render TabsChrome()}
 			<div class="m-4 flex flex-col items-start gap-2 rounded-lg border border-error-soft/30 bg-error-bg p-4 text-sm text-error-soft">
 				<span>Canvas failed to load.</span>
-				<button type="button" class="action-btn" onclick={() => { canvasPanelLoadAttempt += 1; }}>Retry</button>
+				<button type="button" class="action-btn" onclick={() => { canvasRuntimeLoadAttempt += 1; }}>Retry</button>
 			</div>
 		</div>
 	{/await}

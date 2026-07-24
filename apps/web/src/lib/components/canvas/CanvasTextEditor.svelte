@@ -1,10 +1,10 @@
 <script lang="ts">
-import type { CanvasEditor } from "$lib/canvas/editor.svelte";
 import {
 	TEXT_FONT_FAMILY,
 	TEXT_FONT_SIZE,
 	TEXT_LINE_HEIGHT,
-} from "$lib/canvas/renderers/text-card-renderer";
+} from "$lib/canvas/core/text-layout";
+import type { CanvasEditor } from "$lib/canvas/editor.svelte";
 
 const { editor }: { editor: CanvasEditor } = $props();
 
