@@ -5,7 +5,6 @@ import type {
 	CronJobRecord,
 	LabelAssignmentListItem,
 	LabelListItem,
-	LabelResourceType,
 	SessionForkRecord,
 	SessionRecord,
 	SpaceRecord,
@@ -188,6 +187,7 @@ import {
 import { uiState } from "$lib/stores/ui.svelte";
 import { clearGrantedWorkScopes } from "$lib/stores/work-grant-cache";
 import { formatCompactAbsoluteTime } from "$lib/time-format";
+import { resolveWorkspaceRouteContext } from "$lib/workspace-route";
 
 const {
 	isMobile = false,
@@ -360,9 +360,23 @@ const currentPath = $derived(page.url.pathname);
 const isSessionsRoute = $derived(
 	currentPath === "/sessions" || currentPath.startsWith("/sessions/"),
 );
+const workspaceRoute = $derived(
+	resolveWorkspaceRouteContext({
+		pathname: currentPath,
+		searchParams: page.url.searchParams,
+		pageData: page.data as { spaceId?: unknown; sessionId?: unknown },
+		params: { id: page.params.id },
+	}),
+);
+const currentSpaceId = $derived(workspaceRoute.spaceId);
+const activeSessionId = $derived(workspaceRoute.sessionId);
+const activeWorkId = $derived(workspaceRoute.workId);
+const activeCheckpointId = $derived(workspaceRoute.checkpointId);
+const activeCronjobId = $derived(workspaceRoute.cronjobId);
+const activeTaskId = $derived(workspaceRoute.taskId);
+const activeLabelResource = $derived(workspaceRoute.labelResource);
+
 const activeSession = $derived.by(() => {
-	const match = currentPath.match(/^\/spaces\/[^/]+\/sessions\/([^/]+)/);
-	const activeSessionId = match?.[1] ?? null;
 	if (!activeSessionId) return null;
 	return (
 		sessions.find((s) => s.id === activeSessionId) ??
@@ -371,20 +385,9 @@ const activeSession = $derived.by(() => {
 			: null)
 	);
 });
-const activeWorkId = $derived.by(() => {
-	const match = currentPath.match(/^\/spaces\/[^/]+\/works\/([^/]+)/);
-	return match?.[1] ?? null;
-});
 const activeWork = $derived(
 	works.find((work) => work.id === activeWorkId) ?? null,
 );
-
-const activeCheckpointId = $derived.by(() => {
-	const match = currentPath.match(/^\/spaces\/[^/]+\/checkpoints\/([^/]+)/);
-	const id = match?.[1] ?? null;
-	if (!id || id === "new") return null;
-	return id;
-});
 const activeCheckpoint = $derived(
 	checkpoints.find((checkpoint) => checkpoint.id === activeCheckpointId) ??
 		null,
@@ -392,52 +395,9 @@ const activeCheckpoint = $derived(
 const sidebarSessionItems = $derived.by(() =>
 	buildSidebarSessionItems(sessions),
 );
-
-const activeCronjobId = $derived.by(() => {
-	const match = currentPath.match(/^\/spaces\/[^/]+\/cronjobs\/([^/]+)/);
-	const id = match?.[1] ?? null;
-	if (!id || id === "new") return null;
-	return id;
-});
 const activeCronjob = $derived(
 	cronjobs.find((job) => job.id === activeCronjobId) ?? null,
 );
-
-const activeTaskId = $derived.by(() => {
-	const match = currentPath.match(/^\/spaces\/[^/]+\/tasks\/([^/]+)/);
-	return match?.[1] ?? null;
-});
-
-const activeLabelResource = $derived.by<{
-	type: LabelResourceType;
-	ref: string;
-} | null>(() => {
-	const sessionMatch = currentPath.match(/^\/spaces\/[^/]+\/sessions\/([^/]+)/);
-	if (sessionMatch?.[1]) {
-		return { type: "session", ref: sessionMatch[1] };
-	}
-
-	const checkpointMatch = currentPath.match(
-		/^\/spaces\/[^/]+\/checkpoints\/([^/]+)/,
-	);
-	if (checkpointMatch?.[1] && checkpointMatch[1] !== "new") {
-		return { type: "checkpoint", ref: checkpointMatch[1] };
-	}
-
-	const fileMatch = currentPath.match(/^\/spaces\/[^/]+\/files\/(.+)$/);
-	if (fileMatch?.[1]) {
-		return { type: "file", ref: decodeRoutePath(fileMatch[1]) };
-	}
-
-	return null;
-});
-
-const currentSpaceId = $derived.by(() => {
-	const match = currentPath.match(/^\/spaces\/([^/]+)/);
-	const id = match?.[1] ?? null;
-	if (id === "new") return null;
-	return id;
-});
 
 const currentSpace = $derived(
 	currentSpaceId ? (spaces.find((s) => s.id === currentSpaceId) ?? null) : null,

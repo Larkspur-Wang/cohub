@@ -88,6 +88,7 @@ import {
 } from "$lib/stores/ui.svelte";
 import type { LocalUploadEntry } from "$lib/upload-entries";
 import type { WorkspaceFileLinkTarget } from "$lib/workspace-file-links";
+import { resolveWorkspaceSpaceId } from "$lib/workspace-route";
 import { createCanvasPreviewController } from "./modules/canvas-preview-controller.svelte";
 import { createFileWorkspaceController } from "./modules/file-workspace-controller.svelte";
 import {
@@ -1334,7 +1335,9 @@ beforeNavigate((navigation) => {
 	const fromCheckpoint = fromPath.includes("/checkpoints/");
 	const toCheckpoint = toPath.includes("/checkpoints/");
 	const fsSourceChanging = fromCheckpoint !== toCheckpoint;
-	const sameSpace = Boolean(spaceId) && toPath.startsWith(`/spaces/${spaceId}`);
+	const sameSpace =
+		Boolean(spaceId) &&
+		resolveWorkspaceSpaceId({ pathname: toPath }) === spaceId;
 	// Only prompt when drafts cannot survive the transition.
 	if (!fsSourceChanging && sameSpace) return;
 	const ok = confirm("File changes are still syncing. Leave anyway?");

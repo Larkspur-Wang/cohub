@@ -44,6 +44,7 @@ import {
 	LEFT_SIDEBAR_RAIL,
 	uiState,
 } from "$lib/stores/ui.svelte";
+import { resolveWorkspaceSpaceId } from "$lib/workspace-route";
 
 const { children } = $props();
 
@@ -60,18 +61,15 @@ const currentPath = $derived(page.url.pathname);
 const sidebarMode = $derived(
 	currentPath.startsWith("/settings") ? "settings" : "space",
 );
-// Per-space layout prefs (sidebar width/collapsed). Only real /spaces/* workspaces.
-// Never take sessions new-chat draft space from page.data — that caused the left
-// rail to jump when switching New chat target spaces on /sessions.
-const currentLayoutSpaceId = $derived.by(() => {
-	if (!currentPath.startsWith("/spaces/")) return null;
-	const data = page.data as { spaceId?: unknown };
-	if (typeof data.spaceId === "string" && data.spaceId.length > 0) {
-		return data.spaceId;
-	}
-	const id = page.params.id;
-	return typeof id === "string" && id.length > 0 && id !== "new" ? id : null;
-});
+// Per-space layout prefs (sidebar width/collapsed). Workspace space only —
+// never sessions-inbox draft targets (those use newChatSpaceId, not spaceId).
+const currentLayoutSpaceId = $derived(
+	resolveWorkspaceSpaceId({
+		pathname: currentPath,
+		pageData: page.data as { spaceId?: unknown },
+		params: { id: page.params.id },
+	}),
+);
 
 let showHelpPanel = $state(false);
 let authReady = $state(false);
