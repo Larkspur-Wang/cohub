@@ -9,6 +9,7 @@ import {
 	type WorkspaceDefaultLayout,
 	type WorkspaceLayoutPresentation,
 } from "$lib/space-config-parse";
+import { spacePreviewSessionCache } from "$lib/space-preview-session-cache";
 
 export type {
 	NewChatBackgroundConfig,
@@ -101,23 +102,28 @@ async function loadSpaceConfig(
 ) {
 	const attempt = options.attempt ?? 0;
 	try {
-		const file = await sdk.space(spaceId).files.read(SPACE_CONFIG_PATH);
+		const request = sdk.space(spaceId).getStartup();
+		spacePreviewSessionCache.prime(
+			spaceId,
+			request.then((startup) => startup.previewSession),
+		);
+		const startup = await request;
 		if (activeVersion !== options.version || activeSpaceId !== spaceId) return;
-		if (!("content" in file)) {
-			scheduleRetry(spaceId, options.version, attempt, file.retryAfterMs);
+		if (startup.status === "preparing") {
+			scheduleRetry(
+				spaceId,
+				options.version,
+				attempt,
+				startup.retryAfterMs ?? RETRYABLE_ERROR_DELAY_MS,
+			);
 			return;
 		}
-		const content =
-			file.encoding === "base64" ? atob(file.content) : file.content;
-		writeCachedConfig(spaceId, content);
-		publish(parseSpaceConfig(content));
+		if (startup.status === "missing") clearCachedConfig(spaceId);
+		else if (startup.configRaw !== null)
+			writeCachedConfig(spaceId, startup.configRaw);
+		publish(startup.config);
 	} catch (error) {
 		if (activeVersion !== options.version || activeSpaceId !== spaceId) return;
-		if (error instanceof HttpError && error.status === 404) {
-			clearCachedConfig(spaceId);
-			publish(null);
-			return;
-		}
 		const isRetryableHttpError =
 			error instanceof HttpError &&
 			(error.status === 408 || error.status === 429 || error.status >= 500);
@@ -136,8 +142,8 @@ export function activateSpaceConfig(spaceId: string) {
 	clearRetryTimer();
 	activeSpaceId = spaceId;
 	activeVersion += 1;
-	publish(readCachedConfig(spaceId));
 	void loadSpaceConfig(spaceId, { version: activeVersion });
+	publish(readCachedConfig(spaceId));
 }
 
 export function refreshSpaceConfig(spaceId: string) {

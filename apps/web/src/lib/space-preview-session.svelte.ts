@@ -1,4 +1,5 @@
 import { sdk } from "$lib/sdk";
+import { spacePreviewSessionCache } from "$lib/space-preview-session-cache";
 
 export type SpacePreviewTarget = {
 	origin: string;
@@ -26,13 +27,10 @@ function isSameTarget(
 }
 
 function buildPreviewSrc(target: SpacePreviewTarget, token: string) {
-	const next = `/s/${encodeURIComponent(target.spaceId)}/${target.path
-		.split("/")
-		.map(encodeURIComponent)
-		.join("/")}`;
-	return `${target.origin}/__session?token=${encodeURIComponent(
-		token,
-	)}&next=${encodeURIComponent(next)}`;
+	const path = target.path.split("/").map(encodeURIComponent).join("/");
+	return `${target.origin}/s/${encodeURIComponent(
+		target.spaceId,
+	)}/${path}?token=${encodeURIComponent(token)}`;
 }
 
 export function createSpacePreviewSessionController(
@@ -61,16 +59,16 @@ export function createSpacePreviewSessionController(
 		if (!target) return;
 		const existingSrc = src;
 		try {
-			const { token, expiresIn } = await sdk
-				.space(target.spaceId)
-				.files.createPreviewSession();
+			const session = await spacePreviewSessionCache.get(target.spaceId, () =>
+				sdk.space(target.spaceId).files.createPreviewSession(),
+			);
 			if (current !== loadVersion || !isSameTarget(options.getTarget(), target))
 				return;
 			error = null;
-			src = buildPreviewSrc(target, token);
+			src = buildPreviewSrc(target, session.token);
 			timer = setTimeout(
 				() => void load(),
-				Math.max(30_000, (expiresIn - 60) * 1_000),
+				Math.max(30_000, session.expiresAt - Date.now() - 60_000),
 			);
 		} catch (loadError) {
 			if (current !== loadVersion || !isSameTarget(options.getTarget(), target))

@@ -1984,11 +1984,11 @@ onMount(() => {
 });
 function resetSpaceScopedState(currentSpaceId: string) {
 	activateSpaceStyle(currentSpaceId);
-	activateSpaceConfig(currentSpaceId);
 	// Chat-scoped state (sessions/turns/tasks/scroll/generation/share) lives on host.
 	sessionChat.enterSpace(currentSpaceId);
 	space = null;
 	spaceConfig = null;
+	activateSpaceConfig(currentSpaceId);
 	spaceStatus.reset();
 	newChatProfileExpanded = false;
 	newChatProfileCanExpand = false;

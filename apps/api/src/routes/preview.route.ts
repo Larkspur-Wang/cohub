@@ -2,10 +2,18 @@ import { createReadStream } from "node:fs";
 import { Readable } from "node:stream";
 import { Hono, type Context } from "hono";
 import { setCookie } from "hono/cookie";
-import { authzDenied, getOptionalAuth, getPreviewSessionPrincipal, requireValidId } from "../lib/middleware.js";
-import { hasPermission } from "../permissions.js";
-import { PREVIEW_SESSION_TTL_SECONDS, verifyPreviewSessionToken } from "../preview-sessions.js";
-import { resolveSpaceFileDownload, spaceFsJsonError, streamSpaceFile } from "../space-fs-backend.js";
+import { getPreviewSessionPrincipal, requireValidId } from "../lib/middleware.js";
+import {
+  hasPreviewSessionPermission,
+  PREVIEW_SESSION_TTL_SECONDS,
+  verifyPreviewSessionToken,
+  type PreviewSessionPrincipal,
+} from "../preview-sessions.js";
+import {
+  resolveSpaceFileDownload,
+  spaceFsJsonError,
+  streamSpaceFile,
+} from "../space-fs-backend.js";
 
 const PREVIEW_SESSION_COOKIE = "__preview_session";
 const router = new Hono();
@@ -32,7 +40,9 @@ function parseRange(value: string | undefined, size: number) {
   const suffixLength = !match[1] && match[2] ? Number(match[2]) : null;
   const start = suffixLength === null ? Number(match[1]) : Math.max(0, size - suffixLength);
   const end = match[1] && match[2] ? Number(match[2]) : size - 1;
-  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end < start || end >= size) return "invalid" as const;
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end < start || end >= size) {
+    return "invalid" as const;
+  }
   return { start, end };
 }
 
@@ -50,6 +60,21 @@ function normalizeNextPath(input: string | undefined, spaceId: string) {
   return `${url.pathname}${url.search}${url.hash}`;
 }
 
+function setPreviewSessionCookie(
+  c: Context,
+  token: string,
+  session: PreviewSessionPrincipal,
+) {
+  const remainingSeconds = Math.max(1, session.exp - Math.floor(Date.now() / 1_000));
+  setCookie(c, PREVIEW_SESSION_COOKIE, token, {
+    httpOnly: true,
+    secure: true,
+    sameSite: "Lax",
+    path: "/",
+    maxAge: Math.min(PREVIEW_SESSION_TTL_SECONDS, remainingSeconds),
+  });
+}
+
 router.get("/__session", (c) => {
   const denied = previewOnly(c);
   if (denied) return denied;
@@ -60,13 +85,7 @@ router.get("/__session", (c) => {
   const next = normalizeNextPath(c.req.query("next"), session.spaceId);
   if (!next) return c.json({ message: "invalid preview target" }, 400);
 
-  setCookie(c, PREVIEW_SESSION_COOKIE, token, {
-    httpOnly: true,
-    secure: true,
-    sameSite: "Lax",
-    path: "/",
-    maxAge: PREVIEW_SESSION_TTL_SECONDS,
-  });
+  setPreviewSessionCookie(c, token, session);
   return c.redirect(next, 302);
 });
 
@@ -74,12 +93,23 @@ router.get("/s/:spaceId/*", async (c) => {
   const denied = previewOnly(c);
   if (denied) return denied;
 
-  const user = getOptionalAuth(c);
-  const session = getPreviewSessionPrincipal(c);
   const spaceId = c.req.param("spaceId");
-  if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!session || session.spaceId !== spaceId) return authzDenied(c);
-  if (!(await hasPermission(user, "file.view", { spaceId }))) return authzDenied(c);
+  if (!spaceId || !requireValidId(spaceId)) {
+    return c.json({ message: "space not found" }, 404);
+  }
+
+  const rawQueryToken = c.req.query("token");
+  const queryToken = rawQueryToken?.trim() ?? "";
+  const querySession = rawQueryToken === undefined ? null : verifyPreviewSessionToken(queryToken);
+  if (rawQueryToken !== undefined && !querySession) {
+    return c.json({ message: "unauthorized" }, 401);
+  }
+  const session = querySession ?? getPreviewSessionPrincipal(c);
+  if (!session) return c.json({ message: "unauthorized" }, 401);
+  if (session.spaceId !== spaceId) return c.json({ message: "forbidden" }, 403);
+  if (!hasPreviewSessionPermission(session, "file.view", spaceId)) {
+    return c.json({ message: "forbidden" }, 403);
+  }
 
   const rawPath = c.req.path.slice(`/s/${spaceId}/`.length);
   let path: string;
@@ -88,24 +118,38 @@ router.get("/s/:spaceId/*", async (c) => {
   } catch {
     return c.json({ message: "invalid path" }, 400);
   }
+  if (querySession) setPreviewSessionCookie(c, queryToken, querySession);
+
   try {
-    const download = await resolveSpaceFileDownload(spaceId, path, { visibility: "full" });
+    const download = await resolveSpaceFileDownload(spaceId, path, {
+      visibility: "full",
+    });
     const headers = {
       "cache-control": "no-store",
-      "content-security-policy": "sandbox allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals",
+      "content-security-policy":
+        "sandbox allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals",
       "x-content-type-options": "nosniff",
     };
     if (download.kind === "buffer") {
       const range = parseRange(c.req.header("range"), download.buffer.length);
-      if (range === "invalid") return c.body(null, 416, { ...headers, "content-range": `bytes */${download.buffer.length}` });
-      if (range) {
-        return c.body(new Uint8Array(download.buffer.subarray(range.start, range.end + 1)), 206, {
+      if (range === "invalid") {
+        return c.body(null, 416, {
           ...headers,
-          "accept-ranges": "bytes",
-          "content-length": String(range.end - range.start + 1),
-          "content-range": `bytes ${range.start}-${range.end}/${download.buffer.length}`,
-          "content-type": download.mimeType ?? "application/octet-stream",
+          "content-range": `bytes */${download.buffer.length}`,
         });
+      }
+      if (range) {
+        return c.body(
+          new Uint8Array(download.buffer.subarray(range.start, range.end + 1)),
+          206,
+          {
+            ...headers,
+            "accept-ranges": "bytes",
+            "content-length": String(range.end - range.start + 1),
+            "content-range": `bytes ${range.start}-${range.end}/${download.buffer.length}`,
+            "content-type": download.mimeType ?? "application/octet-stream",
+          },
+        );
       }
       return c.body(new Uint8Array(download.buffer), 200, {
         ...headers,
@@ -114,11 +158,19 @@ router.get("/s/:spaceId/*", async (c) => {
         "content-type": download.mimeType ?? "application/octet-stream",
       });
     }
+
     const info = await streamSpaceFile(spaceId, path, { visibility: "full" });
     const range = parseRange(c.req.header("range"), info.size);
-    if (range === "invalid") return c.body(null, 416, { ...headers, "content-range": `bytes */${info.size}` });
+    if (range === "invalid") {
+      return c.body(null, 416, {
+        ...headers,
+        "content-range": `bytes */${info.size}`,
+      });
+    }
     if (range) {
-      const stream = Readable.toWeb(createReadStream(info.target, { start: range.start, end: range.end })) as ReadableStream;
+      const stream = Readable.toWeb(
+        createReadStream(info.target, { start: range.start, end: range.end }),
+      ) as ReadableStream;
       return c.body(stream, 206, {
         ...headers,
         "accept-ranges": "bytes",

@@ -11,6 +11,7 @@ import modsRouter from "./mods.route.js";
 import canvasRouter from "./canvas.route.js";
 import presenceRouter from "./presence.route.js";
 import previewSessionRouter from "./preview-session.route.js";
+import startupRouter from "./startup.route.js";
 import commerceRouter from "./commerce.route.js";
 import completionsRouter from "./completions.route.js";
 
@@ -45,6 +46,7 @@ router.route("/:id/mods", modsRouter);
 router.route("/:id/canvas", canvasRouter);
 router.route("/:id/presence", presenceRouter);
 router.route("/", previewSessionRouter);
+router.route("/", startupRouter);
 router.route("/", commerceRouter);
 
 export default router;

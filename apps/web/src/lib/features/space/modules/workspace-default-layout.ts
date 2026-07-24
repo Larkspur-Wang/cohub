@@ -1,73 +1,14 @@
 import {
-	isValidPortKey,
-	type WorkspacePreviewRef,
-} from "./workspace-preview-route";
+	parseWorkspaceDefaultLayout,
+	type WorkspaceDefaultLayout,
+	type WorkspaceLayoutPresentation,
+} from "@cohub/protocol";
 
-/** Preview panel presentation declared by a space default layout. */
-export type WorkspaceLayoutPresentation = "split" | "focus" | "fullscreen";
-
-/**
- * Default workspace layout for a space. Every field is optional; unset fields
- * fall back to Cohub built-in defaults. Applied only as a fallback when the
- * viewer has no local layout preference for the space yet.
- */
-export type WorkspaceDefaultLayout = {
-	leftSidebar?: "expanded" | "collapsed";
-	filesColumn?: "visible" | "hidden";
-	fileTree?: "expanded" | "collapsed";
-	preview?: WorkspacePreviewRef;
-	presentation?: WorkspaceLayoutPresentation;
+export {
+	parseWorkspaceDefaultLayout,
+	type WorkspaceDefaultLayout,
+	type WorkspaceLayoutPresentation,
 };
-
-function normalizePreviewPath(value: unknown) {
-	if (typeof value !== "string") return null;
-	const normalized = value
-		.replace(/\\/g, "/")
-		.replace(/^\.\/+/, "")
-		.replace(/^\/+/, "")
-		.trim();
-	return normalized.length > 0 ? normalized : null;
-}
-
-function parsePreview(value: unknown): WorkspacePreviewRef | undefined {
-	if (!value || typeof value !== "object") return undefined;
-	const record = value as Record<string, unknown>;
-	const kind = record.kind;
-	if (kind === "file" || kind === "canvas") {
-		const key = normalizePreviewPath(record.path ?? record.key);
-		return key ? { kind, key } : undefined;
-	}
-	if (kind === "port") {
-		const key =
-			typeof record.port === "string" ? record.port : String(record.port ?? "");
-		return isValidPortKey(key) ? { kind, key } : undefined;
-	}
-	return undefined;
-}
-
-/** Parse and validate a `ui.workspace.defaultLayout` record from space config. */
-export function parseWorkspaceDefaultLayout(
-	value: unknown,
-): WorkspaceDefaultLayout | undefined {
-	if (!value || typeof value !== "object") return undefined;
-	const record = value as Record<string, unknown>;
-	const layout: WorkspaceDefaultLayout = {};
-	if (record.leftSidebar === "expanded" || record.leftSidebar === "collapsed")
-		layout.leftSidebar = record.leftSidebar;
-	if (record.filesColumn === "visible" || record.filesColumn === "hidden")
-		layout.filesColumn = record.filesColumn;
-	if (record.fileTree === "expanded" || record.fileTree === "collapsed")
-		layout.fileTree = record.fileTree;
-	if (
-		record.presentation === "split" ||
-		record.presentation === "focus" ||
-		record.presentation === "fullscreen"
-	)
-		layout.presentation = record.presentation;
-	const preview = parsePreview(record.preview);
-	if (preview) layout.preview = preview;
-	return Object.keys(layout).length > 0 ? layout : undefined;
-}
 
 /** Resolved presentation for the workspace layout controller / uiState. */
 export type ResolvedPresentation = "default" | "focus" | "immersive";

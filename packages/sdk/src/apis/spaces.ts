@@ -53,6 +53,7 @@ import type {
   SpaceFsTreeResponse,
   SpaceFsUploadResponse,
   SpaceUsageResponse,
+  SpaceStartupResponse,
   SpaceFsWriteFileInput,
   LabelItemsResponse,
   LabelAssignmentRecord,
@@ -1662,6 +1663,13 @@ export class SpaceClient {
     return this.transport.request<SpaceRecord>(`/api/spaces/${this.id}`, {
       fetch: customFetch,
     });
+  }
+
+  getStartup(customFetch?: Fetch) {
+    return this.transport.request<SpaceStartupResponse>(
+      `/api/spaces/${this.id}/startup`,
+      { fetch: customFetch },
+    );
   }
 
   prompt(input: CreateSpacePromptInput) {

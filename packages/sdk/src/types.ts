@@ -32,6 +32,8 @@ import type {
 import type { MessageRecord } from "@cohub/protocol/model";
 import type { ModelThinkingLevel } from "@cohub/protocol";
 
+export type { SpaceStartupResponse } from "@cohub/protocol";
+
 export type {
   ChannelConfig,
   ChannelHealth,

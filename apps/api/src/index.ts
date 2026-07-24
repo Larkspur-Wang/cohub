@@ -89,7 +89,15 @@ const isPreviewHost = (host: string | undefined) => {
 };
 
 app.use(async (c, next) => {
-  const token = getTokenFromRequest(c) ?? (isPreviewHost(c.req.header("host")) ? getCookie(c, PREVIEW_SESSION_COOKIE) ?? null : null);
+  const onPreviewHost = isPreviewHost(c.req.header("host"));
+  const previewQueryToken =
+    onPreviewHost && c.req.path.startsWith("/s/")
+      ? c.req.query("token")?.trim() || null
+      : null;
+  const token =
+    getTokenFromRequest(c) ??
+    previewQueryToken ??
+    (onPreviewHost ? getCookie(c, PREVIEW_SESSION_COOKIE) ?? null : null);
   c.set("token", token);
   c.set("authUser", null);
   c.set("executionAuth", null);
@@ -109,7 +117,7 @@ app.use(async (c, next) => {
       return;
     }
 
-    if (isPreviewHost(c.req.header("host"))) {
+    if (onPreviewHost) {
       const previewSession = verifyPreviewSessionToken(token);
       if (previewSession) {
         c.set("previewSession", previewSession);
