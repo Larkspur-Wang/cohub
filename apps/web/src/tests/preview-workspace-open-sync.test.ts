@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { resolvePreviewRouteSync } from "../lib/features/space/modules/workspace-preview-route.ts";
 
 /**
  * Pure timing rules for preview open ↔ URL sync.
@@ -53,23 +54,27 @@ test("sync-before-await keeps preview open through route effect", () => {
 	assert.deepEqual(urlRef, { kind: "file", key: "a.md" });
 });
 
-test("route effect restores URL when UI still has preview", () => {
-	// New defensive branch: !routePreview but currentRef() → re-sync, not closeAll.
-	const uiRef: PreviewRef = { kind: "file", key: "a.md" };
-	const routePreview: PreviewRef = null;
-	let urlRef: PreviewRef = null;
-	let closed = false;
+test("Back closes an active preview after the route query is removed", () => {
+	assert.equal(
+		resolvePreviewRouteSync(null, { kind: "file", key: "a.md" }),
+		"close",
+	);
+});
 
-	if (!routePreview) {
-		if (uiRef) {
-			urlRef = uiRef; // restore
-		} else {
-			closed = true;
-		}
-	}
+test("route rehydrates a preview cleared by workspace reset", () => {
+	assert.equal(
+		resolvePreviewRouteSync({ kind: "file", key: "a.md" }, null),
+		"hydrate",
+	);
+});
 
-	assert.equal(closed, false);
-	assert.deepEqual(urlRef, { kind: "file", key: "a.md" });
+test("route switches a stale active preview and ignores a matching one", () => {
+	const route = { kind: "file" as const, key: "b.md" };
+	assert.equal(
+		resolvePreviewRouteSync(route, { kind: "file", key: "a.md" }),
+		"hydrate",
+	);
+	assert.equal(resolvePreviewRouteSync(route, route), "none");
 });
 
 test("first open pushes history; later open replaces", () => {

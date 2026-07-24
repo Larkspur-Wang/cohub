@@ -5,6 +5,8 @@ export type WorkspacePreviewRef = {
 	key: string;
 };
 
+export type PreviewRouteSyncAction = "none" | "close" | "hydrate";
+
 export const PREVIEW_QUERY_KEY = "preview";
 
 /** Accept only integer ports in 1..65535. Reject host-injection forms. */
@@ -41,6 +43,16 @@ export function readPreviewFromSearch(
 			? new URLSearchParams(search.startsWith("?") ? search.slice(1) : search)
 			: search;
 	return parsePreviewParam(params.get(PREVIEW_QUERY_KEY));
+}
+
+export function resolvePreviewRouteSync(
+	route: WorkspacePreviewRef | null,
+	current: WorkspacePreviewRef | null,
+): PreviewRouteSyncAction {
+	if (!route) return current ? "close" : "none";
+	return current?.kind === route.kind && current.key === route.key
+		? "none"
+		: "hydrate";
 }
 
 export function withPreviewParam(

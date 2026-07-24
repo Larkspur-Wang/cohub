@@ -20,7 +20,14 @@ import {
 	X,
 } from "lucide-svelte";
 import { onDestroy, onMount, tick, untrack } from "svelte";
-import { beforeNavigate, goto, onNavigate } from "$app/navigation";
+import {
+	beforeNavigate,
+	goto,
+	onNavigate,
+	pushState,
+	replaceState,
+} from "$app/navigation";
+import { page } from "$app/state";
 import {
 	type AccessState,
 	isBlockingAccessState,
@@ -128,7 +135,10 @@ import { createSpaceRealtimeController } from "./modules/space-realtime-controll
 import { createSpaceStatusController } from "./modules/space-status-controller.svelte";
 import { createWorkspaceLayoutController } from "./modules/workspace-layout-controller.svelte";
 import {
+	encodePreviewParam,
+	parsePreviewParam,
 	readPreviewFromSearch,
+	resolvePreviewRouteSync,
 	type WorkspacePreviewRef,
 	withCurrentPreview,
 	withPreviewParam,
@@ -171,9 +181,13 @@ const isNewSessionRoute = $derived(
 	routeView === "session" && routeSessionId === "new",
 );
 const routePreviewRef = $derived.by((): WorkspacePreviewRef | null => {
-	if (data.previewKind && data.previewKey)
-		return { kind: data.previewKind, key: data.previewKey };
-	// Legacy residual: /files redirects; public slug ?file= still maps to preview.
+	const shallowValue = page.state.workspacePreview;
+	if (shallowValue !== undefined) return parsePreviewParam(shallowValue);
+	const preview = readPreviewFromSearch(page.url.searchParams);
+	if (preview) return preview;
+	const legacyFile = page.url.searchParams.get("file");
+	if (legacyFile) return { kind: "file", key: legacyFile };
+	// Legacy residual for old /files routes.
 	if (data.filePath) return { kind: "file", key: data.filePath };
 	return null;
 });
@@ -745,7 +759,6 @@ $effect(() => {
 	});
 });
 
-let appliedRouteFileKey = "";
 let appliedFsSourceKey: string | null = null;
 const spacePresence = createSpacePresenceController(() => spaceId);
 const danmakuController = createSpaceDanmakuController();
@@ -1488,30 +1501,20 @@ async function toggleFilesTree() {
 	await previewLayout.toggleTree();
 }
 
-let pendingPreviewUrl: string | null = null;
-
 function syncPreviewQuery(ref: WorkspacePreviewRef | null, replace = true) {
 	if (typeof window === "undefined") return;
-	const next = withPreviewParam(
-		window.location.pathname,
-		window.location.search,
-		ref,
-	);
+	const search = new URLSearchParams(window.location.search);
+	// Canonicalize the legacy public-slug query when preview state changes.
+	search.delete("file");
+	const next = withPreviewParam(window.location.pathname, search, ref);
 	const current = `${window.location.pathname}${window.location.search}`;
 	if (next === current) return;
-	// Skip when a goto to the same URL is already in flight. openFile syncs
-	// before and after domain I/O; the re-assert goto would abort the first
-	// navigation (new nav_token) and the route-hydration effect can observe
-	// a stale page.data during the abort, reverting the URL to the old tab.
-	if (next === pendingPreviewUrl) return;
-	pendingPreviewUrl = next;
-	void goto(next, {
-		replaceState: replace,
-		noScroll: true,
-		keepFocus: true,
-	}).finally(() => {
-		if (pendingPreviewUrl === next) pendingPreviewUrl = null;
-	});
+	const state = {
+		...page.state,
+		workspacePreview: ref ? encodePreviewParam(ref) : null,
+	};
+	if (replace) replaceState(next, state);
+	else pushState(next, state);
 }
 
 function currentPreviewRef(): WorkspacePreviewRef | null {
@@ -2127,15 +2130,11 @@ $effect(() => {
 	// Ordered: source first, then route preview hydration (bi-directional).
 	const sourceKey = activeFsSourceKey;
 	const preview = routePreviewRef;
-	// Track endpoints so pending port deep-links retry when sandbox ports arrive.
-	const portEndpointReady =
-		preview?.kind === "port"
-			? Boolean(previewEndpoints[preview.key]?.url)
-			: true;
-	const previewKey = preview
-		? `${spaceId}:${sourceKey}:${preview.kind}:${preview.key}:${portEndpointReady ? "1" : "0"}`
-		: `${spaceId}:${sourceKey}:`;
+	const currentPreview = previewWorkspace.currentRef();
+	// Retry pending port deep-links when sandbox endpoints arrive.
+	if (preview?.kind === "port") void previewEndpoints[preview.key]?.url;
 	untrack(() => {
+		let reconciledPreview = currentPreview;
 		// 1) FS source transition (checkpoint <-> live)
 		if (sourceKey !== appliedFsSourceKey) {
 			// beforeNavigate already confirmed discard when FS source changes.
@@ -2147,37 +2146,25 @@ $effect(() => {
 				portPreview.closePort(tab.port);
 			previewWorkspace.setActiveKind(null);
 			appliedFsSourceKey = sourceKey;
-			// Force re-hydrate preview against new source.
-			appliedRouteFileKey = "";
+			reconciledPreview = null;
 		}
 
 		// 2) Preview route hydration / teardown
-		if (!preview) {
-			const uiRef = previewWorkspace.currentRef();
-			if (uiRef) {
-				// UI still has an open preview while URL briefly lost ?preview=
-				// (race during open/navigation). Restore URL instead of tearing down.
-				appliedRouteFileKey = "";
-				syncPreviewQuery(uiRef, true);
-				return;
-			}
-			if (!appliedRouteFileKey) return;
-			appliedRouteFileKey = "";
-			// URL lost preview (Back / cleared query): close all previews, keep Main.
+		const target =
+			preview?.kind === "canvas" && activeFsReadonly
+				? { kind: "file" as const, key: preview.key }
+				: preview;
+		const action = resolvePreviewRouteSync(target, reconciledPreview);
+		if (action === "close") {
 			previewWorkspace.closeAll({ syncUrl: false });
 			return;
 		}
-		if (appliedRouteFileKey === previewKey) return;
-		const target =
-			preview.kind === "canvas" && activeFsReadonly
-				? { kind: "file" as const, key: preview.key }
-				: preview;
+		if (action === "none" || !target) return;
 		const result = previewWorkspace.hydrateFromRoute(target);
 		if (!result.ok) {
 			// Wait for trusted port endpoint; effect re-runs when endpoints update.
 			return;
 		}
-		appliedRouteFileKey = previewKey;
 	});
 });
 
