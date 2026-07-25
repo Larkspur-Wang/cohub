@@ -65,6 +65,7 @@ export const unknownShapeDefinition: ShapeDefinition = {
 	capabilities: {
 		canMove: true,
 		canResize: true,
+		aspectLocked: false,
 		canRotate: true,
 		canEdit: false,
 		canBind: true,

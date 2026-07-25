@@ -14,6 +14,8 @@ import { computeDrawBounds } from "$lib/board/core/draw-geometry";
 import { measureBoardText, TEXT_FONT_SIZE } from "$lib/board/core/text-layout";
 
 const DEFAULT_MEDIA_SIZE = { width: 320, height: 200 };
+/** Fallback for video with unknown intrinsic size: the common 16:9 aspect. */
+const DEFAULT_VIDEO_SIZE = { width: 320, height: 180 };
 /** Offset applied when duplicating so the copy is visibly displaced. */
 export const DUPLICATE_OFFSET = 24;
 
@@ -40,6 +42,7 @@ export function mediaFrameSize(
 	naturalWidth?: number | null,
 	naturalHeight?: number | null,
 	maxEdge = 480,
+	fallback = DEFAULT_MEDIA_SIZE,
 ): { width: number; height: number } {
 	if (
 		!naturalWidth ||
@@ -49,7 +52,7 @@ export function mediaFrameSize(
 		naturalWidth <= 0 ||
 		naturalHeight <= 0
 	) {
-		return { ...DEFAULT_MEDIA_SIZE };
+		return { ...fallback };
 	}
 	const scale = Math.min(1, maxEdge / Math.max(naturalWidth, naturalHeight));
 	return {
@@ -94,7 +97,12 @@ export function createVideoBoardItem(
 	y: number,
 	snapshot?: BoardMediaSnapshot,
 ): BoardVideoItem {
-	const size = mediaFrameSize(snapshot?.naturalWidth, snapshot?.naturalHeight);
+	const size = mediaFrameSize(
+		snapshot?.naturalWidth,
+		snapshot?.naturalHeight,
+		480,
+		DEFAULT_VIDEO_SIZE,
+	);
 	return {
 		id: createBoardItemId(),
 		type: "video",

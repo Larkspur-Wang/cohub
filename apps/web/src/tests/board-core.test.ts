@@ -14,7 +14,9 @@ import {
 	createDrawBoardItem,
 	createGeoBoardItem,
 	createNoteBoardItem,
+	createVideoBoardItem,
 	duplicateBoardItem,
+	mediaFrameSize,
 } from "../lib/board/board-items.ts";
 import {
 	BoardDocumentSchema,
@@ -595,7 +597,7 @@ test("draw hit test is true near the stroke and false far away", () => {
 	assert.equal(shapeHitTest(draw, worldPoint(50, 60)), false);
 });
 
-test("text and note are editable; draw is not resizable", () => {
+test("text and note are editable; draw scales its geometry", () => {
 	assert.equal(
 		shapeCapabilities({ id: "t", type: "text", text: "", frame } as never)
 			.canEdit,
@@ -609,7 +611,58 @@ test("text and note are editable; draw is not resizable", () => {
 		size: 4,
 		frame,
 	};
-	assert.equal(shapeCapabilities(draw).canResize, false);
+	// A stroke resizes by scaling its points and width, so the box stays hugged
+	// to the ink and the aspect can never be distorted.
+	assert.equal(shapeCapabilities(draw).canResize, true);
+	assert.equal(shapeCapabilities(draw).aspectLocked, true);
+});
+
+test("content-scaling shapes lock their aspect; container shapes do not", () => {
+	const aspectLockedFor = (item: unknown) =>
+		shapeCapabilities(item as never).aspectLocked;
+	// Text scales one font size; media has fixed pixel aspect — both must never
+	// letterbox or distort.
+	assert.equal(
+		aspectLockedFor({ id: "t", type: "text", text: "", frame }),
+		true,
+	);
+	assert.equal(
+		aspectLockedFor({
+			id: "i",
+			type: "image",
+			ref: { kind: "space-file", path: "a.png" },
+			frame,
+		}),
+		true,
+	);
+	assert.equal(
+		aspectLockedFor({
+			id: "v",
+			type: "video",
+			ref: { kind: "space-file", path: "a.mp4" },
+			frame,
+		}),
+		true,
+	);
+	// Containers reflow their contents, so free resize is the intuitive default.
+	assert.equal(
+		aspectLockedFor({ id: "n", type: "note", text: "", frame }),
+		false,
+	);
+	assert.equal(
+		aspectLockedFor({
+			id: "g",
+			type: "geo",
+			geo: "rectangle",
+			text: "",
+			frame,
+		}),
+		false,
+	);
+	assert.equal(
+		aspectLockedFor({ id: "f", type: "frame", label: "Frame", frame }),
+		false,
+	);
 });
 
 test("shapeBounds falls back to frame bounds for box shapes", () => {
@@ -696,6 +749,55 @@ test("createDrawBoardItem stores points relative to the bounds frame", () => {
 		assert.ok(item.points[0].x < 10);
 		assert.ok(item.points[0].y < 10);
 	}
+});
+
+test("scaling a stroke keeps its bounds proportional to the frame", () => {
+	const item = createDrawBoardItem(
+		[
+			{ x: 100, y: 100, p: 0.5 },
+			{ x: 150, y: 120, p: 0.5 },
+		],
+		"brand",
+		4,
+	);
+	assert.equal(item.type, "draw");
+	if (item.type !== "draw") return;
+	const scale = 2;
+	// This mirrors the editor's resize bake: points and width scale together.
+	const scaledPoints = item.points.map((point) => ({
+		x: point.x * scale,
+		y: point.y * scale,
+		p: point.p,
+	}));
+	const before = computeDrawBounds(item.points, item.size);
+	const after = computeDrawBounds(scaledPoints, item.size * scale);
+	// Uniform scale: bounds grow by exactly the same factor on both axes, so the
+	// selection box stays hugged to the ink.
+	assert.ok(Math.abs(after.width - before.width * scale) < 1e-6);
+	assert.ok(Math.abs(after.height - before.height * scale) < 1e-6);
+});
+
+test("mediaFrameSize preserves natural aspect and falls back per media kind", () => {
+	const wide = mediaFrameSize(1920, 1080);
+	assert.ok(Math.abs(wide.width / wide.height - 16 / 9) < 1e-6);
+	// Bounded by the max edge rather than upscaled.
+	assert.equal(wide.width, 480);
+	// Smaller-than-max images keep their intrinsic size.
+	assert.deepEqual(mediaFrameSize(120, 90), { width: 120, height: 90 });
+	// Unknown dimensions use the caller's fallback (video defaults to 16:9).
+	assert.deepEqual(mediaFrameSize(null, null), { width: 320, height: 200 });
+	assert.deepEqual(
+		mediaFrameSize(null, null, 480, { width: 320, height: 180 }),
+		{
+			width: 320,
+			height: 180,
+		},
+	);
+});
+
+test("createVideoBoardItem defaults to a 16:9 frame when size is unknown", () => {
+	const item = createVideoBoardItem("clip.mp4", 0, 0);
+	assert.ok(Math.abs(item.frame.width / item.frame.height - 16 / 9) < 1e-6);
 });
 
 test("createArrowBoardItem builds a frame spanning both endpoints", () => {

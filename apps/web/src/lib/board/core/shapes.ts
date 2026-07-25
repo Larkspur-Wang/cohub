@@ -47,7 +47,8 @@ function drawLocalPoint(item: BoardDrawItem, point: WorldPoint): WorldPoint {
 
 const textDefinition: ShapeDefinition = {
 	type: "text",
-	capabilities: { ...FULL_CAPABILITIES, canEdit: true },
+	// Resize scales the font size, so width and height move together.
+	capabilities: { ...FULL_CAPABILITIES, canEdit: true, aspectLocked: true },
 };
 
 const noteDefinition: ShapeDefinition = {
@@ -57,12 +58,23 @@ const noteDefinition: ShapeDefinition = {
 
 const imageDefinition: ShapeDefinition = {
 	type: "image",
-	capabilities: { ...FULL_CAPABILITIES, canEdit: false, canRotate: true },
+	// The frame tracks the image's pixel aspect, so it can never letterbox.
+	capabilities: {
+		...FULL_CAPABILITIES,
+		canEdit: false,
+		canRotate: true,
+		aspectLocked: true,
+	},
 };
 
 const videoDefinition: ShapeDefinition = {
 	type: "video",
-	capabilities: { ...FULL_CAPABILITIES, canEdit: true, canRotate: false },
+	capabilities: {
+		...FULL_CAPABILITIES,
+		canEdit: true,
+		canRotate: false,
+		aspectLocked: true,
+	},
 };
 
 /** Precise containment for a geo shape in its local (unrotated) space. */
@@ -104,9 +116,11 @@ const geoDefinition: ShapeDefinition = {
 
 const drawDefinition: ShapeDefinition = {
 	type: "draw",
+	// Resizing scales the stroke geometry (points + width) uniformly.
 	capabilities: {
 		...FULL_CAPABILITIES,
-		canResize: false,
+		canResize: true,
+		aspectLocked: true,
 		canEdit: false,
 		canBind: false,
 	},

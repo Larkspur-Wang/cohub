@@ -157,6 +157,26 @@ $effect(() => {
 	}
 });
 
+// Adopt intrinsic image sizes once their textures resolve, so a frame created
+// without dimension metadata (file-tree drop) stops letterboxing. Guarded by the
+// snapshot in the editor, so each node is corrected once and never re-corrected.
+$effect(() => {
+	const items = editor.items;
+	// Re-run when a texture lands.
+	assetVersion;
+	const pending: Array<{ id: string; width: number; height: number }> = [];
+	for (const item of items) {
+		if (item.type !== "image") continue;
+		if (item.snapshot?.naturalWidth && item.snapshot?.naturalHeight) continue;
+		const key = imageAssetKey(item);
+		if (!key) continue;
+		const texture = assets.getTexture(key);
+		if (!texture?.width || !texture.height) continue;
+		pending.push({ id: item.id, width: texture.width, height: texture.height });
+	}
+	if (pending.length > 0) editor.adoptMediaNaturalSizes(pending);
+});
+
 function buildContext(palette: BoardRenderPalette): BoardRenderContext {
 	const colorMode = getResolvedTheme() === "light" ? "light" : "dark";
 	const resizingIds =

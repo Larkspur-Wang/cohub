@@ -1,6 +1,9 @@
 import { Container, Graphics } from "pixi.js";
 import type { BoardDrawItem } from "$lib/board/board-schema";
-import { buildStrokeOutline } from "$lib/board/core/draw-geometry";
+import {
+	buildStrokeOutline,
+	computeDrawBounds,
+} from "$lib/board/core/draw-geometry";
 import { pickBoardColor } from "$lib/board/core/palette";
 import { positionShell } from "$lib/board/renderers/base-card-renderer";
 import type {
@@ -14,6 +17,8 @@ type DrawParts = {
 	sig: string;
 	/** Last points array rendered; a new array (edit/undo) forces a redraw. */
 	points: unknown;
+	/** Local-space width the current tessellation was built at. */
+	baseWidth: number;
 };
 
 const partsByContainer = new WeakMap<Container, DrawParts>();
@@ -43,22 +48,30 @@ function sync(
 		context.colorMode,
 		context.colors.brand.stroke,
 	].join("|");
-	if (sig === parts.sig && item.points === parts.points) return;
-	parts.sig = sig;
-	parts.points = item.points;
+	if (sig !== parts.sig || item.points !== parts.points) {
+		parts.sig = sig;
+		parts.points = item.points;
+		parts.baseWidth = computeDrawBounds(item.points, item.size).width;
 
-	parts.stroke.clear();
-	const outline = buildStrokeOutline(item.points, item.size);
-	if (outline.length >= 3) {
-		parts.stroke.moveTo(outline[0].x, outline[0].y);
-		for (let i = 1; i < outline.length; i += 1)
-			parts.stroke.lineTo(outline[i].x, outline[i].y);
-		parts.stroke.closePath();
-		parts.stroke.fill({
-			color: color.stroke,
-			alpha: selected || hovered ? 1 : 0.92,
-		});
+		parts.stroke.clear();
+		const outline = buildStrokeOutline(item.points, item.size);
+		if (outline.length >= 3) {
+			parts.stroke.moveTo(outline[0].x, outline[0].y);
+			for (let i = 1; i < outline.length; i += 1)
+				parts.stroke.lineTo(outline[i].x, outline[i].y);
+			parts.stroke.closePath();
+			parts.stroke.fill({
+				color: color.stroke,
+				alpha: selected || hovered ? 1 : 0.92,
+			});
+		}
 	}
+
+	// A live resize only grows the frame; scale the existing tessellation on the
+	// GPU instead of rebuilding the ribbon each pointer move. The points are baked
+	// at the final scale on pointer-up, which resets this back to 1.
+	const previewScale = item.frame.width / Math.max(0.0001, parts.baseWidth);
+	parts.stroke.scale.set(Number.isFinite(previewScale) ? previewScale : 1);
 }
 
 export const drawCardRenderer: BoardCardRenderer = {
@@ -68,7 +81,13 @@ export const drawCardRenderer: BoardCardRenderer = {
 		const root = new Container();
 		const stroke = new Graphics();
 		root.addChild(stroke);
-		partsByContainer.set(root, { root, stroke, sig: "", points: null });
+		partsByContainer.set(root, {
+			root,
+			stroke,
+			sig: "",
+			points: null,
+			baseWidth: 0,
+		});
 		if (item.type === "draw") sync(root, item, context);
 		return root;
 	},

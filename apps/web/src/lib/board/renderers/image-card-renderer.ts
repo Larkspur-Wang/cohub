@@ -16,7 +16,14 @@ type ImageParts = {
 const partsByContainer = new WeakMap<Container, ImageParts>();
 const RADIUS = 2;
 
-/** Fit the full image inside the frame (object-fit: contain). Avoids cropping when the frame aspect (e.g. default 320×200) differs from the source. */
+/**
+ * Lay the sprite out inside the frame.
+ *
+ * The frame normally already matches the image's pixel aspect (see the editor's
+ * media size adoption), so this fills it exactly. Until that correction lands
+ * for a freshly dropped file, `contain` keeps the whole image visible rather
+ * than cropping it — the brief letterbox is self-correcting.
+ */
 function layoutContain(sprite: Sprite, width: number, height: number) {
 	const texture = sprite.texture;
 	const tw = texture.width;
@@ -91,10 +98,16 @@ function sync(
 	}
 	parts.placeholder.visible = !texture;
 
-	// Soft selection outline only — no card chrome.
+	// Selection outline hugs the visible pixels, not the frame, so handles never
+	// float in letterbox bands while a size correction is still pending.
 	if (selected || hovered) {
+		const hasPixels = Boolean(texture) && parts.sprite.width > 0;
+		const ox = hasPixels ? parts.sprite.x : 0;
+		const oy = hasPixels ? parts.sprite.y : 0;
+		const ow = hasPixels ? parts.sprite.width : width;
+		const oh = hasPixels ? parts.sprite.height : height;
 		parts.placeholder.visible = true;
-		parts.placeholder.roundRect(0, 0, width, height, RADIUS).stroke({
+		parts.placeholder.roundRect(ox, oy, ow, oh, RADIUS).stroke({
 			color: selected ? context.palette.brand : context.palette.muted,
 			width: selected ? 2 : 1,
 			alpha: selected ? 0.95 : 0.7,

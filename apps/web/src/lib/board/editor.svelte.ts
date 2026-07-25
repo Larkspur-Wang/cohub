@@ -1092,45 +1092,120 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		commitAction();
 	}
 
-	function finalizeTextResize(
+	/**
+	 * Bake a finished resize into the shapes whose *content* scales rather than
+	 * just their box: text re-rasterises at a new font size, freehand strokes have
+	 * their points and width scaled. During the drag these are previewed with a
+	 * cheap GPU transform (see the renderers), so this is the single point where
+	 * the expensive, authoritative geometry is written.
+	 */
+	function finalizeContentResize(
 		gesture: Extract<BoardInteraction, { type: "resizing" }>,
 	) {
 		const originById = gesture.origin;
 		const next = synced.items.map((item) => {
-			if (item.type !== "text") return item;
 			const origin = originById.get(item.id);
-			const current = item.frame;
 			if (!origin) return item;
+			const current = item.frame;
 			const scale = current.width / Math.max(0.0001, origin.width);
-			const fontSize = clampBoardTextFontSize(item.fontSize * scale);
-			const measured = measureBoardText(item.text, fontSize);
-			if (gesture.single) {
+			if (scale === 1) return item;
+
+			if (item.type === "text") {
+				const fontSize = clampBoardTextFontSize(item.fontSize * scale);
+				const measured = measureBoardText(item.text, fontSize);
+				if (gesture.single) {
+					return {
+						...item,
+						fontSize,
+						frame: resizeFrameToSize(
+							origin,
+							gesture.handle,
+							measured.width,
+							measured.height,
+						),
+					};
+				}
+				const center = rectCenter(current);
 				return {
 					...item,
 					fontSize,
-					frame: resizeFrameToSize(
-						origin,
-						gesture.handle,
-						measured.width,
-						measured.height,
-					),
+					frame: {
+						...current,
+						x: center.x - measured.width / 2,
+						y: center.y - measured.height / 2,
+						width: measured.width,
+						height: measured.height,
+					},
 				};
 			}
-			const center = rectCenter(current);
-			return {
-				...item,
-				fontSize,
-				frame: {
-					...current,
-					x: center.x - measured.width / 2,
-					y: center.y - measured.height / 2,
-					width: measured.width,
-					height: measured.height,
-				},
-			};
+
+			if (item.type === "draw") {
+				return {
+					...item,
+					size: item.size * scale,
+					points: item.points.map((point) => ({
+						x: point.x * scale,
+						y: point.y * scale,
+						p: point.p,
+					})),
+				};
+			}
+
+			return item;
 		});
 		if (next.some((item, index) => item !== synced.items[index]))
 			setItems(next, false, originById.keys());
+	}
+
+	/**
+	 * Adopt the intrinsic pixel size of media whose dimensions were unknown at
+	 * creation time (a file dropped from the tree carries no width/height). The
+	 * frame keeps the user's chosen width and corrects only its height, anchored at
+	 * the center, so the box hugs the pixels instead of letterboxing them.
+	 *
+	 * Recording `naturalWidth`/`naturalHeight` in the snapshot is what makes this
+	 * one-shot: a node is corrected once, ever. This is a real document change so
+	 * it is committed, but deliberately *not* pushed onto the undo stack — it is a
+	 * data repair, not a user action, and it must not consume the user's undo.
+	 */
+	function adoptMediaNaturalSizes(
+		sizes: Array<{ id: string; width: number; height: number }>,
+	) {
+		if (sizes.length === 0) return;
+		const byId = new Map(sizes.map((entry) => [entry.id, entry]));
+		const dirty: string[] = [];
+		const next = synced.items.map((item) => {
+			if (item.type !== "image" && item.type !== "video") return item;
+			const natural = byId.get(item.id);
+			if (!natural) return item;
+			// Already recorded: never re-correct (and never fight the user's resize).
+			if (item.snapshot?.naturalWidth && item.snapshot?.naturalHeight)
+				return item;
+			if (natural.width <= 0 || natural.height <= 0) return item;
+			const height = (item.frame.width * natural.height) / natural.width;
+			if (!Number.isFinite(height) || height <= 0) return item;
+			dirty.push(item.id);
+			const center = rectCenter(item.frame);
+			return {
+				...item,
+				snapshot: {
+					...item.snapshot,
+					naturalWidth: natural.width,
+					naturalHeight: natural.height,
+				},
+				frame: {
+					...item.frame,
+					y: center.y - height / 2,
+					height,
+				},
+			};
+		});
+		if (dirty.length === 0) return;
+		setItems(next, false, dirty);
+		// Keep this repair out of undo: advance the baseline so the next real user
+		// action does not diff it back in.
+		undoBaseline = document;
+		requestCommit();
 	}
 
 	function updateText(id: string, text: string) {
@@ -1719,12 +1794,17 @@ export function createBoardEditor(options: BoardEditorOptions) {
 					? synced.items.find((candidate) => candidate.id === id)
 					: null;
 				if (id) {
+					// Aspect-locked shapes (text, media, strokes) never distort; for the
+					// rest Shift opts into proportional resize.
+					const keepAspect = item
+						? shapeCapabilities(item).aspectLocked || event.shiftKey
+						: event.shiftKey;
 					const resized = resizeFrame(
 						interaction.single,
 						interaction.handle,
 						event.world,
 						undefined,
-						item?.type === "text" || event.shiftKey,
+						keepAspect,
 					);
 					frames.set(id, resized);
 				}
@@ -1906,7 +1986,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 			bumpStructure();
 			commitAction();
 		} else if (gesture.type === "resizing" && gesture.moved) {
-			finalizeTextResize(gesture);
+			finalizeContentResize(gesture);
 			refreshBoundArrowFrames(new Set(selection));
 			bumpStructure();
 			commitAction();
@@ -2240,6 +2320,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		bringToFront,
 		sendToBack,
 		updateText,
+		adoptMediaNaturalSizes,
 		retrySave,
 		undo,
 		redo,

@@ -57,6 +57,13 @@ export type ShapeCapabilities = {
 	canMove: boolean;
 	/** Shows resize handles. */
 	canResize: boolean;
+	/**
+	 * Resize always preserves the shape's aspect ratio, regardless of Shift.
+	 * True for shapes whose content has a single intrinsic scale (text font size,
+	 * media pixels, stroke geometry) — distorting the frame would either letterbox
+	 * the content or have no representation in the data model.
+	 */
+	aspectLocked: boolean;
 	/** Shows the rotation handle. */
 	canRotate: boolean;
 	/** Supports double-click inline editing (text/note). */
@@ -72,6 +79,7 @@ export type ShapeCapabilities = {
 export const FULL_CAPABILITIES: ShapeCapabilities = {
 	canMove: true,
 	canResize: true,
+	aspectLocked: false,
 	canRotate: true,
 	canEdit: false,
 	canBind: true,
