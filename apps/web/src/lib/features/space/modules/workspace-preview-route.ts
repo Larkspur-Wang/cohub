@@ -87,6 +87,21 @@ export function withCurrentPreview(
 	return withPreviewParam(pathname, null, preview);
 }
 
+/**
+ * Sidebar-driven Main navigation. Desktop keeps the open preview pane;
+ * mobile drops it so the full-screen overlay does not cover the target.
+ */
+export function withSidebarMainPreview(
+	pathname: string,
+	options: {
+		isMobile: boolean;
+		currentSearch?: string | URLSearchParams | null;
+	},
+): string {
+	if (options.isMobile) return pathname;
+	return withCurrentPreview(pathname, options.currentSearch);
+}
+
 /** Deterministic ingress for legacy `/spaces/:id/files/...` routes. */
 export function buildFileIngressMainRoute(
 	spaceId: string,
