@@ -121,6 +121,7 @@ import { createSessionGenerationRealtimeController } from "./session-generation-
 import {
 	createSessionScrollController,
 	isSessionScrollAnchorInTurns,
+	resolveSessionScrollRestore,
 } from "./session-scroll-controller.svelte";
 import { createSessionShareController } from "./session-share-controller.svelte";
 import {
@@ -383,8 +384,8 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	const pendingTimelineMarkdownRenders = $derived(
 		scroll.pendingTimelineMarkdownRenders,
 	);
-	const anchorRestoreWaitingForMarkdown = $derived(
-		scroll.anchorRestoreWaitingForMarkdown,
+	const anchorRestoreWaitingForLayout = $derived(
+		scroll.anchorRestoreWaitingForLayout,
 	);
 
 	const generationTaskRunById = $derived(tasks.generationTaskRunById);
@@ -728,16 +729,6 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	});
 
 	$effect(() => {
-		const el = listEl;
-		if (!el) return;
-		const observer = new ResizeObserver(() => scheduleTurnMarkerMeasure());
-		observer.observe(el);
-		for (const child of Array.from(el.children)) observer.observe(child);
-		scheduleTurnMarkerMeasure();
-		return () => observer.disconnect();
-	});
-
-	$effect(() => {
 		const sessionId = activeSessionId;
 		const loadedCount = activeSessionState?.turns.length ?? 0;
 		const indexedCount = activeTurnIndex.length;
@@ -822,12 +813,12 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			}
 			if (scroll.activeAnchorRestore?.sessionId === targetId) {
 				scroll.activeAnchorRestore = null;
-				scroll.anchorRestoreWaitingForMarkdown = false;
+				scroll.anchorRestoreWaitingForLayout = false;
 			}
 			if (activeSessionId === targetId) updateAutoFollow();
 		};
-		/** Apply leave position now; optionally keep waiting for markdown re-layout. */
-		const finishAnchorRestore = (options?: { waitForMarkdown?: boolean }) => {
+		/** Apply leave position now; keep ownership while content is still laying out. */
+		const finishAnchorRestore = (options?: { waitForLayout?: boolean }) => {
 			if (scroll.pendingRestoreSessionId === targetId) {
 				scroll.pendingRestoreSessionId = null;
 			}
@@ -835,16 +826,16 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 				restoringBottomSessionId = null;
 			}
 			if (activeSessionId !== targetId) return;
-			const waitForMarkdown = Boolean(options?.waitForMarkdown);
-			if (waitForMarkdown) {
-				scroll.anchorRestoreWaitingForMarkdown = true;
+			const waitForLayout = Boolean(options?.waitForLayout);
+			if (waitForLayout) {
+				scroll.anchorRestoreWaitingForLayout = true;
 				updateAutoFollow();
 				return;
 			}
 			if (scroll.activeAnchorRestore?.sessionId === targetId) {
 				scroll.activeAnchorRestore = null;
 			}
-			scroll.anchorRestoreWaitingForMarkdown = false;
+			scroll.anchorRestoreWaitingForLayout = false;
 			updateAutoFollow();
 			scheduleTurnMarkerMeasure();
 		};
@@ -856,7 +847,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			if (scroll.activeAnchorRestore?.sessionId === targetId) {
 				scroll.activeAnchorRestore = null;
 			}
-			scroll.anchorRestoreWaitingForMarkdown = false;
+			scroll.anchorRestoreWaitingForLayout = false;
 			restoringBottomSessionId = targetId;
 			scroll.shouldAutoFollow = true;
 			requestAnimationFrame(() => {
@@ -907,19 +898,20 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 					updatedAt: anchor.updatedAt,
 				};
 				scroll.activeAnchorRestore = restore;
-				// Always apply the leave position as soon as the node exists.
-				// Markdown growth can re-apply later; never leave scrollTop at 0
-				// while waiting on pending render counters.
-				if (!applyActiveAnchorRestore(restore)) {
+				// Apply immediately, but keep the anchor until the target is actually
+				// reachable. Early session layout can otherwise clamp it to scrollTop 0.
+				const restoreResult = applyActiveAnchorRestore(restore);
+				if (restoreResult === "missing") {
 					if (isRestoreTargetCurrent()) {
 						clearSessionScrollAnchor(targetId);
 						restoreToBottom();
 					}
 					return;
 				}
-				const waitForMarkdown = pendingTimelineMarkdownRenders > 0;
-				finishAnchorRestore({ waitForMarkdown });
-				if (waitForMarkdown && isRestoreTargetCurrent()) {
+				const waitForLayout =
+					pendingTimelineMarkdownRenders > 0 || restoreResult === "pending";
+				finishAnchorRestore({ waitForLayout });
+				if (waitForLayout && isRestoreTargetCurrent()) {
 					requestAnimationFrame(() => {
 						maybeCompleteAnchorRestore();
 					});
@@ -978,10 +970,11 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		if (!el) return;
 		let prevHeight = el.scrollHeight;
 		const ro = new ResizeObserver(() => {
-			if (!listEl) return;
-			const currentHeight = listEl.scrollHeight;
+			if (listEl !== el) return;
+			const currentHeight = el.scrollHeight;
 			const restoringBottom = restoringBottomSessionId === activeSessionId;
 			const restoringPosition = isRestoringSessionScroll(activeSessionId);
+			if (restoringPosition) maybeCompleteAnchorRestore();
 			if (
 				currentHeight > prevHeight &&
 				!restoringPosition &&
@@ -991,8 +984,11 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			}
 			prevHeight = currentHeight;
 			updateTimelineScrollMetrics();
+			scheduleTurnMarkerMeasure();
 		});
 		ro.observe(el);
+		for (const child of Array.from(el.children)) ro.observe(child);
+		scheduleTurnMarkerMeasure();
 		return () => ro.disconnect();
 	});
 
@@ -1795,7 +1791,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		workspace.prepareRouteSession(sessionId);
 		scroll.pendingRestoreSessionId = sessionId;
 		scroll.activeAnchorRestore = null;
-		scroll.anchorRestoreWaitingForMarkdown = false;
+		scroll.anchorRestoreWaitingForLayout = false;
 		// Session switch remounts the timeline via `{#key}`. MarkdownViews that
 		// started rendering on the previous tree may never fire onRendered, so
 		// drop any leaked pending count — otherwise restore waits forever and
@@ -3397,7 +3393,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		programmaticScrollTarget = null;
 		if (activeAnchorRestore?.sessionId === activeSessionId) {
 			scroll.activeAnchorRestore = null;
-			scroll.anchorRestoreWaitingForMarkdown = false;
+			scroll.anchorRestoreWaitingForLayout = false;
 		}
 		if (pendingRestoreSessionId === activeSessionId) {
 			scroll.pendingRestoreSessionId = null;
@@ -3422,32 +3418,34 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	}
 
 	function maybeCompleteAnchorRestore() {
-		if (!activeAnchorRestore || !anchorRestoreWaitingForMarkdown) return;
+		if (!activeAnchorRestore || !anchorRestoreWaitingForLayout) return;
 		if (pendingTimelineMarkdownRenders > 0) return;
 		const restore = activeAnchorRestore;
+		if (activeSessionId !== restore.sessionId) return;
+		if (applyActiveAnchorRestore(restore) !== "complete") return;
+		if (scroll.activeAnchorRestore?.sessionId !== restore.sessionId) return;
 		scroll.activeAnchorRestore = null;
-		scroll.anchorRestoreWaitingForMarkdown = false;
-		if (!restore || activeSessionId !== restore.sessionId) return;
-		// Re-apply after markdown layout settles so leave offset stays accurate.
-		requestAnimationFrame(() => {
-			if (activeSessionId !== restore.sessionId) return;
-			if (applyActiveAnchorRestore(restore)) scheduleTurnMarkerMeasure();
-			updateAutoFollow();
-		});
+		scroll.anchorRestoreWaitingForLayout = false;
+		scheduleTurnMarkerMeasure();
+		updateAutoFollow();
 	}
 
 	function applyActiveAnchorRestore(restore = activeAnchorRestore) {
 		if (!restore || !listEl || activeSessionId !== restore.sessionId)
-			return false;
+			return "missing" as const;
 		const node = listEl.querySelector<HTMLElement>(
 			`[data-sequence="${restore.sequence}"]`,
 		);
-		if (!node) return false;
-		setProgrammaticScrollTop(
-			getMessageElementAbsoluteTop(node) + restore.offset,
-		);
+		if (!node) return "missing" as const;
+		const target = resolveSessionScrollRestore({
+			anchorTop: getMessageElementAbsoluteTop(node),
+			anchorOffset: restore.offset,
+			scrollHeight: listEl.scrollHeight,
+			clientHeight: listEl.clientHeight,
+		});
+		setProgrammaticScrollTop(target.scrollTop);
 		scroll.shouldAutoFollow = false;
-		return true;
+		return target.reached ? ("complete" as const) : ("pending" as const);
 	}
 
 	function areSessionScrollAnchorsEqual(
@@ -3468,15 +3466,16 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		if (!anchor) return;
 		const restore = { ...anchor, sessionId };
 		scroll.activeAnchorRestore = restore;
-		// Apply immediately; keep waiting only if markdown may still shift layout.
-		const waitForMarkdown = pendingTimelineMarkdownRenders > 0;
-		scroll.anchorRestoreWaitingForMarkdown = waitForMarkdown;
 		requestAnimationFrame(() => {
 			if (activeSessionId !== sessionId) return;
-			if (applyActiveAnchorRestore(restore)) scheduleTurnMarkerMeasure();
-			if (!waitForMarkdown && activeAnchorRestore?.sessionId === sessionId) {
+			const result = applyActiveAnchorRestore(restore);
+			const waitForLayout =
+				pendingTimelineMarkdownRenders > 0 || result === "pending";
+			scroll.anchorRestoreWaitingForLayout = waitForLayout;
+			if (result !== "missing") scheduleTurnMarkerMeasure();
+			if (!waitForLayout && activeAnchorRestore?.sessionId === sessionId) {
 				scroll.activeAnchorRestore = null;
-				scroll.anchorRestoreWaitingForMarkdown = false;
+				scroll.anchorRestoreWaitingForLayout = false;
 			}
 			updateAutoFollow();
 		});
@@ -3492,7 +3491,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		scheduleTurnMarkerMeasure();
 		const restore = activeAnchorRestore;
 		if (restore?.sessionId === activeSessionId) {
-			// Keep the leave position pinned while markdown height settles.
+			// Keep the leave position pinned while content height settles.
 			requestAnimationFrame(() => {
 				if (activeSessionId !== restore.sessionId) return;
 				applyActiveAnchorRestore(restore);
@@ -3789,7 +3788,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 				workspace.activeSessionId = null;
 				scroll.pendingRestoreSessionId = null;
 				scroll.activeAnchorRestore = null;
-				scroll.anchorRestoreWaitingForMarkdown = false;
+				scroll.anchorRestoreWaitingForLayout = false;
 				currentTurnSequence = null;
 				showTurnBottomSheet = false;
 				scroll.shouldAutoFollow = true;
@@ -3962,7 +3961,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 				workspace.activeSessionId = null;
 				scroll.pendingRestoreSessionId = null;
 				scroll.activeAnchorRestore = null;
-				scroll.anchorRestoreWaitingForMarkdown = false;
+				scroll.anchorRestoreWaitingForLayout = false;
 				userScrollActive = false;
 				programmaticScrollActive = false;
 				programmaticScrollTarget = null;
@@ -3986,7 +3985,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			workspace.activeSessionId = null;
 			scroll.pendingRestoreSessionId = null;
 			scroll.activeAnchorRestore = null;
-			scroll.anchorRestoreWaitingForMarkdown = false;
+			scroll.anchorRestoreWaitingForLayout = false;
 			userScrollActive = false;
 			programmaticScrollActive = false;
 			programmaticScrollTarget = null;
