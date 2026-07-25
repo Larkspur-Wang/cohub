@@ -3,13 +3,14 @@ import {
 	syncTextResolution,
 	textResolutionForZoom,
 } from "$lib/board/board-rendering";
-import type { BoardArrowItem, BoardFrame } from "$lib/board/board-schema";
+import type { BoardArrowItem } from "$lib/board/board-schema";
 import { resolveArrow, sampleQuadratic } from "$lib/board/core/bindings";
 import { pickBoardColor } from "$lib/board/core/palette";
 import type {
 	BoardCardRenderer,
 	BoardRenderContext,
 } from "$lib/board/renderers/board-renderer-registry";
+import { drawFarStroke } from "$lib/board/renderers/far-plate";
 
 type ArrowParts = {
 	root: Container;
@@ -22,11 +23,15 @@ type ArrowParts = {
 
 const partsByContainer = new WeakMap<Container, ArrowParts>();
 
-/** Frame lookup over the current document, for resolving bindings. */
+/**
+ * Frame lookup for resolving bindings.
+ *
+ * Routed through the context's id index rather than scanning the document: an
+ * arrow re-resolves its endpoints on every sync, and a per-arrow O(items) scan
+ * would make a board with many arrows quadratic per frame.
+ */
 function frameLookup(context: BoardRenderContext) {
-	const byId = new Map<string, BoardFrame>();
-	for (const item of context.document.items) byId.set(item.id, item.frame);
-	return (id: string) => byId.get(id);
+	return (id: string) => context.getItem(id)?.frame;
 }
 
 /** Open chevron arrowhead — clearly directional, not a tiny filled nub. */
@@ -195,6 +200,20 @@ export const arrowCardRenderer: BoardCardRenderer = {
 	},
 	update: (container, item, context) => {
 		if (item.type === "arrow") sync(container, item, context);
+	},
+	// Far LOD: the line, without arrowheads or label — a head is a few world units
+	// across and would be invisible anyway. Batching it keeps the arrow in document
+	// order; as a live container it would be drawn above every plate.
+	renderFar: (graphics, item, context) => {
+		if (item.type !== "arrow") return;
+		const resolved = resolveArrow(item, frameLookup(context));
+		if (!resolved) return;
+		const color = pickBoardColor(context.colors, item.color, context.colorMode);
+		drawFarStroke(graphics, sampleQuadratic(resolved, 12), {
+			color: color.stroke,
+			width: item.size,
+			alpha: 0.85,
+		});
 	},
 	destroy: (container) => {
 		partsByContainer.get(container)?.root.destroy({ children: true });

@@ -2,6 +2,8 @@ import { createBoardItemId } from "$lib/board/board-id";
 import { getResourceTitle, inferMediaKind } from "$lib/board/board-media";
 import type {
 	BoardArrowItem,
+	BoardFileItem,
+	BoardFileSnapshot,
 	BoardFrame,
 	BoardImageItem,
 	BoardItem,
@@ -11,6 +13,7 @@ import type {
 } from "$lib/board/board-schema";
 import { unknownRealType } from "$lib/board/board-schema";
 import { computeDrawBounds } from "$lib/board/core/draw-geometry";
+import { fileBaseName, filePreviewKind } from "$lib/board/core/file-preview";
 import { measureBoardText, TEXT_FONT_SIZE } from "$lib/board/core/text-layout";
 
 const DEFAULT_MEDIA_SIZE = { width: 320, height: 200 };
@@ -116,8 +119,68 @@ export function createVideoBoardItem(
 }
 
 /**
+ * Card sizes for a file node. Both are free-form (the shape has no aspect lock)
+ * and deliberately small: a file card is an entry point, not a document view.
+ */
+const DEFAULT_FILE_SIZE = { width: 260, height: 132 };
+const DEFAULT_FILE_COVER_SIZE = { width: 260, height: 208 };
+
+/**
+ * Create a file card for any workspace file.
+ *
+ * The size depends on whether a cover will be drawn, so a card created with a
+ * snapshot already in hand lands at its final geometry and never resizes under
+ * the user. A snapshot is optional: without one this still yields a usable card
+ * that can be enriched later.
+ */
+export function createFileBoardItem(
+	path: string,
+	x: number,
+	y: number,
+	snapshot?: BoardFileSnapshot,
+): BoardFileItem {
+	const size =
+		filePreviewKind(snapshot) === "cover"
+			? DEFAULT_FILE_COVER_SIZE
+			: DEFAULT_FILE_SIZE;
+	return {
+		id: createBoardItemId(),
+		type: "file",
+		ref: { kind: "space-file", path },
+		snapshot: {
+			...snapshot,
+			title: snapshot?.title ?? fileBaseName(path),
+		},
+		frame: createFrame(x - size.width / 2, y - size.height / 2, size),
+	};
+}
+
+/**
+ * Create a node for a dropped space file.
+ *
+ * Every file is accepted. Images and videos get their dedicated media shapes;
+ * everything else — text, binaries, unknown extensions — becomes a file card, so
+ * dropping onto a board is never refused and simply varies in how much detail it
+ * can show.
+ */
+export function createFileNodeForPath(
+	path: string,
+	x: number,
+	y: number,
+	snapshot?: BoardMediaSnapshot & BoardFileSnapshot,
+): BoardImageItem | BoardVideoItem | BoardFileItem {
+	const kind = inferMediaKind(path, snapshot?.mimeType);
+	if (kind === "image") return createImageBoardItem(path, x, y, snapshot);
+	if (kind === "video") return createVideoBoardItem(path, x, y, snapshot);
+	return createFileBoardItem(path, x, y, snapshot);
+}
+
+/**
  * Create an image or video node from a space file path. Non-media files return
- * null so callers can refuse rather than create a broken node.
+ * null.
+ *
+ * Prefer `createFileNodeForPath`, which never returns null; this narrower helper
+ * remains for callers that specifically want media or nothing.
  */
 export function createMediaBoardItem(
 	path: string,
@@ -381,6 +444,8 @@ export function titleForBoardItem(item: BoardItem): string {
 		case "image":
 		case "video":
 			return item.snapshot?.title ?? getResourceTitle(item.ref.path);
+		case "file":
+			return item.snapshot?.title ?? fileBaseName(item.ref.path);
 		default:
 			return unknownRealType(item);
 	}
@@ -404,6 +469,8 @@ export function subtitleForBoardItem(item: BoardItem): string {
 			return "Image";
 		case "video":
 			return "Video";
+		case "file":
+			return "File";
 		default:
 			return unknownRealType(item);
 	}

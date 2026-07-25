@@ -18,7 +18,7 @@ let error = $state<string | null>(null);
 const item = $derived.by(() => {
 	const id = editor.editingId;
 	if (!id) return null;
-	const found = editor.items.find((candidate) => candidate.id === id);
+	const found = editor.itemById(id);
 	return found?.type === "video" ? found : null;
 });
 

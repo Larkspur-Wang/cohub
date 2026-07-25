@@ -17,6 +17,7 @@ import type {
 	BoardCardRenderer,
 	BoardRenderContext,
 } from "$lib/board/renderers/board-renderer-registry";
+import { drawFarPlate } from "$lib/board/renderers/far-plate";
 
 type TextParts = {
 	root: Container;
@@ -123,6 +124,24 @@ export const textCardRenderer: BoardCardRenderer = {
 	},
 	update: (container, item, context) => {
 		if (item.type === "text") sync(container, item, context);
+	},
+	/**
+	 * Far LOD: a low-alpha ink bar. Body text is well under a pixel tall at these
+	 * zooms, so a rasterised glyph texture would only ever resolve to a smudge —
+	 * this approximates that smudge for free and skips the texture entirely.
+	 */
+	renderFar: (graphics, item, context) => {
+		if (item.type !== "text") return;
+		const color = pickBoardColor(
+			context.colors,
+			item.color || "neutral",
+			context.colorMode,
+		);
+		const ink =
+			item.color === "neutral" || !item.color
+				? context.palette.text
+				: color.stroke;
+		drawFarPlate(graphics, item.frame, { fill: ink, fillAlpha: 0.35 });
 	},
 	destroy: (container) => {
 		partsByContainer.get(container)?.root.destroy({ children: true });

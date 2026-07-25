@@ -10,6 +10,7 @@ import {
 	applyBoardOps,
 	boardBootstrapToDocument,
 	parseBoardManifest,
+	toWireOperations,
 } from "$lib/board/board-document";
 import { resolveBoardManifestText } from "$lib/board/board-manifest-text";
 import type { BoardDocument } from "$lib/board/board-schema";
@@ -257,7 +258,7 @@ export function createBoardPreviewController(
 									txId: tx.txId,
 									boardId,
 									baseVersion: tx.baseVersion,
-									operations: tx.ops,
+									operations: toWireOperations(tx.ops),
 								});
 							syncVersionByBoardId = {
 								...syncVersionByBoardId,

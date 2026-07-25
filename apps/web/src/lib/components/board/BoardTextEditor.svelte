@@ -14,7 +14,7 @@ let draft = $state("");
 const editingItem = $derived.by(() => {
 	const id = editor.editingId;
 	if (!id) return null;
-	const item = editor.items.find((candidate) => candidate.id === id);
+	const item = editor.itemById(id);
 	if (!item) return null;
 	return item.type === "text" || item.type === "note" || item.type === "geo"
 		? item

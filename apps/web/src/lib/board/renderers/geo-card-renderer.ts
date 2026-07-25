@@ -11,6 +11,7 @@ import type {
 	BoardCardRenderer,
 	BoardRenderContext,
 } from "$lib/board/renderers/board-renderer-registry";
+import { drawFarPlate } from "$lib/board/renderers/far-plate";
 
 const RADIUS = 8;
 const LABEL_PADDING = 8;
@@ -157,6 +158,21 @@ export const geoCardRenderer: BoardCardRenderer = {
 	},
 	update: (container, item, context) => {
 		if (item.type === "geo") sync(container, item, context);
+	},
+	// Far LOD: the shape's colour and footprint survive, the outline shape and label
+	// do not. Approximating an ellipse or a triangle with its bounding plate is a
+	// small lie at this scale, and it keeps the item inside the batch — an unbatched
+	// item would be a live container drawn above every plate regardless of its
+	// document position.
+	renderFar: (graphics, item, context) => {
+		if (item.type !== "geo") return;
+		const color = pickBoardColor(context.colors, item.color, context.colorMode);
+		drawFarPlate(graphics, item.frame, {
+			fill: color.fill,
+			fillAlpha: Math.max(0.18, item.fillOpacity),
+			accent: color.stroke,
+			accentAlpha: 0.9,
+		});
 	},
 	destroy: (container) => {
 		partsByContainer.get(container)?.root.destroy({ children: true });

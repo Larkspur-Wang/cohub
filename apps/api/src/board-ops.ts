@@ -26,13 +26,49 @@ export class BoardServiceError extends Error {
   }
 }
 
-export const MAX_BOARD_NODES = 10_000;
-export const MAX_BOARD_OPERATIONS = 500;
+/**
+ * Ceiling on nodes in a board, and on operations in one transaction.
+ *
+ * These two are deliberately equal. Any lower operation cap would create edits a
+ * user can make but not save: selecting every node and deleting it is one
+ * operation per node, and a transaction is one undo step, so the client cannot
+ * split it without splitting undo and making a partial edit visible to everyone
+ * else. So the invariant is: whatever you are allowed to create, you are allowed
+ * to edit in one go.
+ *
+ * The real guard is MAX_TRANSACTION_BYTES below - an operation count says nothing
+ * about cost, whereas bytes bound both the request and the work it implies.
+ */
+export const MAX_BOARD_NODES = 50_000;
+export const MAX_BOARD_OPERATIONS = 50_000;
 export const MAX_NODE_ID_LENGTH = 160;
 export const MAX_NODE_TYPE_LENGTH = 40;
 export const MAX_REF_LENGTH = 4096;
 export const MAX_JSON_FIELD_BYTES = 64 * 1024;
-export const MAX_TRANSACTION_BYTES = 2 * 1024 * 1024;
+/**
+ * Ceiling on one transaction's JSON payload.
+ *
+ * Sized from the measured cost of the operations that actually reach this limit:
+ * a delete or a geometry patch is ~110 B on the wire, so the worst realistic bulk
+ * edit (touch all 50k nodes) is ~6 MB. Bulk *creates* are ~480 B each and come
+ * through boards.create instead, bounded by MAX_NODES_BYTES.
+ */
+export const MAX_TRANSACTION_BYTES = 16 * 1024 * 1024;
+/**
+ * Ceiling on the nodes array of one boards.create.
+ *
+ * A created node measures ~480 B, so 50k of them is ~23 MB; 32 MB leaves headroom
+ * without letting a single request become unbounded.
+ */
+export const MAX_NODES_BYTES = 32 * 1024 * 1024;
+/**
+ * Rows per node INSERT/UPSERT statement.
+ *
+ * Postgres allows 65535 bind parameters per statement and a node row binds ~18, so
+ * anything above ~3600 rows fails outright. 500 keeps a wide margin and bounds the
+ * size of a single statement's parameter list.
+ */
+export const NODE_WRITE_CHUNK = 500;
 
 const BUILTIN_CLIP_KINDS = new Set<string>(BOARD_BUILTIN_CLIP_KINDS);
 const BUILTIN_EFFECT_KINDS = new Set<string>(BOARD_BUILTIN_EFFECT_KINDS);
@@ -124,6 +160,10 @@ export function normalizeNode(input: BoardNodeInput): BoardNodeInput {
 export function normalizeNodes(input: BoardNodeInput[]): BoardNodeInput[] {
   if (!Array.isArray(input)) throw new BoardServiceError(400, "nodes must be an array");
   if (input.length > MAX_BOARD_NODES) throw new BoardServiceError(413, "too many board nodes");
+  // Bounded by bytes as well as count, for the same reason transactions are: a node
+  // carries free-form view/style/data, so a legal count says nothing about the size
+  // of the request behind it.
+  if (jsonBytes(input) > MAX_NODES_BYTES) throw new BoardServiceError(413, "board nodes are too large");
   const nodes = input.map(normalizeNode);
   const ids = new Set<string>();
   for (const node of nodes) {

@@ -6,10 +6,15 @@ import {
 	imageAssetKey,
 } from "$lib/board/board-asset-manager";
 import {
+	fileAvailability,
+	filePreviewVersion,
+	isFilePreviewStale,
+	loadFilePreview,
+	subscribeFilePreviews,
+} from "$lib/board/board-file-preview-source";
+import {
 	expandRect,
-	itemBounds,
 	pointToWorld,
-	rectsIntersect,
 	type ScreenPoint,
 	screenPoint,
 	screenToWorld,
@@ -19,6 +24,7 @@ import {
 } from "$lib/board/board-geometry";
 import { getBoardResolution, textZoomBucket } from "$lib/board/board-rendering";
 import { createBoardScene } from "$lib/board/board-scene";
+import type { BoardFileSnapshot, BoardItem } from "$lib/board/board-schema";
 import { resolveArrow, resolveEndpoint } from "$lib/board/core/bindings";
 import { readCssColorNumber } from "$lib/board/core/css-color";
 import { buildStrokeOutline } from "$lib/board/core/draw-geometry";
@@ -46,11 +52,14 @@ const {
 	runtime,
 	spaceId,
 	onSurfaceChange,
+	onOpenFile,
 }: {
 	editor: BoardEditor;
 	runtime: BoardRuntimeData;
 	spaceId: string;
 	onSurfaceChange?: (size: { width: number; height: number }) => void;
+	/** Open a workspace file in the preview panel (same target as the file tree). */
+	onOpenFile?: (path: string) => void | Promise<void>;
 } = $props();
 
 let host: HTMLDivElement | null = $state(null);
@@ -62,6 +71,7 @@ let effectsFront: Container | null = null;
 let screenEffects: Container | null = null;
 let background: Container | null = null;
 let backgroundThemeId: string | null = null;
+let farLayer: Graphics | null = null;
 let overlay: Graphics | null = null;
 let scene: ReturnType<typeof createBoardScene> | null = null;
 let animationRuntime: ReturnType<typeof createBoardAnimationRuntime> | null =
@@ -98,11 +108,55 @@ const unsubscribeAssets = assets.subscribe(() => {
 	assetVersion += 1;
 });
 
+// Bumped when a workspace file change invalidates a cached preview, so visible
+// file cards can refresh their snapshot.
+let previewVersion = $state(filePreviewVersion());
+const unsubscribePreviews = subscribeFilePreviews(() => {
+	previewVersion = filePreviewVersion();
+});
+
 function cssNumber(name: string, fallback: number): number {
 	return readCssColorNumber(host, name, fallback);
 }
 
+/**
+ * Resolved theme colors, cached per theme identity.
+ *
+ * Every `getComputedStyle` read forces a style recalculation, and a full
+ * resolve is 40+ of them (palette tokens plus three parts per shape color).
+ * Doing that on every frame made panning cost more in style recalc than in
+ * drawing, so the whole table is resolved once per theme and reused until the
+ * theme (or the space's `theme.css`) actually changes.
+ */
+let paletteCache: {
+	key: string;
+	palette: BoardRenderPalette;
+	colors: BoardShapeColors;
+} | null = null;
+
+/** Identity of the current theme state; a change invalidates the color cache. */
+function themeKey(): string {
+	return `${getResolvedTheme()}|${cssNumber("--brand", 0)}|${cssNumber("--bg-primary", 0)}`;
+}
+
+function resolveTheme(): {
+	palette: BoardRenderPalette;
+	colors: BoardShapeColors;
+} {
+	const key = themeKey();
+	if (paletteCache?.key === key) return paletteCache;
+	const palette = readPalette();
+	const colorMode = getResolvedTheme() === "light" ? "light" : "dark";
+	const colors = readShapeColors(colorMode);
+	paletteCache = { key, palette, colors };
+	return paletteCache;
+}
+
 function getPalette(): BoardRenderPalette {
+	return resolveTheme().palette;
+}
+
+function readPalette(): BoardRenderPalette {
 	// Paper follows theme neutrals: primary for the open field, surface for cards.
 	// Shape labels use palette colors (not pure black/white) so contrast stays intentional.
 	return {
@@ -120,7 +174,7 @@ function getPalette(): BoardRenderPalette {
 }
 
 /** Shape colors from CSS tokens; space theme.css can remap them fully. */
-function getShapeColors(mode: "dark" | "light"): BoardShapeColors {
+function readShapeColors(mode: "dark" | "light"): BoardShapeColors {
 	const fallback = buildFallbackShapeColors(mode);
 	const out = {} as BoardShapeColors;
 	for (const entry of BOARD_COLORS) {
@@ -139,33 +193,38 @@ function getShapeColors(mode: "dark" | "light"): BoardShapeColors {
 // instant, and matches the culling margin so a texture is requested before its
 // card scrolls into view. Tracks only items/camera/surface: loaded textures
 // notify via `assetVersion`, which the render effect (not this one) consumes.
+//
+// The candidate set comes from the spatial index, not from scanning every item,
+// so this stays proportional to what is near the viewport rather than to the
+// document size.
 $effect(() => {
-	const items = editor.items;
+	editor.structureVersion;
+	editor.geometryVersion;
 	const camera = editor.camera;
 	const width = surface.width;
 	const height = surface.height;
 	if (width === 0 || height === 0) return;
-	const visible = visibleWorldRect(camera, width, height);
-	const preload = expandRect(
-		visible,
-		Math.max(visible.width, visible.height) * VIEWPORT_MARGIN_RATIO,
-	);
-	for (const item of items) {
-		if (!imageAssetKey(item)) continue;
-		if (rectsIntersect(itemBounds(item.frame), preload))
-			assets.requestItem(item);
+	for (const item of itemsNearViewport(camera, width, height)) {
+		if (imageAssetKey(item)) assets.requestItem(item);
 	}
 });
 
 // Adopt intrinsic image sizes once their textures resolve, so a frame created
 // without dimension metadata (file-tree drop) stops letterboxing. Guarded by the
 // snapshot in the editor, so each node is corrected once and never re-corrected.
+// Only nodes near the viewport can have a resolved texture, so the same spatial
+// candidate set bounds this work too.
 $effect(() => {
-	const items = editor.items;
+	editor.structureVersion;
+	editor.geometryVersion;
+	const camera = editor.camera;
+	const width = surface.width;
+	const height = surface.height;
 	// Re-run when a texture lands.
 	assetVersion;
+	if (width === 0 || height === 0) return;
 	const pending: Array<{ id: string; width: number; height: number }> = [];
-	for (const item of items) {
+	for (const item of itemsNearViewport(camera, width, height)) {
 		if (item.type !== "image") continue;
 		if (item.snapshot?.naturalWidth && item.snapshot?.naturalHeight) continue;
 		const key = imageAssetKey(item);
@@ -177,6 +236,57 @@ $effect(() => {
 	if (pending.length > 0) editor.adoptMediaNaturalSizes(pending);
 });
 
+/** Items intersecting the viewport plus the preload margin, via the index. */
+function itemsNearViewport(
+	camera: { x: number; y: number; zoom: number },
+	width: number,
+	height: number,
+): BoardItem[] {
+	const visible = visibleWorldRect(camera, width, height);
+	const preload = expandRect(
+		visible,
+		Math.max(visible.width, visible.height) * VIEWPORT_MARGIN_RATIO,
+	);
+	const result: BoardItem[] = [];
+	for (const id of editor.idsInRect(preload)) {
+		const item = editor.itemById(id);
+		if (item) result.push(item);
+	}
+	return result;
+}
+
+// Fill in (and refresh) file-card previews for cards near the viewport.
+//
+// Two cases are handled here: a card whose snapshot was never enriched (created
+// by another client, or by the CLI, which only writes the file ref), and a card
+// whose file changed while the board was open. Both are bounded to what is near
+// the viewport, so a board with thousands of file cards reads only the handful
+// the user can actually see.
+$effect(() => {
+	editor.structureVersion;
+	editor.geometryVersion;
+	const camera = editor.camera;
+	const width = surface.width;
+	const height = surface.height;
+	// Re-run when a file change invalidates a cached preview.
+	previewVersion;
+	if (width === 0 || height === 0) return;
+
+	const targets: Array<{ id: string; path: string }> = [];
+	for (const item of itemsNearViewport(camera, width, height)) {
+		if (item.type !== "file") continue;
+		const path = item.ref.path;
+		const stale = isFilePreviewStale(spaceId, path);
+		// An unenriched card has no mtime recorded yet.
+		const unenriched = item.snapshot?.mtimeMs === undefined;
+		if (!stale && !unenriched) continue;
+		// The stale mark is consumed by the read itself, which carries the change
+		// event's metadata with it.
+		targets.push({ id: item.id, path });
+	}
+	if (targets.length > 0) void enrichFileCards(targets);
+});
+
 function buildContext(palette: BoardRenderPalette): BoardRenderContext {
 	const colorMode = getResolvedTheme() === "light" ? "light" : "dark";
 	const resizingIds =
@@ -185,16 +295,18 @@ function buildContext(palette: BoardRenderPalette): BoardRenderContext {
 			: new Set<string>();
 	return {
 		document: editor.document,
+		getItem: (id) => editor.itemById(id),
 		selectedIds: new Set(editor.selection),
 		hoveredId: editor.hoverId,
 		resizingIds,
 		palette,
-		colors: getShapeColors(colorMode),
+		colors: resolveTheme().colors,
 		colorMode,
 		zoom: editor.camera.zoom,
 		imageKey: imageAssetKey,
 		getTexture: (key) => assets.getTexture(key),
 		hasError: (key) => assets.hasError(key),
+		fileState: (path) => fileAvailability(spaceId, path),
 		acquireTexture: (key) => assets.acquire(key),
 		releaseTexture: (key) => assets.release(key),
 	};
@@ -271,11 +383,12 @@ function syncStage() {
 	if (editor.editingId) pinnedIds.add(editor.editingId);
 
 	// Global render signals that affect every card equally (asset readiness,
-	// theme, text zoom-bucket). Selection and hover are tracked per card by the
-	// scene. Use the quantised zoom bucket — not raw zoom — so tiny zooms do not
-	// thrash text re-rasterisation.
+	// theme, text zoom-bucket, file availability). Selection and hover are tracked
+	// per card by the scene. Use the quantised zoom bucket — not raw zoom — so tiny
+	// zooms do not thrash text re-rasterisation.
 	const globalSig = [
 		assetVersion,
+		previewVersion,
 		getResolvedTheme(),
 		textZoomBucket(editor.camera.zoom),
 	].join("|");
@@ -283,9 +396,13 @@ function syncStage() {
 	scene.sync({
 		items: editor.items,
 		context,
+		getItem: (id) => editor.itemById(id),
 		visibleIds,
 		pinnedIds,
 		globalSig,
+		structureVersion: editor.structureVersion,
+		geometryVersion: editor.geometryVersion,
+		gestureActive: editor.gestureActive,
 	});
 	animationRuntime?.invalidatePoses();
 
@@ -298,8 +415,7 @@ function syncStage() {
 	);
 	let arrowEndpoints: Array<{ x: number; y: number }> | undefined;
 	if (single?.type === "arrow" && !single.locked) {
-		const lookup = (id: string) =>
-			editor.items.find((item) => item.id === id)?.frame;
+		const lookup = (id: string) => editor.itemById(id)?.frame;
 		const resolved = resolveArrow(single, lookup);
 		if (resolved)
 			arrowEndpoints = [resolved.start, resolved.control, resolved.end];
@@ -497,11 +613,54 @@ function handleDoubleClick(event: MouseEvent) {
 		editor.camera,
 	);
 	const item = editor.itemAt(worldPointAtCursor);
+	// A file card is an entry point, not an editable surface: activating it opens
+	// the file in the workspace preview, the same destination as the file tree.
+	if (item?.type === "file") {
+		void onOpenFile?.(item.ref.path);
+		return;
+	}
 	if (item && !item.locked && shapeCapabilities(item).canEdit) {
 		editor.editingId = item.id;
 	} else if (!item) {
 		editor.beginTextDraft(worldPointAtCursor);
 	}
+}
+
+/**
+ * Read previews for file cards and fold the results into their snapshots.
+ *
+ * Cards are already on the board before this runs, so a slow or failed read only
+ * means less detail, never a missing card.
+ */
+async function enrichFileCards(targets: Array<{ id: string; path: string }>) {
+	const resolved = await Promise.all(
+		targets.map(async ({ id, path }) => {
+			const item = editor.itemById(id);
+			if (item?.type !== "file") return null;
+			const result = await loadFilePreview(spaceId, {
+				path,
+				title: item.snapshot?.title,
+				mimeType: item.snapshot?.mimeType,
+				size: item.snapshot?.size,
+				mtimeMs: item.snapshot?.mtimeMs,
+			});
+			// `replace` carries the distinction the editor needs: a complete read
+			// describes the file as it is now, so fields it omits are fields the file
+			// no longer has. An incomplete one is only merged, so a failed read never
+			// blanks a card.
+			return { id, snapshot: result.facts, replace: result.complete };
+		}),
+	);
+	const updates = resolved.filter(
+		(
+			entry,
+		): entry is {
+			id: string;
+			snapshot: BoardFileSnapshot;
+			replace: boolean;
+		} => entry !== null,
+	);
+	if (updates.length > 0) editor.applyFileSnapshots(updates);
 }
 
 function handleDrop(event: DragEvent) {
@@ -567,16 +726,23 @@ function handleDrop(event: DragEvent) {
 		if (path) items.push({ path });
 	}
 
-	// Tile accepted media to the right so multi-drop stays readable.
+	// Tile dropped files to the right so a multi-drop stays readable. Every file is
+	// accepted — non-media becomes a file card — so the created ids are collected
+	// and handed to the preview enrichment below.
 	let offsetX = 0;
+	const created: Array<{ id: string; path: string }> = [];
 	for (const entry of items) {
-		const ok = editor.addFile(
+		const id = editor.addFile(
 			entry.path,
 			worldPoint(origin.x + offsetX, origin.y),
 			entry.snapshot,
 		);
-		if (ok) offsetX += 36;
+		created.push({ id, path: entry.path });
+		offsetX += 36;
 	}
+	// Read previews for the new file cards in the background; the cards are already
+	// on the board and simply gain detail when this lands.
+	if (created.length > 0) void enrichFileCards(created);
 }
 
 const cursor = $derived.by(() => {
@@ -636,9 +802,14 @@ onMount(async () => {
 		label: "board-screen-effects",
 	});
 	overlay = new Graphics({ label: "board-interaction-overlay" });
+	// Batched far-LOD geometry. Lives at the bottom of the node layer so live
+	// cards (selection, editing) always draw above the plates.
+	farLayer = new Graphics({ label: "board-far-layer" });
+	nodeLayer.addChild(farLayer);
 	world.addChild(effectsBehind, nodeLayer, effectsFront, overlay);
 	scene = createBoardScene({
 		world: nodeLayer,
+		farLayer,
 		overlay,
 		getRenderer: getBoardCardRenderer,
 	});
@@ -684,6 +855,7 @@ $effect(() => {
 	editor.interaction;
 	editor.snapGuides;
 	editor.structureVersion;
+	editor.geometryVersion;
 	assetVersion;
 	// Re-render when the theme changes so Pixi picks up new CSS colors.
 	getResolvedTheme();
@@ -696,6 +868,7 @@ onDestroy(() => {
 	cancelAnimationFrame(resizeFrame);
 	cancelAnimationFrame(renderFrame);
 	unsubscribeAssets();
+	unsubscribePreviews();
 	if (host) {
 		host.removeEventListener("pointerdown", handlePointerDown);
 		host.removeEventListener("pointermove", handlePointerMove);
@@ -719,6 +892,7 @@ onDestroy(() => {
 	screenEffects = null;
 	world = null;
 	overlay = null;
+	farLayer = null;
 	app?.destroy(true);
 	app = null;
 });
@@ -732,7 +906,16 @@ onDestroy(() => {
 	data-drawer-swipe-ignore
 	style:cursor={cursor}
 	style:touch-action="none"
-	ondragover={(event) => { if (event.dataTransfer?.types.includes("text/cohub-path")) { event.preventDefault(); dropActive = true; } }}
+	ondragover={(event) => {
+		const types = event.dataTransfer?.types;
+		if (!types) return;
+		// Accept both the rich resource payload and the bare path, so a drag from
+		// anywhere in the workspace (file tree, task tray) lands.
+		if (types.includes("text/cohub-path") || types.includes("application/x-cohub-resource")) {
+			event.preventDefault();
+			dropActive = true;
+		}
+	}}
 	ondragleave={() => { dropActive = false; }}
 	ondrop={handleDrop}
 ></div>

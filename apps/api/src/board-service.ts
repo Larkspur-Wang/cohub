@@ -1,4 +1,4 @@
-import { and, eq, gt, isNull, lt, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, lt, sql } from "drizzle-orm";
 import {
   boardClips,
   boardEffects,
@@ -27,14 +27,19 @@ import {
   BOARD_BUILTIN_CAPABILITIES,
   DEFAULT_BOARD_RENDER_LIMITS,
 } from "@cohub/protocol";
+import {
+  collectTouchedNodeIds,
+  type ExistingNodeRow,
+  planNodeWrites,
+} from "./board-node-plan.js";
 import { db } from "./db/index.js";
 import { dispatchBoardPlaybackChanged, dispatchBoardTransactionApplied } from "./board-events.js";
 import {
   BoardServiceError,
   contextualValidation,
   normalizeBoardTransaction,
+  NODE_WRITE_CHUNK,
   type BoardValidationContext,
-  type NormalizedNodePatch,
   ZERO_BOARD_COST,
 } from "./board-ops.js";
 
@@ -264,13 +269,6 @@ function clipValues(boardId: string, sequenceId: string, clip: BoardClip) {
   };
 }
 
-async function assertNodeTarget(tx: Parameters<Parameters<typeof db.transaction>[0]>[0], boardId: string, target: BoardTarget): Promise<void> {
-  if (target.type !== "node") return;
-  const [node] = await tx.select({ nodeId: boardNodes.nodeId }).from(boardNodes)
-    .where(and(eq(boardNodes.boardId, boardId), eq(boardNodes.nodeId, target.nodeId), isNull(boardNodes.deletedAt))).limit(1);
-  if (!node) throw new BoardServiceError(400, `target node does not exist: ${target.nodeId}`, "INVALID_REFERENCE");
-}
-
 export async function applyBoardTransaction(input: {
   spaceId: string;
   actorId: string;
@@ -315,71 +313,37 @@ export async function applyBoardTransaction(input: {
     let metadata = board.metadata;
     let playback: BoardPlaybackSnapshot | null = null;
 
-    for (const operation of transaction.operations) {
+    // Node writes are planned in memory and flushed in bulk below, so their cost is
+    // a fixed number of round-trips rather than a few queries per operation - which
+    // is what let a large selection edit hold the board's row lock for as long as it
+    // had nodes. Effect/sequence/playback operations stay inline: they are few by
+    // nature and each carries its own bespoke cascade.
+    const touchedNodeIds = collectTouchedNodeIds(transaction.operations);
+    const nodeRows = touchedNodeIds.length
+      ? await tx.select().from(boardNodes)
+        .where(and(eq(boardNodes.boardId, transaction.boardId), inArray(boardNodes.nodeId, touchedNodeIds)))
+      : [];
+    const existingNodes = new Map<string, ExistingNodeRow>();
+    for (const row of nodeRows) {
+      const { boardId: _boardId, version: _version, createdAt: _createdAt, updatedAt: _updatedAt, deletedAt, ...fields } = row;
+      existingNodes.set(row.nodeId, { ...fields, deleted: deletedAt !== null });
+    }
+    const nodePlan = planNodeWrites(transaction.operations, { existing: existingNodes });
+
+    for (const [opIndex, operation] of transaction.operations.entries()) {
+      // Planned above; splice its journal entry back into the operation order.
+      const plannedEntry = nodePlan.journal.get(opIndex);
+      if (plannedEntry) {
+        operationRows.push(plannedEntry);
+        continue;
+      }
       if (operation.type === "board.patch") {
         operationRows.push({ type: operation.type, payload: operation.payload, inverse: { patch: { title, metadata } } });
         title = operation.payload.patch.title ?? title;
         metadata = operation.payload.patch.metadata ?? metadata;
         continue;
       }
-      if (operation.type === "node.create") {
-        const node = operation.payload.node;
-        const [existingNode] = await tx.select().from(boardNodes)
-          .where(and(eq(boardNodes.boardId, transaction.boardId), eq(boardNodes.nodeId, node.nodeId))).limit(1);
-        if (existingNode && !existingNode.deletedAt) {
-          throw new BoardServiceError(409, `node already exists: ${node.nodeId}`, "NODE_EXISTS");
-        }
-        if (node.parentId) await assertNodeTarget(tx, transaction.boardId, { type: "node", nodeId: node.parentId });
-        if (existingNode) {
-          await tx.update(boardNodes).set({ ...node, version: nextVersion, updatedAt: now, deletedAt: null })
-            .where(and(eq(boardNodes.boardId, transaction.boardId), eq(boardNodes.nodeId, node.nodeId)));
-        } else {
-          await tx.insert(boardNodes).values({ ...node, boardId: transaction.boardId, version: nextVersion, createdAt: now, updatedAt: now });
-        }
-        operationRows.push({ type: operation.type, payload: operation.payload, inverse: { type: "node.delete", payload: { nodeId: node.nodeId } } });
-        continue;
-      }
-      if (operation.type === "node.patch") {
-        const [previous] = await tx.select().from(boardNodes)
-          .where(and(eq(boardNodes.boardId, transaction.boardId), eq(boardNodes.nodeId, operation.payload.nodeId), isNull(boardNodes.deletedAt))).limit(1);
-        if (!previous) throw new BoardServiceError(404, "board node not found", "NODE_NOT_FOUND");
-        const patch = operation.payload.patch as NormalizedNodePatch;
-        if (patch.parentId) await assertNodeTarget(tx, transaction.boardId, { type: "node", nodeId: patch.parentId });
-        await tx.update(boardNodes).set({ ...patch, version: nextVersion, updatedAt: now })
-          .where(and(eq(boardNodes.boardId, transaction.boardId), eq(boardNodes.nodeId, operation.payload.nodeId)));
-        const inversePatch: Record<string, unknown> = {};
-        for (const key of Object.keys(patch)) inversePatch[key] = previous[key as keyof typeof previous];
-        operationRows.push({ type: operation.type, payload: operation.payload, inverse: { type: "node.patch", payload: { nodeId: operation.payload.nodeId, patch: inversePatch } } });
-        continue;
-      }
-      if (operation.type === "node.delete") {
-        const [dependentEffect] = await tx.select({ id: boardEffects.id }).from(boardEffects)
-          .where(and(eq(boardEffects.boardId, transaction.boardId), eq(boardEffects.targetType, "node"), eq(boardEffects.targetId, operation.payload.nodeId))).limit(1);
-        if (dependentEffect) throw new BoardServiceError(409, "delete node effects before deleting the node", "NODE_REFERENCED");
-        const referencingClips = await tx.select({ target: boardClips.target }).from(boardClips)
-          .where(eq(boardClips.boardId, transaction.boardId));
-        if (referencingClips.some(({ target }) => {
-          const value = target as BoardTarget;
-          return value.type === "node" && value.nodeId === operation.payload.nodeId;
-        })) {
-          throw new BoardServiceError(409, "delete node clips before deleting the node", "NODE_REFERENCED");
-        }
-        const [deleted] = await tx.update(boardNodes).set({
-          version: nextVersion,
-          updatedAt: now,
-          deletedAt: now,
-        }).where(and(
-          eq(boardNodes.boardId, transaction.boardId),
-          eq(boardNodes.nodeId, operation.payload.nodeId),
-          isNull(boardNodes.deletedAt),
-        )).returning();
-        if (!deleted) throw new BoardServiceError(404, "board node not found", "NODE_NOT_FOUND");
-        const { boardId: _boardId, version: _version, createdAt: _createdAt, updatedAt: _updatedAt, deletedAt: _deletedAt, ...node } = deleted;
-        operationRows.push({ type: operation.type, payload: operation.payload, inverse: { type: "node.create", payload: { node } } });
-        continue;
-      }
       if (operation.type === "effect.upsert") {
-        await assertNodeTarget(tx, transaction.boardId, operation.payload.effect.target);
         const [previous] = await tx.select().from(boardEffects)
           .where(and(eq(boardEffects.boardId, transaction.boardId), eq(boardEffects.id, operation.payload.effect.id))).limit(1);
         const values = effectValues(transaction.boardId, operation, (previous?.revision ?? -1) + 1, now);
@@ -406,14 +370,6 @@ export async function applyBoardTransaction(input: {
       }
       if (operation.type === "sequence.upsert") {
         const value = operation.payload.sequence;
-        for (const clip of operation.payload.clips) {
-          await assertNodeTarget(tx, transaction.boardId, clip.target);
-          if (clip.target.type === "effect") {
-            const [effect] = await tx.select({ id: boardEffects.id }).from(boardEffects)
-              .where(and(eq(boardEffects.boardId, transaction.boardId), eq(boardEffects.id, clip.target.effectId))).limit(1);
-            if (!effect) throw new BoardServiceError(400, `target effect does not exist: ${clip.target.effectId}`, "INVALID_REFERENCE");
-          }
-        }
         const [previous] = await tx.select().from(boardSequences)
           .where(and(eq(boardSequences.boardId, transaction.boardId), eq(boardSequences.id, value.id))).limit(1);
         const previousClips = previous
@@ -454,6 +410,9 @@ export async function applyBoardTransaction(input: {
         });
         continue;
       }
+      // Only sequence.delete remains: node operations were planned above, and the
+      // rest are handled by the branches before this point.
+      if (operation.type !== "sequence.delete") continue;
       const [previous] = await tx.select().from(boardSequences)
         .where(and(eq(boardSequences.boardId, transaction.boardId), eq(boardSequences.id, operation.payload.sequenceId))).limit(1);
       if (!previous) throw new BoardServiceError(404, "board sequence not found", "SEQUENCE_NOT_FOUND");
@@ -464,6 +423,48 @@ export async function applyBoardTransaction(input: {
       await tx.delete(boardClips).where(and(eq(boardClips.boardId, transaction.boardId), eq(boardClips.sequenceId, operation.payload.sequenceId)));
       await tx.delete(boardSequences).where(and(eq(boardSequences.boardId, transaction.boardId), eq(boardSequences.id, operation.payload.sequenceId)));
       operationRows.push({ type: operation.type, payload: operation.payload, inverse: { type: "sequence.upsert", payload: { sequence: sequenceFromRow(previous), clips: previousClips.map(clipFromRow) } } });
+    }
+
+    // Flush the planned node writes. Every touched node is written as its final
+    // state via one upsert, so a create, a patch, a revive of a soft-deleted row
+    // and a soft delete all collapse into the same statement. Chunked because
+    // Postgres caps bind parameters per statement.
+    if (nodePlan.writes.length) {
+      for (let offset = 0; offset < nodePlan.writes.length; offset += NODE_WRITE_CHUNK) {
+        const chunk = nodePlan.writes.slice(offset, offset + NODE_WRITE_CHUNK);
+        await tx.insert(boardNodes)
+          .values(chunk.map((write) => ({
+            ...write.fields,
+            boardId: transaction.boardId,
+            version: nextVersion,
+            createdAt: now,
+            updatedAt: now,
+            deletedAt: write.deleted ? now : null,
+          })))
+          .onConflictDoUpdate({
+            target: [boardNodes.boardId, boardNodes.nodeId],
+            // createdAt is deliberately absent: an existing row keeps its original.
+            set: {
+              type: sql`excluded.type`,
+              parentId: sql`excluded.parent_id`,
+              orderKey: sql`excluded.order_key`,
+              x: sql`excluded.x`,
+              y: sql`excluded.y`,
+              width: sql`excluded.width`,
+              height: sql`excluded.height`,
+              rotation: sql`excluded.rotation`,
+              refKind: sql`excluded.ref_kind`,
+              refPath: sql`excluded.ref_path`,
+              refUrl: sql`excluded.ref_url`,
+              view: sql`excluded.view`,
+              style: sql`excluded.style`,
+              data: sql`excluded.data`,
+              version: sql`excluded.version`,
+              updatedAt: sql`excluded.updated_at`,
+              deletedAt: sql`excluded.deleted_at`,
+            },
+          });
+      }
     }
 
     const [storedTransaction] = await tx.insert(boardTransactions).values({

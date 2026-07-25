@@ -1253,7 +1253,9 @@ export function createFileWorkspaceController(
 			await sdk.space(options.getSpaceId()).boards.create({
 				path,
 				title: fileName,
-				nodes: createEmptyBoardDocument().items.map(boardItemToNode),
+				nodes: createEmptyBoardDocument().items.map((item, index, all) =>
+					boardItemToNode(item, index, all.length),
+				),
 			});
 			await patchFsDirectory(parentPath, (entries) => [
 				...entries,

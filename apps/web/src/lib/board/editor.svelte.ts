@@ -37,9 +37,9 @@ import {
 import {
 	createArrowBoardItem,
 	createDrawBoardItem,
+	createFileNodeForPath,
 	createFrameBoardItem,
 	createGeoBoardItem,
-	createMediaBoardItem,
 	createNoteBoardItem,
 	createTextBoardItem,
 	duplicateBoardItem,
@@ -47,7 +47,11 @@ import {
 	removeBoardItems,
 	titleForBoardItem,
 } from "$lib/board/board-items";
-import type { ArrowEndpoint, DrawPoint } from "$lib/board/board-schema";
+import type {
+	ArrowEndpoint,
+	BoardFileSnapshot,
+	DrawPoint,
+} from "$lib/board/board-schema";
 import {
 	type AlignMode,
 	alignFrames,
@@ -68,6 +72,7 @@ import {
 	parseClipboard,
 } from "$lib/board/core/clipboard";
 import { itemsToSvg } from "$lib/board/core/export-svg";
+import { mergeFileSnapshot } from "$lib/board/core/file-preview";
 import {
 	shapeBounds,
 	shapeCapabilities,
@@ -335,6 +340,8 @@ export function createBoardEditor(options: BoardEditorOptions) {
 	let spatialVersion = 0;
 	let indexedVersion = -1;
 	let itemsById = new Map<string, BoardItem>();
+	/** Document index per id, kept alongside `itemsById` for incremental upserts. */
+	let indexById = new Map<string, number>();
 	/** Pending dirty ids for incremental spatial updates (null = full rebuild). */
 	let spatialDirty: Set<string> | null = null;
 
@@ -367,8 +374,10 @@ export function createBoardEditor(options: BoardEditorOptions) {
 			// Full rebuild path (membership change or first index).
 			const entries: SpatialEntry[] = [];
 			itemsById = new Map();
+			indexById = new Map();
 			current.forEach((item, index) => {
 				itemsById.set(item.id, item);
+				indexById.set(item.id, index);
 				entries.push({
 					id: item.id,
 					order: index,
@@ -379,23 +388,29 @@ export function createBoardEditor(options: BoardEditorOptions) {
 			return;
 		}
 
-		// Incremental: rebuild the id map order and upsert only dirty entries.
-		const nextById = new Map<string, BoardItem>();
+		// Incremental path: membership and order are unchanged (a structural change
+		// forces the full rebuild above), so only the dirty ids need re-reading.
+		// This is what keeps a drag off the O(n) path — the previous index is still
+		// valid, so each dirty item is found directly instead of by scanning.
 		const upserts = new Map<string, SpatialEntry | null>();
-		current.forEach((item, index) => {
-			nextById.set(item.id, item);
-			if (dirty.has(item.id)) {
-				upserts.set(item.id, {
-					id: item.id,
-					order: index,
-					rect: itemBounds(item.frame),
-				});
-			}
-		});
 		for (const id of dirty) {
-			if (!nextById.has(id)) upserts.set(id, null);
+			const index = indexById.get(id);
+			const item = index === undefined ? undefined : current[index];
+			if (index === undefined || !item || item.id !== id) {
+				// The id moved or vanished without a structural bump; drop it and let
+				// the next full rebuild restore consistency.
+				itemsById.delete(id);
+				indexById.delete(id);
+				upserts.set(id, null);
+				continue;
+			}
+			itemsById.set(id, item);
+			upserts.set(id, {
+				id,
+				order: index,
+				rect: itemBounds(item.frame),
+			});
 		}
-		itemsById = nextById;
 		spatial.upsert(upserts);
 	}
 
@@ -403,15 +418,25 @@ export function createBoardEditor(options: BoardEditorOptions) {
 	const document = $derived<BoardDocument>({ ...synced, viewport: camera });
 	const items = $derived(synced.items);
 	const dirty = $derived(localRev > committedRev);
-	const selectedFrames = $derived(
-		selection
-			.map((id) => synced.items.find((item) => item.id === id)?.frame)
-			.filter((frame): frame is BoardFrame => Boolean(frame)),
-	);
+	/**
+	 * Selected items, resolved through the id index.
+	 *
+	 * Deliberately not `items.filter(item => selection.includes(item.id))`: that is
+	 * O(items x selection), which turns select-all on a large board into a
+	 * quadratic scan on every dependent read.
+	 */
+	const selectedItems = $derived.by<BoardItem[]>(() => {
+		if (selection.length === 0) return [];
+		ensureSpatial();
+		const result: BoardItem[] = [];
+		for (const id of selection) {
+			const item = itemsById.get(id);
+			if (item) result.push(item);
+		}
+		return result;
+	});
+	const selectedFrames = $derived(selectedItems.map((item) => item.frame));
 	const bounds = $derived(selectionBounds(selectedFrames));
-	const selectedItems = $derived(
-		synced.items.filter((item) => selection.includes(item.id)),
-	);
 	const marquee = $derived.by<Rect | null>(() => {
 		if (interaction.type !== "brushing") return null;
 		const start = interaction.start;
@@ -444,9 +469,10 @@ export function createBoardEditor(options: BoardEditorOptions) {
 
 	/** Filter a selection down to unlocked items (locked shapes stay put). */
 	function unlockedIds(ids: Iterable<string>): string[] {
+		ensureSpatial();
 		const result: string[] = [];
 		for (const id of ids) {
-			const item = synced.items.find((entry) => entry.id === id);
+			const item = itemsById.get(id);
 			if (item && !isLocked(item)) result.push(id);
 		}
 		return result;
@@ -628,6 +654,14 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		maybeReturnToSelect();
 	}
 
+	/**
+	 * Place a workspace file on the board.
+	 *
+	 * Every file is accepted: images and videos become media nodes, and everything
+	 * else becomes a file card. A board should never refuse a file — it only varies
+	 * in how much detail it can show — so this always returns the created node's id
+	 * for the caller to enrich once a preview has been read.
+	 */
 	function addFile(
 		path: string,
 		at: WorldPoint,
@@ -640,10 +674,9 @@ export function createBoardEditor(options: BoardEditorOptions) {
 			naturalHeight?: number;
 		},
 	) {
-		const item = createMediaBoardItem(path, at.x, at.y, snapshot);
-		if (!item) return false;
+		const item = createFileNodeForPath(path, at.x, at.y, snapshot);
 		addItemAt(item);
-		return true;
+		return item.id;
 	}
 
 	function addText(text: string, at: WorldPoint) {
@@ -763,7 +796,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 	/** Finish an inline text edit, handling drafts and empty results. */
 	function commitTextEdit(id: string, text: string) {
 		const isDraft = id === draftId;
-		const target = synced.items.find((item) => item.id === id);
+		const target = itemById(id);
 		// An emptied *text* item (or an abandoned draft) is removed; a note/geo
 		// keeps its shape and simply loses its label.
 		const shouldDelete =
@@ -821,7 +854,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 	}
 
 	function deleteItem(id: string) {
-		const target = synced.items.find((item) => item.id === id);
+		const target = itemById(id);
 		if (!target || isLocked(target)) return;
 		const ids = new Set([id]);
 		for (const arrowId of boundArrowIds(ids)) ids.add(arrowId);
@@ -1208,8 +1241,56 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		requestCommit();
 	}
 
+	/**
+	 * Adopt freshly-read display facts for file cards.
+	 *
+	 * The snapshot is a cache of the referenced file, so this is a data repair, not
+	 * a user action: it stays off the undo stack (advancing the baseline so the next
+	 * real edit does not diff it back in) and is committed so other clients get an
+	 * instant first paint instead of each re-reading the file.
+	 *
+	 * The frame is deliberately left alone. A cover band is sized as a fraction of
+	 * whatever height the card has, so a snapshot arriving late never resizes a card
+	 * under the user.
+	 */
+	/**
+	 * Fold freshly read file previews into their cards. `replace` marks a read that
+	 * describes the file as it is now, so its omissions are authoritative — see
+	 * mergeFileSnapshot.
+	 */
+	function applyFileSnapshots(
+		snapshots: Array<{
+			id: string;
+			snapshot: BoardFileSnapshot;
+			replace?: boolean;
+		}>,
+	) {
+		if (snapshots.length === 0) return;
+		const byId = new Map(snapshots.map((entry) => [entry.id, entry]));
+		const dirty: string[] = [];
+		const next = synced.items.map((item) => {
+			if (item.type !== "file") return item;
+			const entry = byId.get(item.id);
+			if (!entry) return item;
+			const merged = mergeFileSnapshot(
+				item.snapshot,
+				entry.snapshot,
+				entry.replace === true,
+			);
+			// Skip when nothing actually changed, so this never manufactures a commit.
+			if (JSON.stringify(merged) === JSON.stringify(item.snapshot ?? {}))
+				return item;
+			dirty.push(item.id);
+			return { ...item, snapshot: merged };
+		});
+		if (dirty.length === 0) return;
+		setItems(next, false, dirty);
+		undoBaseline = document;
+		requestCommit();
+	}
+
 	function updateText(id: string, text: string) {
-		const target = synced.items.find((item) => item.id === id);
+		const target = itemById(id);
 		if (
 			!target ||
 			(target.type !== "text" &&
@@ -1268,6 +1349,17 @@ export function createBoardEditor(options: BoardEditorOptions) {
 	function idsInRect(rect: Rect): string[] {
 		ensureSpatial();
 		return spatial.idsInRect(rect);
+	}
+
+	/**
+	 * O(1) item lookup by id, backed by the spatial index's item map. Per-frame
+	 * callers must use this instead of scanning `items`: an O(n) scan per lookup
+	 * is the difference between a board that scales to thousands of nodes and one
+	 * that does not.
+	 */
+	function itemById(id: string): BoardItem | null {
+		ensureSpatial();
+		return itemsById.get(id) ?? null;
 	}
 
 	function handleAt(point: WorldPoint): ResizeHandle | null {
@@ -1790,9 +1882,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 			const frames = new Map<string, BoardFrame>();
 			if (interaction.single) {
 				const id = [...interaction.origin.keys()][0];
-				const item = id
-					? synced.items.find((candidate) => candidate.id === id)
-					: null;
+				const item = id ? itemById(id) : null;
 				if (id) {
 					// Aspect-locked shapes (text, media, strokes) never distort; for the
 					// rest Shift opts into proportional resize.
@@ -2235,6 +2325,13 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		get geometryVersion() {
 			return geometryVersion;
 		},
+		/**
+		 * True while a pointer gesture is mutating the document. Renderers use this
+		 * to skip work that only stale (non-gesture) nodes would need.
+		 */
+		get gestureActive() {
+			return interaction.type !== "idle";
+		},
 		get activeColor() {
 			return activeColor;
 		},
@@ -2293,6 +2390,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		setCamera,
 		viewCenter,
 		itemAt: topItemAt,
+		itemById,
 		idsInRect,
 		setSelection,
 		clearSelection,
@@ -2321,6 +2419,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		sendToBack,
 		updateText,
 		adoptMediaNaturalSizes,
+		applyFileSnapshots,
 		retrySave,
 		undo,
 		redo,

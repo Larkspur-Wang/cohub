@@ -5,6 +5,7 @@ import type {
 	BoardCardRenderer,
 	BoardRenderContext,
 } from "$lib/board/renderers/board-renderer-registry";
+import { drawFarPlate } from "$lib/board/renderers/far-plate";
 
 type ImageParts = {
 	root: Container;
@@ -51,7 +52,10 @@ function sync(
 	const texture = key ? context.getTexture(key) : null;
 	const failed = Boolean(key && !texture && context.hasError(key));
 	const texId = texture ? `${texture.width}x${texture.height}` : "none";
+	// The cache key is part of the signature so a pooled container adopted by a
+	// different image always swaps its texture, even at an identical frame size.
 	const sig = [
+		key ?? "",
 		width,
 		height,
 		selected,
@@ -154,6 +158,14 @@ export const imageCardRenderer: BoardCardRenderer = {
 				.fill({ color: 0xffffff });
 		}
 		sync(container, item, context);
+	},
+	// Far LOD: a neutral plate. Sampling the real texture here would mean one
+	// draw call per distinct image, defeating the batch.
+	renderFar: (graphics, item, context) => {
+		drawFarPlate(graphics, item.frame, {
+			fill: context.palette.hover,
+			fillAlpha: 0.9,
+		});
 	},
 	destroy: (container) => {
 		partsByContainer.get(container)?.root.destroy({ children: true });

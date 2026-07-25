@@ -10,6 +10,7 @@ import type {
 	BoardCardRenderer,
 	BoardRenderContext,
 } from "$lib/board/renderers/board-renderer-registry";
+import { drawFarStroke } from "$lib/board/renderers/far-plate";
 
 type DrawParts = {
 	root: Container;
@@ -93,6 +94,18 @@ export const drawCardRenderer: BoardCardRenderer = {
 	},
 	update: (container, item, context) => {
 		if (item.type === "draw") sync(container, item, context);
+	},
+	// Far LOD: the stroke's path is its content, so it is drawn as a decimated
+	// polyline rather than a plate. Batching it also keeps it in document order —
+	// as a live container it would sit above every plate on the board.
+	renderFar: (graphics, item, context) => {
+		if (item.type !== "draw") return;
+		const color = pickBoardColor(context.colors, item.color, context.colorMode);
+		drawFarStroke(graphics, item.points, {
+			color: color.stroke,
+			width: item.size,
+			alpha: 0.92,
+		});
 	},
 	destroy: (container) => {
 		partsByContainer.get(container)?.root.destroy({ children: true });

@@ -10,6 +10,7 @@ import type {
 	BoardCardRenderer,
 	BoardRenderContext,
 } from "$lib/board/renderers/board-renderer-registry";
+import { drawFarPlate } from "$lib/board/renderers/far-plate";
 
 type VideoParts = {
 	root: Container;
@@ -134,6 +135,15 @@ export const videoCardRenderer: BoardCardRenderer = {
 	},
 	update: (container, item, context) => {
 		if (item.type === "video") sync(container, item, context);
+	},
+	// Far LOD: plate plus a brand accent band, so video reads apart from stills.
+	renderFar: (graphics, item, context) => {
+		drawFarPlate(graphics, item.frame, {
+			fill: context.palette.surface,
+			fillAlpha: 0.96,
+			accent: context.palette.brand,
+			accentAlpha: 0.75,
+		});
 	},
 	destroy: (container) => {
 		partsByContainer.get(container)?.root.destroy({ children: true });

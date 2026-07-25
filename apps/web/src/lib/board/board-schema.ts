@@ -185,6 +185,43 @@ export const BoardVideoItemSchema = BoardItemBaseSchema.extend({
 });
 
 /**
+ * Cached display facts for a file card.
+ *
+ * Purely derived from the referenced file and versioned by `mtimeMs`, so it is a
+ * cache and never a second source of truth: the workspace file remains
+ * authoritative, and a stale snapshot is detectable rather than silently wrong.
+ * It is stored so that opening a board renders complete cards immediately, with
+ * no per-node file read on the first paint.
+ */
+export const BoardFileSnapshotSchema = z.object({
+	title: z.string().optional(),
+	mimeType: z.string().optional(),
+	size: z.number().finite().nonnegative().optional(),
+	mtimeMs: z.number().finite().nonnegative().optional(),
+	/** Cleaned leading prose. Capped when written (see FILE_EXCERPT_MAX_CHARS). */
+	excerpt: z.string().optional(),
+	/** Cover image inside the space, already resolved to a workspace path. */
+	coverPath: z.string().optional(),
+	/** Cover image at an absolute https URL, as declared by the file itself. */
+	coverUrl: z.string().optional(),
+});
+
+/**
+ * File node — a thumbnail entry point to any workspace file.
+ *
+ * This is the fallback for every dropped file that is not natively an image or
+ * video, including binaries and unknown extensions: a board should never refuse
+ * a file, only present it with less detail. Presentation tiers are derived from
+ * the snapshot (see filePreviewKind), not stored, so there is no display state
+ * to drift from the facts.
+ */
+export const BoardFileItemSchema = BoardItemBaseSchema.extend({
+	type: z.literal("file"),
+	ref: SpaceFileRefSchema,
+	snapshot: BoardFileSnapshotSchema.optional(),
+});
+
+/**
  * The set of shape types this client understands natively. Anything else is
  * preserved verbatim as an unknown item (see BoardUnknownItem) so documents
  * authored by newer clients round-trip losslessly — data is never dropped or
@@ -193,6 +230,7 @@ export const BoardVideoItemSchema = BoardItemBaseSchema.extend({
 export const KNOWN_BOARD_ITEM_TYPES = [
 	"image",
 	"video",
+	"file",
 	"text",
 	"note",
 	"geo",
@@ -250,6 +288,10 @@ export function parseBoardItemLoose(raw: unknown): BoardItem {
 		}
 		case "video": {
 			const parsed = BoardVideoItemSchema.safeParse(raw);
+			return parsed.success ? parsed.data : makeUnknownItem(raw);
+		}
+		case "file": {
+			const parsed = BoardFileItemSchema.safeParse(raw);
 			return parsed.success ? parsed.data : makeUnknownItem(raw);
 		}
 		case "text": {
@@ -330,10 +372,13 @@ export type BoardArrowItem = z.infer<typeof BoardArrowItemSchema>;
 export type BoardFrameItem = z.infer<typeof BoardFrameItemSchema>;
 export type BoardImageItem = z.infer<typeof BoardImageItemSchema>;
 export type BoardVideoItem = z.infer<typeof BoardVideoItemSchema>;
+export type BoardFileSnapshot = z.infer<typeof BoardFileSnapshotSchema>;
+export type BoardFileItem = z.infer<typeof BoardFileItemSchema>;
 /** Known (natively handled) item variants. */
 export type BoardKnownItem =
 	| BoardImageItem
 	| BoardVideoItem
+	| BoardFileItem
 	| BoardTextItem
 	| BoardNoteItem
 	| BoardGeoItem
@@ -352,4 +397,11 @@ export function isMediaItem(
 	item: BoardItem,
 ): item is BoardImageItem | BoardVideoItem {
 	return item.type === "image" || item.type === "video";
+}
+
+/** Whether an item references a workspace file (image, video or file card). */
+export function isFileBackedItem(
+	item: BoardItem,
+): item is BoardImageItem | BoardVideoItem | BoardFileItem {
+	return item.type === "image" || item.type === "video" || item.type === "file";
 }

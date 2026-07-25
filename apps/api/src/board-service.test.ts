@@ -11,7 +11,10 @@ import {
   contextualValidation,
   normalizeBoardOperation,
   normalizeBoardTransaction,
+  normalizeNodes,
   structuralValidation,
+  MAX_BOARD_NODES,
+  NODE_WRITE_CHUNK,
 } from "./board-ops.js";
 
 const boardId = "11111111-1111-4111-8111-111111111111";
@@ -279,5 +282,139 @@ test("requires extension asset digests", () => {
       },
     }),
     (error) => error instanceof BoardServiceError && error.status === 400,
+  );
+});
+
+/**
+ * Reference integrity across entity kinds is validated once, up front, against a
+ * simulation of the whole transaction. These cases are the reason it lives there
+ * and not in the apply path: each one is only legal *because* of the order its
+ * operations appear in, so any check reading a pre-transaction snapshot rejects it.
+ */
+
+function nodeInput(nodeId: string) {
+  return {
+    nodeId,
+    type: "note",
+    parentId: null,
+    orderKey: null,
+    x: 0,
+    y: 0,
+    width: 100,
+    height: 40,
+    rotation: 0,
+    refKind: null,
+    refPath: null,
+    refUrl: null,
+    view: {},
+    style: {},
+    data: {},
+  };
+}
+
+function effectInput(id: string, nodeId: string) {
+  return {
+    id,
+    kind: "effects.pulse",
+    kindVersion: 1,
+    target: { type: "node" as const, nodeId },
+    params: {},
+    lifecycle: "persistent" as const,
+    timeOrigin: "board" as const,
+    seed: "seed-1",
+    revision: 0,
+  };
+}
+
+function errorsOf(validation: { diagnostics: Array<{ severity: string; code: string }> }) {
+  return validation.diagnostics
+    .filter((diagnostic) => diagnostic.severity === "error")
+    .map((diagnostic) => diagnostic.code);
+}
+
+test("an effect may target a node created earlier in the same transaction", () => {
+  const transaction = normalizeBoardTransaction({
+    txId: "tx-order-1",
+    boardId,
+    baseVersion: 0,
+    operations: [
+      { type: "node.create", payload: { node: nodeInput("fresh") } },
+      { type: "effect.upsert", payload: { effect: effectInput("fx", "fresh") } },
+    ],
+  });
+  const validation = contextualValidation(transaction, {
+    boardVersion: 0,
+    nodeIds: [],
+    effects: [],
+    sequences: [],
+  });
+  assert.deepEqual(errorsOf(validation), []);
+});
+
+test("a node becomes deletable once the effect referencing it is deleted", () => {
+  const transaction = normalizeBoardTransaction({
+    txId: "tx-order-2",
+    boardId,
+    baseVersion: 0,
+    operations: [
+      { type: "effect.delete", payload: { effectId: "fx" } },
+      { type: "node.delete", payload: { nodeId: "pinned" } },
+    ],
+  });
+  const validation = contextualValidation(transaction, {
+    boardVersion: 0,
+    nodeIds: ["pinned"],
+    effects: [effectInput("fx", "pinned")],
+    sequences: [],
+  });
+  assert.deepEqual(errorsOf(validation), []);
+  // The same two operations in the opposite order are still correctly refused.
+  const reversed = normalizeBoardTransaction({
+    txId: "tx-order-3",
+    boardId,
+    baseVersion: 0,
+    operations: [
+      { type: "node.delete", payload: { nodeId: "pinned" } },
+      { type: "effect.delete", payload: { effectId: "fx" } },
+    ],
+  });
+  assert.deepEqual(
+    errorsOf(contextualValidation(reversed, {
+      boardVersion: 0,
+      nodeIds: ["pinned"],
+      effects: [effectInput("fx", "pinned")],
+      sequences: [],
+    })),
+    ["NODE_REFERENCED"],
+  );
+});
+
+test("board nodes are bounded by bytes, not only by count", () => {
+  // A node carries free-form view/style/data, so a legal count says nothing about
+  // the size of the request behind it.
+  const fat = (index: number) => ({
+    ...nodeInput(`n${index}`),
+    data: { blob: "x".repeat(64 * 1024) },
+  });
+  assert.throws(
+    () => normalizeNodes(Array.from({ length: 600 }, (_, index) => fat(index))),
+    (error: unknown) =>
+      error instanceof BoardServiceError && error.status === 413,
+  );
+  // A count above the cap is still refused on count alone.
+  assert.throws(
+    () => normalizeNodes(Array.from({ length: MAX_BOARD_NODES + 1 }, (_, i) => nodeInput(`n${i}`))),
+    (error: unknown) =>
+      error instanceof BoardServiceError && error.status === 413,
+  );
+});
+
+test("a node write chunk cannot exceed Postgres's bind parameter limit", () => {
+  // A node row binds ~18 parameters; the ceiling is 65535 per statement.
+  const PARAMS_PER_ROW = 20;
+  const POSTGRES_MAX_BIND_PARAMS = 65535;
+  assert.ok(
+    NODE_WRITE_CHUNK * PARAMS_PER_ROW < POSTGRES_MAX_BIND_PARAMS,
+    `${NODE_WRITE_CHUNK} rows per statement is too many`,
   );
 });

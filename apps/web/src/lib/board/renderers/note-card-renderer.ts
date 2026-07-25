@@ -11,6 +11,7 @@ import type {
 	BoardCardRenderer,
 	BoardRenderContext,
 } from "$lib/board/renderers/board-renderer-registry";
+import { drawFarPlate } from "$lib/board/renderers/far-plate";
 
 const RADIUS = 8;
 const PADDING = 12;
@@ -126,6 +127,18 @@ export const noteCardRenderer: BoardCardRenderer = {
 	},
 	update: (container, item, context) => {
 		if (item.type === "note") sync(container, item, context);
+	},
+	// Far LOD: the note's own colour carries the meaning, so keep the tint and
+	// drop the text.
+	renderFar: (graphics, item, context) => {
+		if (item.type !== "note") return;
+		const color = pickBoardColor(context.colors, item.color, context.colorMode);
+		drawFarPlate(graphics, item.frame, {
+			fill: color.fill,
+			fillAlpha: 0.28,
+			accent: color.stroke,
+			accentAlpha: 0.95,
+		});
 	},
 	destroy: (container) => {
 		partsByContainer.get(container)?.root.destroy({ children: true });

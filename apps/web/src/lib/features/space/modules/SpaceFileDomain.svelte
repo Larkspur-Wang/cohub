@@ -446,6 +446,7 @@ function closePreviewTab(kind: "file" | "board" | "port", key: string) {
 		onCommit={onCommitInlineBoard}
 		onRetrySave={onRetryInlineBoardSave}
 		onViewStateChange={onBoardViewStateChange}
+		onOpenFile={onOpenInlineFile}
 		/>
 {/if}
 

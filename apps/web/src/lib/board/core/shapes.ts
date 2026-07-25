@@ -77,6 +77,25 @@ const videoDefinition: ShapeDefinition = {
 	},
 };
 
+/**
+ * File card — the universal fallback for any workspace file.
+ *
+ * Its content is chrome and text at a fixed internal layout rather than a single
+ * intrinsically-scaled image, so the frame is free-form (no aspect lock) and
+ * rotation stays off to keep labels legible. `canEdit` is false because
+ * activating a file card opens the file in the workspace preview — the same
+ * destination as clicking it in the file tree — instead of entering an inline
+ * canvas editor.
+ */
+const fileDefinition: ShapeDefinition = {
+	type: "file",
+	capabilities: {
+		...FULL_CAPABILITIES,
+		canEdit: false,
+		canRotate: false,
+	},
+};
+
 /** Precise containment for a geo shape in its local (unrotated) space. */
 function geoContainsLocal(item: BoardGeoItem, local: WorldPoint): boolean {
 	const w = item.frame.width;
@@ -221,6 +240,7 @@ export function registerBuiltinShapes() {
 		noteDefinition,
 		imageDefinition,
 		videoDefinition,
+		fileDefinition,
 		geoDefinition,
 		drawDefinition,
 		arrowDefinition,

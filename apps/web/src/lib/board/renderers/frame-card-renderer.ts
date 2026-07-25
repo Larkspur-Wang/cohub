@@ -10,6 +10,7 @@ import type {
 	BoardCardRenderer,
 	BoardRenderContext,
 } from "$lib/board/renderers/board-renderer-registry";
+import { drawFarPlate } from "$lib/board/renderers/far-plate";
 
 type FrameParts = {
 	root: Container;
@@ -98,6 +99,26 @@ export const frameCardRenderer: BoardCardRenderer = {
 	},
 	update: (container, item, context) => {
 		sync(container, item, context);
+	},
+	/**
+	 * Far LOD: a frame is a background region, so it draws as a faint wash with no
+	 * label.
+	 *
+	 * Batching it is what keeps it *behind* its contents. As a live container it
+	 * would be drawn above the whole far layer no matter where the document places
+	 * it, so a frame would hide every card inside it.
+	 */
+	renderFar: (graphics, item, context) => {
+		if (item.type !== "frame") return;
+		const palette = pickBoardColor(
+			context.colors,
+			item.color,
+			context.colorMode,
+		);
+		drawFarPlate(graphics, item.frame, {
+			fill: palette.fill,
+			fillAlpha: 0.07,
+		});
 	},
 	destroy: (container) => {
 		partsByContainer.delete(container);

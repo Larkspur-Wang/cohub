@@ -10,6 +10,7 @@ import type {
 	BoardCardRenderer,
 	BoardRenderContext,
 } from "$lib/board/renderers/board-renderer-registry";
+import { drawFarPlate } from "$lib/board/renderers/far-plate";
 
 const RADIUS = 10;
 
@@ -107,6 +108,14 @@ export const unknownCardRenderer: BoardCardRenderer = {
 	},
 	update: (container, item, context) => {
 		if ("raw" in item) sync(container, item as BoardUnknownItem, context);
+	},
+	// Far LOD: a neutral plate. An unrecognised node still occupies space, and being
+	// in the batch is what keeps it in document order.
+	renderFar: (graphics, item, context) => {
+		drawFarPlate(graphics, item.frame, {
+			fill: context.palette.muted,
+			fillAlpha: 0.2,
+		});
 	},
 	destroy: (container) => {
 		partsByContainer.get(container)?.root.destroy({ children: true });

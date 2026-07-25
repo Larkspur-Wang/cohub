@@ -1,8 +1,9 @@
-import type { Container, Texture } from "pixi.js";
+import type { Container, Graphics, Texture } from "pixi.js";
 import type { BoardDocument, BoardItem } from "$lib/board/board-schema";
 import type { BoardShapeColors } from "$lib/board/core/palette";
 import { arrowCardRenderer } from "$lib/board/renderers/arrow-card-renderer";
 import { drawCardRenderer } from "$lib/board/renderers/draw-card-renderer";
+import { fileCardRenderer } from "$lib/board/renderers/file-card-renderer";
 import { frameCardRenderer } from "$lib/board/renderers/frame-card-renderer";
 import { geoCardRenderer } from "$lib/board/renderers/geo-card-renderer";
 import { imageCardRenderer } from "$lib/board/renderers/image-card-renderer";
@@ -26,6 +27,12 @@ export type BoardRenderPalette = {
 
 export type BoardRenderContext = {
 	document: BoardDocument;
+	/**
+	 * O(1) item lookup by id. Renderers that need to resolve references (arrow
+	 * bindings) must use this rather than scanning `document.items`, which would
+	 * be O(items) per card per frame.
+	 */
+	getItem: (id: string) => BoardItem | null;
 	selectedIds: Set<string>;
 	hoveredId: string | null;
 	/** Nodes currently receiving a live resize preview. */
@@ -46,6 +53,12 @@ export type BoardRenderContext = {
 	getTexture: (key: string) => Texture | null;
 	/** Whether the image for a key failed to load (for a failure placeholder). */
 	hasError: (key: string) => boolean;
+	/**
+	 * Whether a referenced workspace file could not be read, and why. Transient,
+	 * client-local state — never part of the document — so one client's outage is
+	 * not shown to everyone.
+	 */
+	fileState: (path: string) => "ok" | "missing" | "unavailable";
 	/** Reference-counted texture acquisition / release keyed by image key. */
 	acquireTexture: (key: string) => void;
 	releaseTexture: (key: string) => void;
@@ -61,6 +74,23 @@ export type BoardCardRenderer = {
 		item: BoardItem,
 		context: BoardRenderContext,
 	) => void;
+	/**
+	 * Draw the item as flat batched geometry into a shared `Graphics`, for the
+	 * far LOD used when too many cards are on screen to afford a container each.
+	 *
+	 * Implementing this opts the shape into the far layer: past the scene's
+	 * visible-card threshold it is drawn here instead of being materialised, so
+	 * cost stops scaling with node count. Omit it for shapes whose whole point is
+	 * their vector detail (strokes, arrows, frames) — those keep real containers.
+	 *
+	 * Must draw in world space and must not allocate per call beyond the path
+	 * itself; this runs once per far-capable item on every far-layer rebuild.
+	 */
+	renderFar?: (
+		graphics: Graphics,
+		item: BoardItem,
+		context: BoardRenderContext,
+	) => void;
 	destroy?: (container: Container, context: BoardRenderContext) => void;
 };
 
@@ -69,12 +99,22 @@ const boardCardRenderers: BoardCardRenderer[] = [
 	noteCardRenderer,
 	imageCardRenderer,
 	videoCardRenderer,
+	fileCardRenderer,
 	geoCardRenderer,
 	drawCardRenderer,
 	arrowCardRenderer,
 	frameCardRenderer,
 	unknownCardRenderer,
 ];
+
+/**
+ * Every registered renderer, for invariants that must hold across all of them —
+ * notably that each can draw itself at far LOD, which is what keeps the far
+ * layer's z-order correct (see board-scene).
+ */
+export function boardCardRenderersForTest(): readonly BoardCardRenderer[] {
+	return boardCardRenderers;
+}
 
 export function getBoardCardRenderer(
 	item: BoardItem,

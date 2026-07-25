@@ -33,6 +33,7 @@ import {
 	isBlockingAccessState,
 } from "$lib/access/access-state";
 import { floatNear } from "$lib/actions/portal";
+import { invalidateFilePreview } from "$lib/board/board-file-preview-source";
 import type { BoardDocument } from "$lib/board/board-schema";
 import { spaceFsRepo } from "$lib/cache/repositories/space-fs-repo";
 import { spaceRecordRepo } from "$lib/cache/repositories/space-record-repo";
@@ -1178,6 +1179,22 @@ async function handleSpaceFsChanged(payload: ChannelEnvelope) {
 	const shouldRefreshSpaceConfig =
 		eventPayload.resync || spaceConfigChanged(eventPayload.changes);
 	if (shouldRefreshSpaceConfig) refreshSpaceConfig(spaceId);
+	// Board file cards cache a preview of the file they reference; drop the cached
+	// preview for changed paths so visible cards pick up the new content. The event's
+	// own metadata rides along, which spares a stat request per card — and is the
+	// only way a card whose content is never read (a PDF, an archive) refreshes its
+	// size and mtime at all.
+	for (const change of eventPayload.changes ?? []) {
+		const meta = {
+			size: change.size,
+			mtimeMs: change.mtimeMs,
+			removed: change.kind === "delete",
+		};
+		if (change.path) invalidateFilePreview(spaceId, change.path, meta);
+		// The old path of a rename is gone regardless of the event's kind.
+		if (change.oldPath)
+			invalidateFilePreview(spaceId, change.oldPath, { removed: true });
+	}
 	const { refreshDirs: dirsToRefresh } = await spaceFsRepo.applyFsChanged(
 		spaceId,
 		eventPayload as Parameters<typeof spaceFsRepo.applyFsChanged>[1],

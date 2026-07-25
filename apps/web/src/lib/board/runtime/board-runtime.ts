@@ -47,6 +47,12 @@ export type BoardRuntimeProps = {
 	) => void | Promise<void>;
 	onRetrySync?: () => void | Promise<void>;
 	onViewStateChange?: (state: BoardRuntimeViewState) => void;
+	/**
+	 * Open a workspace file in the preview panel. File cards on the board route
+	 * here so activating one lands in the same place as clicking the file in the
+	 * file tree, rather than opening a second, board-specific viewer.
+	 */
+	onOpenFile?: (path: string) => void | Promise<void>;
 };
 
 const loadCohubPixiRuntime = createLazyModuleLoader(

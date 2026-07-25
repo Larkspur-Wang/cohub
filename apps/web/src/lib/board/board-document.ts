@@ -13,12 +13,14 @@ import {
 	type BoardDocument,
 	BoardDocumentSchema,
 	type BoardDrawItem,
+	BoardFileSnapshotSchema,
 	type BoardItem,
 	type BoardMediaSnapshot,
 	isUnknownItem,
 	UNKNOWN_BOARD_ITEM_TYPE,
 	unknownRealType,
 } from "$lib/board/board-schema";
+import { assignOrderKeys, sparseOrderKey } from "$lib/board/core/order-key";
 import {
 	clampBoardTextFontSize,
 	TEXT_FONT_SIZE,
@@ -287,6 +289,22 @@ function boardNodeToItemValue(node: BoardNodeRecord): BoardItem {
 				style,
 			};
 		}
+		case "file": {
+			const path = spaceFilePathFromNode(node) ?? "missing";
+			// Display facts live in `view` alongside image/video snapshots; they are a
+			// cache of the referenced file, so a malformed one degrades to a blank
+			// card rather than failing the node.
+			const parsed = BoardFileSnapshotSchema.safeParse(node.view ?? {});
+			return {
+				id: node.nodeId,
+				type: "file",
+				ref: { kind: "space-file", path },
+				...(parsed.success ? { snapshot: parsed.data } : {}),
+				frame,
+				...(locked ? { locked } : {}),
+				style,
+			};
+		}
 		default: {
 			// Unknown shape type: preserve the node's opaque fields verbatim so a
 			// newer client's shape survives a round-trip through this client. The
@@ -328,20 +346,21 @@ export function boardNodeToItem(node: BoardNodeRecord): BoardItem {
  * Map a board item to a server node input. Known shapes patch their semantic
  * fields over the original wire record, preserving fields owned by newer
  * clients or another runtime.
+ *
+ * `orderKey` is supplied by the caller rather than derived from an index: it is a
+ * property of the node's position *relative to its neighbours* (see
+ * core/order-key), not of its array index, which is what keeps a delete from
+ * re-keying the rest of the board.
  */
-function boardItemToNodeWithOrder(
+function boardItemToNodeWithKey(
 	item: BoardItem,
-	index: number,
-	rewriteOrderKey: boolean,
+	orderKey: string,
 ): BoardNodeInput {
 	const source = sourceForItem(item);
 	const base = {
 		nodeId: item.id,
 		parentId: source?.parentId ?? null,
-		orderKey:
-			rewriteOrderKey || !source
-				? String(index).padStart(8, "0")
-				: (source.orderKey ?? String(index).padStart(8, "0")),
+		orderKey,
 		x: item.frame.x,
 		y: item.frame.y,
 		width: item.frame.width,
@@ -483,6 +502,18 @@ function boardItemToNodeWithOrder(
 				view: { ...preservedView, ...(item.snapshot ?? {}) },
 				data: dataWith({}),
 			};
+		case "file":
+			return {
+				...base,
+				type: "file",
+				refKind: "space_file",
+				refPath: item.ref.path,
+				// A cover URL is display data, never a node ref: the server rejects
+				// network URLs in refUrl, and the ref must stay the workspace file.
+				refUrl: null,
+				view: { ...preservedView, ...(item.snapshot ?? {}) },
+				data: dataWith({}),
+			};
 		default: {
 			const fallback = item as { type: string; raw?: Record<string, unknown> };
 			const rawData: Record<string, unknown> = {};
@@ -501,11 +532,21 @@ function boardItemToNodeWithOrder(
 	}
 }
 
+/**
+ * Map an item to a node input, keeping whatever order key it already carries.
+ * Used for the *before* side of a diff (which must reproduce what the server
+ * currently holds) and by callers that only need the node's other fields.
+ *
+ * `count` sizes the fallback key for items that have never been synced, so a run
+ * of them lands at one width. Mixed widths would not sort lexicographically.
+ */
 export function boardItemToNode(
 	item: BoardItem,
 	index: number,
+	count = index + 1,
 ): BoardNodeInput {
-	return boardItemToNodeWithOrder(item, index, false);
+	const existing = sourceForItem(item)?.orderKey;
+	return boardItemToNodeWithKey(item, existing ?? sparseOrderKey(index, count));
 }
 
 export function boardBootstrapToDocument(input: {
@@ -575,46 +616,99 @@ function nodePatch(before: BoardNodeInput, after: BoardNodeInput) {
 	return Object.keys(patch).length ? { patch, inverse } : null;
 }
 
+/**
+ * Diff two documents into board operations.
+ *
+ * Node conversion is the expensive part (it rebuilds every node's wire record and
+ * JSON-compares it), so unchanged items skip it entirely: the editor updates state
+ * immutably, which means an item untouched by an edit is still the *same object*.
+ * A drag among ten thousand nodes therefore converts only the nodes that moved,
+ * instead of the whole document twice.
+ *
+ * Order keys are minted between neighbours (see core/order-key), so membership
+ * changes no longer force a rewrite: deleting a node emits one delete, and an
+ * append emits one create. Only nodes whose key genuinely had to move are
+ * converted. Losing the identity fast path (e.g. if a caller deep-clones items)
+ * costs time, never correctness.
+ */
 export function diffBoardDocuments(
 	before: BoardDocument,
 	after: BoardDocument,
 ): BoardOperation[] {
-	const orderChanged =
-		before.items.length !== after.items.length ||
-		before.items.some((item, index) => after.items[index]?.id !== item.id);
-	const beforeNodes = new Map(
-		before.items.map((item, index) => [item.id, boardItemToNode(item, index)]),
+	const beforeById = new Map<string, { item: BoardItem; index: number }>();
+	before.items.forEach((item, index) => {
+		beforeById.set(item.id, { item, index });
+	});
+
+	// Resolve the target order keys once for the whole document. Existing keys are
+	// kept wherever they already express the requested order, so this returns only
+	// the nodes that actually have to be re-keyed — usually none.
+	const keyOf = (index: number) =>
+		sourceForItem(after.items[index] as BoardItem)?.orderKey ?? null;
+	const rekeyed = assignOrderKeys(
+		after.items.length,
+		(index) => (after.items[index] as BoardItem).id,
+		keyOf,
 	);
-	const afterNodes = new Map(
-		after.items.map((item, index) => [
-			item.id,
-			boardItemToNodeWithOrder(item, index, orderChanged),
-		]),
-	);
+
 	const ops: BoardOperation[] = [];
-	for (const [nodeId, node] of afterNodes) {
-		const previous = beforeNodes.get(nodeId);
+	const seen = new Set<string>();
+	after.items.forEach((item, index) => {
+		seen.add(item.id);
+		const rekey = rekeyed.get(item.id);
+		const orderKey =
+			rekey ?? keyOf(index) ?? sparseOrderKey(index, after.items.length);
+		const previous = beforeById.get(item.id);
 		if (!previous) {
-			ops.push({ type: "node.create", payload: { node }, inverse: { nodeId } });
-			continue;
+			ops.push({
+				type: "node.create",
+				payload: { node: boardItemToNodeWithKey(item, orderKey) },
+				inverse: { nodeId: item.id },
+			});
+			return;
 		}
-		const diff = nodePatch(previous, node);
+		// Same object and same key: provably identical wire record, skip conversion.
+		if (previous.item === item && rekey === undefined) return;
+		const diff = nodePatch(
+			boardItemToNode(previous.item, previous.index, before.items.length),
+			boardItemToNodeWithKey(item, orderKey),
+		);
 		if (diff)
 			ops.push({
 				type: "node.patch",
-				payload: { nodeId, patch: diff.patch },
+				payload: { nodeId: item.id, patch: diff.patch },
 				inverse: diff.inverse,
 			});
-	}
-	for (const [nodeId, node] of beforeNodes) {
-		if (!afterNodes.has(nodeId))
-			ops.push({
-				type: "node.delete",
-				payload: { nodeId, reason: "user-delete" },
-				inverse: { node },
-			});
+	});
+
+	for (const [nodeId, previous] of beforeById) {
+		if (seen.has(nodeId)) continue;
+		ops.push({
+			type: "node.delete",
+			payload: { nodeId, reason: "user-delete" },
+			inverse: {
+				node: boardItemToNode(
+					previous.item,
+					previous.index,
+					before.items.length,
+				),
+			},
+		});
 	}
 	return ops;
+}
+
+/**
+ * Strip the client-only fields from operations before sending them to the server.
+ *
+ * `inverse` exists so undo can be computed locally and is discarded server-side,
+ * but it is by far the largest part of an operation: on a delete it is the entire
+ * node record, which made the wire payload ~5x bigger than the information it
+ * carried. It also counts against the server's per-transaction byte cap, so
+ * sending it made large edits fail sooner for no benefit.
+ */
+export function toWireOperations(ops: BoardOperation[]): BoardOperation[] {
+	return ops.map(({ inverse: _inverse, ...rest }) => rest as BoardOperation);
 }
 
 export function invertBoardOps(ops: BoardOperation[]): BoardOperation[] {
@@ -693,7 +787,7 @@ export function applyBoardOps(
 		items = items.map((item, index) => {
 			if (item.id !== nodeId) return item;
 			return nodeInputToItem({
-				...boardItemToNode(item, index),
+				...boardItemToNode(item, index, items.length),
 				...patch,
 				nodeId,
 			});

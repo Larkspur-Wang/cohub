@@ -4,6 +4,7 @@ import {
 	ArrowUpToLine,
 	BoxSelect,
 	Copy,
+	ExternalLink,
 	LocateFixed,
 	Pencil,
 	Trash2,
@@ -16,10 +17,12 @@ const {
 	editor,
 	position,
 	onClose,
+	onOpenFile,
 }: {
 	editor: BoardEditor;
 	position: { x: number; y: number };
 	onClose: () => void;
+	onOpenFile?: (path: string) => void | Promise<void>;
 } = $props();
 
 let menu: HTMLDivElement | null = $state(null);
@@ -31,6 +34,12 @@ const hasSelection = $derived(editor.selection.length > 0);
 const singleText = $derived(
 	editor.selectedItems.length === 1 && editor.selectedItems[0]?.type === "text",
 );
+/** The single selected file card, if that is what the selection is. */
+const singleFile = $derived.by(() => {
+	if (editor.selectedItems.length !== 1) return null;
+	const item = editor.selectedItems[0];
+	return item?.type === "file" ? item : null;
+});
 
 type MenuAction = {
 	label: string;
@@ -41,6 +50,15 @@ type MenuAction = {
 
 const actions = $derived.by<MenuAction[]>(() => {
 	const list: MenuAction[] = [];
+	const file = singleFile;
+	if (file && onOpenFile)
+		list.push({
+			label: "Open file",
+			icon: ExternalLink,
+			run: () => {
+				void onOpenFile(file.ref.path);
+			},
+		});
 	if (singleText)
 		list.push({
 			label: "Edit text",

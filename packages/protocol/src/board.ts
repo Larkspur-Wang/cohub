@@ -233,7 +233,7 @@ export type BoardBootstrap = {
 export const BoardCreateInputSchema = z.object({
   path: z.string().min(1),
   title: z.string().min(1).max(255).optional(),
-  nodes: z.array(BoardNodeInputSchema).max(10_000).optional(),
+  nodes: z.array(BoardNodeInputSchema).max(50_000).optional(),
   effects: z.array(BoardEffectSchema.omit({ boardId: true, revision: true })).optional(),
   sequences: z.array(z.object({
     sequence: BoardSequenceSchema.omit({ boardId: true, revision: true }),

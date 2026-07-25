@@ -21,6 +21,7 @@ import {
 	resolveArrow,
 } from "$lib/board/core/bindings";
 import { buildStrokeOutline } from "$lib/board/core/draw-geometry";
+import { fileBaseName, fileTypeLabel } from "$lib/board/core/file-preview";
 import { resolveBoardColor } from "$lib/board/core/palette";
 
 const ESC: Record<string, string> = {
@@ -152,6 +153,26 @@ function exportFrame(item: BoardItem): string {
 	return `<g><rect x="${frame.x}" y="${frame.y}" width="${frame.width}" height="${frame.height}" rx="4" fill="none" stroke="${stroke}" stroke-width="1.5" stroke-dasharray="6 4"/><text x="${frame.x + 4}" y="${frame.y - 6}" fill="${stroke}" font-family="Geist, system-ui, sans-serif" font-size="12">${escapeXml(label || "Frame")}</text></g>`;
 }
 
+/**
+ * File card export: plate, title and type line.
+ *
+ * Covers are not inlined. Embedding a space file would require reading bytes at
+ * export time (and would leak workspace content into a portable document), and
+ * embedding a remote URL would make the SVG depend on a third party at open time.
+ */
+function exportFile(item: BoardItem): string {
+	if (item.type !== "file") return "";
+	const { frame } = item;
+	const stroke = colorHex("neutral");
+	const title = escapeXml(item.snapshot?.title || fileBaseName(item.ref.path));
+	const type = escapeXml(fileTypeLabel(item.ref.path));
+	const excerpt = escapeXml((item.snapshot?.excerpt ?? "").slice(0, 120));
+	const body = excerpt
+		? `<text x="${frame.x + 10}" y="${frame.y + 44}" fill="${stroke}" fill-opacity="0.7" font-family="Geist, system-ui, sans-serif" font-size="11">${excerpt}</text>`
+		: "";
+	return `<g${transformAttr(frame)}><rect x="${frame.x}" y="${frame.y}" width="${frame.width}" height="${frame.height}" rx="4" fill="${stroke}" fill-opacity="0.06" stroke="${stroke}" stroke-width="1"/><text x="${frame.x + 10}" y="${frame.y + 24}" fill="${stroke}" font-family="Geist, system-ui, sans-serif" font-size="13" font-weight="600">${title}</text>${body}<text x="${frame.x + 10}" y="${frame.y + frame.height - 10}" fill="${stroke}" fill-opacity="0.6" font-family="Geist Mono, monospace" font-size="9">${type}</text></g>`;
+}
+
 function exportGeneric(item: BoardItem): string {
 	const box = itemBounds(item.frame);
 	return `<rect x="${box.x}" y="${box.y}" width="${box.width}" height="${box.height}" rx="8" fill="#2a2a2a" stroke="#3a3a3a" stroke-width="1"/>`;
@@ -171,6 +192,8 @@ export function itemToSvg(item: BoardItem, getFrame: FrameLookup): string {
 			return exportArrow(item, getFrame);
 		case "frame":
 			return exportFrame(item);
+		case "file":
+			return exportFile(item);
 		case "image":
 		case "video":
 			return exportGeneric(item);

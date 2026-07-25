@@ -8,11 +8,30 @@ import {
 import type { BoardItem } from "$lib/board/board-schema";
 
 /**
- * Stable cache key for an image resource item, or null if it is not an image.
- * Space files and remote URLs are namespaced so they can never collide.
+ * Stable cache key for an item's image resource, or null when it has none.
+ *
+ * Space files and remote URLs are namespaced so they can never collide, and file
+ * cards contribute their cover image — which means covers ride the exact same
+ * reference counting, LRU cooling pool and viewport preloading as image nodes,
+ * with no second loader to keep in step.
  */
 export function imageAssetKey(item: BoardItem): string | null {
 	if (item.type === "image") return `file:${item.ref.path}`;
+	if (item.type === "file") {
+		const snapshot = item.snapshot;
+		if (snapshot?.coverPath) return `file:${snapshot.coverPath}`;
+		if (snapshot?.coverUrl) return `url:${snapshot.coverUrl}`;
+		return null;
+	}
+	return null;
+}
+
+/** The source a key resolves from, recovered from its namespace prefix. */
+function keySource(
+	key: string,
+): { kind: "file" | "url"; value: string } | null {
+	if (key.startsWith("file:")) return { kind: "file", value: key.slice(5) };
+	if (key.startsWith("url:")) return { kind: "url", value: key.slice(4) };
 	return null;
 }
 
@@ -306,7 +325,9 @@ export function createBoardAssetManager(
 		requestItem(item) {
 			if (disposed) return;
 			const key = imageAssetKey(item);
-			if (!key || item.type !== "image") return;
+			if (!key) return;
+			const source = keySource(key);
+			if (!source) return;
 			const entry = ensureEntry(key);
 			entry.lastUsedAt = now();
 			if (entry.texture || entry.loading) return;
@@ -315,8 +336,12 @@ export function createBoardAssetManager(
 			entry.error = false;
 			clearRetry(entry);
 			if (queue.some((queued) => queued.key === key)) return;
-			const path = item.ref.path;
-			const getUrl = () => resolveSpaceFileUrl(options.spaceId, path);
+			// A remote cover is already a displayable URL; a space file has to be
+			// resolved to one first.
+			const getUrl =
+				source.kind === "url"
+					? () => Promise.resolve(source.value)
+					: () => resolveSpaceFileUrl(options.spaceId, source.value);
 			resolvers.set(key, getUrl);
 			queue.push({ key, getUrl });
 			pump();

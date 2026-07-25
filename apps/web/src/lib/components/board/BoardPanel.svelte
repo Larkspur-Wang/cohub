@@ -1,6 +1,7 @@
 <script lang="ts">
 import { onDestroy, onMount, untrack } from "svelte";
 import { screenToWorld } from "$lib/board/board-geometry";
+import { shapeCapabilities } from "$lib/board/core/shape-definition";
 import { createBoardEditor } from "$lib/board/editor.svelte";
 import type { BoardRuntimeProps } from "$lib/board/runtime/board-runtime";
 import BoardContextMenu from "$lib/components/board/BoardContextMenu.svelte";
@@ -22,6 +23,7 @@ const {
 	onCommit,
 	onRetrySync,
 	onViewStateChange,
+	onOpenFile,
 }: BoardRuntimeProps = $props();
 
 let stageWrap: HTMLDivElement | null = $state(null);
@@ -150,6 +152,21 @@ function handleKeydown(event: KeyboardEvent) {
 	}
 
 	switch (event.key) {
+		case "Enter": {
+			// Keyboard equivalent of double-clicking a card: open a file card in the
+			// preview panel, or start editing an editable shape.
+			const single =
+				editor.selectedItems.length === 1 ? editor.selectedItems[0] : null;
+			if (!single) return;
+			event.preventDefault();
+			if (single.type === "file") {
+				void onOpenFile?.(single.ref.path);
+				return;
+			}
+			if (!single.locked && shapeCapabilities(single).canEdit)
+				editor.editingId = single.id;
+			return;
+		}
 		case "Delete":
 		case "Backspace":
 			event.preventDefault();
@@ -306,6 +323,7 @@ onDestroy(() => {
 			{editor}
 			{runtime}
 			{spaceId}
+			{onOpenFile}
 			onSurfaceChange={(size) => { editor.surfaceSize = size; }}
 		/>
 
@@ -322,6 +340,7 @@ onDestroy(() => {
 		{#if contextMenu}
 			<BoardContextMenu
 				{editor}
+				{onOpenFile}
 				position={contextMenu}
 				onClose={() => { contextMenu = null; }}
 			/>

@@ -19,6 +19,7 @@ import {
   normalizeBoardOperation,
   normalizeBoardTransaction,
   normalizeNodes,
+  NODE_WRITE_CHUNK,
   validateBoardTransaction,
 } from "../../board-service.js";
 import { db } from "../../db/index.js";
@@ -86,11 +87,17 @@ router.post("/", async (c) => {
     const now = new Date();
     await db.transaction(async (tx) => {
       await tx.insert(boards).values({ id: boardId, spaceId, title, version: 0, metadata: {}, createdAt: now, updatedAt: now });
-      if (nodes.length) {
-        await tx.insert(boardNodes).values(nodes.map((node, index) => ({
+      // Chunked: a node row binds ~18 parameters, so a single statement for a
+      // large board would exceed Postgres's per-statement parameter limit long
+      // before reaching MAX_BOARD_NODES.
+      for (let offset = 0; offset < nodes.length; offset += NODE_WRITE_CHUNK) {
+        const chunk = nodes.slice(offset, offset + NODE_WRITE_CHUNK);
+        await tx.insert(boardNodes).values(chunk.map((node, index) => ({
           ...node,
           boardId,
-          orderKey: node.orderKey ?? String(index).padStart(8, "0"),
+          // Padded to a fixed width so the keys sort lexicographically, which is
+          // how the client reads document order back.
+          orderKey: node.orderKey ?? String(offset + index).padStart(8, "0"),
           version: 0,
           createdAt: now,
           updatedAt: now,
