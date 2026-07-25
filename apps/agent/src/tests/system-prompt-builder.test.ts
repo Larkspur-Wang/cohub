@@ -73,6 +73,13 @@ await writeFile(
   "---\nname: test-literal\ndescription: |\n  This is a literal\n  multi-line description.\n---\nLiteral skill body.",
 );
 
+// Skill with disable-model-invocation should be hidden from the model prompt
+await mkdir(join(workspace, ".agents", "skills", "manual-only"), { recursive: true });
+await writeFile(
+  join(workspace, ".agents", "skills", "manual-only", "SKILL.md"),
+  "---\nname: manual-only\ndescription: A side-effecting skill invocable only via /skill:name\ndisable-model-invocation: true\n---\nManual-only skill body.",
+);
+
 const promptWithSkills = await buildCohubSystemPrompt({
   cwd: workspace,
   userId,
@@ -90,6 +97,14 @@ assert.ok(
 assert.ok(
   !promptWithSkills.includes("<description>></description>") && !promptWithSkills.includes("<description>|</description>"),
   "block scalar indicators should not appear as description text",
+);
+assert.ok(
+  promptWithSkills.includes("test-folded"),
+  "model-invocable skills should appear in the available_skills block",
+);
+assert.ok(
+  !promptWithSkills.includes("manual-only"),
+  "disable-model-invocation skills should be hidden from the available_skills block",
 );
 
 const { createCohubAgentSession } = await import("../runtime/session-runtime.js");

@@ -52,6 +52,9 @@
       "@cohub/infra/config-runtime/models": [
         "../../packages/infra/dist/config-runtime/models.d.ts"
       ],
+      "@cohub/infra/config-runtime/skills": [
+        "../../packages/infra/dist/config-runtime/skills.d.ts"
+      ],
       "@cohub/infra/tracing/propagator": [
         "../../packages/infra/dist/tracing/propagator.d.ts"
       ],
