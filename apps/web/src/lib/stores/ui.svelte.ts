@@ -83,6 +83,12 @@ function writeStorage(key: string, value: string) {
 class UIState {
 	mobileDrawerOpen = $state(false);
 	mobileRightDrawerOpen = $state(false);
+	/**
+	 * Right drawer is temporarily slid away so the surface behind it can receive
+	 * a drop. Transient (never persisted): a touch drag out of the files drawer
+	 * needs the board underneath to be visible and hit-testable.
+	 */
+	mobileRightDrawerRetracted = $state(false);
 	/** Drag offset for right drawer gesture tracking (shared from layout) */
 	rightDragOffsetPx = $state(0);
 	/** Whether a right drawer drag is in progress (shared from layout) */

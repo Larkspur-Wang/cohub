@@ -45,6 +45,11 @@ import {
 import type { BoardRuntimeData } from "$lib/board/runtime/board-runtime";
 import { createBoardAnimationRuntime } from "$lib/board/runtime/pixi-animation";
 import { getBoardThemeRenderer } from "$lib/board/themes/board-theme-registry";
+import { pointerDropZone } from "$lib/drag/pointer-drag.svelte";
+import {
+	type BoardDropItem,
+	toBoardDropItems,
+} from "$lib/drag/pointer-drag-core";
 import { getResolvedTheme } from "$lib/theme.svelte";
 
 const {
@@ -666,25 +671,8 @@ async function enrichFileCards(targets: Array<{ id: string; path: string }>) {
 function handleDrop(event: DragEvent) {
 	event.preventDefault();
 	dropActive = false;
-	if (!host) return;
-	const rect = host.getBoundingClientRect();
-	const origin = screenToWorld(
-		event.clientX,
-		event.clientY,
-		rect,
-		editor.camera,
-	);
 
-	type DropMedia = {
-		path: string;
-		snapshot?: {
-			title?: string;
-			mimeType?: string;
-			size?: number;
-			mtimeMs?: number;
-		};
-	};
-	const items: DropMedia[] = [];
+	const items: BoardDropItem[] = [];
 
 	const raw = event.dataTransfer?.getData("application/x-cohub-resource");
 	if (raw) {
@@ -726,6 +714,24 @@ function handleDrop(event: DragEvent) {
 		if (path) items.push({ path });
 	}
 
+	dropBoardItems(event.clientX, event.clientY, items);
+}
+
+/**
+ * Place dropped workspace files on the board at a screen point.
+ *
+ * Shared by the native drag-and-drop path (desktop) and the touch/pen pointer
+ * drag path (mobile), so both produce identical cards and enrichment.
+ */
+function dropBoardItems(
+	clientX: number,
+	clientY: number,
+	items: BoardDropItem[],
+) {
+	if (!host || items.length === 0) return;
+	const rect = host.getBoundingClientRect();
+	const origin = screenToWorld(clientX, clientY, rect, editor.camera);
+
 	// Tile dropped files to the right so a multi-drop stays readable. Every file is
 	// accepted — non-media becomes a file card — so the created ids are collected
 	// and handed to the preview enrichment below.
@@ -740,9 +746,14 @@ function handleDrop(event: DragEvent) {
 		created.push({ id, path: entry.path });
 		offsetX += 36;
 	}
-	// Read previews for the new file cards in the background; the cards are already
-	// on the board and simply gain detail when this lands.
-	if (created.length > 0) void enrichFileCards(created);
+	// Surface the result of the drop: the new cards are the selection, which also
+	// puts them under the selection toolbar for an immediate follow-up action.
+	if (created.length > 0) {
+		editor.setSelection(created.map((entry) => entry.id));
+		// Read previews in the background; the cards are already on the board and
+		// simply gain detail when this lands.
+		void enrichFileCards(created);
+	}
 }
 
 const cursor = $derived.by(() => {
@@ -906,6 +917,18 @@ onDestroy(() => {
 	data-drawer-swipe-ignore
 	style:cursor={cursor}
 	style:touch-action="none"
+	use:pointerDropZone={{
+		resolve: (payload) => {
+			// Directories have no single file to reference, so the board declines them
+			// rather than silently dropping part of the payload.
+			const items = toBoardDropItems(payload);
+			if (items.length === 0) return null;
+			return { label: "Add to board", effect: "copy" };
+		},
+		drop: (payload, point) => {
+			dropBoardItems(point.clientX, point.clientY, toBoardDropItems(payload));
+		},
+	}}
 	ondragover={(event) => {
 		const types = event.dataTransfer?.types;
 		if (!types) return;

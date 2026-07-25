@@ -18,6 +18,7 @@ import {
 	getCohubResourceDragData,
 	hasCohubResourceDragData,
 } from "$lib/drag/cohub-resource-drag";
+import { pointerDrag, pointerDropZone } from "$lib/drag/pointer-drag.svelte";
 import { resolveFsMoveDestination } from "$lib/features/space/modules/file-workspace-utils";
 import type { SpaceFsNode } from "$lib/space-fs";
 import {
@@ -47,6 +48,7 @@ const {
 	onOpenPort,
 	activePort = null,
 	draggable = true,
+	touchDraggable = false,
 	showItemActions = true,
 	canWrite = true,
 	previewEndpoints = {},
@@ -73,6 +75,8 @@ const {
 	onOpenPort?: (port: string, url: string) => void;
 	activePort?: string | null;
 	draggable?: boolean;
+	/** Enable the long-press drag gesture for touch and pen. */
+	touchDraggable?: boolean;
 	showItemActions?: boolean;
 	canWrite?: boolean;
 	previewEndpoints?: SpacePublicEndpoints;
@@ -83,6 +87,36 @@ const {
 let treeScrollContainer: HTMLDivElement | null = $state(null);
 let rootDragOver = $state(false);
 let rootMoveDragOver = $state(false);
+
+/** The tree background is the drop target of the current touch drag. */
+const isPointerRootTarget = $derived(pointerDrag.isTarget(treeScrollContainer));
+
+/** Move a dragged node to the tree root; shared by native and touch drops. */
+function moveToRoot(dragged: {
+	path: string;
+	type: SpaceFsNode["type"];
+}): boolean {
+	if (!canWrite || !onMove) return false;
+	const destination = resolveFsMoveDestination(dragged.path, "");
+	if (!destination) return false;
+	const node = findNodeByPath(dragged.path);
+	onMove(
+		node ?? {
+			name: destination.name,
+			path: destination.fromPath,
+			type: dragged.type,
+			size: 0,
+			mimeType: null,
+			mtimeMs: Date.now(),
+			children: [],
+			isOpen: false,
+			isLoaded: false,
+			isLoading: false,
+		},
+		"",
+	);
+	return true;
+}
 
 // Dropdown state
 let newMenuOpen = $state(false);
@@ -232,27 +266,8 @@ async function handleRootDrop(e: DragEvent) {
 	if (!e.dataTransfer) return;
 
 	if (hasInternalTreeDrag(e.dataTransfer)) {
-		if (!canWrite || !onMove) return;
 		const dragged = resolveDraggedTreeNodeMeta(e.dataTransfer);
-		if (!dragged) return;
-		const destination = resolveFsMoveDestination(dragged.path, "");
-		if (!destination) return;
-		const node = findNodeByPath(dragged.path);
-		onMove(
-			node ?? {
-				name: destination.name,
-				path: destination.fromPath,
-				type: dragged.type,
-				size: 0,
-				mimeType: null,
-				mtimeMs: Date.now(),
-				children: [],
-				isOpen: false,
-				isLoaded: false,
-				isLoading: false,
-			},
-			"",
-		);
+		if (dragged) moveToRoot(dragged);
 		return;
 	}
 
@@ -409,10 +424,26 @@ $effect(() => {
   <div
     class="min-h-0 flex-1 overflow-auto px-1.5 pb-2 pt-1"
     class:root-drop-target={rootDragOver}
-    class:root-move-target={rootMoveDragOver}
+    class:root-move-target={rootMoveDragOver || isPointerRootTarget}
     bind:this={treeScrollContainer}
     role="tree"
     tabindex="0"
+    data-pointer-drag-autoscroll
+    use:pointerDropZone={{
+      priority: 1,
+      resolve: (payload) => {
+        if (!canWrite || !onMove) return null;
+        const [item] = payload.items;
+        if (!item || payload.items.length !== 1) return null;
+        if (!resolveFsMoveDestination(item.path, "")) return null;
+        return { label: "Move to root", effect: "move" };
+      },
+      drop: (payload) => {
+        const [item] = payload.items;
+        if (!item) return;
+        moveToRoot({ path: item.path, type: item.type === "dir" ? "dir" : "file" });
+      },
+    }}
     ondragover={handleRootDragOver}
     ondragleave={handleRootDragLeave}
     ondrop={handleRootDrop}
@@ -444,6 +475,7 @@ $effect(() => {
             {onInsertReference}
             {onPublishDirectory}
             {draggable}
+            {touchDraggable}
             {showItemActions}
             {canWrite}
           />

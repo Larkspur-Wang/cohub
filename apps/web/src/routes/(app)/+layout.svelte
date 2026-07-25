@@ -7,12 +7,14 @@ import { scheduleCacheCleanup } from "$lib/cache/cleanup";
 import BillingConversionCenter from "$lib/components/BillingConversionCenter.svelte";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import CommandPalette from "$lib/components/CommandPalette.svelte";
+import DragGhostLayer from "$lib/components/DragGhostLayer.svelte";
 import HelpPanel from "$lib/components/HelpPanel.svelte";
 import MediaLightbox from "$lib/components/MediaLightbox.svelte";
 import MobileSidebarDrawer from "$lib/components/MobileSidebarDrawer.svelte";
 import Sidebar from "$lib/components/Sidebar.svelte";
 import TurnNotificationStack from "$lib/components/TurnNotificationStack.svelte";
 import { createDeferredMount } from "$lib/deferred-mount.svelte";
+import { pointerDrag } from "$lib/drag/pointer-drag.svelte";
 import GlobalMarkCapture from "$lib/features/preview-mark/ui/GlobalMarkCapture.svelte";
 import {
 	type DrawerGestureDirection,
@@ -184,6 +186,8 @@ function findTrackedTouch(touches: TouchList) {
 function handleTouchStart(e: TouchEvent) {
 	if (window.innerWidth >= DESKTOP_SHELL_MIN_WIDTH_PX || activeTouchId !== null)
 		return;
+	// A resource drag owns the pointer; the drawer must not also swipe.
+	if (pointerDrag.active) return;
 	const touch = e.changedTouches[0];
 	if (!touch) return;
 
@@ -468,6 +472,13 @@ $effect(() => {
 	};
 });
 
+// A long-press drag can activate after a drawer gesture already started
+// tracking the same finger. The drag wins: drop the tracking so the drawer
+// stops following the pointer and only the ghost moves.
+$effect(() => {
+	if (pointerDrag.active && activeTouchId !== null) resetGestureState();
+});
+
 $effect(() => {
 	if (gesturePhase !== "settling") return;
 
@@ -600,6 +611,7 @@ onMount(() => {
   <!-- Global media lightbox -->
   <MediaLightbox />
   <CommandPalette />
+  <DragGhostLayer />
   <HelpPanel open={showHelpPanel} onClose={() => { showHelpPanel = false; }} />
   <BillingConversionCenter />
   <TurnNotificationStack />

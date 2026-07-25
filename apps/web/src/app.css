@@ -110,7 +110,9 @@ body.sidebar-resizing iframe {
 	transition-delay: 0ms;
 }
 
-.panel-shell:not(.panel-shell--collapsed) > .panel-shell-inner > .panel-shell-fade,
+.panel-shell:not(.panel-shell--collapsed)
+	> .panel-shell-inner
+	> .panel-shell-fade,
 .panel-shell:not(.panel-shell--collapsed) > .panel-shell-fade {
 	opacity: 1;
 	/* Width expands first; content fades in slightly delayed. */
@@ -184,6 +186,19 @@ body.sidebar-resizing .panel-shell-fade {
 /* Lock body scroll when drawer is open */
 body.drawer-open {
 	overflow: hidden;
+}
+
+/*
+ Touch/pen resource drag in progress. Selection and the iOS long-press callout
+ both fight a long-press gesture, so they are suppressed for the duration.
+ Scroll suppression itself is handled by the drag controller's non-passive
+ touchmove listener, which is the only thing that reliably stops an inner
+ scroll container.
+*/
+body.pointer-dragging {
+	user-select: none;
+	-webkit-user-select: none;
+	-webkit-touch-callout: none;
 }
 
 /*
