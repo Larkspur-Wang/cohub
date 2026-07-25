@@ -1851,55 +1851,55 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		if (activePointers.size < 2) pinch = null;
 		if (activePointers.size > 0) return;
 
-		if (interaction.type === "translating" && interaction.moved) {
+		// Snapshot the gesture before clearing it. Deferred remotes must land
+		// first so the local commit is recorded as the latest undo step.
+		const gesture = interaction;
+		snapGuides = [];
+		interaction = { type: "idle" };
+		flushPendingRemote();
+
+		if (gesture.type === "translating" && gesture.moved) {
 			refreshBoundArrowFrames(new Set(selection));
 			bumpStructure();
 			commitAction();
-		} else if (interaction.type === "resizing" && interaction.moved) {
+		} else if (gesture.type === "resizing" && gesture.moved) {
 			refreshBoundArrowFrames(new Set(selection));
 			bumpStructure();
 			commitAction();
-		} else if (interaction.type === "rotating" && interaction.moved) {
+		} else if (gesture.type === "rotating" && gesture.moved) {
 			normalizeRotations();
 			refreshBoundArrowFrames(new Set(selection));
 			bumpStructure();
 			commitAction();
-		} else if (
-			interaction.type === "draggingArrowHandle" &&
-			interaction.moved
-		) {
+		} else if (gesture.type === "draggingArrowHandle" && gesture.moved) {
 			bumpStructure();
 			commitAction();
-		} else if (interaction.type === "brushing" && !interaction.additive) {
+		} else if (gesture.type === "brushing" && !gesture.additive) {
 			// A click on empty space (no real drag) clears the selection.
-			const dx = interaction.current.x - interaction.start.x;
-			const dy = interaction.current.y - interaction.start.y;
+			const dx = gesture.current.x - gesture.start.x;
+			const dy = gesture.current.y - gesture.start.y;
 			if (Math.hypot(dx, dy) <= 1 / camera.zoom) selection = [];
-		} else if (interaction.type === "drawing") {
-			commitDraw(interaction.points, interaction.color, interaction.size);
-		} else if (interaction.type === "creatingArrow") {
-			const target = topItemAt(interaction.current);
+		} else if (gesture.type === "drawing") {
+			commitDraw(gesture.points, gesture.color, gesture.size);
+		} else if (gesture.type === "creatingArrow") {
+			const target = topItemAt(gesture.current);
 			const endBinding =
 				target && shapeCapabilities(target).canBind
-					? bindEndpointAt(interaction.current, {
+					? bindEndpointAt(gesture.current, {
 							id: target.id,
 							frame: target.frame,
 						})
 					: null;
 			commitArrow(
-				interaction.start,
-				interaction.current,
-				interaction.color,
-				interaction.startBinding,
+				gesture.start,
+				gesture.current,
+				gesture.color,
+				gesture.startBinding,
 				endBinding,
 			);
-		} else if (interaction.type === "creatingBox") {
-			commitBoxCreate(interaction);
+		} else if (gesture.type === "creatingBox") {
+			commitBoxCreate(gesture);
 		}
-		snapGuides = [];
-		interaction = { type: "idle" };
-		// Apply any remote refresh deferred for the duration of this gesture.
-		flushPendingRemote();
 	}
 
 	function normalizeRotations() {
@@ -2019,9 +2019,12 @@ export function createBoardEditor(options: BoardEditorOptions) {
 			localRev = 0;
 			committedRev = 0;
 		}
-		// Undo history does not survive a rebase.
-		undoStack = [];
-		redoStack = [];
+		// Local history is document-scoped. Same-document remotes rebase content
+		// but keep undo/redo; only a document switch drops it.
+		if (!sameDocument) {
+			undoStack = [];
+			redoStack = [];
+		}
 		// Keep the selection for items that still exist after a same-document
 		// refresh; a document switch starts fresh.
 		if (sameDocument) {

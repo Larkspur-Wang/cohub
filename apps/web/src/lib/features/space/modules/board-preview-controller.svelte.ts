@@ -265,7 +265,8 @@ export function createBoardPreviewController(
 							};
 							// A successful commit resets the conflict-recovery budget.
 							delete conflictAttemptsByBoardId[boardId];
-							// Remember our own txId so the echoed realtime event is skipped.
+							// ownTxIds is registered when the pending tx is written; keep
+							// the id here too for txs recovered from durable storage.
 							ownTxIds.add(tx.txId);
 							if (ownTxIds.size > 256) {
 								const oldest = ownTxIds.values().next().value;
@@ -393,6 +394,13 @@ export function createBoardPreviewController(
 				baseVersion,
 				ops,
 			});
+			// Register before apply/realtime can race back, so our own echo is
+			// skipped and does not wipe editor undo history via a remote load.
+			ownTxIds.add(txId);
+			if (ownTxIds.size > 256) {
+				const oldest = ownTxIds.values().next().value;
+				if (oldest) ownTxIds.delete(oldest);
+			}
 		} catch (error) {
 			boards = boards.map((item) =>
 				item.path === savingPath
