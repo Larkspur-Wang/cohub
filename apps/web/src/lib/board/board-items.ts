@@ -11,10 +11,9 @@ import type {
 } from "$lib/board/board-schema";
 import { unknownRealType } from "$lib/board/board-schema";
 import { computeDrawBounds } from "$lib/board/core/draw-geometry";
+import { measureBoardText, TEXT_FONT_SIZE } from "$lib/board/core/text-layout";
 
 const DEFAULT_MEDIA_SIZE = { width: 320, height: 200 };
-/** Empty autosize text starts as a single-line caret box. */
-const DEFAULT_TEXT_SIZE = { width: 24, height: 28 };
 /** Offset applied when duplicating so the copy is visibly displaced. */
 export const DUPLICATE_OFFSET = 24;
 
@@ -136,8 +135,8 @@ export function createTextBoardItem(
 		type: "text",
 		text,
 		color,
-		autoSize: true,
-		frame: createFrame(x, y, DEFAULT_TEXT_SIZE),
+		fontSize: TEXT_FONT_SIZE,
+		frame: createFrame(x, y, measureBoardText(text)),
 	};
 }
 

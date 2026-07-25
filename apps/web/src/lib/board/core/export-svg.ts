@@ -48,17 +48,18 @@ function transformAttr(frame: BoardFrame): string {
 }
 
 function exportText(item: BoardTextItem): string {
-	const { frame, text } = item;
+	const { frame, text, fontSize } = item;
 	const stroke = colorHex(item.color || "neutral");
+	const lineHeight = fontSize * (24 / 18);
 	const lines = escapeXml(text || "").split("\n");
 	const tspans = lines
 		.map(
 			(line, index) =>
-				`<tspan x="${frame.x}" dy="${index === 0 ? 0 : 24}">${line || " "}</tspan>`,
+				`<tspan x="${frame.x}" dy="${index === 0 ? 0 : lineHeight}">${line || " "}</tspan>`,
 		)
 		.join("");
 	// Transparent freestanding text — no card chrome.
-	return `<g${transformAttr(frame)}><text x="${frame.x}" y="${frame.y + 18}" fill="${stroke}" font-family="Geist, system-ui, sans-serif" font-size="18" font-weight="500">${tspans}</text></g>`;
+	return `<g${transformAttr(frame)}><text x="${frame.x}" y="${frame.y + fontSize}" fill="${stroke}" font-family="Geist, system-ui, sans-serif" font-size="${fontSize}" font-weight="500">${tspans}</text></g>`;
 }
 
 function exportNote(item: BoardNoteItem): string {

@@ -23,6 +23,7 @@ import {
 	rectCenter,
 	rectsIntersect,
 	resizeFrame,
+	resizeFrameToSize,
 	rotateFrames,
 	rotationHandlePosition,
 	type ScreenPoint,
@@ -91,7 +92,10 @@ import {
 	createSpatialIndex,
 	type SpatialEntry,
 } from "$lib/board/board-spatial";
-import { measureBoardText } from "$lib/board/core/text-layout";
+import {
+	clampBoardTextFontSize,
+	measureBoardText,
+} from "$lib/board/core/text-layout";
 
 export type BoardToolId =
 	| "select"
@@ -1088,6 +1092,47 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		commitAction();
 	}
 
+	function finalizeTextResize(
+		gesture: Extract<BoardInteraction, { type: "resizing" }>,
+	) {
+		const originById = gesture.origin;
+		const next = synced.items.map((item) => {
+			if (item.type !== "text") return item;
+			const origin = originById.get(item.id);
+			const current = item.frame;
+			if (!origin) return item;
+			const scale = current.width / Math.max(0.0001, origin.width);
+			const fontSize = clampBoardTextFontSize(item.fontSize * scale);
+			const measured = measureBoardText(item.text, fontSize);
+			if (gesture.single) {
+				return {
+					...item,
+					fontSize,
+					frame: resizeFrameToSize(
+						origin,
+						gesture.handle,
+						measured.width,
+						measured.height,
+					),
+				};
+			}
+			const center = rectCenter(current);
+			return {
+				...item,
+				fontSize,
+				frame: {
+					...current,
+					x: center.x - measured.width / 2,
+					y: center.y - measured.height / 2,
+					width: measured.width,
+					height: measured.height,
+				},
+			};
+		});
+		if (next.some((item, index) => item !== synced.items[index]))
+			setItems(next, false, originById.keys());
+	}
+
 	function updateText(id: string, text: string) {
 		const target = synced.items.find((item) => item.id === id);
 		if (
@@ -1104,8 +1149,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 				if (item.type === "note" || item.type === "geo")
 					return { ...item, text };
 				if (item.type !== "text") return item;
-				if (!item.autoSize) return { ...item, text };
-				const size = measureBoardText(text);
+				const size = measureBoardText(text, item.fontSize);
 				return {
 					...item,
 					text,
@@ -1669,20 +1713,21 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		if (interaction.type === "resizing") {
 			interaction.moved = true;
 			const frames = new Map<string, BoardFrame>();
-			const keepAspect = event.shiftKey;
 			if (interaction.single) {
 				const id = [...interaction.origin.keys()][0];
-				if (id)
-					frames.set(
-						id,
-						resizeFrame(
-							interaction.single,
-							interaction.handle,
-							event.world,
-							undefined,
-							keepAspect,
-						),
+				const item = id
+					? synced.items.find((candidate) => candidate.id === id)
+					: null;
+				if (id) {
+					const resized = resizeFrame(
+						interaction.single,
+						interaction.handle,
+						event.world,
+						undefined,
+						item?.type === "text" || event.shiftKey,
 					);
+					frames.set(id, resized);
+				}
 			} else {
 				const scaled = scaleFrames(
 					[...interaction.origin.values()],
@@ -1697,12 +1742,10 @@ export function createBoardEditor(options: BoardEditorOptions) {
 					index += 1;
 				}
 			}
-			// Manual resize freezes freestanding text width/height (schema: autoSize off).
 			setItems(
 				synced.items.map((item) => {
 					const frame = frames.get(item.id);
 					if (!frame) return item;
-					if (item.type === "text") return { ...item, frame, autoSize: false };
 					return { ...item, frame };
 				}),
 				false,
@@ -1863,6 +1906,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 			bumpStructure();
 			commitAction();
 		} else if (gesture.type === "resizing" && gesture.moved) {
+			finalizeTextResize(gesture);
 			refreshBoundArrowFrames(new Set(selection));
 			bumpStructure();
 			commitAction();

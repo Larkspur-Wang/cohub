@@ -1,5 +1,10 @@
 import { BOARD_DOCUMENT_KIND, BOARD_EXTENSION } from "@cohub/protocol";
 import { z } from "zod";
+import {
+	TEXT_FONT_SIZE,
+	TEXT_MAX_FONT_SIZE,
+	TEXT_MIN_FONT_SIZE,
+} from "$lib/board/core/text-layout";
 
 export { BOARD_DOCUMENT_KIND, BOARD_EXTENSION };
 
@@ -80,13 +85,17 @@ const BoardItemBaseSchema = z.object({
 	metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
-/** Freestanding text — no card chrome; bounds follow content when autoSize. */
+/** Freestanding text — no card chrome; its frame always follows the glyphs. */
 export const BoardTextItemSchema = BoardItemBaseSchema.extend({
 	type: z.literal("text"),
 	text: z.string().default(""),
 	color: z.string().min(1).default("neutral"),
-	/** When true, width/height track measured text. Left/right resize turns this off. */
-	autoSize: z.boolean().default(true),
+	fontSize: z
+		.number()
+		.finite()
+		.min(TEXT_MIN_FONT_SIZE)
+		.max(TEXT_MAX_FONT_SIZE)
+		.default(TEXT_FONT_SIZE),
 });
 
 export const BoardNoteItemSchema = BoardItemBaseSchema.extend({

@@ -24,7 +24,7 @@ function textItem(id: string, text: string): BoardItem {
 		type: "text",
 		text,
 		color: "neutral",
-		autoSize: true,
+		fontSize: 18,
 		frame: { x: 0, y: 0, width: 100, height: 100, rotation: 0 },
 	};
 }

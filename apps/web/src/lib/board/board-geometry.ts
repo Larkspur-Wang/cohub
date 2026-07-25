@@ -236,6 +236,44 @@ export function handlePosition(rect: Rect, handle: ResizeHandle): WorldPoint {
 	);
 }
 
+/** Resize a frame to exact dimensions while keeping the opposite handle fixed. */
+export function resizeFrameToSize(
+	frame: BoardFrame,
+	handle: ResizeHandle,
+	width: number,
+	height: number,
+): BoardFrame {
+	const direction = HANDLE_DIRECTION[handle];
+	const rect = frameRect(frame);
+	const center = rectCenter(rect);
+	const rad = degToRad(frame.rotation || 0);
+	const anchorLocal = {
+		x: (-direction.x * rect.width) / 2,
+		y: (-direction.y * rect.height) / 2,
+	};
+	const anchor = rotatePointAround(
+		{ x: center.x + anchorLocal.x, y: center.y + anchorLocal.y },
+		center,
+		rad,
+	);
+	const centerLocal = {
+		x: (direction.x * width) / 2,
+		y: (direction.y * height) / 2,
+	};
+	const nextCenter = rotatePointAround(
+		{ x: anchor.x + centerLocal.x, y: anchor.y + centerLocal.y },
+		anchor,
+		rad,
+	);
+	return {
+		x: nextCenter.x - width / 2,
+		y: nextCenter.y - height / 2,
+		width,
+		height,
+		rotation: frame.rotation || 0,
+	};
+}
+
 /**
  * Resize a frame by dragging a handle to a world-space pointer position.
  * The edge/corner opposite the handle stays anchored. Works correctly for
@@ -293,24 +331,7 @@ export function resizeFrame(
 		height = Math.max(minSize, height);
 	}
 
-	// New center in local space, then back to world space.
-	const centerLocal = {
-		x: (direction.x * width) / 2,
-		y: (direction.y * height) / 2,
-	};
-	const rotatedCenter = rotatePointAround(
-		{ x: anchor.x + centerLocal.x, y: anchor.y + centerLocal.y },
-		anchor,
-		rad,
-	);
-
-	return {
-		x: rotatedCenter.x - width / 2,
-		y: rotatedCenter.y - height / 2,
-		width,
-		height,
-		rotation: frame.rotation || 0,
-	};
+	return resizeFrameToSize(frame, handle, width, height);
 }
 
 /**
@@ -323,6 +344,7 @@ export function scaleFrames(
 	handle: ResizeHandle,
 	pointer: WorldPoint,
 	minSize = MIN_ITEM_SIZE,
+	scaleRange?: { min?: number; max?: number },
 ): BoardFrame[] {
 	const direction = HANDLE_DIRECTION[handle];
 	if (direction.x === 0 || direction.y === 0) return frames;
@@ -334,19 +356,28 @@ export function scaleFrames(
 	const originalDist = Math.hypot(original.x - anchor.x, original.y - anchor.y);
 	const nextDist = Math.hypot(pointer.x - anchor.x, pointer.y - anchor.y);
 	if (originalDist === 0) return frames;
-	const scale = clamp(
-		nextDist / originalDist,
-		minSize / Math.max(bounds.width, bounds.height),
-		Number.POSITIVE_INFINITY,
+	const frameMinScale = frames.reduce(
+		(minimum, frame) =>
+			Math.max(
+				minimum,
+				minSize / Math.max(0.0001, Math.min(frame.width, frame.height)),
+			),
+		0,
 	);
+	const minScale = Math.max(frameMinScale, scaleRange?.min ?? 0);
+	const maxScale = Math.max(
+		minScale,
+		scaleRange?.max ?? Number.POSITIVE_INFINITY,
+	);
+	const scale = clamp(nextDist / originalDist, minScale, maxScale);
 	return frames.map((frame) => {
 		const center = rectCenter(frameRect(frame));
 		const nextCenter = {
 			x: anchor.x + (center.x - anchor.x) * scale,
 			y: anchor.y + (center.y - anchor.y) * scale,
 		};
-		const width = Math.max(minSize, frame.width * scale);
-		const height = Math.max(minSize, frame.height * scale);
+		const width = frame.width * scale;
+		const height = frame.height * scale;
 		return {
 			x: nextCenter.x - width / 2,
 			y: nextCenter.y - height / 2,

@@ -19,6 +19,10 @@ import {
 	UNKNOWN_BOARD_ITEM_TYPE,
 	unknownRealType,
 } from "$lib/board/board-schema";
+import {
+	clampBoardTextFontSize,
+	TEXT_FONT_SIZE,
+} from "$lib/board/core/text-layout";
 
 export const DEFAULT_BOARD_APPEARANCE: BoardAppearance =
 	BoardAppearanceSchema.parse({
@@ -172,7 +176,9 @@ function boardNodeToItemValue(node: BoardNodeRecord): BoardItem {
 				type: "text",
 				text: typeof data.text === "string" ? data.text : "",
 				color: typeof data.color === "string" ? data.color : "neutral",
-				autoSize: data.autoSize !== false,
+				fontSize: clampBoardTextFontSize(
+					typeof data.fontSize === "number" ? data.fontSize : TEXT_FONT_SIZE,
+				),
 				frame,
 				...(locked ? { locked } : {}),
 				style,
@@ -349,8 +355,12 @@ function boardItemToNodeWithOrder(
 		refUrl: source?.refUrl ?? null,
 	};
 	const preservedView = source?.view ?? {};
-	const dataWith = (fields: Record<string, unknown>) => {
+	const dataWith = (
+		fields: Record<string, unknown>,
+		remove: readonly string[] = [],
+	) => {
 		const data = { ...(source?.data ?? {}), ...fields };
+		for (const key of remove) delete data[key];
 		delete data.locked;
 		delete data.metadata;
 		if (item.locked) data.locked = true;
@@ -382,11 +392,14 @@ function boardItemToNodeWithOrder(
 				...preservedRef,
 				type: "text",
 				view: preservedView,
-				data: dataWith({
-					text: item.text,
-					color: item.color,
-					autoSize: item.autoSize,
-				}),
+				data: dataWith(
+					{
+						text: item.text,
+						color: item.color,
+						fontSize: item.fontSize,
+					},
+					["autoSize"],
+				),
 			};
 		case "note":
 			return {

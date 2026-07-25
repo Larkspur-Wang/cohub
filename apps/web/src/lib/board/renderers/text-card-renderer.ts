@@ -3,10 +3,11 @@ import { textResolutionForZoom } from "$lib/board/board-rendering";
 import type { BoardItem, BoardTextItem } from "$lib/board/board-schema";
 import { pickBoardColor } from "$lib/board/core/palette";
 import {
+	boardTextLineHeight,
+	clampBoardTextFontSize,
+	measureBoardText,
 	TEXT_FONT_FAMILY,
 	TEXT_FONT_SIZE,
-	TEXT_LINE_HEIGHT,
-	TEXT_MIN_WIDTH,
 } from "$lib/board/core/text-layout";
 import { positionShell } from "$lib/board/renderers/base-card-renderer";
 import type {
@@ -18,7 +19,7 @@ type TextParts = {
 	root: Container;
 	body: Text;
 	resolution: number;
-	sig: string;
+	contentSig: string;
 };
 
 const partsByContainer = new WeakMap<Container, TextParts>();
@@ -31,6 +32,28 @@ function sync(
 	const parts = partsByContainer.get(container);
 	if (!parts) return;
 	positionShell(parts.root, item);
+
+	const fontSize = clampBoardTextFontSize(item.fontSize);
+	const measured = measureBoardText(item.text, fontSize);
+	// During a resize the frame changes continuously while fontSize stays stable.
+	// Scale the existing texture for the live preview, then rasterise once at the
+	// final font size on pointer-up. Text is anchored at its visual center because
+	// the frame geometry uses center-based rotation.
+	const previewScale = Math.max(
+		0.0001,
+		item.frame.width / Math.max(0.0001, measured.width),
+	);
+	parts.body.scale.set(previewScale);
+	parts.body.position.set(item.frame.width / 2, item.frame.height / 2);
+
+	const nextResolution = textResolutionForZoom(
+		context.zoom * Math.max(1, previewScale),
+	);
+	if (nextResolution !== parts.resolution) {
+		parts.body.resolution = nextResolution;
+		parts.resolution = nextResolution;
+	}
+
 	const color = pickBoardColor(
 		context.colors,
 		item.color || "neutral",
@@ -41,34 +64,21 @@ function sync(
 		item.color === "neutral" || !item.color
 			? context.palette.text
 			: color.stroke;
-	const nextRes = textResolutionForZoom(context.zoom);
-	if (nextRes !== parts.resolution) {
-		parts.body.resolution = nextRes;
-		parts.resolution = nextRes;
-	}
-	const wrapWidth = item.autoSize
-		? 0
-		: Math.max(TEXT_MIN_WIDTH, item.frame.width);
-	const sig = [
+	const contentSig = [
 		item.text,
 		item.color,
-		item.autoSize,
-		item.frame.width,
-		item.frame.height,
+		fontSize,
 		context.colorMode,
 		context.colors.brand.stroke,
 		context.palette.text,
-		nextRes,
 	].join("|");
-	if (sig === parts.sig) return;
-	parts.sig = sig;
+	if (contentSig === parts.contentSig) return;
+	parts.contentSig = contentSig;
 
 	if (parts.body.text !== item.text) parts.body.text = item.text || "";
 	parts.body.style.fill = ink;
-	parts.body.style.wordWrap = !item.autoSize;
-	parts.body.style.wordWrapWidth = wrapWidth || 10000;
-	parts.body.x = 0;
-	parts.body.y = 0;
+	parts.body.style.fontSize = fontSize;
+	parts.body.style.lineHeight = boardTextLineHeight(fontSize);
 }
 
 export const textCardRenderer: BoardCardRenderer = {
@@ -93,15 +103,20 @@ export const textCardRenderer: BoardCardRenderer = {
 				fontFamily: TEXT_FONT_FAMILY,
 				fontSize: TEXT_FONT_SIZE,
 				fontWeight: "500",
-				lineHeight: TEXT_LINE_HEIGHT,
+				lineHeight: boardTextLineHeight(TEXT_FONT_SIZE),
 				wordWrap: false,
-				breakWords: true,
 			},
 			resolution,
 			roundPixels: true,
 		});
+		body.anchor.set(0.5);
 		root.addChild(body);
-		partsByContainer.set(root, { root, body, resolution, sig: "" });
+		partsByContainer.set(root, {
+			root,
+			body,
+			resolution,
+			contentSig: "",
+		});
 		if (item.type === "text") sync(root, item, context);
 		return root;
 	},

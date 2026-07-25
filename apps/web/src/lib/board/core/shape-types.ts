@@ -179,7 +179,7 @@ export type NoteShapeProps = {
 export type TextShapeProps = {
 	text: string;
 	color: string;
-	autoSize: boolean;
+	fontSize: number;
 };
 
 // ─── Media shapes ───────────────────────────────────────────────────

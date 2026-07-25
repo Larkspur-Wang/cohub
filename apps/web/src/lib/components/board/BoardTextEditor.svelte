@@ -37,10 +37,17 @@ const layout = $derived.by(() => {
 		left: centerX - width / 2,
 		top: centerY - height / 2,
 		width: Math.max(width, isPlainText ? 24 * zoom : width),
-		height: Math.max(height, isPlainText ? TEXT_LINE_HEIGHT * zoom : height),
+		height: Math.max(
+			height,
+			isPlainText
+				? item.fontSize * (TEXT_LINE_HEIGHT / TEXT_FONT_SIZE) * zoom
+				: height,
+		),
 		rotation: item.frame.rotation || 0,
-		fontSize: (isPlainText ? TEXT_FONT_SIZE : 14) * zoom,
-		lineHeight: (isPlainText ? TEXT_LINE_HEIGHT : 20) * zoom,
+		fontSize: (isPlainText ? item.fontSize : 14) * zoom,
+		lineHeight:
+			(isPlainText ? item.fontSize * (TEXT_LINE_HEIGHT / TEXT_FONT_SIZE) : 20) *
+			zoom,
 		padding: isPlainText ? 0 : 12 * zoom,
 		plain: isPlainText,
 	};

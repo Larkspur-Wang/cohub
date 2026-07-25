@@ -1,9 +1,13 @@
-/** World-space typography shared by the editor, DOM overlay and renderers. */
+/** World-space typography shared by the editor, DOM overlay and renderer. */
+export const TEXT_FONT_FAMILY = "Geist";
 export const TEXT_FONT_SIZE = 18;
 export const TEXT_LINE_HEIGHT = 24;
-export const TEXT_FONT_FAMILY = "Geist";
-export const TEXT_MIN_WIDTH = 16;
-export const TEXT_MIN_HEIGHT = TEXT_LINE_HEIGHT;
+export const TEXT_MIN_FONT_SIZE = 2;
+export const TEXT_MAX_FONT_SIZE = 512;
+
+const TEXT_LINE_HEIGHT_RATIO = TEXT_LINE_HEIGHT / TEXT_FONT_SIZE;
+const TEXT_MIN_WIDTH_RATIO = 16 / TEXT_FONT_SIZE;
+const TEXT_HORIZONTAL_PADDING_RATIO = 2 / TEXT_FONT_SIZE;
 
 let measureContext: CanvasRenderingContext2D | null | undefined;
 
@@ -18,78 +22,47 @@ function getMeasureContext(): CanvasRenderingContext2D | null {
 	return measureContext;
 }
 
-/** Measure plain text into deterministic world-space bounds. */
+export function clampBoardTextFontSize(fontSize: number): number {
+	return Math.min(TEXT_MAX_FONT_SIZE, Math.max(TEXT_MIN_FONT_SIZE, fontSize));
+}
+
+export function boardTextLineHeight(fontSize: number): number {
+	return clampBoardTextFontSize(fontSize) * TEXT_LINE_HEIGHT_RATIO;
+}
+
+/** Measure unwrapped plain text into scalable world-space bounds. */
 export function measureBoardText(
 	text: string,
-	maxWidth?: number | null,
+	fontSize = TEXT_FONT_SIZE,
 ): { width: number; height: number } {
+	const size = clampBoardTextFontSize(fontSize);
 	const lines = (text || " ").split("\n");
+	const minWidth = size * TEXT_MIN_WIDTH_RATIO;
+	const horizontalPadding = size * TEXT_HORIZONTAL_PADDING_RATIO;
+	const lineHeight = boardTextLineHeight(size);
 	const context = getMeasureContext();
+	let width = minWidth;
+
 	if (context) {
-		context.font = `500 ${TEXT_FONT_SIZE}px ${TEXT_FONT_FAMILY}, system-ui, sans-serif`;
-		if (maxWidth && maxWidth > 0) {
-			const width = Math.max(TEXT_MIN_WIDTH, maxWidth);
-			let rows = 0;
-			for (const line of lines) {
-				if (!line) {
-					rows += 1;
-					continue;
-				}
-				let remaining = line;
-				while (remaining.length > 0) {
-					if (context.measureText(remaining).width <= width) {
-						rows += 1;
-						break;
-					}
-					let low = 1;
-					let high = remaining.length;
-					while (low < high) {
-						const middle = Math.ceil((low + high) / 2);
-						if (context.measureText(remaining.slice(0, middle)).width <= width)
-							low = middle;
-						else high = middle - 1;
-					}
-					rows += 1;
-					remaining = remaining.slice(Math.max(1, low));
-				}
-			}
-			return {
-				width,
-				height: Math.max(TEXT_MIN_HEIGHT, rows * TEXT_LINE_HEIGHT),
-			};
-		}
-		let width = TEXT_MIN_WIDTH;
+		context.font = `500 ${size}px ${TEXT_FONT_FAMILY}, system-ui, sans-serif`;
 		for (const line of lines) {
 			width = Math.max(
 				width,
-				Math.ceil(context.measureText(line || " ").width) + 2,
+				context.measureText(line || " ").width + horizontalPadding,
 			);
 		}
-		return {
-			width,
-			height: Math.max(TEXT_MIN_HEIGHT, lines.length * TEXT_LINE_HEIGHT),
-		};
+	} else {
+		const characterWidth = size * 0.52;
+		for (const line of lines) {
+			width = Math.max(
+				width,
+				Math.max(1, line.length) * characterWidth + horizontalPadding,
+			);
+		}
 	}
 
-	const characterWidth = TEXT_FONT_SIZE * 0.52;
-	let width = TEXT_MIN_WIDTH;
-	if (maxWidth && maxWidth > 0) {
-		width = Math.max(TEXT_MIN_WIDTH, maxWidth);
-		let rows = 0;
-		for (const line of lines) {
-			const characters = Math.max(1, line.length);
-			rows += Math.max(1, Math.ceil((characters * characterWidth) / width));
-		}
-		return {
-			width,
-			height: Math.max(TEXT_MIN_HEIGHT, rows * TEXT_LINE_HEIGHT),
-		};
-	}
-	for (const line of lines) {
-		width = Math.max(width, Math.ceil(line.length * characterWidth) + 2);
-	}
 	return {
 		width,
-		height: Math.max(TEXT_MIN_HEIGHT, lines.length * TEXT_LINE_HEIGHT),
+		height: Math.max(lineHeight, lines.length * lineHeight),
 	};
 }
