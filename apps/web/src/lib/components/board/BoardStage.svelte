@@ -159,10 +159,15 @@ $effect(() => {
 
 function buildContext(palette: BoardRenderPalette): BoardRenderContext {
 	const colorMode = getResolvedTheme() === "light" ? "light" : "dark";
+	const resizingIds =
+		editor.interaction.type === "resizing"
+			? new Set(editor.interaction.origin.keys())
+			: new Set<string>();
 	return {
 		document: editor.document,
 		selectedIds: new Set(editor.selection),
 		hoveredId: editor.hoverId,
+		resizingIds,
 		palette,
 		colors: getShapeColors(colorMode),
 		colorMode,

@@ -1,5 +1,9 @@
 import { Container, Graphics, Text } from "pixi.js";
-import { getBoardResolution } from "$lib/board/board-rendering";
+import {
+	syncTextResolution,
+	syncTextWrapWidth,
+	textResolutionForZoom,
+} from "$lib/board/board-rendering";
 import type { BoardGeoItem } from "$lib/board/board-schema";
 import { pickBoardColor } from "$lib/board/core/palette";
 import { positionShell } from "$lib/board/renderers/base-card-renderer";
@@ -15,7 +19,10 @@ type GeoParts = {
 	root: Container;
 	shape: Graphics;
 	label: Text;
-	sig: string;
+	visualSig: string;
+	textSig: string;
+	wrapWidth: number;
+	resolution: number;
 };
 
 const partsByContainer = new WeakMap<Container, GeoParts>();
@@ -65,44 +72,52 @@ function sync(
 	const selected = context.selectedIds.has(item.id);
 	const hovered = context.hoveredId === item.id;
 	const color = pickBoardColor(context.colors, item.color, context.colorMode);
+	syncTextResolution(parts.label, parts, context.zoom);
+	const resizing = context.resizingIds.has(item.id);
 
-	const sig = [
+	const visualSig = [
 		width,
 		height,
 		selected,
 		hovered,
 		item.geo,
-		item.text,
-		item.color,
 		item.fillOpacity,
-		context.colorMode,
-		context.colors.brand.stroke,
+		color.fill,
+		color.stroke,
+		context.palette.muted,
 	].join("|");
-	if (sig === parts.sig) return;
-	parts.sig = sig;
+	if (visualSig !== parts.visualSig) {
+		parts.visualSig = visualSig;
+		parts.shape.clear();
+		traceOutline(parts.shape, item.geo, width, height);
+		if (item.fillOpacity > 0)
+			parts.shape.fill({ color: color.fill, alpha: item.fillOpacity });
+		traceOutline(parts.shape, item.geo, width, height);
+		parts.shape.stroke({
+			color: selected
+				? color.stroke
+				: hovered
+					? context.palette.muted
+					: color.stroke,
+			width: selected ? 2.5 : 1.75,
+			alpha: selected ? 1 : hovered ? 0.95 : 0.85,
+		});
+	}
 
-	parts.shape.clear();
-	traceOutline(parts.shape, item.geo, width, height);
-	if (item.fillOpacity > 0)
-		parts.shape.fill({ color: color.fill, alpha: item.fillOpacity });
-	traceOutline(parts.shape, item.geo, width, height);
-	parts.shape.stroke({
-		color: selected
-			? color.stroke
-			: hovered
-				? context.palette.muted
-				: color.stroke,
-		width: selected ? 2.5 : 1.75,
-		alpha: selected ? 1 : hovered ? 0.95 : 0.85,
-	});
-
-	if (parts.label.text !== item.text) parts.label.text = item.text;
-	parts.label.visible = item.text.length > 0;
-	parts.label.style.fill = color.label;
-	parts.label.style.wordWrapWidth = Math.max(1, width - LABEL_PADDING * 2);
-	// Center the label inside the shape.
-	parts.label.x = (width - parts.label.width) / 2;
-	parts.label.y = (height - parts.label.height) / 2;
+	const textSig = [item.text, color.label].join("|");
+	if (textSig !== parts.textSig) {
+		parts.textSig = textSig;
+		parts.label.text = item.text;
+		parts.label.visible = item.text.length > 0;
+		parts.label.style.fill = color.label;
+	}
+	syncTextWrapWidth(
+		parts.label,
+		parts,
+		Math.max(1, width - LABEL_PADDING * 2),
+		resizing,
+	);
+	parts.label.position.set(width / 2, height / 2);
 }
 
 export const geoCardRenderer: BoardCardRenderer = {
@@ -111,6 +126,7 @@ export const geoCardRenderer: BoardCardRenderer = {
 	create: (item, context) => {
 		const root = new Container();
 		const shape = new Graphics();
+		const resolution = textResolutionForZoom(context.zoom);
 		const label = new Text({
 			text: "",
 			style: {
@@ -122,11 +138,20 @@ export const geoCardRenderer: BoardCardRenderer = {
 				wordWrap: true,
 				lineHeight: 20,
 			},
-			resolution: getBoardResolution(),
+			resolution,
 			roundPixels: true,
 		});
+		label.anchor.set(0.5);
 		root.addChild(shape, label);
-		partsByContainer.set(root, { root, shape, label, sig: "" });
+		partsByContainer.set(root, {
+			root,
+			shape,
+			label,
+			visualSig: "",
+			textSig: "",
+			wrapWidth: 0,
+			resolution,
+		});
 		if (item.type === "geo") sync(root, item, context);
 		return root;
 	},

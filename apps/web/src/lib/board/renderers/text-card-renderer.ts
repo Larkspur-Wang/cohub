@@ -1,5 +1,8 @@
 import { Container, Text } from "pixi.js";
-import { textResolutionForZoom } from "$lib/board/board-rendering";
+import {
+	syncTextResolution,
+	textResolutionForZoom,
+} from "$lib/board/board-rendering";
 import type { BoardItem, BoardTextItem } from "$lib/board/board-schema";
 import { pickBoardColor } from "$lib/board/core/palette";
 import {
@@ -46,13 +49,11 @@ function sync(
 	parts.body.scale.set(previewScale);
 	parts.body.position.set(item.frame.width / 2, item.frame.height / 2);
 
-	const nextResolution = textResolutionForZoom(
+	syncTextResolution(
+		parts.body,
+		parts,
 		context.zoom * Math.max(1, previewScale),
 	);
-	if (nextResolution !== parts.resolution) {
-		parts.body.resolution = nextResolution;
-		parts.resolution = nextResolution;
-	}
 
 	const color = pickBoardColor(
 		context.colors,

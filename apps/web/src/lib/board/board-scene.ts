@@ -24,6 +24,8 @@ type CardEntry = {
 	selected: boolean;
 	/** Last per-card hover state seen by this card. */
 	hovered: boolean;
+	/** Last live-resize state seen by this card. */
+	resizing: boolean;
 	/** Last global signal (asset readiness / theme) seen by this card. */
 	globalSig: string;
 };
@@ -146,6 +148,7 @@ export function createBoardScene(options: {
 				visible: false,
 				selected: false,
 				hovered: false,
+				resizing: false,
 				globalSig: "",
 			});
 			world.addChild(container);
@@ -188,16 +191,19 @@ export function createBoardScene(options: {
 			setHeldKey(context, item.id, desiredKey);
 			const selected = context.selectedIds.has(item.id);
 			const hovered = context.hoveredId === item.id;
+			const resizing = context.resizingIds.has(item.id);
 			const changed =
 				visible !== entry.visible ||
 				item !== entry.item ||
 				selected !== entry.selected ||
 				hovered !== entry.hovered ||
+				resizing !== entry.resizing ||
 				globalSig !== entry.globalSig;
 			entry.visible = visible;
 			entry.item = item;
 			entry.selected = selected;
 			entry.hovered = hovered;
+			entry.resizing = resizing;
 			entry.globalSig = globalSig;
 			// A freshly created container is already synced by create(); skip a
 			// redundant immediate update.

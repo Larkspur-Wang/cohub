@@ -1,3 +1,5 @@
+import type { Text } from "pixi.js";
+
 const MAX_BOARD_RESOLUTION = 2;
 
 export function getBoardResolution() {
@@ -26,4 +28,28 @@ export function textResolutionForZoom(zoom: number): number {
 		getBoardResolution() * Math.max(1, bucket),
 		MAX_BOARD_RESOLUTION * 3,
 	);
+}
+
+/** Update a Pixi text texture only when zoom crosses a resolution bucket. */
+export function syncTextResolution(
+	text: Text,
+	state: { resolution: number },
+	zoom: number,
+) {
+	const resolution = textResolutionForZoom(zoom);
+	if (resolution === state.resolution) return;
+	text.resolution = resolution;
+	state.resolution = resolution;
+}
+
+/** Defer expensive Pixi word-wrap rasterisation during a live resize. */
+export function syncTextWrapWidth(
+	text: Text,
+	state: { wrapWidth: number },
+	width: number,
+	defer: boolean,
+) {
+	if (defer || width === state.wrapWidth) return;
+	text.style.wordWrapWidth = width;
+	state.wrapWidth = width;
 }

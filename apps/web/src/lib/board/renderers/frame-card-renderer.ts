@@ -1,7 +1,11 @@
 import { Container, Graphics, type Text } from "pixi.js";
+import { syncTextResolution } from "$lib/board/board-rendering";
 import type { BoardItem } from "$lib/board/board-schema";
 import { pickBoardColor } from "$lib/board/core/palette";
-import { createLabel } from "$lib/board/renderers/base-card-renderer";
+import {
+	createLabel,
+	positionShell,
+} from "$lib/board/renderers/base-card-renderer";
 import type {
 	BoardCardRenderer,
 	BoardRenderContext,
@@ -11,6 +15,9 @@ type FrameParts = {
 	root: Container;
 	box: Graphics;
 	label: Text;
+	visualSig: string;
+	textSig: string;
+	resolution: number;
 };
 
 const partsByContainer = new WeakMap<Container, FrameParts>();
@@ -24,32 +31,45 @@ function sync(
 	if (!parts || item.type !== "frame") return;
 
 	const { frame, label, color, locked } = item;
-	parts.root.position.set(frame.x, frame.y);
-	parts.root.rotation = 0;
+	positionShell(parts.root, item);
+	syncTextResolution(parts.label, parts, context.zoom);
 
 	const selected = context.selectedIds.has(item.id);
 	const hovered = context.hoveredId === item.id;
 	const palette = pickBoardColor(context.colors, color, context.colorMode);
 	const stroke = selected ? context.palette.brand : palette.stroke;
 	const alpha = selected ? 1 : hovered ? 0.85 : 0.55;
-
-	parts.box.clear();
-	// Subtle fill so the container reads as a region.
-	parts.box
-		.roundRect(0, 0, frame.width, frame.height, 4)
-		.fill({ color: palette.fill, alpha: 0.04 });
-	parts.box.roundRect(0, 0, frame.width, frame.height, 4).stroke({
-		color: stroke,
-		width: selected ? 2 : 1.5,
-		alpha,
-		// Dashed look approximated by thinner stroke when unselected.
-	});
+	const visualSig = [
+		frame.width,
+		frame.height,
+		selected,
+		hovered,
+		palette.fill,
+		stroke,
+	].join("|");
+	if (visualSig !== parts.visualSig) {
+		parts.visualSig = visualSig;
+		parts.box.clear();
+		// Subtle fill so the container reads as a region.
+		parts.box
+			.roundRect(0, 0, frame.width, frame.height, 4)
+			.fill({ color: palette.fill, alpha: 0.04 });
+		parts.box.roundRect(0, 0, frame.width, frame.height, 4).stroke({
+			color: stroke,
+			width: selected ? 2 : 1.5,
+			alpha,
+			// Dashed look approximated by thinner stroke when unselected.
+		});
+	}
 
 	const title = locked ? `🔒 ${label || "Frame"}` : label || "Frame";
-	if (parts.label.text !== title) parts.label.text = title;
-	parts.label.style.fill = palette.stroke;
-	parts.label.x = 4;
-	parts.label.y = -18;
+	const textSig = [title, palette.stroke].join("|");
+	if (textSig !== parts.textSig) {
+		parts.textSig = textSig;
+		parts.label.text = title;
+		parts.label.style.fill = palette.stroke;
+	}
+	parts.label.position.set(4, -18);
 }
 
 export const frameCardRenderer: BoardCardRenderer = {
@@ -65,7 +85,14 @@ export const frameCardRenderer: BoardCardRenderer = {
 			fontWeight: "600",
 		});
 		root.addChild(box, label);
-		partsByContainer.set(root, { root, box, label });
+		partsByContainer.set(root, {
+			root,
+			box,
+			label,
+			visualSig: "",
+			textSig: "",
+			resolution: label.resolution,
+		});
 		sync(root, item, context);
 		return root;
 	},

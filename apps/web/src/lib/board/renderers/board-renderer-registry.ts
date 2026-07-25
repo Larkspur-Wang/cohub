@@ -28,6 +28,8 @@ export type BoardRenderContext = {
 	document: BoardDocument;
 	selectedIds: Set<string>;
 	hoveredId: string | null;
+	/** Nodes currently receiving a live resize preview. */
+	resizingIds: Set<string>;
 	palette: BoardRenderPalette;
 	/**
 	 * Live shape colors resolved from CSS tokens (theme + space theme.css).

@@ -1,5 +1,9 @@
 import { Container, Graphics, Text } from "pixi.js";
-import { textResolutionForZoom } from "$lib/board/board-rendering";
+import {
+	syncTextResolution,
+	syncTextWrapWidth,
+	textResolutionForZoom,
+} from "$lib/board/board-rendering";
 import type { BoardNoteItem } from "$lib/board/board-schema";
 import { pickBoardColor } from "$lib/board/core/palette";
 import { positionShell } from "$lib/board/renderers/base-card-renderer";
@@ -15,7 +19,9 @@ type NoteParts = {
 	root: Container;
 	background: Graphics;
 	body: Text;
-	sig: string;
+	visualSig: string;
+	textSig: string;
+	wrapWidth: number;
 	resolution: number;
 };
 
@@ -34,51 +40,55 @@ function sync(
 	const hovered = context.hoveredId === item.id;
 	const color = pickBoardColor(context.colors, item.color, context.colorMode);
 
-	const nextRes = textResolutionForZoom(context.zoom);
-	if (nextRes !== parts.resolution) {
-		parts.body.resolution = nextRes;
-		parts.resolution = nextRes;
-	}
+	syncTextResolution(parts.body, parts, context.zoom);
+	const resizing = context.resizingIds.has(item.id);
 
-	// Skip the redraw when nothing relevant changed.
-	const sig = [
+	const visualSig = [
 		width,
 		height,
 		selected,
 		hovered,
-		item.text,
-		item.color,
-		context.colorMode,
-		context.colors.brand.stroke,
-		nextRes,
+		color.fill,
+		color.stroke,
+		context.palette.surface,
+		context.palette.muted,
+		context.palette.border,
 	].join("|");
-	if (sig === parts.sig) return;
-	parts.sig = sig;
+	if (visualSig !== parts.visualSig) {
+		parts.visualSig = visualSig;
+		parts.background.clear();
+		// Translucent tinted fill over a soft surface, with a saturated top accent.
+		parts.background
+			.roundRect(0, 0, width, height, RADIUS)
+			.fill({ color: color.fill, alpha: 0.16 })
+			.roundRect(0, 0, width, height, RADIUS)
+			.fill({ color: context.palette.surface, alpha: 0.6 })
+			.rect(1, 1, width - 2, 4)
+			.fill({ color: color.stroke, alpha: 0.95 });
+		parts.background.roundRect(0, 0, width, height, RADIUS).stroke({
+			color: selected
+				? color.stroke
+				: hovered
+					? context.palette.muted
+					: context.palette.border,
+			width: selected ? 2 : 1,
+			alpha: selected ? 0.95 : 0.8,
+		});
+	}
 
-	parts.background.clear();
-	// Translucent tinted fill over a soft surface, with a saturated top accent.
-	parts.background
-		.roundRect(0, 0, width, height, RADIUS)
-		.fill({ color: color.fill, alpha: 0.16 })
-		.roundRect(0, 0, width, height, RADIUS)
-		.fill({ color: context.palette.surface, alpha: 0.6 })
-		.rect(1, 1, width - 2, 4)
-		.fill({ color: color.stroke, alpha: 0.95 });
-	parts.background.roundRect(0, 0, width, height, RADIUS).stroke({
-		color: selected
-			? color.stroke
-			: hovered
-				? context.palette.muted
-				: context.palette.border,
-		width: selected ? 2 : 1,
-		alpha: selected ? 0.95 : 0.8,
-	});
-
-	if (parts.body.text !== item.text) parts.body.text = item.text;
-	parts.body.style.fill = color.label;
-	parts.body.style.wordWrapWidth = Math.max(1, width - PADDING * 2);
-	parts.body.x = PADDING;
-	parts.body.y = PADDING + 4;
+	const textSig = [item.text, color.label].join("|");
+	if (textSig !== parts.textSig) {
+		parts.textSig = textSig;
+		parts.body.text = item.text;
+		parts.body.style.fill = color.label;
+	}
+	syncTextWrapWidth(
+		parts.body,
+		parts,
+		Math.max(1, width - PADDING * 2),
+		resizing,
+	);
+	parts.body.position.set(PADDING, PADDING + 4);
 }
 
 export const noteCardRenderer: BoardCardRenderer = {
@@ -106,7 +116,9 @@ export const noteCardRenderer: BoardCardRenderer = {
 			root,
 			background,
 			body,
-			sig: "",
+			visualSig: "",
+			textSig: "",
+			wrapWidth: 0,
 			resolution,
 		});
 		if (item.type === "note") sync(root, item, context);
