@@ -102,7 +102,7 @@ export function createBoardPreviewController(
 	/** A transaction was rejected as a version conflict (409) and can be rebased. */
 	function isVersionConflict(error: unknown): boolean {
 		if (error instanceof BoardTransactionError) return error.isVersionConflict;
-		if (error instanceof HttpError) return error.status === 409;
+		if (error instanceof HttpError) return error.code === "VERSION_CONFLICT";
 		return false;
 	}
 

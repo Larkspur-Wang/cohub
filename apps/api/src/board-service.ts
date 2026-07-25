@@ -324,11 +324,18 @@ export async function applyBoardTransaction(input: {
       }
       if (operation.type === "node.create") {
         const node = operation.payload.node;
-        const [exists] = await tx.select({ nodeId: boardNodes.nodeId }).from(boardNodes)
+        const [existingNode] = await tx.select().from(boardNodes)
           .where(and(eq(boardNodes.boardId, transaction.boardId), eq(boardNodes.nodeId, node.nodeId))).limit(1);
-        if (exists) throw new BoardServiceError(409, `node already exists: ${node.nodeId}`, "NODE_EXISTS");
+        if (existingNode && !existingNode.deletedAt) {
+          throw new BoardServiceError(409, `node already exists: ${node.nodeId}`, "NODE_EXISTS");
+        }
         if (node.parentId) await assertNodeTarget(tx, transaction.boardId, { type: "node", nodeId: node.parentId });
-        await tx.insert(boardNodes).values({ ...node, boardId: transaction.boardId, version: nextVersion, createdAt: now, updatedAt: now });
+        if (existingNode) {
+          await tx.update(boardNodes).set({ ...node, version: nextVersion, updatedAt: now, deletedAt: null })
+            .where(and(eq(boardNodes.boardId, transaction.boardId), eq(boardNodes.nodeId, node.nodeId)));
+        } else {
+          await tx.insert(boardNodes).values({ ...node, boardId: transaction.boardId, version: nextVersion, createdAt: now, updatedAt: now });
+        }
         operationRows.push({ type: operation.type, payload: operation.payload, inverse: { type: "node.delete", payload: { nodeId: node.nodeId } } });
         continue;
       }
@@ -357,7 +364,11 @@ export async function applyBoardTransaction(input: {
         })) {
           throw new BoardServiceError(409, "delete node clips before deleting the node", "NODE_REFERENCED");
         }
-        const [deleted] = await tx.delete(boardNodes).where(and(
+        const [deleted] = await tx.update(boardNodes).set({
+          version: nextVersion,
+          updatedAt: now,
+          deletedAt: now,
+        }).where(and(
           eq(boardNodes.boardId, transaction.boardId),
           eq(boardNodes.nodeId, operation.payload.nodeId),
           isNull(boardNodes.deletedAt),

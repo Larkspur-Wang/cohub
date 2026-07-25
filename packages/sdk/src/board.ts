@@ -1,10 +1,16 @@
+import {
+  BOARD_BUILTIN_CAPABILITIES,
+  BOARD_BUILTIN_CLIP_KINDS,
+  BOARD_BUILTIN_EFFECT_KINDS,
+  DEFAULT_BOARD_RENDER_LIMITS,
+  type BoardCapability,
+  type BoardRenderCost,
+} from "@cohub/protocol/board-constants";
 import type {
   BoardAssetRef,
-  BoardCapability,
   BoardClip,
   BoardDiagnostic,
   BoardEffect,
-  BoardRenderCost,
   BoardSequence,
   BoardTarget,
   BoardValidationResult,
@@ -56,50 +62,11 @@ const ZERO_COST: BoardRenderCost = {
   simulationSteps: 0,
 };
 
-export const DEFAULT_BOARD_LIMITS: BoardRenderCost = {
-  particles: 20_000,
-  vertices: 500_000,
-  dynamicVertices: 150_000,
-  drawCalls: 400,
-  filterPasses: 24,
-  renderTexturePixels: 16_777_216,
-  textureBytes: 512 * 1024 * 1024,
-  bufferBytes: 256 * 1024 * 1024,
-  simulationSteps: 100_000,
-};
+export const DEFAULT_BOARD_LIMITS = DEFAULT_BOARD_RENDER_LIMITS;
 
-const BUILTIN_CLIP_KINDS = [
-  "motion.keyframes",
-  "motion.path",
-  "draw.reveal",
-  "draw.handwrite",
-  "text.reveal",
-  "effects.particles",
-  "effects.trail",
-  "effects.impact",
-  "effects.flash",
-  "effects.color",
-  "camera.pan",
-  "camera.zoom",
-  "camera.shake",
-] as const;
-
-const BUILTIN_EFFECT_KINDS = ["effects.pulse", "effects.float"] as const;
-
-const BUILTIN_CAPABILITIES: BoardCapability[] = [
-  ...BUILTIN_CLIP_KINDS.map((id) => ({
-    kind: "clip" as const,
-    id,
-    version: 1,
-    renderers: ["webgpu", "webgl"] as Array<"webgpu" | "webgl">,
-  })),
-  ...BUILTIN_EFFECT_KINDS.map((id) => ({
-    kind: "effect" as const,
-    id,
-    version: 1,
-    renderers: ["webgpu", "webgl"] as Array<"webgpu" | "webgl">,
-  })),
-];
+const BUILTIN_CLIP_KINDS = BOARD_BUILTIN_CLIP_KINDS;
+const BUILTIN_EFFECT_KINDS = BOARD_BUILTIN_EFFECT_KINDS;
+const BUILTIN_CAPABILITIES: BoardCapability[] = BOARD_BUILTIN_CAPABILITIES;
 
 function numericParam(params: Record<string, unknown>, key: string, fallback: number): number {
   const value = params[key];

@@ -123,7 +123,7 @@ export class BoardTransactionError extends Error {
   }
 
   get isVersionConflict(): boolean {
-    return this.status === 409 || this.code === "VERSION_CONFLICT";
+    return this.code === "VERSION_CONFLICT";
   }
 }
 

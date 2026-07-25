@@ -55,6 +55,18 @@ test("keyframe and path sampling are absolute-time deterministic", () => {
 		],
 	});
 	assert.deepEqual(sampleKeyframePose(keyframes, 200), { x: 40, scale: 1.5 });
+	assert.deepEqual(
+		sampleKeyframePose(
+			makeClip({
+				keyframes: [
+					{ at: 0, value: { x: 0 } },
+					{ at: 0.5, value: { x: 10 } },
+				],
+			}),
+			0.25,
+		),
+		{ x: 5 },
+	);
 
 	const path = makeClip({
 		kind: "motion.path",

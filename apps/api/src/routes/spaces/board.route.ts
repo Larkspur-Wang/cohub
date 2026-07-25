@@ -3,11 +3,11 @@ import { Hono } from "hono";
 import { boardNodes, boards } from "@cohub/db";
 import {
   BOARD_EXTENSION,
+  BoardCreateInputSchema,
   BoardInspectInputSchema,
   BoardPlaybackCommandSchema,
   isBoardPath,
   serializeBoardManifest,
-  type BoardCreateInput,
   type BoardOperation,
 } from "@cohub/protocol";
 import {
@@ -16,6 +16,8 @@ import {
   BoardServiceError,
   getBoardCapabilities,
   inspectBoard,
+  normalizeBoardOperation,
+  normalizeBoardTransaction,
   normalizeNodes,
   validateBoardTransaction,
 } from "../../board-service.js";
@@ -45,8 +47,12 @@ router.post("/", async (c) => {
   if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
   if (!(await hasPermission(user, "file.edit", { spaceId }))) return authzDenied(c);
 
-  const body = await c.req.json<BoardCreateInput>().catch(() => null);
-  if (!body || typeof body.path !== "string") return c.json({ message: "path is required" }, 400);
+  const rawBody = await c.req.json<unknown>().catch(() => null);
+  const parsedBody = BoardCreateInputSchema.safeParse(rawBody);
+  if (!parsedBody.success) {
+    return c.json({ message: parsedBody.error.issues[0]?.message ?? "invalid Board input" }, 400);
+  }
+  const body = parsedBody.data;
   let path: string;
   try {
     path = assertSafeRelativePath(body.path);
@@ -57,8 +63,13 @@ router.post("/", async (c) => {
   if (!isBoardPath(path)) return c.json({ message: `path must end with ${BOARD_EXTENSION}` }, 400);
   const title = (body.title?.trim() || path.split("/").at(-1) || "Board").slice(0, 255);
   let nodes: ReturnType<typeof normalizeNodes>;
+  let operations: BoardOperation[];
   try {
     nodes = normalizeNodes(body.nodes ?? []);
+    operations = [
+      ...(body.effects ?? []).map((effect): BoardOperation => ({ type: "effect.upsert", payload: { effect } })),
+      ...(body.sequences ?? []).map(({ sequence, clips }): BoardOperation => ({ type: "sequence.upsert", payload: { sequence, clips } })),
+    ].map(normalizeBoardOperation);
   } catch (error) {
     const response = errorResponse(error);
     return c.json({ message: response.message, code: response.code }, response.status as never);
@@ -87,10 +98,6 @@ router.post("/", async (c) => {
       }
     });
 
-    const operations: BoardOperation[] = [
-      ...(body.effects ?? []).map((effect): BoardOperation => ({ type: "effect.upsert", payload: { effect } })),
-      ...(body.sequences ?? []).map(({ sequence, clips }): BoardOperation => ({ type: "sequence.upsert", payload: { sequence, clips } })),
-    ];
     const result = operations.length
       ? await applyBoardTransaction({
           spaceId,
@@ -164,8 +171,9 @@ router.post("/:boardId/validate", async (c) => {
   if (!(await hasPermission(user, "file.edit", { spaceId }))) return authzDenied(c);
   const body = await c.req.json<unknown>().catch(() => null);
   try {
-    if ((body as { boardId?: unknown })?.boardId !== boardId) throw new BoardServiceError(400, "transaction boardId does not match route");
-    return c.json(await validateBoardTransaction({ spaceId, value: body }));
+    const transaction = normalizeBoardTransaction(body);
+    if (transaction.boardId !== boardId) throw new BoardServiceError(400, "transaction boardId does not match route");
+    return c.json(await validateBoardTransaction({ spaceId, value: transaction }));
   } catch (error) {
     const response = errorResponse(error);
     return c.json({ message: response.message, code: response.code }, response.status as never);
@@ -181,8 +189,9 @@ router.post("/:boardId/transactions", async (c) => {
   if (!(await hasPermission(user, "file.edit", { spaceId }))) return authzDenied(c);
   const body = await c.req.json<unknown>().catch(() => null);
   try {
-    if ((body as { boardId?: unknown })?.boardId !== boardId) throw new BoardServiceError(400, "transaction boardId does not match route");
-    return c.json(await applyBoardTransaction({ spaceId, actorId: user.uuid, transaction: body }));
+    const transaction = normalizeBoardTransaction(body);
+    if (transaction.boardId !== boardId) throw new BoardServiceError(400, "transaction boardId does not match route");
+    return c.json(await applyBoardTransaction({ spaceId, actorId: user.uuid, transaction }));
   } catch (error) {
     const response = errorResponse(error);
     return c.json({ message: response.message, code: response.code }, response.status as never);

@@ -150,7 +150,7 @@ export function sampleKeyframePose(
 	if (!from || !to || before === after) return to ?? from;
 	const progress = ease(
 		after.easing ?? clip.easing,
-		(localTime - before.at) / Math.max(1, after.at - before.at),
+		(localTime - before.at) / Math.max(Number.EPSILON, after.at - before.at),
 	);
 	return interpolatePose(from, to, progress);
 }

@@ -1,4 +1,21 @@
 import { z } from "zod";
+import {
+  BOARD_BUILTIN_CAPABILITIES,
+  BOARD_BUILTIN_CLIP_KINDS,
+  BOARD_BUILTIN_EFFECT_KINDS,
+  DEFAULT_BOARD_RENDER_LIMITS,
+  type BoardCapability,
+  type BoardRenderCost,
+} from "./board-constants.js";
+
+export {
+  BOARD_BUILTIN_CAPABILITIES,
+  BOARD_BUILTIN_CLIP_KINDS,
+  BOARD_BUILTIN_EFFECT_KINDS,
+  DEFAULT_BOARD_RENDER_LIMITS,
+  type BoardCapability,
+  type BoardRenderCost,
+} from "./board-constants.js";
 
 export const BOARD_EXTENSION = ".board" as const;
 export const BOARD_MIME_TYPE = "application/json" as const;
@@ -159,6 +176,24 @@ export type BoardNodeRecord = {
 
 export type BoardNodeInput = Omit<BoardNodeRecord, "boardId" | "version" | "createdAt" | "updatedAt">;
 
+export const BoardNodeInputSchema = z.object({
+  nodeId: idSchema,
+  type: z.string().min(1).max(40),
+  parentId: idSchema.nullable(),
+  orderKey: z.string().max(4096).nullable(),
+  x: finiteSchema,
+  y: finiteSchema,
+  width: finiteSchema.positive(),
+  height: finiteSchema.positive(),
+  rotation: finiteSchema,
+  refKind: z.string().max(40).nullable(),
+  refPath: z.string().max(4096).nullable(),
+  refUrl: z.string().max(4096).nullable(),
+  view: jsonObjectSchema,
+  style: jsonObjectSchema,
+  data: jsonObjectSchema,
+});
+
 export const BOARD_DELETE_REASONS = ["user-delete", "orphan-cleanup", "layout-replace", "placeholder-cascade"] as const;
 export type BoardDeleteReason = (typeof BOARD_DELETE_REASONS)[number] | (string & {});
 
@@ -195,13 +230,18 @@ export type BoardBootstrap = {
   playback: BoardPlaybackSnapshot | null;
 };
 
-export type BoardCreateInput = {
-  path: string;
-  title?: string;
-  nodes?: BoardNodeInput[];
-  effects?: Array<Omit<BoardEffect, "boardId" | "revision">>;
-  sequences?: Array<{ sequence: Omit<BoardSequence, "boardId" | "revision">; clips: Array<Omit<BoardClip, "sequenceId">> }>;
-};
+export const BoardCreateInputSchema = z.object({
+  path: z.string().min(1),
+  title: z.string().min(1).max(255).optional(),
+  nodes: z.array(BoardNodeInputSchema).max(10_000).optional(),
+  effects: z.array(BoardEffectSchema.omit({ boardId: true, revision: true })).optional(),
+  sequences: z.array(z.object({
+    sequence: BoardSequenceSchema.omit({ boardId: true, revision: true }),
+    clips: z.array(BoardClipSchema.omit({ sequenceId: true })),
+  })).optional(),
+});
+
+export type BoardCreateInput = z.infer<typeof BoardCreateInputSchema>;
 
 export const BoardInspectInputSchema = z.object({
   include: z.array(z.enum(["nodes", "effects", "sequences", "clips", "playback"])).optional(),
@@ -223,81 +263,11 @@ export type BoardDiagnostic = {
   adaptation?: Record<string, unknown>;
 };
 
-export type BoardRenderCost = {
-  particles: number;
-  vertices: number;
-  dynamicVertices: number;
-  drawCalls: number;
-  filterPasses: number;
-  renderTexturePixels: number;
-  textureBytes: number;
-  bufferBytes: number;
-  simulationSteps: number;
-};
-
-export const DEFAULT_BOARD_RENDER_LIMITS: BoardRenderCost = {
-  particles: 20_000,
-  vertices: 500_000,
-  dynamicVertices: 150_000,
-  drawCalls: 400,
-  filterPasses: 24,
-  renderTexturePixels: 16_777_216,
-  textureBytes: 512 * 1024 * 1024,
-  bufferBytes: 256 * 1024 * 1024,
-  simulationSteps: 100_000,
-};
-
 export type BoardValidationResult = {
   valid: boolean;
   diagnostics: BoardDiagnostic[];
   peakCost: BoardRenderCost;
 };
-
-export type BoardCapability = {
-  kind: "preset" | "clip" | "effect" | "shader";
-  id: string;
-  version: number;
-  digest?: string;
-  renderers?: Array<"webgpu" | "webgl">;
-  fallbackId?: string;
-  schema?: Record<string, unknown>;
-};
-
-export const BOARD_BUILTIN_CLIP_KINDS = [
-  "motion.keyframes",
-  "motion.path",
-  "draw.reveal",
-  "draw.handwrite",
-  "text.reveal",
-  "effects.particles",
-  "effects.trail",
-  "effects.impact",
-  "effects.flash",
-  "effects.color",
-  "camera.pan",
-  "camera.zoom",
-  "camera.shake",
-] as const;
-
-export const BOARD_BUILTIN_EFFECT_KINDS = [
-  "effects.pulse",
-  "effects.float",
-] as const;
-
-export const BOARD_BUILTIN_CAPABILITIES: BoardCapability[] = [
-  ...BOARD_BUILTIN_CLIP_KINDS.map((id) => ({
-    kind: "clip" as const,
-    id,
-    version: 1,
-    renderers: ["webgpu", "webgl"] as Array<"webgpu" | "webgl">,
-  })),
-  ...BOARD_BUILTIN_EFFECT_KINDS.map((id) => ({
-    kind: "effect" as const,
-    id,
-    version: 1,
-    renderers: ["webgpu", "webgl"] as Array<"webgpu" | "webgl">,
-  })),
-];
 
 export type BoardCapabilities = { protocolVersion: 1; capabilities: BoardCapability[]; limits: BoardRenderCost };
 

@@ -55,12 +55,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const jsonBytes = (value: unknown) => Buffer.byteLength(JSON.stringify(value ?? {}), "utf8");
 
 function assertSafeJson(value: unknown, path: string): void {
-  if (typeof value === "string") {
-    if (/^https?:\/\//i.test(value.trim())) {
-      throw new BoardServiceError(400, `${path} cannot contain a network URL`, "UNTRUSTED_URL");
-    }
-    return;
-  }
+  if (typeof value === "string") return;
   if (Array.isArray(value)) {
     value.forEach((item, index) => {
       assertSafeJson(item, `${path}.${index}`);
@@ -69,7 +64,7 @@ function assertSafeJson(value: unknown, path: string): void {
   }
   if (!isRecord(value)) return;
   for (const [key, item] of Object.entries(value)) {
-    if (/^(?:javascript|js|glsl|wgsl|shaderSource|sourceCode)$/i.test(key)) {
+    if (typeof item === "string" && /^(?:glsl|wgsl|shaderSource|sourceCode)$/i.test(key)) {
       throw new BoardServiceError(400, `${path}.${key} is not allowed`, "UNTRUSTED_CODE");
     }
     assertSafeJson(item, `${path}.${key}`);

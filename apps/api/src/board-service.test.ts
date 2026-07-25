@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  BoardCreateInputSchema,
   BoardInspectInputSchema,
   BoardPlaybackCommandSchema,
   type BoardOperation,
@@ -71,7 +72,7 @@ test("requires an exact base version", () => {
   }).baseVersion, 0);
 });
 
-test("rejects network URLs and executable source", () => {
+test("allows data URLs and ordinary js fields while rejecting executable source", () => {
   const node = {
     nodeId: "n1",
     type: "image",
@@ -87,16 +88,35 @@ test("rejects network URLs and executable source", () => {
     refUrl: null,
     view: {},
     style: {},
-    data: { source: "https://untrusted.example/image.png" },
+    data: { source: "https://cdn.example/image.png", js: "business-value" },
   };
-  assert.throws(
-    () => operation({ type: "node.create", payload: { node } }),
-    (error) => error instanceof BoardServiceError && error.code === "UNTRUSTED_URL",
+  assert.deepEqual(
+    operation({ type: "node.create", payload: { node } }).payload,
+    { node },
   );
+  assert.doesNotThrow(() => operation({
+    type: "board.patch",
+    payload: {
+      patch: {
+        metadata: {
+          appearance: {
+            background: { kind: "image", imageUrl: "https://cdn.example/background.png" },
+          },
+        },
+      },
+    },
+  }));
   assert.throws(
     () => operation({ type: "board.patch", payload: { patch: { metadata: { wgsl: "@fragment fn main() {}" } } } }),
     (error) => error instanceof BoardServiceError && error.code === "UNTRUSTED_CODE",
   );
+});
+
+test("validates Board create input before side effects", () => {
+  assert.equal(BoardCreateInputSchema.safeParse({ path: "battle.board", title: 42 }).success, false);
+  assert.equal(BoardCreateInputSchema.safeParse({ path: "battle.board", effects: {} }).success, false);
+  assert.equal(BoardCreateInputSchema.safeParse({ path: "battle.board", sequences: {} }).success, false);
+  assert.equal(BoardCreateInputSchema.safeParse({ path: "battle.board" }).success, true);
 });
 
 test("rejects clips outside their sequence", () => {

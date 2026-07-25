@@ -4,6 +4,7 @@ import {
 	BOARD_BUILTIN_CAPABILITIES,
 	DEFAULT_BOARD_RENDER_LIMITS,
 } from "@cohub/protocol";
+import { BoardTransactionError } from "../src/apis/spaces.js";
 import { createBoardExtensionRegistry } from "../src/board.js";
 import { createBattleFixture } from "./fixtures/battle.js";
 
@@ -28,6 +29,12 @@ test("built-in registry validates and estimates the battle fixture", () => {
 test("SDK render limits stay aligned with the protocol", async () => {
 	const { DEFAULT_BOARD_LIMITS } = await import("../src/board.js");
 	assert.deepEqual(DEFAULT_BOARD_LIMITS, DEFAULT_BOARD_RENDER_LIMITS);
+});
+
+test("only VERSION_CONFLICT errors are eligible for rebase", () => {
+	assert.equal(new BoardTransactionError("conflict", 409, "VERSION_CONFLICT").isVersionConflict, true);
+	assert.equal(new BoardTransactionError("referenced", 409, "NODE_REFERENCED").isVersionConflict, false);
+	assert.equal(new BoardTransactionError("unknown", 409).isVersionConflict, false);
 });
 
 test("registry reports invalid particle bounds without dropping the clip", () => {
