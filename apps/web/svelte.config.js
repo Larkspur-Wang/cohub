@@ -23,8 +23,8 @@ const config = {
 			"@cohub/protocol/fs": `${protocolDir}/fs/index.ts`,
 			"@cohub/protocol/gateway/types": `${protocolDir}/gateway/types.ts`,
 			"@cohub/protocol/gateway": `${protocolDir}/gateway/index.ts`,
-			"@cohub/protocol/model": `${protocolDir}/model/session.ts`,
 			"@cohub/protocol/model/status": `${protocolDir}/model/status.ts`,
+			"@cohub/protocol/model": `${protocolDir}/model/session.ts`,
 			"@cohub/protocol/ports": `${protocolDir}/ports/index.ts`,
 			"@cohub/protocol/realtime/types": `${protocolDir}/realtime/types.ts`,
 			"@cohub/protocol/realtime/schema": `${protocolDir}/realtime/schema.ts`,
@@ -32,11 +32,15 @@ const config = {
 			"@cohub/protocol/task": `${protocolDir}/task/index.ts`,
 			"@cohub/protocol/generation": `${protocolDir}/generation/index.ts`,
 			"@cohub/protocol/provenance": `${protocolDir}/provenance.ts`,
+			// catch-all for flat protocol modules (board-constants, space-style, …);
+			// it also makes the bare alias below match exactly instead of by prefix
+			"@cohub/protocol/*": `${protocolDir}/*`,
 			"@cohub/protocol": `${protocolDir}/index.ts`,
 			// sdk subpaths
 			"@neta-art/cohub/debugger": `${sdkDir}/debugger.ts`,
 			"@neta-art/cohub/http": `${sdkDir}/http.ts`,
 			"@neta-art/cohub/websocket": `${sdkDir}/websocket.ts`,
+			"@neta-art/cohub/*": `${sdkDir}/*`,
 			// bare package aliases — must be last
 			"@neta-art/cohub": `${sdkDir}/index.ts`,
 		},
