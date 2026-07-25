@@ -1,5 +1,25 @@
 [
 	{
+		"version": "2.0",
+		"date": "2026-07-26",
+		"tags": ["v2.0.0"],
+		"highlights": [
+			"**Board runtime v1**: the board domain is rebuilt around boards, nodes, effects, sequences, clips, transactions, operations, checkpoints, and playback state, replacing the document-centric canvas service with inspect/validate/apply transaction APIs plus playback commands and realtime events. Ships end-to-end: bound `BoardClient` entities with transaction and playback subscriptions in the SDK, space-scoped `boards` CLI commands for create/inspect/transaction/playback/watch, a new web animation core with Pixi-based playback, and worker checkpoints aligned to the new model. The former `canvas` domain is renamed to `board` across schema, routes, SDK, and web.",
+			"**Any workspace file on a board**: a new `file` node accepts every file that is not natively an image or video, binaries and unknown extensions included, deriving its presentation tier from the path rather than storing display state. Snapshots are an mtime-versioned cache over the authoritative workspace file, reads are deduplicated and concurrency-capped, and availability is intentionally never persisted so one client's outage never becomes everyone's.",
+			"**Order keys minted between neighbours**: node ordering moved off array indexes, so deleting the first node of a 1000-node board emits 1 delete instead of 999 patches, and a move re-keys one node via longest-increasing-subsequence selection. With the churn gone, node and operation caps rise to 50k, server-side apply plans node writes in memory and flushes bulk upserts in bounded chunks, and dense boards collapse into one batched layer so per-frame cost tracks the viewport instead of the document.",
+			"**Resize transforms content, not just the box**: a data-driven `aspectLocked` capability keeps text, media, and strokes from distorting while container shapes still honour Shift-to-constrain, images and videos adopt intrinsic pixel size once the texture resolves, and selection outlines hug visible pixels. Live previews run through GPU transforms with authoritative geometry written once on pointer-up, and label rasterization is deferred during the drag.",
+			"**Touch gestures for boards and notifications**: file tree rows can be long-pressed and dragged onto a board on touch and pen, with hit testing via `elementsFromPoint` against a zone registry, drawer retraction to expose the board, and targets re-resolved after autoscroll and at release. Turn notifications gain a reusable `swipeDismiss` action that locks direction after 8px so vertical scrolling still wins."
+		],
+		"fixes": [
+			"Protocol subpath aliases resolve in the web build; SvelteKit's prefix aliasing had rewritten `@cohub/protocol/board-constants` into a path under `index.ts`",
+			"Local undo survives draw gestures and remote rebases, and realtime echoes of your own transactions no longer clear `canUndo`",
+			"Board create input is validated against a shared schema before side effects, recreate soft-deletes and revives nodes instead of hard deleting, and only `VERSION_CONFLICT` is treated as rebaseable rather than every HTTP 409",
+			"Mobile navigation drops `?preview=` when switching sessions, so full-screen board preview no longer traps you",
+			"Session scroll position is restored after layout settles",
+			"Workspace previews open reliably, with streamlined space startup previews"
+		]
+	},
+	{
 		"version": "1.111",
 		"date": "2026-07-24",
 		"tags": ["v1.111.0"],
