@@ -97,7 +97,7 @@ const boardRuntimeModulePromise = $derived.by(() => {
 		{@render TabsChrome()}
 		<div class="m-4 rounded-lg border border-error-soft/30 bg-error-bg p-4 text-sm text-error-soft">{board.error}</div>
 	</div>
-{:else if board.document && board.runtime}
+{:else if board.boardId && board.document && board.runtime}
 	{#await boardRuntimeModulePromise}
 		{@render LoadingPanel()}
 	{:then boardRuntimeModule}
@@ -107,6 +107,7 @@ const boardRuntimeModulePromise = $derived.by(() => {
 			<div class="min-h-0 flex-1">
 				<BoardRuntime
 					path={board.path}
+					boardId={board.boardId}
 					document={board.document}
 					runtime={board.runtime}
 					spaceId={spaceId}

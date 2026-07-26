@@ -33,6 +33,7 @@ export function operationsRequireBoardRuntimeRefresh(
 /** Stable host contract for a complete board editor and renderer runtime. */
 export type BoardRuntimeProps = {
 	path: string;
+	boardId: string;
 	document: BoardDocument;
 	runtime: BoardRuntimeData;
 	spaceId: string;

@@ -21,17 +21,19 @@ import type {
 
 import type { PlannedGatewayOutboundCommand } from "@cohub/protocol/gateway";
 import {
+  getRealtimeBoardRoom,
   getRealtimeSpaceRoom,
   getRealtimeUserRoom,
   getSessionTurnPatchStreamKey,
   normalizeRealtimeRooms,
   realtimeEnvelopeSchema,
+  WS_BOARD_AWARENESS_CAPABILITY,
   WS_COMPACT_STREAM_CAPABILITY,
   WS_ROOM_SUBSCRIPTION_CAPABILITY,
   wsClientEventSchema,
 } from "@cohub/protocol/realtime";
 import { getOrCreateRequestId } from "@cohub/infra/tracing";
-import { authenticateRealtimeToken, authorizeRealtimeRooms, notifySpacePresenceUpdated, requestGatewayChannelReconcile, submitInternalSessionPrompt, InternalPromptError, type RealtimeAuthResult } from "./api-client.js";
+import { authenticateRealtimeToken, authorizeBoardAwareness, authorizeRealtimeRooms, notifySpacePresenceUpdated, requestGatewayChannelReconcile, submitInternalSessionPrompt, InternalPromptError, type RealtimeAuthResult } from "./api-client.js";
 import { listenOutboundCommands, initOutboundConsumerGroup } from "./bus.js";
 import { summarizeRedisUrl } from "./logging.js";
 import { gatewayConfig } from "./config.js";
@@ -58,6 +60,9 @@ type WsConnectionContext = {
   presenceMetaBySpace: Map<string, Record<string, unknown> | null>;
   compactStreamAliases: Map<string, string>;
   nextCompactStreamAlias: number;
+  boardAwarenessSeqByBoard: Map<string, number>;
+  boardAwarenessRate: { startedAt: number; count: number };
+  boardAwarenessTail: Promise<void>;
 };
 
 type GatewayWsBroadcastPayload = RealtimeServerEvent & {
@@ -69,6 +74,8 @@ const WS_MAX_MESSAGE_BYTES = 64 * 1024;
 const ROOM_AUTH_CACHE_TTL_MS = 30_000;
 const PRESENCE_UPDATE_DEBOUNCE_MS = 200;
 const ROOM_AUTH_CACHE_MAX_ENTRIES = 10_000;
+const BOARD_AWARENESS_AUTH_TTL_MS = 30_000;
+const BOARD_AWARENESS_MAX_EVENTS_PER_SECOND = 60;
 
 type RealtimeRoomRejection = { room: string; code: "BAD_ROOM" | "FORBIDDEN"; message: string };
 
@@ -77,6 +84,7 @@ const wsConnectionIdsByRoom = new Map<RealtimeRoom, Set<string>>();
 const wsSockets = new Map<string, WebSocket>();
 const roomAuthCache = new Map<string, { expiresAt: number; accepted: boolean; rejection?: RealtimeRoomRejection }>();
 const presenceUpdateTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const boardAwarenessAuthCache = new Map<string, { expiresAt: number; allowed: boolean }>();
 
 const getWsConnectionKey = (connectionId: string) => `gateway:ws:connection:${connectionId}`;
 const getSpacePresenceConnectionsKey = (spaceId: string) => `gateway:presence:space:${spaceId}:connections`;
@@ -85,6 +93,43 @@ const getSpaceIdFromRoom = (room: RealtimeRoom) => {
   if (!room.startsWith("space:")) return null;
   const spaceId = room.slice("space:".length).trim();
   return spaceId || null;
+};
+
+const getBoardIdFromRoom = (room: RealtimeRoom) => {
+  if (!room.startsWith("board:")) return null;
+  const boardId = room.slice("board:".length).trim();
+  return boardId || null;
+};
+
+const consumeBoardAwarenessRate = (ctx: WsConnectionContext) => {
+  const now = Date.now();
+  if (now - ctx.boardAwarenessRate.startedAt >= 1_000) {
+    ctx.boardAwarenessRate = { startedAt: now, count: 1 };
+    return true;
+  }
+  ctx.boardAwarenessRate.count += 1;
+  return ctx.boardAwarenessRate.count <= BOARD_AWARENESS_MAX_EVENTS_PER_SECOND;
+};
+
+const canPublishBoardAwareness = async (
+  ctx: WsConnectionContext,
+  input: { boardId: string; spaceId: string; permission: "view" | "edit" },
+) => {
+  if (!ctx.token) return false;
+  const tokenHash = createHash("sha256").update(ctx.token).digest("base64url");
+  const key = `${tokenHash}:${input.spaceId}:${input.boardId}:${input.permission}`;
+  const cached = boardAwarenessAuthCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.allowed;
+  const allowed = await authorizeBoardAwareness({ authToken: ctx.token, ...input }).catch(() => false);
+  boardAwarenessAuthCache.set(key, {
+    allowed,
+    expiresAt: Date.now() + BOARD_AWARENESS_AUTH_TTL_MS,
+  });
+  if (boardAwarenessAuthCache.size > ROOM_AUTH_CACHE_MAX_ENTRIES) {
+    const oldest = boardAwarenessAuthCache.keys().next().value;
+    if (oldest) boardAwarenessAuthCache.delete(oldest);
+  }
+  return allowed;
 };
 
 const scheduleSpacePresenceUpdate = (spaceId: string) => {
@@ -319,6 +364,52 @@ const sendWsError = (
       ? { code, message, clientMessageId: options?.clientMessageId ?? null }
       : { code, message },
   }));
+};
+
+const publishBoardAwareness = async (
+  ctx: WsConnectionContext,
+  socket: WebSocket,
+  payload: Extract<WsClientEvent, { type: "board.awareness.update" }>["payload"],
+  requestId?: string,
+) => {
+  const { boardId, spaceId, seq, update } = payload;
+  if (!ctx.userId || !ctx.capabilities.has(WS_BOARD_AWARENESS_CAPABILITY)) {
+    sendWsError(socket, "UNSUPPORTED_CAPABILITY", "Board awareness is not enabled", requestId);
+    return;
+  }
+  if (!ctx.rooms.has(getRealtimeBoardRoom(boardId))) {
+    sendWsError(socket, "SUBSCRIPTION_REQUIRED", "Join the Board room before publishing awareness", requestId);
+    return;
+  }
+  if (!consumeBoardAwarenessRate(ctx)) return;
+  const previousSeq = ctx.boardAwarenessSeqByBoard.get(boardId) ?? -1;
+  if (seq <= previousSeq) return;
+
+  const permission = update.type === "state" ? "view" : "edit";
+  const allowed = await canPublishBoardAwareness(ctx, { boardId, spaceId, permission });
+  if (!allowed) {
+    sendWsError(socket, "FORBIDDEN", `Missing Board ${permission} permission`, requestId);
+    return;
+  }
+
+  ctx.boardAwarenessSeqByBoard.set(boardId, seq);
+  const envelope = buildRealtimeEnvelope({
+    domain: "space",
+    type: "board.awareness.updated",
+    requestId: requestId ?? null,
+    spaceId,
+    sessionId: null,
+    rooms: [getRealtimeBoardRoom(boardId)],
+    payload: {
+      boardId,
+      connectionId: ctx.connectionId,
+      actorId: ctx.userId,
+      actorName: ctx.userName?.trim() || "Collaborator",
+      seq,
+      update,
+    },
+  });
+  await redisCommandClient.publish(REALTIME_OUTBOUND_CHANNEL, JSON.stringify(envelope));
 };
 
 class WsClientInputError extends Error {
@@ -772,6 +863,9 @@ async function main() {
       presenceMetaBySpace: new Map(),
       compactStreamAliases: new Map(),
       nextCompactStreamAlias: 0,
+      boardAwarenessSeqByBoard: new Map(),
+      boardAwarenessRate: { startedAt: Date.now(), count: 0 },
+      boardAwarenessTail: Promise.resolve(),
     };
     wsConnections.set(connectionId, ctx);
     wsSockets.set(connectionId, socket);
@@ -824,6 +918,7 @@ async function main() {
           unsubscribeConnectionFromAllRooms(ctx);
           ctx.compactStreamAliases.clear();
           ctx.presenceMetaBySpace.clear();
+          ctx.boardAwarenessSeqByBoard.clear();
           ctx.userId = result.user.uuid;
           ctx.userName = typeof result.user.nick_name === "string" ? result.user.nick_name : undefined;
           ctx.userAvatarUrl = typeof result.user.avatar_url === "string" ? result.user.avatar_url : undefined;
@@ -839,7 +934,7 @@ async function main() {
             domain: "system",
             type: "system.auth.ok",
             requestId: requestId ?? null,
-            payload: { connectionId, user: result.user, capabilities: [WS_ROOM_SUBSCRIPTION_CAPABILITY] },
+            payload: { connectionId, user: result.user, capabilities: [WS_ROOM_SUBSCRIPTION_CAPABILITY, WS_BOARD_AWARENESS_CAPABILITY] },
           }));
           return;
         }
@@ -896,6 +991,8 @@ async function main() {
         if (message.type === "unsubscribe") {
           for (const room of normalizeRealtimeRooms(message.payload.rooms)) {
             if (room === getRealtimeUserRoom(ctx.userId)) continue;
+            const boardId = getBoardIdFromRoom(room);
+            if (boardId) ctx.boardAwarenessSeqByBoard.delete(boardId);
             const spaceId = getSpaceIdFromRoom(room);
             if (spaceId) ctx.presenceMetaBySpace.delete(spaceId);
             unsubscribeConnectionFromRoom(ctx, room);
@@ -930,6 +1027,15 @@ async function main() {
           ctx.presenceMetaBySpace.set(spaceId, message.payload.meta ?? null);
           await writeSpacePresenceConnection(ctx, spaceId);
           scheduleSpacePresenceUpdate(spaceId);
+          return;
+        }
+
+        if (message.type === "board.awareness.update") {
+          const awarenessRun = ctx.boardAwarenessTail.then(() =>
+            publishBoardAwareness(ctx, socket, message.payload, requestId),
+          );
+          ctx.boardAwarenessTail = awarenessRun.catch(() => undefined);
+          await awarenessRun;
           return;
         }
 

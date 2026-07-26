@@ -84,8 +84,9 @@ test("Board realtime subscriptions isolate events by space and Board", () => {
 	let unsubscribed = 0;
 	const websocket = {
 		state: "open",
+		connectionId: "connection-self",
 		retainRooms(rooms: string[]) {
-			assert.deepEqual(rooms, ["space:space-1"]);
+			assert.deepEqual(rooms, ["space:space-1", "board:board-1"]);
 			return () => {
 				released += 1;
 			};
@@ -103,6 +104,7 @@ test("Board realtime subscriptions isolate events by space and Board", () => {
 	const received: string[] = [];
 	const stop = board.subscribe({
 		transaction: () => received.push("transaction"),
+		awareness: () => received.push("awareness"),
 		playback: () => received.push("playback"),
 	});
 
@@ -110,10 +112,46 @@ test("Board realtime subscriptions isolate events by space and Board", () => {
 	emit({ spaceId: "space-1", type: "board.transaction.applied", payload: { boardId: "board-2" } } as WebsocketEventPayload);
 	emit({ spaceId: "space-2", type: "board.transaction.applied", payload: { boardId: "board-1" } } as WebsocketEventPayload);
 	emit({ spaceId: "space-1", type: "board.transaction.applied", payload: { boardId: "board-1" } } as WebsocketEventPayload);
+	emit({ spaceId: "space-1", type: "board.awareness.updated", payload: { boardId: "board-1", connectionId: "connection-self" } } as WebsocketEventPayload);
+	emit({ spaceId: "space-1", type: "board.awareness.updated", payload: { boardId: "board-1", connectionId: "connection-other" } } as WebsocketEventPayload);
 	emit({ spaceId: "space-1", type: "board.playback.changed", payload: { boardId: "board-1" } } as WebsocketEventPayload);
 
-	assert.deepEqual(received, ["transaction", "playback"]);
+	assert.deepEqual(received, ["transaction", "awareness", "playback"]);
 	stop();
 	assert.equal(unsubscribed, 1);
 	assert.equal(released, 1);
+});
+
+test("Board awareness publishes with the bound Space and Board identity", async () => {
+	let published: unknown = null;
+	const websocket = {
+		async updateBoardAwareness(input: unknown) {
+			published = input;
+		},
+	} as unknown as WebsocketClient;
+	const board = new BoardClient(
+		"11111111-1111-4111-8111-111111111111",
+		"22222222-2222-4222-8222-222222222222",
+		new HttpTransport({ baseUrl: "https://api.example.test" }),
+		websocket,
+	);
+	await board.updateAwareness(7, {
+		type: "state",
+		cursor: { x: 10, y: 20, pointerType: "mouse" },
+		tool: "select",
+		selection: { ids: [], count: 0, bounds: null },
+		editingId: null,
+	});
+	assert.deepEqual(published, {
+		spaceId: "11111111-1111-4111-8111-111111111111",
+		boardId: "22222222-2222-4222-8222-222222222222",
+		seq: 7,
+		update: {
+			type: "state",
+			cursor: { x: 10, y: 20, pointerType: "mouse" },
+			tool: "select",
+			selection: { ids: [], count: 0, bounds: null },
+			editingId: null,
+		},
+	});
 });

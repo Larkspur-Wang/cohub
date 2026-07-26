@@ -25,9 +25,13 @@ import {
 	visibleWorldRect,
 	worldPoint,
 } from "@neta-art/cohub-board";
-import { Application, Container, Graphics, type Renderer } from "pixi.js";
+import { Application, Container, Graphics, type Renderer, Text } from "pixi.js";
 import { onDestroy, onMount, untrack } from "svelte";
 import { createBoardAssetManager } from "$lib/board/board-asset-manager";
+import {
+	type BoardAwarenessController,
+	collaborationColor,
+} from "$lib/board/board-awareness";
 import {
 	fileAvailability,
 	filePreviewVersion,
@@ -52,6 +56,9 @@ const {
 	editor,
 	runtime,
 	spaceId,
+	awareness,
+	awarenessVersion,
+	onPointerPresence,
 	onSurfaceChange,
 	onOpenFile,
 	onExportReady,
@@ -59,6 +66,15 @@ const {
 	editor: BoardEditor;
 	runtime: BoardRuntimeData;
 	spaceId: string;
+	awareness: BoardAwarenessController;
+	awarenessVersion: number;
+	onPointerPresence?: (
+		cursor: {
+			x: number;
+			y: number;
+			pointerType: "mouse" | "pen" | "touch";
+		} | null,
+	) => void;
 	onSurfaceChange?: (size: { width: number; height: number }) => void;
 	/** Open a workspace file in the preview panel (same target as the file tree). */
 	onOpenFile?: (path: string) => void | Promise<void>;
@@ -81,6 +97,18 @@ let background: Container | null = null;
 let backgroundThemeId: string | null = null;
 let farLayer: Graphics | null = null;
 let overlay: Graphics | null = null;
+let cursorLayer: Container | null = null;
+const cursorEntries = new Map<
+	string,
+	{
+		container: Container;
+		marker: Graphics;
+		labelBackground: Graphics;
+		label: Text;
+		name: string;
+		color: number;
+	}
+>();
 let scene: ReturnType<typeof createBoardScene> | null = null;
 let animationRuntime: ReturnType<typeof createBoardAnimationRuntime> | null =
 	null;
@@ -299,7 +327,10 @@ $effect(() => {
 	if (targets.length > 0) void enrichFileCards(targets);
 });
 
-function buildContext(palette: BoardRenderPalette): BoardRenderContext {
+function buildContext(
+	palette: BoardRenderPalette,
+	getDisplayItem: (id: string) => BoardItem | null,
+): BoardRenderContext {
 	const colorMode = getResolvedTheme() === "light" ? "light" : "dark";
 	const resizingIds =
 		editor.interaction.type === "resizing"
@@ -307,7 +338,7 @@ function buildContext(palette: BoardRenderPalette): BoardRenderContext {
 			: new Set<string>();
 	return {
 		document: editor.document,
-		getItem: (id) => editor.itemById(id),
+		getItem: getDisplayItem,
 		selectedIds: new Set(editor.selection),
 		hoveredId: editor.hoverId,
 		resizingIds,
@@ -378,6 +409,125 @@ function scheduleRender() {
 	});
 }
 
+function localGestureItemIds(): Set<string> {
+	const interaction = editor.interaction;
+	switch (interaction.type) {
+		case "translating":
+		case "resizing":
+		case "rotating":
+			return new Set(interaction.origin.keys());
+		case "draggingArrowHandle":
+			return new Set([interaction.arrowId]);
+		default:
+			return new Set();
+	}
+}
+
+function remotePreviewItems(): Map<string, BoardItem> {
+	const previews = new Map<string, BoardItem>();
+	const localIds = localGestureItemIds();
+	const peers = [...awareness.peers].sort(
+		(a, b) => a.lastSeenAt - b.lastSeenAt,
+	);
+	for (const peer of peers) {
+		if (peer.gesture?.kind !== "transform") continue;
+		for (const preview of peer.gesture.nodes) {
+			if (localIds.has(preview.nodeId)) continue;
+			const item = editor.itemById(preview.nodeId);
+			if (!item) continue;
+			previews.set(preview.nodeId, {
+				...item,
+				frame: preview.frame,
+				...(item.type === "arrow" && preview.arrow
+					? {
+							start: preview.arrow.start,
+							end: preview.arrow.end,
+							bend: preview.arrow.bend,
+						}
+					: {}),
+			} as BoardItem);
+		}
+	}
+	return previews;
+}
+
+function syncRemoteCursors() {
+	if (!cursorLayer) return;
+	const timestamp = Date.now();
+	const wanted = new Set<string>();
+	const inv = 1 / Math.max(editor.camera.zoom, 0.0001);
+	for (const peer of awareness.peers) {
+		const cursor = peer.state?.cursor;
+		if (!cursor || timestamp - peer.lastSeenAt > awareness.cursorVisibleMs)
+			continue;
+		wanted.add(peer.connectionId);
+		const color = collaborationColor(peer.actorId);
+		let entry = cursorEntries.get(peer.connectionId);
+		if (!entry) {
+			const container = new Container({
+				label: `board-cursor-${peer.connectionId}`,
+			});
+			const marker = new Graphics();
+			const labelBackground = new Graphics();
+			const label = new Text({
+				text: peer.actorName,
+				style: {
+					fontFamily: "Geist",
+					fontSize: 11,
+					fontWeight: "600",
+					fill: 0xfffbf8,
+				},
+			});
+			label.position.set(18, 18);
+			container.addChild(marker, labelBackground, label);
+			cursorLayer.addChild(container);
+			entry = {
+				container,
+				marker,
+				labelBackground,
+				label,
+				name: "",
+				color: -1,
+			};
+			cursorEntries.set(peer.connectionId, entry);
+		}
+		if (entry.color !== color) {
+			entry.marker
+				.clear()
+				.moveTo(0, 0)
+				.lineTo(1.5, 16)
+				.lineTo(5.5, 12)
+				.lineTo(9, 18)
+				.lineTo(12, 16)
+				.lineTo(8.5, 10)
+				.lineTo(14, 9)
+				.closePath()
+				.fill({ color })
+				.stroke({ color: 0xfffbf8, width: 1.2, join: "round" });
+			entry.color = color;
+		}
+		if (entry.name !== peer.actorName || entry.color !== color) {
+			entry.label.text = peer.actorName;
+			entry.name = peer.actorName;
+		}
+		entry.labelBackground
+			.clear()
+			.roundRect(12, 15, Math.ceil(entry.label.width) + 12, 20, 3)
+			.fill({ color, alpha: 0.96 });
+		entry.container.position.set(cursor.x, cursor.y);
+		entry.container.scale.set(inv);
+		const labelVisible =
+			peer.gesture !== null || timestamp - peer.cursorMovedAt < 1_500;
+		entry.label.visible = labelVisible;
+		entry.labelBackground.visible = labelVisible;
+	}
+	for (const [connectionId, entry] of cursorEntries) {
+		if (wanted.has(connectionId)) continue;
+		cursorEntries.delete(connectionId);
+		entry.container.destroy({ children: true });
+	}
+}
+
 function syncStage() {
 	if (!app || !world || !scene) return;
 	const palette = getPalette();
@@ -389,9 +539,13 @@ function syncStage() {
 	if (screenEffects && screenEffects.parent !== app.stage)
 		app.stage.addChild(screenEffects);
 
-	const context = buildContext(palette);
+	const previewItems = remotePreviewItems();
+	const getDisplayItem = (id: string) =>
+		previewItems.get(id) ?? editor.itemById(id);
+	const context = buildContext(palette, getDisplayItem);
 	const visibleIds = computeVisibleIds();
 	const pinnedIds = new Set(editor.selection);
+	for (const id of previewItems.keys()) pinnedIds.add(id);
 	if (editor.editingId) pinnedIds.add(editor.editingId);
 
 	// Global render signals that affect every card equally (asset readiness,
@@ -408,7 +562,7 @@ function syncStage() {
 	scene.sync({
 		items: editor.items,
 		context,
-		getItem: (id) => editor.itemById(id),
+		getItem: getDisplayItem,
 		visibleIds,
 		pinnedIds,
 		globalSig,
@@ -445,9 +599,107 @@ function syncStage() {
 		palette,
 	);
 
+	drawRemoteAwareness(context.colors, context.colorMode);
 	drawTransient(palette, context.colors, context.colorMode);
+	syncRemoteCursors();
 
 	scheduleRender();
+}
+
+function drawRemoteAwareness(colors: BoardShapeColors, mode: "dark" | "light") {
+	if (!overlay) return;
+	const inv = 1 / Math.max(editor.camera.zoom, 0.0001);
+	for (const peer of awareness.peers) {
+		const collaboration = collaborationColor(peer.actorId);
+		const selection = peer.state?.selection;
+		if (selection?.bounds && selection.count > 0) {
+			const bounds = selection.bounds;
+			const editing = peer.state?.editingId != null;
+			overlay.rect(bounds.x, bounds.y, bounds.width, bounds.height).stroke({
+				color: collaboration,
+				width: (editing ? 2 : 1.25) * inv,
+				alpha: editing ? 0.94 : 0.82,
+			});
+			if (editing) {
+				overlay
+					.circle(bounds.x, bounds.y, 3.5 * inv)
+					.fill({ color: collaboration, alpha: 0.96 });
+			}
+		}
+
+		const gesture = peer.gesture;
+		if (!gesture) continue;
+		if (gesture.kind === "draw") {
+			const color = pickBoardColor(colors, gesture.color, mode);
+			const outline = buildStrokeOutline(gesture.points, gesture.size);
+			const first = outline[0];
+			if (!first || outline.length < 3) continue;
+			overlay.moveTo(first.x, first.y);
+			for (let index = 1; index < outline.length; index += 1) {
+				const point = outline[index];
+				if (point) overlay.lineTo(point.x, point.y);
+			}
+			overlay.closePath().fill({ color: color.stroke, alpha: 0.9 });
+			continue;
+		}
+		if (gesture.kind === "arrow") {
+			const color = pickBoardColor(colors, gesture.color, mode);
+			const angle = Math.atan2(
+				gesture.current.y - gesture.start.y,
+				gesture.current.x - gesture.start.x,
+			);
+			const head = Math.max(14, 16 * inv);
+			const spread = Math.PI / 6;
+			overlay
+				.moveTo(gesture.start.x, gesture.start.y)
+				.lineTo(gesture.current.x, gesture.current.y)
+				.stroke({ color: color.stroke, width: 3 * inv, alpha: 0.88 });
+			overlay
+				.moveTo(
+					gesture.current.x - head * Math.cos(angle - spread),
+					gesture.current.y - head * Math.sin(angle - spread),
+				)
+				.lineTo(gesture.current.x, gesture.current.y)
+				.lineTo(
+					gesture.current.x - head * Math.cos(angle + spread),
+					gesture.current.y - head * Math.sin(angle + spread),
+				)
+				.stroke({
+					color: color.stroke,
+					width: 3 * inv,
+					alpha: 0.92,
+					cap: "round",
+					join: "round",
+				});
+			continue;
+		}
+		if (gesture.kind === "box") {
+			const color = pickBoardColor(colors, gesture.color, mode);
+			const x = Math.min(gesture.start.x, gesture.current.x);
+			const y = Math.min(gesture.start.y, gesture.current.y);
+			const width = Math.max(1, Math.abs(gesture.current.x - gesture.start.x));
+			const height = Math.max(1, Math.abs(gesture.current.y - gesture.start.y));
+			overlay
+				.roundRect(x, y, width, height, 4)
+				.fill({ color: color.fill, alpha: 0.05 })
+				.stroke({ color: color.stroke, width: 1.5 * inv, alpha: 0.82 });
+			continue;
+		}
+		if (gesture.bounds) {
+			overlay
+				.rect(
+					gesture.bounds.x,
+					gesture.bounds.y,
+					gesture.bounds.width,
+					gesture.bounds.height,
+				)
+				.stroke({
+					color: collaboration,
+					width: 1.5 * inv,
+					alpha: 0.88,
+				});
+		}
+	}
 }
 
 /**
@@ -589,18 +841,54 @@ function toPointerEvent(event: PointerEvent) {
 	};
 }
 
+function pointerType(event: PointerEvent): "mouse" | "pen" | "touch" {
+	if (event.pointerType === "pen" || event.pointerType === "touch")
+		return event.pointerType;
+	return "mouse";
+}
+
+function publishPointerPresence(event: PointerEvent) {
+	const point = toPointerEvent(event).world;
+	onPointerPresence?.({
+		x: point.x,
+		y: point.y,
+		pointerType: pointerType(event),
+	});
+}
+
 function handlePointerDown(event: PointerEvent) {
 	if (!host) return;
 	host.setPointerCapture(event.pointerId);
-	editor.pointerDown(toPointerEvent(event));
+	const input = toPointerEvent(event);
+	editor.pointerDown(input);
+	onPointerPresence?.({
+		x: input.world.x,
+		y: input.world.y,
+		pointerType: pointerType(event),
+	});
 }
 
 function handlePointerMove(event: PointerEvent) {
-	editor.pointerMove(toPointerEvent(event));
+	const input = toPointerEvent(event);
+	editor.pointerMove(input);
+	onPointerPresence?.({
+		x: input.world.x,
+		y: input.world.y,
+		pointerType: pointerType(event),
+	});
 }
 
 function handlePointerUp(event: PointerEvent) {
 	editor.pointerUp(toPointerEvent(event));
+	if (event.type === "pointercancel" || event.pointerType !== "mouse") {
+		onPointerPresence?.(null);
+	} else {
+		publishPointerPresence(event);
+	}
+}
+
+function handlePointerLeave(event: PointerEvent) {
+	if (event.buttons === 0) onPointerPresence?.(null);
 }
 
 function handleWheel(event: WheelEvent) {
@@ -817,11 +1105,13 @@ onMount(async () => {
 		label: "board-screen-effects",
 	});
 	overlay = new Graphics({ label: "board-interaction-overlay" });
+	cursorLayer = new Container({ label: "board-cursors" });
+	cursorLayer.zIndex = Number.MAX_SAFE_INTEGER;
 	// Batched far-LOD geometry. Lives at the bottom of the node layer so live
 	// cards (selection, editing) always draw above the plates.
 	farLayer = new Graphics({ label: "board-far-layer" });
 	nodeLayer.addChild(farLayer);
-	world.addChild(effectsBehind, nodeLayer, effectsFront, overlay);
+	world.addChild(effectsBehind, nodeLayer, effectsFront, overlay, cursorLayer);
 	scene = createBoardScene({
 		world: nodeLayer,
 		farLayer,
@@ -863,6 +1153,7 @@ onMount(async () => {
 	host.addEventListener("pointermove", handlePointerMove);
 	host.addEventListener("pointerup", handlePointerUp);
 	host.addEventListener("pointercancel", handlePointerUp);
+	host.addEventListener("pointerleave", handlePointerLeave);
 	host.addEventListener("wheel", handleWheel, { passive: false });
 	host.addEventListener("dblclick", handleDoubleClick);
 
@@ -886,6 +1177,7 @@ $effect(() => {
 	editor.snapGuides;
 	editor.structureVersion;
 	editor.geometryVersion;
+	awarenessVersion;
 	assetVersion;
 	// Re-render when the theme changes so Pixi picks up new CSS colors.
 	getResolvedTheme();
@@ -904,13 +1196,14 @@ onDestroy(() => {
 		host.removeEventListener("pointermove", handlePointerMove);
 		host.removeEventListener("pointerup", handlePointerUp);
 		host.removeEventListener("pointercancel", handlePointerUp);
+		host.removeEventListener("pointerleave", handlePointerLeave);
 		host.removeEventListener("wheel", handleWheel);
 		host.removeEventListener("dblclick", handleDoubleClick);
 	}
 	// Stop animation and restore transient poses before releasing scene resources.
 	animationRuntime?.destroy();
 	animationRuntime = null;
-	const context = buildContext(getPalette());
+	const context = buildContext(getPalette(), (id) => editor.itemById(id));
 	scene?.destroy(context);
 	scene = null;
 	assets.destroy();
@@ -922,6 +1215,8 @@ onDestroy(() => {
 	screenEffects = null;
 	world = null;
 	overlay = null;
+	cursorLayer = null;
+	cursorEntries.clear();
 	farLayer = null;
 	app?.destroy(true);
 	app = null;

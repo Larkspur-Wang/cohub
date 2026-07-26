@@ -102,8 +102,17 @@ export type {
   GenerationStreamTurnUpdatedEvent,
 } from "./session-generation-stream.js";
 export * from "./types.js";
-export type { ChannelEnvelope, LabelAssignmentsUpdatedEvent, RealtimeServerEvent } from "@cohub/protocol/realtime";
 export type {
+  BoardAwarenessGesture,
+  BoardAwarenessNodePreview,
+  BoardAwarenessStateUpdate,
+  BoardAwarenessUpdate,
+  ChannelEnvelope,
+  LabelAssignmentsUpdatedEvent,
+  RealtimeServerEvent,
+} from "@cohub/protocol/realtime";
+export type {
+  BoardAwarenessUpdatedEvent,
   BoardEventName,
   BoardPlaybackChangedEvent,
   BoardSubscriptionHandlers,

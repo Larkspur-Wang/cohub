@@ -1,9 +1,12 @@
 import type { SpacePublicEndpoints } from "@cohub/protocol/ports";
 import {
+  getRealtimeBoardRoom,
   getRealtimeSpaceRoom,
+  type BoardAwarenessUpdatedEvent as ProtocolBoardAwarenessUpdatedEvent,
   type BoardPlaybackChangedEvent as ProtocolBoardPlaybackChangedEvent,
   type BoardTransactionAppliedEvent as ProtocolBoardTransactionAppliedEvent,
 } from "@cohub/protocol/realtime/types";
+import type { BoardAwarenessUpdate } from "@cohub/protocol/realtime";
 import { ensureRealtimeConnected } from "../realtime.js";
 import type { WebsocketClient, WebsocketEventPayload } from "../websocket.js";
 import { HttpError, type HttpTransport, type Fetch } from "../transport.js";
@@ -129,12 +132,14 @@ export class BoardTransactionError extends Error {
 
 export type BoardTransactionInput = Omit<BoardTransaction, "boardId">;
 export type BoardTransactionAppliedEvent = ProtocolBoardTransactionAppliedEvent;
+export type BoardAwarenessUpdatedEvent = ProtocolBoardAwarenessUpdatedEvent;
 export type BoardPlaybackChangedEvent = ProtocolBoardPlaybackChangedEvent;
-export type BoardEventName = "transaction" | "playback";
+export type BoardEventName = "transaction" | "awareness" | "playback";
 export type BoardSubscriptionHandlers = {
   transaction?: (event: BoardTransactionAppliedEvent) => void;
+  awareness?: (event: BoardAwarenessUpdatedEvent) => void;
   playback?: (event: BoardPlaybackChangedEvent) => void;
-  event?: (event: BoardTransactionAppliedEvent | BoardPlaybackChangedEvent) => void;
+  event?: (event: BoardTransactionAppliedEvent | BoardAwarenessUpdatedEvent | BoardPlaybackChangedEvent) => void;
 };
 
 export type SessionSubscriptionHandlers = {
@@ -1434,13 +1439,23 @@ class BoardRealtimeClient {
       throw new Error("realtime transport is not configured for this client");
     }
     ensureRealtimeConnected(this.websocketClient);
-    const releaseRoom = this.websocketClient.retainRooms([getRealtimeSpaceRoom(this.spaceId)]);
+    const releaseRoom = this.websocketClient.retainRooms([
+      getRealtimeSpaceRoom(this.spaceId),
+      getRealtimeBoardRoom(this.boardId),
+    ]);
     const unsubscribe = this.websocketClient.on("event", (event) => {
       if (event.spaceId !== this.spaceId) return;
       if (event.type === "board.transaction.applied" && event.payload.boardId === this.boardId) {
         const transactionEvent = event as BoardTransactionAppliedEvent;
         handlers.event?.(transactionEvent);
         handlers.transaction?.(transactionEvent);
+      }
+      if (event.type === "board.awareness.updated" && event.payload.boardId === this.boardId) {
+        const awarenessEvent = event as BoardAwarenessUpdatedEvent;
+        if (awarenessEvent.payload.connectionId !== this.websocketClient?.connectionId) {
+          handlers.event?.(awarenessEvent);
+          handlers.awareness?.(awarenessEvent);
+        }
       }
       if (event.type === "board.playback.changed" && event.payload.boardId === this.boardId) {
         const playbackEvent = event as BoardPlaybackChangedEvent;
@@ -1455,14 +1470,22 @@ class BoardRealtimeClient {
   }
 
   on(type: "transaction", handler: (event: BoardTransactionAppliedEvent) => void): () => void;
+  on(type: "awareness", handler: (event: BoardAwarenessUpdatedEvent) => void): () => void;
   on(type: "playback", handler: (event: BoardPlaybackChangedEvent) => void): () => void;
   on(
     type: BoardEventName,
-    handler: ((event: BoardTransactionAppliedEvent) => void) | ((event: BoardPlaybackChangedEvent) => void),
+    handler:
+      | ((event: BoardTransactionAppliedEvent) => void)
+      | ((event: BoardAwarenessUpdatedEvent) => void)
+      | ((event: BoardPlaybackChangedEvent) => void),
   ) {
-    return type === "transaction"
-      ? this.subscribe({ transaction: handler as (event: BoardTransactionAppliedEvent) => void })
-      : this.subscribe({ playback: handler as (event: BoardPlaybackChangedEvent) => void });
+    if (type === "transaction") {
+      return this.subscribe({ transaction: handler as (event: BoardTransactionAppliedEvent) => void });
+    }
+    if (type === "awareness") {
+      return this.subscribe({ awareness: handler as (event: BoardAwarenessUpdatedEvent) => void });
+    }
+    return this.subscribe({ playback: handler as (event: BoardPlaybackChangedEvent) => void });
   }
 }
 
@@ -1474,7 +1497,7 @@ export class BoardClient {
     readonly spaceId: string,
     readonly id: string,
     transport: HttpTransport,
-    websocketClient: WebsocketClient | null,
+    private readonly websocketClient: WebsocketClient | null,
   ) {
     this.boards = new SpaceBoardsApi(transport, spaceId, websocketClient);
     this.realtime = new BoardRealtimeClient(websocketClient, spaceId, id);
@@ -1494,6 +1517,16 @@ export class BoardClient {
 
   apply(transaction: BoardTransactionInput) {
     return this.boards.apply({ ...transaction, boardId: this.id });
+  }
+
+  updateAwareness(seq: number, update: BoardAwarenessUpdate) {
+    if (!this.websocketClient) return Promise.resolve();
+    return this.websocketClient.updateBoardAwareness({
+      spaceId: this.spaceId,
+      boardId: this.id,
+      seq,
+      update,
+    });
   }
 
   playback(command: BoardPlaybackCommand) {
@@ -1521,14 +1554,22 @@ export class BoardClient {
   }
 
   on(type: "transaction", handler: (event: BoardTransactionAppliedEvent) => void): () => void;
+  on(type: "awareness", handler: (event: BoardAwarenessUpdatedEvent) => void): () => void;
   on(type: "playback", handler: (event: BoardPlaybackChangedEvent) => void): () => void;
   on(
     type: BoardEventName,
-    handler: ((event: BoardTransactionAppliedEvent) => void) | ((event: BoardPlaybackChangedEvent) => void),
+    handler:
+      | ((event: BoardTransactionAppliedEvent) => void)
+      | ((event: BoardAwarenessUpdatedEvent) => void)
+      | ((event: BoardPlaybackChangedEvent) => void),
   ) {
-    return type === "transaction"
-      ? this.realtime.on("transaction", handler as (event: BoardTransactionAppliedEvent) => void)
-      : this.realtime.on("playback", handler as (event: BoardPlaybackChangedEvent) => void);
+    if (type === "transaction") {
+      return this.realtime.on("transaction", handler as (event: BoardTransactionAppliedEvent) => void);
+    }
+    if (type === "awareness") {
+      return this.realtime.on("awareness", handler as (event: BoardAwarenessUpdatedEvent) => void);
+    }
+    return this.realtime.on("playback", handler as (event: BoardPlaybackChangedEvent) => void);
   }
 }
 

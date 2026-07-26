@@ -134,6 +134,29 @@ export const notifySpacePresenceUpdated = async (spaceId: string): Promise<void>
   }
 };
 
+export const authorizeBoardAwareness = async (input: {
+  authToken: string;
+  boardId: string;
+  spaceId: string;
+  permission: "view" | "edit";
+}): Promise<boolean> => {
+  const response = await fetch(`${gatewayConfig.apiBaseUrl}/internal/gateway/authorize-board-awareness`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-worker-secret": gatewayConfig.workerSecret,
+      authorization: `Bearer ${input.authToken}`,
+      ...buildTraceHeaders(),
+    },
+    body: JSON.stringify({
+      boardId: input.boardId,
+      spaceId: input.spaceId,
+      permission: input.permission,
+    }),
+  });
+  return response.ok;
+};
+
 export const authorizeRealtimeRooms = async (input: {
   authToken: string;
   rooms: string[];

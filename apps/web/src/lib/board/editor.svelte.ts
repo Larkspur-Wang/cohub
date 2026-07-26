@@ -48,6 +48,7 @@ import {
 	invertBoardOps,
 	reconcileExternal,
 } from "$lib/board/board-document";
+import { createBoardItemId } from "$lib/board/board-id";
 import {
 	createArrowBoardItem,
 	createDrawBoardItem,
@@ -155,6 +156,7 @@ export type BoardInteraction =
 	  }
 	| {
 			type: "drawing";
+			id: string;
 			/** Raw world-space samples collected so far. */
 			points: DrawPoint[];
 			color: string;
@@ -162,6 +164,7 @@ export type BoardInteraction =
 	  }
 	| {
 			type: "creatingArrow";
+			id: string;
 			start: WorldPoint;
 			current: WorldPoint;
 			color: string;
@@ -170,6 +173,7 @@ export type BoardInteraction =
 	  }
 	| {
 			type: "creatingBox";
+			id: string;
 			kind: "geo" | "frame";
 			start: WorldPoint;
 			current: WorldPoint;
@@ -685,6 +689,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 
 	/** Finish a shape/frame drag-create, using its default size for a short click. */
 	function commitBoxCreate(state: {
+		id: string;
 		kind: "geo" | "frame";
 		start: WorldPoint;
 		current: WorldPoint;
@@ -703,9 +708,20 @@ export function createBoardEditor(options: BoardEditorOptions) {
 						state.start.x,
 						state.start.y,
 						state.color,
+						state.id,
 					),
 				);
-			} else addFrame(state.start);
+			} else {
+				addItemAt(
+					createFrameBoardItem(
+						state.start.x,
+						state.start.y,
+						state.color,
+						"Frame",
+						state.id,
+					),
+				);
+			}
 			return;
 		}
 		const x = Math.min(state.start.x, state.current.x);
@@ -714,12 +730,12 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		const height = Math.max(24, Math.abs(dy));
 		const frame = { x, y, width, height, rotation: 0 };
 		if (state.kind === "geo") {
-			const item = createGeoBoardItem(state.geo, x, y, state.color);
+			const item = createGeoBoardItem(state.geo, x, y, state.color, state.id);
 			if (item.type === "geo") item.frame = frame;
 			addItemAt(item);
 			return;
 		}
-		const item = createFrameBoardItem(x, y, state.color);
+		const item = createFrameBoardItem(x, y, state.color, "Frame", state.id);
 		if (item.type === "frame") {
 			item.frame = {
 				...frame,
@@ -731,13 +747,19 @@ export function createBoardEditor(options: BoardEditorOptions) {
 	}
 
 	/** Commit a finished freehand stroke as a draw item (drops empty strokes). */
-	function commitDraw(points: DrawPoint[], color: string, size: number) {
+	function commitDraw(
+		id: string,
+		points: DrawPoint[],
+		color: string,
+		size: number,
+	) {
 		if (points.length === 0) return;
-		addItemAt(createDrawBoardItem(points, color, size));
+		addItemAt(createDrawBoardItem(points, color, size, id));
 	}
 
 	/** Commit a finished arrow (drops degenerate zero-length arrows). */
 	function commitArrow(
+		id: string,
 		start: WorldPoint,
 		end: WorldPoint,
 		color: string,
@@ -752,6 +774,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 				color,
 				startBinding ?? undefined,
 				endBinding ?? undefined,
+				id,
 			),
 		);
 	}
@@ -1629,6 +1652,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		if (tool === "draw") {
 			interaction = {
 				type: "drawing",
+				id: createBoardItemId(),
 				points: [{ x: event.world.x, y: event.world.y, p: event.pressure }],
 				color: activeColor,
 				size: drawSize,
@@ -1643,6 +1667,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 					: null;
 			interaction = {
 				type: "creatingArrow",
+				id: createBoardItemId(),
 				start: event.world,
 				current: event.world,
 				color: activeColor,
@@ -1653,6 +1678,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		if (tool === "geo" || tool === "frame") {
 			interaction = {
 				type: "creatingBox",
+				id: createBoardItemId(),
 				kind: tool,
 				start: event.world,
 				current: event.world,
@@ -2092,7 +2118,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 			const dy = gesture.current.y - gesture.start.y;
 			if (Math.hypot(dx, dy) <= 1 / camera.zoom) selection = [];
 		} else if (gesture.type === "drawing") {
-			commitDraw(gesture.points, gesture.color, gesture.size);
+			commitDraw(gesture.id, gesture.points, gesture.color, gesture.size);
 		} else if (gesture.type === "creatingArrow") {
 			const target = topItemAt(gesture.current);
 			const endBinding =
@@ -2103,6 +2129,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 						})
 					: null;
 			commitArrow(
+				gesture.id,
 				gesture.start,
 				gesture.current,
 				gesture.color,

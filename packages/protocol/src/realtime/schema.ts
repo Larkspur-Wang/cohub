@@ -1,10 +1,11 @@
 import { z } from "zod";
 import type { ContentBlock } from "../core/content.js";
 import type { RealtimeCompactFrame, RealtimeEnvelope, RealtimeRoom } from "./types.js";
+import { BoardAwarenessClientPayloadSchema } from "./board-awareness.js";
 export type * from "./types.js";
 
 const contentBlockMetaSchema = z.record(z.string(), z.unknown());
-const realtimeRoomSchema = z.string().regex(/^(space|user):[^:]+$/);
+const realtimeRoomSchema = z.string().regex(/^(space|user|board):[^:]+$/);
 
 export const contentBlockSchema = z.discriminatedUnion("type", [
   z.object({
@@ -97,6 +98,11 @@ export const wsClientEventSchema = z.discriminatedUnion("type", [
       spaceId: z.string().uuid(),
       meta: z.record(z.string(), z.unknown()).nullable().optional(),
     }),
+  }),
+  z.object({
+    type: z.literal("board.awareness.update"),
+    requestId: z.string().optional(),
+    payload: BoardAwarenessClientPayloadSchema,
   }),
   z.object({
     type: z.literal("ping"),

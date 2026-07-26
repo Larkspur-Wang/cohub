@@ -1,6 +1,7 @@
 import {
   getRealtimeSpaceRoom,
   getSessionTurnPatchStreamKey,
+  WS_BOARD_AWARENESS_CAPABILITY,
   WS_COMPACT_STREAM_CAPABILITY,
   WS_ROOM_SUBSCRIPTION_CAPABILITY,
   normalizeRealtimeRooms,
@@ -10,6 +11,7 @@ import {
   type RealtimeRoom,
   type WsClientEvent,
 } from "@cohub/protocol/realtime/types";
+import type { BoardAwarenessUpdate } from "@cohub/protocol/realtime";
 import type { ContentBlock } from "@cohub/protocol/core";
 import type { ModelThinkingLevel } from "@cohub/protocol";
 import type { CohubEnvironment } from "./environment.js";
@@ -417,6 +419,26 @@ export class WebsocketClient {
     });
   }
 
+  async updateBoardAwareness(input: {
+    spaceId: string;
+    boardId: string;
+    seq: number;
+    update: BoardAwarenessUpdate;
+    requestId?: string;
+  }) {
+    await this.ensureOpen();
+    this.send({
+      type: "board.awareness.update",
+      requestId: input.requestId,
+      payload: {
+        spaceId: input.spaceId,
+        boardId: input.boardId,
+        seq: input.seq,
+        update: input.update,
+      },
+    });
+  }
+
   async sendMessage(input: {
     spaceId: string;
     sessionId: string;
@@ -529,7 +551,7 @@ export class WebsocketClient {
     const waiter = this.createAuthWaiter();
     this.send({
       type: "auth",
-      payload: { token, capabilities: [WS_COMPACT_STREAM_CAPABILITY, WS_ROOM_SUBSCRIPTION_CAPABILITY] },
+      payload: { token, capabilities: [WS_COMPACT_STREAM_CAPABILITY, WS_ROOM_SUBSCRIPTION_CAPABILITY, WS_BOARD_AWARENESS_CAPABILITY] },
     });
     await waiter.promise;
     await this.restoreRoomSubscriptions();

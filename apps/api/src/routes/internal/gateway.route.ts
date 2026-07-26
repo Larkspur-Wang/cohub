@@ -1,4 +1,5 @@
 import { context, trace, SpanStatusCode } from "@opentelemetry/api";
+import { boards } from "@cohub/db";
 import { createLogger } from "@cohub/infra/logging";
 import { getTracer, extractTrace } from "@cohub/infra/tracing/propagator";
 import { gatewayInboundEventSchema, type GatewayInboundEvent } from "@cohub/protocol/gateway";
@@ -35,6 +36,8 @@ import {
   type SpaceUploadManifestEntry,
 } from "../../space-upload-storage.js";
 import { enqueueSandboxUploadFilesJob } from "../../sandbox-bash-queue.js";
+import { db } from "../../db/index.js";
+import { eq } from "drizzle-orm";
 
 const logger = createLogger({ serviceName: "cohub-api" });
 const tracer = getTracer("cohub-api");
@@ -134,6 +137,23 @@ router.post("/authorize-realtime-rooms", async (c) => {
       continue;
     }
 
+    if (parsed.kind === "board") {
+      const [board] = await db
+        .select({ spaceId: boards.spaceId })
+        .from(boards)
+        .where(eq(boards.id, parsed.id))
+        .limit(1);
+      const allowed = board
+        ? await hasPermission(user, "file.view", { spaceId: board.spaceId }).catch((error) => {
+            logger.warn("[RealtimeRooms] failed to authorize Board room", { room, userId: user.uuid, error });
+            return false;
+          })
+        : false;
+      if (allowed) accepted.push(normalizedRoom);
+      else rejected.push({ room, code: "FORBIDDEN", message: "Missing Board view permission" });
+      continue;
+    }
+
     const allowed = await hasPermission(user, "space.view", { spaceId: parsed.id }).catch((error) => {
       logger.warn("[RealtimeRooms] failed to authorize room", { room, userId: user.uuid, error });
       return false;
@@ -146,6 +166,49 @@ router.post("/authorize-realtime-rooms", async (c) => {
   }
 
   return c.json({ ok: true, rooms: accepted, rejected });
+});
+
+router.post("/authorize-board-awareness", async (c) => {
+  const forbidden = ensureInternalRequest(c);
+  if (forbidden) return forbidden;
+
+  const user = getOptionalAuth(c);
+  if (!user) return c.json({ ok: false, message: "authentication is required" }, 401);
+
+  const body = await c.req.json<{
+    boardId?: string;
+    spaceId?: string;
+    permission?: "view" | "edit";
+  }>().catch(() => null);
+  const boardId = typeof body?.boardId === "string" ? body.boardId.trim() : "";
+  const spaceId = typeof body?.spaceId === "string" ? body.spaceId.trim() : "";
+  const permission = body?.permission === "edit" ? "edit" : "view";
+  if (!requireValidId(boardId) || !requireValidId(spaceId)) {
+    return c.json({ ok: false, message: "valid boardId and spaceId are required" }, 400);
+  }
+
+  const [board] = await db
+    .select({ spaceId: boards.spaceId })
+    .from(boards)
+    .where(eq(boards.id, boardId))
+    .limit(1);
+  if (!board || board.spaceId !== spaceId) {
+    return c.json({ ok: false, message: "board not found" }, 404);
+  }
+
+  const requiredPermission = permission === "edit" ? "file.edit" : "file.view";
+  const allowed = await hasPermission(user, requiredPermission, { spaceId }).catch((error) => {
+    logger.warn("[BoardAwareness] failed to authorize update", {
+      boardId,
+      spaceId,
+      permission,
+      userId: user.uuid,
+      error,
+    });
+    return false;
+  });
+  if (!allowed) return c.json({ ok: false, message: `missing ${requiredPermission} permission` }, 403);
+  return c.json({ ok: true, boardId, spaceId, permission });
 });
 
 // POST /internal/gateway/local-sandbox/authorize

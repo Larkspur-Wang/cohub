@@ -1,6 +1,10 @@
 <script lang="ts">
 import { screenToWorld, shapeCapabilities } from "@neta-art/cohub-board";
 import { onDestroy, onMount, untrack } from "svelte";
+import {
+	type BoardAwarenessController,
+	createBoardAwarenessController,
+} from "$lib/board/board-awareness";
 import type { BoardStageExportBridge } from "$lib/board/board-image-export";
 import { createBoardEditor } from "$lib/board/editor.svelte";
 import type { BoardRuntimeProps } from "$lib/board/runtime/board-runtime";
@@ -13,10 +17,12 @@ import BoardStage from "$lib/components/board/BoardStage.svelte";
 import BoardTextEditor from "$lib/components/board/BoardTextEditor.svelte";
 import BoardVideoPlayer from "$lib/components/board/BoardVideoPlayer.svelte";
 import BoardZoomMenu from "$lib/components/board/BoardZoomMenu.svelte";
+import { sdk } from "$lib/sdk";
 import { getResolvedTheme } from "$lib/theme.svelte";
 
 const {
 	path,
+	boardId,
 	document: initialDocument,
 	runtime,
 	spaceId,
@@ -36,12 +42,24 @@ let contextMenu = $state<{ x: number; y: number } | null>(null);
  */
 let exportBridge = $state<BoardStageExportBridge | null>(null);
 let exportOpen = $state(false);
+let awarenessVersion = $state(0);
+let unsubscribeAwareness: (() => void) | null = null;
 
 function openExport() {
 	if (!exportBridge) return;
 	contextMenu = null;
 	exportOpen = true;
 }
+
+const boardClient = sdk
+	.space(untrack(() => spaceId))
+	.board(untrack(() => boardId));
+const awareness: BoardAwarenessController = createBoardAwarenessController({
+	send: (seq, update) => boardClient.updateAwareness(seq, update),
+	onChange: () => {
+		awarenessVersion += 1;
+	},
+});
 
 const editor = createBoardEditor({
 	document: untrack(() => initialDocument),
@@ -58,6 +76,33 @@ $effect(() => {
 	// untrack: only re-run when the document/path prop changes, not when
 	// loadDocument reads interaction/editing state for its deferral decision.
 	untrack(() => editor.loadDocument(doc, k));
+});
+
+$effect(() => {
+	const tool = editor.tool;
+	const selection = editor.selection;
+	const bounds = editor.bounds;
+	const editingId = editor.editingId;
+	untrack(() =>
+		awareness.updateLocalState({
+			tool,
+			selection,
+			bounds,
+			editingId,
+		}),
+	);
+});
+
+$effect(() => {
+	editor.interaction;
+	editor.geometryVersion;
+	untrack(() => awareness.syncGesture(editor));
+});
+
+$effect(() => {
+	awarenessVersion;
+	const items = editor.items;
+	untrack(() => awareness.reconcile(items));
 });
 
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -261,6 +306,7 @@ function handleKeyup(event: KeyboardEvent) {
 
 function clearSpaceHeld() {
 	editor.spaceHeld = false;
+	awareness.setCursor(null);
 }
 
 function retrySync() {
@@ -289,6 +335,9 @@ function handleContextMenu(event: MouseEvent) {
 }
 
 onMount(() => {
+	unsubscribeAwareness = boardClient.subscribe({
+		awareness: (event) => awareness.receive(event),
+	});
 	window.addEventListener("keydown", handleKeydown);
 	window.addEventListener("keyup", handleKeyup);
 	// Space hand can stick if the window blurs mid-hold (tab switch / alt-tab).
@@ -299,6 +348,9 @@ onMount(() => {
 		window.removeEventListener("keyup", handleKeyup);
 		window.removeEventListener("blur", clearSpaceHeld);
 		document.removeEventListener("visibilitychange", clearSpaceHeld);
+		const unsubscribe = unsubscribeAwareness;
+		unsubscribeAwareness = null;
+		void awareness.destroy().finally(() => unsubscribe?.());
 	};
 });
 
@@ -308,6 +360,9 @@ onDestroy(() => {
 	window.removeEventListener("blur", clearSpaceHeld);
 	document.removeEventListener("visibilitychange", clearSpaceHeld);
 	editor.spaceHeld = false;
+	const unsubscribe = unsubscribeAwareness;
+	unsubscribeAwareness = null;
+	void awareness.destroy().finally(() => unsubscribe?.());
 	editor.destroy();
 });
 </script>
@@ -336,8 +391,11 @@ onDestroy(() => {
 		<BoardStage
 			{editor}
 			{runtime}
+			{awareness}
+			{awarenessVersion}
 			{spaceId}
 			{onOpenFile}
+			onPointerPresence={(cursor) => awareness.setCursor(cursor)}
 			onSurfaceChange={(size) => { editor.surfaceSize = size; }}
 			onExportReady={(bridge) => { exportBridge = bridge; }}
 		/>

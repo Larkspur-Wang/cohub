@@ -242,9 +242,10 @@ export function createGeoBoardItem(
 	x: number,
 	y: number,
 	color = "brand",
+	id = createBoardItemId(),
 ): BoardItem {
 	return {
-		id: createBoardItemId(),
+		id,
 		type: "geo",
 		geo,
 		text: "",
@@ -267,6 +268,7 @@ export function createDrawBoardItem(
 	worldPoints: Array<{ x: number; y: number; p: number }>,
 	color: string,
 	size: number,
+	id = createBoardItemId(),
 ): BoardItem {
 	const bounds = computeDrawBounds(worldPoints, size);
 	const points = worldPoints.map((point) => ({
@@ -275,7 +277,7 @@ export function createDrawBoardItem(
 		p: point.p,
 	}));
 	return {
-		id: createBoardItemId(),
+		id,
 		type: "draw",
 		points,
 		color,
@@ -300,12 +302,13 @@ export function createArrowBoardItem(
 	color: string,
 	startBinding?: BoardArrowItem["start"],
 	endBinding?: BoardArrowItem["end"],
+	id = createBoardItemId(),
 ): BoardItem {
 	const startX = startBinding ?? { kind: "point", x: start.x, y: start.y };
 	const endX = endBinding ?? { kind: "point", x: end.x, y: end.y };
 	const frame = arrowFrameFromPoints(start, end);
 	return {
-		id: createBoardItemId(),
+		id,
 		type: "arrow",
 		start: startX,
 		end: endX,
@@ -326,9 +329,10 @@ export function createFrameBoardItem(
 	y: number,
 	color = "neutral",
 	label = "Frame",
+	id = createBoardItemId(),
 ): BoardItem {
 	return {
-		id: createBoardItemId(),
+		id,
 		type: "frame",
 		label,
 		color,

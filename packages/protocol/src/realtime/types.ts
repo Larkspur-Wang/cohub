@@ -7,25 +7,34 @@ import type { TaskRunStatus } from "../task/index.js";
 import type { SpaceFsChangedPayload } from "../fs/index.js";
 import type { SpacePortsChangedPayload } from "../ports/index.js";
 import type { BoardOperation, BoardPlaybackSnapshot } from "../board.js";
+import type {
+  BoardAwarenessClientPayload,
+  BoardAwarenessUpdate,
+} from "./board-awareness.js";
 
 export const WS_COMPACT_STREAM_CAPABILITY = "session.compact_stream.v1";
 export const WS_ROOM_SUBSCRIPTION_CAPABILITY = "realtime.rooms.v1";
+export const WS_BOARD_AWARENESS_CAPABILITY = "board.awareness.v1";
 export const REALTIME_OUTBOUND_CHANNEL = "pubsub:realtime:outbound";
 export const AGENT_REALTIME_PATCH_CHANNEL = "pubsub:realtime:agent_patches";
 
-export type RealtimeRoom = `space:${string}` | `user:${string}`;
+export type RealtimeRoom =
+  | `space:${string}`
+  | `user:${string}`
+  | `board:${string}`;
 
 export const getRealtimeSpaceRoom = (spaceId: string): RealtimeRoom => `space:${spaceId}`;
 export const getRealtimeUserRoom = (userId: string): RealtimeRoom => `user:${userId}`;
+export const getRealtimeBoardRoom = (boardId: string): RealtimeRoom => `board:${boardId}`;
 
-export const parseRealtimeRoom = (room: string): { kind: "space" | "user"; id: string } | null => {
+export const parseRealtimeRoom = (room: string): { kind: "space" | "user" | "board"; id: string } | null => {
   const trimmed = room.trim();
   const separatorIndex = trimmed.indexOf(":");
   if (separatorIndex <= 0) return null;
   const kind = trimmed.slice(0, separatorIndex);
   const id = trimmed.slice(separatorIndex + 1).trim();
   if (!id) return null;
-  if (kind !== "space" && kind !== "user") return null;
+  if (kind !== "space" && kind !== "user" && kind !== "board") return null;
   return { kind, id };
 };
 
@@ -45,6 +54,7 @@ export type WsClientEvent =
   | { type: "unsubscribe"; requestId?: string; payload: { rooms: string[] } }
   | { type: "session.message.create"; requestId?: string; payload: { spaceId: string; sessionId: string; clientMessageId?: string; content: ContentBlock[]; model?: string; provider?: string; thinkingLevel?: ModelThinkingLevel } }
   | { type: "presence.update"; requestId?: string; payload: { spaceId: string; meta?: Record<string, unknown> | null } }
+  | { type: "board.awareness.update"; requestId?: string; payload: BoardAwarenessClientPayload }
   | { type: "ping"; requestId?: string; payload?: Record<string, unknown> }
   | { type: "ack"; requestId?: string; payload?: { eventId?: string } };
 
@@ -485,6 +495,25 @@ export type BoardTransactionAppliedEvent = {
   };
 };
 
+export type BoardAwarenessUpdatedEvent = {
+  id: string;
+  timestamp: number;
+  domain: "space";
+  type: "board.awareness.updated";
+  requestId?: string | null;
+  spaceId: string;
+  sessionId?: string | null;
+  rooms?: RealtimeRoom[];
+  payload: {
+    boardId: string;
+    connectionId: string;
+    actorId: string;
+    actorName: string;
+    seq: number;
+    update: BoardAwarenessUpdate;
+  };
+};
+
 export type BoardPlaybackChangedEvent = {
   id: string;
   timestamp: number;
@@ -580,6 +609,7 @@ export type RealtimeServerEvent =
   | SpacePortsChangedEvent
   | SpacePresenceUpdatedEvent
   | BoardTransactionAppliedEvent
+  | BoardAwarenessUpdatedEvent
   | BoardPlaybackChangedEvent
   | TaskCreatedEvent
   | TaskUpdatedEvent

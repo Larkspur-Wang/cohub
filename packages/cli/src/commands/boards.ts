@@ -460,8 +460,10 @@ export function registerBoards(program: Command): Command {
             }
             if (event.type === "board.transaction.applied") {
               process.stdout.write(`version ${event.payload.version}  transaction ${event.payload.txId}  operations ${event.payload.operations.length}\n`);
-            } else {
+            } else if (event.type === "board.playback.changed") {
               process.stdout.write(`${event.payload.status}  sequence ${event.payload.sequenceId}  position ${event.payload.position}\n`);
+            } else {
+              process.stdout.write(`awareness ${event.payload.actorName}  ${event.payload.update.type}\n`);
             }
           },
         });
