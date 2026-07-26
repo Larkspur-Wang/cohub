@@ -22,6 +22,7 @@ import {
 import {
   type BoardExportRegion,
   planBoardExport,
+  selectBoardExportAssets,
 } from "@neta-art/cohub-board/export";
 import {
   type BoardHeadlessExportFormat,
@@ -123,15 +124,15 @@ export async function loadBoardTextures(
   spaceId: string,
   items: BoardItem[],
   options: { concurrency?: number } = {},
-): Promise<{ textures: Map<string, BoardHeadlessTexture>; failed: string[] }> {
-  const keys = new Set<string>();
-  for (const item of items) {
-    const key = imageAssetKey(item);
-    if (key) keys.add(key);
-  }
+): Promise<{
+  textures: Map<string, BoardHeadlessTexture>;
+  failed: string[];
+  omitted: string[];
+}> {
+  const selection = selectBoardExportAssets(items, imageAssetKey);
   const textures = new Map<string, BoardHeadlessTexture>();
   const failed: string[] = [];
-  const pending = [...keys];
+  const pending = [...selection.keys];
   const concurrency = Math.max(1, Math.min(options.concurrency ?? 6, 16));
   const client = createClient();
 
@@ -158,7 +159,7 @@ export async function loadBoardTextures(
   }
 
   await Promise.all(Array.from({ length: Math.min(concurrency, pending.length) }, worker));
-  return { textures, failed };
+  return { textures, failed, omitted: selection.omittedKeys };
 }
 
 async function readSpaceFileBytes(
@@ -222,14 +223,28 @@ export async function runBoardExport(
   try {
     const warnings: string[] = [];
     let textures: Map<string, BoardHeadlessTexture> | undefined;
+    let omittedKeys = new Set<string>();
     if (options.withImages) {
       const loaded = await loadBoardTextures(headless, options.spaceId, plan.items);
       textures = loaded.textures;
+      omittedKeys = new Set(loaded.omitted);
       if (loaded.failed.length > 0) {
         warnings.push(
           `${loaded.failed.length} image${loaded.failed.length === 1 ? "" : "s"} could not be loaded: ${loaded.failed.slice(0, 3).join(", ")}${loaded.failed.length > 3 ? ", …" : ""}`,
         );
       }
+      if (loaded.omitted.length > 0) {
+        warnings.push(
+          `${loaded.omitted.length} previews were drawn as placeholders to stay within the export texture limit.`,
+        );
+      }
+    }
+
+    const videoCount = plan.items.filter((item) => item.type === "video").length;
+    if (videoCount > 0) {
+      warnings.push(
+        `${videoCount} video preview${videoCount === 1 ? " was" : "s were"} drawn as placeholders; headless video decoding is unavailable.`,
+      );
     }
 
     const result = exportBoardImageBytes(headless, document, {
@@ -239,6 +254,14 @@ export async function runBoardExport(
       colorScheme: options.colorScheme,
       background: options.background,
       textures,
+      ...(options.withImages
+        ? {
+            assetKey: (item: BoardItem) => {
+              const key = imageAssetKey(item);
+              return key && omittedKeys.has(key) ? null : key;
+            },
+          }
+        : {}),
       format: options.format,
       quality: options.quality,
     });

@@ -20,6 +20,7 @@ import {
 import { defaultBoardPalette } from "./palette.js";
 import { createBoardExportScene } from "./scene.js";
 
+export * from "./assets.js";
 export * from "./region.js";
 export { defaultBoardPalette } from "./palette.js";
 export { createBoardExportScene } from "./scene.js";

@@ -21,6 +21,7 @@ import {
 	describeBoardExportWarning,
 	planBoardExport,
 	renderBoardExport,
+	selectBoardExportAssets,
 } from "@neta-art/cohub-board/export";
 import type { Renderer, Texture } from "pixi.js";
 
@@ -114,9 +115,15 @@ export async function exportBoardImage(
 	if (!plan) return null;
 
 	const theme = bridge.theme();
+	const assets = selectBoardExportAssets(plan.items, bridge.assetKey);
+	const omittedKeys = new Set(assets.omittedKeys);
+	const cappedAssetKey = (item: BoardItem) => {
+		const key = bridge.assetKey(item);
+		return key && omittedKeys.has(key) ? null : key;
+	};
 	// Draw *and* encode inside the texture scope: releasing a reference can evict
 	// immediately, and the canvas is only read when it becomes a blob.
-	return bridge.withTextures(plan.items, async (textures) => {
+	return bridge.withTextures(assets.items, async (textures) => {
 		const result = renderBoardExport(renderer, document, {
 			palette: theme.palette,
 			colors: theme.colors,
@@ -124,7 +131,7 @@ export async function exportBoardImage(
 			...exportOptions,
 			region,
 			textures,
-			assetKey: bridge.assetKey,
+			assetKey: cappedAssetKey,
 		});
 		if (!result) return null;
 
@@ -135,13 +142,19 @@ export async function exportBoardImage(
 			format === "png" ? undefined : quality,
 		);
 		if (!blob) throw new Error("This browser could not encode the export.");
+		const warnings = describe(result.warnings);
+		if (assets.omittedKeys.length > 0) {
+			warnings.push(
+				`${assets.omittedKeys.length} previews were drawn as placeholders to stay within the export texture limit.`,
+			);
+		}
 		return {
 			blob,
 			width: result.plan.width,
 			height: result.plan.height,
 			scale: result.plan.scale,
 			format,
-			warnings: describe(result.warnings),
+			warnings,
 		};
 	});
 }
