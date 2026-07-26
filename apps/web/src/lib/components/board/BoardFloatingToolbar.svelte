@@ -24,6 +24,7 @@ const {
 }: { editor: BoardEditor; immersive?: boolean } = $props();
 
 let moreOpen = $state(false);
+let styleOpen = $state(false);
 
 type ToolDef = {
 	id: BoardToolId;
@@ -68,7 +69,7 @@ const TOOLS: ToolDef[] = [
 const primaryTools = $derived(TOOLS.filter((tool) => !tool.secondary));
 const secondaryTools = $derived(TOOLS.filter((tool) => tool.secondary));
 const activeTool = $derived(TOOLS.find((t) => t.id === editor.tool));
-const showPalette = $derived(Boolean(activeTool?.usesColor));
+const showPalette = $derived(Boolean(activeTool?.usesColor && styleOpen));
 const secondaryActive = $derived(
 	secondaryTools.some((tool) => tool.id === editor.tool),
 );
@@ -82,8 +83,16 @@ const GEO_LABELS: Record<string, string> = {
 };
 
 function selectTool(id: BoardToolId) {
+	const tool = TOOLS.find((candidate) => candidate.id === id);
+	const styleWasOpen = editor.tool === id && styleOpen;
 	editor.tool = id;
+	styleOpen = Boolean(tool?.usesColor && !styleWasOpen);
 	moreOpen = false;
+}
+
+function toggleMore() {
+	moreOpen = !moreOpen;
+	if (moreOpen) styleOpen = false;
 }
 
 function toolTitle(tool: ToolDef) {
@@ -151,6 +160,9 @@ function toolTitle(tool: ToolDef) {
 				title={toolTitle(tool)}
 				aria-label="{tool.label} tool"
 				aria-pressed={editor.tool === tool.id}
+				aria-expanded={tool.usesColor
+					? editor.tool === tool.id && showPalette
+					: undefined}
 				onclick={() => selectTool(tool.id)}
 			>
 				<tool.icon class="h-4 w-4" />
@@ -167,6 +179,9 @@ function toolTitle(tool: ToolDef) {
 					title={toolTitle(tool)}
 					aria-label="{tool.label} tool"
 					aria-pressed={editor.tool === tool.id}
+					aria-expanded={tool.usesColor
+						? editor.tool === tool.id && showPalette
+						: undefined}
 					onclick={() => selectTool(tool.id)}
 				>
 					<tool.icon class="h-4 w-4" />
@@ -181,7 +196,7 @@ function toolTitle(tool: ToolDef) {
 			title="More tools"
 			aria-label="More tools"
 			aria-expanded={moreOpen}
-			onclick={() => { moreOpen = !moreOpen; }}
+			onclick={toggleMore}
 		>
 			<ChevronUp class="h-4 w-4" />
 		</button>
@@ -286,7 +301,10 @@ function toolTitle(tool: ToolDef) {
 	}
 
 	.board-more-menu {
-		display: none;
+		position: absolute;
+		bottom: calc(100% + 6px);
+		left: 50%;
+		display: flex;
 		min-width: 160px;
 		flex-direction: column;
 		gap: 2px;
@@ -296,6 +314,7 @@ function toolTitle(tool: ToolDef) {
 		padding: 4px;
 		box-shadow: 0 10px 24px color-mix(in srgb, var(--overlay-scrim-strong) 16%, transparent);
 		backdrop-filter: blur(12px);
+		transform: translateX(-50%);
 	}
 
 	.more-item {
@@ -370,7 +389,7 @@ function toolTitle(tool: ToolDef) {
 	@media (pointer: coarse) {
 		.board-toolbar-wrap {
 			bottom: calc(10px + env(safe-area-inset-bottom, 0px));
-			width: min(100% - 16px, 100%);
+			width: calc(100% - 16px);
 			max-width: calc(100vw - 16px);
 		}
 		.board-floating-toolbar {
@@ -394,7 +413,6 @@ function toolTitle(tool: ToolDef) {
 
 		.secondary-inline { display: none; }
 		.more-btn { display: inline-flex; }
-		.board-more-menu { display: flex; }
 	}
 
 	@media (pointer: coarse) and (max-width: 480px) {
