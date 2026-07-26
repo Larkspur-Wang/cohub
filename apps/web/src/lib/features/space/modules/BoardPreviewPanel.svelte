@@ -115,23 +115,25 @@ const boardRuntimeModulePromise = $derived.by(() => {
 		<div class="relative flex h-full min-w-0 flex-col bg-bg-primary">
 			{@render TabsChrome()}
 			<div class="min-h-0 flex-1">
-				<BoardRuntime
-					path={board.path}
-					boardId={board.boardId}
-					document={board.document}
-					runtime={board.runtime}
-					spaceId={spaceId}
-					{immersive}
-					{isMobile}
-					{collaborators}
-					{activities}
-					{onOpenActivity}
-					syncError={board.saveError}
-					onCommit={(document, ops) => onCommit(document, ops)}
-					onRetrySync={onRetrySave}
-					{onViewStateChange}
-					{onOpenFile}
-				/>
+				{#key board.boardId}
+					<BoardRuntime
+						path={board.path}
+						boardId={board.boardId}
+						document={board.document}
+						runtime={board.runtime}
+						spaceId={spaceId}
+						{immersive}
+						{isMobile}
+						{collaborators}
+						{activities}
+						{onOpenActivity}
+						syncError={board.saveError}
+						onCommit={(document, ops) => onCommit(document, ops)}
+						onRetrySync={onRetrySave}
+						{onViewStateChange}
+						{onOpenFile}
+					/>
+				{/key}
 			</div>
 		</div>
 	{:catch}

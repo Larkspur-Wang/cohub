@@ -77,6 +77,11 @@ test("preview kinds share one workspace pane", () => {
 		"board runtime import must retain loading chrome instead of exposing an empty full-screen pane",
 	);
 	assert.match(
+		panels[1],
+		/\{#key board\.boardId\}[\s\S]*<BoardRuntime/,
+		"switching Board tabs must remount document-scoped runtime resources",
+	);
+	assert.match(
 		codeEditor,
 		/data-drawer-swipe-ignore=\{allowDrawerSwipe \? undefined : ""\}/,
 	);

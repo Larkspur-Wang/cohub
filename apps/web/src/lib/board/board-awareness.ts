@@ -16,6 +16,16 @@ const PEER_TTL_MS = 10_000;
 const ENDED_GESTURE_TTL_MS = 12_000;
 const MAX_PREVIEW_NODES = 64;
 
+// Sequence ordering belongs to the websocket connection, which can outlive a
+// BoardPanel. Keep one allocator for the page so a remounted controller never
+// restarts below the final updates from its predecessor.
+let localAwarenessSequence = 0;
+
+function nextLocalAwarenessSequence(): number {
+	localAwarenessSequence += 1;
+	return localAwarenessSequence;
+}
+
 export type RemoteBoardGesture =
 	| Exclude<BoardAwarenessGesture, { kind: "draw" }>
 	| {
@@ -255,7 +265,7 @@ export function createBoardAwarenessController(options: ControllerOptions) {
 
 	function emit(update: BoardAwarenessUpdate) {
 		if (destroyed) return;
-		seq += 1;
+		seq = nextLocalAwarenessSequence();
 		const currentSeq = seq;
 		sendTail = sendTail
 			.then(() => options.send(currentSeq, update))

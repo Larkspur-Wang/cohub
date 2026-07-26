@@ -186,6 +186,49 @@ test("local state publishes the client form factor", async () => {
 	controller.destroy();
 });
 
+test("remounted controllers keep websocket awareness sequences monotonic", async () => {
+	const firstSequences: number[] = [];
+	const first = createBoardAwarenessController({
+		send: async (seq) => {
+			firstSequences.push(seq);
+		},
+		onChange: () => {},
+	});
+	first.updateLocalState({
+		client: { formFactor: "desktop" },
+		tool: "draw",
+		selection: [],
+		bounds: null,
+		editingId: null,
+	});
+	await delay(20);
+	await first.destroy();
+
+	const secondSequences: number[] = [];
+	const second = createBoardAwarenessController({
+		send: async (seq) => {
+			secondSequences.push(seq);
+		},
+		onChange: () => {},
+	});
+	second.updateLocalState({
+		client: { formFactor: "mobile" },
+		tool: "select",
+		selection: [],
+		bounds: null,
+		editingId: null,
+	});
+	await delay(20);
+
+	assert.ok(firstSequences.length > 0);
+	assert.ok(secondSequences.length > 0);
+	assert.ok(
+		Math.min(...secondSequences) > Math.max(...firstSequences),
+		"a remounted controller must not restart its connection sequence",
+	);
+	await second.destroy();
+});
+
 test("a released touch keeps its last contact point for the fade-out", () => {
 	const controller = createBoardAwarenessController({
 		send: async () => {},
