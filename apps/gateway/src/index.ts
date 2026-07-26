@@ -38,6 +38,11 @@ import { listenOutboundCommands, initOutboundConsumerGroup } from "./bus.js";
 import { summarizeRedisUrl } from "./logging.js";
 import { gatewayConfig } from "./config.js";
 import { GatewayManager } from "./manager/index.js";
+import {
+  consumeBoardAwarenessRate,
+  hasBoardAwarenessCapacity,
+  type BoardAwarenessRate,
+} from "./board-awareness-admission.js";
 import { markChannelDegraded, touchChannelOutbound } from "./channel-health.js";
 import { handleAsrWebSocketConnection } from "./asr/session.js";
 import { handleRelayControlConnection, handleRelayDataConnection, handleRelayPeerConnection } from "./relay/index.js";
@@ -61,7 +66,8 @@ type WsConnectionContext = {
   compactStreamAliases: Map<string, string>;
   nextCompactStreamAlias: number;
   boardAwarenessSeqByBoard: Map<string, number>;
-  boardAwarenessRate: { startedAt: number; count: number };
+  boardAwarenessRate: BoardAwarenessRate;
+  boardAwarenessPending: number;
   boardAwarenessTail: Promise<void>;
 };
 
@@ -75,7 +81,6 @@ const ROOM_AUTH_CACHE_TTL_MS = 30_000;
 const PRESENCE_UPDATE_DEBOUNCE_MS = 200;
 const ROOM_AUTH_CACHE_MAX_ENTRIES = 10_000;
 const BOARD_AWARENESS_AUTH_TTL_MS = 30_000;
-const BOARD_AWARENESS_MAX_EVENTS_PER_SECOND = 60;
 
 type RealtimeRoomRejection = { room: string; code: "BAD_ROOM" | "FORBIDDEN"; message: string };
 
@@ -99,16 +104,6 @@ const getBoardIdFromRoom = (room: RealtimeRoom) => {
   if (!room.startsWith("board:")) return null;
   const boardId = room.slice("board:".length).trim();
   return boardId || null;
-};
-
-const consumeBoardAwarenessRate = (ctx: WsConnectionContext) => {
-  const now = Date.now();
-  if (now - ctx.boardAwarenessRate.startedAt >= 1_000) {
-    ctx.boardAwarenessRate = { startedAt: now, count: 1 };
-    return true;
-  }
-  ctx.boardAwarenessRate.count += 1;
-  return ctx.boardAwarenessRate.count <= BOARD_AWARENESS_MAX_EVENTS_PER_SECOND;
 };
 
 const canPublishBoardAwareness = async (
@@ -381,7 +376,6 @@ const publishBoardAwareness = async (
     sendWsError(socket, "SUBSCRIPTION_REQUIRED", "Join the Board room before publishing awareness", requestId);
     return;
   }
-  if (!consumeBoardAwarenessRate(ctx)) return;
   const previousSeq = ctx.boardAwarenessSeqByBoard.get(boardId) ?? -1;
   if (seq <= previousSeq) return;
 
@@ -865,6 +859,7 @@ async function main() {
       nextCompactStreamAlias: 0,
       boardAwarenessSeqByBoard: new Map(),
       boardAwarenessRate: { startedAt: Date.now(), count: 0 },
+      boardAwarenessPending: 0,
       boardAwarenessTail: Promise.resolve(),
     };
     wsConnections.set(connectionId, ctx);
@@ -1031,11 +1026,21 @@ async function main() {
         }
 
         if (message.type === "board.awareness.update") {
+          if (
+            !consumeBoardAwarenessRate(ctx.boardAwarenessRate) ||
+            !hasBoardAwarenessCapacity(ctx.boardAwarenessPending)
+          ) return;
+
+          ctx.boardAwarenessPending += 1;
           const awarenessRun = ctx.boardAwarenessTail.then(() =>
             publishBoardAwareness(ctx, socket, message.payload, requestId),
           );
           ctx.boardAwarenessTail = awarenessRun.catch(() => undefined);
-          await awarenessRun;
+          try {
+            await awarenessRun;
+          } finally {
+            ctx.boardAwarenessPending = Math.max(0, ctx.boardAwarenessPending - 1);
+          }
           return;
         }
 
