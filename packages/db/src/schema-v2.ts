@@ -478,6 +478,7 @@ export const boardTransactions = v2.table(
     clientId: text("client_id"),
     undoGroupId: text("undo_group_id"),
     operations: jsonb("operations").$type<Array<Record<string, unknown>>>().notNull(),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({

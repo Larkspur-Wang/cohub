@@ -28,6 +28,12 @@ export type RemoteBoardGesture =
 			points: Array<{ x: number; y: number; p: number }>;
 	  };
 
+export type BoardAwarenessCursor = {
+	x: number;
+	y: number;
+	pointerType: "mouse" | "pen" | "touch";
+};
+
 export type RemoteBoardAwarenessPeer = {
 	connectionId: string;
 	actorId: string;
@@ -36,11 +42,14 @@ export type RemoteBoardAwarenessPeer = {
 	state: BoardAwarenessStateUpdate | null;
 	gesture: RemoteBoardGesture | null;
 	gestureEndedAt: number | null;
+	lastCursor: BoardAwarenessCursor | null;
+	cursorClearedAt: number | null;
 	cursorMovedAt: number;
 	lastSeenAt: number;
 };
 
 type LocalStateInput = {
+	client: { formFactor: "desktop" | "mobile" };
 	tool: string;
 	selection: string[];
 	bounds: {
@@ -56,11 +65,7 @@ type LocalState = Omit<LocalStateInput, "bounds"> & {
 	bounds: BoardFrame | null;
 };
 
-type CursorInput = {
-	x: number;
-	y: number;
-	pointerType: "mouse" | "pen" | "touch";
-};
+type CursorInput = BoardAwarenessCursor;
 
 type ControllerOptions = {
 	send: (seq: number, update: BoardAwarenessUpdate) => Promise<void>;
@@ -203,13 +208,27 @@ function previewMatchesItem(
 	);
 }
 
-export function collaborationColor(actorId: string): number {
-	const colors = [0xe8450e, 0x2563eb, 0x16a34a, 0xe11d48, 0xd97706, 0x7c3aed];
+const COLLABORATION_COLOR_FALLBACKS = [
+	0xe8450e, 0x2563eb, 0x16a34a, 0xe11d48, 0xd97706, 0x7c3aed,
+] as const;
+
+export function collaborationColorIndex(actorId: string): number {
 	let hash = 0;
 	for (let index = 0; index < actorId.length; index += 1) {
 		hash = (hash * 31 + actorId.charCodeAt(index)) | 0;
 	}
-	return colors[Math.abs(hash) % colors.length] ?? colors[0];
+	return Math.abs(hash) % COLLABORATION_COLOR_FALLBACKS.length;
+}
+
+export function collaborationColorToken(actorId: string): string {
+	return `--board-collaboration-${collaborationColorIndex(actorId) + 1}`;
+}
+
+export function collaborationColor(actorId: string): number {
+	return (
+		COLLABORATION_COLOR_FALLBACKS[collaborationColorIndex(actorId)] ??
+		COLLABORATION_COLOR_FALLBACKS[0]
+	);
 }
 
 export function createBoardAwarenessController(options: ControllerOptions) {
@@ -218,6 +237,7 @@ export function createBoardAwarenessController(options: ControllerOptions) {
 	let seq = 0;
 	let localCursor: CursorInput | null = null;
 	let localState: LocalState = {
+		client: { formFactor: "desktop" },
 		tool: "select",
 		selection: [],
 		bounds: null,
@@ -247,6 +267,7 @@ export function createBoardAwarenessController(options: ControllerOptions) {
 	function currentState(): BoardAwarenessStateUpdate {
 		return {
 			type: "state",
+			client: localState.client,
 			cursor: localCursor,
 			tool: localState.tool,
 			selection: {
@@ -370,6 +391,8 @@ export function createBoardAwarenessController(options: ControllerOptions) {
 			state: null,
 			gesture: null,
 			gestureEndedAt: null,
+			lastCursor: null,
+			cursorClearedAt: null,
 			cursorMovedAt: now(),
 			lastSeenAt: now(),
 		};
@@ -380,14 +403,19 @@ export function createBoardAwarenessController(options: ControllerOptions) {
 
 		const update = payload.update;
 		if (update.type === "state") {
-			const previousCursor = peer.state?.cursor;
-			if (
-				update.cursor &&
-				(!previousCursor ||
+			const previousCursor = peer.state?.cursor ?? peer.lastCursor;
+			if (update.cursor) {
+				if (
+					!previousCursor ||
 					previousCursor.x !== update.cursor.x ||
-					previousCursor.y !== update.cursor.y)
-			) {
-				peer.cursorMovedAt = now();
+					previousCursor.y !== update.cursor.y
+				) {
+					peer.cursorMovedAt = now();
+				}
+				peer.lastCursor = update.cursor;
+				peer.cursorClearedAt = null;
+			} else if (peer.state?.cursor) {
+				peer.cursorClearedAt = now();
 			}
 			peer.state = update;
 		} else if (update.type === "gesture") {

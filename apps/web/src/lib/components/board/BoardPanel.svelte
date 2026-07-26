@@ -8,6 +8,7 @@ import {
 import type { BoardStageExportBridge } from "$lib/board/board-image-export";
 import { createBoardEditor } from "$lib/board/editor.svelte";
 import type { BoardRuntimeProps } from "$lib/board/runtime/board-runtime";
+import BoardCollaboratorOverlay from "$lib/components/board/BoardCollaboratorOverlay.svelte";
 import BoardContextMenu from "$lib/components/board/BoardContextMenu.svelte";
 import BoardEmptyState from "$lib/components/board/BoardEmptyState.svelte";
 import BoardExportDialog from "$lib/components/board/BoardExportDialog.svelte";
@@ -28,6 +29,10 @@ const {
 	spaceId,
 	immersive = false,
 	syncError = null,
+	isMobile = false,
+	collaborators = new Map(),
+	activities = [],
+	onOpenActivity,
 	onCommit,
 	onRetrySync,
 	onViewStateChange,
@@ -43,6 +48,10 @@ let contextMenu = $state<{ x: number; y: number } | null>(null);
 let exportBridge = $state<BoardStageExportBridge | null>(null);
 let exportOpen = $state(false);
 let awarenessVersion = $state(0);
+let surfaceSize = $state<{ width: number; height: number }>({
+	width: 0,
+	height: 0,
+});
 let unsubscribeAwareness: (() => void) | null = null;
 
 function openExport() {
@@ -83,8 +92,13 @@ $effect(() => {
 	const selection = editor.selection;
 	const bounds = editor.bounds;
 	const editingId = editor.editingId;
+	// Form factor is published, not inferred by peers: a touch contact from a
+	// phone and one from a touchscreen laptop are the same pointer type but not
+	// the same situation.
+	const formFactor = isMobile ? ("mobile" as const) : ("desktop" as const);
 	untrack(() =>
 		awareness.updateLocalState({
+			client: { formFactor },
 			tool,
 			selection,
 			bounds,
@@ -103,6 +117,19 @@ $effect(() => {
 	awarenessVersion;
 	const items = editor.items;
 	untrack(() => awareness.reconcile(items));
+});
+
+// Activity state is space-wide, so scope it to this board: switching boards must
+// not carry a marker from the previous one onto unrelated content.
+const boardActivities = $derived(
+	activities.filter((activity) => activity.boardId === boardId),
+);
+
+// awarenessVersion is the change signal for the peer map, which is mutated in
+// place by the controller.
+const peers = $derived.by(() => {
+	awarenessVersion;
+	return awareness.peers;
 });
 
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -396,8 +423,19 @@ onDestroy(() => {
 			{spaceId}
 			{onOpenFile}
 			onPointerPresence={(cursor) => awareness.setCursor(cursor)}
-			onSurfaceChange={(size) => { editor.surfaceSize = size; }}
+			onSurfaceChange={(size) => { editor.surfaceSize = size; surfaceSize = size; }}
 			onExportReady={(bridge) => { exportBridge = bridge; }}
+		/>
+
+		<BoardCollaboratorOverlay
+			peers={peers}
+			activities={boardActivities}
+			profiles={collaborators}
+			camera={editor.camera}
+			surface={surfaceSize}
+			cursorVisibleMs={awareness.cursorVisibleMs}
+			{isMobile}
+			onOpenActivity={(activity) => { void onOpenActivity?.(activity); }}
 		/>
 
 		{#if !editor.hasContent}

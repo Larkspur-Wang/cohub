@@ -24,6 +24,7 @@ import {
 } from "../../board-service.js";
 import { db } from "../../db/index.js";
 import { authzDenied, getOptionalAuth, requireValidId, useAuth } from "../../lib/middleware.js";
+import { getRequestSource } from "../../lib/request-source.js";
 import { hasPermission } from "../../permissions.js";
 import {
   assertSafeRelativePath,
@@ -109,6 +110,7 @@ router.post("/", async (c) => {
       ? await applyBoardTransaction({
           spaceId,
           actorId: user.uuid,
+          requestSource: getRequestSource(c),
           transaction: { txId: crypto.randomUUID(), boardId, baseVersion: 0, operations },
         })
       : await inspectBoard(spaceId, boardId);
@@ -198,7 +200,12 @@ router.post("/:boardId/transactions", async (c) => {
   try {
     const transaction = normalizeBoardTransaction(body);
     if (transaction.boardId !== boardId) throw new BoardServiceError(400, "transaction boardId does not match route");
-    return c.json(await applyBoardTransaction({ spaceId, actorId: user.uuid, transaction }));
+    return c.json(await applyBoardTransaction({
+      spaceId,
+      actorId: user.uuid,
+      requestSource: getRequestSource(c),
+      transaction,
+    }));
   } catch (error) {
     const response = errorResponse(error);
     return c.json({ message: response.message, code: response.code }, response.status as never);

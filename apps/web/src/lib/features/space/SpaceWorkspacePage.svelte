@@ -34,6 +34,10 @@ import {
 	isBlockingAccessState,
 } from "$lib/access/access-state";
 import { floatNear } from "$lib/actions/portal";
+import type {
+	BoardAutomationActivity,
+	BoardCollaboratorProfile,
+} from "$lib/board/board-activity";
 import { invalidateFilePreview } from "$lib/board/board-file-preview-source";
 import { spaceFsRepo } from "$lib/cache/repositories/space-fs-repo";
 import { spaceRecordRepo } from "$lib/cache/repositories/space-record-repo";
@@ -1059,6 +1063,58 @@ function loadSpaceSandbox(currentSpaceId = spaceId) {
 function scheduleStatusRefresh() {
 	spaceStatus.scheduleRefresh();
 }
+
+/**
+ * Display identities for board cursors and automation markers.
+ *
+ * Board awareness carries an actor id and a fallback name; presence is what has
+ * the avatar. Includes the local user so a marker for our own agent still shows
+ * our avatar rather than falling back to initials.
+ */
+const boardCollaborators = $derived.by(() => {
+	const map = new Map<string, BoardCollaboratorProfile>();
+	for (const user of spacePresence.users) {
+		map.set(user.userId, {
+			userId: user.userId,
+			displayName: displayUserName(user.profile, user.userId),
+			avatarUrl: user.profile?.avatarUrl ?? null,
+		});
+	}
+	return map;
+});
+
+/**
+ * Open the chat behind an Agent board marker.
+ *
+ * The turn route is keyed by sequence, but provenance only carries the turn id,
+ * so resolve it first. A failed lookup still navigates to the chat: landing in
+ * the right conversation is more useful than refusing to move.
+ */
+async function openBoardActivity(activity: BoardAutomationActivity) {
+	const sessionId = activity.source.sessionId;
+	if (!sessionId) return;
+	// An agent can run in another space's sandbox; route to where the chat lives.
+	const targetSpaceId = activity.source.spaceId ?? spaceId;
+	const turnId = activity.source.turnId;
+	const sequence = turnId
+		? await sdk
+				.space(targetSpaceId)
+				.session(sessionId)
+				.turns.get(turnId)
+				.then((response) => response.turn.sequence)
+				.catch(() => null)
+		: null;
+	const pathname = buildSpaceSessionRoute(targetSpaceId, sessionId);
+	// Keep the board open: the point is to read the turn beside what it changed.
+	const href = withPreviewParam(
+		pathname,
+		sequence == null ? null : new URLSearchParams({ turn: String(sequence) }),
+		readPreviewFromSearch(
+			typeof window !== "undefined" ? window.location.search : null,
+		),
+	);
+	await goto(href, { keepFocus: true, noScroll: true });
+}
 function userTitle(
 	profile: UserProfile | null | undefined,
 	userUuid: string | null | undefined,
@@ -1884,6 +1940,7 @@ onMount(() => {
 				actorId?: unknown;
 				txId?: unknown;
 				operations?: unknown;
+				metadata?: Record<string, unknown> | null;
 			};
 			if (
 				typeof payload.boardId !== "string" ||
@@ -1900,6 +1957,23 @@ onMount(() => {
 			const ops = Array.isArray(payload.operations)
 				? (payload.operations as import("@neta-art/cohub").BoardOperation[])
 				: null;
+			// Attribution before sync: the focus of a delete only exists in the
+			// document as it stands now, and it is independent of which sync path
+			// (incremental ops vs bootstrap) the event ends up taking.
+			if (
+				txId &&
+				ops &&
+				ops.length > 0 &&
+				typeof payload.actorId === "string"
+			) {
+				boardPreview.noteRemoteTransaction({
+					boardId: payload.boardId,
+					actorId: payload.actorId,
+					txId,
+					operations: ops,
+					metadata: payload.metadata ?? null,
+				});
+			}
 			if (version != null && txId && ops && ops.length > 0) {
 				boardPreview.requestRemoteOps(payload.boardId, {
 					version,
@@ -2232,6 +2306,9 @@ const spaceFileDomainProps = $derived.by<
 	inlineBoard,
 	inlineBoardTabs,
 	activeInlineBoardPath,
+	boardCollaborators,
+	boardActivities: boardPreview.automationActivities,
+	onOpenBoardActivity: openBoardActivity,
 	inlinePortPreview,
 	inlinePortTabs,
 	activeInlinePort,

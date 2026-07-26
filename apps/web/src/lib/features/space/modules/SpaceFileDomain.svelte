@@ -10,6 +10,10 @@ import type {
 	WorkRecord,
 } from "@neta-art/cohub";
 import type { BoardDocument } from "@neta-art/cohub-board";
+import type {
+	BoardAutomationActivity,
+	BoardCollaboratorProfile,
+} from "$lib/board/board-activity";
 import { isBoardFile } from "$lib/board/board-file";
 import type { FileViewMode } from "$lib/components/file-diff-view";
 import PreviewExpandMenu from "$lib/components/PreviewExpandMenu.svelte";
@@ -65,6 +69,13 @@ export type SpaceFileDomainProps = {
 	inlineBoard: InlineBoardPanelState | null;
 	inlineBoardTabs: InlineBoardPanelState[];
 	activeInlineBoardPath: string | null;
+	/** Display identities for board collaborator cursors and automation markers. */
+	boardCollaborators?: Map<string, BoardCollaboratorProfile>;
+	/** Recent CLI / Agent board transactions. */
+	boardActivities?: BoardAutomationActivity[];
+	onOpenBoardActivity?: (
+		activity: BoardAutomationActivity,
+	) => void | Promise<void>;
 	inlinePortPreview: { port: string; url: string } | null;
 	inlinePortTabs: { port: string; url: string }[];
 	activeInlinePort: string | null;
@@ -202,6 +213,9 @@ let {
 	inlineBoard,
 	inlineBoardTabs,
 	activeInlineBoardPath,
+	boardCollaborators,
+	boardActivities,
+	onOpenBoardActivity,
 	inlinePortPreview,
 	inlinePortTabs,
 	activeInlinePort,
@@ -442,6 +456,9 @@ function closePreviewTab(kind: "file" | "board" | "port", key: string) {
 		onClosePreviewTab={closePreviewTab}
 		immersive={previewImmersiveMode}
 		{isMobile}
+		collaborators={boardCollaborators}
+		activities={boardActivities}
+		onOpenActivity={onOpenBoardActivity}
 		onToggleImmersive={onTogglePreviewImmersiveMode}
 		onCommit={onCommitInlineBoard}
 		onRetrySave={onRetryInlineBoardSave}

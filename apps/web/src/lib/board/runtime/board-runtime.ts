@@ -1,5 +1,9 @@
 import type { BoardBootstrap, BoardOperation } from "@neta-art/cohub";
 import { BOARD_DOCUMENT_KIND, type BoardDocument } from "@neta-art/cohub-board";
+import type {
+	BoardAutomationActivity,
+	BoardCollaboratorProfile,
+} from "$lib/board/board-activity";
 import { createLazyModuleLoader } from "$lib/lazy-module";
 
 export type BoardRuntimeViewState = {
@@ -39,6 +43,18 @@ export type BoardRuntimeProps = {
 	spaceId: string;
 	immersive?: boolean;
 	syncError?: string | null;
+	/**
+	 * Compact viewport. Drives the local `client.formFactor` published to peers,
+	 * so a touch contact from a phone can be presented as such rather than guessed
+	 * from the pointer type alone.
+	 */
+	isMobile?: boolean;
+	/** Display identities for collaborator cursors and automation markers. */
+	collaborators?: Map<string, BoardCollaboratorProfile>;
+	/** Recent CLI / Agent transactions, already resolved to a board focus. */
+	activities?: BoardAutomationActivity[];
+	/** Open the chat turn behind an Agent marker. */
+	onOpenActivity?: (activity: BoardAutomationActivity) => void | Promise<void>;
 	onCommit: (
 		document: BoardDocument,
 		ops: BoardOperation[],

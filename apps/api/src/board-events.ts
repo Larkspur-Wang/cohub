@@ -9,6 +9,7 @@ export async function dispatchBoardTransactionApplied(input: {
   txId: string;
   version: number;
   operations: BoardOperation[];
+  metadata: Record<string, unknown>;
 }) {
   await dispatchRealtimeEvent({
     id: randomUUID(),
@@ -23,6 +24,7 @@ export async function dispatchBoardTransactionApplied(input: {
       txId: input.txId,
       version: input.version,
       operations: input.operations,
+      metadata: input.metadata,
     },
   });
 }

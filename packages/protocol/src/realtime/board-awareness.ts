@@ -49,6 +49,11 @@ export const BoardAwarenessNodePreviewSchema = z.object({
 
 export const BoardAwarenessStateUpdateSchema = z.object({
 	type: z.literal("state"),
+	client: z
+		.object({
+			formFactor: z.enum(["desktop", "mobile"]),
+		})
+		.optional(),
 	cursor: BoardAwarenessPointSchema.extend({
 		pointerType: z.enum(["mouse", "pen", "touch"]),
 	})

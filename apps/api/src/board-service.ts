@@ -22,6 +22,7 @@ import type {
   BoardSequence,
   BoardTarget,
   BoardValidationResult,
+  RequestSource,
 } from "@cohub/protocol";
 import {
   BOARD_BUILTIN_CAPABILITIES,
@@ -273,9 +274,13 @@ export async function applyBoardTransaction(input: {
   spaceId: string;
   actorId: string;
   transaction: unknown;
+  requestSource?: RequestSource | null;
   broadcast?: boolean;
 }): Promise<BoardBootstrap> {
   const transaction = normalizeBoardTransaction(input.transaction);
+  const transactionMetadata: Record<string, unknown> = input.requestSource
+    ? { source: input.requestSource }
+    : {};
   const now = new Date();
   const result = await db.transaction(async (tx) => {
     const [board] = await tx.select().from(boards)
@@ -476,6 +481,7 @@ export async function applyBoardTransaction(input: {
       clientId: transaction.clientId ?? null,
       undoGroupId: transaction.undoGroupId ?? null,
       operations: transaction.operations,
+      metadata: transactionMetadata,
       createdAt: now,
     }).returning({ id: boardTransactions.id });
     if (!storedTransaction) throw new BoardServiceError(500, "failed to store board transaction");
@@ -500,6 +506,7 @@ export async function applyBoardTransaction(input: {
       txId: transaction.txId,
       version: result.version,
       operations: transaction.operations,
+      metadata: transactionMetadata,
     }).catch(() => undefined);
     if (result.playback) {
       await dispatchBoardPlaybackChanged({

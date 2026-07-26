@@ -1,5 +1,9 @@
 <script lang="ts">
 import type { BoardDocument } from "@neta-art/cohub-board";
+import type {
+	BoardAutomationActivity,
+	BoardCollaboratorProfile,
+} from "$lib/board/board-activity";
 import {
 	type BoardRuntimeData,
 	type BoardRuntimeProps,
@@ -27,6 +31,9 @@ type Props = {
 	spaceId: string;
 	immersive: boolean;
 	isMobile: boolean;
+	collaborators?: Map<string, BoardCollaboratorProfile>;
+	activities?: BoardAutomationActivity[];
+	onOpenActivity?: (activity: BoardAutomationActivity) => void | Promise<void>;
 	treeVisible?: boolean;
 	onToggleTree?: () => void | Promise<void>;
 	onToggleImmersive: () => void | Promise<void>;
@@ -45,6 +52,9 @@ let {
 	spaceId,
 	immersive,
 	isMobile,
+	collaborators = new Map(),
+	activities = [],
+	onOpenActivity,
 	treeVisible = true,
 	onToggleTree,
 	onToggleImmersive,
@@ -112,6 +122,10 @@ const boardRuntimeModulePromise = $derived.by(() => {
 					runtime={board.runtime}
 					spaceId={spaceId}
 					{immersive}
+					{isMobile}
+					{collaborators}
+					{activities}
+					{onOpenActivity}
 					syncError={board.saveError}
 					onCommit={(document, ops) => onCommit(document, ops)}
 					onRetrySync={onRetrySave}

@@ -161,3 +161,61 @@ test("local awareness batches raw draw points and flushes before gesture end", a
 	assert.equal(sent.at(-1)?.type, "gesture.end");
 	controller.destroy();
 });
+
+test("local state publishes the client form factor", async () => {
+	const sent: BoardAwarenessUpdate[] = [];
+	const controller = createBoardAwarenessController({
+		send: async (_seq, update) => {
+			sent.push(update);
+		},
+		onChange: () => {},
+	});
+	controller.updateLocalState({
+		client: { formFactor: "mobile" },
+		tool: "select",
+		selection: [],
+		bounds: null,
+		editingId: null,
+	});
+	await delay(20);
+	const state = sent.find((update) => update.type === "state");
+	assert.equal(
+		state?.type === "state" ? state.client?.formFactor : null,
+		"mobile",
+	);
+	controller.destroy();
+});
+
+test("a released touch keeps its last contact point for the fade-out", () => {
+	const controller = createBoardAwarenessController({
+		send: async () => {},
+		onChange: () => {},
+	});
+	controller.receive(
+		event(1, {
+			type: "state",
+			client: { formFactor: "mobile" },
+			cursor: { x: 30, y: 60, pointerType: "touch" },
+			tool: "select",
+			selection: { ids: [], count: 0, bounds: null },
+			editingId: null,
+		}),
+	);
+	// pointerup clears the live cursor; the last contact is what the overlay
+	// fades out, so it must survive the null update.
+	controller.receive(
+		event(2, {
+			type: "state",
+			client: { formFactor: "mobile" },
+			cursor: null,
+			tool: "select",
+			selection: { ids: [], count: 0, bounds: null },
+			editingId: null,
+		}),
+	);
+	const peer = controller.peers[0];
+	assert.equal(peer?.state?.cursor, null);
+	assert.deepEqual(peer?.lastCursor, { x: 30, y: 60, pointerType: "touch" });
+	assert.ok(peer?.cursorClearedAt != null);
+	controller.destroy();
+});

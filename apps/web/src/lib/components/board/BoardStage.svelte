@@ -25,7 +25,7 @@ import {
 	visibleWorldRect,
 	worldPoint,
 } from "@neta-art/cohub-board";
-import { Application, Container, Graphics, type Renderer, Text } from "pixi.js";
+import { Application, Container, Graphics, type Renderer } from "pixi.js";
 import { onDestroy, onMount, untrack } from "svelte";
 import { createBoardAssetManager } from "$lib/board/board-asset-manager";
 import {
@@ -98,18 +98,6 @@ let background: Container | null = null;
 let backgroundThemeId: string | null = null;
 let farLayer: Graphics | null = null;
 let overlay: Graphics | null = null;
-let cursorLayer: Container | null = null;
-const cursorEntries = new Map<
-	string,
-	{
-		container: Container;
-		marker: Graphics;
-		labelBackground: Graphics;
-		label: Text;
-		name: string;
-		color: number;
-	}
->();
 let scene: ReturnType<typeof createBoardScene> | null = null;
 let animationRuntime: ReturnType<typeof createBoardAnimationRuntime> | null =
 	null;
@@ -452,83 +440,6 @@ function remotePreviewItems(): Map<string, BoardItem> {
 	return previews;
 }
 
-function syncRemoteCursors() {
-	if (!cursorLayer) return;
-	const timestamp = Date.now();
-	const wanted = new Set<string>();
-	const inv = 1 / Math.max(editor.camera.zoom, 0.0001);
-	for (const peer of awareness.peers) {
-		const cursor = peer.state?.cursor;
-		if (!cursor || timestamp - peer.lastSeenAt > awareness.cursorVisibleMs)
-			continue;
-		wanted.add(peer.connectionId);
-		const color = collaborationColor(peer.actorId);
-		let entry = cursorEntries.get(peer.connectionId);
-		if (!entry) {
-			const container = new Container({
-				label: `board-cursor-${peer.connectionId}`,
-			});
-			const marker = new Graphics();
-			const labelBackground = new Graphics();
-			const label = new Text({
-				text: peer.actorName,
-				style: {
-					fontFamily: "Geist",
-					fontSize: 11,
-					fontWeight: "600",
-					fill: 0xfffbf8,
-				},
-			});
-			label.position.set(18, 18);
-			container.addChild(marker, labelBackground, label);
-			cursorLayer.addChild(container);
-			entry = {
-				container,
-				marker,
-				labelBackground,
-				label,
-				name: "",
-				color: -1,
-			};
-			cursorEntries.set(peer.connectionId, entry);
-		}
-		if (entry.color !== color) {
-			entry.marker
-				.clear()
-				.moveTo(0, 0)
-				.lineTo(1.5, 16)
-				.lineTo(5.5, 12)
-				.lineTo(9, 18)
-				.lineTo(12, 16)
-				.lineTo(8.5, 10)
-				.lineTo(14, 9)
-				.closePath()
-				.fill({ color })
-				.stroke({ color: 0xfffbf8, width: 1.2, join: "round" });
-			entry.color = color;
-		}
-		if (entry.name !== peer.actorName || entry.color !== color) {
-			entry.label.text = peer.actorName;
-			entry.name = peer.actorName;
-		}
-		entry.labelBackground
-			.clear()
-			.roundRect(12, 15, Math.ceil(entry.label.width) + 12, 20, 3)
-			.fill({ color, alpha: 0.96 });
-		entry.container.position.set(cursor.x, cursor.y);
-		entry.container.scale.set(inv);
-		const labelVisible =
-			peer.gesture !== null || timestamp - peer.cursorMovedAt < 1_500;
-		entry.label.visible = labelVisible;
-		entry.labelBackground.visible = labelVisible;
-	}
-	for (const [connectionId, entry] of cursorEntries) {
-		if (wanted.has(connectionId)) continue;
-		cursorEntries.delete(connectionId);
-		entry.container.destroy({ children: true });
-	}
-}
-
 function syncStage() {
 	if (!app || !world || !scene) return;
 	const palette = getPalette();
@@ -599,7 +510,6 @@ function syncStage() {
 
 	drawRemoteAwareness(context.colors, context.colorMode);
 	drawTransient(palette, context.colors, context.colorMode);
-	syncRemoteCursors();
 
 	scheduleRender();
 }
@@ -1128,13 +1038,11 @@ onMount(async () => {
 		label: "board-screen-effects",
 	});
 	overlay = new Graphics({ label: "board-interaction-overlay" });
-	cursorLayer = new Container({ label: "board-cursors" });
-	cursorLayer.zIndex = Number.MAX_SAFE_INTEGER;
 	// Batched far-LOD geometry. Lives at the bottom of the node layer so live
 	// cards (selection, editing) always draw above the plates.
 	farLayer = new Graphics({ label: "board-far-layer" });
 	nodeLayer.addChild(farLayer);
-	world.addChild(effectsBehind, nodeLayer, effectsFront, overlay, cursorLayer);
+	world.addChild(effectsBehind, nodeLayer, effectsFront, overlay);
 	scene = createBoardScene({
 		world: nodeLayer,
 		farLayer,
@@ -1238,8 +1146,6 @@ onDestroy(() => {
 	screenEffects = null;
 	world = null;
 	overlay = null;
-	cursorLayer = null;
-	cursorEntries.clear();
 	farLayer = null;
 	app?.destroy(true);
 	app = null;

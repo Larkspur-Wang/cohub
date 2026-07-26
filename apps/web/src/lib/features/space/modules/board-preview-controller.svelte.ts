@@ -8,6 +8,12 @@ import type {
 import { BoardTransactionError, HttpError } from "@neta-art/cohub";
 import type { BoardDocument } from "@neta-art/cohub-board";
 import {
+	BOARD_AUTOMATION_ACTIVITY_MS,
+	type BoardAutomationActivity,
+	createBoardAutomationActivity,
+	mergeBoardAutomationActivity,
+} from "$lib/board/board-activity";
+import {
 	applyBoardOps,
 	boardBootstrapToDocument,
 	parseBoardManifest,
@@ -99,6 +105,72 @@ export function createBoardPreviewController(
 	 * "re-commit" would otherwise discard uncommitted local changes.
 	 */
 	const pendingRecoveryCleanup = new Set<string>();
+	/**
+	 * Recent CLI / Agent transactions, derived from committed transaction metadata.
+	 *
+	 * These are transient attribution only: they never touch the document, and each
+	 * one self-expires so a finished automation run does not leave a marker behind.
+	 */
+	let automationActivities = $state<BoardAutomationActivity[]>([]);
+	const activityExpiryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+	function expireActivity(id: string) {
+		const timer = activityExpiryTimers.get(id);
+		if (timer) clearTimeout(timer);
+		activityExpiryTimers.delete(id);
+		automationActivities = automationActivities.filter(
+			(item) => item.id !== id,
+		);
+	}
+
+	/**
+	 * Record automation attribution for a committed remote transaction.
+	 *
+	 * Called for every remote transaction regardless of whether it is applied
+	 * incrementally or triggers a bootstrap, so the marker does not depend on which
+	 * sync path the event happens to take. Focus is computed against the document
+	 * as it stands *before* the ops are applied, which is what lets a delete still
+	 * resolve to where the node used to be.
+	 */
+	function noteRemoteTransaction(input: {
+		boardId: string;
+		actorId: string;
+		txId: string;
+		operations: BoardOperation[];
+		metadata?: Record<string, unknown> | null;
+	}) {
+		const board = boards.find((item) => item.boardId === input.boardId);
+		if (!board?.document) return;
+		const activity = createBoardAutomationActivity(board.document, input);
+		if (!activity) return;
+		automationActivities = mergeBoardAutomationActivity(
+			automationActivities,
+			activity,
+		);
+		// Consecutive transactions from one tool call reuse the marker, so restart
+		// the timer rather than stacking expiries.
+		const existing = activityExpiryTimers.get(activity.id);
+		if (existing) clearTimeout(existing);
+		activityExpiryTimers.set(
+			activity.id,
+			setTimeout(
+				() => expireActivity(activity.id),
+				BOARD_AUTOMATION_ACTIVITY_MS,
+			),
+		);
+	}
+
+	function clearActivitiesForBoard(boardId: string) {
+		for (const activity of automationActivities) {
+			if (activity.boardId !== boardId) continue;
+			const timer = activityExpiryTimers.get(activity.id);
+			if (timer) clearTimeout(timer);
+			activityExpiryTimers.delete(activity.id);
+		}
+		automationActivities = automationActivities.filter(
+			(item) => item.boardId !== boardId,
+		);
+	}
 
 	/** A transaction was rejected as a version conflict (409) and can be rebased. */
 	function isVersionConflict(error: unknown): boolean {
@@ -218,6 +290,8 @@ export function createBoardPreviewController(
 			[path]: (requestTokenByPath[path] ?? 0) + 1,
 		};
 		const index = boards.findIndex((item) => item.path === path);
+		const closing = boards.find((item) => item.path === path);
+		if (closing?.boardId) clearActivitiesForBoard(closing.boardId);
 		const nextBoards = boards.filter((item) => item.path !== path);
 		boards = nextBoards;
 		if (activeBoardPath === path)
@@ -700,6 +774,9 @@ export function createBoardPreviewController(
 		get activeBoardPath() {
 			return activeBoardPath;
 		},
+		get automationActivities() {
+			return automationActivities;
+		},
 		openBoard,
 		closeBoard,
 		activateBoard,
@@ -708,6 +785,7 @@ export function createBoardPreviewController(
 		flushPendingTransactions,
 		requestRemoteRefresh,
 		requestRemoteOps,
+		noteRemoteTransaction,
 		isOwnTransaction,
 		renamePath,
 		setError,

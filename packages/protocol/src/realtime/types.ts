@@ -7,6 +7,7 @@ import type { TaskRunStatus } from "../task/index.js";
 import type { SpaceFsChangedPayload } from "../fs/index.js";
 import type { SpacePortsChangedPayload } from "../ports/index.js";
 import type { BoardOperation, BoardPlaybackSnapshot } from "../board.js";
+import type { RequestSource } from "../provenance.js";
 import type {
   BoardAwarenessClientPayload,
   BoardAwarenessUpdate,
@@ -492,6 +493,7 @@ export type BoardTransactionAppliedEvent = {
     txId: string;
     version: number;
     operations: BoardOperation[];
+    metadata?: Record<string, unknown> & { source?: RequestSource };
   };
 };
 
