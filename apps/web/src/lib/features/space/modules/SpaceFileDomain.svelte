@@ -9,8 +9,8 @@ import type {
 	SpaceRecord,
 	WorkRecord,
 } from "@neta-art/cohub";
+import type { BoardDocument } from "@neta-art/cohub-board";
 import { isBoardFile } from "$lib/board/board-file";
-import type { BoardDocument } from "$lib/board/board-schema";
 import type { FileViewMode } from "$lib/components/file-diff-view";
 import PreviewExpandMenu from "$lib/components/PreviewExpandMenu.svelte";
 import WorkPublishDialog from "$lib/components/WorkPublishDialog.svelte";

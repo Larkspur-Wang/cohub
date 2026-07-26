@@ -3,6 +3,8 @@ import type {
 	BoardEffect,
 	BoardPlaybackSnapshot,
 } from "@neta-art/cohub";
+import type { BoardItem } from "@neta-art/cohub-board";
+import { sampleRadius } from "@neta-art/cohub-board";
 import {
 	ColorMatrixFilter,
 	Container,
@@ -19,8 +21,6 @@ import {
 	Texture,
 	UniformGroup,
 } from "pixi.js";
-import type { BoardItem } from "$lib/board/board-schema";
-import { sampleRadius } from "$lib/board/core/draw-geometry";
 import {
 	type AnimationPose,
 	clipSampleAt,

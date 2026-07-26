@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import type { BoardItem } from "@neta-art/cohub-board";
 import { createBoardAssetManager } from "../lib/board/board-asset-manager.ts";
-import type { BoardItem } from "../lib/board/board-schema.ts";
 
 type FakeTexture = { width: number; height: number; destroyed: boolean };
 
@@ -211,4 +211,84 @@ test("re-requesting an evicted URL waits for the in-flight unload (no blank text
 		false,
 		"the displayed texture is a fresh one, not the destroyed original",
 	);
+});
+
+/**
+ * `withTextures` exists because releasing a reference can evict immediately: with
+ * the pool already at budget, handing the caller a map and *then* releasing would
+ * destroy the first texture before it could be drawn.
+ */
+test("withTextures keeps every texture alive for the whole callback", async () => {
+	const { manager, textures } = harness({
+		maxCount: 1,
+		maxBytes: Number.POSITIVE_INFINITY,
+	});
+	const items = [imageItem("a", "a.png"), imageItem("b", "b.png")];
+
+	const seen = await manager.withTextures(items, async (map) => {
+		// An await inside the callback stands in for encoding the canvas.
+		await flush();
+		return [...map.entries()].map(([key, texture]) => ({
+			key,
+			destroyed: (texture as unknown as FakeTexture).destroyed,
+		}));
+	});
+
+	assert.equal(seen.length, 2, "expected both textures in the callback");
+	for (const entry of seen) {
+		assert.equal(
+			entry.destroyed,
+			false,
+			`${entry.key} was destroyed mid-export`,
+		);
+	}
+	// Once the callback is done the refs are dropped, so the over-budget pool evicts.
+	await flush();
+	const destroyed = [...textures.values()].filter(
+		(texture) => texture.destroyed,
+	);
+	assert.equal(
+		destroyed.length,
+		1,
+		"expected the cooling pool to trim to budget",
+	);
+	manager.destroy();
+});
+
+test("withTextures returns the callback result and releases on throw", async () => {
+	const { manager } = harness({
+		maxCount: 8,
+		maxBytes: Number.POSITIVE_INFINITY,
+	});
+	const items = [imageItem("a", "a.png")];
+
+	assert.equal(await manager.withTextures(items, (map) => map.size), 1);
+
+	await assert.rejects(
+		() =>
+			manager.withTextures(items, () => {
+				throw new Error("boom");
+			}),
+		/boom/,
+	);
+	// A throw must not leak the reference: the texture is releasable afterwards.
+	assert.equal(await manager.withTextures(items, (map) => map.size), 1);
+	manager.destroy();
+});
+
+test("withTextures runs the callback with an empty map when nothing has images", async () => {
+	const { manager, loaded } = harness({
+		maxCount: 8,
+		maxBytes: Number.POSITIVE_INFINITY,
+	});
+	const note: BoardItem = {
+		id: "n",
+		type: "note",
+		text: "no image",
+		color: "amber",
+		frame: { x: 0, y: 0, width: 10, height: 10, rotation: 0 },
+	};
+	assert.equal(await manager.withTextures([note], (map) => map.size), 0);
+	assert.deepEqual(loaded, []);
+	manager.destroy();
 });

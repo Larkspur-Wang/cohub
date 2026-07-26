@@ -1,5 +1,31 @@
 <script lang="ts">
-import { Application, Container, Graphics } from "pixi.js";
+import type { BoardFileSnapshot, BoardItem } from "@neta-art/cohub-board";
+import {
+	BOARD_COLORS,
+	type BoardRenderContext,
+	type BoardRenderPalette,
+	type BoardShapeColors,
+	boardColorCssVar,
+	buildFallbackShapeColors,
+	buildStrokeOutline,
+	expandRect,
+	getBoardCardRenderer,
+	getBoardResolution,
+	getBoardThemeRenderer,
+	pickBoardColor,
+	pointToWorld,
+	resolveArrow,
+	resolveEndpoint,
+	type ScreenPoint,
+	screenPoint,
+	screenToWorld,
+	shapeCapabilities,
+	textZoomBucket,
+	VIEWPORT_MARGIN_RATIO,
+	visibleWorldRect,
+	worldPoint,
+} from "@neta-art/cohub-board";
+import { Application, Container, Graphics, type Renderer } from "pixi.js";
 import { onDestroy, onMount, untrack } from "svelte";
 import {
 	createBoardAssetManager,
@@ -12,39 +38,12 @@ import {
 	loadFilePreview,
 	subscribeFilePreviews,
 } from "$lib/board/board-file-preview-source";
-import {
-	expandRect,
-	pointToWorld,
-	type ScreenPoint,
-	screenPoint,
-	screenToWorld,
-	VIEWPORT_MARGIN_RATIO,
-	visibleWorldRect,
-	worldPoint,
-} from "$lib/board/board-geometry";
-import { getBoardResolution, textZoomBucket } from "$lib/board/board-rendering";
+import type { BoardStageExportBridge } from "$lib/board/board-image-export";
 import { createBoardScene } from "$lib/board/board-scene";
-import type { BoardFileSnapshot, BoardItem } from "$lib/board/board-schema";
-import { resolveArrow, resolveEndpoint } from "$lib/board/core/bindings";
 import { readCssColorNumber } from "$lib/board/core/css-color";
-import { buildStrokeOutline } from "$lib/board/core/draw-geometry";
-import {
-	BOARD_COLORS,
-	type BoardShapeColors,
-	boardColorCssVar,
-	buildFallbackShapeColors,
-	pickBoardColor,
-} from "$lib/board/core/palette";
-import { shapeCapabilities } from "$lib/board/core/shape-definition";
 import type { BoardEditor } from "$lib/board/editor.svelte";
-import {
-	type BoardRenderContext,
-	type BoardRenderPalette,
-	getBoardCardRenderer,
-} from "$lib/board/renderers/board-renderer-registry";
 import type { BoardRuntimeData } from "$lib/board/runtime/board-runtime";
 import { createBoardAnimationRuntime } from "$lib/board/runtime/pixi-animation";
-import { getBoardThemeRenderer } from "$lib/board/themes/board-theme-registry";
 import { pointerDropZone } from "$lib/drag/pointer-drag.svelte";
 import {
 	type BoardDropItem,
@@ -58,6 +57,7 @@ const {
 	spaceId,
 	onSurfaceChange,
 	onOpenFile,
+	onExportReady,
 }: {
 	editor: BoardEditor;
 	runtime: BoardRuntimeData;
@@ -65,6 +65,12 @@ const {
 	onSurfaceChange?: (size: { width: number; height: number }) => void;
 	/** Open a workspace file in the preview panel (same target as the file tree). */
 	onOpenFile?: (path: string) => void | Promise<void>;
+	/**
+	 * Hands the parent a way to export using this stage's live renderer and
+	 * already-resolved theme. Passing a getter (rather than the renderer itself)
+	 * keeps the caller from holding a reference past the stage's lifetime.
+	 */
+	onExportReady?: (bridge: BoardStageExportBridge | null) => void;
 } = $props();
 
 let host: HTMLDivElement | null = $state(null);
@@ -840,6 +846,20 @@ onMount(async () => {
 	});
 	animationRuntime.setData(runtime);
 
+	// The export path deliberately reuses this renderer and this theme snapshot:
+	onExportReady?.({
+		renderer: () => (app ? (app.renderer as unknown as Renderer) : null),
+		theme: () => {
+			const resolved = resolveTheme();
+			return {
+				palette: resolved.palette,
+				colors: resolved.colors,
+				colorMode: getResolvedTheme() === "light" ? "light" : "dark",
+			};
+		},
+		withTextures: (items, use) => assets.withTextures(items, use),
+	});
+
 	host.addEventListener("pointerdown", handlePointerDown);
 	host.addEventListener("pointermove", handlePointerMove);
 	host.addEventListener("pointerup", handlePointerUp);
@@ -906,6 +926,7 @@ onDestroy(() => {
 	farLayer = null;
 	app?.destroy(true);
 	app = null;
+	onExportReady?.(null);
 });
 </script>
 

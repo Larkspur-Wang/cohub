@@ -8,6 +8,7 @@ import type {
 	UserProfile,
 	WorkRecord,
 } from "@neta-art/cohub";
+import type { BoardDocument } from "@neta-art/cohub-board";
 import {
 	Check,
 	Copy,
@@ -34,7 +35,6 @@ import {
 } from "$lib/access/access-state";
 import { floatNear } from "$lib/actions/portal";
 import { invalidateFilePreview } from "$lib/board/board-file-preview-source";
-import type { BoardDocument } from "$lib/board/board-schema";
 import { spaceFsRepo } from "$lib/cache/repositories/space-fs-repo";
 import { spaceRecordRepo } from "$lib/cache/repositories/space-record-repo";
 import AccessStateView from "$lib/components/AccessStateView.svelte";

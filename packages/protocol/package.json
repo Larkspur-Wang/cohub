@@ -18,6 +18,10 @@
       "types": "./dist/board-constants.d.ts",
       "default": "./dist/board-constants.js"
     },
+    "./board-document": {
+      "types": "./dist/board-document.d.ts",
+      "default": "./dist/board-document.js"
+    },
     "./model": {
       "types": "./dist/model/session.d.ts",
       "default": "./dist/model/session.js"

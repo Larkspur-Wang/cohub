@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import type { BoardDocument, BoardItem } from "@neta-art/cohub-board";
 import {
 	boardItemToNode,
 	boardNodeToItem,
@@ -8,7 +9,6 @@ import {
 	toWireOperations,
 } from "../lib/board/board-document.ts";
 import { createFileBoardItem } from "../lib/board/board-items.ts";
-import type { BoardDocument, BoardItem } from "../lib/board/board-schema.ts";
 
 /**
  * How many node operations an edit costs, end to end.

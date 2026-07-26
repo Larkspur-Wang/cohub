@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import type { BoardFrame } from "@neta-art/cohub-board";
 import {
 	angleFromCenter,
 	clampZoom,
@@ -25,8 +26,7 @@ import {
 	worldPoint,
 	worldToScreen,
 	zoomAround,
-} from "../lib/board/board-geometry.ts";
-import type { BoardFrame } from "../lib/board/board-schema.ts";
+} from "@neta-art/cohub-board";
 
 const approx = (a: number, b: number, eps = 1e-6) =>
 	assert.ok(Math.abs(a - b) < eps, `expected ${a} ≈ ${b}`);

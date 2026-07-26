@@ -7,34 +7,28 @@
  * define their own geometry, handles and capabilities.
  */
 
-import {
-	degToRad,
-	frameContainsPoint,
-	rectCenter,
-	rotatePointAround,
-	type WorldPoint,
-	worldPoint,
-} from "$lib/board/board-geometry";
 import type {
 	BoardArrowItem,
 	BoardDrawItem,
 	BoardGeoItem,
-} from "$lib/board/board-schema";
+} from "@neta-art/cohub-board";
 import {
 	arrowBounds,
-	distanceToArrow,
-	type FrameLookup,
-	resolveArrow,
-} from "$lib/board/core/bindings";
-import {
 	computeDrawBounds,
+	degToRad,
+	distanceToArrow,
 	distanceToStroke,
-} from "$lib/board/core/draw-geometry";
-import {
+	type FrameLookup,
+	FULL_CAPABILITIES,
+	frameContainsPoint,
+	rectCenter,
 	registerShapeDefinition,
+	resolveArrow,
+	rotatePointAround,
 	type ShapeDefinition,
-} from "$lib/board/core/shape-definition";
-import { FULL_CAPABILITIES } from "$lib/board/core/shape-types";
+	type WorldPoint,
+	worldPoint,
+} from "@neta-art/cohub-board";
 
 /** Transform a world point into a draw item's local (unrotated) space. */
 function drawLocalPoint(item: BoardDrawItem, point: WorldPoint): WorldPoint {

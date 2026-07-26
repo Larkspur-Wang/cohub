@@ -1,6 +1,6 @@
 import type { BoardOperation } from "@neta-art/cohub";
+import type { BoardDocument } from "@neta-art/cohub-board";
 import { diffBoardDocuments } from "$lib/board/board-document";
-import type { BoardDocument } from "$lib/board/board-schema";
 
 export type CommitFn = (
 	document: BoardDocument,

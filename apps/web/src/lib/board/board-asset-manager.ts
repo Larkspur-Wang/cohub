@@ -1,3 +1,4 @@
+import type { BoardItem } from "@neta-art/cohub-board";
 import { Assets, type Texture } from "pixi.js";
 import {
 	DEFAULT_LRU_BUDGET,
@@ -5,7 +6,6 @@ import {
 	type LruEntry,
 	selectLruEvictions,
 } from "$lib/board/board-asset-lru";
-import type { BoardItem } from "$lib/board/board-schema";
 
 /**
  * Stable cache key for an item's image resource, or null when it has none.
@@ -54,6 +54,24 @@ export type BoardAssetManager = {
 	hasError: (key: string) => boolean;
 	acquire: (key: string) => void;
 	release: (key: string) => void;
+	/**
+	 * Load every image for `items`, then run `use` while the references are still
+	 * held, releasing them only once it settles.
+	 *
+	 * Scoped as a callback rather than returning the map: releasing a reference can
+	 * evict immediately when the cooling pool is over budget, so a returned map
+	 * could hand the caller an already-destroyed texture. Holding the refs across
+	 * the callback makes that impossible to get wrong.
+	 *
+	 * Export needs this: the editor only loads what is near the viewport, so
+	 * without it an exported board would show placeholders for everything
+	 * off-screen.
+	 */
+	withTextures: <T>(
+		items: BoardItem[],
+		use: (textures: Map<string, Texture>) => T | Promise<T>,
+		options?: { timeoutMs?: number },
+	) => Promise<T>;
 	subscribe: (listener: () => void) => () => void;
 	destroy: () => void;
 };
@@ -321,7 +339,7 @@ export function createBoardAssetManager(
 		}
 	}
 
-	return {
+	const manager: BoardAssetManager = {
 		requestItem(item) {
 			if (disposed) return;
 			const key = imageAssetKey(item);
@@ -376,6 +394,50 @@ export function createBoardAssetManager(
 			if (!entry.texture) evict(key, entry);
 			else trim();
 		},
+		async withTextures(items, use, loadOptions) {
+			const keys = new Set<string>();
+			if (!disposed) {
+				for (const item of items) {
+					const key = imageAssetKey(item);
+					if (key) keys.add(key);
+				}
+			}
+			const textures = new Map<string, Texture>();
+			if (keys.size === 0) return use(textures);
+
+			for (const key of keys) manager.acquire(key);
+			try {
+				for (const item of items) manager.requestItem(item);
+				const settled = () =>
+					[...keys].every((key) => {
+						const entry = entries.get(key);
+						return Boolean(entry?.texture) || Boolean(entry?.error);
+					});
+				if (!settled()) {
+					// A cap keeps a wedged image from hanging the export; whatever has
+					// arrived by then is used and the rest draw as placeholders.
+					const timeoutMs = loadOptions?.timeoutMs ?? 15_000;
+					await new Promise<void>((resolve) => {
+						const timer = setTimeout(finish, timeoutMs);
+						const unsubscribe = manager.subscribe(() => {
+							if (settled()) finish();
+						});
+						function finish() {
+							clearTimeout(timer);
+							unsubscribe();
+							resolve();
+						}
+					});
+				}
+				for (const key of keys) {
+					const texture = entries.get(key)?.texture;
+					if (texture) textures.set(key, texture);
+				}
+				return await use(textures);
+			} finally {
+				for (const key of keys) manager.release(key);
+			}
+		},
 		subscribe(listener) {
 			listeners.add(listener);
 			return () => {
@@ -391,4 +453,6 @@ export function createBoardAssetManager(
 			entries.clear();
 		},
 	};
+
+	return manager;
 }

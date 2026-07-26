@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import type { BoardDocument, BoardItem } from "@neta-art/cohub-board";
 import {
 	applyBoardOps,
 	diffBoardDocuments,
@@ -7,7 +8,6 @@ import {
 	rebaseOnRemote,
 	reconcileExternal,
 } from "../lib/board/board-document.ts";
-import type { BoardDocument, BoardItem } from "../lib/board/board-schema.ts";
 
 function doc(items: BoardItem[]): BoardDocument {
 	return {

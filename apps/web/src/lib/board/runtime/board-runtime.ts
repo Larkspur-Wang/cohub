@@ -1,8 +1,5 @@
 import type { BoardBootstrap, BoardOperation } from "@neta-art/cohub";
-import {
-	BOARD_DOCUMENT_KIND,
-	type BoardDocument,
-} from "$lib/board/board-schema";
+import { BOARD_DOCUMENT_KIND, type BoardDocument } from "@neta-art/cohub-board";
 import { createLazyModuleLoader } from "$lib/lazy-module";
 
 export type BoardRuntimeViewState = {

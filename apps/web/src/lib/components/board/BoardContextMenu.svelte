@@ -5,6 +5,7 @@ import {
 	BoxSelect,
 	Copy,
 	ExternalLink,
+	ImageDown,
 	LocateFixed,
 	Pencil,
 	Trash2,
@@ -18,11 +19,14 @@ const {
 	position,
 	onClose,
 	onOpenFile,
+	onExport,
 }: {
 	editor: BoardEditor;
 	position: { x: number; y: number };
 	onClose: () => void;
 	onOpenFile?: (path: string) => void | Promise<void>;
+	/** Opens the export dialog; absent until the stage can render one. */
+	onExport?: () => void;
 } = $props();
 
 let menu: HTMLDivElement | null = $state(null);
@@ -96,6 +100,12 @@ const actions = $derived.by<MenuAction[]>(() => {
 		{ label: "Select all", icon: BoxSelect, run: () => editor.selectAll() },
 		{ label: "Zoom to fit", icon: LocateFixed, run: () => editor.fitView() },
 	);
+	if (onExport)
+		list.push({
+			label: hasSelection ? "Export selection…" : "Export image…",
+			icon: ImageDown,
+			run: onExport,
+		});
 	return list;
 });
 

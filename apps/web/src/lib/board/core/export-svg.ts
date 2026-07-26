@@ -5,7 +5,6 @@
  * editor uses (frames, endpoints, stroke points).
  */
 
-import { itemBounds } from "$lib/board/board-geometry";
 import type {
 	BoardArrowItem,
 	BoardDrawItem,
@@ -14,15 +13,17 @@ import type {
 	BoardItem,
 	BoardNoteItem,
 	BoardTextItem,
-} from "$lib/board/board-schema";
+} from "@neta-art/cohub-board";
 import {
 	arrowBounds,
+	buildStrokeOutline,
 	type FrameLookup,
+	fileBaseName,
+	fileTypeLabel,
+	itemBounds,
 	resolveArrow,
-} from "$lib/board/core/bindings";
-import { buildStrokeOutline } from "$lib/board/core/draw-geometry";
-import { fileBaseName, fileTypeLabel } from "$lib/board/core/file-preview";
-import { resolveBoardColor } from "$lib/board/core/palette";
+	resolveBoardColor,
+} from "@neta-art/cohub-board";
 
 const ESC: Record<string, string> = {
 	"&": "&amp;",

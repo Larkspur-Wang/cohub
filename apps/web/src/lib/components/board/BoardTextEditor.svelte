@@ -1,9 +1,5 @@
 <script lang="ts">
-import {
-	TEXT_FONT_FAMILY,
-	TEXT_FONT_SIZE,
-	TEXT_LINE_HEIGHT,
-} from "$lib/board/core/text-layout";
+import { TEXT_FONT_SIZE, TEXT_LINE_HEIGHT } from "@neta-art/cohub-board";
 import type { BoardEditor } from "$lib/board/editor.svelte";
 
 const { editor }: { editor: BoardEditor } = $props();
@@ -119,14 +115,16 @@ function handleKeydown(event: KeyboardEvent) {
 		box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand) 18%, transparent);
 	}
 
-	/* Freestanding text: transparent field, caret only — no card chrome. */
+	/* Freestanding text: transparent field, caret only — no card chrome.
+	   The family must match BOARD_FONT_STACK, or the caret drifts from the
+	   glyphs Pixi draws underneath while editing. */
 	.board-text-editor--plain {
 		border: 0;
 		border-radius: 0;
 		background: transparent;
 		box-shadow: none;
 		caret-color: var(--brand);
-		font-family: Geist, var(--font-sans), system-ui, sans-serif;
+		font-family: "Geist", system-ui, -apple-system, "Noto Sans CJK SC", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
 		font-weight: 500;
 	}
 </style>

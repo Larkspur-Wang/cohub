@@ -1,4 +1,5 @@
 <script lang="ts">
+import { BOARD_COLORS, boardColorCssVar } from "@neta-art/cohub-board";
 import {
 	AlignCenterHorizontal,
 	AlignCenterVertical,
@@ -15,7 +16,6 @@ import {
 	LockOpen,
 	Trash2,
 } from "lucide-svelte";
-import { BOARD_COLORS, boardColorCssVar } from "$lib/board/core/palette";
 import type { BoardEditor } from "$lib/board/editor.svelte";
 
 const { editor }: { editor: BoardEditor } = $props();

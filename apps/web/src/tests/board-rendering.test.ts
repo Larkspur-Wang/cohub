@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { Text } from "pixi.js";
 import {
 	syncTextResolution,
 	syncTextWrapWidth,
 	textResolutionForZoom,
-} from "../lib/board/board-rendering.ts";
+} from "@neta-art/cohub-board";
+import type { Text } from "pixi.js";
 
 test("syncTextResolution updates only when zoom crosses a bucket", () => {
 	let writes = 0;

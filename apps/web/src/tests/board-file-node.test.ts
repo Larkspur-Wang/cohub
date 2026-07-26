@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+	type BoardDocument,
+	type BoardItem,
+	BoardItemSchema,
+	shapeCapabilities,
+} from "@neta-art/cohub-board";
+import {
 	boardItemToNode,
 	boardNodeToItem,
 	createEmptyBoardDocument,
@@ -10,12 +16,6 @@ import {
 	createFileBoardItem,
 	createFileNodeForPath,
 } from "../lib/board/board-items.ts";
-import {
-	type BoardDocument,
-	type BoardItem,
-	BoardItemSchema,
-} from "../lib/board/board-schema.ts";
-import { shapeCapabilities } from "../lib/board/core/shape-definition.ts";
 // Importing the shape registry registers the built-in definitions.
 import "../lib/board/core/shapes.ts";
 

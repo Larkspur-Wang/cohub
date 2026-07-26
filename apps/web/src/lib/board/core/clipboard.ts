@@ -7,16 +7,16 @@
  */
 
 import { BOARD_CLIPBOARD_KIND, BOARD_CLIPBOARD_MIME } from "@cohub/protocol";
-import { selectionBounds } from "$lib/board/board-geometry";
-import { createBoardItemId } from "$lib/board/board-id";
-import { DUPLICATE_OFFSET } from "$lib/board/board-items";
 import {
 	type ArrowEndpoint,
 	type BoardItem,
 	isUnknownItem,
 	KNOWN_BOARD_ITEM_TYPES,
 	parseBoardItemLoose,
-} from "$lib/board/board-schema";
+	selectionBounds,
+} from "@neta-art/cohub-board";
+import { createBoardItemId } from "$lib/board/board-id";
+import { DUPLICATE_OFFSET } from "$lib/board/board-items";
 
 export { BOARD_CLIPBOARD_MIME };
 export const BOARD_CLIPBOARD_VERSION = 1 as const;

@@ -7,7 +7,7 @@ import {
 	filePreviewMemoKey,
 	filePreviewScope,
 	mergeFileSnapshot,
-} from "../lib/board/core/file-preview.ts";
+} from "@neta-art/cohub-board";
 
 /**
  * A missing or unreadable file must not blank its card, and a read that merely

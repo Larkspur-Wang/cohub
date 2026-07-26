@@ -1,18 +1,19 @@
-import type { Container, Graphics } from "pixi.js";
+import type {
+	BoardCardRenderer,
+	BoardFrame,
+	BoardItem,
+	BoardRenderContext,
+	BoardRenderPalette,
+	getBoardCardRenderer,
+} from "@neta-art/cohub-board";
 import {
 	frameHandlePosition,
 	type Point,
 	RESIZE_HANDLES,
 	type Rect,
 	rotationHandlePosition,
-} from "$lib/board/board-geometry";
-import type { BoardFrame, BoardItem } from "$lib/board/board-schema";
-import type {
-	BoardCardRenderer,
-	BoardRenderContext,
-	BoardRenderPalette,
-	getBoardCardRenderer,
-} from "$lib/board/renderers/board-renderer-registry";
+} from "@neta-art/cohub-board";
+import type { Container, Graphics } from "pixi.js";
 
 type CardEntry = {
 	item: BoardItem;

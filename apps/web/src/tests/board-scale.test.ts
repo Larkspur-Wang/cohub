@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import type { BoardDocument, BoardItem } from "@neta-art/cohub-board";
+import { itemBounds } from "@neta-art/cohub-board";
 import {
 	createEmptyBoardDocument,
 	diffBoardDocuments,
 } from "../lib/board/board-document.ts";
-import { itemBounds } from "../lib/board/board-geometry.ts";
 import { createFileBoardItem } from "../lib/board/board-items.ts";
-import type { BoardDocument, BoardItem } from "../lib/board/board-schema.ts";
 import { createSpatialIndex } from "../lib/board/board-spatial.ts";
 
 /**

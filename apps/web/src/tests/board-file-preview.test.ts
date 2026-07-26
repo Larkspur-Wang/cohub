@@ -12,7 +12,7 @@ import {
 	resolveCoverRef,
 	resolveSpacePath,
 	splitFrontmatter,
-} from "../lib/board/core/file-preview.ts";
+} from "@neta-art/cohub-board";
 
 test("preview tier is derived from the facts present", () => {
 	assert.equal(filePreviewKind(undefined), "blank");

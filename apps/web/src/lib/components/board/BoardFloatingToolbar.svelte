@@ -1,5 +1,10 @@
 <script lang="ts">
 import {
+	BOARD_COLORS,
+	boardColorCssVar,
+	GEO_KINDS,
+} from "@neta-art/cohub-board";
+import {
 	ArrowUpRight,
 	ChevronUp,
 	Frame,
@@ -13,8 +18,6 @@ import {
 	Type,
 	Undo2,
 } from "lucide-svelte";
-import { BOARD_COLORS, boardColorCssVar } from "$lib/board/core/palette";
-import { GEO_KINDS } from "$lib/board/core/shape-types";
 import type { BoardEditor, BoardToolId } from "$lib/board/editor.svelte";
 
 const {

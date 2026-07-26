@@ -3,15 +3,34 @@
   "compilerOptions": {
     "outDir": "dist",
     "rootDir": "src",
-    "types": ["node"],
+    "types": [
+      "node"
+    ],
     "declaration": true,
     "declarationMap": false,
     "ignoreDeprecations": "6.0",
     "paths": {
-      "@neta-art/cohub": ["../sdk/dist/index.d.ts"],
-      "@neta-art/cohub/http": ["../sdk/dist/http.d.ts"],
-      "@neta-art/cohub/websocket": ["../sdk/dist/websocket.d.ts"]
+      "@neta-art/cohub": [
+        "../sdk/dist/index.d.ts"
+      ],
+      "@neta-art/cohub/http": [
+        "../sdk/dist/http.d.ts"
+      ],
+      "@neta-art/cohub/websocket": [
+        "../sdk/dist/websocket.d.ts"
+      ],
+      "@neta-art/cohub-board": [
+        "../board/dist/index.d.ts"
+      ],
+      "@neta-art/cohub-board/export": [
+        "../board/dist/export/index.d.ts"
+      ],
+      "@neta-art/cohub-board/headless": [
+        "../board/dist/export/headless.d.ts"
+      ]
     }
   },
-  "include": ["src"]
+  "include": [
+    "src"
+  ]
 }

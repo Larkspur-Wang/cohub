@@ -3,7 +3,7 @@ import {
 	type Rect,
 	rectContainsPoint,
 	rectsIntersect,
-} from "$lib/board/board-geometry";
+} from "@neta-art/cohub-board";
 
 /**
  * An indexed board item: its stable id, z-order (array index, higher = on

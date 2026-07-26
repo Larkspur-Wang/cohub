@@ -53,6 +53,33 @@ export const BOARD_BUILTIN_EFFECT_KINDS = [
   "effects.float",
 ] as const;
 
+/**
+ * World-space typography for board text.
+ *
+ * These live here rather than beside the renderer because the document schema
+ * constrains persisted font sizes with them, and the schema must not depend on
+ * anything that draws.
+ */
+export const BOARD_TEXT_FONT_FAMILY = "Geist";
+export const BOARD_TEXT_FONT_SIZE = 18;
+export const BOARD_TEXT_LINE_HEIGHT = 24;
+export const BOARD_TEXT_MIN_FONT_SIZE = 2;
+export const BOARD_TEXT_MAX_FONT_SIZE = 512;
+
+/**
+ * Font stacks used by every board renderer.
+ *
+ * A bare "Geist" would render CJK (and anything else outside the Latin subset)
+ * as missing-glyph boxes, because the shipped webfont is Latin-only. The stack
+ * mirrors the web `--font-sans` / `--font-mono` tokens and adds the common CJK
+ * families, so both the browser and a headless export fall back to a real face
+ * instead of tofu.
+ */
+export const BOARD_FONT_STACK =
+  '"Geist", system-ui, -apple-system, "Noto Sans CJK SC", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif';
+export const BOARD_MONO_FONT_STACK =
+  '"Geist Mono", "Fira Code", ui-monospace, "Noto Sans Mono CJK SC", monospace';
+
 export const BOARD_BUILTIN_CAPABILITIES: BoardCapability[] = [
   ...BOARD_BUILTIN_CLIP_KINDS.map((id) => ({
     kind: "clip" as const,

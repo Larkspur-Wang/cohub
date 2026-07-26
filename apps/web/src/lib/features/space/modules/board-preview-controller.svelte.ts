@@ -6,6 +6,7 @@ import type {
 	SpaceFsPreparingFile,
 } from "@neta-art/cohub";
 import { BoardTransactionError, HttpError } from "@neta-art/cohub";
+import type { BoardDocument } from "@neta-art/cohub-board";
 import {
 	applyBoardOps,
 	boardBootstrapToDocument,
@@ -13,7 +14,6 @@ import {
 	toWireOperations,
 } from "$lib/board/board-document";
 import { resolveBoardManifestText } from "$lib/board/board-manifest-text";
-import type { BoardDocument } from "$lib/board/board-schema";
 import {
 	type BoardRuntimeData,
 	operationsRequireBoardRuntimeRefresh,

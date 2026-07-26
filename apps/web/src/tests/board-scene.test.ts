@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createBoardScene } from "../lib/board/board-scene.ts";
-import type { BoardItem } from "../lib/board/board-schema.ts";
-import { buildFallbackShapeColors } from "../lib/board/core/palette.ts";
+import type { BoardItem } from "@neta-art/cohub-board";
 import {
 	type BoardCardRenderer,
 	type BoardRenderContext,
 	type BoardRenderPalette,
 	boardCardRenderersForTest,
-} from "../lib/board/renderers/board-renderer-registry.ts";
+	buildFallbackShapeColors,
+} from "@neta-art/cohub-board";
+import { createBoardScene } from "../lib/board/board-scene.ts";
 
 /**
  * These tests pin the scaling contract of the scene: cost must track what is on

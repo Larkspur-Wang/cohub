@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { BoardDocument } from "$lib/board/board-schema";
+import type { BoardDocument } from "@neta-art/cohub-board";
 import {
 	type BoardRuntimeData,
 	type BoardRuntimeProps,

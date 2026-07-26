@@ -1,17 +1,19 @@
 <script lang="ts">
+import { screenToWorld, shapeCapabilities } from "@neta-art/cohub-board";
 import { onDestroy, onMount, untrack } from "svelte";
-import { screenToWorld } from "$lib/board/board-geometry";
-import { shapeCapabilities } from "$lib/board/core/shape-definition";
+import type { BoardStageExportBridge } from "$lib/board/board-image-export";
 import { createBoardEditor } from "$lib/board/editor.svelte";
 import type { BoardRuntimeProps } from "$lib/board/runtime/board-runtime";
 import BoardContextMenu from "$lib/components/board/BoardContextMenu.svelte";
 import BoardEmptyState from "$lib/components/board/BoardEmptyState.svelte";
+import BoardExportDialog from "$lib/components/board/BoardExportDialog.svelte";
 import BoardFloatingToolbar from "$lib/components/board/BoardFloatingToolbar.svelte";
 import BoardSelectionToolbar from "$lib/components/board/BoardSelectionToolbar.svelte";
 import BoardStage from "$lib/components/board/BoardStage.svelte";
 import BoardTextEditor from "$lib/components/board/BoardTextEditor.svelte";
 import BoardVideoPlayer from "$lib/components/board/BoardVideoPlayer.svelte";
 import BoardZoomMenu from "$lib/components/board/BoardZoomMenu.svelte";
+import { getResolvedTheme } from "$lib/theme.svelte";
 
 const {
 	path,
@@ -28,6 +30,18 @@ const {
 
 let stageWrap: HTMLDivElement | null = $state(null);
 let contextMenu = $state<{ x: number; y: number } | null>(null);
+/**
+ * Export runs on the stage's live renderer, so the dialog only opens once the
+ * stage has handed over its bridge.
+ */
+let exportBridge = $state<BoardStageExportBridge | null>(null);
+let exportOpen = $state(false);
+
+function openExport() {
+	if (!exportBridge) return;
+	contextMenu = null;
+	exportOpen = true;
+}
 
 const editor = createBoardEditor({
 	document: untrack(() => initialDocument),
@@ -148,6 +162,13 @@ function handleKeydown(event: KeyboardEvent) {
 	if (mod && key === "l") {
 		event.preventDefault();
 		editor.toggleSelectionLock();
+		return;
+	}
+	// Shift+Cmd/Ctrl+E — export image. Plain Cmd+E is the browser's own in some
+	// builds, and the shift form matches the "export" convention in design tools.
+	if (mod && event.shiftKey && key === "e") {
+		event.preventDefault();
+		openExport();
 		return;
 	}
 
@@ -325,6 +346,7 @@ onDestroy(() => {
 			{spaceId}
 			{onOpenFile}
 			onSurfaceChange={(size) => { editor.surfaceSize = size; }}
+			onExportReady={(bridge) => { exportBridge = bridge; }}
 		/>
 
 		{#if !editor.hasContent}
@@ -342,11 +364,22 @@ onDestroy(() => {
 				{editor}
 				{onOpenFile}
 				position={contextMenu}
+				onExport={exportBridge ? openExport : undefined}
 				onClose={() => { contextMenu = null; }}
 			/>
 		{/if}
 	</div>
 </div>
+
+<BoardExportDialog
+	open={exportOpen}
+	onClose={() => { exportOpen = false; }}
+	document={editor.document}
+	bridge={exportBridge}
+	title={path}
+	selection={editor.selection}
+	colorMode={getResolvedTheme() === "light" ? "light" : "dark"}
+/>
 
 <style>
 	.board-panel--immersive {

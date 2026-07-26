@@ -1,15 +1,15 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
-	hexNumberToCss,
-	parseCssColorToNumber,
-} from "$lib/board/core/css-color";
-import {
 	boardColorCssVar,
 	buildFallbackShapeColors,
 	pickBoardColor,
 	resolveBoardColor,
-} from "$lib/board/core/palette";
+} from "@neta-art/cohub-board";
+import {
+	hexNumberToCss,
+	parseCssColorToNumber,
+} from "$lib/board/core/css-color";
 
 describe("board css color parsing", () => {
 	it("parses hex and rgb forms", () => {

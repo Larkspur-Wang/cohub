@@ -2,6 +2,27 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { BoardOperation } from "@neta-art/cohub";
 import {
+	anchorToWorld,
+	arrowBounds,
+	BoardDocumentSchema,
+	BoardItemSchema,
+	bindEndpointAt,
+	buildStrokeOutline,
+	computeDrawBounds,
+	distanceToArrow,
+	distanceToStroke,
+	isUnknownItem,
+	parseBoardItemLoose,
+	resolveArrow,
+	shapeBounds,
+	shapeCapabilities,
+	shapeHitTest,
+	simplifyDrawIndices,
+	translateArrow,
+	unknownRealType,
+	worldToAnchor,
+} from "@neta-art/cohub-board";
+import {
 	boardBootstrapToDocument,
 	boardItemToNode,
 	boardNodeToItem,
@@ -18,42 +39,15 @@ import {
 	duplicateBoardItem,
 	mediaFrameSize,
 } from "../lib/board/board-items.ts";
-import {
-	BoardDocumentSchema,
-	BoardItemSchema,
-	isUnknownItem,
-	parseBoardItemLoose,
-	unknownRealType,
-} from "../lib/board/board-schema.ts";
-import {
-	anchorToWorld,
-	arrowBounds,
-	bindEndpointAt,
-	distanceToArrow,
-	resolveArrow,
-	translateArrow,
-	worldToAnchor,
-} from "../lib/board/core/bindings.ts";
-import {
-	buildStrokeOutline,
-	computeDrawBounds,
-	distanceToStroke,
-	simplifyDrawIndices,
-} from "../lib/board/core/draw-geometry.ts";
-import {
-	shapeBounds,
-	shapeCapabilities,
-	shapeHitTest,
-} from "../lib/board/core/shape-definition.ts";
 import { computeSnap } from "../lib/board/core/snapping.ts";
 import "../lib/board/core/shapes.ts";
-import { worldPoint } from "../lib/board/board-geometry.ts";
 import type {
 	BoardArrowItem,
 	BoardDrawItem,
 	BoardFrame,
 	BoardGeoItem,
-} from "../lib/board/board-schema.ts";
+} from "@neta-art/cohub-board";
+import { worldPoint } from "@neta-art/cohub-board";
 import {
 	operationsRequireBoardRuntimeRefresh,
 	resolveBoardRuntime,

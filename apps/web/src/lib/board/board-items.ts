@@ -1,5 +1,3 @@
-import { createBoardItemId } from "$lib/board/board-id";
-import { getResourceTitle, inferMediaKind } from "$lib/board/board-media";
 import type {
 	BoardArrowItem,
 	BoardFileItem,
@@ -10,11 +8,17 @@ import type {
 	BoardItemStyle,
 	BoardMediaSnapshot,
 	BoardVideoItem,
-} from "$lib/board/board-schema";
-import { unknownRealType } from "$lib/board/board-schema";
-import { computeDrawBounds } from "$lib/board/core/draw-geometry";
-import { fileBaseName, filePreviewKind } from "$lib/board/core/file-preview";
-import { measureBoardText, TEXT_FONT_SIZE } from "$lib/board/core/text-layout";
+} from "@neta-art/cohub-board";
+import {
+	computeDrawBounds,
+	fileBaseName,
+	filePreviewKind,
+	measureBoardText,
+	TEXT_FONT_SIZE,
+	unknownRealType,
+} from "@neta-art/cohub-board";
+import { createBoardItemId } from "$lib/board/board-id";
+import { getResourceTitle, inferMediaKind } from "$lib/board/board-media";
 
 const DEFAULT_MEDIA_SIZE = { width: 320, height: 200 };
 /** Fallback for video with unknown intrinsic size: the common 16:9 aspect. */

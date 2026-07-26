@@ -1,19 +1,19 @@
 import type { BoardOperation } from "@neta-art/cohub";
-import { untrack } from "svelte";
-import { createCommitQueue } from "$lib/board/board-commit-queue";
-import {
-	applyBoardOps,
-	diffBoardDocuments,
-	invertBoardOps,
-	reconcileExternal,
-} from "$lib/board/board-document";
+import type {
+	ArrowEndpoint,
+	BoardFileSnapshot,
+	DrawPoint,
+} from "@neta-art/cohub-board";
 import {
 	angleFromCenter,
+	bindEndpointAt,
 	clampZoom,
+	type FrameLookup,
 	fitToContent,
 	frameHandlePosition,
 	HANDLE_HIT_RADIUS,
 	itemBounds,
+	mergeFileSnapshot,
 	normalizeRotation,
 	panBy,
 	pointToWorld,
@@ -24,16 +24,29 @@ import {
 	rectsIntersect,
 	resizeFrame,
 	resizeFrameToSize,
+	resolveEndpoint,
 	rotateFrames,
 	rotationHandlePosition,
 	type ScreenPoint,
 	scaleFrames,
 	screenPoint,
 	selectionBounds,
+	shapeBounds,
+	shapeCapabilities,
+	shapeHitTest,
+	translateArrow,
 	type WorldPoint,
 	worldPoint,
 	zoomAround,
-} from "$lib/board/board-geometry";
+} from "@neta-art/cohub-board";
+import { untrack } from "svelte";
+import { createCommitQueue } from "$lib/board/board-commit-queue";
+import {
+	applyBoardOps,
+	diffBoardDocuments,
+	invertBoardOps,
+	reconcileExternal,
+} from "$lib/board/board-document";
 import {
 	createArrowBoardItem,
 	createDrawBoardItem,
@@ -47,23 +60,12 @@ import {
 	removeBoardItems,
 	titleForBoardItem,
 } from "$lib/board/board-items";
-import type {
-	ArrowEndpoint,
-	BoardFileSnapshot,
-	DrawPoint,
-} from "$lib/board/board-schema";
 import {
 	type AlignMode,
 	alignFrames,
 	type DistributeAxis,
 	distributeFrames,
 } from "$lib/board/core/align";
-import {
-	bindEndpointAt,
-	type FrameLookup,
-	resolveEndpoint,
-	translateArrow,
-} from "$lib/board/core/bindings";
 import {
 	type BoardClipboardPayload,
 	defaultPasteOffset,
@@ -72,12 +74,6 @@ import {
 	parseClipboard,
 } from "$lib/board/core/clipboard";
 import { itemsToSvg } from "$lib/board/core/export-svg";
-import { mergeFileSnapshot } from "$lib/board/core/file-preview";
-import {
-	shapeBounds,
-	shapeCapabilities,
-	shapeHitTest,
-} from "$lib/board/core/shape-definition";
 import {
 	arrowBoundsFor,
 	arrowHitTest,
@@ -92,15 +88,15 @@ import type {
 	BoardItem,
 	BoardItemStyle,
 	BoardViewport,
-} from "$lib/board/board-schema";
+} from "@neta-art/cohub-board";
+import {
+	clampBoardTextFontSize,
+	measureBoardText,
+} from "@neta-art/cohub-board";
 import {
 	createSpatialIndex,
 	type SpatialEntry,
 } from "$lib/board/board-spatial";
-import {
-	clampBoardTextFontSize,
-	measureBoardText,
-} from "$lib/board/core/text-layout";
 
 export type BoardToolId =
 	| "select"

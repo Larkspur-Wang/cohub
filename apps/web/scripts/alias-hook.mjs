@@ -1,8 +1,10 @@
 /**
  * Resolution hook implementation (loaded off-thread by `register-alias.mjs`).
  *
- * Teaches Node the two import forms the web sources rely on Vite for:
- * the SvelteKit `$lib/...` alias, and extension-less relative specifiers.
+ * Teaches Node the import forms the web sources rely on Vite for: the SvelteKit
+ * `$lib/...` alias, extension-less relative specifiers, and workspace packages
+ * imported by name (which resolve to `dist` under Node but must come from source
+ * in a source-only test run).
  */
 
 import { existsSync, statSync } from "node:fs";
@@ -11,6 +13,21 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const libRoot = resolvePath(here, "..", "src", "lib");
+const packagesRoot = resolvePath(here, "..", "..", "..", "packages");
+
+/**
+ * Workspace packages mapped to their sources, longest specifier first so a
+ * subpath is never shadowed by the bare package name. Protocol is included
+ * because the board package imports it by name and Node would otherwise resolve
+ * it to an unbuilt `dist`.
+ */
+const PACKAGE_SOURCES = [
+	["@neta-art/cohub-board/headless", `${packagesRoot}/board/src/export/headless.ts`],
+	["@neta-art/cohub-board/export", `${packagesRoot}/board/src/export/index.ts`],
+	["@neta-art/cohub-board", `${packagesRoot}/board/src/index.ts`],
+	["@cohub/protocol/board-document", `${packagesRoot}/protocol/src/board-document.ts`],
+	["@cohub/protocol/board-constants", `${packagesRoot}/protocol/src/board-constants.ts`],
+];
 
 /** Candidate suffixes for an extension-less import, in precedence order. */
 const SUFFIXES = ["", ".ts", ".js", "/index.ts", "/index.js"];
@@ -31,6 +48,11 @@ export function resolve(specifier, context, next) {
 	if (specifier.startsWith("$lib/")) {
 		const url = firstMatch(resolvePath(libRoot, specifier.slice("$lib/".length)));
 		if (url) return { url, shortCircuit: true };
+	}
+	for (const [name, target] of PACKAGE_SOURCES) {
+		if (specifier === name && isFile(target)) {
+			return { url: pathToFileURL(target).href, shortCircuit: true };
+		}
 	}
 	// Relative import from a source or test file: infer the extension, and map a
 	// `.js` specifier onto its TypeScript source. Workspace packages are written

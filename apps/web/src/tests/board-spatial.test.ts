@@ -4,7 +4,7 @@ import {
 	type Rect,
 	rectContainsPoint,
 	rectsIntersect,
-} from "../lib/board/board-geometry.ts";
+} from "@neta-art/cohub-board";
 import {
 	createSpatialIndex,
 	type SpatialEntry,

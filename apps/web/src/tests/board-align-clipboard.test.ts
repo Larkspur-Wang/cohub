@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { resizeFrame, worldPoint } from "../lib/board/board-geometry.ts";
-import { createNoteBoardItem } from "../lib/board/board-items.ts";
+import type { BoardFrame } from "@neta-art/cohub-board";
 import {
+	resizeFrame,
 	textResolutionForZoom,
 	textZoomBucket,
-} from "../lib/board/board-rendering.ts";
-import type { BoardFrame } from "../lib/board/board-schema.ts";
+	worldPoint,
+} from "@neta-art/cohub-board";
+import { createNoteBoardItem } from "../lib/board/board-items.ts";
 import { createSpatialIndex } from "../lib/board/board-spatial.ts";
 import { alignFrames, distributeFrames } from "../lib/board/core/align.ts";
 import {

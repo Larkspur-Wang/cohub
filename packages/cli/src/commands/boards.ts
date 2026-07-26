@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import type {
   BoardBootstrap,
   BoardCreateInput,
@@ -8,9 +8,11 @@ import type {
   BoardTransactionInput,
   BoardValidationResult,
 } from "@neta-art/cohub";
+import type { BoardExportRegion } from "@neta-art/cohub-board/export";
 import type { Command } from "commander";
+import { BOARD_EXPORT_FORMATS, formatFromPath, runBoardExport } from "../board-export.js";
 import { createClient, createRealtimeClient } from "../client.js";
-import { handleHttp, json as outJson, jsonRequested, ok, table } from "../output.js";
+import { error, handleHttp, json as outJson, jsonRequested, ok, table } from "../output.js";
 import { resolveSpace } from "../space.js";
 
 const INSPECT_SECTIONS = ["nodes", "effects", "sequences", "clips", "playback"] as const;
@@ -182,6 +184,129 @@ function commandId(options: PlaybackOptions): string {
   return options.commandId?.trim() || randomUUID();
 }
 
+type ExportOptions = JsonOptions & {
+  out?: string;
+  scale?: string;
+  padding?: string;
+  frame?: string;
+  items?: string;
+  rect?: string;
+  theme?: string;
+  background?: string;
+  format?: string;
+  quality?: string;
+  images?: boolean;
+};
+
+/**
+ * Resolve the mutually exclusive region flags.
+ *
+ * Selecting more than one is rejected rather than silently ranked: "why did
+ * --items win over --frame" is a worse experience than being told to pick one.
+ */
+function parseExportRegion(options: ExportOptions): BoardExportRegion {
+  const chosen = [
+    options.frame ? "--frame" : null,
+    options.items ? "--items" : null,
+    options.rect ? "--rect" : null,
+  ].filter(Boolean);
+  if (chosen.length > 1) {
+    throw new Error(`Pick one region: ${chosen.join(", ")} cannot be combined`);
+  }
+  if (options.frame) return { kind: "frame", id: options.frame };
+  if (options.items) {
+    const ids = options.items.split(",").map((id) => id.trim()).filter(Boolean);
+    if (ids.length === 0) throw new Error("--items needs at least one node id");
+    return { kind: "items", ids };
+  }
+  if (options.rect) {
+    const rect = parseViewport(options.rect);
+    if (!rect) throw new Error("--rect must be x,y,width,height");
+    return { kind: "rect", rect };
+  }
+  return { kind: "all" };
+}
+
+function parseExportFormat(options: ExportOptions, outPath: string) {
+  if (!options.format) return formatFromPath(outPath);
+  const format = options.format.toLowerCase();
+  if (!BOARD_EXPORT_FORMATS.includes(format as (typeof BOARD_EXPORT_FORMATS)[number])) {
+    throw new Error(`Unknown format "${options.format}"; use ${BOARD_EXPORT_FORMATS.join(", ")}`);
+  }
+  return format as (typeof BOARD_EXPORT_FORMATS)[number];
+}
+
+function parseColorMode(value: string | undefined): "dark" | "light" {
+  if (!value || value === "dark") return "dark";
+  if (value === "light") return "light";
+  throw new Error('--theme must be "dark" or "light"');
+}
+
+function parseBackground(value: string | undefined): "paper" | "transparent" {
+  if (!value || value === "paper") return "paper";
+  if (value === "transparent") return "transparent";
+  throw new Error('--background must be "paper" or "transparent"');
+}
+
+function registerExportCommand(boards: Command): void {
+  withJson(boards.command("export <board>")
+    .description("Render a Board to an image (board id or .board path)")
+    .requiredOption("-o, --out <file>", "Output file; extension selects the format")
+    .option("--scale <factor>", "Output pixels per world unit", "2")
+    .option("--padding <units>", "World-space padding around the content")
+    .option("--frame <node-id>", "Export a single frame as a page")
+    .option("--items <ids>", "Comma-separated node ids to export")
+    .option("--rect <rect>", "World rect as x,y,width,height")
+    .option("--theme <mode>", "dark or light", "dark")
+    .option("--background <mode>", "paper or transparent", "paper")
+    .option("--format <format>", `Override format (${BOARD_EXPORT_FORMATS.join(", ")})`)
+    .option("--quality <q>", "JPEG/WebP quality from 0 to 1", "0.92")
+    .option("--no-images", "Skip image downloads and draw placeholders"))
+    .action(async (board: string, options: ExportOptions) => {
+      try {
+        const out = options.out;
+        if (!out) throw new Error("--out is required");
+        const result = await runBoardExport({
+          spaceId: resolveSpace(boards),
+          target: board,
+          region: parseExportRegion(options),
+          scale: parseNumber(options.scale ?? "2", "scale", { min: 0.01, max: 16 }),
+          ...(options.padding === undefined
+            ? {}
+            : { padding: parseNumber(options.padding, "padding", { min: 0 }) }),
+          colorMode: parseColorMode(options.theme),
+          background: parseBackground(options.background),
+          format: parseExportFormat(options, out),
+          quality: parseNumber(options.quality ?? "0.92", "quality", { min: 0, max: 1 }),
+          withImages: options.images !== false,
+        });
+        if (!result) {
+          return error(
+            "Nothing to export",
+            "The selected region contains no items.",
+          );
+        }
+        await writeFile(out, result.bytes);
+        if (jsonRequested(options)) {
+          return outJson({
+            path: out,
+            width: result.width,
+            height: result.height,
+            scale: result.scale,
+            items: result.itemCount,
+            format: result.format,
+            bytes: result.bytes.length,
+            warnings: result.warnings,
+          });
+        }
+        ok(`Exported ${result.width}×${result.height} ${result.format.toUpperCase()} to ${out}`);
+        for (const warning of result.warnings) console.log(`  ! ${warning}`);
+      } catch (cause) {
+        handleHttp(cause);
+      }
+    });
+}
+
 export function registerBoards(program: Command): Command {
   const boards = program
     .command("boards")
@@ -249,6 +374,7 @@ export function registerBoards(program: Command): Command {
 
   registerTransactionCommand(boards, "validate");
   registerTransactionCommand(boards, "apply");
+  registerExportCommand(boards);
 
   withJson(boards.command("play <board-id> <sequence-id>")
     .description("Start shared playback")
