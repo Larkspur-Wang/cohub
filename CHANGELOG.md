@@ -4,6 +4,23 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v2.1 — 2026-07-26
+
+- **Board image export**: renderers, geometry, palette and document codec moved into a new `@neta-art/cohub-board` package, so one set of PixiJS card renderers draws a board on screen and in a headless Node render. `cohub boards export <board> -o out.png` supports `--frame`/`--items`/`--rect` regions, `--scale`, `--theme`, transparent backgrounds and PNG/JPEG/WebP; in the editor Shift+Cmd/Ctrl+E opens an export dialog with live pixel-size readout, download and copy. Source textures are capped at 64 unique previews and output size budgets are now hard guarantees.
+- **Board realtime awareness**: cursors, selections, creation gestures, drawing and transforms broadcast through the gateway with a protocol-level awareness schema and SDK subscriptions. Identity renders in a screen-space DOM overlay with avatars and device badges, mobile touch shows as a fading contact ring, and CLI or Agent edits surface as chip markers backed by request provenance stored on `board_transactions.metadata`; Agent markers open the originating chat.
+- **Video previews on boards**: video cards decode one bounded first frame through the same asset manager as images, sharing reference counting, the LRU cooling pool and viewport-bounded loading, capped at 2 concurrent decode slots. File change events now carry path and metadata, so an overwritten video drops stale keys and adopts its real aspect ratio.
+- **Theme-driven rendering**: card colors resolve from the active board theme instead of hard-coded palettes, so a space's `theme.css` applies to both canvas and exports. Node transform controls gained rotation-aware selection geometry and semantic resize capability helpers.
+
+### Bug Fixes
+
+- Switching board tabs kept publishing awareness for the previous board; runtime resources are now keyed on `boardId` with sequence numbers owned by a single page-level allocator
+- Zoom is faster and no longer drifts under rapid or clamped input
+- File-card content is clipped to node bounds with line-clamped title and excerpt
+- Agent auto-compaction now counts inline base64 images against a provider-aware bound, so sessions stop stalling on repeated 413s; summarize calls also get a retry budget
+- Gateway admits board awareness before queueing it
+- Board tool menus are toggleable and one-shot tools return to select
+- Board chrome stays visible while a board loads
+
 ## v2.0 — 2026-07-26
 
 - **Board runtime v1**: the board domain is rebuilt around boards, nodes, effects, sequences, clips, transactions, operations, checkpoints, and playback state, replacing the document-centric canvas service with inspect/validate/apply transaction APIs plus playback commands and realtime events. Ships end-to-end: bound `BoardClient` entities with transaction and playback subscriptions in the SDK, space-scoped `boards` CLI commands for create/inspect/transaction/playback/watch, a new web animation core with Pixi-based playback, and worker checkpoints aligned to the new model. The former `canvas` domain is renamed to `board` across schema, routes, SDK, and web.
