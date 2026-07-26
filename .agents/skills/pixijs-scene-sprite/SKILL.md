@@ -2,6 +2,7 @@
 name: pixijs-scene-sprite
 description: "Use this skill when drawing images in PixiJS v8. Covers Sprite with anchor/tint/texture, AnimatedSprite for frame animation, NineSliceSprite for resizable UI panels, TilingSprite for scrolling/repeating backgrounds. Triggers on: Sprite, AnimatedSprite, NineSliceSprite, TilingSprite, Sprite.from, anchor, tint, tilePosition, animationSpeed, gotoAndPlay, leftWidth, topHeight, constructor options, SpriteOptions, AnimatedSpriteOptions, NineSliceSpriteOptions, TilingSpriteOptions."
 license: MIT
+disable-model-invocation: true
 ---
 
 PixiJS has three sprite classes for different drawing tasks. `Sprite` is the default image-drawing leaf; `NineSliceSprite` is a resizable UI-panel variant that preserves corner art; `TilingSprite` repeats a texture across an area. The `AnimatedSprite` subclass of `Sprite` cycles through texture frames for frame-based animation.

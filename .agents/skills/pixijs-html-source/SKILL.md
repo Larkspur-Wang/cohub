@@ -2,6 +2,7 @@
 name: pixijs-html-source
 description: "Use this skill when rendering live HTML/DOM elements (or frozen snapshots of them) as PixiJS v8 textures via the EXPERIMENTAL HTML-in-Canvas browser APIs. Covers the pixi.js/html-source side-effect import, feature-detection with canvas.requestPaint, HTMLSource for a live, repainting element kept interactive in the browser (autoLayout/autoUpdate/autoRequestPaint, requestPaint, isReady, the direct-child-of-canvas + layoutsubtree requirement), ElementImageSource for an immutable captureElementImage() snapshot (autoClose, ready immediately), using the source on a Sprite/Texture/Mesh, fallback-only auto-detection via Texture.from at priority -10, and destroy/cleanup. Triggers on: HTMLSource, ElementImageSource, pixi.js/html-source, requestPaint, captureElementImage, ElementImage, layoutsubtree, autoRequestPaint, autoUpdate, autoClose, HTML in canvas, render DOM to texture, HTMLSourceOptions, ElementImageSourceOptions, HTMLSourceCanvas, experimental."
 license: MIT
+disable-model-invocation: true
 ---
 
 `HTMLSource` and `ElementImageSource` turn a DOM element into a `TextureSource` you can use anywhere a normal texture works: on a `Sprite`, as a `Texture` frame, or mapped onto a `Mesh`. `HTMLSource` mirrors a live element's pixels into the GPU (the element stays editable and clickable in the browser); `ElementImageSource` wraps an immutable snapshot that never repaints. Both require a side-effect `import 'pixi.js/html-source'` to register their extensions.

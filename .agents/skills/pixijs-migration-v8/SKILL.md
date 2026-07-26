@@ -2,6 +2,7 @@
 name: pixijs-migration-v8
 description: "Use this skill when upgrading to PixiJS v8 from v7 or diagnosing broken v7 code after an upgrade. Covers async app.init, single pixi.js package (deprecated @pixi/* sub-packages), Graphics shape-then-fill, BaseTexture → TextureSource, shader/uniform rework, ParticleContainer+Particle, constructor options objects, DisplayObject removal, settings/utils removal, Ticker signature, events rewrite. Triggers on: migrate v7, v8 breaking changes, @pixi/ import, DisplayObject, beginFill, endFill, cacheAsBitmap, BaseTexture, deprecated."
 license: MIT
+disable-model-invocation: true
 ---
 
 This skill is a breaking-change checklist for bringing a v7 codebase up to v8. Work top-down through the categories; the list maps each v7 pattern to its v8 replacement.

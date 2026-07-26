@@ -2,6 +2,7 @@
 name: pixijs-scene-dom-container
 description: "Use this skill when overlaying HTML elements on the PixiJS v8 canvas. Covers DOMContainer with element, anchor, and scene-graph-driven CSS transforms, the pixi.js/dom side-effect import, DOMPipe registration, visibility sync, pointer-events handling. Triggers on: DOMContainer, pixi.js/dom, DOMPipe, HTML overlay, input on canvas, iframe overlay, DOMContainerOptions, element, anchor, constructor options."
 license: MIT
+disable-model-invocation: true
 ---
 
 `DOMContainer` positions an HTML element over the PixiJS canvas and drives its CSS transform from the scene graph. Use it for native inputs, iframes, videos, or rich HTML that needs to follow a display object's position. The default `pixi.js` browser bundle registers the `DOMPipe` automatically; custom builds add a side-effect `import 'pixi.js/dom'`.

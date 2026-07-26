@@ -2,6 +2,7 @@
 name: pixijs-environments
 description: "Use this skill when running PixiJS v8 outside a standard browser: Web Workers, OffscreenCanvas, Node/SSR, or CSP-restricted contexts. Covers DOMAdapter.set, BrowserAdapter, WebWorkerAdapter, custom Adapter interface, pixi.js/unsafe-eval for strict CSP. Triggers on: DOMAdapter, BrowserAdapter, WebWorkerAdapter, Web Worker, OffscreenCanvas, Node, headless, SSR, CSP, unsafe-eval, Adapter."
 license: MIT
+disable-model-invocation: true
 ---
 
 `DOMAdapter` abstracts every piece of DOM access PixiJS does (canvas creation, Image loading, fetch, XML parsing) so the library can run in non-browser contexts. Call `DOMAdapter.set(...)` before `app.init()` to swap in a different adapter.

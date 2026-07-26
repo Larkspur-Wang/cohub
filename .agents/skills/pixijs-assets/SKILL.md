@@ -2,6 +2,7 @@
 name: pixijs-assets
 description: "Use this skill when loading and managing resources in PixiJS v8. Covers Assets.init, Assets.load/add/unload, bundles, manifests, background loading, onProgress, caching, spritesheets, video textures, web fonts, bitmap fonts, animated GIFs, compressed textures, SVG as texture or Graphics, resolution detection, per-asset data options, and forcing a specific loader with the parser field (for extension-less URLs). Triggers on: Assets, Assets.load, Assets.init, loadBundle, manifest, backgroundLoad, Spritesheet, Cache, LoadOptions, unload, parser, loadParser, loadWebFont, loadBitmapFont, loadVideoTextures, GifSource, VideoSourceOptions."
 license: MIT
+disable-model-invocation: true
 ---
 
 The `Assets` API is PixiJS's asset loader, resolver, and cache in one singleton. Use it to load textures, video, spritesheets, fonts, JSON, and other resources with format detection, resolution switching, bundle grouping, progress tracking, and GPU cleanup.

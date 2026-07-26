@@ -2,6 +2,7 @@
 name: pixijs-performance
 description: "Use this skill when profiling or optimizing a PixiJS v8 app for FPS, draw calls, or GPU memory. Covers destroy patterns (cacheAsTexture(false), releaseGlobalResources), GCSystem and TextureGCSystem, PrepareSystem, object pooling, batching rules, BitmapText for dynamic text, culling (Culler, CullerPlugin, cullable, cullArea), resolution/antialias tradeoffs. Triggers on: FPS, jank, draw calls, batching, object pool, GCSystem, PrepareSystem, Culler, cacheAsTexture, memory leak, destroy patterns."
 license: MIT
+disable-model-invocation: true
 ---
 
 Profile before optimizing. PixiJS handles a lot of content well out of the box; browser DevTools Performance + GPU profiling should be your first move. Once you've found the bottleneck, apply the targeted pattern below (destroy, pool, batch, cache, or cull).

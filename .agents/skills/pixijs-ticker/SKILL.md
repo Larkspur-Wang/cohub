@@ -2,6 +2,7 @@
 name: pixijs-ticker
 description: "Use this skill when running per-frame logic or controlling the PixiJS v8 render loop. Covers Ticker.add/addOnce/remove, deltaTime vs deltaMS vs elapsedMS, UPDATE_PRIORITY ordering, maxFPS/minFPS capping, speed scaling, Ticker.shared vs new instances, per-object onRender hook, manual rendering. Triggers on: Ticker, UPDATE_PRIORITY, deltaTime, deltaMS, elapsedMS, onRender, app.ticker, maxFPS, minFPS, Ticker.shared."
 license: MIT
+disable-model-invocation: true
 ---
 
 `app.ticker` runs registered callbacks every frame and drives `app.render()` at `UPDATE_PRIORITY.LOW`. Each callback receives the Ticker instance; read `deltaTime` as a frame-rate-independent multiplier (≈1.0 at 60fps) or `deltaMS` for real-time calculations.

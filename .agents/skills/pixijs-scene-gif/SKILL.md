@@ -2,6 +2,7 @@
 name: pixijs-scene-gif
 description: "Use this skill when displaying animated GIFs in PixiJS v8. Covers the pixi.js/gif side-effect import, Assets.load returning a GifSource, GifSprite playback (play/stop/currentFrame/animationSpeed), autoPlay/loop options, onComplete/onLoop/onFrameChange callbacks, GifSource sharing, clone, destroy. Triggers on: GifSprite, GifSource, pixi.js/gif, animationSpeed, currentFrame, autoPlay, onComplete, onFrameChange, constructor options, GifSpriteOptions."
 license: MIT
+disable-model-invocation: true
 ---
 
 `GifSprite` plays an animated GIF as a display object. `Assets.load('animation.gif')` returns a `GifSource` (not a `Texture`), and you wrap that in a `GifSprite`. Requires a side-effect `import 'pixi.js/gif'` to register the loader extension.

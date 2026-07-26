@@ -2,6 +2,7 @@
 name: pixijs-application
 description: "Use this skill when creating and configuring a PixiJS v8 Application. Covers new Application() + async app.init() options (width, height, background, antialias, resolution, autoDensity, preference, resizeTo, autoStart, sharedTicker, canvas, useBackBuffer, powerPreference, eventFeatures, accessibilityOptions, gcActive, bezierSmoothness, webgl/webgpu/canvasOptions per-renderer overrides), app.stage/renderer/canvas/screen/domContainerRoot access, ResizePlugin, TickerPlugin, CullerPlugin (cullable, cullArea), custom ApplicationPlugin creation via ExtensionType.Application, start/stop lifecycle, and app.destroy() with releaseGlobalResources. Triggers on: Application, app.init, app.stage, app.renderer, app.canvas, app.screen, app.domContainerRoot, ApplicationOptions, ApplicationPlugin, ExtensionType.Application, resizeTo, preference, autoStart, sharedTicker, useBackBuffer, powerPreference, skipExtensionImports, preferWebGLVersion, preserveDrawingBuffer, cullable, CullerPlugin, app.start, app.stop, app.destroy, releaseGlobalResources."
 license: MIT
+disable-model-invocation: true
 ---
 
 `Application` is the convenience wrapper that owns a renderer, a root `stage` Container, a canvas, and the Ticker/Resize plugins. In v8 the constructor takes no arguments; all configuration is passed to the async `app.init()` call which instantiates the renderer via `autoDetectRenderer`.

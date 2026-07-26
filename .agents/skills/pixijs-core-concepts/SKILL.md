@@ -2,6 +2,7 @@
 name: pixijs-core-concepts
 description: "Use this skill when understanding how PixiJS v8 renders frames: the systems-and-pipes renderer, the render loop, and how the library adapts to different environments. Covers WebGLRenderer/WebGPURenderer/CanvasRenderer selection, renderer.render() pipeline, environment detection, and pointers to per-topic deep dives. Triggers on: renderer, WebGL, WebGPU, Canvas, render loop, render pipeline, systems, environments, autoDetectRenderer."
 license: MIT
+disable-model-invocation: true
 ---
 
 Foundational model for how PixiJS v8 gets pixels on the screen: the renderer decides which GPU backend to use, the render loop drives per-frame work, and the environment layer adapts the library to browser, Web Worker, or SSR contexts. For the scene graph itself (Containers, transforms, destroy), see `pixijs-scene-core-concepts`.

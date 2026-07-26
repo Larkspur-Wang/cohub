@@ -2,6 +2,7 @@
 name: pixijs-accessibility
 description: "Use this skill when adding screen reader and keyboard navigation to PixiJS v8 apps. Covers AccessibilitySystem options (enabledByDefault, debug, activateOnTab, deactivateOnMouseMove), per-container accessibility properties, shadow DOM overlay, mobile touch-hook activation. Triggers on: accessibility, a11y, screen reader, ARIA, keyboard navigation, tab order, AccessibilitySystem, accessibleTitle, accessibleHint, tabIndex, accessibleChildren."
 license: MIT
+disable-model-invocation: true
 ---
 
 Enable screen reader and keyboard navigation via PixiJS's AccessibilitySystem. The system creates an invisible shadow DOM overlay positioned over accessible containers so assistive technology can discover and activate them.

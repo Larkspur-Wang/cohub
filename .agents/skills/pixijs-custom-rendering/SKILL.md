@@ -2,6 +2,7 @@
 name: pixijs-custom-rendering
 description: "Use this skill when writing custom shaders, uniforms, filters, or batchers in PixiJS v8. Covers Shader.from({gl, gpu, resources}), GlProgram/GpuProgram, UniformGroup with typed uniforms (f32, vec2, mat4x4), UBO mode, textures as resources, custom Filter via Filter.from, GLSL ES 3.0 conventions (in/out, finalColor, texture()), uBackTexture sampling, pixi.js/unsafe-eval for strict CSP, custom Batcher via extensions. Triggers on: Shader, GlProgram, GpuProgram, UniformGroup, Batcher, Filter, Filter.from, GLSL, WGSL, UBO, uniform, custom shader, finalColor, uBackTexture, blendRequired, unsafe-eval."
 license: MIT
+disable-model-invocation: true
 ---
 
 Custom shaders bind GLSL and WGSL programs to scene objects via `Shader.from({ gl, gpu, resources })`. Uniforms live in typed `UniformGroup`s, textures are passed as separate resources, and the same shader can target both WebGL and WebGPU.

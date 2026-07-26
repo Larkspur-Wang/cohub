@@ -2,6 +2,7 @@
 name: pixijs-scene-container
 description: "Use this skill when grouping, positioning, or transforming display objects in PixiJS v8. Covers Container constructor options (isRenderGroup, sortableChildren, boundsArea), addChild/removeChild/addChildAt/swapChildren/setChildIndex, position/scale/rotation/pivot/skew/alpha/tint, getBounds/getGlobalPosition/toLocal/toGlobal, zIndex sorting, cullable, onRender per-frame callback, destroy. Triggers on: Container, addChild, removeChild, addChildAt, swapChildren, sortableChildren, zIndex, position, scale, rotation, pivot, getBounds, toGlobal, toLocal, onRender, destroy, constructor options, ContainerOptions."
 license: MIT
+disable-model-invocation: true
 ---
 
 `Container` is the general-purpose node of the PixiJS v8 scene graph. It holds children and applies transforms, alpha, tint, and blend mode to its whole subtree. Every display object you make will either be a `Container` you're building a branch on, or a leaf (`Sprite`, `Graphics`, `Text`, `Mesh`) that you nest inside one.

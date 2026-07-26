@@ -2,6 +2,7 @@
 name: pixijs-scene-particle-container
 description: "Use this skill when rendering thousands of lightweight sprites in PixiJS v8. Covers ParticleContainer with Particle instances, addParticle/removeParticle, particleChildren array, dynamicProperties (vertex, position, rotation, uvs, color), boundsArea, roundPixels, update. Triggers on: ParticleContainer, Particle, IParticle, addParticle, particleChildren, dynamicProperties, boundsArea, particle effects, constructor options, ParticleContainerOptions, ParticleOptions."
 license: MIT
+disable-model-invocation: true
 ---
 
 `ParticleContainer` is a specialized container for rendering hundreds to tens of thousands of lightweight sprites in a single draw call. Use it for particle effects, bullet patterns, or any case where you need a large number of similar-looking objects with minimal per-object overhead. Particles share a single base texture and have a restricted transform set; they are not full `Container` children.

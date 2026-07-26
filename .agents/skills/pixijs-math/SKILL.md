@@ -2,6 +2,7 @@
 name: pixijs-math
 description: "Use this skill when working with coordinates, vectors, matrices, shapes, hit testing, or layout rectangles in PixiJS v8. Covers Point/ObservablePoint, Matrix (2D affine, decompose, apply, applyInverse), shapes (Rectangle, Circle, Ellipse, Polygon, RoundedRectangle, Triangle), Rectangle layout helpers (pad, fit, enlarge, ceil, scale, getBounds), strokeContains hit tests, Polygon isClockwise/containsPolygon, toGlobal/toLocal, PointData/PointLike/Size types, DEG_TO_RAD, and pixi.js/math-extras vector and intersection helpers. Triggers on: Point, ObservablePoint, Matrix, Rectangle, Circle, Polygon, Triangle, RoundedRectangle, toGlobal, toLocal, hitArea, strokeContains, pad, fit, enlarge, ceil, getBounds, containsRect, intersects, isClockwise, math-extras, lineIntersection, segmentIntersection, DEG_TO_RAD, PointData."
 license: MIT
+disable-model-invocation: true
 ---
 
 PixiJS exposes lightweight math primitives (Point, Matrix, shape classes) used throughout the library for transforms, hit testing, and coordinate conversion. Import `pixi.js/math-extras` to add vector operations (add, dot, magnitude, reflect) and Rectangle intersection/union helpers.

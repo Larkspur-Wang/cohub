@@ -2,6 +2,7 @@
 name: pixijs-scene-mesh
 description: "Use this skill when rendering custom geometry in PixiJS v8. Covers Mesh with MeshGeometry (positions, uvs, indices, topology), MeshSimple for per-frame vertex animation, MeshPlane for subdivided deformation, MeshRope for path-following textures, PerspectiveMesh for 2.5D corners. Triggers on: Mesh, MeshGeometry, MeshSimple, MeshPlane, MeshRope, PerspectiveMesh, positions, uvs, indices, topology, setCorners, constructor options, MeshOptions, MeshPlaneOptions, MeshRopeOptions, SimpleMeshOptions, PerspectivePlaneOptions."
 license: MIT
+disable-model-invocation: true
 ---
 
 Meshes render arbitrary 2D (or perspective-projected) geometry with a texture or custom shader. PixiJS ships the base `Mesh` class plus four specialized subclasses for common shapes: `MeshSimple`, `MeshPlane`, `MeshRope`, and `PerspectiveMesh`. Pick the subclass that matches your shape; drop to the base `Mesh` when you need full vertex-level control or a custom shader.

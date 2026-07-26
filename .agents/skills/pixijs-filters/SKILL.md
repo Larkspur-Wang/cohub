@@ -2,6 +2,7 @@
 name: pixijs-filters
 description: "Use this skill when applying visual effects to PixiJS v8 containers via the filter pipeline. Covers built-in filters (AlphaFilter, BlurFilter, ColorMatrixFilter, DisplacementFilter, NoiseFilter), custom Filter.from() with GLSL/WGSL, options (resolution, padding, antialias, blendRequired), filterArea optimization, pixi-filters community package. Triggers on: filters, BlurFilter, ColorMatrixFilter, DisplacementFilter, NoiseFilter, Filter.from, GLSL filter, pixi-filters, filterArea."
 license: MIT
+disable-model-invocation: true
 ---
 
 Attach visual effects by assigning one filter (or an array for chaining) to `container.filters`. Built-in filters cover blur, color matrix, displacement, alpha, and noise; custom filters wrap a GLSL/WGSL fragment shader via `Filter.from(...)`.

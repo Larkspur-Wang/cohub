@@ -2,6 +2,7 @@
 name: pixijs-scene-text
 description: "Use this skill when rendering text in PixiJS v8. Covers Text for canvas-quality styled labels, BitmapText for cheap per-frame updates via glyph atlas, HTMLText for HTML/CSS markup via SVG, SplitText and SplitBitmapText for per-character animation, TextStyle, tagStyles, constructor options, TextOptions, HTMLTextOptions, BitmapText, SplitTextOptions, SplitBitmapTextOptions. Triggers on: Text, BitmapText, HTMLText, SplitText, SplitBitmapText, TextStyle, HTMLTextStyle, BitmapFont.install, tagStyles, fontFamily, wordWrap."
 license: MIT
+disable-model-invocation: true
 ---
 
 PixiJS has five text-rendering classes that cover different trade-offs between styling, performance, and animation. `Text` renders to a canvas for full CSS-style fidelity. `BitmapText` reads from a pre-generated atlas for cheap updates. `HTMLText` renders an HTML fragment via SVG `<foreignObject>` for rich markup. `SplitText` and `SplitBitmapText` wrap the first two classes and expose per-character, per-word, and per-line containers for animation.

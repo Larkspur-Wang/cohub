@@ -2,6 +2,7 @@
 name: pixijs-scene-graphics
 description: "Use this skill when drawing vector shapes and paths in PixiJS v8. Covers the Graphics API: shape-then-fill methods (rect/circle/ellipse/poly/roundRect/star/regularPoly/roundPoly/roundShape/filletRect/chamferRect), path methods (moveTo/lineTo/bezierCurveTo/quadraticCurveTo/arc/arcTo/arcToSvg/closePath), fill/stroke/cut, holes, FillGradient (linear/radial), FillPattern, GraphicsContext sharing, svg import/export, containsPoint hit testing, cloning, clearing, bounds, fillStyle/strokeStyle, draw-time transforms (rotateTransform/scaleTransform/translateTransform/setTransform/save/restore), default styles, GraphicsPath reuse. Triggers on: Graphics, GraphicsContext, rect, circle, poly, roundRect, fill, stroke, cut, hole, beginHole, FillGradient, FillPattern, moveTo, bezierCurveTo, svg, graphicsContextToSvg, svg export, GraphicsOptions, containsPoint, clone, clear, bounds, rotateTransform, translateTransform, setFillStyle, setStrokeStyle, GraphicsPath."
 license: MIT
+disable-model-invocation: true
 ---
 
 `Graphics` is the vector-drawing leaf of the PixiJS v8 scene graph. The v8 API follows a shape-then-style pattern: draw a shape or path with `rect`, `circle`, `moveTo`, etc., then apply `fill` and/or `stroke`. Every method returns `this` for chaining, and the drawing instructions live on a `GraphicsContext` that can be shared between instances.

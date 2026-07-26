@@ -2,6 +2,7 @@
 name: pixijs-scene-core-concepts
 description: "Use this skill when reasoning about the PixiJS v8 scene graph as a whole: how containers, leaves, transforms, and render order fit together. Covers leaf vs container distinction, local/world coordinates, culling, render groups, sortable children, masking, RenderLayer, constructor options shared by every scene node, and which leaf skill covers which display object. Triggers on: scene graph, display list, Container, Sprite, Graphics, Text, Mesh, ParticleContainer, DOMContainer, GifSprite, masking, render group, RenderLayer, world transform, constructor options, ContainerOptions."
 license: MIT
+disable-model-invocation: true
 ---
 
 This skill is the shared mental model referenced by all `pixijs-scene-*` leaves. It explains what the scene graph is in PixiJS v8, how a `Container` differs from a leaf, and where each concept lives. It does not go deep on any single API; it frames the pieces and points to the skill or reference file that does.

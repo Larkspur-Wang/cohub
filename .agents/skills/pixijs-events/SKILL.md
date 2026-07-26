@@ -2,6 +2,7 @@
 name: pixijs-events
 description: "Use this skill when handling pointer, mouse, touch, or wheel input in PixiJS v8. Covers eventMode (none, passive, auto, static, dynamic), FederatedEvent types, propagation and capture phase, hitArea, interactiveChildren, cursor and cursorStyles, global move events for drag, eventFeatures config. Triggers on: eventMode, FederatedPointerEvent, pointerdown, click, tap, globalpointermove, drag, hitArea, cursor, stopPropagation."
 license: MIT
+disable-model-invocation: true
 ---
 
 PixiJS's federated event system mirrors DOM events on the scene graph. Set `container.eventMode = 'static'` to opt an object in, then listen with `.on()`, `addEventListener()`, or `onEventName` property handlers. Move events fire only over the listening object; use `globalpointermove` for drag.

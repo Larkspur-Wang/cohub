@@ -2,6 +2,7 @@
 name: pixijs-create
 description: "Use this skill when scaffolding a new PixiJS v8 project with the create-pixi CLI or adding PixiJS to an existing project. Covers npm/yarn/pnpm/bun create commands, interactive vs non-interactive flows, bundler vs creation template categories, available template presets (bundler-vite, bundler-webpack, bundler-esbuild, bundler-import-map, creation-web, framework-react, extension-default), Node version requirements, `npm install pixi.js` for existing projects, post-scaffold dev flow, and the Vite top-level-await production-build gotcha. Triggers on: create pixi.js, npm create, npm install pixi.js, scaffold, template, bundler-vite, bundler-webpack, creation-web, framework-react, new project, existing project, getting started, quick start."
 license: MIT
+disable-model-invocation: true
 ---
 
 `create pixi.js` is the official CLI for scaffolding a new PixiJS v8 project. Run it with any package manager (`npm`, `yarn`, `pnpm`, `bun`) and pick a template from the interactive menu, or pass `--template` to skip prompts. It writes a self-contained project folder; you then `cd` in, install dependencies, and run the dev script.

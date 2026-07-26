@@ -2,6 +2,7 @@
 name: pixijs-color
 description: "Use this skill when creating, converting, or manipulating colors in PixiJS v8. Covers Color class input formats (hex, CSS names, RGB/HSL objects, arrays, Uint8Array), conversion methods (toHex, toNumber, toArray, toRgba), component access, setAlpha/multiply/premultiply, Color.shared singleton. Triggers on: Color, ColorSource, hex, rgb, hsl, tint, premultiply, Color.shared, color conversion."
 license: MIT
+disable-model-invocation: true
 ---
 
 The `Color` class creates and converts colors for tints, fills, strokes, and anywhere PixiJS accepts a `ColorSource`. Most APIs accept raw hex/strings directly, so explicit `new Color(...)` is only needed when converting formats or manipulating values.
