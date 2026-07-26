@@ -1,12 +1,9 @@
 <script lang="ts">
 import type { BoardFileSnapshot, BoardItem } from "@neta-art/cohub-board";
 import {
-	BOARD_COLORS,
 	type BoardRenderContext,
 	type BoardRenderPalette,
 	type BoardShapeColors,
-	boardColorCssVar,
-	buildFallbackShapeColors,
 	buildStrokeOutline,
 	expandRect,
 	getBoardCardRenderer,
@@ -41,7 +38,11 @@ import {
 } from "$lib/board/board-file-preview-source";
 import type { BoardStageExportBridge } from "$lib/board/board-image-export";
 import { createBoardScene } from "$lib/board/board-scene";
-import { readCssColorNumber } from "$lib/board/core/css-color";
+import {
+	type BoardThemeSnapshot,
+	boardThemeKey,
+	resolveBoardTheme,
+} from "$lib/board/board-theme";
 import { resizeCursorForHandle } from "$lib/board/core/selection-transform";
 import type { BoardEditor } from "$lib/board/editor.svelte";
 import type { BoardRuntimeData } from "$lib/board/runtime/board-runtime";
@@ -51,6 +52,7 @@ import {
 	type BoardDropItem,
 	toBoardDropItems,
 } from "$lib/drag/pointer-drag-core";
+import { SPACE_STYLE_CHANGED_EVENT } from "$lib/space-style";
 import { getResolvedTheme } from "$lib/theme.svelte";
 
 const {
@@ -126,6 +128,14 @@ let surface = $state<{ width: number; height: number }>({
 // Bumped whenever the asset manager resolves a new thumbnail URL, so cards
 // re-sync and images pop in.
 let assetVersion = $state(0);
+let spaceStyleVersion = $state(0);
+
+function handleSpaceStyleChanged(event: Event) {
+	const detail = (event as CustomEvent<{ spaceId?: string | null }>).detail;
+	if (detail?.spaceId !== null && detail?.spaceId !== spaceId) return;
+	spaceStyleVersion += 1;
+	themeCache = null;
+}
 
 // One manager per mounted board; the space id is fixed for the mount.
 const assets = createBoardAssetManager({ spaceId: untrack(() => spaceId) });
@@ -143,77 +153,22 @@ const unsubscribePreviews = subscribeFilePreviews((event) => {
 	editor.applyMediaFileChange(event.path, event.meta);
 });
 
-function cssNumber(name: string, fallback: number): number {
-	return readCssColorNumber(host, name, fallback);
-}
-
 /**
- * Resolved theme colors, cached per theme identity.
- *
- * Every `getComputedStyle` read forces a style recalculation, and a full
- * resolve is 40+ of them (palette tokens plus three parts per shape color).
- * Doing that on every frame made panning cost more in style recalc than in
- * drawing, so the whole table is resolved once per theme and reused until the
- * theme (or the space's `theme.css`) actually changes.
+ * Resolved theme colors, cached per theme identity. The snapshot is shared by
+ * live rendering and export so the two paths cannot drift.
  */
-let paletteCache: {
-	key: string;
-	palette: BoardRenderPalette;
-	colors: BoardShapeColors;
-} | null = null;
+let themeCache: BoardThemeSnapshot | null = null;
 
-/** Identity of the current theme state; a change invalidates the color cache. */
-function themeKey(): string {
-	return `${getResolvedTheme()}|${cssNumber("--brand", 0)}|${cssNumber("--bg-primary", 0)}`;
-}
-
-function resolveTheme(): {
-	palette: BoardRenderPalette;
-	colors: BoardShapeColors;
-} {
-	const key = themeKey();
-	if (paletteCache?.key === key) return paletteCache;
-	const palette = readPalette();
-	const colorMode = getResolvedTheme() === "light" ? "light" : "dark";
-	const colors = readShapeColors(colorMode);
-	paletteCache = { key, palette, colors };
-	return paletteCache;
+function resolveTheme(): BoardThemeSnapshot {
+	const key = boardThemeKey(host, spaceStyleVersion);
+	if (themeCache?.key === key) return themeCache;
+	const current = resolveBoardTheme(host, spaceStyleVersion, key);
+	themeCache = current;
+	return current;
 }
 
 function getPalette(): BoardRenderPalette {
 	return resolveTheme().palette;
-}
-
-function readPalette(): BoardRenderPalette {
-	// Paper follows theme neutrals: primary for the open field, surface for cards.
-	// Shape labels use palette colors (not pure black/white) so contrast stays intentional.
-	return {
-		bg: cssNumber("--bg-primary", 0x141414),
-		surface: cssNumber("--bg-surface", 0x202020),
-		hover: cssNumber("--bg-hover", 0x2a2a2a),
-		border: cssNumber("--border-subtle", 0x3a3a3a),
-		brand: cssNumber("--brand", 0xff3e00),
-		text: cssNumber("--text-primary", 0xf4f4f4),
-		muted: cssNumber("--text-tertiary", 0x8c8c8c),
-		rare: cssNumber("--info-400", 0x38bdf8),
-		epic: cssNumber("--info-500", 0xa78bfa),
-		legendary: cssNumber("--warning-400", 0xf59e0b),
-	};
-}
-
-/** Shape colors from CSS tokens; space theme.css can remap them fully. */
-function readShapeColors(mode: "dark" | "light"): BoardShapeColors {
-	const fallback = buildFallbackShapeColors(mode);
-	const out = {} as BoardShapeColors;
-	for (const entry of BOARD_COLORS) {
-		const base = fallback[entry.id];
-		out[entry.id] = {
-			stroke: cssNumber(boardColorCssVar(entry.id, "stroke"), base.stroke),
-			fill: cssNumber(boardColorCssVar(entry.id, "fill"), base.fill),
-			label: cssNumber(boardColorCssVar(entry.id, "label"), base.label),
-		};
-	}
-	return out;
 }
 
 // Request image and video previews only for cards near the viewport. The margin
@@ -320,7 +275,7 @@ function buildContext(
 	palette: BoardRenderPalette,
 	getDisplayItem: (id: string) => BoardItem | null,
 ): BoardRenderContext {
-	const colorMode = getResolvedTheme() === "light" ? "light" : "dark";
+	const colorScheme = resolveTheme().colorScheme;
 	const resizingIds =
 		editor.interaction.type === "resizing"
 			? new Set(editor.interaction.origin.keys())
@@ -333,7 +288,7 @@ function buildContext(
 		resizingIds,
 		palette,
 		colors: resolveTheme().colors,
-		colorMode,
+		colorScheme,
 		zoom: editor.camera.zoom,
 		assetKey: assets.assetKey,
 		getTexture: (key) => assets.getTexture(key),
@@ -467,7 +422,7 @@ function syncStage() {
 	const globalSig = [
 		assetVersion,
 		previewVersion,
-		getResolvedTheme(),
+		resolveTheme().key,
 		textZoomBucket(editor.camera.zoom),
 	].join("|");
 
@@ -508,8 +463,8 @@ function syncStage() {
 		palette,
 	);
 
-	drawRemoteAwareness(context.colors, context.colorMode);
-	drawTransient(palette, context.colors, context.colorMode);
+	drawRemoteAwareness(context.colors, context.colorScheme);
+	drawTransient(palette, context.colors, context.colorScheme);
 
 	scheduleRender();
 }
@@ -1073,7 +1028,7 @@ onMount(async () => {
 			return {
 				palette: resolved.palette,
 				colors: resolved.colors,
-				colorMode: getResolvedTheme() === "light" ? "light" : "dark",
+				colorScheme: resolved.colorScheme,
 			};
 		},
 		assetKey: assets.assetKey,
@@ -1091,6 +1046,7 @@ onMount(async () => {
 	resizeObserver = new ResizeObserver(resizeStage);
 	resizeObserver.observe(host);
 	resizeStage();
+	window.addEventListener(SPACE_STYLE_CHANGED_EVENT, handleSpaceStyleChanged);
 });
 
 $effect(() => {
@@ -1110,13 +1066,18 @@ $effect(() => {
 	editor.geometryVersion;
 	awarenessVersion;
 	assetVersion;
-	// Re-render when the theme changes so Pixi picks up new CSS colors.
+	// Re-render when the user theme or active Space style changes.
 	getResolvedTheme();
+	spaceStyleVersion;
 	syncStage();
 });
 
 onDestroy(() => {
 	disposed = true;
+	window.removeEventListener(
+		SPACE_STYLE_CHANGED_EVENT,
+		handleSpaceStyleChanged,
+	);
 	resizeObserver?.disconnect();
 	cancelAnimationFrame(resizeFrame);
 	cancelAnimationFrame(renderFrame);

@@ -279,7 +279,7 @@ function sync(
 		texture ? `${texture.width}x${texture.height}` : "none",
 		coverFailed,
 		fileState,
-		context.colorMode,
+		context.colorScheme,
 		context.palette.surface,
 	].join("|");
 

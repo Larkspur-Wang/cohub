@@ -40,7 +40,7 @@ function sync(
 	const { width, height } = item.frame;
 	const selected = context.selectedIds.has(item.id);
 	const hovered = context.hoveredId === item.id;
-	const color = pickBoardColor(context.colors, item.color, context.colorMode);
+	const color = pickBoardColor(context.colors, item.color, context.colorScheme);
 
 	syncTextResolution(parts.body, parts, context.zoom);
 	const resizing = context.resizingIds.has(item.id);
@@ -133,7 +133,7 @@ export const noteCardRenderer: BoardCardRenderer = {
 	// drop the text.
 	renderFar: (graphics, item, context) => {
 		if (item.type !== "note") return;
-		const color = pickBoardColor(context.colors, item.color, context.colorMode);
+		const color = pickBoardColor(context.colors, item.color, context.colorScheme);
 		drawFarPlate(graphics, item.frame, {
 			fill: color.fill,
 			fillAlpha: 0.28,

@@ -79,7 +79,7 @@ function sync(
 	parts.root.rotation = 0;
 	const selected = context.selectedIds.has(item.id);
 	const hovered = context.hoveredId === item.id;
-	const color = pickBoardColor(context.colors, item.color, context.colorMode);
+	const color = pickBoardColor(context.colors, item.color, context.colorScheme);
 	syncTextResolution(parts.label, parts, context.zoom);
 
 	const getFrame = frameLookup(context);
@@ -210,7 +210,7 @@ export const arrowCardRenderer: BoardCardRenderer = {
 		if (item.type !== "arrow") return;
 		const resolved = resolveArrow(item, frameLookup(context));
 		if (!resolved) return;
-		const color = pickBoardColor(context.colors, item.color, context.colorMode);
+		const color = pickBoardColor(context.colors, item.color, context.colorScheme);
 		drawFarStroke(graphics, sampleQuadratic(resolved, 12), {
 			color: color.stroke,
 			width: item.size,

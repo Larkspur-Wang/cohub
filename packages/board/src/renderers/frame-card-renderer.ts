@@ -38,7 +38,7 @@ function sync(
 
 	const selected = context.selectedIds.has(item.id);
 	const hovered = context.hoveredId === item.id;
-	const palette = pickBoardColor(context.colors, color, context.colorMode);
+	const palette = pickBoardColor(context.colors, color, context.colorScheme);
 	const stroke = selected ? context.palette.brand : palette.stroke;
 	const alpha = selected ? 1 : hovered ? 0.85 : 0.55;
 	const visualSig = [
@@ -114,7 +114,7 @@ export const frameCardRenderer: BoardCardRenderer = {
 		const palette = pickBoardColor(
 			context.colors,
 			item.color,
-			context.colorMode,
+			context.colorScheme,
 		);
 		drawFarPlate(graphics, item.frame, {
 			fill: palette.fill,

@@ -185,7 +185,7 @@ export type BoardExportRunOptions = {
   region: BoardExportRegion;
   scale: number;
   padding?: number;
-  colorMode: "dark" | "light";
+  colorScheme: "dark" | "light";
   background: "paper" | "transparent";
   format: BoardHeadlessExportFormat;
   quality?: number;
@@ -236,7 +236,7 @@ export async function runBoardExport(
       region: options.region,
       scale: options.scale,
       padding: options.padding,
-      colorMode: options.colorMode,
+      colorScheme: options.colorScheme,
       background: options.background,
       textures,
       format: options.format,

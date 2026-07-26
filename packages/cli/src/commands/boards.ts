@@ -274,7 +274,7 @@ function registerExportCommand(boards: Command): void {
           ...(options.padding === undefined
             ? {}
             : { padding: parseNumber(options.padding, "padding", { min: 0 }) }),
-          colorMode: parseColorMode(options.theme),
+          colorScheme: parseColorMode(options.theme),
           background: parseBackground(options.background),
           format: parseExportFormat(options, out),
           quality: parseNumber(options.quality ?? "0.92", "quality", { min: 0, max: 1 }),

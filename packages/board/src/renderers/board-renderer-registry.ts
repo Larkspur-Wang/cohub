@@ -44,7 +44,7 @@ export type BoardRenderContext = {
 	 */
 	colors: BoardShapeColors;
 	/** Resolved color mode, for fallback mapping when colors are unavailable. */
-	colorMode: "dark" | "light";
+	colorScheme: "dark" | "light";
 	/** Current camera zoom — used for text re-rasterisation buckets. */
 	zoom: number;
 	/** Stable preview texture key for an item, or null when it has no preview. */

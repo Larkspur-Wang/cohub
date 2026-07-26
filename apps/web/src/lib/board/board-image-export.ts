@@ -52,7 +52,7 @@ export type BoardStageExportBridge = {
 	theme: () => {
 		palette: BoardRenderPalette;
 		colors: BoardShapeColors;
-		colorMode: "dark" | "light";
+		colorScheme: "dark" | "light";
 	};
 	/**
 	 * Loads every media preview in `items`, then runs `use` while those textures are still
@@ -120,7 +120,7 @@ export async function exportBoardImage(
 		const result = renderBoardExport(renderer, document, {
 			palette: theme.palette,
 			colors: theme.colors,
-			colorMode: theme.colorMode,
+			colorScheme: theme.colorScheme,
 			...exportOptions,
 			region,
 			textures,

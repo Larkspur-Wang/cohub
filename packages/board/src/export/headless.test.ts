@@ -145,8 +145,8 @@ describe("headless board export", { skip: available ? false : "@napi-rs/canvas i
   });
 
   test("light and dark modes produce different pixels", () => {
-    const dark = exportBoardImageBytes(headless, document, { scale: 1, colorMode: "dark" });
-    const light = exportBoardImageBytes(headless, document, { scale: 1, colorMode: "light" });
+    const dark = exportBoardImageBytes(headless, document, { scale: 1, colorScheme: "dark" });
+    const light = exportBoardImageBytes(headless, document, { scale: 1, colorScheme: "light" });
     assert.ok(dark && light);
     assert.notDeepEqual([...dark.bytes], [...light.bytes]);
   });

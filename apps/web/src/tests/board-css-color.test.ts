@@ -9,6 +9,7 @@ import {
 import {
 	hexNumberToCss,
 	parseCssColorToNumber,
+	readCssColorNumber,
 } from "$lib/board/core/css-color";
 
 describe("board css color parsing", () => {
@@ -18,8 +19,17 @@ describe("board css color parsing", () => {
 		assert.equal(parseCssColorToNumber("rgb(56, 189, 248)"), 0x38bdf8);
 		assert.equal(parseCssColorToNumber("rgba(56 189 248 / 0.8)"), 0x38bdf8);
 		assert.equal(parseCssColorToNumber("rgb(100% 0% 0%)"), 0xff0000);
+		assert.equal(parseCssColorToNumber("color(srgb 0.1 0.2 0.3)"), 0x1a334d);
+		assert.equal(
+			parseCssColorToNumber("color(srgb 100% 0% 50% / 0.4)"),
+			0xff0080,
+		);
 		assert.equal(parseCssColorToNumber(""), null);
 		assert.equal(parseCssColorToNumber("not-a-color"), null);
+	});
+
+	it("uses the fallback when no DOM is available", () => {
+		assert.equal(readCssColorNumber(null, "--test-color", 0xaabbcc), 0xaabbcc);
 	});
 
 	it("round-trips hex numbers", () => {

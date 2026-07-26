@@ -29,7 +29,7 @@ export type BoardExportSceneInput = {
   world: Rect;
   /** Output pixels per world unit. Drives text rasterisation resolution. */
   scale: number;
-  colorMode: "dark" | "light";
+  colorScheme: "dark" | "light";
   palette?: Partial<BoardRenderPalette>;
   colors?: BoardShapeColors;
   /** Resolved textures by preview key. Missing keys render as placeholders. */
@@ -67,9 +67,9 @@ function buildContext(input: BoardExportSceneInput): {
     selectedIds: new Set(),
     hoveredId: null,
     resizingIds: new Set(),
-    palette: { ...defaultBoardPalette(input.colorMode), ...input.palette },
-    colors: input.colors ?? buildFallbackShapeColors(input.colorMode),
-    colorMode: input.colorMode,
+    palette: { ...defaultBoardPalette(input.colorScheme), ...input.palette },
+    colors: input.colors ?? buildFallbackShapeColors(input.colorScheme),
+    colorScheme: input.colorScheme,
     // Text rasterises against this, so passing the export scale (not the
     // editor's camera zoom) is what keeps exported glyphs crisp at any factor.
     zoom: input.scale,

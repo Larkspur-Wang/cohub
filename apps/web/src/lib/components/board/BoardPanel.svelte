@@ -19,7 +19,6 @@ import BoardTextEditor from "$lib/components/board/BoardTextEditor.svelte";
 import BoardVideoPlayer from "$lib/components/board/BoardVideoPlayer.svelte";
 import BoardZoomMenu from "$lib/components/board/BoardZoomMenu.svelte";
 import { sdk } from "$lib/sdk";
-import { getResolvedTheme } from "$lib/theme.svelte";
 
 const {
 	path,
@@ -467,7 +466,6 @@ onDestroy(() => {
 	bridge={exportBridge}
 	title={path}
 	selection={editor.selection}
-	colorMode={getResolvedTheme() === "light" ? "light" : "dark"}
 />
 
 <style>

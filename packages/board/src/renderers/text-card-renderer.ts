@@ -59,7 +59,7 @@ function sync(
 	const color = pickBoardColor(
 		context.colors,
 		item.color || "neutral",
-		context.colorMode,
+		context.colorScheme,
 	);
 	// On open paper, stroke reads as ink; label is for filled chips/notes.
 	const ink =
@@ -70,7 +70,7 @@ function sync(
 		item.text,
 		item.color,
 		fontSize,
-		context.colorMode,
+		context.colorScheme,
 		context.colors.brand.stroke,
 		context.palette.text,
 	].join("|");
@@ -92,7 +92,7 @@ export const textCardRenderer: BoardCardRenderer = {
 		const color = pickBoardColor(
 			context.colors,
 			item.type === "text" ? item.color || "neutral" : "neutral",
-			context.colorMode,
+			context.colorScheme,
 		);
 		const ink =
 			item.type === "text" && (item.color === "neutral" || !item.color)
@@ -135,7 +135,7 @@ export const textCardRenderer: BoardCardRenderer = {
 		const color = pickBoardColor(
 			context.colors,
 			item.color || "neutral",
-			context.colorMode,
+			context.colorScheme,
 		);
 		const ink =
 			item.color === "neutral" || !item.color

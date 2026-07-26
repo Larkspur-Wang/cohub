@@ -153,7 +153,7 @@ function makeContext(
 		resizingIds: new Set(),
 		palette,
 		colors: buildFallbackShapeColors("dark"),
-		colorMode: "dark",
+		colorScheme: "dark",
 		zoom: 1,
 		assetKey: () => null,
 		getTexture: () => null,

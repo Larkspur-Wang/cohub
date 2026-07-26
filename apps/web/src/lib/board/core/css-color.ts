@@ -5,6 +5,7 @@
  */
 
 let probe: HTMLElement | null = null;
+let colorCanvas: HTMLCanvasElement | null = null;
 
 function getProbe(): HTMLElement | null {
 	if (typeof document === "undefined") return null;
@@ -30,7 +31,19 @@ function parseRgbChannel(value: string): number | null {
 	return Number.isFinite(n) ? Math.max(0, Math.min(255, Math.round(n))) : null;
 }
 
-/** Parse `rgb()`, `rgba()`, `#rgb`, `#rrggbb` into 0xRRGGBB. */
+/** Parse a normalized sRGB channel from CSS Color 4's `color(srgb ...)`. */
+function parseSrgbChannel(value: string): number | null {
+	const trimmed = value.trim();
+	if (!trimmed) return null;
+	if (trimmed.endsWith("%")) {
+		const pct = Number.parseFloat(trimmed.slice(0, -1));
+		return Number.isFinite(pct) ? Math.max(0, Math.min(1, pct / 100)) : null;
+	}
+	const n = Number.parseFloat(trimmed);
+	return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : null;
+}
+
+/** Parse `rgb()`, `rgba()`, `color(srgb ...)`, `#rgb`, `#rrggbb` into 0xRRGGBB. */
 export function parseCssColorToNumber(value: string): number | null {
 	const raw = value.trim();
 	if (!raw) return null;
@@ -56,6 +69,22 @@ export function parseCssColorToNumber(value: string): number | null {
 		return (r << 16) | (g << 8) | b;
 	}
 
+	const srgb =
+		/^color\(\s*srgb\s+([^\s/]+)\s+([^\s/]+)\s+([^\s/]+)(?:\s*\/[^)]*)?\s*\)$/i.exec(
+			raw,
+		);
+	if (srgb) {
+		const r = parseSrgbChannel(srgb[1]);
+		const g = parseSrgbChannel(srgb[2]);
+		const b = parseSrgbChannel(srgb[3]);
+		if (r == null || g == null || b == null) return null;
+		return (
+			(Math.round(r * 255) << 16) |
+			(Math.round(g * 255) << 8) |
+			Math.round(b * 255)
+		);
+	}
+
 	return null;
 }
 
@@ -79,13 +108,34 @@ export function readCssColorNumber(
 	const direct = parseCssColorToNumber(declared);
 	if (direct != null) return direct;
 
-	// Resolve oklch / color-mix / var() through the browser.
+	// First ask CSSOM to resolve custom properties and modern color syntax. Some
+	// browsers keep the computed value in `oklch()` / `color-mix()`, so CSSOM
+	// alone is not enough for Pixi's numeric color API.
 	const node = getProbe();
-	if (!node) return fallback;
-	node.style.color = "";
-	node.style.color = declared;
-	const resolved = getComputedStyle(node).color;
-	return parseCssColorToNumber(resolved) ?? fallback;
+	if (node) {
+		node.style.color = "";
+		node.style.color = declared;
+		const resolved = getComputedStyle(node).color;
+		const cssom = parseCssColorToNumber(resolved);
+		if (cssom != null) return cssom;
+	}
+
+	// Canvas 2D is the browser's native CSS Color 4 -> sRGB conversion path.
+	// Reading one pixel also applies gamut mapping and ignores alpha for Pixi.
+	if (typeof document === "undefined") return fallback;
+	colorCanvas ??= document.createElement("canvas");
+	colorCanvas.width = 1;
+	colorCanvas.height = 1;
+	const context = colorCanvas.getContext("2d", { willReadFrequently: true });
+	if (!context) return fallback;
+	context.clearRect(0, 0, 1, 1);
+	context.fillStyle = "#010203";
+	const before = context.fillStyle;
+	context.fillStyle = declared;
+	if (context.fillStyle === before) return fallback;
+	context.fillRect(0, 0, 1, 1);
+	const pixel = context.getImageData(0, 0, 1, 1).data;
+	return (pixel[0] << 16) | (pixel[1] << 8) | pixel[2];
 }
 
 export function hexNumberToCss(value: number): string {

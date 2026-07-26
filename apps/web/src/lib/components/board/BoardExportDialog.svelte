@@ -23,7 +23,6 @@ const {
 	bridge,
 	title,
 	selection,
-	colorMode,
 }: {
 	open: boolean;
 	onClose: () => void;
@@ -32,7 +31,6 @@ const {
 	title: string | null;
 	/** Currently selected ids; enables the Selection scope. */
 	selection: string[];
-	colorMode: "dark" | "light";
 } = $props();
 
 type Scope = "all" | "selection" | "frame";
@@ -104,7 +102,6 @@ async function run(mode: "download" | "copy") {
 		const result = await exportBoardImage(bridge, boardDocument, {
 			region,
 			scale,
-			colorMode,
 			background:
 				transparent && transparencySupported ? "transparent" : "paper",
 			format: outputFormat,

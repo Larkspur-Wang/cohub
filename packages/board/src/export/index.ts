@@ -34,7 +34,7 @@ export type BoardExportOptions = {
   scale?: number;
   /** World-space padding. Frame and rect regions default to 0, others to 32. */
   padding?: number;
-  colorMode?: "dark" | "light";
+  colorScheme?: "dark" | "light";
   /** Defaults to "paper" — a transparent PNG surprises people who paste it. */
   background?: BoardExportBackground;
   palette?: Partial<BoardRenderPalette>;
@@ -90,14 +90,14 @@ export function renderBoardExport(
   });
   if (!plan) return null;
 
-  const colorMode = options.colorMode ?? "dark";
-  const palette = { ...defaultBoardPalette(colorMode), ...options.palette };
+  const colorScheme = options.colorScheme ?? "dark";
+  const palette = { ...defaultBoardPalette(colorScheme), ...options.palette };
   const scene = createBoardExportScene({
     document,
     items: plan.items,
     world: plan.world,
     scale: plan.scale,
-    colorMode,
+    colorScheme,
     palette,
     colors: options.colors,
     textures: options.textures,

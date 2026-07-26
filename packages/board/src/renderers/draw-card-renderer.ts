@@ -34,7 +34,7 @@ function sync(
 	positionShell(parts.root, item);
 	const selected = context.selectedIds.has(item.id);
 	const hovered = context.hoveredId === item.id;
-	const color = pickBoardColor(context.colors, item.color, context.colorMode);
+	const color = pickBoardColor(context.colors, item.color, context.colorScheme);
 
 	// Rebuild the ribbon only when the stroke or its styling changes. Position is
 	// handled by positionShell, so a pure drag does not re-tessellate the path.
@@ -46,8 +46,8 @@ function sync(
 		item.color,
 		selected,
 		hovered,
-		context.colorMode,
-		context.colors.brand.stroke,
+		context.colorScheme,
+		color.stroke,
 	].join("|");
 	if (sig !== parts.sig || item.points !== parts.points) {
 		parts.sig = sig;
@@ -103,7 +103,7 @@ export const drawCardRenderer: BoardCardRenderer = {
 	// as a live container it would sit above every plate on the board.
 	renderFar: (graphics, item, context) => {
 		if (item.type !== "draw") return;
-		const color = pickBoardColor(context.colors, item.color, context.colorMode);
+		const color = pickBoardColor(context.colors, item.color, context.colorScheme);
 		drawFarStroke(graphics, item.points, {
 			color: color.stroke,
 			width: item.size,

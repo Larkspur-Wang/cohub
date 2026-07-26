@@ -62,7 +62,7 @@ function sync(
 		hovered,
 		texId,
 		failed,
-		context.colorMode,
+		context.colorScheme,
 	].join("|");
 	if (sig === parts.sig) return;
 	parts.sig = sig;
