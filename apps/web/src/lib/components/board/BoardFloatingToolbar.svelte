@@ -11,7 +11,6 @@ import {
 	Hand,
 	MousePointer2,
 	Pencil,
-	Pin,
 	Redo2,
 	Square,
 	StickyNote,
@@ -25,7 +24,6 @@ const {
 	immersive = false,
 }: { editor: BoardEditor; immersive?: boolean } = $props();
 
-let lockTimer: ReturnType<typeof setTimeout> | null = null;
 let moreOpen = $state(false);
 
 type ToolDef = {
@@ -93,40 +91,12 @@ const GEO_LABELS: Record<string, string> = {
 
 function selectTool(id: BoardToolId) {
 	editor.tool = id;
-	// Select / Hand are navigation modes — clear any leftover lock.
-	// Creation tools stay hot after each stroke (tldraw-style continuous draw).
-	if (id === "select" || id === "hand") editor.toolLocked = false;
 	moreOpen = false;
 }
 
-function onToolPointerDown(id: BoardToolId) {
-	if (lockTimer) clearTimeout(lockTimer);
-	// Long-press still force-locks (e.g. keep Text after commit).
-	if (id === "select" || id === "hand") return;
-	lockTimer = setTimeout(() => {
-		editor.tool = id;
-		editor.toolLocked = true;
-		lockTimer = null;
-	}, 450);
-}
-
-function onToolPointerUp() {
-	if (lockTimer) {
-		clearTimeout(lockTimer);
-		lockTimer = null;
-	}
-}
-
-function toggleToolLock() {
-	editor.toolLocked = !editor.toolLocked;
-}
-
 function toolTitle(tool: ToolDef) {
-	const locked =
-		editor.tool === tool.id && editor.toolLocked ? " · locked" : "";
-	const stay =
-		tool.id === "draw" || tool.id === "arrow" ? " · stay active" : "";
-	return `${tool.label} (${tool.shortcut})${locked || stay}`;
+	const stay = tool.id === "draw" ? " · stay active" : "";
+	return `${tool.label} (${tool.shortcut})${stay}`;
 }
 </script>
 
@@ -186,15 +156,10 @@ function toolTitle(tool: ToolDef) {
 				type="button"
 				class="tool-btn"
 				class:tool-btn--active={editor.tool === tool.id}
-				class:tool-btn--locked={editor.tool === tool.id && editor.toolLocked}
 				title={toolTitle(tool)}
 				aria-label="{tool.label} tool"
 				aria-pressed={editor.tool === tool.id}
 				onclick={() => selectTool(tool.id)}
-				onpointerdown={() => onToolPointerDown(tool.id)}
-				onpointerup={onToolPointerUp}
-				onpointerleave={onToolPointerUp}
-				onpointercancel={onToolPointerUp}
 			>
 				<tool.icon class="h-4 w-4" />
 			</button>
@@ -207,15 +172,10 @@ function toolTitle(tool: ToolDef) {
 					type="button"
 					class="tool-btn"
 					class:tool-btn--active={editor.tool === tool.id}
-					class:tool-btn--locked={editor.tool === tool.id && editor.toolLocked}
 					title={toolTitle(tool)}
 					aria-label="{tool.label} tool"
 					aria-pressed={editor.tool === tool.id}
 					onclick={() => selectTool(tool.id)}
-					onpointerdown={() => onToolPointerDown(tool.id)}
-					onpointerup={onToolPointerUp}
-					onpointerleave={onToolPointerUp}
-					onpointercancel={onToolPointerUp}
 				>
 					<tool.icon class="h-4 w-4" />
 				</button>
@@ -232,20 +192,6 @@ function toolTitle(tool: ToolDef) {
 			onclick={() => { moreOpen = !moreOpen; }}
 		>
 			<ChevronUp class="h-4 w-4" />
-		</button>
-
-		<div class="divider"></div>
-
-		<button
-			type="button"
-			class="tool-btn"
-			class:tool-btn--active={editor.toolLocked}
-			title={editor.toolLocked ? "Unlock tool" : "Keep tool after placing (or long-press)"}
-			aria-label={editor.toolLocked ? "Unlock tool" : "Lock tool"}
-			aria-pressed={editor.toolLocked}
-			onclick={toggleToolLock}
-		>
-			<Pin class="h-4 w-4" />
 		</button>
 
 		<div class="divider history-divider"></div>
@@ -418,9 +364,6 @@ function toolTitle(tool: ToolDef) {
 		background: var(--brand-bg);
 		border-color: var(--brand-border);
 		color: var(--brand-muted-fg);
-	}
-	.tool-btn--locked {
-		box-shadow: inset 0 0 0 1px var(--brand-border);
 	}
 	.tool-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 

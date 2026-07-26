@@ -99,16 +99,9 @@ import {
 	createSpatialIndex,
 	type SpatialEntry,
 } from "$lib/board/board-spatial";
+import { type BoardToolId, isContinuousBoardTool } from "$lib/board/board-tool";
 
-export type BoardToolId =
-	| "select"
-	| "hand"
-	| "text"
-	| "note"
-	| "geo"
-	| "draw"
-	| "arrow"
-	| "frame";
+export type { BoardToolId } from "$lib/board/board-tool";
 export type BoardEmphasis = BoardItemStyle["emphasis"];
 export type { AlignMode, DistributeAxis };
 
@@ -291,8 +284,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
 	let snapGuides = $state<SnapGuide[]>([]);
 	/** Space-bar temporary hand tool (does not change the persistent tool). */
 	let spaceHeld = $state(false);
-	/** Tool lock: keep the current creation tool after placing a shape. */
-	let toolLocked = $state(false);
 	/** Internal clipboard fallback when the system clipboard is unavailable. */
 	let internalClipboard: BoardClipboardPayload | null = null;
 	/** Paste count for progressive offset when pasting repeatedly in place. */
@@ -642,33 +633,15 @@ export function createBoardEditor(options: BoardEditorOptions) {
 	}
 
 	// ─── Commands ───────────────────────────────────────────────────
-	/**
-	 * After placing a shape, decide whether to leave the creation tool.
-	 * Matches tldraw's feel: drawing tools stay hot so you can keep going;
-	 * stamp tools (note/geo/frame) also stay unless the user explicitly
-	 * switches to Select. Tool-lock is still honoured as a hard stay.
-	 * Text is handled separately (enters edit, then may return on commit).
-	 */
+	/** Draw stays active for consecutive strokes; other creation tools are one-shot. */
 	function maybeReturnToSelect() {
-		if (toolLocked) return;
-		// Continuous / stamp tools stay on themselves — never bounce to Select.
-		if (
-			tool === "draw" ||
-			tool === "arrow" ||
-			tool === "note" ||
-			tool === "geo" ||
-			tool === "frame" ||
-			tool === "text"
-		)
-			return;
-		tool = "select";
+		if (!isContinuousBoardTool(tool)) tool = "select";
 	}
 
 	function addItemAt(item: BoardItem, opts?: { select?: boolean }) {
 		setItems([...synced.items, item]);
-		// Keep continuous drawing free of a sticky selection chrome; stamp tools
-		// still select the new shape so the user can immediately restyle it.
-		const shouldSelect = opts?.select ?? (tool !== "draw" && tool !== "arrow");
+		// Consecutive strokes stay unobstructed; one-shot tools surface their result.
+		const shouldSelect = opts?.select ?? !isContinuousBoardTool(tool);
 		selection = shouldSelect ? [item.id] : [];
 		commitAction();
 		maybeReturnToSelect();
@@ -838,9 +811,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		}
 		editingId = null;
 		draftId = null;
-		// Text is the one creation tool that feels "done" after commit — return to
-		// Select so the next tap moves things, unless the user locked the tool.
-		if (tool === "text" && !toolLocked) tool = "select";
+		if (tool === "text") tool = "select";
 		// Apply any remote refresh deferred for the duration of this edit.
 		flushPendingRemote();
 	}
@@ -2393,9 +2364,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		get spaceHeld() {
 			return spaceHeld;
 		},
-		get toolLocked() {
-			return toolLocked;
-		},
 		get selectionLocked() {
 			return (
 				selectedItems.length > 0 && selectedItems.every((item) => item.locked)
@@ -2427,9 +2395,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		},
 		set spaceHeld(value: boolean) {
 			spaceHeld = value;
-		},
-		set toolLocked(value: boolean) {
-			toolLocked = value;
 		},
 		zoomIn,
 		zoomOut,

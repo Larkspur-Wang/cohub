@@ -196,9 +196,8 @@ function handleKeydown(event: KeyboardEvent) {
 		case "Escape":
 			if (contextMenu) contextMenu = null;
 			else {
-				editor.toolLocked = false;
 				editor.clearSelection();
-				// Leave creation tools the way tldraw does: Escape returns to Select.
+				// Escape leaves any creation tool and returns to Select.
 				if (editor.tool !== "select" && editor.tool !== "hand")
 					editor.tool = "select";
 			}
@@ -222,12 +221,10 @@ function handleKeydown(event: KeyboardEvent) {
 		case "v":
 		case "V":
 			editor.tool = "select";
-			editor.toolLocked = false;
 			return;
 		case "h":
 		case "H":
 			editor.tool = "hand";
-			editor.toolLocked = false;
 			return;
 		case "t":
 		case "T":
