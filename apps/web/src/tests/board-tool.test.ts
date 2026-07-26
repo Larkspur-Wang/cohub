@@ -7,7 +7,6 @@ test("only Draw stays active after creating an item", () => {
 		"select",
 		"hand",
 		"text",
-		"note",
 		"geo",
 		"draw",
 		"arrow",

@@ -13,7 +13,6 @@ import {
 	Pencil,
 	Redo2,
 	Square,
-	StickyNote,
 	Type,
 	Undo2,
 } from "lucide-svelte";
@@ -55,13 +54,6 @@ const TOOLS: ToolDef[] = [
 		usesColor: true,
 	},
 	{ id: "text", label: "Text", shortcut: "T", icon: Type, usesColor: true },
-	{
-		id: "note",
-		label: "Note",
-		shortcut: "N",
-		icon: StickyNote,
-		usesColor: true,
-	},
 	{ id: "geo", label: "Shape", shortcut: "G", icon: Square, usesColor: true },
 	{
 		id: "frame",

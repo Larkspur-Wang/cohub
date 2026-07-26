@@ -2,7 +2,6 @@ export type BoardToolId =
 	| "select"
 	| "hand"
 	| "text"
-	| "note"
 	| "geo"
 	| "draw"
 	| "arrow"

@@ -230,10 +230,6 @@ function handleKeydown(event: KeyboardEvent) {
 		case "T":
 			editor.tool = "text";
 			return;
-		case "n":
-		case "N":
-			editor.tool = "note";
-			return;
 		case "g":
 		case "G":
 			editor.tool = "geo";

@@ -54,7 +54,6 @@ import {
 	createFileNodeForPath,
 	createFrameBoardItem,
 	createGeoBoardItem,
-	createNoteBoardItem,
 	createTextBoardItem,
 	duplicateBoardItem,
 	patchItemFrames,
@@ -171,7 +170,7 @@ export type BoardInteraction =
 	  }
 	| {
 			type: "creatingBox";
-			kind: "note" | "geo" | "frame";
+			kind: "geo" | "frame";
 			start: WorldPoint;
 			current: WorldPoint;
 			color: string;
@@ -676,10 +675,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		addItemAt(createTextBoardItem(text, at.x, at.y));
 	}
 
-	function addNote(at: WorldPoint) {
-		addItemAt(createNoteBoardItem(at.x, at.y, activeColor));
-	}
-
 	function addGeo(at: WorldPoint) {
 		addItemAt(createGeoBoardItem(activeGeo, at.x, at.y, activeColor));
 	}
@@ -688,12 +683,9 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		addItemAt(createFrameBoardItem(at.x, at.y, activeColor));
 	}
 
-	/**
-	 * Finish a note/geo/frame drag-create. A short click places the default-sized
-	 * shape; a drag creates a sized box from the press corner.
-	 */
+	/** Finish a shape/frame drag-create, using its default size for a short click. */
 	function commitBoxCreate(state: {
-		kind: "note" | "geo" | "frame";
+		kind: "geo" | "frame";
 		start: WorldPoint;
 		current: WorldPoint;
 		color: string;
@@ -704,8 +696,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		const dist = Math.hypot(dx, dy);
 		const threshold = 6 / Math.max(camera.zoom, 0.0001);
 		if (dist <= threshold) {
-			if (state.kind === "note") addNote(state.start);
-			else if (state.kind === "geo") {
+			if (state.kind === "geo") {
 				addItemAt(
 					createGeoBoardItem(
 						state.geo,
@@ -722,12 +713,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		const width = Math.max(24, Math.abs(dx));
 		const height = Math.max(24, Math.abs(dy));
 		const frame = { x, y, width, height, rotation: 0 };
-		if (state.kind === "note") {
-			const item = createNoteBoardItem(x, y, state.color);
-			if (item.type === "note") item.frame = frame;
-			addItemAt(item);
-			return;
-		}
 		if (state.kind === "geo") {
 			const item = createGeoBoardItem(state.geo, x, y, state.color);
 			if (item.type === "geo") item.frame = frame;
@@ -1665,7 +1650,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 			};
 			return;
 		}
-		if (tool === "note" || tool === "geo" || tool === "frame") {
+		if (tool === "geo" || tool === "frame") {
 			interaction = {
 				type: "creatingBox",
 				kind: tool,
@@ -2411,7 +2396,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		selectAll,
 		addFile,
 		addText,
-		addNote,
 		addGeo,
 		addFrame,
 		beginTextDraft,

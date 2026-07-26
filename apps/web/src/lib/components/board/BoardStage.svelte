@@ -529,10 +529,7 @@ function drawTransient(
 		if (w > 1 || h > 1) {
 			overlay
 				.roundRect(x, y, Math.max(w, 1), Math.max(h, 1), 4)
-				.fill({
-					color: color.fill,
-					alpha: interaction.kind === "note" ? 0.14 : 0.04,
-				})
+				.fill({ color: color.fill, alpha: 0.04 })
 				.stroke({
 					color: color.stroke,
 					width: 1.5 * inv,
@@ -773,7 +770,6 @@ const cursor = $derived.by(() => {
 	switch (editor.tool) {
 		case "draw":
 		case "arrow":
-		case "note":
 		case "geo":
 		case "frame":
 		case "text":
