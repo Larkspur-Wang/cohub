@@ -1,12 +1,5 @@
 import assert from "node:assert/strict";
 
-process.env.SESSIONS_NAMESPACE ??= "test";
-process.env.REDIS_URL ??= "redis://localhost:6379";
-process.env.WORKSPACE_ROOT ??= "/tmp";
-process.env.SESSIONS_DIR ??= "/tmp";
-process.env.PLATFORM_CONFIG_ROOT ??= "/tmp";
-process.env.ENV ??= "dev";
-
 const { normalizeAssistantTurn } = await import("../assistant-message-normalizer.js");
 
 const case1 = normalizeAssistantTurn(
