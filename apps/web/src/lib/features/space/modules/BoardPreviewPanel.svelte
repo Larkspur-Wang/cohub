@@ -83,18 +83,24 @@ const boardRuntimeModulePromise = $derived.by(() => {
 	{/if}
 {/snippet}
 
-{#if board.loading}
+{#snippet LoadingPanel()}
 	<div class="flex h-full min-w-0 flex-col bg-bg-primary">
 		{@render TabsChrome()}
 		<div class="flex flex-1 items-center justify-center text-xs text-text-tertiary">Loading…</div>
 	</div>
+{/snippet}
+
+{#if board.loading}
+	{@render LoadingPanel()}
 {:else if board.error}
 	<div class="flex h-full min-w-0 flex-col bg-bg-primary">
 		{@render TabsChrome()}
 		<div class="m-4 rounded-lg border border-error-soft/30 bg-error-bg p-4 text-sm text-error-soft">{board.error}</div>
 	</div>
 {:else if board.document && board.runtime}
-	{#await boardRuntimeModulePromise then boardRuntimeModule}
+	{#await boardRuntimeModulePromise}
+		{@render LoadingPanel()}
+	{:then boardRuntimeModule}
 		{@const BoardRuntime = boardRuntimeModule.default}
 		<div class="relative flex h-full min-w-0 flex-col bg-bg-primary">
 			{@render TabsChrome()}

@@ -72,6 +72,11 @@ test("preview kinds share one workspace pane", () => {
 	assert.match(mobileChrome, /onBackInlineFile/);
 	assert.match(panels[0], /allowDrawerSwipe=\{isMobile\}/);
 	assert.match(
+		panels[1],
+		/\{#await boardRuntimeModulePromise\}[\s\S]*\{@render LoadingPanel\(\)\}[\s\S]*\{:then boardRuntimeModule\}/,
+		"board runtime import must retain loading chrome instead of exposing an empty full-screen pane",
+	);
+	assert.match(
 		codeEditor,
 		/data-drawer-swipe-ignore=\{allowDrawerSwipe \? undefined : ""\}/,
 	);
