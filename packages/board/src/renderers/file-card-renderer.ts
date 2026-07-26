@@ -120,7 +120,7 @@ function sync(
 	const selected = context.selectedIds.has(item.id);
 	const hovered = context.hoveredId === item.id;
 	const detail = detailFor(context.zoom);
-	const key = context.imageKey(item);
+	const key = context.assetKey(item);
 	const texture = key ? context.getTexture(key) : null;
 	const coverFailed = Boolean(key && !texture && context.hasError(key));
 	const fileState = context.fileState(item.ref.path);

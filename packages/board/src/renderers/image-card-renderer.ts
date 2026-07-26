@@ -48,7 +48,7 @@ function sync(
 	const { width, height } = item.frame;
 	const selected = context.selectedIds.has(item.id);
 	const hovered = context.hoveredId === item.id;
-	const key = context.imageKey(item);
+	const key = context.assetKey(item);
 	const texture = key ? context.getTexture(key) : null;
 	const failed = Boolean(key && !texture && context.hasError(key));
 	const texId = texture ? `${texture.width}x${texture.height}` : "none";

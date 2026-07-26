@@ -6,7 +6,7 @@
  * laptop and one produced in CI are the same picture.
  */
 
-import type { BoardDocument } from "@cohub/protocol/board-document";
+import type { BoardDocument, BoardItem } from "@cohub/protocol/board-document";
 import { type ICanvas, Rectangle, type Renderer, type Texture } from "pixi.js";
 import type { BoardShapeColors } from "../core/palette.js";
 import type { BoardRenderPalette } from "../renderers/board-renderer-registry.js";
@@ -39,8 +39,10 @@ export type BoardExportOptions = {
   background?: BoardExportBackground;
   palette?: Partial<BoardRenderPalette>;
   colors?: BoardShapeColors;
-  /** Resolved textures by image key; unresolved keys become placeholders. */
+  /** Resolved textures by preview key; unresolved keys become placeholders. */
   textures?: Map<string, Texture>;
+  /** Preview-key strategy supplied by the host; defaults to still images only. */
+  assetKey?: (item: BoardItem) => string | null;
   maxEdge?: number;
   maxPixels?: number;
 };
@@ -99,6 +101,7 @@ export function renderBoardExport(
     palette,
     colors: options.colors,
     textures: options.textures,
+    assetKey: options.assetKey,
     background: resolveBackground(options.background, palette),
   });
 

@@ -48,13 +48,14 @@ const EXTENSION: Record<BoardImageFormat, string> = {
  */
 export type BoardStageExportBridge = {
 	renderer: () => Renderer | null;
+	assetKey: (item: BoardItem) => string | null;
 	theme: () => {
 		palette: BoardRenderPalette;
 		colors: BoardShapeColors;
 		colorMode: "dark" | "light";
 	};
 	/**
-	 * Loads every image in `items`, then runs `use` while those textures are still
+	 * Loads every media preview in `items`, then runs `use` while those textures are still
 	 * referenced. Scoped rather than returning a map so a texture cannot be evicted
 	 * between loading and drawing.
 	 */
@@ -92,9 +93,9 @@ function describe(warnings: BoardExportWarning[]): string[] {
  * Render a region of the board to an image blob.
  *
  * Returns null when the region is empty, so callers can treat "nothing
- * selected" as a no-op instead of an error. Images outside the viewport are
- * fetched first: the editor only keeps nearby textures resident, and an export
- * that quietly dropped off-screen pictures would be worse than a slow one.
+ * selected" as a no-op instead of an error. Media previews outside the viewport
+ * are fetched first: the editor only keeps nearby textures resident, and an
+ * export that quietly dropped them would be worse than a slow one.
  */
 export async function exportBoardImage(
 	bridge: BoardStageExportBridge,
@@ -123,6 +124,7 @@ export async function exportBoardImage(
 			...exportOptions,
 			region,
 			textures,
+			assetKey: bridge.assetKey,
 		});
 		if (!result) return null;
 

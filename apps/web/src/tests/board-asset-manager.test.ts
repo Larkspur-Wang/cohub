@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { BoardItem } from "@neta-art/cohub-board";
-import { createBoardAssetManager } from "../lib/board/board-asset-manager.ts";
+import {
+	boardAssetKey,
+	createBoardAssetManager,
+} from "../lib/board/board-asset-manager.ts";
 
 type FakeTexture = { width: number; height: number; destroyed: boolean };
 
@@ -12,6 +15,16 @@ function imageItem(id: string, path: string): BoardItem {
 		ref: { kind: "space-file", path },
 		snapshot: { mimeType: "image/png" },
 		frame: { x: 0, y: 0, width: 100, height: 100, rotation: 0 },
+	};
+}
+
+function videoItem(id: string, path: string, mtimeMs?: number): BoardItem {
+	return {
+		id,
+		type: "video",
+		ref: { kind: "space-file", path },
+		snapshot: { mimeType: "video/mp4", mtimeMs },
+		frame: { x: 0, y: 0, width: 160, height: 90, rotation: 0 },
 	};
 }
 
@@ -51,6 +64,110 @@ function harness(budget: { maxCount: number; maxBytes: number }) {
 }
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+test("video preview keys are shared by path and invalidated by file version", () => {
+	const first = boardAssetKey(videoItem("a", "media/demo: 1.mp4", 100));
+	const same = boardAssetKey(videoItem("b", "media/demo: 1.mp4", 100));
+	const changed = boardAssetKey(videoItem("c", "media/demo: 1.mp4", 101));
+
+	assert.equal(first, same);
+	assert.notEqual(first, changed);
+});
+
+test("path invalidation forces a fresh preview without relying on mtime", async () => {
+	const { manager, loaded } = harness({
+		maxCount: 8,
+		maxBytes: Number.POSITIVE_INFINITY,
+	});
+	const path = "media/clip.mp4";
+	const item = videoItem("video", path);
+	const firstKey = manager.assetKey(item);
+	assert.ok(firstKey);
+	manager.requestItem(item);
+	await flush();
+	assert.deepEqual(manager.getNaturalSize(firstKey), { width: 10, height: 10 });
+
+	manager.invalidatePath(path);
+	const nextKey = manager.assetKey(item);
+	assert.ok(nextKey);
+	assert.notEqual(nextKey, firstKey);
+	manager.requestItem(item);
+	await flush();
+	assert.deepEqual(loaded, [path, path]);
+	manager.destroy();
+});
+
+test("video previews use the video loader and preserve the original file path", async () => {
+	const loaded: Array<{ url: string; media: string }> = [];
+	const unloaded: Array<{ url: string; media: string }> = [];
+	const item = videoItem("video", "media/demo: 1.mp4", 100);
+	const key = boardAssetKey(item);
+	assert.ok(key);
+	const manager = createBoardAssetManager({
+		spaceId: "space",
+		lruBudget: { maxCount: 0, maxBytes: 0 },
+		resolveSpaceFileUrl: async (_spaceId, path) => `resolved:${path}`,
+		loadTexture: async (url, media) => {
+			loaded.push({ url, media });
+			return { width: 160, height: 90 } as never;
+		},
+		unloadTexture: async (url, _texture, media) => {
+			unloaded.push({ url, media });
+		},
+	});
+
+	manager.acquire(key);
+	manager.requestItem(item);
+	await flush();
+	assert.deepEqual(loaded, [
+		{ url: "resolved:media/demo: 1.mp4", media: "video" },
+	]);
+	assert.ok(manager.getTexture(key));
+
+	manager.release(key);
+	await flush();
+	assert.deepEqual(unloaded, [
+		{ url: "resolved:media/demo: 1.mp4", media: "video" },
+	]);
+	manager.destroy();
+});
+
+test("video decoding leaves queue capacity for image previews", async () => {
+	const started: Array<{ url: string; media: string }> = [];
+	const pending: Array<() => void> = [];
+	const manager = createBoardAssetManager({
+		spaceId: "space",
+		concurrency: 4,
+		videoConcurrency: 2,
+		resolveSpaceFileUrl: async (_spaceId, path) => path,
+		loadTexture: (url, media) => {
+			started.push({ url, media });
+			return new Promise((resolve) => {
+				pending.push(() => resolve({ width: 10, height: 10 } as never));
+			});
+		},
+		unloadTexture: async () => {},
+	});
+	const videos = [1, 2, 3, 4].map((index) =>
+		videoItem(`v${index}`, `v${index}.mp4`),
+	);
+	for (const item of videos) manager.requestItem(item);
+	manager.requestItem(imageItem("image", "cover.png"));
+	await flush();
+
+	assert.deepEqual(started, [
+		{ url: "v1.mp4", media: "video" },
+		{ url: "v2.mp4", media: "video" },
+		{ url: "cover.png", media: "image" },
+	]);
+
+	for (const resolve of pending.splice(0)) resolve();
+	await flush();
+	assert.equal(started.length, 5);
+	for (const resolve of pending.splice(0)) resolve();
+	await flush();
+	manager.destroy();
+});
 
 test("released texture stays in the cooling pool until the budget is exceeded", async () => {
 	const { manager, loaded, unloaded, advance } = harness({

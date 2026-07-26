@@ -32,8 +32,10 @@ export type BoardExportSceneInput = {
   colorMode: "dark" | "light";
   palette?: Partial<BoardRenderPalette>;
   colors?: BoardShapeColors;
-  /** Resolved textures by image key. Missing keys render as placeholders. */
+  /** Resolved textures by preview key. Missing keys render as placeholders. */
   textures?: Map<string, Texture>;
+  /** Preview-key strategy supplied by the host; defaults to still images only. */
+  assetKey?: (item: BoardItem) => string | null;
   /** Opaque paper behind the content, or null for transparency. */
   background?: number | null;
 };
@@ -71,7 +73,7 @@ function buildContext(input: BoardExportSceneInput): {
     // Text rasterises against this, so passing the export scale (not the
     // editor's camera zoom) is what keeps exported glyphs crisp at any factor.
     zoom: input.scale,
-    imageKey: imageAssetKey,
+    assetKey: input.assetKey ?? imageAssetKey,
     getTexture: (key) => textures.get(key) ?? null,
     hasError: (key) => {
       // An unresolved key is reported rather than retried: the exporter has

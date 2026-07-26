@@ -180,7 +180,7 @@ export function createBoardScene(options: {
 	const pools = new Map<string, Container[]>();
 	// Texture reference ownership: cardId → texture key currently held. The scene
 	// acquires a ref when a card materialises and releases it when the card is
-	// recycled, so the asset manager's reference count tracks *displayed* images.
+	// recycled, so the asset manager tracks only displayed preview textures.
 	// Off-screen textures drop to zero refs and enter the cooling pool (LRU).
 	const heldKeys = new Map<string, string>();
 	/** Document z-order position per item id, refreshed on structural changes. */
@@ -257,7 +257,7 @@ export function createBoardScene(options: {
 			globalSig,
 		};
 		cards.set(item.id, entry);
-		setHeldKey(context, item.id, context.imageKey(item));
+		setHeldKey(context, item.id, context.assetKey(item));
 		return entry;
 	}
 
@@ -414,7 +414,7 @@ export function createBoardScene(options: {
 			entry.hovered = hovered;
 			entry.resizing = resizing;
 			entry.globalSig = globalSig;
-			setHeldKey(context, id, context.imageKey(item));
+			setHeldKey(context, id, context.assetKey(item));
 			if (changed) entry.renderer.update(entry.container, item, context);
 		}
 

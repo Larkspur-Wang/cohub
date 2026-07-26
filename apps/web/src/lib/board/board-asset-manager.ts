@@ -1,4 +1,8 @@
-import type { BoardItem } from "@neta-art/cohub-board";
+import {
+	type BoardItem,
+	boardImageKeySource,
+	imageAssetKey,
+} from "@neta-art/cohub-board";
 import { Assets, type Texture } from "pixi.js";
 import {
 	DEFAULT_LRU_BUDGET,
@@ -6,33 +10,49 @@ import {
 	type LruEntry,
 	selectLruEvictions,
 } from "$lib/board/board-asset-lru";
+import {
+	loadVideoThumbnailTexture,
+	videoTextureNaturalSize,
+} from "$lib/board/board-video-thumbnail";
 
-/**
- * Stable cache key for an item's image resource, or null when it has none.
- *
- * Space files and remote URLs are namespaced so they can never collide, and file
- * cards contribute their cover image — which means covers ride the exact same
- * reference counting, LRU cooling pool and viewport preloading as image nodes,
- * with no second loader to keep in step.
- */
-export function imageAssetKey(item: BoardItem): string | null {
-	if (item.type === "image") return `file:${item.ref.path}`;
-	if (item.type === "file") {
-		const snapshot = item.snapshot;
-		if (snapshot?.coverPath) return `file:${snapshot.coverPath}`;
-		if (snapshot?.coverUrl) return `url:${snapshot.coverUrl}`;
-		return null;
+type BoardAssetMedia = "image" | "video";
+type BoardAssetSource = {
+	kind: "file" | "url";
+	media: BoardAssetMedia;
+	value: string;
+};
+
+/** Stable preview key shared by cards that reference the same file version. */
+export function boardAssetKey(item: BoardItem): string | null {
+	if (item.type === "video") {
+		const path = encodeURIComponent(item.ref.path);
+		return `video:${path}:${item.snapshot?.mtimeMs ?? "unknown"}`;
 	}
-	return null;
+	return imageAssetKey(item);
 }
 
-/** The source a key resolves from, recovered from its namespace prefix. */
-function keySource(
-	key: string,
-): { kind: "file" | "url"; value: string } | null {
-	if (key.startsWith("file:")) return { kind: "file", value: key.slice(5) };
-	if (key.startsWith("url:")) return { kind: "url", value: key.slice(4) };
-	return null;
+function keySource(key: string): BoardAssetSource | null {
+	let baseKey = key;
+	if (key.startsWith("local:")) {
+		const separator = key.indexOf(":", 6);
+		if (separator < 0) return null;
+		baseKey = key.slice(separator + 1);
+	}
+	if (baseKey.startsWith("video:")) {
+		const separator = baseKey.lastIndexOf(":");
+		if (separator <= 6) return null;
+		try {
+			return {
+				kind: "file",
+				media: "video",
+				value: decodeURIComponent(baseKey.slice(6, separator)),
+			};
+		} catch {
+			return null;
+		}
+	}
+	const image = boardImageKeySource(baseKey);
+	return image ? { ...image, media: "image" } : null;
 }
 
 type Entry = {
@@ -44,18 +64,21 @@ type Entry = {
 	attempts: number;
 	retryAt: number;
 	retryTimer: ReturnType<typeof setTimeout> | null;
-	/** Last time this image was wanted (acquired or requested); drives LRU. */
+	/** Last time this preview was wanted (acquired or requested); drives LRU. */
 	lastUsedAt: number;
 };
 
 export type BoardAssetManager = {
+	assetKey: (item: BoardItem) => string | null;
+	invalidatePath: (path: string) => void;
 	requestItem: (item: BoardItem) => void;
 	getTexture: (key: string) => Texture | null;
+	getNaturalSize: (key: string) => { width: number; height: number } | null;
 	hasError: (key: string) => boolean;
 	acquire: (key: string) => void;
 	release: (key: string) => void;
 	/**
-	 * Load every image for `items`, then run `use` while the references are still
+	 * Load every preview for `items`, then run `use` while the references are still
 	 * held, releasing them only once it settles.
 	 *
 	 * Scoped as a callback rather than returning the map: releasing a reference can
@@ -104,19 +127,27 @@ async function defaultResolveSpaceFileUrl(
 export type BoardAssetManagerOptions = {
 	spaceId: string;
 	concurrency?: number;
+	videoConcurrency?: number;
 	/** Cooling-pool ceiling for unreferenced textures kept on the GPU. */
 	lruBudget?: LruBudget;
-	/** Injectable texture loaders (default: Pixi's global Assets cache). */
-	loadTexture?: (url: string) => Promise<Texture | null>;
+	/** Injectable preview loader. Images use Pixi Assets; videos decode one frame. */
+	loadTexture?: (
+		url: string,
+		media: BoardAssetMedia,
+	) => Promise<Texture | null>;
 	/**
 	 * Frees a texture. Must resolve once the texture is truly gone, so a pending
 	 * unload of a URL can be awaited before that URL is loaded again (otherwise a
 	 * quick pan-back could re-acquire a texture that is still being unloaded and
 	 * is about to be destroyed). Defaults to Pixi's global Assets cache.
 	 */
-	unloadTexture?: (url: string, texture: Texture | null) => Promise<void>;
+	unloadTexture?: (
+		url: string,
+		texture: Texture | null,
+		media: BoardAssetMedia,
+	) => Promise<void>;
 	/**
-	 * Resolves a displayable URL for a space-file image. Injected so the manager
+	 * Resolves a displayable URL for a space-file media asset. Injected so the manager
 	 * has no static dependency on the SDK (and thus SvelteKit runtime), keeping
 	 * it unit-testable. Defaults to the CDN/base64 resolver.
 	 */
@@ -129,12 +160,11 @@ export type BoardAssetManagerOptions = {
 };
 
 /**
- * Single owner of image data for the board: URL resolution (space file →
- * display URL), texture loading, reference counting, a bounded concurrency
- * pool, timer-driven retries with exponential backoff, and an LRU cooling pool
- * for off-screen textures.
+ * Single owner of board previews: URL resolution, image loading, video-frame
+ * decoding, reference counting, bounded concurrency, retry backoff, and an LRU
+ * cooling pool for off-screen textures.
  *
- * Reference model: `refs` counts how many *visible* cards display an image.
+ * Reference model: `refs` counts how many visible cards display a preview.
  * When the last reference is released the texture is not freed immediately —
  * it stays on the GPU in a cooling pool so a quick pan back is instant. The
  * pool is bounded (count + bytes); the least recently used entries are evicted
@@ -149,59 +179,79 @@ export type BoardAssetManagerOptions = {
  * - On settle we verify the entry is still the one in the map; an orphaned
  *   result is unloaded rather than leaked.
  * - On failure with live references a timer re-enqueues the load after the
- *   backoff elapses, so a failed image recovers even on a static board.
+ *   backoff elapses, so a failed preview recovers even on a static board.
  *
- * Ownership scope: textures load through Pixi's global `Assets` cache but are
- * reference-counted per manager, and eviction calls the global `Assets.unload`.
- * This is safe under the app's invariant that a single board stage is mounted
- * at a time; if multiple consumers ever share a URL, this must move to an
- * app-level shared reference count.
+ * Ownership scope: images use Pixi's global `Assets` cache; generated video
+ * previews are owned directly by this manager. Both are reference-counted per
+ * mounted board. If multiple stages ever share URLs, image ownership must move
+ * to an app-level reference count.
  */
 export function createBoardAssetManager(
 	options: BoardAssetManagerOptions,
 ): BoardAssetManager {
-	const concurrency = options.concurrency ?? 4;
+	const concurrency = Math.max(1, options.concurrency ?? 4);
+	const videoConcurrency = Math.max(
+		1,
+		Math.min(options.videoConcurrency ?? 2, concurrency),
+	);
 	const budget = options.lruBudget ?? DEFAULT_LRU_BUDGET;
 	const now = options.now ?? (() => Date.now());
 	const loadTexture =
-		options.loadTexture ?? ((url) => Assets.load<Texture>(url));
+		options.loadTexture ??
+		((url, media) =>
+			media === "video"
+				? loadVideoThumbnailTexture(url)
+				: Assets.load<Texture>(url));
 	// In-flight unloads keyed by URL. A load of the same URL awaits any pending
 	// unload first, closing the race where a re-requested texture is handed back
 	// by the shared Assets cache while still being unloaded (then destroyed).
 	const pendingUnloads = new Map<string, Promise<void>>();
 	const unloadTexture =
 		options.unloadTexture ??
-		((url, texture) => {
-			if (!url) {
+		((url, texture, media) => {
+			if (media === "video" || !url) {
 				texture?.destroy(true);
 				return Promise.resolve();
 			}
 			return Assets.unload(url).catch(() => {});
 		});
-	/** Unload a texture and, for URL-backed ones, track it so a reload waits. */
-	function releaseTexture(url: string, texture: Texture | null) {
-		const promise = unloadTexture(url, texture)
+	/** Release a texture and serialize a reload against its asynchronous unload. */
+	function releaseTexture(key: string, url: string, texture: Texture | null) {
+		const media = keySource(key)?.media ?? "image";
+		const pendingKey = `${media}:${url}`;
+		const promise = unloadTexture(url, texture, media)
 			.catch(() => {})
 			.then(() => {
-				if (url && pendingUnloads.get(url) === promise)
-					pendingUnloads.delete(url);
+				if (url && pendingUnloads.get(pendingKey) === promise)
+					pendingUnloads.delete(pendingKey);
 			});
-		if (url) pendingUnloads.set(url, promise);
+		if (url) pendingUnloads.set(pendingKey, promise);
 	}
 	const resolveSpaceFileUrl =
 		options.resolveSpaceFileUrl ?? defaultResolveSpaceFileUrl;
 
 	const entries = new Map<string, Entry>();
+	const pathVersions = new Map<string, number>();
 	const resolvers = new Map<string, () => Promise<string | null>>();
 	const inflight = new Set<string>();
 	const queue: Array<{ key: string; getUrl: () => Promise<string | null> }> =
 		[];
 	const listeners = new Set<() => void>();
 	let active = 0;
+	let activeVideos = 0;
 	let disposed = false;
 
 	function notify() {
 		for (const listener of listeners) listener();
+	}
+
+	function managedAssetKey(item: BoardItem): string | null {
+		const key = boardAssetKey(item);
+		if (!key) return null;
+		const source = keySource(key);
+		if (source?.kind !== "file") return key;
+		const version = pathVersions.get(source.value) ?? 0;
+		return version > 0 ? `local:${version}:${key}` : key;
 	}
 
 	function clearRetry(entry: Entry) {
@@ -252,7 +302,7 @@ export function createBoardAssetManager(
 		clearRetry(entry);
 		resolvers.delete(key);
 		if (entry.url || entry.texture)
-			releaseTexture(entry.url ?? "", entry.texture);
+			releaseTexture(key, entry.url ?? "", entry.texture);
 		entries.delete(key);
 	}
 
@@ -281,9 +331,10 @@ export function createBoardAssetManager(
 		entry.loading = false;
 		inflight.delete(key);
 		active -= 1;
+		if (keySource(key)?.media === "video") activeVideos -= 1;
 		// Orphaned: the entry was replaced while loading. Discard the result.
 		if (entries.get(key) !== entry) {
-			if (texture) releaseTexture(entry.url ?? "", texture);
+			if (texture) releaseTexture(key, entry.url ?? "", texture);
 			if (!disposed) pump();
 			return;
 		}
@@ -301,7 +352,7 @@ export function createBoardAssetManager(
 			entry.attempts += 1;
 			entry.retryAt =
 				now() + Math.min(1000 * 2 ** entry.attempts, MAX_RETRY_DELAY);
-			console.warn(`[board] failed to load image for ${key}`);
+			console.warn(`[board] failed to load preview for ${key}`);
 			if (entry.refs <= 0) evict(key, entry);
 			else {
 				scheduleRetry(key, entry);
@@ -313,13 +364,20 @@ export function createBoardAssetManager(
 
 	function pump() {
 		while (!disposed && active < concurrency && queue.length > 0) {
-			const task = queue.shift();
+			const taskIndex = queue.findIndex(({ key }) => {
+				const source = keySource(key);
+				return source?.media !== "video" || activeVideos < videoConcurrency;
+			});
+			if (taskIndex < 0) return;
+			const [task] = queue.splice(taskIndex, 1);
 			if (!task) continue;
 			const entry = entries.get(task.key);
-			if (!entry || entry.texture || entry.loading) continue;
+			const source = keySource(task.key);
+			if (!entry || !source || entry.texture || entry.loading) continue;
 			entry.loading = true;
 			inflight.add(task.key);
 			active += 1;
+			if (source.media === "video") activeVideos += 1;
 			task
 				.getUrl()
 				.then(async (url) => {
@@ -327,10 +385,11 @@ export function createBoardAssetManager(
 					entry.url = url;
 					// Wait for any in-flight unload of this URL so we never load a
 					// texture the shared cache is about to destroy.
-					const pending = pendingUnloads.get(url);
+					const pendingKey = `${source.media}:${url}`;
+					const pending = pendingUnloads.get(pendingKey);
 					if (pending) await pending;
 					if (disposed) return null;
-					return loadTexture(url);
+					return loadTexture(url, source.media);
 				})
 				.then(
 					(texture) => settle(task.key, entry, texture ?? null),
@@ -340,9 +399,20 @@ export function createBoardAssetManager(
 	}
 
 	const manager: BoardAssetManager = {
+		assetKey: managedAssetKey,
+		invalidatePath(path) {
+			if (disposed) return;
+			const cached = [...entries.keys()].some((key) => {
+				const source = keySource(key);
+				return source?.kind === "file" && source.value === path;
+			});
+			if (!cached) return;
+			pathVersions.set(path, (pathVersions.get(path) ?? 0) + 1);
+			notify();
+		},
 		requestItem(item) {
 			if (disposed) return;
-			const key = imageAssetKey(item);
+			const key = managedAssetKey(item);
 			if (!key) return;
 			const source = keySource(key);
 			if (!source) return;
@@ -370,6 +440,16 @@ export function createBoardAssetManager(
 			entry.lastUsedAt = now();
 			return entry.texture;
 		},
+		getNaturalSize(key) {
+			const texture = manager.getTexture(key);
+			if (!texture) return null;
+			return (
+				videoTextureNaturalSize(texture) ?? {
+					width: texture.width,
+					height: texture.height,
+				}
+			);
+		},
 		hasError(key) {
 			return entries.get(key)?.error ?? false;
 		},
@@ -384,7 +464,7 @@ export function createBoardAssetManager(
 			entry.refs -= 1;
 			if (entry.refs > 0) return;
 			entry.lastUsedAt = now();
-			// Nothing references this image any more: stop any pending retry.
+			// Nothing references this preview any more: stop any pending retry.
 			clearRetry(entry);
 			// Keep an in-flight entry alive until it settles; the settle step
 			// cools or reclaims it. This avoids the detached-entry race.
@@ -398,7 +478,7 @@ export function createBoardAssetManager(
 			const keys = new Set<string>();
 			if (!disposed) {
 				for (const item of items) {
-					const key = imageAssetKey(item);
+					const key = managedAssetKey(item);
 					if (key) keys.add(key);
 				}
 			}
@@ -414,7 +494,7 @@ export function createBoardAssetManager(
 						return Boolean(entry?.texture) || Boolean(entry?.error);
 					});
 				if (!settled()) {
-					// A cap keeps a wedged image from hanging the export; whatever has
+					// A cap keeps a wedged preview from hanging the export; whatever has
 					// arrived by then is used and the rest draw as placeholders.
 					const timeoutMs = loadOptions?.timeoutMs ?? 15_000;
 					await new Promise<void>((resolve) => {
@@ -448,6 +528,7 @@ export function createBoardAssetManager(
 			disposed = true;
 			queue.length = 0;
 			listeners.clear();
+			pathVersions.clear();
 			resolvers.clear();
 			for (const [key, entry] of entries) evict(key, entry);
 			entries.clear();

@@ -47,11 +47,11 @@ export type BoardRenderContext = {
 	colorMode: "dark" | "light";
 	/** Current camera zoom — used for text re-rasterisation buckets. */
 	zoom: number;
-	/** Stable image cache key for an item, or null if it is not an image. */
-	imageKey: (item: BoardItem) => string | null;
+	/** Stable preview texture key for an item, or null when it has no preview. */
+	assetKey: (item: BoardItem) => string | null;
 	/** Currently loaded texture for a key (null while loading). */
 	getTexture: (key: string) => Texture | null;
-	/** Whether the image for a key failed to load (for a failure placeholder). */
+	/** Whether the preview for a key failed to load (for a failure placeholder). */
 	hasError: (key: string) => boolean;
 	/**
 	 * Whether a referenced workspace file could not be read, and why. Transient,
@@ -59,7 +59,7 @@ export type BoardRenderContext = {
 	 * not shown to everyone.
 	 */
 	fileState: (path: string) => "ok" | "missing" | "unavailable";
-	/** Reference-counted texture acquisition / release keyed by image key. */
+	/** Reference-counted texture acquisition and release. */
 	acquireTexture: (key: string) => void;
 	releaseTexture: (key: string) => void;
 };

@@ -340,6 +340,22 @@ export function createBoardEditor(options: BoardEditorOptions) {
 	let indexById = new Map<string, number>();
 	/** Pending dirty ids for incremental spatial updates (null = full rebuild). */
 	let spatialDirty: Set<string> | null = null;
+	/** Lazily rebuilt only after item membership or references can change. */
+	let mediaIdsByPath: Map<string, Set<string>> | null = null;
+	const emptyMediaIds: ReadonlySet<string> = new Set();
+
+	function mediaIdsForPath(path: string): ReadonlySet<string> {
+		if (!mediaIdsByPath) {
+			mediaIdsByPath = new Map();
+			for (const item of synced.items) {
+				if (item.type !== "image" && item.type !== "video") continue;
+				const ids = mediaIdsByPath.get(item.ref.path) ?? new Set<string>();
+				ids.add(item.id);
+				mediaIdsByPath.set(item.ref.path, ids);
+			}
+		}
+		return mediaIdsByPath.get(path) ?? emptyMediaIds;
+	}
 
 	function bumpSpatial(dirtyIds?: Iterable<string>) {
 		spatialVersion += 1;
@@ -453,7 +469,10 @@ export function createBoardEditor(options: BoardEditorOptions) {
 	) {
 		synced = { ...synced, items: next };
 		bumpSpatial(dirtyIds);
-		if (structural) bumpStructure();
+		if (structural) {
+			mediaIdsByPath = null;
+			bumpStructure();
+		}
 		// Membership changes and targeted geometry patches both move world bounds.
 		if (structural || dirtyIds) bumpGeometry();
 		localRev += 1;
@@ -1186,16 +1205,38 @@ export function createBoardEditor(options: BoardEditorOptions) {
 			setItems(next, false, originById.keys());
 	}
 
+	/** Invalidate synced display facts after the authoritative media file changes. */
+	function applyMediaFileChange(
+		path: string,
+		change: { size?: number; mtimeMs?: number; removed?: boolean },
+	) {
+		if (change.removed) return;
+		const targetIds = mediaIdsForPath(path);
+		if (targetIds.size === 0) return;
+		const dirty: string[] = [];
+		const next = synced.items.map((item) => {
+			if (item.type !== "image" && item.type !== "video") return item;
+			if (!targetIds.has(item.id)) return item;
+			const snapshot = { ...item.snapshot };
+			if (change.size !== undefined) snapshot.size = change.size;
+			if (change.mtimeMs !== undefined) snapshot.mtimeMs = change.mtimeMs;
+			delete snapshot.naturalWidth;
+			delete snapshot.naturalHeight;
+			if (JSON.stringify(snapshot) === JSON.stringify(item.snapshot ?? {}))
+				return item;
+			dirty.push(item.id);
+			return { ...item, snapshot };
+		});
+		if (dirty.length === 0) return;
+		setItems(next, false, dirty);
+		undoBaseline = document;
+		requestCommit();
+	}
+
 	/**
 	 * Adopt the intrinsic pixel size of media whose dimensions were unknown at
-	 * creation time (a file dropped from the tree carries no width/height). The
-	 * frame keeps the user's chosen width and corrects only its height, anchored at
-	 * the center, so the box hugs the pixels instead of letterboxing them.
-	 *
-	 * Recording `naturalWidth`/`naturalHeight` in the snapshot is what makes this
-	 * one-shot: a node is corrected once, ever. This is a real document change so
-	 * it is committed, but deliberately *not* pushed onto the undo stack — it is a
-	 * data repair, not a user action, and it must not consume the user's undo.
+	 * creation time. The frame keeps its chosen width and corrects only its height,
+	 * anchored at the center. This derived repair is synced but stays out of undo.
 	 */
 	function adoptMediaNaturalSizes(
 		sizes: Array<{ id: string; width: number; height: number }>,
@@ -2211,6 +2252,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 			sameDocument,
 		);
 		synced = toContent(merged);
+		mediaIdsByPath = null;
 		bumpSpatial();
 		bumpStructure();
 		// A document switch resets the camera; a same-document refresh keeps it.
@@ -2414,6 +2456,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		bringToFront,
 		sendToBack,
 		updateText,
+		applyMediaFileChange,
 		adoptMediaNaturalSizes,
 		applyFileSnapshots,
 		retrySave,

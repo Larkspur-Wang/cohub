@@ -27,10 +27,7 @@ import {
 } from "@neta-art/cohub-board";
 import { Application, Container, Graphics, type Renderer } from "pixi.js";
 import { onDestroy, onMount, untrack } from "svelte";
-import {
-	createBoardAssetManager,
-	imageAssetKey,
-} from "$lib/board/board-asset-manager";
+import { createBoardAssetManager } from "$lib/board/board-asset-manager";
 import {
 	fileAvailability,
 	filePreviewVersion,
@@ -122,8 +119,11 @@ const unsubscribeAssets = assets.subscribe(() => {
 // Bumped when a workspace file change invalidates a cached preview, so visible
 // file cards can refresh their snapshot.
 let previewVersion = $state(filePreviewVersion());
-const unsubscribePreviews = subscribeFilePreviews(() => {
+const unsubscribePreviews = subscribeFilePreviews((event) => {
 	previewVersion = filePreviewVersion();
+	if (!event || event.spaceId !== spaceId) return;
+	assets.invalidatePath(event.path);
+	editor.applyMediaFileChange(event.path, event.meta);
 });
 
 function cssNumber(name: string, fallback: number): number {
@@ -199,8 +199,8 @@ function readShapeColors(mode: "dark" | "light"): BoardShapeColors {
 	return out;
 }
 
-// Request thumbnails only for image cards near the viewport (space-file and
-// remote alike). The margin preloads a band just off-screen so panning feels
+// Request image and video previews only for cards near the viewport. The margin
+// preloads a band just off-screen so panning feels
 // instant, and matches the culling margin so a texture is requested before its
 // card scrolls into view. Tracks only items/camera/surface: loaded textures
 // notify via `assetVersion`, which the render effect (not this one) consumes.
@@ -211,12 +211,13 @@ function readShapeColors(mode: "dark" | "light"): BoardShapeColors {
 $effect(() => {
 	editor.structureVersion;
 	editor.geometryVersion;
+	previewVersion;
 	const camera = editor.camera;
 	const width = surface.width;
 	const height = surface.height;
 	if (width === 0 || height === 0) return;
 	for (const item of itemsNearViewport(camera, width, height)) {
-		if (imageAssetKey(item)) assets.requestItem(item);
+		if (assets.assetKey(item)) assets.requestItem(item);
 	}
 });
 
@@ -236,13 +237,13 @@ $effect(() => {
 	if (width === 0 || height === 0) return;
 	const pending: Array<{ id: string; width: number; height: number }> = [];
 	for (const item of itemsNearViewport(camera, width, height)) {
-		if (item.type !== "image") continue;
+		if (item.type !== "image" && item.type !== "video") continue;
 		if (item.snapshot?.naturalWidth && item.snapshot?.naturalHeight) continue;
-		const key = imageAssetKey(item);
+		const key = assets.assetKey(item);
 		if (!key) continue;
-		const texture = assets.getTexture(key);
-		if (!texture?.width || !texture.height) continue;
-		pending.push({ id: item.id, width: texture.width, height: texture.height });
+		const natural = assets.getNaturalSize(key);
+		if (!natural?.width || !natural.height) continue;
+		pending.push({ id: item.id, ...natural });
 	}
 	if (pending.length > 0) editor.adoptMediaNaturalSizes(pending);
 });
@@ -314,7 +315,7 @@ function buildContext(palette: BoardRenderPalette): BoardRenderContext {
 		colors: resolveTheme().colors,
 		colorMode,
 		zoom: editor.camera.zoom,
-		imageKey: imageAssetKey,
+		assetKey: assets.assetKey,
 		getTexture: (key) => assets.getTexture(key),
 		hasError: (key) => assets.hasError(key),
 		fileState: (path) => fileAvailability(spaceId, path),
@@ -857,6 +858,7 @@ onMount(async () => {
 				colorMode: getResolvedTheme() === "light" ? "light" : "dark",
 			};
 		},
+		assetKey: assets.assetKey,
 		withTextures: (items, use) => assets.withTextures(items, use),
 	});
 

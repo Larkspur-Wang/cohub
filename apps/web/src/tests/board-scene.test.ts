@@ -155,7 +155,7 @@ function makeContext(
 		colors: buildFallbackShapeColors("dark"),
 		colorMode: "dark",
 		zoom: 1,
-		imageKey: () => null,
+		assetKey: () => null,
 		getTexture: () => null,
 		hasError: () => false,
 		fileState: () => "ok" as const,
@@ -394,7 +394,7 @@ test("structure changes recycle removed cards and release their textures", () =>
 	const { scene } = setupScene(renderer);
 	const released: string[] = [];
 	const context = makeContext(items, {
-		imageKey: (item) => `key:${item.id}`,
+		assetKey: (item) => `key:${item.id}`,
 		releaseTexture: (key) => released.push(key),
 	});
 	const visibleIds = new Set(items.slice(0, 5).map((item) => item.id));

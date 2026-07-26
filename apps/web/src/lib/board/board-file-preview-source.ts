@@ -118,14 +118,21 @@ const inFlight = new Map<string, Promise<FilePreviewResult>>();
  * any work.
  */
 const stalePaths = new Map<string, FileChangeMeta>();
-const listeners = new Set<() => void>();
+
+export type FilePreviewInvalidation = {
+	spaceId: string;
+	path: string;
+	meta: FileChangeMeta;
+};
+
+const listeners = new Set<(event: FilePreviewInvalidation | null) => void>();
 let version = 0;
 let active = 0;
 const waiting: Array<() => void> = [];
 
-function notify() {
+function notify(event: FilePreviewInvalidation | null = null) {
 	version += 1;
-	for (const listener of listeners) listener();
+	for (const listener of listeners) listener(event);
 }
 
 function memoKey(spaceId: string, request: PreviewRequest): string {
@@ -298,7 +305,7 @@ export function invalidateFilePreview(
 	// Mark the file stale even when nothing was memoised: a board that has not read
 	// it yet still needs to know its snapshot is out of date.
 	stalePaths.set(key, meta);
-	notify();
+	notify({ spaceId, path, meta });
 }
 
 /** Monotonic counter for reactive consumers; bumped on every invalidation. */
@@ -307,7 +314,9 @@ export function filePreviewVersion() {
 }
 
 /** Subscribe to invalidations. Returns an unsubscribe function. */
-export function subscribeFilePreviews(listener: () => void) {
+export function subscribeFilePreviews(
+	listener: (event: FilePreviewInvalidation | null) => void,
+) {
 	listeners.add(listener);
 	return () => listeners.delete(listener);
 }
