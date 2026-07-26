@@ -1,5 +1,12 @@
 # @neta-art/cohub
 
+## 3.1.0
+
+### Minor Changes
+
+- 94a8f99: Board realtime: add optional `client.formFactor` to awareness state so peers can present a mobile touch contact as such, and carry server-owned `metadata` (including request provenance) on `board.transaction.applied` for CLI / Agent attribution.
+- b47510a: Add Board realtime awareness subscriptions and updates for cursors, selections, creation gestures, drawing, and transforms.
+
 ## 3.0.0
 
 ### Major Changes

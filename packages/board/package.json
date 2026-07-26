@@ -1,6 +1,6 @@
 {
   "name": "@neta-art/cohub-board",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Board document model, PixiJS renderers and image export for Cohub.",
   "license": "Apache-2.0",
   "type": "module",
