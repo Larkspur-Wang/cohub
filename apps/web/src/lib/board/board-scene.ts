@@ -7,13 +7,21 @@ import type {
 	getBoardCardRenderer,
 } from "@neta-art/cohub-board";
 import {
+	CORNER_RESIZE_HANDLES,
+	frameCorners,
 	frameHandlePosition,
-	type Point,
-	RESIZE_HANDLES,
+	frameRayIntersection,
 	type Rect,
+	type ResizeHandle,
+	rotationHandleAnchor,
 	rotationHandlePosition,
+	type WorldPoint,
 } from "@neta-art/cohub-board";
 import type { Container, Graphics } from "pixi.js";
+import type {
+	BoardSelectionTransform,
+	BoardTransformControl,
+} from "$lib/board/core/selection-transform";
 
 type CardEntry = {
 	item: BoardItem;
@@ -75,6 +83,48 @@ function idSetSignature(ids: Set<string>): number {
 	return hash;
 }
 
+function traceFrame(graphics: Graphics, frame: BoardFrame) {
+	const corners = frameCorners(frame);
+	const first = corners[0];
+	if (!first) return graphics;
+	graphics.moveTo(first.x, first.y);
+	for (let index = 1; index < corners.length; index += 1) {
+		const point = corners[index];
+		if (point) graphics.lineTo(point.x, point.y);
+	}
+	return graphics.closePath();
+}
+
+function frameEdgePoints(
+	frame: BoardFrame,
+	handle: ResizeHandle,
+): readonly [{ x: number; y: number }, { x: number; y: number }] | null {
+	switch (handle) {
+		case "n":
+			return [
+				frameHandlePosition(frame, "nw"),
+				frameHandlePosition(frame, "ne"),
+			];
+		case "e":
+			return [
+				frameHandlePosition(frame, "ne"),
+				frameHandlePosition(frame, "se"),
+			];
+		case "s":
+			return [
+				frameHandlePosition(frame, "sw"),
+				frameHandlePosition(frame, "se"),
+			];
+		case "w":
+			return [
+				frameHandlePosition(frame, "nw"),
+				frameHandlePosition(frame, "sw"),
+			];
+		default:
+			return null;
+	}
+}
+
 export type SceneSyncInput = {
 	items: BoardItem[];
 	context: BoardRenderContext;
@@ -113,12 +163,11 @@ export type SceneSyncInput = {
 export type SceneOverlayInput = {
 	zoom: number;
 	marquee: Rect | null;
-	bounds: Rect | null;
 	selection: string[];
-	/** Frame of the single selected item (drives resize handles), or null. */
-	singleFrame: BoardFrame | null;
-	/** When true, hide box resize/rotation handles (e.g. arrows, locked). */
-	hideBoxHandles?: boolean;
+	transform: BoardSelectionTransform | null;
+	hoveredControl: BoardTransformControl | null;
+	/** Live pointer while rotating; keeps the handle attached to the gesture. */
+	rotationPointer: WorldPoint | null;
 	/** World-space arrow endpoint handles to draw as circles. */
 	arrowEndpoints?: Array<{ x: number; y: number }>;
 };
@@ -444,10 +493,10 @@ export function createBoardScene(options: {
 		const {
 			zoom,
 			marquee,
-			bounds,
 			selection,
-			singleFrame,
-			hideBoxHandles,
+			transform,
+			hoveredControl,
+			rotationPointer,
 			arrowEndpoints,
 		} = input;
 		const inv = 1 / zoom;
@@ -462,11 +511,13 @@ export function createBoardScene(options: {
 				.stroke({ color: brand, width: inv, alpha: 0.7 });
 		}
 
-		if (!bounds || selection.length === 0) return;
-
-		overlay
-			.rect(bounds.x, bounds.y, bounds.width, bounds.height)
-			.stroke({ color: brand, width: 1.5 * inv, alpha: 0.95 });
+		if (!transform || selection.length === 0) return;
+		const source = transform.frame;
+		traceFrame(overlay, source).stroke({
+			color: brand,
+			width: 1.5 * inv,
+			alpha: 0.95,
+		});
 
 		// Arrow endpoints (or other custom handles) take priority over box chrome.
 		if (arrowEndpoints && arrowEndpoints.length > 0) {
@@ -480,39 +531,44 @@ export function createBoardScene(options: {
 			return;
 		}
 
-		if (hideBoxHandles) return;
-
-		const source: BoardFrame = singleFrame ?? { ...bounds, rotation: 0 };
-		const handles = singleFrame
-			? RESIZE_HANDLES
-			: (["nw", "ne", "se", "sw"] as const);
-		const handleSize = 8 * inv;
-		for (const handle of handles) {
-			const position = frameHandlePosition(source, handle);
-			overlay
-				.rect(
-					position.x - handleSize / 2,
-					position.y - handleSize / 2,
-					handleSize,
-					handleSize,
-				)
-				.fill({ color: palette.surface, alpha: 1 })
-				.stroke({ color: brand, width: 1.5 * inv });
+		if (hoveredControl?.kind === "resize" && transform.resizeMode === "free") {
+			const edge = frameEdgePoints(source, hoveredControl.handle);
+			if (edge) {
+				overlay
+					.moveTo(edge[0].x, edge[0].y)
+					.lineTo(edge[1].x, edge[1].y)
+					.stroke({ color: brand, width: 2.5 * inv, alpha: 1 });
+			}
 		}
 
-		const rotation = rotationHandlePosition(bounds, zoom);
-		const topCenter: Point = {
-			x: bounds.x + bounds.width / 2,
-			y: bounds.y,
-		};
-		overlay
-			.moveTo(topCenter.x, topCenter.y)
-			.lineTo(rotation.x, rotation.y)
-			.stroke({ color: brand, width: inv, alpha: 0.8 });
-		overlay
-			.circle(rotation.x, rotation.y, 5 * inv)
-			.fill({ color: palette.surface })
-			.stroke({ color: brand, width: 1.5 * inv });
+		if (transform.resizeMode !== "none") {
+			for (const handle of CORNER_RESIZE_HANDLES) {
+				const position = frameHandlePosition(source, handle);
+				const hovered =
+					hoveredControl?.kind === "resize" && hoveredControl.handle === handle;
+				overlay
+					.circle(position.x, position.y, (hovered ? 5 : 4) * inv)
+					.fill({ color: hovered ? brand : palette.surface, alpha: 1 })
+					.stroke({ color: brand, width: 1.5 * inv });
+			}
+		}
+
+		if (transform.canRotate) {
+			const rotation = rotationPointer ?? rotationHandlePosition(source, zoom);
+			const anchor = rotationPointer
+				? frameRayIntersection(source, rotationPointer)
+				: rotationHandleAnchor(source);
+			const hovered =
+				rotationPointer !== null || hoveredControl?.kind === "rotate";
+			overlay
+				.moveTo(anchor.x, anchor.y)
+				.lineTo(rotation.x, rotation.y)
+				.stroke({ color: brand, width: inv, alpha: 0.8 });
+			overlay
+				.circle(rotation.x, rotation.y, (hovered ? 6 : 5) * inv)
+				.fill({ color: hovered ? brand : palette.surface })
+				.stroke({ color: brand, width: 1.5 * inv });
+		}
 	}
 
 	function destroy(context: BoardRenderContext) {

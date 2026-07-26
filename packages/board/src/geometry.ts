@@ -211,23 +211,72 @@ export function frameHandlePosition(
 	return rotatePointAround(position, rectCenter(rect), degToRad(rotation));
 }
 
+/** Corners in clockwise order, following the frame's rotation. */
+export function frameCorners(frame: BoardFrame): readonly WorldPoint[] {
+	return ["nw", "ne", "se", "sw"].map((handle) =>
+		frameHandlePosition(frame, handle as ResizeHandle),
+	);
+}
+
 // ─── Selection handles ──────────────────────────────────────────────
 
 /** Screen-space radius (px) within which a pointer grabs a handle. */
 export const HANDLE_HIT_RADIUS = 8;
-/** Screen-space offset (px) of the rotation handle above the selection. */
+/** Screen-space offset (px) from the selection's lower-facing edge. */
 export const ROTATION_HANDLE_OFFSET = 28;
 
-export function rotationHandlePosition(bounds: Rect, zoom: number): WorldPoint {
-	return worldPoint(
-		bounds.x + bounds.width / 2,
-		bounds.y - ROTATION_HANDLE_OFFSET / Math.max(zoom, 0.0001),
-	);
+export function frameRayIntersection(
+	frame: Rect & { rotation?: number },
+	pointer: WorldPoint,
+): WorldPoint {
+	const center = rectCenter(frame);
+	let dx = pointer.x - center.x;
+	let dy = pointer.y - center.y;
+	if (Math.hypot(dx, dy) < 0.0001) {
+		dx = 0;
+		dy = 1;
+	}
+
+	const rad = degToRad(frame.rotation || 0);
+	const cos = Math.cos(rad);
+	const sin = Math.sin(rad);
+	const localDx = dx * cos + dy * sin;
+	const localDy = -dx * sin + dy * cos;
+	const scaleX =
+		Math.abs(localDx) > 0.0001
+			? frame.width / 2 / Math.abs(localDx)
+			: Number.POSITIVE_INFINITY;
+	const scaleY =
+		Math.abs(localDy) > 0.0001
+			? frame.height / 2 / Math.abs(localDy)
+			: Number.POSITIVE_INFINITY;
+	const scale = Math.min(scaleX, scaleY);
+	return worldPoint(center.x + dx * scale, center.y + dy * scale);
+}
+
+export function rotationHandleAnchor(
+	frame: Rect & { rotation?: number },
+): WorldPoint {
+	const center = rectCenter(frame);
+	return frameRayIntersection(frame, worldPoint(center.x, center.y + 1));
+}
+
+export function rotationHandlePosition(
+	frame: Rect & { rotation?: number },
+	zoom: number,
+): WorldPoint {
+	const center = rectCenter(frame);
+	const anchor = rotationHandleAnchor(frame);
+	const offset = ROTATION_HANDLE_OFFSET / Math.max(zoom, 0.0001);
+	return worldPoint(center.x, anchor.y + offset);
 }
 
 // ─── Resize ─────────────────────────────────────────────────────────
 
 export type ResizeHandle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
+
+export const CORNER_RESIZE_HANDLES = ["nw", "ne", "se", "sw"] as const;
+export const EDGE_RESIZE_HANDLES = ["n", "e", "s", "w"] as const;
 
 export const RESIZE_HANDLES: ResizeHandle[] = [
 	"nw",
@@ -239,6 +288,59 @@ export const RESIZE_HANDLES: ResizeHandle[] = [
 	"sw",
 	"w",
 ];
+
+/**
+ * Hit-test the continuous edge zones of a rotated frame. Corners are inset so
+ * their resize handles retain priority even on small nodes.
+ */
+export function frameEdgeHandleAt(
+	frame: BoardFrame,
+	point: WorldPoint,
+	zoom: number,
+	screenRadius = HANDLE_HIT_RADIUS,
+): Extract<ResizeHandle, "n" | "e" | "s" | "w"> | null {
+	const rect = frameRect(frame);
+	const center = rectCenter(rect);
+	const local = frame.rotation
+		? rotatePointAround(point, center, -degToRad(frame.rotation))
+		: point;
+	const radius = screenRadius / Math.max(zoom, 0.0001);
+	const insetX = Math.min(rect.width / 3, radius * 1.5);
+	const insetY = Math.min(rect.height / 3, radius * 1.5);
+	let closest: Extract<ResizeHandle, "n" | "e" | "s" | "w"> | null =
+		null;
+	let closestDistance = Number.POSITIVE_INFINITY;
+
+	if (
+		local.x >= rect.x + insetX &&
+		local.x <= rect.x + rect.width - insetX
+	) {
+		const north = Math.abs(local.y - rect.y);
+		const south = Math.abs(local.y - (rect.y + rect.height));
+		if (north <= radius && north < closestDistance) {
+			closest = "n";
+			closestDistance = north;
+		}
+		if (south <= radius && south < closestDistance) {
+			closest = "s";
+			closestDistance = south;
+		}
+	}
+	if (
+		local.y >= rect.y + insetY &&
+		local.y <= rect.y + rect.height - insetY
+	) {
+		const west = Math.abs(local.x - rect.x);
+		const east = Math.abs(local.x - (rect.x + rect.width));
+		if (west <= radius && west < closestDistance) {
+			closest = "w";
+			closestDistance = west;
+		}
+		if (east <= radius && east < closestDistance) closest = "e";
+	}
+
+	return closest;
+}
 
 /** Direction of a handle from the rect center: -1, 0, or 1 per axis. */
 export const HANDLE_DIRECTION: Record<ResizeHandle, Point> = {

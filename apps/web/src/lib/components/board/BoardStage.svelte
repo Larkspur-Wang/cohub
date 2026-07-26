@@ -42,6 +42,7 @@ import {
 import type { BoardStageExportBridge } from "$lib/board/board-image-export";
 import { createBoardScene } from "$lib/board/board-scene";
 import { readCssColorNumber } from "$lib/board/core/css-color";
+import { resizeCursorForHandle } from "$lib/board/core/selection-transform";
 import type { BoardEditor } from "$lib/board/editor.svelte";
 import type { BoardRuntimeData } from "$lib/board/runtime/board-runtime";
 import { createBoardAnimationRuntime } from "$lib/board/runtime/pixi-animation";
@@ -573,12 +574,6 @@ function syncStage() {
 	animationRuntime?.invalidatePoses();
 
 	const single = editor.selection.length === 1 ? editor.selectedItems[0] : null;
-	const hideBoxHandles = Boolean(
-		single &&
-			(single.locked ||
-				single.type === "arrow" ||
-				!shapeCapabilities(single).canResize),
-	);
 	let arrowEndpoints: Array<{ x: number; y: number }> | undefined;
 	if (single?.type === "arrow" && !single.locked) {
 		const lookup = (id: string) => editor.itemById(id)?.frame;
@@ -590,10 +585,13 @@ function syncStage() {
 		{
 			zoom: editor.camera.zoom,
 			marquee: editor.marquee,
-			bounds: editor.bounds,
 			selection: editor.selection,
-			singleFrame: single?.frame ?? null,
-			hideBoxHandles,
+			transform: editor.selectionTransform,
+			hoveredControl: editor.hoveredTransformControl,
+			rotationPointer:
+				editor.interaction.type === "rotating"
+					? editor.interaction.current
+					: null,
 			arrowEndpoints,
 		},
 		palette,
@@ -881,6 +879,7 @@ function handlePointerMove(event: PointerEvent) {
 function handlePointerUp(event: PointerEvent) {
 	editor.pointerUp(toPointerEvent(event));
 	if (event.type === "pointercancel" || event.pointerType !== "mouse") {
+		editor.pointerLeave();
 		onPointerPresence?.(null);
 	} else {
 		publishPointerPresence(event);
@@ -888,7 +887,9 @@ function handlePointerUp(event: PointerEvent) {
 }
 
 function handlePointerLeave(event: PointerEvent) {
-	if (event.buttons === 0) onPointerPresence?.(null);
+	if (event.buttons !== 0) return;
+	editor.pointerLeave();
+	onPointerPresence?.(null);
 }
 
 function handleWheel(event: WheelEvent) {
@@ -1049,12 +1050,30 @@ function dropBoardItems(
 	}
 }
 
+const ROTATE_CURSOR = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M21 12a9 9 0 1 1-2.64-6.36L21 8M21 3v5h-5' fill='none' stroke='%23fff' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M21 12a9 9 0 1 1-2.64-6.36L21 8M21 3v5h-5' fill='none' stroke='%231d1d1f' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") 12 12, crosshair`;
+
 const cursor = $derived.by(() => {
+	const interaction = editor.interaction;
+	if (interaction.type === "panning") return "grabbing";
+	if (interaction.type === "translating") return "grabbing";
+	if (interaction.type === "resizing")
+		return resizeCursorForHandle(
+			interaction.handle,
+			interaction.single?.rotation ?? 0,
+		);
+	if (interaction.type === "rotating") return ROTATE_CURSOR;
+	if (interaction.type === "draggingArrowHandle") return "crosshair";
+	if (interaction.type === "brushing") return "crosshair";
 	if (editor.spaceHeld || editor.tool === "hand") return "grab";
-	if (editor.interaction.type === "panning") return "grabbing";
-	if (editor.interaction.type === "translating") return "grabbing";
-	if (editor.interaction.type === "draggingArrowHandle") return "crosshair";
-	if (editor.interaction.type === "brushing") return "crosshair";
+
+	const control = editor.hoveredTransformControl;
+	if (control?.kind === "resize")
+		return resizeCursorForHandle(
+			control.handle,
+			editor.selectionTransform?.frame.rotation ?? 0,
+		);
+	if (control?.kind === "rotate") return ROTATE_CURSOR;
+
 	switch (editor.tool) {
 		case "draw":
 		case "arrow":
@@ -1062,8 +1081,12 @@ const cursor = $derived.by(() => {
 		case "frame":
 		case "text":
 			return "crosshair";
-		default:
-			return "default";
+		default: {
+			const hovered = editor.hoverId ? editor.itemById(editor.hoverId) : null;
+			return hovered && !hovered.locked && shapeCapabilities(hovered).canMove
+				? "move"
+				: "default";
+		}
 	}
 });
 

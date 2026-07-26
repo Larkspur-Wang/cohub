@@ -10,7 +10,6 @@ import {
 	clampZoom,
 	type FrameLookup,
 	fitToContent,
-	frameHandlePosition,
 	HANDLE_HIT_RADIUS,
 	itemBounds,
 	mergeFileSnapshot,
@@ -18,7 +17,6 @@ import {
 	normalizeViewport,
 	panBy,
 	pointToWorld,
-	RESIZE_HANDLES,
 	type Rect,
 	type ResizeHandle,
 	rectCenter,
@@ -27,7 +25,6 @@ import {
 	resizeFrameToSize,
 	resolveEndpoint,
 	rotateFrames,
-	rotationHandlePosition,
 	type ScreenPoint,
 	scaleFrames,
 	screenPoint,
@@ -76,6 +73,10 @@ import {
 	parseClipboard,
 } from "$lib/board/core/clipboard";
 import { itemsToSvg } from "$lib/board/core/export-svg";
+import {
+	resolveSelectionTransform,
+	selectionTransformControlAt,
+} from "$lib/board/core/selection-transform";
 import {
 	arrowBoundsFor,
 	arrowHitTest,
@@ -143,6 +144,7 @@ export type BoardInteraction =
 			type: "rotating";
 			pivot: WorldPoint;
 			startAngle: number;
+			current: WorldPoint;
 			origin: Map<string, BoardFrame>;
 			moved: boolean;
 	  }
@@ -233,7 +235,6 @@ const CAMERA_ANIMATION_MS = 240;
 const DRAG_THRESHOLD = 3;
 /** Snap attraction radius in screen px (scaled to world by zoom). */
 const SNAP_THRESHOLD = 8;
-const CORNER_HANDLES: ResizeHandle[] = ["nw", "ne", "se", "sw"];
 
 function easeOutCubic(t: number) {
 	return 1 - (1 - t) * (1 - t) * (1 - t);
@@ -261,6 +262,8 @@ export function createBoardEditor(options: BoardEditorOptions) {
 	let tool = $state<BoardToolId>("select");
 	let interaction = $state<BoardInteraction>({ type: "idle" });
 	let hoverId = $state<string | null>(null);
+	let hoverPoint = $state<WorldPoint | null>(null);
+	let hoverPointerType = $state("mouse");
 	let editingId = $state<string | null>(null);
 	let saveError = $state<string | null>(null);
 	let surfaceSize = $state<{ width: number; height: number }>({
@@ -447,6 +450,19 @@ export function createBoardEditor(options: BoardEditorOptions) {
 	});
 	const selectedFrames = $derived(selectedItems.map((item) => item.frame));
 	const bounds = $derived(selectionBounds(selectedFrames));
+	const selectionTransform = $derived(
+		resolveSelectionTransform(selectedItems, bounds),
+	);
+	const hoveredTransformControl = $derived.by(() =>
+		interaction.type === "idle" && !pinch && tool === "select" && hoverPoint
+			? selectionTransformControlAt(
+					selectionTransform,
+					hoverPoint,
+					camera.zoom,
+					hoverPointerType,
+				)
+			: null,
+	);
 	const marquee = $derived.by<Rect | null>(() => {
 		if (interaction.type !== "brushing") return null;
 		const start = interaction.start;
@@ -562,6 +578,9 @@ export function createBoardEditor(options: BoardEditorOptions) {
 	// ─── Camera (local UI state) ────────────────────────────────────
 	function setCamera(viewport: BoardViewport) {
 		camera = normalizeViewport(viewport, camera);
+		// A cached world-space hover is invalid under the new camera transform.
+		hoverPoint = null;
+		hoverId = null;
 	}
 
 	function cancelCameraAnimation() {
@@ -1383,48 +1402,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		return itemsById.get(id) ?? null;
 	}
 
-	function handleAt(point: WorldPoint): ResizeHandle | null {
-		if (!bounds) return null;
-		// Locked selection: no resize handles.
-		if (selection.length === 1) {
-			const item = selectedItems[0];
-			if (!item || isLocked(item) || !shapeCapabilities(item).canResize)
-				return null;
-		}
-		const radius = HANDLE_HIT_RADIUS / camera.zoom;
-		if (selection.length === 1) {
-			const frame = selectedFrames[0];
-			if (!frame) return null;
-			for (const handle of RESIZE_HANDLES) {
-				const position = frameHandlePosition(frame, handle);
-				if (Math.hypot(position.x - point.x, position.y - point.y) <= radius)
-					return handle;
-			}
-			return null;
-		}
-		const rect: BoardFrame = { ...bounds, rotation: 0 };
-		for (const handle of CORNER_HANDLES) {
-			const position = frameHandlePosition(rect, handle);
-			if (Math.hypot(position.x - point.x, position.y - point.y) <= radius)
-				return handle;
-		}
-		return null;
-	}
-
-	function rotationHandleHit(point: WorldPoint): boolean {
-		if (selection.length === 0 || !bounds) return false;
-		if (selectedItems.some(isLocked)) return false;
-		if (
-			selection.length === 1 &&
-			selectedItems[0] &&
-			!shapeCapabilities(selectedItems[0]).canRotate
-		)
-			return false;
-		const position = rotationHandlePosition(bounds, camera.zoom);
-		const radius = HANDLE_HIT_RADIUS / camera.zoom;
-		return Math.hypot(position.x - point.x, position.y - point.y) <= radius;
-	}
-
 	/**
 	 * Hit-test arrow endpoint handles for a single selected arrow. Returns which
 	 * endpoint is under the pointer, or null.
@@ -1628,6 +1605,8 @@ export function createBoardEditor(options: BoardEditorOptions) {
 
 	function pointerDown(event: BoardPointerEvent) {
 		cancelCameraAnimation();
+		hoverPoint = event.world;
+		hoverPointerType = event.pointerType;
 		activePointers.set(event.pointerId, event.screen);
 		if (activePointers.size === 2) {
 			beginPinch();
@@ -1708,36 +1687,39 @@ export function createBoardEditor(options: BoardEditorOptions) {
 			}
 		}
 
-		if (rotationHandleHit(event.world) && bounds) {
-			const movable = unlockedIds(selection);
-			if (movable.length === 0) return;
+		const transformControl = selectionTransformControlAt(
+			selectionTransform,
+			event.world,
+			camera.zoom,
+			event.pointerType,
+		);
+		if (transformControl?.kind === "rotate" && bounds) {
 			const pivot = rectCenter(bounds);
 			interaction = {
 				type: "rotating",
 				pivot,
 				startAngle: angleFromCenter(pivot, event.world),
-				origin: framesFor(movable),
+				current: event.world,
+				origin: framesFor(selection),
 				moved: false,
 			};
 			return;
 		}
 
-		const handle = handleAt(event.world);
-		if (handle && bounds) {
-			const movable = unlockedIds(selection);
-			if (movable.length === 0) return;
+		if (transformControl?.kind === "resize" && bounds) {
+			const origin = framesFor(selection);
 			interaction = {
 				type: "resizing",
-				handle,
+				handle: transformControl.handle,
 				single:
-					movable.length === 1
+					selection.length === 1
 						? (() => {
-								const frame = framesFor(movable).get(movable[0] ?? "");
+								const frame = origin.get(selection[0] ?? "");
 								return frame ? { ...frame } : null;
 							})()
 						: null,
 				bounds,
-				origin: framesFor(movable),
+				origin,
 				moved: false,
 			};
 			return;
@@ -1780,6 +1762,8 @@ export function createBoardEditor(options: BoardEditorOptions) {
 	}
 
 	function pointerMove(event: BoardPointerEvent) {
+		hoverPoint = event.world;
+		hoverPointerType = event.pointerType;
 		if (activePointers.has(event.pointerId))
 			activePointers.set(event.pointerId, event.screen);
 
@@ -1804,7 +1788,9 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		}
 
 		if (interaction.type === "idle") {
-			hoverId = topItemAt(event.world)?.id ?? null;
+			hoverId = hoveredTransformControl
+				? null
+				: (topItemAt(event.world)?.id ?? null);
 			return;
 		}
 
@@ -1951,6 +1937,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 
 		if (interaction.type === "rotating") {
 			interaction.moved = true;
+			interaction.current = event.world;
 			let delta =
 				angleFromCenter(interaction.pivot, event.world) -
 				interaction.startAngle;
@@ -2084,6 +2071,8 @@ export function createBoardEditor(options: BoardEditorOptions) {
 	}
 
 	function pointerUp(event: BoardPointerEvent) {
+		hoverPoint = event.world;
+		hoverPointerType = event.pointerType;
 		activePointers.delete(event.pointerId);
 		if (activePointers.size < 2) pinch = null;
 		if (activePointers.size > 0) return;
@@ -2139,6 +2128,12 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		} else if (gesture.type === "creatingBox") {
 			commitBoxCreate(gesture);
 		}
+	}
+
+	function pointerLeave() {
+		if (interaction.type !== "idle") return;
+		hoverPoint = null;
+		hoverId = null;
 	}
 
 	function normalizeRotations() {
@@ -2318,6 +2313,12 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		get bounds() {
 			return bounds;
 		},
+		get selectionTransform() {
+			return selectionTransform;
+		},
+		get hoveredTransformControl() {
+			return hoveredTransformControl;
+		},
 		get marquee() {
 			return marquee;
 		},
@@ -2452,6 +2453,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		pointerDown,
 		pointerMove,
 		pointerUp,
+		pointerLeave,
 		wheel,
 		loadDocument,
 		destroy,

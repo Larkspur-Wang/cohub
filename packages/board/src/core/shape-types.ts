@@ -76,6 +76,19 @@ export type ShapeCapabilities = {
 	canLock: boolean;
 };
 
+/**
+ * Effective resize behaviour derived from the backwards-compatible capability
+ * flags. Consumers should use this mode instead of repeating the flag matrix.
+ */
+export type ShapeResizeMode = "none" | "uniform" | "free";
+
+export function resizeModeForCapabilities(
+	capabilities: ShapeCapabilities,
+): ShapeResizeMode {
+	if (!capabilities.canResize) return "none";
+	return capabilities.aspectLocked ? "uniform" : "free";
+}
+
 export const FULL_CAPABILITIES: ShapeCapabilities = {
 	canMove: true,
 	canResize: true,

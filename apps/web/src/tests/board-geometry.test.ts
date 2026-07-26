@@ -7,7 +7,10 @@ import {
 	degToRad,
 	fitToContent,
 	frameContainsPoint,
+	frameCorners,
+	frameEdgeHandleAt,
 	frameHandlePosition,
+	frameRayIntersection,
 	itemBounds,
 	MIN_ITEM_SIZE,
 	normalizeRotation,
@@ -254,14 +257,60 @@ test("selection handle positions sit on the frame corners", () => {
 	assert.deepEqual(frameHandlePosition(frame, "n"), { x: 50, y: 0 });
 });
 
-test("rotation handle sits above the selection, scaled by zoom", () => {
-	const bounds = { x: 0, y: 100, width: 200, height: 50 };
-	const atZoom1 = rotationHandlePosition(bounds, 1);
+test("rotation handle sits below the frame and follows its rotation", () => {
+	const frame: BoardFrame = {
+		x: 0,
+		y: 100,
+		width: 200,
+		height: 50,
+		rotation: 0,
+	};
+	const atZoom1 = rotationHandlePosition(frame, 1);
 	approx(atZoom1.x, 100);
-	assert.ok(atZoom1.y < 100);
-	const atZoom2 = rotationHandlePosition(bounds, 2);
+	assert.ok(atZoom1.y > 150);
+	const atZoom2 = rotationHandlePosition(frame, 2);
 	// Higher zoom pulls the handle closer in world units (constant screen size).
-	assert.ok(atZoom2.y > atZoom1.y);
+	assert.ok(atZoom2.y < atZoom1.y);
+
+	const rotated = rotationHandlePosition({ ...frame, rotation: 90 }, 1);
+	approx(rotated.x, 100);
+	assert.ok(rotated.y > 225);
+});
+
+test("rotation handle geometry stays continuous across edge transitions", () => {
+	const frame: BoardFrame = {
+		x: 0,
+		y: 0,
+		width: 200,
+		height: 50,
+		rotation: 45,
+	};
+	const before = rotationHandlePosition(frame, 1);
+	const after = rotationHandlePosition({ ...frame, rotation: 45.1 }, 1);
+	assert.ok(Math.hypot(after.x - before.x, after.y - before.y) < 1);
+
+	const towardPointer = frameRayIntersection(frame, worldPoint(300, 200));
+	assert.ok(towardPointer.x > 100);
+	assert.ok(towardPointer.y > 25);
+});
+
+test("frame corners and edge hit zones follow rotation", () => {
+	const frame: BoardFrame = {
+		x: 0,
+		y: 0,
+		width: 100,
+		height: 60,
+		rotation: 90,
+	};
+	const corners = frameCorners(frame);
+	assert.equal(corners.length, 4);
+	assert.deepEqual(corners[0], frameHandlePosition(frame, "nw"));
+
+	const east = frameHandlePosition(frame, "e");
+	assert.equal(frameEdgeHandleAt(frame, east, 1), "e");
+	// A corner belongs to its point handle, not a continuous edge zone.
+	const northwest = frameHandlePosition(frame, "nw");
+	assert.equal(frameEdgeHandleAt(frame, northwest, 1), null);
 });
 
 test("angleFromCenter measures clockwise screen angles", () => {

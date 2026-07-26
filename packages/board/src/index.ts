@@ -31,9 +31,11 @@ export {
 	type ShapeGeometry,
 	type ShapeHandle,
 	type ShapeHandleId,
+	type ShapeResizeMode,
 	type TextShapeProps,
 	type VideoShapeProps,
 	isGeoKind,
+	resizeModeForCapabilities,
 } from "./core/shape-types.js";
 export * from "./core/text-layout.js";
 export * from "./geometry.js";

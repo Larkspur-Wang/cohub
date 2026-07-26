@@ -23,10 +23,12 @@ import {
 	type BoardItem,
 	isUnknownItem,
 } from "@cohub/protocol/board-document";
-import type {
-	ShapeCapabilities,
-	ShapeGeometry,
-	ShapeHandle,
+import {
+	resizeModeForCapabilities,
+	type ShapeCapabilities,
+	type ShapeGeometry,
+	type ShapeHandle,
+	type ShapeResizeMode,
 } from "./shape-types.js";
 
 export type ShapeDefinition = {
@@ -99,6 +101,10 @@ export function shapeHandles(item: BoardItem): ShapeHandle[] {
 
 export function shapeCapabilities(item: BoardItem): ShapeCapabilities {
 	return definitionForItem(item).capabilities;
+}
+
+export function shapeResizeMode(item: BoardItem): ShapeResizeMode {
+	return resizeModeForCapabilities(shapeCapabilities(item));
 }
 
 export type { BoardFrame };
