@@ -15,6 +15,7 @@ import {
 	itemBounds,
 	mergeFileSnapshot,
 	normalizeRotation,
+	normalizeViewport,
 	panBy,
 	pointToWorld,
 	RESIZE_HANDLES,
@@ -60,6 +61,7 @@ import {
 	removeBoardItems,
 	titleForBoardItem,
 } from "$lib/board/board-items";
+import { normalizeWheelDelta, wheelZoomFactor } from "$lib/board/camera-input";
 import {
 	type AlignMode,
 	alignFrames,
@@ -256,7 +258,9 @@ export function createBoardEditor(options: BoardEditorOptions) {
 	// is never mistaken for persisted state. `document` composes them for
 	// consumers that expect a full BoardDocument.
 	let synced = $state<SyncedContent>(toContent(options.document));
-	let camera = $state<BoardViewport>(options.document.viewport);
+	let camera = $state<BoardViewport>(
+		normalizeViewport(options.document.viewport),
+	);
 	let selection = $state<string[]>([]);
 	let tool = $state<BoardToolId>("select");
 	let interaction = $state<BoardInteraction>({ type: "idle" });
@@ -563,7 +567,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 
 	// ─── Camera (local UI state) ────────────────────────────────────
 	function setCamera(viewport: BoardViewport) {
-		camera = viewport;
+		camera = normalizeViewport(viewport, camera);
 	}
 
 	function cancelCameraAnimation() {
@@ -573,15 +577,16 @@ export function createBoardEditor(options: BoardEditorOptions) {
 
 	function animateCamera(target: BoardViewport) {
 		cancelCameraAnimation();
-		const from = { ...camera };
+		const from = normalizeViewport(camera);
+		const to = normalizeViewport(target, from);
 		const started = performance.now();
 		const step = (now: number) => {
 			const t = Math.min(1, (now - started) / CAMERA_ANIMATION_MS);
 			const eased = easeOutCubic(t);
 			setCamera({
-				x: from.x + (target.x - from.x) * eased,
-				y: from.y + (target.y - from.y) * eased,
-				zoom: from.zoom + (target.zoom - from.zoom) * eased,
+				x: from.x + (to.x - from.x) * eased,
+				y: from.y + (to.y - from.y) * eased,
+				zoom: from.zoom + (to.zoom - from.zoom) * eased,
 			});
 			cameraAnimation = t < 1 ? requestAnimationFrame(step) : 0;
 		};
@@ -2171,16 +2176,22 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		deltaX: number,
 		deltaY: number,
 		zoomKey: boolean,
+		deltaMode = 0,
 	) {
+		cancelCameraAnimation();
 		if (zoomKey) {
-			// Trackpad pinch / ctrl-wheel: denser steps so small gestures feel snappy.
-			// Clamp the per-event factor so a single huge tick never jumps the camera.
-			const factor = Math.exp(-deltaY * 0.0045);
-			const clamped = Math.min(1.35, Math.max(1 / 1.35, factor));
-			setCamera(zoomAround(camera, point, camera.zoom * clamped));
+			setCamera(
+				zoomAround(
+					camera,
+					point,
+					camera.zoom * wheelZoomFactor(deltaY, deltaMode),
+				),
+			);
 		} else {
 			// Slightly faster pan so two-finger scroll keeps up with zoom.
-			setCamera(panBy(camera, -deltaX * 1.15, -deltaY * 1.15));
+			const dx = normalizeWheelDelta(deltaX, deltaMode);
+			const dy = normalizeWheelDelta(deltaY, deltaMode);
+			setCamera(panBy(camera, -dx * 1.15, -dy * 1.15));
 		}
 	}
 
@@ -2256,7 +2267,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		bumpSpatial();
 		bumpStructure();
 		// A document switch resets the camera; a same-document refresh keeps it.
-		if (!sameDocument) camera = next.viewport;
+		if (!sameDocument) setCamera(next.viewport);
 		// The remote document is the server truth we rebased onto; the commit
 		// outcome advances the baseline to `merged` once it lands.
 		externalBaseline = next;

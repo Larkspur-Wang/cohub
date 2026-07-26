@@ -613,6 +613,7 @@ function handleWheel(event: WheelEvent) {
 		event.deltaX,
 		event.deltaY,
 		event.ctrlKey || event.metaKey,
+		event.deltaMode,
 	);
 }
 

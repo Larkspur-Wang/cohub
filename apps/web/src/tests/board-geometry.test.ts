@@ -11,6 +11,7 @@ import {
 	itemBounds,
 	MIN_ITEM_SIZE,
 	normalizeRotation,
+	normalizeViewport,
 	panBy,
 	pointToWorld,
 	rectCenter,
@@ -44,6 +45,25 @@ test("clampZoom bounds the zoom range", () => {
 	approx(clampZoom(10), 8);
 	approx(clampZoom(0.001), 0.05);
 	approx(clampZoom(1.5), 1.5);
+	approx(clampZoom(Number.NaN), 1);
+	approx(clampZoom(Number.POSITIVE_INFINITY), 1);
+});
+
+test("normalizeViewport recovers invalid camera fields independently", () => {
+	assert.deepEqual(
+		normalizeViewport(
+			{ x: Number.NaN, y: 20, zoom: Number.POSITIVE_INFINITY },
+			{ x: 10, y: 15, zoom: 2 },
+		),
+		{ x: 10, y: 20, zoom: 2 },
+	);
+	assert.deepEqual(
+		normalizeViewport(
+			{ x: Number.NaN, y: Number.NEGATIVE_INFINITY, zoom: Number.NaN },
+			{ x: Number.NaN, y: Number.NaN, zoom: Number.NaN },
+		),
+		{ x: 0, y: 0, zoom: 1 },
+	);
 });
 
 test("unionRects merges bounds and returns null for empty", () => {
@@ -183,6 +203,19 @@ test("zoomAround keeps the cursor's world point stationary", () => {
 	approx(roundTrip.x, world.x);
 	approx(roundTrip.y, world.y);
 	approx(zoomed.zoom, 2);
+});
+
+test("zoomAround recovers from invalid camera values without jumping", () => {
+	const zoomed = zoomAround(
+		{ x: Number.NaN, y: Number.POSITIVE_INFINITY, zoom: Number.NaN },
+		screenPoint(100, 50),
+		2,
+	);
+	assert.deepEqual(zoomed, { x: -100, y: -50, zoom: 2 });
+	assert.deepEqual(
+		zoomAround({ x: 10, y: 20, zoom: 2 }, screenPoint(100, 50), Number.NaN),
+		{ x: 10, y: 20, zoom: 2 },
+	);
 });
 
 test("worldToScreen and pointToWorld are inverses", () => {

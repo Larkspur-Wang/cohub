@@ -31,6 +31,7 @@ export function worldPoint(x: number, y: number): WorldPoint {
 
 export const MIN_BOARD_ZOOM = 0.05;
 export const MAX_BOARD_ZOOM = 8;
+const DEFAULT_BOARD_VIEWPORT: BoardViewport = { x: 0, y: 0, zoom: 1 };
 /** Smallest an item can be resized to, in world units. */
 export const MIN_ITEM_SIZE = 24;
 /** Extra world-space padding applied when fitting content into view. */
@@ -43,7 +44,31 @@ export const FIT_PADDING = 64;
 export const VIEWPORT_MARGIN_RATIO = 0.5;
 
 export function clampZoom(zoom: number) {
-	return Math.min(MAX_BOARD_ZOOM, Math.max(MIN_BOARD_ZOOM, zoom));
+	const value = Number.isFinite(zoom) ? zoom : DEFAULT_BOARD_VIEWPORT.zoom;
+	return Math.min(MAX_BOARD_ZOOM, Math.max(MIN_BOARD_ZOOM, value));
+}
+
+/** Keep transient camera state finite without discarding its last valid axes. */
+export function normalizeViewport(
+	viewport: BoardViewport,
+	fallback: BoardViewport = DEFAULT_BOARD_VIEWPORT,
+): BoardViewport {
+	const fallbackX = Number.isFinite(fallback.x)
+		? fallback.x
+		: DEFAULT_BOARD_VIEWPORT.x;
+	const fallbackY = Number.isFinite(fallback.y)
+		? fallback.y
+		: DEFAULT_BOARD_VIEWPORT.y;
+	const fallbackZoom = Number.isFinite(fallback.zoom)
+		? clampZoom(fallback.zoom)
+		: DEFAULT_BOARD_VIEWPORT.zoom;
+	return {
+		x: Number.isFinite(viewport.x) ? viewport.x : fallbackX,
+		y: Number.isFinite(viewport.y) ? viewport.y : fallbackY,
+		zoom: Number.isFinite(viewport.zoom)
+			? clampZoom(viewport.zoom)
+			: fallbackZoom,
+	};
 }
 
 export function clamp(value: number, min: number, max: number) {
@@ -470,8 +495,9 @@ export function zoomAround(
 	anchor: ScreenPoint,
 	nextZoom: number,
 ): BoardViewport {
-	const zoom = clampZoom(nextZoom);
-	const world = pointToWorld(anchor, viewport);
+	const current = normalizeViewport(viewport);
+	const zoom = Number.isFinite(nextZoom) ? clampZoom(nextZoom) : current.zoom;
+	const world = pointToWorld(anchor, current);
 	return {
 		x: anchor.x - world.x * zoom,
 		y: anchor.y - world.y * zoom,
