@@ -483,6 +483,7 @@ function syncStage() {
 			marquee: editor.marquee,
 			selection: editor.selection,
 			transform: editor.selectionTransform,
+			controls: editor.tool === "select",
 			hoveredControl: editor.hoveredTransformControl,
 			rotationPointer:
 				editor.interaction.type === "rotating"
@@ -736,6 +737,8 @@ function toPointerEvent(event: PointerEvent) {
 		button: event.button,
 		buttons: event.buttons,
 		pointerType: event.pointerType,
+		cancelled:
+			event.type === "pointercancel" || event.type === "lostpointercapture",
 		// Pens report real pressure; mouse/touch default to a mid value so strokes
 		// have a sensible, consistent width.
 		pressure:

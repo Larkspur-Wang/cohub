@@ -6,6 +6,7 @@ import {
 	createBoardAwarenessController,
 } from "$lib/board/board-awareness";
 import type { BoardStageExportBridge } from "$lib/board/board-image-export";
+import { defaultBoardTool } from "$lib/board/board-tool";
 import { createBoardEditor } from "$lib/board/editor.svelte";
 import type { BoardRuntimeProps } from "$lib/board/runtime/board-runtime";
 import BoardCollaboratorOverlay from "$lib/components/board/BoardCollaboratorOverlay.svelte";
@@ -71,6 +72,7 @@ const awareness: BoardAwarenessController = createBoardAwarenessController({
 
 const editor = createBoardEditor({
 	document: untrack(() => initialDocument),
+	initialTool: defaultBoardTool(untrack(() => isMobile)),
 	key: untrack(() => path),
 	onCommit: (document, ops) => onCommit(document, ops),
 	onViewStateChange: (state) => {

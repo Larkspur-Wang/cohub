@@ -165,6 +165,8 @@ export type SceneOverlayInput = {
 	marquee: Rect | null;
 	selection: string[];
 	transform: BoardSelectionTransform | null;
+	/** Whether resize/rotate handles are actionable for the active tool. */
+	controls: boolean;
 	hoveredControl: BoardTransformControl | null;
 	/** Live pointer while rotating; keeps the handle attached to the gesture. */
 	rotationPointer: WorldPoint | null;
@@ -496,6 +498,7 @@ export function createBoardScene(options: {
 			marquee,
 			selection,
 			transform,
+			controls,
 			hoveredControl,
 			rotationPointer,
 			arrowEndpoints,
@@ -519,6 +522,7 @@ export function createBoardScene(options: {
 			width: 1.5 * inv,
 			alpha: 0.95,
 		});
+		if (!controls) return;
 
 		// Arrow endpoints (or other custom handles) take priority over box chrome.
 		if (arrowEndpoints && arrowEndpoints.length > 0) {

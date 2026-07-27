@@ -105,7 +105,12 @@ import {
 	createSpatialIndex,
 	type SpatialEntry,
 } from "$lib/board/board-spatial";
-import { type BoardToolId, isContinuousBoardTool } from "$lib/board/board-tool";
+import {
+	type BoardToolId,
+	canTapSelectWithHand,
+	isContinuousBoardTool,
+	isWithinHandTapSlop,
+} from "$lib/board/board-tool";
 import {
 	readBoardToolStyles,
 	writeBoardToolStyles,
@@ -129,7 +134,14 @@ type SyncedContent = {
 
 export type BoardInteraction =
 	| { type: "idle" }
-	| { type: "panning"; start: ScreenPoint; origin: BoardViewport }
+	| {
+			type: "panning";
+			start: ScreenPoint;
+			origin: BoardViewport;
+			moved: boolean;
+			/** Touch/pen Hand taps may select without turning a drag into an edit. */
+			tapSelection: { targetId: string | null } | null;
+	  }
 	| {
 			type: "translating";
 			start: WorldPoint;
@@ -218,6 +230,8 @@ export type BoardPointerEvent = {
 	button: number;
 	buttons: number;
 	pointerType: string;
+	/** True when the platform aborted the pointer sequence. */
+	cancelled: boolean;
 	/** Pen pressure 0..1; 0.5 for mouse/touch without pressure support. */
 	pressure: number;
 };
@@ -230,6 +244,8 @@ export type BoardViewState = {
 
 export type BoardEditorOptions = {
 	document: BoardDocument;
+	/** Tool shown on the first frame. Defaults to Select for existing callers. */
+	initialTool?: BoardToolId;
 	/** Stable identity (e.g. file path) used to tell a document switch from a remote refresh. */
 	key?: string;
 	onCommit: (
@@ -276,7 +292,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		normalizeViewport(options.document.viewport),
 	);
 	let selection = $state<string[]>([]);
-	let tool = $state<BoardToolId>("select");
+	let tool = $state<BoardToolId>(options.initialTool ?? "select");
 	let interaction = $state<BoardInteraction>({ type: "idle" });
 	let hoverId = $state<string | null>(null);
 	let hoverPoint = $state<WorldPoint | null>(null);
@@ -1681,10 +1697,19 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		// Hand tool, temporary Space hand, or middle mouse — pan.
 		// (Alt is reserved for drag-duplicate; no longer pans.)
 		if (tool === "hand" || spaceHeld || event.button === 1) {
+			const tapSelection =
+				tool === "hand" &&
+				!spaceHeld &&
+				event.button !== 1 &&
+				canTapSelectWithHand(event.pointerType)
+					? { targetId: topItemAt(event.world)?.id ?? null }
+					: null;
 			interaction = {
 				type: "panning",
 				start: event.screen,
 				origin: { ...camera },
+				moved: false,
+				tapSelection,
 			};
 			return;
 		}
@@ -1864,13 +1889,16 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		}
 
 		if (interaction.type === "panning") {
-			setCamera(
-				panBy(
-					interaction.origin,
-					event.screen.x - interaction.start.x,
-					event.screen.y - interaction.start.y,
-				),
-			);
+			const dx = event.screen.x - interaction.start.x;
+			const dy = event.screen.y - interaction.start.y;
+			if (
+				interaction.tapSelection &&
+				!interaction.moved &&
+				isWithinHandTapSlop(dx, dy)
+			)
+				return;
+			if (!interaction.moved) interaction = { ...interaction, moved: true };
+			setCamera(panBy(interaction.origin, dx, dy));
 			return;
 		}
 
@@ -2146,7 +2174,15 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		interaction = { type: "idle" };
 		flushPendingRemote();
 
-		if (gesture.type === "translating" && gesture.moved) {
+		if (
+			gesture.type === "panning" &&
+			gesture.tapSelection &&
+			!gesture.moved &&
+			!event.cancelled
+		) {
+			const targetId = gesture.tapSelection.targetId;
+			selection = targetId && itemById(targetId) ? [targetId] : [];
+		} else if (gesture.type === "translating" && gesture.moved) {
 			refreshBoundArrowFrames(new Set(selection));
 			bumpStructure();
 			commitAction();

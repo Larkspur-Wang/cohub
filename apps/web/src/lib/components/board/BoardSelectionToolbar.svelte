@@ -16,14 +16,16 @@ import {
 	LockOpen,
 	Trash2,
 } from "lucide-svelte";
+import { canTapSelectWithHand } from "$lib/board/board-tool";
 import type { BoardEditor } from "$lib/board/editor.svelte";
 
 const { editor }: { editor: BoardEditor } = $props();
 
 const visible = $derived(
 	editor.selection.length > 0 &&
-		// Hide while a creation tool is hot — tldraw keeps the board free while drawing.
-		editor.tool === "select" &&
+		// Direct-pointer Hand taps can safely select without enabling canvas edits.
+		(editor.tool === "select" ||
+			(editor.tool === "hand" && canTapSelectWithHand(editor.pointerType))) &&
 		editor.interaction.type !== "brushing" &&
 		editor.interaction.type !== "drawing" &&
 		editor.interaction.type !== "creatingArrow" &&
