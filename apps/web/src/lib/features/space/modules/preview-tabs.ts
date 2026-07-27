@@ -1,3 +1,4 @@
+import { isBoardFile } from "$lib/board/board-file";
 import type { PreviewSyncStatus } from "./preview-sync-status";
 
 export type PreviewTab = {
@@ -17,4 +18,11 @@ export function activePreviewFilePath(
 	if (kind === "file") return filePath ?? "";
 	if (kind === "board") return boardPath ?? "";
 	return "";
+}
+
+export function workspaceFilePreviewKind(
+	path: string,
+	readOnly: boolean,
+): "file" | "board" {
+	return isBoardFile(path) && !readOnly ? "board" : "file";
 }

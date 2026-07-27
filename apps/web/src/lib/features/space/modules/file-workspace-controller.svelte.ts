@@ -8,7 +8,7 @@ import {
 	boardItemToNode,
 	createEmptyBoardDocument,
 } from "$lib/board/board-document";
-import { ensureBoardExtension, isBoardFile } from "$lib/board/board-file";
+import { ensureBoardExtension } from "$lib/board/board-file";
 import {
 	deleteFilePendingDraft,
 	readFilePendingDraft,
@@ -48,6 +48,7 @@ import {
 	updateNodeState,
 } from "./file-workspace-utils";
 import type { PreviewSyncStatus } from "./preview-sync-status";
+import { workspaceFilePreviewKind } from "./preview-tabs";
 
 export type { ActiveFsSource, FileViewMode };
 
@@ -679,7 +680,9 @@ export function createFileWorkspaceController(
 
 	/** Open a file in the unified preview surface (Files column). */
 	async function openSpaceFile(path: string) {
-		if (isBoardFile(path) && !options.getActiveFsReadonly()) {
+		if (
+			workspaceFilePreviewKind(path, options.getActiveFsReadonly()) === "board"
+		) {
 			await options.onOpenInlineBoard(path);
 			return;
 		}
@@ -1236,7 +1239,8 @@ export function createFileWorkspaceController(
 				...entries,
 				buildFsEntry(path, "file"),
 			]);
-			if (isBoardFile(path)) await options.onOpenInlineBoard(path);
+			if (workspaceFilePreviewKind(path, false) === "board")
+				await options.onOpenInlineBoard(path);
 			else await openInlineFile(path);
 		} catch (error) {
 			fileTreeError =

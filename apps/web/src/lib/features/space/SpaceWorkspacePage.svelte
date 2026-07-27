@@ -119,7 +119,10 @@ import NewChatSpaceProfile from "./modules/NewChatSpaceProfile.svelte";
 import PortReadyToastView from "./modules/PortReadyToast.svelte";
 import { createPortPreviewController } from "./modules/port-preview-controller.svelte";
 import { extractPublicEndpoints } from "./modules/port-preview-utils";
-import { activePreviewFilePath } from "./modules/preview-tabs";
+import {
+	activePreviewFilePath,
+	workspaceFilePreviewKind,
+} from "./modules/preview-tabs";
 import { createPreviewWorkspaceController } from "./modules/preview-workspace-controller.svelte";
 import SessionShareDialog from "./modules/SessionShareDialog.svelte";
 import SpaceDanmakuLayer from "./modules/SpaceDanmakuLayer.svelte";
@@ -1675,6 +1678,10 @@ async function openInlineFile(
 }
 async function openLinkedInlineFile(target: string | WorkspaceFileLinkTarget) {
 	const path = typeof target === "string" ? target : target.path;
+	if (workspaceFilePreviewKind(path, activeFsReadonly) === "board") {
+		await openInlineBoard(path);
+		return;
+	}
 	const position =
 		typeof target === "string" ? null : (target.position ?? null);
 	await previewWorkspace.openFile(path, {

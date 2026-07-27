@@ -14,7 +14,6 @@ import type {
 	BoardAutomationActivity,
 	BoardCollaboratorProfile,
 } from "$lib/board/board-activity";
-import { isBoardFile } from "$lib/board/board-file";
 import type { FileViewMode } from "$lib/components/file-diff-view";
 import PreviewExpandMenu from "$lib/components/PreviewExpandMenu.svelte";
 import WorkPublishDialog from "$lib/components/WorkPublishDialog.svelte";
@@ -31,6 +30,7 @@ import type { FileWorkspaceInlineFile } from "./file-workspace-controller.svelte
 import InlineFilePanel from "./InlineFilePanel.svelte";
 import PortPreviewPanel from "./PortPreviewPanel.svelte";
 import PreviewTabs from "./PreviewTabs.svelte";
+import { workspaceFilePreviewKind } from "./preview-tabs";
 
 type PanHandlers = {
 	start: (event: MouseEvent) => void;
@@ -523,7 +523,8 @@ function closePreviewTab(kind: "file" | "board" | "port", key: string) {
 	onToggle={onToggleDirectory}
 	onSelect={(node, options) => {
 		if (node.type !== "file") return;
-		if (isBoardFile(node.path) && !activeFsReadonly) void onOpenInlineBoard(node.path);
+		if (workspaceFilePreviewKind(node.path, activeFsReadonly) === "board")
+			void onOpenInlineBoard(node.path);
 		else void onOpenInlineFile(node.path);
 		closeMobileDrawerIfNeeded(options.mobile);
 	}}
