@@ -40,6 +40,7 @@ import {
 	hasRenderedFilePreview,
 	isHtmlPath,
 	isMarkdownPath,
+	isPdfFile,
 	makeFsNodes,
 	replaceNodeChildren,
 	resolveFsMoveDestination,
@@ -1595,6 +1596,9 @@ export function createFileWorkspaceController(
 			return Boolean(
 				getActiveInlineFile()?.response?.mimeType?.startsWith("video/"),
 			);
+		},
+		get inlineFileIsPdf() {
+			return isPdfFile(getActiveInlineFile()?.response);
 		},
 		get inlineFileDataUrl() {
 			const response = getActiveInlineFile()?.response ?? null;

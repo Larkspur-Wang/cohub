@@ -96,6 +96,7 @@ export type SpaceFileDomainProps = {
 	inlineFileExt: string;
 	inlineFileIsImage: boolean;
 	inlineFileIsVideo: boolean;
+	inlineFileIsPdf: boolean;
 	inlineFileDataUrl: string | null;
 	inlineFileWork: WorkRecord | null;
 	fileActionMenuOpenPath: string | null;
@@ -236,6 +237,7 @@ let {
 	inlineFileExt,
 	inlineFileIsImage,
 	inlineFileIsVideo,
+	inlineFileIsPdf,
 	inlineFileDataUrl,
 	inlineFileWork,
 	fileActionMenuOpenPath = $bindable(),
@@ -412,6 +414,7 @@ function closePreviewTab(kind: "file" | "board" | "port", key: string) {
 		{inlineFileExt}
 		{inlineFileIsImage}
 		{inlineFileIsVideo}
+		{inlineFileIsPdf}
 		{inlineFileDataUrl}
 		inlineFileSpaceId={spaceId}
 		{inlineFileWork}

@@ -516,6 +516,7 @@ const inlineFileHasRenderedPreview = $derived(
 const inlineFileExt = $derived(fileWorkspace.inlineFileExt);
 const inlineFileIsImage = $derived(fileWorkspace.inlineFileIsImage);
 const inlineFileIsVideo = $derived(fileWorkspace.inlineFileIsVideo);
+const inlineFileIsPdf = $derived(fileWorkspace.inlineFileIsPdf);
 const inlineFileIsText = $derived(fileWorkspace.inlineFileIsText);
 const inlineFileDataUrl = $derived(fileWorkspace.inlineFileDataUrl);
 let previewWorks = $state<WorkRecord[]>([]);
@@ -2328,6 +2329,7 @@ const spaceFileDomainProps = $derived.by<
 	inlineFileExt,
 	inlineFileIsImage,
 	inlineFileIsVideo,
+	inlineFileIsPdf,
 	inlineFileDataUrl,
 	inlineFileWork,
 	inlineFileDragging: fileWorkspace.inlineFileDragging,
