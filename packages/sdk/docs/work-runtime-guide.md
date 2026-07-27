@@ -205,7 +205,8 @@ result needs `taskrun.view` (a work scope).
 |---|---|---|---|
 | Read space config | `space.get()` / `space.getConfig()` | `space.view` | work |
 | List models | `client.models.list()` / `listMultimodal()` | *(none — just authenticated)* | — |
-| Send a prompt | `space.prompt({ content, ... })` | `session.prompt.fullaccess` (or `.readonly`) | viewer |
+| Send a prompt (full) | `space.prompt({ accessMode: "full_access", content, ... })` | `session.prompt.fullaccess` | viewer |
+| Send a prompt (read-only) | `space.prompt({ accessMode: "read_only", content, ... })` | `session.prompt.readonly` | viewer |
 | Read turn result | `session.turns.get(turnId)` | `session.view` | work |
 | Stream generation | `session.subscribeGeneration({ state, finalized })` | `session.view` | work |
 | Read file tree | `space.files.tree()` | `file.view` | work |
@@ -385,14 +386,23 @@ Assume `client` and `space` are already initialized per [§4](#4-initialization-
 ### LLM chat (`space.prompt` + `subscribeGeneration`)
 
 **Scopes:** viewer `session.prompt.fullaccess` (to send) + work `session.view` (to read/stream).
+For a read-only prompt (no side effects), use viewer `session.prompt.readonly`
+instead — but you **must** pass `accessMode: "read_only"` in the call (see the
+read-only recipe below).
+
+> **`accessMode` defaults to `full_access`.** If you omit it, the backend
+treats the call as full-access and requires `session.prompt.fullaccess`. This
+is the #1 cause of "I requested `session.prompt.readonly` but still got 403".
+Always set `accessMode` explicitly to match the scope you requested.
 
 `space.prompt()` is **asynchronous** — it returns immediately with a turn
 whose `assistantText` is `null`. You must either stream the reply via
 `subscribeGeneration` or poll `turns.get()`.
 
 ```js
-// Send a prompt (creates or continues a session)
+// Send a prompt (creates or continues a session) — full access
 const result = await space.prompt({
+  accessMode: "full_access", // default; needs session.prompt.fullaccess
   content: [{ type: "text", text: "Describe a shiba inu on Mars." }],
   sessionId: null,        // null → creates a new session; pass an id to continue
   model: "gpt-5.5",       // optional; omit for default
@@ -448,6 +458,58 @@ const reply = turn.assistantText;
 `session.view` is missing, the WebSocket subscription fails. If you catch and
 ignore it, your code silently degrades to polling — which will also 403.
 Surface the error so you can diagnose the missing scope.
+
+#### Read-only prompt (`accessMode: "read_only"`)
+
+Use this when your Work only needs to **generate** a reply without persisting
+any side effects (no new session is written, no turn stored on the space's
+history). It requires the lighter viewer scope `session.prompt.readonly`
+instead of `session.prompt.fullaccess`.
+
+The critical detail: you **must** pass `accessMode: "read_only"` explicitly
+in the `space.prompt()` call. The scope you request via `auth.request` and
+the `accessMode` you send must match — the backend picks the permission check
+based on `accessMode`, defaulting to `full_access` when omitted.
+
+```js
+// 1. Request ONLY the read-only scope from a user gesture
+await client.auth.request({
+  scopes: ["session.prompt.readonly"],
+  reason: "Generate a one-off character reply (read-only).",
+});
+
+// 2. Send the prompt with accessMode matching the granted scope
+const result = await space.prompt({
+  accessMode: "read_only",   // ← required; omitting it → full_access → 403
+  sessionId: null,           // read-only prompts use a throwaway session
+  content: [{ type: "text", text: prompt }],
+});
+const sessionId = result.session.id;
+const turnId = result.turn.id;
+
+// 3. Read the reply — still needs the work scope: session.view
+const stop = space.session(sessionId).subscribeGeneration({
+  finalized: (event) => {
+    const reply = event.turn.assistantText
+      ?? (event.turn.assistantContent ?? [])
+          .filter(b => b.type === "text").map(b => b.text).join("");
+    console.log("reply:", reply);
+    stop();
+  },
+  error: (event) => console.error("stream error:", event),
+});
+```
+
+Publish the Work with:
+- workScopes: `["space.view", "session.view"]` (still needed to read the reply)
+- allowedViewerScopes: `["session.prompt.readonly"]`
+
+> **Scope/accessMode mismatch → 403.** Requesting `session.prompt.readonly`
+but calling `space.prompt({ content })` (no `accessMode`) fails because the
+backend defaults to `full_access` and checks `session.prompt.fullaccess`.
+Symmetrically, requesting `session.prompt.fullaccess` while passing
+`accessMode: "read_only"` also works only if `session.prompt.readonly` is
+additionally granted — otherwise 403. Always keep them in sync.
 
 ### Image / media generation (`generations.createAndWait`)
 
@@ -895,6 +957,10 @@ Before publishing your Work, verify each item:
   (for file reads). Missing any of these → 403 on reads.
 - [ ] **Viewer scopes include all action operations**: `session.prompt.fullaccess`
   (or `.readonly`) for prompts, `generation.create` for generation.
+- [ ] **`session.prompt.*` scope matches `space.prompt({ accessMode })`.**
+  Omitting `accessMode` defaults to `full_access`, so requesting only
+  `session.prompt.readonly` and then calling `space.prompt({ content })` → 403.
+  Set `accessMode: "read_only"` explicitly when using the readonly scope.
 - [ ] **`session.prompt.fullaccess` does NOT include `session.view`** — they
   are separate. Sending a prompt succeeds but reading the reply 403s without
   `session.view`.
