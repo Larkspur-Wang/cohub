@@ -1020,6 +1020,7 @@ onMount(async () => {
 		return;
 	}
 	app = instance;
+	instance.canvas.classList.add("board-stage-canvas");
 	host.appendChild(instance.canvas);
 	world = new Container({ isRenderGroup: true, label: "board-world" });
 	effectsBehind = new Container({ label: "board-effects-behind" });
@@ -1153,7 +1154,7 @@ onDestroy(() => {
 
 <div
 	bind:this={host}
-	class="relative h-full w-full overflow-hidden {dropActive ? 'board-drop-active' : ''}"
+	class="board-stage-host relative isolate h-full w-full overflow-hidden {dropActive ? 'board-drop-active' : ''}"
 	class:bg-bg-primary={Boolean(boardBackdrop)}
 	role="application"
 	aria-label="Board stage"
@@ -1188,7 +1189,7 @@ onDestroy(() => {
 	{#if boardBackdrop}
 		<div
 			aria-hidden="true"
-			class="pointer-events-none absolute inset-0"
+			class="pointer-events-none absolute inset-0 z-0"
 			style:background-image={`url(${JSON.stringify(boardBackdrop.url)})`}
 			style:background-position={`${editor.camera.x}px ${editor.camera.y}px`}
 			style:background-repeat="repeat"
@@ -1198,10 +1199,17 @@ onDestroy(() => {
 </div>
 
 <style>
+	.board-stage-host :global(.board-stage-canvas) {
+		position: relative;
+		z-index: 1;
+		display: block;
+	}
+
 	.board-drop-active::after {
 		content: "";
 		position: absolute;
 		inset: 0.75rem;
+		z-index: 2;
 		pointer-events: none;
 		border: 1px solid var(--brand-border);
 		border-radius: 0.75rem;
