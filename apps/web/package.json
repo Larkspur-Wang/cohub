@@ -8,7 +8,7 @@
 		"build": "vite build",
 		"lint": "biome lint .",
 		"lint:fix": "biome lint --write .",
-		"test": "node --experimental-strip-types --import ./scripts/register-alias.mjs --test 'src/tests/**/*.test.ts'",
+		"test": "node ../../scripts/test/run.mjs --native-types --import ./scripts/register-alias.mjs 'src/tests/**/*.test.ts'",
 		"typecheck": "svelte-kit sync && svelte-check --tsgo --tsconfig ./tsconfig.json",
 		"preview": "pnpm build && wrangler dev",
 		"preview:prod": "pnpm build && wrangler dev --config wrangler.prod.toml",

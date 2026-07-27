@@ -104,5 +104,3 @@ assert.equal(upgraded?.icon, "https://cdn.example/w/space/demo/abc/favicon.ico")
 assert.equal(workTitleFromMeta({ title: "A", name: "B" }, "fallback"), "A");
 assert.equal(workTitleFromMeta({ name: "B" }, "fallback"), "B");
 assert.equal(workTitleFromMeta(null, "fallback"), "fallback");
-
-console.log("works/page-meta tests passed");

@@ -3,10 +3,6 @@ import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-process.env.DATABASE_URL ??= "postgres://user:pass@localhost:5432/cohub_test";
-process.env.APP_ENCRYPTION_KEY ??= "test-encryption-key";
-process.env.SESSIONS_NAMESPACE ??= "test";
-
 const root = await mkdtemp(join(tmpdir(), "cohub-system-prompt-"));
 process.env.PLATFORM_CONFIG_ROOT = join(root, "configs");
 
@@ -94,5 +90,3 @@ assert.ok(
   !promptWithSkills.includes("manual-only"),
   "disable-model-invocation skills should be hidden from the available_skills block",
 );
-
-console.log("system prompt builder checks passed");

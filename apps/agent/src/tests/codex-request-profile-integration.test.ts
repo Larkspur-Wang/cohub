@@ -10,9 +10,6 @@ import { SessionManager } from "../runtime/local-session-manager.js";
 import { createModelsFromRegistry, streamSimpleWithModels } from "../runtime/pi-models-adapter.js";
 import { applyRequestProfile } from "../runtime/request-profile.js";
 
-process.env.DATABASE_URL ??= "postgres://user:pass@localhost:5432/cohub_test";
-process.env.APP_ENCRYPTION_KEY ??= "test-encryption-key";
-process.env.SESSIONS_NAMESPACE ??= "test";
 process.env.TEST_CODEX_API_KEY = "test-key";
 
 const sessionId = "cohub-session-id";
@@ -97,5 +94,3 @@ try {
 } finally {
   await rm(root, { recursive: true, force: true });
 }
-
-console.log("codex request profile integration checks passed");

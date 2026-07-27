@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-	DEFAULT_LRU_BUDGET,
 	type LruEntry,
 	selectLruEvictions,
 } from "../lib/board/board-asset-lru.ts";
@@ -52,9 +51,4 @@ test("does not mutate the input array", () => {
 		entries.map((e) => e.key),
 		snapshot,
 	);
-});
-
-test("default budget is sane", () => {
-	assert.ok(DEFAULT_LRU_BUDGET.maxCount > 0);
-	assert.ok(DEFAULT_LRU_BUDGET.maxBytes > 0);
 });

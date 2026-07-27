@@ -11,6 +11,7 @@
     "build": "tsc -p tsconfig.build.json && tsx scripts/copy-shell-assets.ts",
     "lint": "biome lint .",
     "lint:fix": "biome lint --write .",
+    "test": "node ../../scripts/test/run.mjs --test-isolation=none 'src/tests/**/*.test.ts'",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "start": "node dist/index.js",
     "smoke:runtime": "tsx scripts/smoke-runtime.ts"

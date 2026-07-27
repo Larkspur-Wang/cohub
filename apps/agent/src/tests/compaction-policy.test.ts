@@ -74,5 +74,3 @@ assert.equal(resolveReserveTokens(1_000_000), 32_768);
 assert.equal(resolveReserveTokens(8_000), 2_000);
 assert.equal(resolveReserveTokens(0), 32_768);
 assert.ok(resolveReserveTokens(4) >= 1);
-
-console.log("compaction-policy: ok");

@@ -1,6 +1,5 @@
 import { join } from "node:path";
 import { mkdir } from "node:fs/promises";
-import { env } from "../env.js";
 import { assertValidUserId } from "./ids.js";
 
 export const SANDBOX_WORKSPACE_PATH = "/workspace";
@@ -16,7 +15,7 @@ export const SANDBOX_WORKSPACE_AGENTS_PATH = `${SANDBOX_WORKSPACE_PATH}/.agents`
 export const SANDBOX_WORKSPACE_SKILLS_PATH = `${SANDBOX_WORKSPACE_AGENTS_PATH}/skills`;
 
 export function getAgentPlatformConfigPath() {
-  return join(env.PLATFORM_CONFIG_ROOT, "platform");
+  return join(process.env.PLATFORM_CONFIG_ROOT ?? "/configs", "platform");
 }
 
 export function getAgentPlatformAgentPath() {
@@ -40,7 +39,7 @@ export function getAgentPlatformAuthPath() {
 }
 
 export function getAgentUserConfigPath(userId: string) {
-  return join(env.PLATFORM_CONFIG_ROOT, "users", assertValidUserId(userId));
+  return join(process.env.PLATFORM_CONFIG_ROOT ?? "/configs", "users", assertValidUserId(userId));
 }
 
 export function getAgentUserAgentPath(userId: string) {
@@ -60,7 +59,7 @@ export function getAgentUserModelsPath(userId: string) {
 }
 
 export function getAgentWorkspacePath(spaceId: string) {
-  return join(env.WORKSPACE_ROOT, spaceId, "workspace");
+  return join(process.env.WORKSPACE_ROOT ?? "/space-storage", spaceId, "workspace");
 }
 
 export function getAgentWorkspaceAgentsPath(spaceIdOrWorkspacePath: string) {
@@ -75,7 +74,7 @@ export function getAgentWorkspaceSkillsPath(spaceIdOrWorkspacePath: string) {
 }
 
 export function getAgentSpaceSessionsPath(spaceId: string) {
-  return join(env.SESSIONS_DIR, "spaces", spaceId);
+  return join(process.env.SESSIONS_DIR ?? "/sessions", "spaces", spaceId);
 }
 
 export function getAgentSessionFilePath(spaceId: string, sessionId: string) {

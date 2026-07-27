@@ -62,5 +62,3 @@ try {
 } finally {
   await rm(root, { recursive: true, force: true });
 }
-
-console.log("local session manager checks passed");

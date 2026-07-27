@@ -62,5 +62,3 @@ const compacted = mergeSessionStreamSnapshotIntermediates(
 assert.equal(compacted.length, 1);
 assert.equal(compacted[0]?.messageId, "turn:turn-1:assistant:0");
 assert.deepEqual(compacted[0]?.content, [{ type: "text", text: "db" }]);
-
-console.log("api session stream snapshot merge checks passed");

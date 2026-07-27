@@ -218,5 +218,3 @@ import {
   assert.deepEqual(toolUse._meta?.timing, { startedAt: "2026-01-01T00:00:00.000Z", completedAt: "2026-01-01T00:00:01.250Z", durationMs: 1250 });
   assert.deepEqual(toolResult._meta?.timing, { startedAt: "2026-01-01T00:00:00.000Z", completedAt: "2026-01-01T00:00:01.250Z", durationMs: 1250 });
 }
-
-console.log("assistant-stream-state checks passed");

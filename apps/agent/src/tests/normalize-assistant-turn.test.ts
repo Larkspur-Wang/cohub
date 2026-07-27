@@ -150,5 +150,3 @@ const tu6 = case6.content.find((b) => b.type === "tool_use") as { id: string; na
 assert.equal(tu6?.id, "tool-6");
 assert.equal(tu6?.name, "edit");
 assert.deepEqual(tu6?.input, { path: "/workspace/a.ts" });
-
-console.log("normalizeAssistantTurn checks passed");

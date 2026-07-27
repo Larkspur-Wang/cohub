@@ -25,6 +25,7 @@ test("Board commands and every subcommand expose -h", () => {
     "capabilities",
     "validate",
     "apply",
+    "export",
     "play",
     "pause",
     "seek",

@@ -48,3 +48,26 @@ export function nextTreeSnapshot<
 		treeVisible: !nextCollapsed,
 	};
 }
+
+export type FilesChromeVisibility = {
+	isCompact: boolean;
+	mobileDrawerOpen: boolean;
+	filesColumnHidden: boolean;
+	treeCollapsed: boolean;
+	hasPreview: boolean;
+};
+
+export function filesChromeEffectivelyHidden(
+	state: FilesChromeVisibility,
+): boolean {
+	if (state.isCompact) return !state.mobileDrawerOpen;
+	if (state.filesColumnHidden) return true;
+	return state.treeCollapsed && !state.hasPreview;
+}
+
+export function resolveFilesChromeToggle(
+	state: FilesChromeVisibility,
+): "toggle-mobile" | "reveal" | "hide" {
+	if (state.isCompact) return "toggle-mobile";
+	return filesChromeEffectivelyHidden(state) ? "reveal" : "hide";
+}

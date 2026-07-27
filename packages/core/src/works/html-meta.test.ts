@@ -68,5 +68,3 @@ const fromOgLocale = extractHtmlPageMeta(
   `<html><head><meta property="og:locale" content="ja_JP"><title>Hi</title></head></html>`,
 );
 assert.equal(fromOgLocale.lang, "ja-JP");
-
-console.log("works/html-meta tests passed");

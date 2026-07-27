@@ -6,7 +6,11 @@ import {
 	type WorkspaceLayoutSnapshot,
 	type WorkspacePresentation,
 } from "$lib/stores/ui.svelte";
-import { nextTreeSnapshot } from "./float-layout";
+import {
+	filesChromeEffectivelyHidden,
+	nextTreeSnapshot,
+	resolveFilesChromeToggle,
+} from "./float-layout";
 
 const MAIN_PANEL_MIN_WIDTH = 320;
 const PREVIEW_PANEL_MIN_WIDTH = 280;
@@ -321,11 +325,18 @@ export function createWorkspaceLayoutController(options: {
 	 * A collapsed tree with no preview paints as empty (0 width) even when
 	 * `filesColumnHidden` is still false — treat that as hidden for header UI.
 	 */
+	function getFilesChromeVisibility() {
+		return {
+			isCompact: isCompactViewport(),
+			mobileDrawerOpen: uiState.mobileRightDrawerOpen,
+			filesColumnHidden: uiState.filesColumnHidden,
+			treeCollapsed: uiState.rightSidebarCollapsed,
+			hasPreview: options.getHasPreview(),
+		};
+	}
+
 	function isFilesChromeEffectivelyHidden() {
-		if (isCompactViewport()) return !uiState.mobileRightDrawerOpen;
-		if (uiState.filesColumnHidden) return true;
-		// Empty rail: column mounted, tree collapsed, nothing in preview stage.
-		return uiState.rightSidebarCollapsed && !options.getHasPreview();
+		return filesChromeEffectivelyHidden(getFilesChromeVisibility());
 	}
 
 	/**
@@ -366,21 +377,18 @@ export function createWorkspaceLayoutController(options: {
 	 * the first click always reveals something visible (column + tree).
 	 */
 	async function toggleFilesChrome() {
-		if (isCompactViewport()) {
+		const action = resolveFilesChromeToggle(getFilesChromeVisibility());
+		if (action === "toggle-mobile" || action === "hide") {
 			toggleFilesColumn();
 			return;
 		}
-		if (isFilesChromeEffectivelyHidden()) {
-			if (uiState.filesColumnHidden) uiState.setFilesColumnHidden(false);
-			// Empty rail or fully hidden: always open the tree so the click paints.
-			if (uiState.rightSidebarCollapsed) {
-				await toggleTree();
-			} else if (options.getHasPreview() && presentation === "default") {
-				void tick().then(() => ensurePreviewFits());
-			}
-			return;
+		if (uiState.filesColumnHidden) uiState.setFilesColumnHidden(false);
+		// Empty rail or fully hidden: always open the tree so the click paints.
+		if (uiState.rightSidebarCollapsed) {
+			await toggleTree();
+		} else if (options.getHasPreview() && presentation === "default") {
+			void tick().then(() => ensurePreviewFits());
 		}
-		toggleFilesColumn();
 	}
 
 	/** Files-column internal: collapse/expand file tree only.

@@ -2,12 +2,34 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Hono } from "hono";
 import { config } from "../config.js";
-import { createPreviewSessionToken } from "../preview-sessions.js";
-import previewRouter from "./preview.route.js";
+import {
+  createPreviewSessionToken,
+  hasPreviewSessionPermission,
+  PREVIEW_SESSION_TTL_SECONDS,
+  verifyPreviewSessionToken,
+} from "../preview-sessions.js";
+import { createPreviewRouter } from "./preview-router.js";
 
 function createTestApp() {
   const app = new Hono();
-  app.route("/", previewRouter);
+  app.route("/", createPreviewRouter({
+    getPreviewSessionPrincipal: () => null,
+    hasPreviewSessionPermission,
+    previewHostname: () => process.env.PREVIEW_HOSTNAME ?? "",
+    previewSessionTtlSeconds: PREVIEW_SESSION_TTL_SECONDS,
+    requireValidId: (value) => Boolean(value),
+    resolveSpaceFileDownload: async () => {
+      throw new Error("unexpected file access");
+    },
+    spaceFsJsonError: () => ({
+      status: 500,
+      body: { code: "FILE_ERROR", message: "file error" },
+    }),
+    streamSpaceFile: async () => {
+      throw new Error("unexpected file access");
+    },
+    verifyPreviewSessionToken,
+  }));
   app.get("/internal/ping", (c) => c.json({ ok: true }));
   app.notFound((c) => c.json({ message: "not found" }, 404));
   return app;

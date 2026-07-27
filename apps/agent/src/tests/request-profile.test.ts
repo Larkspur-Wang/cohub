@@ -62,5 +62,3 @@ assert.deepEqual(applyRequestProfile(alternateApiModel, { sessionId: "session" }
   "session-id": "session",
   "thread-id": "session",
 });
-
-console.log("request profile checks passed");

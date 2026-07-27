@@ -57,5 +57,3 @@ testOrdinalWhitelisted();
 testZeroOrdinalSurvives();
 testEmptyReturnsNull();
 testUndefinedOrdinalOmitted();
-
-console.log("realtime-message-meta checks passed");

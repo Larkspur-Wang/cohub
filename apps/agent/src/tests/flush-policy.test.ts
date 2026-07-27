@@ -19,5 +19,3 @@ assert.equal(shouldReplaceStreamFlushTimer(250, 24), true);
 assert.equal(shouldReplaceStreamFlushTimer(24, 250), false);
 assert.equal(shouldReplaceStreamFlushTimer(24, 24), false);
 assert.equal(shouldReplaceStreamFlushTimer(0, 24), false);
-
-console.log("flush-policy checks passed");
