@@ -812,6 +812,9 @@ importers:
 
   packages/sdk:
     dependencies:
+      perfect-freehand:
+        specifier: 1.2.3
+        version: 1.2.3
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -5995,6 +5998,9 @@ packages:
   pdfjs-dist@6.1.200:
     resolution: {integrity: sha512-o8MolyzirkkLrcdsae/HEOiIcXWI7DS5zGpvqW8xTC2YUsW30rltFw2bDGvw/fskUdEMrQm2br68jzDS5BH2vw==}
     engines: {node: '>=22.13.0 || >=24'}
+
+  perfect-freehand@1.2.3:
+    resolution: {integrity: sha512-bHZSfqDHGNlPpgH2yxXgPHlQSPpEbo+qg7li0M78J9vNAi2yjwLeA4x79BEQhX44lEWpCLSFCeRZwpw0niiXPA==}
 
   picocolors@1.1.1:
     resolution: {integrity: sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA==}
@@ -12079,6 +12085,8 @@ snapshots:
   pdfjs-dist@6.1.200:
     optionalDependencies:
       '@napi-rs/canvas': 1.0.2
+
+  perfect-freehand@1.2.3: {}
 
   picocolors@1.1.1: {}
 

@@ -128,6 +128,7 @@ test("local awareness batches raw draw points and flushes before gesture end", a
 		interaction: {
 			type: "drawing",
 			id: "item-local",
+			pointerId: 1,
 			points,
 			color: "brand",
 			size: 4,

@@ -733,6 +733,7 @@ function toPointerEvent(event: PointerEvent) {
 		ctrlKey: event.ctrlKey,
 		altKey: event.altKey,
 		button: event.button,
+		buttons: event.buttons,
 		pointerType: event.pointerType,
 		// Pens report real pressure; mouse/touch default to a mid value so strokes
 		// have a sensible, consistent width.
@@ -1077,6 +1078,7 @@ onMount(async () => {
 	host.addEventListener("pointermove", handlePointerMove);
 	host.addEventListener("pointerup", handlePointerUp);
 	host.addEventListener("pointercancel", handlePointerUp);
+	host.addEventListener("lostpointercapture", handlePointerUp);
 	host.addEventListener("pointerleave", handlePointerLeave);
 	host.addEventListener("wheel", handleWheel, { passive: false });
 	host.addEventListener("dblclick", handleDoubleClick);
@@ -1126,6 +1128,7 @@ onDestroy(() => {
 		host.removeEventListener("pointermove", handlePointerMove);
 		host.removeEventListener("pointerup", handlePointerUp);
 		host.removeEventListener("pointercancel", handlePointerUp);
+		host.removeEventListener("lostpointercapture", handlePointerUp);
 		host.removeEventListener("pointerleave", handlePointerLeave);
 		host.removeEventListener("wheel", handleWheel);
 		host.removeEventListener("dblclick", handleDoubleClick);

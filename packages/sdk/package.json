@@ -117,6 +117,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "perfect-freehand": "1.2.3",
     "zod": "^4.4.3"
   },
   "devDependencies": {

@@ -45,6 +45,7 @@ import {
 	invertBoardOps,
 	reconcileExternal,
 } from "$lib/board/board-document";
+import { appendBoardDrawSample } from "$lib/board/board-draw-input";
 import { createBoardItemId } from "$lib/board/board-id";
 import {
 	createArrowBoardItem,
@@ -167,6 +168,7 @@ export type BoardInteraction =
 	| {
 			type: "drawing";
 			id: string;
+			pointerId: number;
 			/** Raw world-space samples collected so far. */
 			points: DrawPoint[];
 			color: string;
@@ -214,6 +216,7 @@ export type BoardPointerEvent = {
 	ctrlKey: boolean;
 	altKey: boolean;
 	button: number;
+	buttons: number;
 	pointerType: string;
 	/** Pen pressure 0..1; 0.5 for mouse/touch without pressure support. */
 	pressure: number;
@@ -1632,6 +1635,19 @@ export function createBoardEditor(options: BoardEditorOptions) {
 	}
 
 	// ─── Pointer interaction state machine ─────────────────────────
+	function appendDrawSample(
+		gesture: Extract<BoardInteraction, { type: "drawing" }>,
+		event: BoardPointerEvent,
+	) {
+		const points = appendBoardDrawSample(
+			gesture.points,
+			gesture.pointerId,
+			event,
+			camera.zoom,
+		);
+		return points === gesture.points ? gesture : { ...gesture, points };
+	}
+
 	function beginPinch() {
 		const points = [...activePointers.values()];
 		const [a, b] = points;
@@ -1648,6 +1664,12 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		cancelCameraAnimation();
 		hoverPoint = event.world;
 		hoverPointerType = event.pointerType;
+		// A second contact during a stroke is usually palm input, not a new gesture.
+		if (
+			interaction.type === "drawing" &&
+			interaction.pointerId !== event.pointerId
+		)
+			return;
 		activePointers.set(event.pointerId, event.screen);
 		if (activePointers.size === 2) {
 			beginPinch();
@@ -1674,6 +1696,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 			interaction = {
 				type: "drawing",
 				id: createBoardItemId(),
+				pointerId: event.pointerId,
 				points: [{ x: event.world.x, y: event.world.y, p: event.pressure }],
 				color: style.color,
 				size: style.size,
@@ -2087,21 +2110,9 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		}
 
 		if (interaction.type === "drawing") {
-			// Append the sample; skip near-duplicate points to keep the path light.
-			const last = interaction.points.at(-1);
-			if (
-				last &&
-				Math.hypot(event.world.x - last.x, event.world.y - last.y) <
-					0.5 / Math.max(camera.zoom, 0.0001)
-			)
-				return;
-			interaction = {
-				...interaction,
-				points: [
-					...interaction.points,
-					{ x: event.world.x, y: event.world.y, p: event.pressure },
-				],
-			};
+			// Only the pointer that started this stroke may contribute samples.
+			if ((event.buttons & 1) === 0) return;
+			interaction = appendDrawSample(interaction, event);
 			return;
 		}
 
@@ -2122,6 +2133,11 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		activePointers.delete(event.pointerId);
 		if (activePointers.size < 2) pinch = null;
 		if (activePointers.size > 0) return;
+		if (
+			interaction.type === "drawing" &&
+			interaction.pointerId !== event.pointerId
+		)
+			return;
 
 		// Snapshot the gesture before clearing it. Deferred remotes must land
 		// first so the local commit is recorded as the latest undo step.
@@ -2153,7 +2169,8 @@ export function createBoardEditor(options: BoardEditorOptions) {
 			const dy = gesture.current.y - gesture.start.y;
 			if (Math.hypot(dx, dy) <= 1 / camera.zoom) selection = [];
 		} else if (gesture.type === "drawing") {
-			commitDraw(gesture.id, gesture.points, gesture.color, gesture.size);
+			const finished = appendDrawSample(gesture, event);
+			commitDraw(finished.id, finished.points, finished.color, finished.size);
 		} else if (gesture.type === "creatingArrow") {
 			const target = topItemAt(gesture.current);
 			const endBinding =

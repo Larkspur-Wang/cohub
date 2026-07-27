@@ -9,10 +9,11 @@
 
 import type { Rect, WorldPoint } from "../geometry.js";
 import type { DrawPoint } from "@cohub/protocol/board-document";
+import { getStroke } from "perfect-freehand";
 
 /** Radius of a sample in world units given the stroke size and pressure. */
 export function sampleRadius(size: number, pressure: number): number {
-	// Pressure modulates width gently; a mouse (p=0.5) yields ~0.75× size.
+	// Pressure modulates width gently; a mouse (p=0.5) yields the base size.
 	const clamped = Math.min(1, Math.max(0, pressure));
 	return Math.max(0.5, (size / 2) * (0.5 + clamped));
 }
@@ -98,10 +99,9 @@ function perpendicularDistance(
 }
 
 /**
- * Build a closed outline polygon for a variable-width stroke. The left side is
- * offset outward along each segment normal by the sample radius, the right side
- * mirrored, producing a smooth ribbon that widens with pressure. Suitable for a
- * filled Pixi polygon. Returns an empty array for degenerate input.
+ * Build a closed, pressure-sensitive outline suitable for a filled Pixi polygon.
+ * The raw samples remain authoritative; the outline is derived with rounded caps
+ * and joins that stay stable through sharp turns and self-intersections.
  */
 export function buildStrokeOutline(
 	points: DrawPoint[],
@@ -127,27 +127,19 @@ export function buildStrokeOutline(
 			{ x: p.x - k, y: p.y - k },
 		];
 	}
-	const left: Array<{ x: number; y: number }> = [];
-	const right: Array<{ x: number; y: number }> = [];
-	for (let i = 0; i < n; i += 1) {
-		const current = points[i];
-		const prev = points[Math.max(0, i - 1)] ?? current;
-		const next = points[Math.min(n - 1, i + 1)] ?? current;
-		if (!current || !prev || !next) continue;
-		let dx = next.x - prev.x;
-		let dy = next.y - prev.y;
-		const len = Math.hypot(dx, dy) || 1;
-		dx /= len;
-		dy /= len;
-		// Normal (perpendicular).
-		const nx = -dy;
-		const ny = dx;
-		const r = sampleRadius(size, current.p);
-		left.push({ x: current.x + nx * r, y: current.y + ny * r });
-		right.push({ x: current.x - nx * r, y: current.y - ny * r });
-	}
-	// Left forward, then right reversed, forms a closed ribbon.
-	return [...left, ...right.reverse()];
+	return getStroke(
+		points.map((point) => [point.x, point.y, point.p]),
+		{
+			size: Math.max(1, size),
+			thinning: 0.5,
+			smoothing: 0.5,
+			streamline: 0,
+			simulatePressure: false,
+			last: true,
+			start: { cap: true },
+			end: { cap: true },
+		},
+	).map(([x, y]) => ({ x, y }));
 }
 
 /**
