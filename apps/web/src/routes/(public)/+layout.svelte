@@ -18,6 +18,6 @@ const isPublicWorkPath = $derived.by(() => {
 	{/if}
 </svelte:head>
 
-<div class="min-h-screen overflow-x-hidden bg-bg-primary text-text-primary">
+<div class="min-h-screen overflow-x-clip bg-bg-primary text-text-primary">
 	{@render children?.()}
 </div>

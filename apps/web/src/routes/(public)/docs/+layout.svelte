@@ -6,6 +6,7 @@ import { page } from "$app/state";
 import DocsLangSwitch from "$lib/components/docs/DocsLangSwitch.svelte";
 import DocsSearch from "$lib/components/docs/DocsSearch.svelte";
 import DocsSidebar from "$lib/components/docs/DocsSidebar.svelte";
+import PublicContentShell from "$lib/components/PublicContentShell.svelte";
 import PublicHeader from "$lib/components/PublicHeader.svelte";
 import {
 	alternateDocsHref,
@@ -61,49 +62,44 @@ onMount(() => {
 });
 </script>
 
+{#snippet desktopSidebar()}
+	<div class="mb-4 flex items-start justify-between gap-2 px-2">
+		<div class="min-w-0">
+			<div class="text-[12px] font-semibold tracking-tight text-text-primary">
+				{ui.docsLabel}
+			</div>
+			<p class="mt-1 text-[12px] text-text-tertiary">
+				{ui.docsTagline}
+			</p>
+		</div>
+		<DocsLangSwitch {locale} {alternateHref} />
+	</div>
+	<div class="mb-5 px-2">
+		<button
+			type="button"
+			class="inline-flex h-8 w-full items-center gap-2 rounded-[6px] border border-border-subtle bg-bg-input px-2.5 text-left text-[12px] text-text-tertiary transition-colors hover:border-border-strong hover:text-text-secondary"
+			onclick={() => {
+				searchOpen = true;
+			}}
+		>
+			<Search class="h-3.5 w-3.5 shrink-0" />
+			<span class="min-w-0 flex-1 truncate">{ui.searchButton}</span>
+			<kbd
+				class="rounded-[4px] border border-border-subtle bg-bg-surface px-1.5 py-0.5 font-mono text-[10px] text-text-placeholder"
+				>⌘K</kbd
+			>
+		</button>
+	</div>
+	<DocsSidebar sections={data.sections} {currentSlug} />
+{/snippet}
+
 <div class="min-h-screen bg-bg-primary text-text-primary">
 	<PublicHeader cta="open-app" />
 
-	<div
-		class="mx-auto flex w-full max-w-7xl gap-0 px-0 lg:gap-10 lg:px-8 lg:pb-16 lg:pt-2"
-	>
-		<aside
-			class="sticky top-[57px] hidden h-[calc(100vh-57px)] w-56 shrink-0 overflow-y-auto py-8 lg:block"
-			aria-label={ui.docsLabel}
-		>
-			<div class="mb-4 flex items-start justify-between gap-2 px-2">
-				<div class="min-w-0">
-					<div class="text-[12px] font-semibold tracking-tight text-text-primary">
-						{ui.docsLabel}
-					</div>
-					<p class="mt-1 text-[12px] text-text-tertiary">
-						{ui.docsTagline}
-					</p>
-				</div>
-				<DocsLangSwitch {locale} {alternateHref} />
-			</div>
-			<div class="mb-5 px-2">
-				<button
-					type="button"
-					class="inline-flex h-8 w-full items-center gap-2 rounded-[6px] border border-border-subtle bg-bg-input px-2.5 text-left text-[12px] text-text-tertiary transition-colors hover:border-border-strong hover:text-text-secondary"
-					onclick={() => {
-						searchOpen = true;
-					}}
-				>
-					<Search class="h-3.5 w-3.5 shrink-0" />
-					<span class="min-w-0 flex-1 truncate">{ui.searchButton}</span>
-					<kbd
-						class="rounded-[4px] border border-border-subtle bg-bg-surface px-1.5 py-0.5 font-mono text-[10px] text-text-placeholder"
-						>⌘K</kbd
-					>
-				</button>
-			</div>
-			<DocsSidebar sections={data.sections} {currentSlug} />
-		</aside>
-
+	<PublicContentShell sidebarLabel={ui.docsLabel} sidebar={desktopSidebar}>
 		<div class="min-w-0 flex-1">
 			<div
-				class="sticky top-[57px] z-20 flex items-center gap-2 border-b border-border-subtle bg-bg-primary/90 px-4 py-2 backdrop-blur-md lg:hidden"
+				class="sticky top-12 z-20 flex items-center gap-2 border-b border-border-subtle bg-bg-primary/90 px-4 py-2 backdrop-blur-md lg:hidden"
 			>
 				<button
 					type="button"
@@ -154,7 +150,7 @@ onMount(() => {
 				{@render children()}
 			</main>
 		</div>
-	</div>
+	</PublicContentShell>
 
 	<!-- One dialog host for mobile + desktop triggers and layout ⌘K. -->
 	<DocsSearch

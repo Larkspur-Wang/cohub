@@ -38,19 +38,17 @@ function navClass(active: boolean): string {
 
 <header
 	class={sticky
-		? "sticky top-0 z-30 border-b border-border-subtle bg-bg-primary/80 backdrop-blur-md"
-		: "border-b border-border-subtle"}
+		? "sticky top-0 z-30 h-12 border-b border-border-subtle bg-bg-primary/80 backdrop-blur-md"
+		: "h-12 border-b border-border-subtle"}
 >
-	<div
-		class="mx-auto flex w-full max-w-6xl items-center justify-between gap-3 px-4 py-3.5 sm:px-8"
-	>
-		<a href="/" class="inline-flex shrink-0 items-center gap-2.5" aria-label="Cohub home">
+	<div class="flex h-full w-full items-center justify-between gap-3 px-3">
+		<a href="/" class="group inline-flex shrink-0 items-center gap-2" aria-label="Cohub home">
 			<div
-				class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border-subtle bg-bg-surface text-[14px] font-semibold text-brand"
+				class="flex h-7 w-7 shrink-0 items-center justify-center rounded-[6px] bg-brand text-[11px] font-bold text-brand-contrast-fg transition-colors group-hover:bg-brand-hover"
 			>
 				C
 			</div>
-			<span class="text-[15px] font-semibold tracking-tight text-text-primary"
+			<span class="text-[13px] font-semibold tracking-tight text-text-primary"
 				>Cohub</span
 			>
 		</a>
