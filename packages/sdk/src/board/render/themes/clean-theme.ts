@@ -11,6 +11,7 @@ type GridParts = {
 	lastWidth: number;
 	lastHeight: number;
 	lastBg: number;
+	lastBgAlpha: number;
 };
 
 const partsByContainer = new WeakMap<Container, GridParts>();
@@ -49,17 +50,22 @@ function sync(parts: GridParts, context: BoardThemeContext) {
 	const { app, document, viewport, palette } = context;
 	const width = app.screen.width;
 	const height = app.screen.height;
+	const bgAlpha = context.hasImageBackground ? 0 : 1;
 
 	if (
 		parts.lastWidth !== width ||
 		parts.lastHeight !== height ||
-		parts.lastBg !== palette.bg
+		parts.lastBg !== palette.bg ||
+		parts.lastBgAlpha !== bgAlpha
 	) {
 		parts.fill.clear();
-		parts.fill.rect(0, 0, width, height).fill({ color: palette.bg, alpha: 1 });
+		parts.fill
+			.rect(0, 0, width, height)
+			.fill({ color: palette.bg, alpha: bgAlpha });
 		parts.lastWidth = width;
 		parts.lastHeight = height;
 		parts.lastBg = palette.bg;
+		parts.lastBgAlpha = bgAlpha;
 	}
 
 	const appearance = document.appearance;
@@ -122,6 +128,7 @@ export const cleanBoardTheme: BoardThemeRenderer = {
 			lastWidth: -1,
 			lastHeight: -1,
 			lastBg: Number.NaN,
+			lastBgAlpha: Number.NaN,
 		};
 		partsByContainer.set(container, parts);
 		sync(parts, context);

@@ -8,6 +8,8 @@ export type BoardThemeContext = {
 	document: BoardDocument;
 	viewport: BoardViewport;
 	palette: BoardRenderPalette;
+	/** The host renders an image backdrop below the transparent Pixi canvas. */
+	hasImageBackground?: boolean;
 };
 
 export type BoardThemeRenderer = {

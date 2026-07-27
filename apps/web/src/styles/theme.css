@@ -10,7 +10,12 @@
    can override any of these to recolor board shapes end-to-end.
    ============================================================ */
 :where(:root, [data-theme]) {
+	/* Shared fallbacks; individual themes only override where semantics differ. */
 	--status-running: var(--success-400);
+	--board-selection-accent: var(--brand);
+	--board-background-image-url: "";
+	--board-background-tile-width: 0;
+	--board-background-tile-height: 0;
 }
 
 :root,

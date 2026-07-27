@@ -41,8 +41,10 @@ import {
 import type { BoardStageExportBridge } from "$lib/board/board-image-export";
 import { createBoardScene } from "$lib/board/board-scene";
 import {
+	type BoardThemeBackground,
 	type BoardThemeSnapshot,
 	boardThemeKey,
+	resolveBoardBackground,
 	resolveBoardTheme,
 } from "$lib/board/board-theme";
 import { resizeCursorForHandle } from "$lib/board/core/selection-transform";
@@ -100,6 +102,7 @@ let effectsFront: Container | null = null;
 let screenEffects: Container | null = null;
 let background: Container | null = null;
 let backgroundThemeId: string | null = null;
+let boardBackdrop: BoardThemeBackground | null = $state(null);
 let farLayer: Graphics | null = null;
 let overlay: Graphics | null = null;
 let scene: ReturnType<typeof createBoardScene> | null = null;
@@ -328,14 +331,36 @@ function computeVisibleIds(): Set<string> | null {
 	return visibleIds;
 }
 
-function syncBackground(palette: BoardRenderPalette) {
+function sameBackdrop(
+	left: BoardThemeBackground | null,
+	right: BoardThemeBackground | null,
+): boolean {
+	return (
+		left?.url === right?.url &&
+		left?.tileWidth === right?.tileWidth &&
+		left?.tileHeight === right?.tileHeight
+	);
+}
+
+function backdropSize(value: BoardThemeBackground): string {
+	if (!value.tileWidth || !value.tileHeight) return "auto";
+	return `${value.tileWidth * editor.camera.zoom}px ${value.tileHeight * editor.camera.zoom}px`;
+}
+
+function syncBackground(theme: BoardThemeSnapshot) {
 	if (!app) return;
+	const nextBackdrop = resolveBoardBackground(
+		editor.document.appearance,
+		theme.background,
+	);
+	if (!sameBackdrop(boardBackdrop, nextBackdrop)) boardBackdrop = nextBackdrop;
 	const themeRenderer = getBoardThemeRenderer(editor.document);
 	const context = {
 		app,
 		document: editor.document,
 		viewport: editor.camera,
-		palette,
+		palette: theme.palette,
+		hasImageBackground: Boolean(nextBackdrop),
 	};
 	if (!background || backgroundThemeId !== themeRenderer.id) {
 		background?.destroy({ children: true });
@@ -399,8 +424,9 @@ function remotePreviewItems(): Map<string, BoardItem> {
 
 function syncStage() {
 	if (!app || !world || !scene) return;
-	const palette = getPalette();
-	syncBackground(palette);
+	const theme = resolveTheme();
+	const palette = theme.palette;
+	syncBackground(theme);
 	world.x = editor.camera.x;
 	world.y = editor.camera.y;
 	world.scale.set(editor.camera.zoom);
@@ -1120,6 +1146,7 @@ onDestroy(() => {
 <div
 	bind:this={host}
 	class="relative h-full w-full overflow-hidden {dropActive ? 'board-drop-active' : ''}"
+	class:bg-bg-primary={Boolean(boardBackdrop)}
 	role="application"
 	aria-label="Board stage"
 	data-drawer-swipe-ignore
@@ -1149,7 +1176,18 @@ onDestroy(() => {
 	}}
 	ondragleave={() => { dropActive = false; }}
 	ondrop={handleDrop}
-></div>
+>
+	{#if boardBackdrop}
+		<div
+			aria-hidden="true"
+			class="pointer-events-none absolute inset-0"
+			style:background-image={`url(${JSON.stringify(boardBackdrop.url)})`}
+			style:background-position={`${editor.camera.x}px ${editor.camera.y}px`}
+			style:background-repeat="repeat"
+			style:background-size={backdropSize(boardBackdrop)}
+		></div>
+	{/if}
+</div>
 
 <style>
 	.board-drop-active::after {
