@@ -10,7 +10,6 @@ import {
 } from "@neta-art/cohub/board";
 import {
 	ArrowUpRight,
-	ChevronUp,
 	Circle,
 	Diamond,
 	Frame,
@@ -32,7 +31,6 @@ const {
 	immersive = false,
 }: { editor: BoardEditor; immersive?: boolean } = $props();
 
-let moreOpen = $state(false);
 let styleOpen = $state(false);
 let previousTool = $state<BoardToolId | null>(null);
 
@@ -43,8 +41,6 @@ type ToolDef = {
 	icon: typeof MousePointer2;
 	/** Creation tools that expose their contextual style row. */
 	hasStyle: boolean;
-	/** Shown behind "More" on narrow touch layouts. */
-	secondary?: boolean;
 };
 
 const TOOLS: ToolDef[] = [
@@ -72,19 +68,13 @@ const TOOLS: ToolDef[] = [
 		shortcut: "F",
 		icon: Frame,
 		hasStyle: true,
-		secondary: true,
 	},
 ];
 
-const primaryTools = $derived(TOOLS.filter((tool) => !tool.secondary));
-const secondaryTools = $derived(TOOLS.filter((tool) => tool.secondary));
 const activeTool = $derived(
 	TOOLS.find((candidate) => candidate.id === editor.tool),
 );
 const showStyles = $derived(Boolean(activeTool?.hasStyle && styleOpen));
-const secondaryActive = $derived(
-	secondaryTools.some((tool) => tool.id === editor.tool),
-);
 
 $effect(() => {
 	const current = editor.tool;
@@ -93,7 +83,6 @@ $effect(() => {
 	styleOpen = Boolean(
 		TOOLS.find((candidate) => candidate.id === current)?.hasStyle,
 	);
-	moreOpen = false;
 });
 
 const GEO_OPTIONS: Record<GeoKind, { label: string; icon: typeof Square }> = {
@@ -109,12 +98,6 @@ function selectTool(id: BoardToolId) {
 	const styleWasOpen = editor.tool === id && styleOpen;
 	editor.tool = id;
 	styleOpen = Boolean(tool?.hasStyle && !styleWasOpen);
-	moreOpen = false;
-}
-
-function toggleMore() {
-	moreOpen = !moreOpen;
-	if (moreOpen) styleOpen = false;
 }
 
 function toolTitle(tool: ToolDef) {
@@ -181,26 +164,8 @@ function toolTitle(tool: ToolDef) {
 		</div>
 	{/if}
 
-	{#if moreOpen}
-		<div class="board-more-menu" role="menu" aria-label="More tools">
-			{#each secondaryTools as tool (tool.id)}
-				<button
-					type="button"
-					class="more-item"
-					class:more-item--active={editor.tool === tool.id}
-					role="menuitem"
-					onclick={() => selectTool(tool.id)}
-				>
-					<tool.icon class="h-4 w-4" />
-					<span>{tool.label}</span>
-					<span class="more-shortcut">{tool.shortcut}</span>
-				</button>
-			{/each}
-		</div>
-	{/if}
-
 	<div class="board-floating-toolbar" role="toolbar" aria-label="Board tools">
-		{#each primaryTools as tool (tool.id)}
+		{#each TOOLS as tool (tool.id)}
 			<button
 				type="button"
 				class="tool-btn"
@@ -216,38 +181,6 @@ function toolTitle(tool: ToolDef) {
 				<tool.icon class="h-4 w-4" />
 			</button>
 		{/each}
-
-		<!-- Secondary tools: inline on desktop, "More" on coarse/narrow. -->
-		<div class="secondary-inline">
-			{#each secondaryTools as tool (tool.id)}
-				<button
-					type="button"
-					class="tool-btn"
-					class:tool-btn--active={editor.tool === tool.id}
-					title={toolTitle(tool)}
-					aria-label="{tool.label} tool"
-					aria-pressed={editor.tool === tool.id}
-					aria-expanded={tool.hasStyle
-						? editor.tool === tool.id && showStyles
-						: undefined}
-					onclick={() => selectTool(tool.id)}
-				>
-					<tool.icon class="h-4 w-4" />
-				</button>
-			{/each}
-		</div>
-
-		<button
-			type="button"
-			class="tool-btn more-btn"
-			class:tool-btn--active={moreOpen || secondaryActive}
-			title="More tools"
-			aria-label="More tools"
-			aria-expanded={moreOpen}
-			onclick={toggleMore}
-		>
-			<ChevronUp class="h-4 w-4" />
-		</button>
 
 		<div class="divider history-divider"></div>
 
@@ -370,49 +303,6 @@ function toolTitle(tool: ToolDef) {
 		background: var(--border-subtle);
 	}
 
-	.board-more-menu {
-		position: absolute;
-		bottom: calc(100% + 6px);
-		left: 50%;
-		display: flex;
-		min-width: 160px;
-		flex-direction: column;
-		gap: 2px;
-		border-radius: 10px;
-		border: 1px solid var(--border-subtle);
-		background: color-mix(in srgb, var(--bg-elevated) 96%, transparent);
-		padding: 4px;
-		box-shadow: 0 10px 24px color-mix(in srgb, var(--overlay-scrim-strong) 16%, transparent);
-		backdrop-filter: blur(12px);
-		transform: translateX(-50%);
-	}
-
-	.more-item {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		border: 0;
-		border-radius: 7px;
-		background: transparent;
-		padding: 8px 10px;
-		color: var(--text-secondary);
-		font-size: 12px;
-		font-weight: 500;
-		text-align: left;
-		cursor: pointer;
-	}
-	.more-item:hover { background: var(--bg-hover); color: var(--text-primary); }
-	.more-item--active {
-		background: var(--brand-bg);
-		color: var(--brand-muted-fg);
-	}
-	.more-shortcut {
-		margin-left: auto;
-		color: var(--text-placeholder);
-		font-size: 10px;
-		font-variant-numeric: tabular-nums;
-	}
-
 	.board-floating-toolbar {
 		display: flex;
 		align-items: center;
@@ -424,13 +314,6 @@ function toolTitle(tool: ToolDef) {
 		box-shadow: 0 10px 24px color-mix(in srgb, var(--overlay-scrim-strong) 16%, transparent);
 		backdrop-filter: blur(12px);
 	}
-
-	.secondary-inline {
-		display: inline-flex;
-		align-items: center;
-		gap: 2px;
-	}
-	.more-btn { display: none; }
 
 	.tool-btn {
 		display: inline-flex;
@@ -459,7 +342,7 @@ function toolTitle(tool: ToolDef) {
 		background: var(--border-subtle);
 	}
 
-	/* Mobile: larger targets, More menu, safe-area, room for top zoom. */
+	/* Mobile: larger targets, safe-area, room for top zoom. */
 	@media (pointer: coarse) {
 		.board-toolbar-wrap {
 			bottom: calc(10px + env(safe-area-inset-bottom, 0px));
@@ -486,9 +369,6 @@ function toolTitle(tool: ToolDef) {
 		.color-list { gap: 6px; }
 		.color-swatch { width: 26px; height: 26px; flex-shrink: 0; }
 		.geo-btn { width: 32px; height: 32px; flex-shrink: 0; }
-
-		.secondary-inline { display: none; }
-		.more-btn { display: inline-flex; }
 	}
 
 	@media (pointer: coarse) and (max-width: 480px) {
