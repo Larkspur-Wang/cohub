@@ -34,8 +34,16 @@ function doc(items: BoardItem[]): BoardDocument {
   } as BoardDocument;
 }
 
-const note = (id: string, x: number, y: number): BoardItem =>
-  ({ id, type: "note", text: id, color: "amber", frame: frame(x, y, 100, 80) }) as BoardItem;
+const box = (id: string, x: number, y: number): BoardItem =>
+  ({
+    id,
+    type: "geo",
+    geo: "rectangle",
+    text: id,
+    color: "brand",
+    fillOpacity: 0,
+    frame: frame(x, y, 100, 80),
+  }) as BoardItem;
 
 test("planBoardExport returns null for an empty document", () => {
   assert.equal(planBoardExport({ document: doc([]), region: { kind: "all" } }), null);
@@ -43,7 +51,7 @@ test("planBoardExport returns null for an empty document", () => {
 
 test("all region unions every item and applies default padding", () => {
   const plan = planBoardExport({
-    document: doc([note("a", 0, 0), note("b", 300, 200)]),
+    document: doc([box("a", 0, 0), box("b", 300, 200)]),
     region: { kind: "all" },
     scale: 1,
   });
@@ -59,7 +67,7 @@ test("all region unions every item and applies default padding", () => {
 
 test("items region keeps only the requested ids", () => {
   const plan = planBoardExport({
-    document: doc([note("a", 0, 0), note("b", 300, 0), note("c", 600, 0)]),
+    document: doc([box("a", 0, 0), box("b", 300, 0), box("c", 600, 0)]),
     region: { kind: "items", ids: ["a", "c"] },
     scale: 1,
   });
@@ -73,8 +81,8 @@ test("items region keeps only the requested ids", () => {
 test("frame region excludes the frame itself but keeps what it contains", () => {
   const document = doc([
     { id: "f", type: "frame", label: "Page", color: "neutral", frame: frame(0, 0, 500, 400) } as BoardItem,
-    note("inside", 50, 50),
-    note("outside", 900, 900),
+    box("inside", 50, 50),
+    box("outside", 900, 900),
   ]);
   const plan = planBoardExport({ document, region: { kind: "frame", id: "f" }, scale: 1 });
   assert.ok(plan);
@@ -88,7 +96,7 @@ test("frame region excludes the frame itself but keeps what it contains", () => 
 
 test("frame region returns null for an unknown id", () => {
   const plan = planBoardExport({
-    document: doc([note("a", 0, 0)]),
+    document: doc([box("a", 0, 0)]),
     region: { kind: "frame", id: "missing" },
   });
   assert.equal(plan, null);
@@ -96,7 +104,7 @@ test("frame region returns null for an unknown id", () => {
 
 test("rect region selects intersecting items and is not padded", () => {
   const plan = planBoardExport({
-    document: doc([note("a", 0, 0), note("b", 800, 0)]),
+    document: doc([box("a", 0, 0), box("b", 800, 0)]),
     region: { kind: "rect", rect: frame(0, 0, 200, 200) },
     scale: 1,
   });
@@ -110,7 +118,7 @@ test("rect region selects intersecting items and is not padded", () => {
 
 test("explicit padding overrides the per-region default", () => {
   const plan = planBoardExport({
-    document: doc([note("a", 0, 0)]),
+    document: doc([box("a", 0, 0)]),
     region: { kind: "rect", rect: frame(0, 0, 100, 100) },
     padding: 10,
     scale: 1,
@@ -121,7 +129,7 @@ test("explicit padding overrides the per-region default", () => {
 
 test("scale is clamped to the edge budget and reported as clamped", () => {
   const plan = planBoardExport({
-    document: doc([note("a", 0, 0)]),
+    document: doc([box("a", 0, 0)]),
     region: { kind: "rect", rect: frame(0, 0, 4000, 100) },
     scale: 8,
     maxEdge: 8192,
@@ -135,7 +143,7 @@ test("scale is clamped to the edge budget and reported as clamped", () => {
 
 test("scale is clamped to the pixel budget even when each edge fits", () => {
   const plan = planBoardExport({
-    document: doc([note("a", 0, 0)]),
+    document: doc([box("a", 0, 0)]),
     region: { kind: "rect", rect: frame(0, 0, 4000, 4000) },
     scale: 2,
     maxEdge: 8192,
@@ -158,7 +166,7 @@ for (const [width, height] of [
 ] as const) {
   test(`a ${width}x${height} region still respects both budgets`, () => {
     const plan = planBoardExport({
-      document: doc([note("a", 0, 0)]),
+      document: doc([box("a", 0, 0)]),
       region: { kind: "rect", rect: frame(0, 0, width, height) },
       scale: 2,
     });
@@ -179,7 +187,7 @@ for (const [width, height] of [
 test("a non-finite or non-positive scale falls back to a usable one", () => {
   for (const scale of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
     const plan = planBoardExport({
-      document: doc([note("a", 0, 0)]),
+      document: doc([box("a", 0, 0)]),
       region: { kind: "rect", rect: frame(0, 0, 100, 100) },
       scale,
     });
@@ -191,7 +199,7 @@ test("a non-finite or non-positive scale falls back to a usable one", () => {
 
 test("a requested scale that fits is preserved exactly", () => {
   const plan = planBoardExport({
-    document: doc([note("a", 0, 0)]),
+    document: doc([box("a", 0, 0)]),
     region: { kind: "rect", rect: frame(0, 0, 100, 100) },
     scale: 3,
   });
@@ -204,8 +212,8 @@ test("a requested scale that fits is preserved exactly", () => {
 
 test("arrow bounds resolve through bindings so bound arrows are not clipped", () => {
   const document = doc([
-    note("a", 0, 0),
-    note("b", 400, 300),
+    box("a", 0, 0),
+    box("b", 400, 300),
     {
       id: "arrow",
       type: "arrow",
@@ -227,7 +235,7 @@ test("arrow bounds resolve through bindings so bound arrows are not clipped", ()
     scale: 1,
   });
   assert.ok(plan);
-  // The arrow's own frame is 1×1; resolved through its bindings it spans both notes.
+  // The arrow's own frame is 1×1; resolved through its bindings it spans both boxes.
   assert.ok(plan.world.width > 300, `expected a resolved span, got ${plan.world.width}`);
   assert.ok(plan.world.height > 200, `expected a resolved span, got ${plan.world.height}`);
 });

@@ -295,7 +295,7 @@ test("requires extension asset digests", () => {
 function nodeInput(nodeId: string) {
   return {
     nodeId,
-    type: "note",
+    type: "test-shape",
     parentId: null,
     orderKey: null,
     x: 0,

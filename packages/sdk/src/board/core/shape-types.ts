@@ -66,7 +66,7 @@ export type ShapeCapabilities = {
 	aspectLocked: boolean;
 	/** Shows the rotation handle. */
 	canRotate: boolean;
-	/** Supports double-click inline editing (text/note). */
+	/** Supports double-click inline editing. */
 	canEdit: boolean;
 	/** Can be a binding target for arrows. */
 	canBind: boolean;
@@ -186,13 +186,6 @@ export type ArrowShapeProps = {
 	arrowStart: boolean;
 	arrowEnd: boolean;
 	label: string;
-};
-
-// ─── Note shape ─────────────────────────────────────────────────────
-
-export type NoteShapeProps = {
-	text: string;
-	color: string;
 };
 
 // ─── Text shape ─────────────────────────────────────────────────────

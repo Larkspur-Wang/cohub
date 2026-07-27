@@ -30,12 +30,14 @@ function text(locked = false): BoardItem {
 	};
 }
 
-function note(): BoardItem {
+function geo(): BoardItem {
 	return {
-		id: "note",
-		type: "note",
-		text: "Note",
-		color: "amber",
+		id: "geo",
+		type: "geo",
+		geo: "rectangle",
+		text: "",
+		color: "brand",
+		fillOpacity: 0,
 		frame,
 	};
 }
@@ -61,9 +63,9 @@ test("selection transform maps shape capabilities to concise controls", () => {
 	assert.equal(textTransform?.resizeMode, "uniform");
 	assert.equal(textTransform?.canRotate, true);
 
-	const noteTransform = resolveSelectionTransform([note()], bounds);
-	assert.equal(noteTransform?.resizeMode, "free");
-	assert.equal(noteTransform?.canRotate, true);
+	const geoTransform = resolveSelectionTransform([geo()], bounds);
+	assert.equal(geoTransform?.resizeMode, "free");
+	assert.equal(geoTransform?.canRotate, true);
 
 	const lockedTransform = resolveSelectionTransform([text(true)], bounds);
 	assert.equal(lockedTransform?.resizeMode, "none");
@@ -71,11 +73,11 @@ test("selection transform maps shape capabilities to concise controls", () => {
 });
 
 test("group transforms use the strict capability intersection", () => {
-	const scalable = resolveSelectionTransform([text(), note()], bounds);
+	const scalable = resolveSelectionTransform([text(), geo()], bounds);
 	assert.equal(scalable?.resizeMode, "uniform");
 	assert.equal(scalable?.canRotate, true);
 
-	const withArrow = resolveSelectionTransform([note(), arrow()], bounds);
+	const withArrow = resolveSelectionTransform([geo(), arrow()], bounds);
 	assert.equal(withArrow?.resizeMode, "none");
 	assert.equal(withArrow?.canRotate, false);
 });
@@ -93,7 +95,7 @@ test("uniform shapes expose corners but not edge stretching", () => {
 });
 
 test("free shapes expose continuous edges and a separate rotation handle", () => {
-	const transform = resolveSelectionTransform([note()], bounds);
+	const transform = resolveSelectionTransform([geo()], bounds);
 	assert.deepEqual(
 		selectionTransformControlAt(transform, worldPoint(100, 35), 1, "mouse"),
 		{ kind: "resize", handle: "e" },

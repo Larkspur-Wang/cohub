@@ -98,12 +98,6 @@ export const BoardTextItemSchema = BoardItemBaseSchema.extend({
 		.default(BOARD_TEXT_FONT_SIZE),
 });
 
-export const BoardNoteItemSchema = BoardItemBaseSchema.extend({
-	type: z.literal("note"),
-	text: z.string().default(""),
-	color: z.string().min(1).default("amber"),
-});
-
 export const BoardGeoItemSchema = BoardItemBaseSchema.extend({
 	type: z.literal("geo"),
 	geo: z.string().min(1).default("rectangle"),
@@ -232,7 +226,6 @@ export const KNOWN_BOARD_ITEM_TYPES = [
 	"video",
 	"file",
 	"text",
-	"note",
 	"geo",
 	"draw",
 	"arrow",
@@ -298,10 +291,6 @@ export function parseBoardItemLoose(raw: unknown): BoardItem {
 			const parsed = BoardTextItemSchema.safeParse(raw);
 			return parsed.success ? parsed.data : makeUnknownItem(raw);
 		}
-		case "note": {
-			const parsed = BoardNoteItemSchema.safeParse(raw);
-			return parsed.success ? parsed.data : makeUnknownItem(raw);
-		}
 		case "geo": {
 			const parsed = BoardGeoItemSchema.safeParse(raw);
 			return parsed.success ? parsed.data : makeUnknownItem(raw);
@@ -363,7 +352,6 @@ export type BoardItemStyle = z.infer<typeof BoardItemStyleSchema>;
 export type SpaceFileRef = z.infer<typeof SpaceFileRefSchema>;
 export type BoardMediaSnapshot = z.infer<typeof BoardMediaSnapshotSchema>;
 export type BoardTextItem = z.infer<typeof BoardTextItemSchema>;
-export type BoardNoteItem = z.infer<typeof BoardNoteItemSchema>;
 export type BoardGeoItem = z.infer<typeof BoardGeoItemSchema>;
 export type DrawPoint = z.infer<typeof DrawPointSchema>;
 export type BoardDrawItem = z.infer<typeof BoardDrawItemSchema>;
@@ -380,7 +368,6 @@ export type BoardKnownItem =
 	| BoardVideoItem
 	| BoardFileItem
 	| BoardTextItem
-	| BoardNoteItem
 	| BoardGeoItem
 	| BoardDrawItem
 	| BoardArrowItem

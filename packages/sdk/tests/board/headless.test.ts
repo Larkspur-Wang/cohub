@@ -31,7 +31,15 @@ const items: BoardItem[] = [
     color: "brand",
     frame: frame(24, 24, 300, 40),
   },
-  { id: "n1", type: "note", text: "note", color: "amber", frame: frame(24, 90, 160, 100) },
+  {
+    id: "g0",
+    type: "geo",
+    geo: "rectangle",
+    text: "box",
+    color: "amber",
+    fillOpacity: 0.2,
+    frame: frame(24, 90, 160, 100),
+  },
   {
     id: "g1",
     type: "geo",
@@ -56,7 +64,7 @@ const items: BoardItem[] = [
   {
     id: "a1",
     type: "arrow",
-    start: { kind: "binding", target: "n1", nx: 1, ny: 0.5, precise: true },
+    start: { kind: "binding", target: "g0", nx: 1, ny: 0.5, precise: true },
     end: { kind: "binding", target: "g1", nx: 0, ny: 0.5, precise: true },
     bend: 0.2,
     color: "violet",

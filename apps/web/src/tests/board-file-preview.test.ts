@@ -9,6 +9,7 @@ import {
 	formatFileSize,
 	isFileSnapshotFresh,
 	readCoverFromFrontmatter,
+	readTitleFromFrontmatter,
 	resolveCoverRef,
 	resolveSpacePath,
 	splitFrontmatter,
@@ -62,6 +63,13 @@ test("cover key precedence and nesting", () => {
 	// Nested keys belong to some other mapping, not the file itself.
 	assert.equal(readCoverFromFrontmatter("other:\n  cover: nested.png"), null);
 	assert.equal(readCoverFromFrontmatter(null), null);
+});
+
+test("title is read only from a non-empty top-level frontmatter scalar", () => {
+	assert.equal(readTitleFromFrontmatter("title: A warm story"), "A warm story");
+	assert.equal(readTitleFromFrontmatter('title: "Cats: Dogs"'), "Cats: Dogs");
+	assert.equal(readTitleFromFrontmatter("title:\n  nested: value"), null);
+	assert.equal(readTitleFromFrontmatter("meta:\n  title: Nested"), null);
 });
 
 test("https covers are allowed; insecure and opaque schemes are not", () => {
@@ -153,14 +161,17 @@ test("snapshot builds from metadata alone when content is absent", () => {
 	assert.equal(filePreviewKind(snapshot), "blank");
 });
 
-test("snapshot extracts both cover and excerpt from markdown", () => {
+test("snapshot extracts title, cover and excerpt from markdown", () => {
 	const snapshot = buildFileSnapshot({
 		path: "docs/post.md",
-		content: "---\ncover: ./hero.png\n---\nThe body text.",
+		title: "post.md",
+		content:
+			"---\ntitle: Cats and Dogs\ncover: ./hero.png\n---\nThe body text.",
 		mimeType: "text/markdown",
 		size: 40,
 		mtimeMs: 7,
 	});
+	assert.equal(snapshot.title, "Cats and Dogs");
 	assert.equal(snapshot.coverPath, "docs/hero.png");
 	assert.equal(snapshot.excerpt, "The body text.");
 	// Frontmatter must not leak into the excerpt.

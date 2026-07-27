@@ -160,14 +160,6 @@ function boardItemToNodeWithKey(
 					["autoSize"],
 				),
 			};
-		case "note":
-			return {
-				...base,
-				...preservedRef,
-				type: "note",
-				view: preservedView,
-				data: dataWith({ text: item.text, color: item.color }),
-			};
 		case "geo":
 			return {
 				...base,

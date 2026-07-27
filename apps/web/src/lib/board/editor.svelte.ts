@@ -805,9 +805,9 @@ export function createBoardEditor(options: BoardEditorOptions) {
 	}
 
 	/**
-	 * Start an inline text note as a local-only draft (double-click on empty
-	 * board). It is not marked dirty, recorded in undo, or synced until the
-	 * edit is confirmed non-empty — so an abandoned empty note leaves no trace.
+	 * Start inline text as a local-only draft (double-click on empty board). It is
+	 * not marked dirty, recorded in undo, or synced until the edit is confirmed
+	 * non-empty, so an abandoned draft leaves no trace.
 	 */
 	function beginTextDraft(at: WorldPoint) {
 		const item = createTextBoardItem("", at.x, at.y);
@@ -823,8 +823,8 @@ export function createBoardEditor(options: BoardEditorOptions) {
 	function commitTextEdit(id: string, text: string) {
 		const isDraft = id === draftId;
 		const target = itemById(id);
-		// An emptied *text* item (or an abandoned draft) is removed; a note/geo
-		// keeps its shape and simply loses its label.
+		// An emptied text item (or an abandoned draft) is removed; a geo keeps its
+		// shape and simply loses its label.
 		const shouldDelete =
 			text.trim() === "" && (isDraft || target?.type === "text");
 		if (shouldDelete) {
@@ -1103,8 +1103,8 @@ export function createBoardEditor(options: BoardEditorOptions) {
 	}
 
 	/**
-	 * Set the palette color on the selected color-bearing shapes (note, geo, draw,
-	 * arrow). Shapes without a color field are left untouched.
+	 * Set the palette color on selected text, geo, draw, arrow and frame shapes.
+	 * Shapes without a color field are left untouched.
 	 */
 	function setSelectionColor(color: string) {
 		const movable = unlockedIds(selection);
@@ -1115,7 +1115,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
 			if (!ids.has(item.id) || isLocked(item)) return item;
 			if (
 				item.type === "text" ||
-				item.type === "note" ||
 				item.type === "geo" ||
 				item.type === "draw" ||
 				item.type === "arrow" ||
@@ -1337,19 +1336,12 @@ export function createBoardEditor(options: BoardEditorOptions) {
 
 	function updateText(id: string, text: string) {
 		const target = itemById(id);
-		if (
-			!target ||
-			(target.type !== "text" &&
-				target.type !== "note" &&
-				target.type !== "geo")
-		)
-			return;
+		if (!target || (target.type !== "text" && target.type !== "geo")) return;
 		if (target.text === text) return;
 		setItems(
 			synced.items.map((item) => {
 				if (item.id !== id) return item;
-				if (item.type === "note" || item.type === "geo")
-					return { ...item, text };
+				if (item.type === "geo") return { ...item, text };
 				if (item.type !== "text") return item;
 				const size = measureBoardText(text, item.fontSize);
 				return {

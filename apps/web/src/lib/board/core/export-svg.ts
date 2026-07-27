@@ -11,7 +11,6 @@ import type {
 	BoardFrame,
 	BoardGeoItem,
 	BoardItem,
-	BoardNoteItem,
 	BoardTextItem,
 } from "@neta-art/cohub/board";
 import {
@@ -62,19 +61,6 @@ function exportText(item: BoardTextItem): string {
 		.join("");
 	// Transparent freestanding text — no card chrome.
 	return `<g${transformAttr(frame)}><text x="${frame.x}" y="${frame.y + fontSize}" fill="${stroke}" font-family="Geist, system-ui, sans-serif" font-size="${fontSize}" font-weight="500">${tspans}</text></g>`;
-}
-
-function exportNote(item: BoardNoteItem): string {
-	const fill = colorHex(item.color);
-	const { frame, text } = item;
-	const lines = escapeXml(text || "Note").split("\n");
-	const tspans = lines
-		.map(
-			(line, index) =>
-				`<tspan x="${frame.x + 12}" dy="${index === 0 ? 0 : 18}">${line || " "}</tspan>`,
-		)
-		.join("");
-	return `<g${transformAttr(frame)}><rect x="${frame.x}" y="${frame.y}" width="${frame.width}" height="${frame.height}" rx="12" fill="${fill}" fill-opacity="0.18" stroke="${fill}" stroke-width="1.5"/><text x="${frame.x + 12}" y="${frame.y + 28}" fill="${fill}" font-family="Geist, system-ui, sans-serif" font-size="14" font-weight="600">${tspans}</text></g>`;
 }
 
 function exportGeo(item: BoardGeoItem): string {
@@ -183,8 +169,6 @@ export function itemToSvg(item: BoardItem, getFrame: FrameLookup): string {
 	switch (item.type) {
 		case "text":
 			return exportText(item);
-		case "note":
-			return exportNote(item);
 		case "geo":
 			return exportGeo(item);
 		case "draw":

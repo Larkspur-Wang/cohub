@@ -139,16 +139,6 @@ function boardNodeToItemValue(node: BoardNodeRecord): BoardItem {
 				...(locked ? { locked } : {}),
 				style,
 			};
-		case "note":
-			return {
-				id: node.nodeId,
-				type: "note",
-				text: typeof data.text === "string" ? data.text : "",
-				color: typeof data.color === "string" ? data.color : "amber",
-				frame,
-				...(locked ? { locked } : {}),
-				style,
-			};
 		case "geo":
 			return {
 				id: node.nodeId,

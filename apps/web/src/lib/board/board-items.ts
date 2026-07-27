@@ -215,27 +215,7 @@ export function createTextBoardItem(
 	};
 }
 
-const DEFAULT_NOTE_SIZE = { width: 200, height: 200 };
 const DEFAULT_GEO_SIZE = { width: 200, height: 140 };
-
-export function createNoteBoardItem(
-	x: number,
-	y: number,
-	color = "amber",
-	text = "",
-): BoardItem {
-	return {
-		id: createBoardItemId(),
-		type: "note",
-		text,
-		color,
-		frame: createFrame(
-			x - DEFAULT_NOTE_SIZE.width / 2,
-			y - DEFAULT_NOTE_SIZE.height / 2,
-			DEFAULT_NOTE_SIZE,
-		),
-	};
-}
 
 export function createGeoBoardItem(
 	geo: string,
@@ -439,8 +419,6 @@ export function titleForBoardItem(item: BoardItem): string {
 	switch (item.type) {
 		case "text":
 			return item.text.split("\n")[0] || "Text";
-		case "note":
-			return item.text.split("\n")[0] || "Note";
 		case "geo":
 			return item.text.split("\n")[0] || item.geo;
 		case "draw":
@@ -463,8 +441,6 @@ export function subtitleForBoardItem(item: BoardItem): string {
 	switch (item.type) {
 		case "text":
 			return "Text";
-		case "note":
-			return "Note";
 		case "geo":
 			return item.geo;
 		case "draw":

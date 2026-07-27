@@ -1,5 +1,5 @@
 /**
- * Board color palette — a small, named set of shape colors shared by note,
+ * Board color palette — a small, named set of shape colors shared by text,
  * geo, draw and arrow shapes. Colors are stored by id in shape props (never
  * raw hex), so themes and space `.cohub/theme.css` can remap them via CSS
  * tokens while persisted data stays compact and forward-compatible.

@@ -54,7 +54,6 @@ const currentColor = $derived.by<string | null | undefined>(() => {
 		.filter(
 			(item) =>
 				item.type === "text" ||
-				item.type === "note" ||
 				item.type === "geo" ||
 				item.type === "draw" ||
 				item.type === "arrow" ||

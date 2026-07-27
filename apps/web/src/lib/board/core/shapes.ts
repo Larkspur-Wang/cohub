@@ -2,7 +2,7 @@
  * Concrete shape definitions + registration.
  *
  * Importing this module for its side effect registers every native shape with
- * the shape-definition registry. Box shapes (text, note, image, video, geo) share
+ * the shape-definition registry. Box shapes (text, image, video, geo) share
  * frame-based geometry; geo refines hit testing per outline; draw and arrow
  * define their own geometry, handles and capabilities.
  */
@@ -43,11 +43,6 @@ const textDefinition: ShapeDefinition = {
 	type: "text",
 	// Resize scales the font size, so width and height move together.
 	capabilities: { ...FULL_CAPABILITIES, canEdit: true, aspectLocked: true },
-};
-
-const noteDefinition: ShapeDefinition = {
-	type: "note",
-	capabilities: { ...FULL_CAPABILITIES, canEdit: true },
 };
 
 const imageDefinition: ShapeDefinition = {
@@ -231,7 +226,6 @@ export function registerBuiltinShapes() {
 	registered = true;
 	for (const definition of [
 		textDefinition,
-		noteDefinition,
 		imageDefinition,
 		videoDefinition,
 		fileDefinition,

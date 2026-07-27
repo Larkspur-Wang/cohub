@@ -1,12 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { BoardFrame } from "@neta-art/cohub/board";
+import type { BoardFrame, BoardItem } from "@neta-art/cohub/board";
 import { resizeFrame, worldPoint } from "@neta-art/cohub/board";
 import {
 	textResolutionForZoom,
 	textZoomBucket,
 } from "@neta-art/cohub/board/render";
-import { createNoteBoardItem } from "../lib/board/board-items.ts";
 import { createSpatialIndex } from "../lib/board/board-spatial.ts";
 import { alignFrames, distributeFrames } from "../lib/board/core/align.ts";
 import {
@@ -23,6 +22,20 @@ const frame = (x: number, y: number, w = 100, h = 80): BoardFrame => ({
 	height: h,
 	rotation: 0,
 });
+
+let fixtureId = 0;
+function box(x: number, y: number, color = "brand"): BoardItem {
+	fixtureId += 1;
+	return {
+		id: `box-${fixtureId}`,
+		type: "geo",
+		geo: "rectangle",
+		text: "",
+		color,
+		fillOpacity: 0,
+		frame: frame(x - 100, y - 70, 200, 140),
+	};
+}
 
 test("alignFrames left / center-x / right", () => {
 	const frames = new Map<string, BoardFrame>([
@@ -56,11 +69,11 @@ test("distributeFrames horizontal spaces evenly", () => {
 });
 
 test("clipboard round-trip remaps ids and offsets", () => {
-	const a = createNoteBoardItem(10, 20, "brand", "hello");
-	const b = createNoteBoardItem(50, 60, "blue", "world");
+	const a = box(10, 20);
+	const b = box(50, 60, "blue");
 	const payload = encodeClipboard([a, b]);
 	assert.ok(payload);
-	// Origin is the top-left of the selection AABB (notes are centered on creation).
+	// Origin is the top-left of the selection AABB.
 	assert.equal(payload?.origin.x, a.frame.x);
 	assert.equal(payload?.origin.y, a.frame.y);
 
@@ -76,13 +89,13 @@ test("clipboard round-trip remaps ids and offsets", () => {
 });
 
 test("parseClipboard rejects duplicate ids and malformed entries", () => {
-	const note = createNoteBoardItem(0, 0, "brand", "ok");
+	const item = box(0, 0);
 	assert.equal(
 		parseClipboard({
 			kind: "cohub.board.clipboard",
 			version: 1,
 			origin: { x: 0, y: 0 },
-			items: [note, { ...note }], // same id twice
+			items: [item, { ...item }], // same id twice
 		}),
 		null,
 	);
@@ -91,7 +104,7 @@ test("parseClipboard rejects duplicate ids and malformed entries", () => {
 			kind: "cohub.board.clipboard",
 			version: 1,
 			origin: { x: 0, y: 0 },
-			items: [null, note],
+			items: [null, item],
 		}),
 		null,
 	);
@@ -106,9 +119,16 @@ test("parseClipboard rejects duplicate ids and malformed entries", () => {
 	);
 });
 
-test("itemsToSvg emits an svg document for notes", () => {
-	const note = createNoteBoardItem(0, 0, "brand", "Hi");
-	const svg = itemsToSvg([note], () => undefined);
+test("itemsToSvg emits an svg document for text", () => {
+	const text: BoardItem = {
+		id: "text",
+		type: "text",
+		text: "Hi",
+		color: "brand",
+		fontSize: 18,
+		frame: frame(0, 0),
+	};
+	const svg = itemsToSvg([text], () => undefined);
 	assert.match(svg, /^<\?xml/);
 	assert.match(svg, /<svg /);
 	assert.match(svg, /Hi/);

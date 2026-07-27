@@ -29,7 +29,6 @@ export {
 	type GeoShapeProps,
 	type HandleDragResult,
 	type ImageShapeProps,
-	type NoteShapeProps,
 	type ShapeCapabilities,
 	type ShapeGeometry,
 	type ShapeHandle,

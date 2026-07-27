@@ -12,9 +12,7 @@ const editingItem = $derived.by(() => {
 	if (!id) return null;
 	const item = editor.itemById(id);
 	if (!item) return null;
-	return item.type === "text" || item.type === "note" || item.type === "geo"
-		? item
-		: null;
+	return item.type === "text" || item.type === "geo" ? item : null;
 });
 
 // Position the textarea exactly over the card. The card rotates about its

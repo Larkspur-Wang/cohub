@@ -115,9 +115,11 @@ const palette: BoardRenderPalette = {
 function makeItems(count: number): BoardItem[] {
 	return Array.from({ length: count }, (_, index) => ({
 		id: `n${index}`,
-		type: "note" as const,
+		type: "geo" as const,
+		geo: "rectangle",
 		text: "",
-		color: "amber",
+		color: "brand",
+		fillOpacity: 0,
 		frame: {
 			x: index * 10,
 			y: 0,

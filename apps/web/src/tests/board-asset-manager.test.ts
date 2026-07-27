@@ -398,14 +398,15 @@ test("withTextures runs the callback with an empty map when nothing has images",
 		maxCount: 8,
 		maxBytes: Number.POSITIVE_INFINITY,
 	});
-	const note: BoardItem = {
-		id: "n",
-		type: "note",
+	const text: BoardItem = {
+		id: "t",
+		type: "text",
 		text: "no image",
-		color: "amber",
+		color: "neutral",
+		fontSize: 18,
 		frame: { x: 0, y: 0, width: 10, height: 10, rotation: 0 },
 	};
-	assert.equal(await manager.withTextures([note], (map) => map.size), 0);
+	assert.equal(await manager.withTextures([text], (map) => map.size), 0);
 	assert.deepEqual(loaded, []);
 	manager.destroy();
 });

@@ -34,7 +34,6 @@ import {
 	createArrowBoardItem,
 	createDrawBoardItem,
 	createGeoBoardItem,
-	createNoteBoardItem,
 	createVideoBoardItem,
 	duplicateBoardItem,
 	mediaFrameSize,
@@ -75,15 +74,16 @@ test("runtime operations require an atomic bootstrap refresh", () => {
 
 // ─── Schema: forward-compatible parsing ─────────────────────────────
 
-test("parseBoardItemLoose validates a known note item", () => {
+test("parseBoardItemLoose validates a known geo item", () => {
 	const item = parseBoardItemLoose({
-		id: "n1",
-		type: "note",
+		id: "g1",
+		type: "geo",
+		geo: "rectangle",
 		text: "hi",
 		color: "blue",
 		frame,
 	});
-	assert.equal(item.type, "note");
+	assert.equal(item.type, "geo");
 	assert.equal(isUnknownItem(item), false);
 });
 
@@ -129,16 +129,17 @@ test("BoardDocumentSchema keeps unknown items through a parse round-trip", () =>
 
 // ─── Node round-trip for new + unknown shapes ───────────────────────
 
-test("note item round-trips through node mapping", () => {
+test("geo item round-trips through node mapping", () => {
 	const item = parseBoardItemLoose({
-		id: "n1",
-		type: "note",
+		id: "g1",
+		type: "geo",
+		geo: "rectangle",
 		text: "hello",
 		color: "green",
 		frame,
 	});
 	const node = boardItemToNode(item, 0);
-	assert.equal(node.type, "note");
+	assert.equal(node.type, "geo");
 	const back = boardNodeToItem({
 		boardId: "d",
 		version: 0,
@@ -146,8 +147,8 @@ test("note item round-trips through node mapping", () => {
 		updatedAt: null,
 		...node,
 	});
-	assert.equal(back.type, "note");
-	if (back.type === "note") {
+	assert.equal(back.type, "geo");
+	if (back.type === "geo") {
 		assert.equal(back.text, "hello");
 		assert.equal(back.color, "green");
 	}
@@ -231,8 +232,8 @@ test("unknown locked survives node mapping round-trip", () => {
 test("known item edits preserve wire fields owned by another runtime", () => {
 	const item = boardNodeToItem({
 		boardId: "d",
-		nodeId: "n1",
-		type: "note",
+		nodeId: "g1",
+		type: "geo",
 		parentId: "page:one",
 		orderKey: "a1",
 		x: 1,
@@ -246,6 +247,7 @@ test("known item edits preserve wire fields owned by another runtime", () => {
 		view: { runtimeView: true },
 		style: { runtimeStyle: true },
 		data: {
+			geo: "rectangle",
 			text: "Before",
 			color: "green",
 			metadata: { source: "other-runtime" },
@@ -256,7 +258,7 @@ test("known item edits preserve wire fields owned by another runtime", () => {
 		updatedAt: null,
 	});
 	assert.deepEqual(item.metadata, { source: "other-runtime" });
-	const edited = item.type === "note" ? { ...item, text: "After" } : item;
+	const edited = item.type === "geo" ? { ...item, text: "After" } : item;
 	const node = boardItemToNode(edited, 0);
 	assert.equal(node.parentId, "page:one");
 	assert.equal(node.orderKey, "a1");
@@ -284,8 +286,8 @@ test("bootstrap preserves the wire envelope through schema parsing", () => {
 		nodes: [
 			{
 				boardId: "d",
-				nodeId: "n1",
-				type: "note",
+				nodeId: "g1",
+				type: "geo",
 				parentId: "page:one",
 				orderKey: "a1",
 				x: 1,
@@ -299,6 +301,7 @@ test("bootstrap preserves the wire envelope through schema parsing", () => {
 				view: { runtimeView: true },
 				style: { runtimeStyle: true },
 				data: {
+					geo: "rectangle",
 					text: "Before",
 					color: "green",
 					runtimeProps: { opacity: 0.5 },
@@ -311,7 +314,7 @@ test("bootstrap preserves the wire envelope through schema parsing", () => {
 	});
 	const item = document.items[0];
 	assert.ok(item);
-	const edited = item.type === "note" ? { ...item, text: "After" } : item;
+	const edited = item.type === "geo" ? { ...item, text: "After" } : item;
 	const node = boardItemToNode(edited, 0);
 	assert.equal(node.parentId, "page:one");
 	assert.equal(node.orderKey, "a1");
@@ -591,7 +594,7 @@ test("draw hit test is true near the stroke and false far away", () => {
 	assert.equal(shapeHitTest(draw, worldPoint(50, 60)), false);
 });
 
-test("text and note are editable; draw scales its geometry", () => {
+test("text is editable and draw scales its geometry", () => {
 	assert.equal(
 		shapeCapabilities({ id: "t", type: "text", text: "", frame } as never)
 			.canEdit,
@@ -639,10 +642,6 @@ test("content-scaling shapes lock their aspect; container shapes do not", () => 
 		true,
 	);
 	// Containers reflow their contents, so free resize is the intuitive default.
-	assert.equal(
-		aspectLockedFor({ id: "n", type: "note", text: "", frame }),
-		false,
-	);
 	assert.equal(
 		aspectLockedFor({
 			id: "g",
@@ -708,17 +707,6 @@ test("board bootstrap restores persisted document appearance", () => {
 });
 
 // ─── Item creation helpers ───────────────────────────────────────
-
-test("createNoteBoardItem defaults to amber and centers on the point", () => {
-	const item = createNoteBoardItem(10, 20);
-	assert.equal(item.type, "note");
-	if (item.type === "note") {
-		assert.equal(item.color, "amber");
-		// Frame is centered on the creation point.
-		assert.ok(item.frame.x < 10);
-		assert.ok(item.frame.y < 20);
-	}
-});
 
 test("createGeoBoardItem carries the chosen geometry", () => {
 	const item = createGeoBoardItem("ellipse", 0, 0, "blue");

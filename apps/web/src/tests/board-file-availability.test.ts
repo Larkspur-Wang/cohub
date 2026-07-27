@@ -130,7 +130,7 @@ test("a changed file misses the cache", () => {
  */
 
 test("a complete read clears facts the file no longer has", () => {
-	// Was a markdown note with a frontmatter cover and a body.
+	// The Markdown file previously had a frontmatter cover and a body.
 	const cached = buildFileSnapshot({
 		path: "docs/post.md",
 		content: "---\ncover: ./hero.png\n---\nThe body text.",

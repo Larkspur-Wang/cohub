@@ -191,17 +191,12 @@ function unquote(value: string): string {
 	return trimmed;
 }
 
-/**
- * Read the first cover-ish scalar from a frontmatter block.
- *
- * Only top-level keys are considered (a leading-space line is nested and skipped)
- * so `cover:` under some other mapping cannot be mistaken for the file's own.
- */
-export function readCoverFromFrontmatter(
+/** Read non-empty top-level scalar values from a frontmatter block. */
+function readFrontmatterScalars(
 	frontmatter: string | null,
-): string | null {
-	if (!frontmatter) return null;
+): Map<string, string> {
 	const found = new Map<string, string>();
+	if (!frontmatter) return found;
 	for (const line of frontmatter.split(/\r?\n/)) {
 		if (!line.trim() || /^\s/.test(line) || line.trimStart().startsWith("#"))
 			continue;
@@ -211,6 +206,26 @@ export function readCoverFromFrontmatter(
 		const value = unquote(match[2] ?? "");
 		if (key && value && !found.has(key)) found.set(key, value);
 	}
+	return found;
+}
+
+/** Read the document title declared by top-level frontmatter. */
+export function readTitleFromFrontmatter(
+	frontmatter: string | null,
+): string | null {
+	return readFrontmatterScalars(frontmatter).get("title") ?? null;
+}
+
+/**
+ * Read the first cover-ish scalar from a frontmatter block.
+ *
+ * Only top-level keys are considered (a leading-space line is nested and skipped)
+ * so `cover:` under some other mapping cannot be mistaken for the file's own.
+ */
+export function readCoverFromFrontmatter(
+	frontmatter: string | null,
+): string | null {
+	const found = readFrontmatterScalars(frontmatter);
 	for (const key of COVER_KEYS) {
 		const value = found.get(key);
 		if (value) return value;
@@ -305,6 +320,8 @@ export function buildFileSnapshot(
 	if (typeof content !== "string" || content.length === 0) return snapshot;
 
 	const { frontmatter, body } = splitFrontmatter(content);
+	const frontmatterTitle = readTitleFromFrontmatter(frontmatter);
+	if (frontmatterTitle) snapshot.title = frontmatterTitle;
 	const cover = resolveCoverRef(
 		input.path,
 		readCoverFromFrontmatter(frontmatter),
@@ -354,7 +371,7 @@ export function shouldFetchFileExcerpt(input: {
  * This distinction is the whole point: a board is a long-lived document, and a
  * card should not claim a file is gone because the network blipped. It is also
  * why availability is client-local transient state and never written to the
- * node — see the note in board-file-preview-source.
+ * node — see the rationale in board-file-preview-source.
  */
 export type FileAvailability = "ok" | "missing" | "unavailable";
 
