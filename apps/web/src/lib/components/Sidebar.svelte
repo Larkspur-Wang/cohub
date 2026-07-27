@@ -72,6 +72,7 @@ import {
 } from "$lib/drag/cohub-resource-drag";
 import { withSidebarMainPreview } from "$lib/features/space/modules/workspace-preview-route";
 import {
+	createWorkMutationBuffer,
 	upsertWorkSnapshot,
 	WORKS_CHANGED_EVENT,
 	type WorksChangedDetail,
@@ -345,7 +346,11 @@ let deletingLabelId = $state<string | null>(null);
 let cronjobs = $state<CronJobRecord[]>([]);
 let tasks = $state<TaskRunRecord[]>([]);
 let works = $state<WorkRecord[]>([]);
-let worksMutationVersion = 0;
+/**
+ * Realtime mutations seen while a full list request is in flight, replayed onto
+ * the response so a publish mid-load cannot hide the Space's other Works.
+ */
+const worksBuffer = createWorkMutationBuffer();
 let loadingCronjobs = $state(false);
 let refreshingCheckpoints = $state(false);
 let loadingCronjobsSpaceId = $state<string | null>(null);
@@ -2272,6 +2277,7 @@ async function loadMoreTasksForSpace(spaceId: string) {
 	}
 }
 
+/** Fold buffered realtime mutations onto a freshly fetched list. */
 async function loadWorksForSpace(spaceId: string, force = false) {
 	await authStore.ensureLoaded();
 	if (spaceId !== currentSpaceId) return;
@@ -2283,14 +2289,11 @@ async function loadWorksForSpace(spaceId: string, force = false) {
 	} else {
 		refreshingWorks = true;
 	}
-	const mutationVersion = worksMutationVersion;
+	worksBuffer.reset();
 	try {
 		const result = await sdk.works.listBySpace(spaceId);
-		if (
-			spaceId === currentSpaceId &&
-			mutationVersion === worksMutationVersion
-		) {
-			works = result.works ?? [];
+		if (spaceId === currentSpaceId) {
+			works = worksBuffer.apply(result.works ?? []);
 		}
 	} catch (error) {
 		console.warn("[sidebar] Failed to load works", { spaceId, error });
@@ -2468,12 +2471,12 @@ function handleWorksChanged(event: Event) {
 	const detail = (event as CustomEvent<WorksChangedDetail>).detail;
 	if (!currentSpaceId || detail?.spaceId !== currentSpaceId) return;
 	if (detail.work) {
-		worksMutationVersion += 1;
+		worksBuffer.upsert(detail.work);
 		works = upsertWorkSnapshot(works, detail.work);
 		return;
 	}
 	if (detail.deletedWorkId) {
-		worksMutationVersion += 1;
+		worksBuffer.remove(detail.deletedWorkId);
 		works = works.filter((work) => work.id !== detail.deletedWorkId);
 		return;
 	}

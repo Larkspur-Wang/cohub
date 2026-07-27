@@ -3,6 +3,7 @@ import test from "node:test";
 import type { ChannelEnvelope } from "@cohub/protocol/realtime";
 import type { WorkRecord, WorkVersionRecord } from "@neta-art/cohub";
 import {
+	createWorkMutationBuffer,
 	parseWorkVersionPublished,
 	upsertWorkSnapshot,
 	upsertWorkVersion,
@@ -88,5 +89,43 @@ test("upsertWorkVersion deduplicates and keeps newest versions first", () => {
 			(item) => item.version,
 		),
 		[2, 1],
+	);
+});
+
+test("work mutation buffer replays realtime changes onto a stale list", () => {
+	const buffer = createWorkMutationBuffer();
+	const other: WorkRecord = {
+		...work(1, "2026-07-20T00:00:00.000Z"),
+		id: "work-2",
+	};
+	const published = work(5, "2026-07-20T05:00:00.000Z");
+
+	// A publish lands while the full list request is still in flight.
+	buffer.upsert(published);
+	const merged = buffer.apply([work(4, "2026-07-20T04:00:00.000Z"), other]);
+
+	// The event wins for its own Work, and the Space's other Works survive.
+	assert.deepEqual(
+		merged.map((item) => [item.id, item.latestVersion]),
+		[
+			["work-1", 5],
+			["work-2", 1],
+		],
+	);
+	// Draining leaves nothing to replay onto the next response.
+	assert.deepEqual(buffer.apply([other]), [other]);
+});
+
+test("work mutation buffer keeps deletes and last write per work", () => {
+	const buffer = createWorkMutationBuffer();
+	buffer.upsert(work(2, "2026-07-20T02:00:00.000Z"));
+	buffer.remove("work-1");
+	assert.deepEqual(buffer.apply([work(1, "2026-07-20T01:00:00.000Z")]), []);
+
+	buffer.remove("work-1");
+	buffer.upsert(work(3, "2026-07-20T03:00:00.000Z"));
+	assert.deepEqual(
+		buffer.apply([]).map((item) => item.latestVersion),
+		[3],
 	);
 });

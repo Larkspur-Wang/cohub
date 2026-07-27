@@ -53,6 +53,7 @@ import {
 } from "$lib/features/session-chat";
 import SessionChatPanel from "$lib/features/session-chat/SessionChatPanel.svelte";
 import {
+	createWorkMutationBuffer,
 	dispatchWorksChanged,
 	parseWorkVersionPublished,
 	upsertWorkSnapshot,
@@ -526,7 +527,8 @@ const inlineFileIsText = $derived(fileWorkspace.inlineFileIsText);
 const inlineFileDataUrl = $derived(fileWorkspace.inlineFileDataUrl);
 let previewWorks = $state<WorkRecord[]>([]);
 let previewWorksLoadedFor = $state<string | null>(null);
-let previewWorksMutationVersion = $state(0);
+/** Realtime mutations seen while the full list request is in flight. */
+const previewWorksBuffer = createWorkMutationBuffer();
 let previewWorksToken = 0;
 const inlineFileWork = $derived.by(() => {
 	const filePath = inlineFile?.response?.path ?? null;
@@ -554,8 +556,8 @@ $effect(() => {
 		previewWorksLoadedFor === currentSpaceId
 	)
 		return;
-	const mutationVersion = previewWorksMutationVersion;
 	const token = ++previewWorksToken;
+	previewWorksBuffer.reset();
 	void (async () => {
 		try {
 			await authStore.ensureLoaded();
@@ -566,12 +568,10 @@ $effect(() => {
 				return;
 			}
 			const { works } = await sdk.works.listBySpace(currentSpaceId);
-			if (
-				token !== previewWorksToken ||
-				mutationVersion !== previewWorksMutationVersion
-			)
-				return;
-			previewWorks = works;
+			if (token !== previewWorksToken) return;
+			// Replay what realtime delivered mid-request instead of dropping the
+			// response, which would hide every other Work until the next reload.
+			previewWorks = previewWorksBuffer.apply(works);
 			previewWorksLoadedFor = currentSpaceId;
 		} catch {
 			if (token !== previewWorksToken) return;
@@ -1336,7 +1336,7 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 		} else if (payload.type === "work.version.published") {
 			const published = parseWorkVersionPublished(payload);
 			if (published) {
-				previewWorksMutationVersion += 1;
+				previewWorksBuffer.upsert(published.work);
 				previewWorks = upsertWorkSnapshot(previewWorks, published.work);
 				dispatchWorksChanged({
 					spaceId,

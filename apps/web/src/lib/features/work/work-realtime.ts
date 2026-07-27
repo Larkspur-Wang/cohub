@@ -83,6 +83,45 @@ export function upsertWorkVersion(
 	return [...byId.values()].sort((a, b) => b.version - a.version);
 }
 
+/**
+ * Buffer of realtime Work mutations for replay onto an in-flight list response.
+ *
+ * A full list request and a realtime event can overlap, and the response is
+ * built from a snapshot older than the event. Discarding the response would
+ * leave only the Works the events happened to carry, so the events are instead
+ * folded back on top of it.
+ */
+export function createWorkMutationBuffer() {
+	const upserts = new Map<string, WorkRecord>();
+	const deletes = new Set<string>();
+
+	function reset() {
+		upserts.clear();
+		deletes.clear();
+	}
+
+	return {
+		reset,
+		upsert(work: WorkRecord) {
+			deletes.delete(work.id);
+			upserts.set(work.id, work);
+		},
+		remove(workId: string) {
+			upserts.delete(workId);
+			deletes.add(workId);
+		},
+		/** Apply the buffered mutations to a fetched list and drain the buffer. */
+		apply(list: WorkRecord[]) {
+			let next =
+				deletes.size > 0 ? list.filter((work) => !deletes.has(work.id)) : list;
+			for (const work of upserts.values())
+				next = upsertWorkSnapshot(next, work);
+			reset();
+			return next;
+		},
+	};
+}
+
 export function dispatchWorksChanged(detail: WorksChangedDetail) {
 	if (typeof window === "undefined") return;
 	window.dispatchEvent(new CustomEvent(WORKS_CHANGED_EVENT, { detail }));
