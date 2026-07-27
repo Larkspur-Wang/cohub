@@ -9,6 +9,10 @@
    Driven by current data-theme tokens. Space `.cohub/theme.css`
    can override any of these to recolor board shapes end-to-end.
    ============================================================ */
+:where(:root, [data-theme]) {
+	--status-running: var(--success-400);
+}
+
 :root,
 [data-theme] {
 	--board-color-brand-stroke: var(--brand);
@@ -66,6 +70,7 @@
 	--color-bg-surface: var(--bg-surface);
 	--color-bg-surface-hover: var(--bg-surface-hover);
 	--color-bg-elevated: var(--bg-elevated);
+	--color-bg-subtle: var(--bg-subtle);
 	--color-bg-input: var(--bg-input);
 	--color-bg-code: var(--bg-code);
 	--color-bg-header-alt: var(--bg-header-alt);
@@ -95,6 +100,8 @@
 
 	/* Borders */
 	--color-border-primary: var(--border-primary);
+	--color-border-default: var(--border-default);
+	--color-border-strong: var(--border-strong);
 	--color-border-subtle: var(--border-subtle);
 	--color-chat-panel-border: var(--chat-panel-border);
 	--color-chat-composer-border: var(--chat-composer-border);
@@ -159,7 +166,7 @@
 	--color-heatmap-4: var(--heatmap-4);
 
 	/* Status */
-	--color-status-running: var(--success-400);
+	--color-status-running: var(--status-running);
 	--color-status-starting: var(--warning-400);
 	--color-status-error: var(--error-400);
 	--color-status-hibernated: var(--neutral-40);

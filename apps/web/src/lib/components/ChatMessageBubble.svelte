@@ -174,7 +174,7 @@ const messageBubbleClass = $derived.by(() => {
 	if (message.role === "assistant") {
 		return assistantErrorMessage
 			? `${base} rounded-xl bg-status-error/5 text-text-primary`
-			: `${base} text-text-primary`;
+			: `${base} bg-[var(--chat-assistant-message-bg)] text-[var(--chat-assistant-message-fg)]`;
 	}
 	if (message.role === "system") return `${base} bg-info-bg text-info-soft`;
 	return `${base} bg-error-bg text-error-soft`;

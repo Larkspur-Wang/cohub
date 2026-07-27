@@ -3842,7 +3842,7 @@ $effect(() => {
           {#if currentSpace}
             <button
               type="button"
-              class="relative flex h-8 w-8 items-center justify-center rounded-[6px] text-brand transition-colors duration-100 hover:bg-brand-muted hover:text-brand"
+              class="new-chat-collapsed relative flex h-8 w-8 items-center justify-center rounded-[6px] text-brand transition-colors duration-100 hover:bg-brand-muted hover:text-brand"
               onclick={() => { void handleCreateNewSession(); }}
               disabled={creatingSession}
               aria-label="New chat"
@@ -4100,7 +4100,7 @@ $effect(() => {
           {:else}
             <Plus class="w-3.5 h-3.5 shrink-0" />
             <span class="text-[12px] font-medium">New Chat</span>
-            <span class="ml-auto hidden rounded-[4px] border border-brand/20 bg-bg-primary/70 px-1.5 py-px font-mono text-[10px] text-brand/80 xl:inline">⌘O</span>
+            <span class="new-chat-shortcut ml-auto hidden rounded-[4px] border border-brand/20 bg-bg-primary/70 px-1.5 py-px font-mono text-[10px] text-brand/80 xl:inline">⌘O</span>
           {/if}
         </button>
         <button
@@ -4566,6 +4566,33 @@ $effect(() => {
 {/if}
 
 <style>
+	:global([data-theme="neta-studio"]) .new-chat-collapsed {
+		border: 1px solid var(--sidebar-primary-action-border);
+		border-radius: var(--sidebar-primary-action-radius);
+		background: var(--sidebar-primary-action-bg);
+		color: var(--sidebar-primary-action-fg);
+		box-shadow: 0 6px 16px rgb(0 0 0 / 18%);
+	}
+
+	:global([data-theme="neta-studio"]) .new-chat-collapsed:hover {
+		background: var(--sidebar-primary-action-bg-hover);
+		color: var(--sidebar-primary-action-fg);
+	}
+
+	:global([data-theme="neta-studio"]) .new-chat-shortcut {
+		border-color: color-mix(
+			in srgb,
+			var(--sidebar-primary-action-fg) 20%,
+			transparent
+		);
+		background: transparent;
+		color: color-mix(
+			in srgb,
+			var(--sidebar-primary-action-fg) 70%,
+			transparent
+		);
+	}
+
 	.label-tree-row {
 		position: relative;
 		display: flex;
