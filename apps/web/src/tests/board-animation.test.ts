@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { BoardClip, BoardPlaybackSnapshot } from "@neta-art/cohub";
+import type {
+	BoardClip,
+	BoardEffect,
+	BoardPlaybackSnapshot,
+} from "@neta-art/cohub";
+import { Container } from "pixi.js";
 import {
 	clipSampleAt,
 	composePose,
@@ -10,6 +15,7 @@ import {
 	sampleKeyframePose,
 	samplePathPose,
 } from "$lib/board/runtime/animation-core";
+import { createBoardAnimationRuntime } from "$lib/board/runtime/pixi-animation";
 
 function makeClip(overrides: Partial<BoardClip> = {}): BoardClip {
 	return {
@@ -117,4 +123,132 @@ test("playback and seeded random values can be reconstructed after reconnect", (
 		hashUnit("battle:clip:4:angle"),
 		hashUnit("battle:clip:5:angle"),
 	);
+});
+
+test("persistent effects resume after their target is materialized", () => {
+	const descriptors = new Map(
+		["window", "document", "requestAnimationFrame", "cancelAnimationFrame"].map(
+			(key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)] as const,
+		),
+	);
+	const originalDateNow = Date.now;
+	const callbacks = new Map<number, FrameRequestCallback>();
+	let nextFrameId = 1;
+	let now = 0;
+	let node: { item: never; container: Container } | null = null;
+	const world = new Container();
+	const layers = {
+		behind: new Container(),
+		front: new Container(),
+		screen: new Container(),
+	};
+	const effect: BoardEffect = {
+		id: "float",
+		boardId: "11111111-1111-4111-8111-111111111111",
+		target: { type: "node", nodeId: "node" },
+		kind: "effects.float",
+		kindVersion: 1,
+		enabled: true,
+		lifecycle: "persistent",
+		timeOrigin: "board",
+		layer: "front",
+		seed: "float",
+		params: { period: 1_000, distance: 10 },
+		assetRefs: [],
+		metadata: {},
+		revision: 0,
+	};
+	const pulseEffect: BoardEffect = {
+		...effect,
+		id: "pulse",
+		kind: "effects.pulse",
+		seed: "pulse",
+		params: { period: 1_000, amount: 0.5 },
+	};
+	const motionQuery = {
+		matches: false,
+		addEventListener() {},
+		removeEventListener() {},
+	};
+	const documentStub = {
+		hidden: false,
+		addEventListener() {},
+		removeEventListener() {},
+	};
+
+	Object.defineProperties(globalThis, {
+		window: {
+			configurable: true,
+			value: { matchMedia: () => motionQuery },
+		},
+		document: { configurable: true, value: documentStub },
+		requestAnimationFrame: {
+			configurable: true,
+			value: (callback: FrameRequestCallback) => {
+				const id = nextFrameId++;
+				callbacks.set(id, callback);
+				return id;
+			},
+		},
+		cancelAnimationFrame: {
+			configurable: true,
+			value: (id: number) => callbacks.delete(id),
+		},
+	});
+	Date.now = () => now;
+
+	const runFrame = () => {
+		const entry = callbacks.entries().next().value;
+		assert.ok(entry);
+		const [id, callback] = entry;
+		callbacks.delete(id);
+		callback(now);
+	};
+
+	const runtime = createBoardAnimationRuntime({
+		getNode: () => node,
+		getWorld: () => world,
+		getLayers: () => layers,
+		getScreen: () => ({ width: 800, height: 600 }),
+		getAccentColor: () => 0xff3e00,
+		render() {},
+	});
+
+	try {
+		runtime.setData({
+			effects: [effect, pulseEffect],
+			sequences: [],
+			clips: [],
+			playback: null,
+		});
+		runFrame();
+		assert.equal(callbacks.size, 0);
+
+		node = { item: {} as never, container: new Container() };
+		runtime.invalidatePoses();
+		assert.equal(callbacks.size, 1);
+
+		now = 250;
+		runFrame();
+		assert.equal(node.container.y, 10);
+		assert.equal(node.container.scale.x, 1.5);
+		assert.equal(callbacks.size, 1);
+
+		for (let sync = 0; sync < 5; sync += 1) {
+			runtime.prepareSceneSync();
+			assert.equal(node.container.y, 0);
+			assert.equal(node.container.scale.x, 1);
+			runtime.invalidatePoses();
+			runFrame();
+			assert.equal(node.container.y, 10);
+			assert.equal(node.container.scale.x, 1.5);
+		}
+	} finally {
+		runtime.destroy();
+		Date.now = originalDateNow;
+		for (const [key, descriptor] of descriptors) {
+			if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+			else Reflect.deleteProperty(globalThis, key);
+		}
+	}
 });

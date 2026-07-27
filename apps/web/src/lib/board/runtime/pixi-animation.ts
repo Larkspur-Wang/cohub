@@ -343,14 +343,12 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 		filterRestores.clear();
 	}
 
-	function restoreAll() {
+	function restoreSceneState() {
 		restoreFilters();
 		for (const [nodeId, pose] of basePoses) {
 			const node = options.getNode(nodeId)?.container;
 			if (node) restore(node, pose);
 		}
-		const world = options.getWorld();
-		if (world && worldPose) restore(world, worldPose);
 		for (const graphics of impactResources.values()) graphics.visible = false;
 		for (const resource of flashResources.values())
 			resource.graphics.visible = false;
@@ -362,6 +360,12 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 			resource.mesh.visible = false;
 			resource.original.renderable = resource.originalRenderable;
 		}
+	}
+
+	function restoreAll() {
+		restoreSceneState();
+		const world = options.getWorld();
+		if (world && worldPose) restore(world, worldPose);
 	}
 
 	function clearResources() {
@@ -893,9 +897,18 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 		start();
 	}
 
+	function prepareSceneSync() {
+		// Animated transforms are transient. Scene renderers must receive containers
+		// at their persisted poses or the next frame will compound pulse/float values.
+		restoreSceneState();
+	}
+
 	function invalidatePoses() {
 		basePoses.clear();
 		worldPose = null;
+		// Scene sync may materialize the first target after the runtime's initial
+		// frame has stopped. Resume only when there is animation data to evaluate.
+		if (data.effects.length > 0 || data.playback) start();
 	}
 
 	function visibilityChanged() {
@@ -917,6 +930,7 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 	return {
 		setData,
 		start,
+		prepareSceneSync,
 		invalidatePoses,
 		destroy() {
 			destroyed = true;

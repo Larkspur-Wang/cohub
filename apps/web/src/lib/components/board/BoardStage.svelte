@@ -454,6 +454,7 @@ function syncStage() {
 		textZoomBucket(editor.camera.zoom),
 	].join("|");
 
+	animationRuntime?.prepareSceneSync();
 	scene.sync({
 		items: editor.items,
 		context,
