@@ -28,6 +28,14 @@
 	--board-color-neutral-fill: var(--text-tertiary);
 	--board-color-neutral-label: var(--text-primary);
 
+	--board-color-black-stroke: #000000;
+	--board-color-black-fill: #000000;
+	--board-color-black-label: var(--text-primary);
+
+	--board-color-white-stroke: #ffffff;
+	--board-color-white-fill: #ffffff;
+	--board-color-white-label: var(--text-primary);
+
 	--board-color-blue-stroke: var(--info-400);
 	--board-color-blue-fill: var(--info-400);
 	--board-color-blue-label: var(--text-primary);

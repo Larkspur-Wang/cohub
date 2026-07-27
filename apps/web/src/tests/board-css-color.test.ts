@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+	BOARD_COLORS,
 	boardColorCssVar,
 	buildFallbackShapeColors,
+	isBoardColorId,
 	pickBoardColor,
 	resolveBoardColor,
 } from "@neta-art/cohub/board";
@@ -46,6 +48,31 @@ describe("board shape palette tokens", () => {
 		);
 		assert.equal(boardColorCssVar("blue", "fill"), "--board-color-blue-fill");
 		assert.equal(boardColorCssVar("rose", "label"), "--board-color-rose-label");
+		assert.equal(
+			boardColorCssVar("black", "stroke"),
+			"--board-color-black-stroke",
+		);
+		assert.equal(boardColorCssVar("white", "fill"), "--board-color-white-fill");
+	});
+
+	it("includes black and white colors", () => {
+		assert.equal(isBoardColorId("black"), true);
+		assert.equal(isBoardColorId("white"), true);
+		assert.equal(
+			BOARD_COLORS.find((color) => color.id === "black")?.label,
+			"Black",
+		);
+		assert.equal(
+			BOARD_COLORS.find((color) => color.id === "white")?.label,
+			"White",
+		);
+
+		for (const mode of ["dark", "light"] as const) {
+			assert.equal(resolveBoardColor("black", mode).stroke, 0x000000);
+			assert.equal(resolveBoardColor("black", mode).fill, 0x000000);
+			assert.equal(resolveBoardColor("white", mode).stroke, 0xffffff);
+			assert.equal(resolveBoardColor("white", mode).fill, 0xffffff);
+		}
 	});
 
 	it("falls back to hard-coded tables without live colors", () => {

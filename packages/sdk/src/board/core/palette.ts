@@ -12,6 +12,8 @@
 export type BoardColorId =
 	| "brand"
 	| "neutral"
+	| "black"
+	| "white"
 	| "blue"
 	| "green"
 	| "amber"
@@ -55,6 +57,18 @@ export const BOARD_COLORS: readonly BoardColorEntry[] = [
 		label: "Neutral",
 		dark: { stroke: 0x9aa0a6, fill: 0x9aa0a6, label: LABEL_DARK },
 		light: { stroke: 0x5f6368, fill: 0x5f6368, label: LABEL_LIGHT },
+	},
+	{
+		id: "black",
+		label: "Black",
+		dark: { stroke: 0x000000, fill: 0x000000, label: LABEL_DARK },
+		light: { stroke: 0x000000, fill: 0x000000, label: LABEL_LIGHT },
+	},
+	{
+		id: "white",
+		label: "White",
+		dark: { stroke: 0xffffff, fill: 0xffffff, label: LABEL_DARK },
+		light: { stroke: 0xffffff, fill: 0xffffff, label: LABEL_LIGHT },
 	},
 	{
 		id: "blue",
