@@ -6,7 +6,7 @@ import type {
 	RenderTask,
 } from "pdfjs-dist";
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-import { tick, untrack } from "svelte";
+import { untrack } from "svelte";
 
 export type PdfPreviewControls = {
 	page: number;
@@ -44,6 +44,9 @@ const PAGE_GAP = 16;
 // rendering without materializing many canvases on short mobile pages.
 const RENDER_MARGIN_RATIO = 1;
 const MIN_RENDER_MARGIN = 400;
+// Pages are measured in batches after the first screen is already laid out, so a
+// long document paints immediately instead of waiting on every page.
+const MEASURE_BATCH = 24;
 
 let {
 	name,
@@ -55,6 +58,7 @@ let {
 }: Props = $props();
 
 let viewportElement: HTMLDivElement | null = $state(null);
+let pagesElement: HTMLDivElement | null = $state(null);
 let viewportWidth = $state(0);
 let viewportHeight = $state(0);
 let pdfDocument: PDFDocumentProxy | null = $state(null);
@@ -77,10 +81,11 @@ let loadAttempt = $state(0);
 let loadGeneration = 0;
 let layoutGeneration = 0;
 let loadingTask: PDFDocumentLoadingTask | null = null;
-const pageElements = new Map<number, HTMLElement>();
 const canvases = new Map<number, HTMLCanvasElement>();
 const renderTasks = new Map<number, RenderTask>();
 const renderedScales = new Map<number, number>();
+/** Content-space top offset of each page, so scrolling never measures the DOM. */
+let pageOffsets: number[] = [];
 let mountVersion = $state(0);
 
 const sourceKey = $derived(
@@ -119,8 +124,9 @@ function readableLoadError(cause: unknown) {
 function cancelRenders() {
 	for (const task of renderTasks.values()) task.cancel();
 	renderTasks.clear();
-	renderingCount = 0;
 	renderedScales.clear();
+	// `renderingCount` is not reset here: each in-flight render still runs its own
+	// `finally`, so zeroing it would double-count against the next generation.
 }
 
 function releaseCanvas(canvas: HTMLCanvasElement) {
@@ -133,8 +139,8 @@ function disposeDocument() {
 	cancelRenders();
 	for (const canvas of canvases.values()) releaseCanvas(canvas);
 	canvases.clear();
-	pageElements.clear();
 	pageLayouts = [];
+	pageOffsets = [];
 	visiblePages = [];
 
 	const task = loadingTask;
@@ -220,47 +226,101 @@ function calculateScale(firstPageWidth: number) {
 	return clampScale(availableWidth / firstPageWidth);
 }
 
+/** Distance from the scroll container's top to the page stack's first pixel. */
+function contentTop() {
+	const viewport = viewportElement;
+	const pages = pagesElement;
+	if (!viewport || !pages) return 0;
+	return (
+		pages.getBoundingClientRect().top -
+		viewport.getBoundingClientRect().top +
+		viewport.scrollTop
+	);
+}
+
+function rebuildOffsets(layouts: PageLayout[]) {
+	const offsets = new Array<number>(layouts.length);
+	let top = 0;
+	for (let index = 0; index < layouts.length; index += 1) {
+		offsets[index] = top;
+		top += (layouts[index]?.height ?? 0) + PAGE_GAP;
+	}
+	pageOffsets = offsets;
+}
+
+/**
+ * Publish a layout set, keeping `anchorPage` visually still.
+ *
+ * Page heights change on zoom and again as batches are measured, so the scroll
+ * position is re-derived from the offsets rather than read back from the DOM.
+ */
+function applyLayouts(
+	layouts: PageLayout[],
+	scale: number,
+	anchor: { page: number; offset: number },
+) {
+	const previousTop = pageOffsets[anchor.page - 1];
+	pageLayouts = layouts;
+	rebuildOffsets(layouts);
+	renderedScale = scale;
+	const nextTop = pageOffsets[anchor.page - 1];
+	if (viewportElement && previousTop !== undefined && nextTop !== undefined) {
+		viewportElement.scrollTop = contentTop() + nextTop - anchor.offset;
+	}
+	updateVisiblePages();
+}
+
 async function buildPageLayouts(document: PDFDocumentProxy) {
 	const generation = ++layoutGeneration;
 	const anchorPage = pageNumber;
-	const anchorElement = pageElements.get(anchorPage);
-	const anchorOffset =
-		anchorElement && viewportElement
-			? anchorElement.getBoundingClientRect().top -
-				viewportElement.getBoundingClientRect().top
-			: 0;
+	const anchorTop = pageOffsets[anchorPage - 1];
+	const anchor = {
+		page: anchorPage,
+		offset:
+			viewportElement && anchorTop !== undefined
+				? contentTop() + anchorTop - viewportElement.scrollTop
+				: 0,
+	};
 
 	try {
 		const firstPage = await document.getPage(1);
 		if (generation !== layoutGeneration) return;
 		const firstViewport = firstPage.getViewport({ scale: 1 });
 		const scale = calculateScale(firstViewport.width);
-		const nextLayouts: PageLayout[] = [];
-		for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
-			const page =
-				pageNumber === 1 ? firstPage : await document.getPage(pageNumber);
-			if (generation !== layoutGeneration) return;
-			const viewport = page.getViewport({ scale });
-			nextLayouts.push({
-				page: pageNumber,
-				width: Math.floor(viewport.width),
-				height: Math.floor(viewport.height),
-			});
-		}
-
+		const first: PageLayout = {
+			page: 1,
+			width: Math.floor(firstViewport.width * scale),
+			height: Math.floor(firstViewport.height * scale),
+		};
+		// Most documents are uniform, so the first page is a good provisional size
+		// for the rest. This paints the first screen without touching every page;
+		// the real sizes land batch by batch below.
+		const layouts: PageLayout[] = Array.from(
+			{ length: document.numPages },
+			(_, index) => ({ ...first, page: index + 1 }),
+		);
 		cancelRenders();
-		pageLayouts = nextLayouts;
-		renderedScale = scale;
-		await tick();
-		if (generation !== layoutGeneration) return;
-		const nextAnchor = pageElements.get(anchorPage);
-		if (viewportElement && nextAnchor) {
-			const nextOffset =
-				nextAnchor.getBoundingClientRect().top -
-				viewportElement.getBoundingClientRect().top;
-			viewportElement.scrollTop += nextOffset - anchorOffset;
+		applyLayouts(layouts, scale, anchor);
+
+		let pending = 0;
+		for (let page = 2; page <= document.numPages; page += 1) {
+			const viewport = (await document.getPage(page)).getViewport({ scale });
+			if (generation !== layoutGeneration) return;
+			const width = Math.floor(viewport.width);
+			const height = Math.floor(viewport.height);
+			const current = layouts[page - 1];
+			if (!current || (current.width === width && current.height === height))
+				continue;
+			layouts[page - 1] = { page, width, height };
+			// The provisional canvas was sized for the wrong page box.
+			renderedScales.delete(page);
+			pending += 1;
+			if (pending >= MEASURE_BATCH) {
+				pending = 0;
+				applyLayouts([...layouts], scale, anchor);
+			}
 		}
-		updateVisiblePages();
+		if (pending > 0) applyLayouts([...layouts], scale, anchor);
 	} catch (cause) {
 		if (generation !== layoutGeneration) return;
 		console.error("PDF layout failed", cause);
@@ -298,7 +358,13 @@ async function renderPage(
 				outputScale === 1 ? undefined : [outputScale, 0, 0, outputScale, 0, 0],
 		});
 		renderTasks.set(pageNumber, task);
-		await task.promise;
+		try {
+			await task.promise;
+		} finally {
+			// Only retract our own entry: a cancelled generation may already have
+			// started a replacement render for this page.
+			if (renderTasks.get(pageNumber) === task) renderTasks.delete(pageNumber);
+		}
 	} catch (cause) {
 		const errorName =
 			cause && typeof cause === "object" && "name" in cause
@@ -309,7 +375,6 @@ async function renderPage(
 			console.error(`PDF page ${pageNumber} render failed`, cause);
 		}
 	} finally {
-		renderTasks.delete(pageNumber);
 		renderingCount = Math.max(0, renderingCount - 1);
 	}
 }
@@ -329,38 +394,47 @@ function mountCanvas(canvas: HTMLCanvasElement, page: number) {
 	};
 }
 
-function mountPage(element: HTMLElement, page: number) {
-	pageElements.set(page, element);
-	return {
-		destroy() {
-			if (pageElements.get(page) === element) pageElements.delete(page);
-		},
-	};
+/** Index of the last page whose top offset is at or above `top`. */
+function pageIndexAt(top: number) {
+	let low = 0;
+	let high = pageOffsets.length - 1;
+	while (low < high) {
+		const middle = (low + high + 1) >> 1;
+		if ((pageOffsets[middle] ?? 0) <= top) low = middle;
+		else high = middle - 1;
+	}
+	return low;
 }
 
 function updateVisiblePages() {
 	const viewport = viewportElement;
 	if (!viewport || pageLayouts.length === 0) return;
-	const viewportRect = viewport.getBoundingClientRect();
+	const height = viewport.clientHeight;
 	const renderMargin = Math.max(
 		MIN_RENDER_MARGIN,
-		viewportRect.height * RENDER_MARGIN_RATIO,
+		height * RENDER_MARGIN_RATIO,
 	);
-	const renderTop = viewportRect.top - renderMargin;
-	const renderBottom = viewportRect.bottom + renderMargin;
-	const viewportCenter = viewportRect.top + viewportRect.height / 2;
+	// Everything below is arithmetic over cached offsets, so scrolling a thousand
+	// page document costs the same as scrolling a two page one.
+	const scrollTop = viewport.scrollTop - contentTop();
+	const renderTop = scrollTop - renderMargin;
+	const renderBottom = scrollTop + height + renderMargin;
+	const viewportCenter = scrollTop + height / 2;
 	const nextVisible: number[] = [];
 	let nearestPage = pageNumber;
 	let nearestDistance = Number.POSITIVE_INFINITY;
 
-	for (const layout of pageLayouts) {
-		const element = pageElements.get(layout.page);
-		if (!element) continue;
-		const rect = element.getBoundingClientRect();
-		if (rect.bottom >= renderTop && rect.top <= renderBottom) {
-			nextVisible.push(layout.page);
-		}
-		const distance = Math.abs(rect.top + rect.height / 2 - viewportCenter);
+	for (
+		let index = pageIndexAt(renderTop);
+		index < pageLayouts.length;
+		index += 1
+	) {
+		const layout = pageLayouts[index];
+		const top = pageOffsets[index];
+		if (!layout || top === undefined || top > renderBottom) break;
+		if (top + layout.height < renderTop) continue;
+		nextVisible.push(layout.page);
+		const distance = Math.abs(top + layout.height / 2 - viewportCenter);
 		if (distance < nearestDistance) {
 			nearestDistance = distance;
 			nearestPage = layout.page;
@@ -374,7 +448,11 @@ function goToPage(page: number) {
 	if (pageLayouts.length < 1) return;
 	const target = Math.min(pageLayouts.length, Math.max(1, Math.round(page)));
 	pageNumber = target;
-	pageElements.get(target)?.scrollIntoView({ block: "start" });
+	const top = pageOffsets[target - 1];
+	// Offsets cover unmounted pages too, so a jump does not depend on rendering.
+	if (viewportElement && top !== undefined) {
+		viewportElement.scrollTop = contentTop() + top;
+	}
 }
 
 function zoomBy(factor: number) {
@@ -493,10 +571,13 @@ $effect(() => {
 		class="h-full overflow-auto overscroll-contain px-2 py-2 sm:px-4 sm:py-4"
 		onscroll={updateVisiblePages}
 	>
-		<div class="flex min-h-full min-w-full flex-col items-center" style={`gap: ${PAGE_GAP}px`}>
+		<div
+			bind:this={pagesElement}
+			class="flex min-h-full min-w-full flex-col items-center"
+			style={`gap: ${PAGE_GAP}px`}
+		>
 			{#each pageLayouts as layout (layout.page)}
 				<div
-					use:mountPage={layout.page}
 					class="pdf-page relative shrink-0 bg-bg-surface shadow-md"
 					style={`width: ${layout.width}px; height: ${layout.height}px`}
 					aria-label={`Page ${layout.page} of ${pageCount}`}
