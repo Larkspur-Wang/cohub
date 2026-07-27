@@ -1,5 +1,25 @@
 [
 	{
+		"version": "2.2",
+		"date": "2026-07-27",
+		"tags": ["v2.2.0"],
+		"highlights": [
+			"**PDF file preview**: continuous scroll viewer with header controls, plus a layout and scroll hot path that no longer scales linearly with page count on long documents",
+			"**Board tool styles**: per-tool creation defaults (colors, sizes, stroke) now live in the protocol and SDK, shared by web, SDK and CLI, with black/white palette colors and a larger default text size",
+			"**Figma-style rotation**: rotate selections from corner control zones, backed by shared Board geometry",
+			"**Board moves into the SDK**: the standalone board package is gone, split into dependency-scoped entries (headless, render) so lightweight consumers no longer pull in PixiJS; note nodes removed and Markdown file-card titles now come from frontmatter",
+			"**Live Work versions**: typed work.version.published Space realtime events, replayed onto list responses so clients stay in sync without refetching"
+		],
+		"fixes": [
+			"Freehand Board strokes render stable rounded outlines through sharp turns and self-intersections",
+			"Transform controls stay attached to dragged items, and boards reconcile by identity",
+			"Board file-card covers preserve image proportions; metadata footer removed",
+			"Themed image backdrops stay behind the transparent canvas",
+			"Board history stays reachable on small touch screens",
+			"Previews persist across new chat navigation"
+		]
+	},
+	{
 		"version": "2.1",
 		"date": "2026-07-26",
 		"tags": ["v2.1.0"],

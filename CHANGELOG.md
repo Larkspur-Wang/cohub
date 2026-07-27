@@ -4,9 +4,26 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v2.2 — 2026-07-27
+
+- **PDF file preview**: continuous scroll viewer with header controls, plus a layout and scroll hot path that no longer scales linearly with page count on long documents
+- **Board tool styles**: per-tool creation defaults (colors, sizes, stroke) now live in the protocol and SDK, shared by web, SDK and CLI, with black/white palette colors and a larger default text size
+- **Figma-style rotation**: rotate selections from corner control zones, backed by shared Board geometry
+- **Board moves into the SDK**: the standalone board package is gone, split into dependency-scoped entries (headless, render) so lightweight consumers no longer pull in PixiJS; note nodes removed and Markdown file-card titles now come from frontmatter
+- **Live Work versions**: typed work.version.published Space realtime events, replayed onto list responses so clients stay in sync without refetching
+
+### Bug Fixes
+
+- Freehand Board strokes render stable rounded outlines through sharp turns and self-intersections
+- Transform controls stay attached to dragged items, and boards reconcile by identity
+- Board file-card covers preserve image proportions; metadata footer removed
+- Themed image backdrops stay behind the transparent canvas
+- Board history stays reachable on small touch screens
+- Previews persist across new chat navigation
+
 ## v2.1 — 2026-07-26
 
-- **Board image export**: renderers, geometry, palette and document codec moved into a new `@neta-art/cohub-board` package, so one set of PixiJS card renderers draws a board on screen and in a headless Node render. `cohub boards export <board> -o out.png` supports `--frame`/`--items`/`--rect` regions, `--scale`, `--theme`, transparent backgrounds and PNG/JPEG/WebP; in the editor Shift+Cmd/Ctrl+E opens an export dialog with live pixel-size readout, download and copy. Source textures are capped at 64 unique previews and output size budgets are now hard guarantees.
+- **Board image export**: renderers, geometry, palette and document codec now share the SDK Board module, so one set of PixiJS card renderers draws a board on screen and in a headless Node render. `cohub boards export <board> -o out.png` supports `--frame`/`--items`/`--rect` regions, `--scale`, `--theme`, transparent backgrounds and PNG/JPEG/WebP; in the editor Shift+Cmd/Ctrl+E opens an export dialog with live pixel-size readout, download and copy. Source textures are capped at 64 unique previews and output size budgets are now hard guarantees.
 - **Board realtime awareness**: cursors, selections, creation gestures, drawing and transforms broadcast through the gateway with a protocol-level awareness schema and SDK subscriptions. Identity renders in a screen-space DOM overlay with avatars and device badges, mobile touch shows as a fading contact ring, and CLI or Agent edits surface as chip markers backed by request provenance stored on `board_transactions.metadata`; Agent markers open the originating chat.
 - **Video previews on boards**: video cards decode one bounded first frame through the same asset manager as images, sharing reference counting, the LRU cooling pool and viewport-bounded loading, capped at 2 concurrent decode slots. File change events now carry path and metadata, so an overwritten video drops stale keys and adopts its real aspect ratio.
 - **Theme-driven rendering**: card colors resolve from the active board theme instead of hard-coded palettes, so a space's `theme.css` applies to both canvas and exports. Node transform controls gained rotation-aware selection geometry and semantic resize capability helpers.
