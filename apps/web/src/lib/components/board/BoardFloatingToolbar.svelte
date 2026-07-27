@@ -342,12 +342,32 @@ function toolTitle(tool: ToolDef) {
 		background: var(--border-subtle);
 	}
 
-	/* Mobile: larger targets, safe-area, room for top zoom. */
+	/* Mobile: larger targets, safe-area, room for top zoom.
+	   Visual sizes stay compact; `::after` grows the hit box to the 44px
+	   recommendation without pushing the row wider. */
 	@media (pointer: coarse) {
 		.board-toolbar-wrap {
 			bottom: calc(10px + env(safe-area-inset-bottom, 0px));
 			width: calc(100% - 16px);
 			max-width: calc(100vw - 16px);
+		}
+		.tool-btn,
+		.color-swatch,
+		.geo-btn,
+		.style-kind { position: relative; }
+		.tool-btn::after,
+		.color-swatch::after,
+		.geo-btn::after,
+		.style-kind::after {
+			content: "";
+			position: absolute;
+			left: 50%;
+			top: 50%;
+			translate: -50% -50%;
+			min-width: 44px;
+			min-height: 44px;
+			width: 100%;
+			height: 100%;
 		}
 		.board-floating-toolbar {
 			max-width: 100%;
@@ -375,9 +395,8 @@ function toolTitle(tool: ToolDef) {
 		.board-toolbar-wrap {
 			bottom: calc(8px + env(safe-area-inset-bottom, 0px));
 		}
+		/* The row scrolls horizontally, so history stays reachable instead of being
+		   dropped — a phone has no keyboard shortcut to fall back on. */
 		.tool-btn { width: 38px; height: 38px; }
-		/* History is available via keyboard / selection actions on the tiniest screens. */
-		.history-btn,
-		.history-divider { display: none; }
 	}
 </style>
