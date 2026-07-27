@@ -126,6 +126,33 @@ test("maybeEnqueueSpaceHookTask skips non-hookable and re-entrant events", async
   });
 });
 
+test("maybeEnqueueSpaceHookTask accepts published Work versions", async () => {
+  const calls: unknown[] = [];
+  const result = await maybeEnqueueSpaceHookTask({
+    event: {
+      id: "event-work-3",
+      type: "work.version.published",
+      spaceId: "space-1",
+      payload: {
+        work: { id: "work-1" },
+        version: { id: "version-3", version: 3 },
+        actor: { userId: "user-1" },
+      },
+    },
+    enqueue: async (name, payload, options) => {
+      calls.push({ name, payload, options });
+      return { id: "job-work-3" };
+    },
+  });
+
+  assert.ok(result);
+  assert.equal(calls.length, 1);
+  assert.equal(
+    (calls[0] as { payload: { eventActorUserId: string } }).payload.eventActorUserId,
+    "user-1",
+  );
+});
+
 test("maybeEnqueueSpaceHookTask skips when cache confirms empty definitions", async () => {
   const calls: unknown[] = [];
   const redis = {

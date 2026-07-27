@@ -71,6 +71,11 @@ import {
 	setCohubResourceDragData,
 } from "$lib/drag/cohub-resource-drag";
 import { withSidebarMainPreview } from "$lib/features/space/modules/workspace-preview-route";
+import {
+	upsertWorkSnapshot,
+	WORKS_CHANGED_EVENT,
+	type WorksChangedDetail,
+} from "$lib/features/work/work-realtime";
 import { extractGenerationPromptPreview } from "$lib/generation-task-media";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { hydrateLabelItemsById } from "$lib/labels/label-resource-hydrator";
@@ -340,6 +345,7 @@ let deletingLabelId = $state<string | null>(null);
 let cronjobs = $state<CronJobRecord[]>([]);
 let tasks = $state<TaskRunRecord[]>([]);
 let works = $state<WorkRecord[]>([]);
+let worksMutationVersion = 0;
 let loadingCronjobs = $state(false);
 let refreshingCheckpoints = $state(false);
 let loadingCronjobsSpaceId = $state<string | null>(null);
@@ -2277,9 +2283,15 @@ async function loadWorksForSpace(spaceId: string, force = false) {
 	} else {
 		refreshingWorks = true;
 	}
+	const mutationVersion = worksMutationVersion;
 	try {
 		const result = await sdk.works.listBySpace(spaceId);
-		if (spaceId === currentSpaceId) works = result.works ?? [];
+		if (
+			spaceId === currentSpaceId &&
+			mutationVersion === worksMutationVersion
+		) {
+			works = result.works ?? [];
+		}
 	} catch (error) {
 		console.warn("[sidebar] Failed to load works", { spaceId, error });
 	} finally {
@@ -2453,8 +2465,18 @@ async function handleNavigateToWork(workId: string) {
 }
 
 function handleWorksChanged(event: Event) {
-	const detail = (event as CustomEvent<{ spaceId?: string }>).detail;
+	const detail = (event as CustomEvent<WorksChangedDetail>).detail;
 	if (!currentSpaceId || detail?.spaceId !== currentSpaceId) return;
+	if (detail.work) {
+		worksMutationVersion += 1;
+		works = upsertWorkSnapshot(works, detail.work);
+		return;
+	}
+	if (detail.deletedWorkId) {
+		worksMutationVersion += 1;
+		works = works.filter((work) => work.id !== detail.deletedWorkId);
+		return;
+	}
 	void loadWorksForSpace(currentSpaceId, true);
 }
 
@@ -3022,7 +3044,7 @@ onMount(() => {
 			window.addEventListener("keydown", handleGlobalSidebarKeydown);
 		}
 		window.addEventListener(
-			"cohub:works-changed",
+			WORKS_CHANGED_EVENT,
 			handleWorksChanged as EventListener,
 		);
 		void (async () => {
@@ -3110,7 +3132,7 @@ onMount(() => {
 				window.removeEventListener("keydown", handleGlobalSidebarKeydown);
 			}
 			window.removeEventListener(
-				"cohub:works-changed",
+				WORKS_CHANGED_EVENT,
 				handleWorksChanged as EventListener,
 			);
 			window.removeEventListener(

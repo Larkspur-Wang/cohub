@@ -10,6 +10,7 @@ import {
 import { Check, Copy, ExternalLink, Loader2, Rocket } from "lucide-svelte";
 import Dialog from "$lib/components/Dialog.svelte";
 import { WORK_VIEWER_SCOPE_OPTIONS } from "$lib/features/space/modules/work-utils";
+import { dispatchWorksChanged } from "$lib/features/work/work-realtime";
 import { sdk } from "$lib/sdk";
 import {
 	normalizePublicSlugInput,
@@ -235,9 +236,7 @@ async function publish() {
 			});
 			published = (await sdk.works.publishVersion(work.id)).work;
 		}
-		window.dispatchEvent(
-			new CustomEvent("cohub:works-changed", { detail: { spaceId } }),
-		);
+		if (published) dispatchWorksChanged({ spaceId, work: published });
 	} catch (err) {
 		error = err instanceof Error ? err.message : "Publish failed.";
 	} finally {

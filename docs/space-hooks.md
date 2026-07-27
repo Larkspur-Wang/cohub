@@ -92,6 +92,7 @@ Supported events:
 - `space.workspace.ready`
 - `session.turn.finalized` — optional `sessionIds` / `ignoreSessionIds` / `sources`
 - `checkpoint.created`
+- `work.version.published`
 
 ## Trigger
 
@@ -175,6 +176,9 @@ COHUB_HOOK_ACTOR_USER_ID      # "" when unknown
 COHUB_HOOK_SESSION_ID         # "" when unbound
 COHUB_HOOK_TURN_ID            # "" unless session.turn.finalized
 COHUB_HOOK_CHECKPOINT_ID      # "" unless checkpoint.created
+COHUB_HOOK_WORK_ID             # "" unless work.version.published
+COHUB_HOOK_WORK_VERSION_ID     # "" unless work.version.published
+COHUB_HOOK_WORK_VERSION        # "" unless work.version.published
 ```
 
 `space.fs.changed` extras (always present for that event; empty string when none):

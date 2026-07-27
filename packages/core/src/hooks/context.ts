@@ -80,6 +80,21 @@ export function buildSpaceHookEnv(input: SpaceHookContextInput): Record<string, 
     "COHUB_HOOK_CHECKPOINT_ID",
     event.type === "checkpoint.created" ? asString(event.payload.checkpointId) : null,
   );
+  const work = event.type === "work.version.published" && isRecord(event.payload.work)
+    ? event.payload.work
+    : null;
+  const version = event.type === "work.version.published" && isRecord(event.payload.version)
+    ? event.payload.version
+    : null;
+  setEnv(env, "COHUB_HOOK_WORK_ID", work ? asString(work.id) : null);
+  setEnv(env, "COHUB_HOOK_WORK_VERSION_ID", version ? asString(version.id) : null);
+  setEnv(
+    env,
+    "COHUB_HOOK_WORK_VERSION",
+    typeof version?.version === "number" && Number.isFinite(version.version)
+      ? String(version.version)
+      : null,
+  );
 
   if (event.type === "space.fs.changed") {
     const summary = collectFsSummary(event.payload);
@@ -100,6 +115,9 @@ const PROMPT_CONTEXT_LABELS: Array<{ key: string; label: string }> = [
   { key: "COHUB_HOOK_SESSION_ID", label: "sessionId" },
   { key: "COHUB_HOOK_TURN_ID", label: "turnId" },
   { key: "COHUB_HOOK_CHECKPOINT_ID", label: "checkpointId" },
+  { key: "COHUB_HOOK_WORK_ID", label: "workId" },
+  { key: "COHUB_HOOK_WORK_VERSION_ID", label: "workVersionId" },
+  { key: "COHUB_HOOK_WORK_VERSION", label: "workVersion" },
   { key: "COHUB_HOOK_ACTOR_USER_ID", label: "actorUserId" },
   { key: "COHUB_HOOK_OCCURRED_AT", label: "occurredAt" },
   { key: "COHUB_HOOK_FS_CHANGE_COUNT", label: "changeCount" },

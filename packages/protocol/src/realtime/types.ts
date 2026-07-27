@@ -527,6 +527,58 @@ export type BoardPlaybackChangedEvent = {
   payload: BoardPlaybackSnapshot;
 };
 
+export type RealtimeWorkStatus = "published" | "disabled";
+export type RealtimeWorkVisibility = "public" | "space";
+export type RealtimeWorkTargetType = "file" | "directory" | "port";
+
+export type RealtimeWorkRecord = {
+  id: string;
+  spaceId: string;
+  userUuid: string;
+  slug: string;
+  status: RealtimeWorkStatus;
+  visibility: RealtimeWorkVisibility;
+  targetType: RealtimeWorkTargetType;
+  targetRef: string;
+  assetKey: string | null;
+  currentVersionId: string | null;
+  latestVersion: number;
+  publishedAt: string | null;
+  workScopes: string[];
+  allowedViewerScopes: string[];
+  meta: Record<string, unknown> | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+
+export type RealtimeWorkVersionRecord = {
+  id: string;
+  workId: string;
+  version: number;
+  targetType: RealtimeWorkTargetType;
+  targetRef: string;
+  assetKey: string | null;
+  meta: Record<string, unknown> | null;
+  createdAt: string | null;
+};
+
+export type WorkVersionPublishedEvent = {
+  id: string;
+  timestamp: number;
+  domain: "space";
+  type: "work.version.published";
+  requestId?: string | null;
+  spaceId: string;
+  sessionId?: null;
+  payload: {
+    work: RealtimeWorkRecord;
+    version: RealtimeWorkVersionRecord;
+    previousVersionId: string | null;
+    actor: { userId: string };
+    source: RequestSource | null;
+  };
+};
+
 export type RealtimeTaskRecord = {
   id: string;
   type: string;
@@ -613,6 +665,7 @@ export type RealtimeServerEvent =
   | BoardTransactionAppliedEvent
   | BoardAwarenessUpdatedEvent
   | BoardPlaybackChangedEvent
+  | WorkVersionPublishedEvent
   | TaskCreatedEvent
   | TaskUpdatedEvent
   | LabelAssignmentsUpdatedEvent;

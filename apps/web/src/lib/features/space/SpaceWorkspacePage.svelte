@@ -52,6 +52,11 @@ import {
 	subscribeSpaceChannel,
 } from "$lib/features/session-chat";
 import SessionChatPanel from "$lib/features/session-chat/SessionChatPanel.svelte";
+import {
+	dispatchWorksChanged,
+	parseWorkVersionPublished,
+	upsertWorkSnapshot,
+} from "$lib/features/work/work-realtime";
 // SettingsOverlay removed — settings merged inline into detail page
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import {
@@ -521,6 +526,7 @@ const inlineFileIsText = $derived(fileWorkspace.inlineFileIsText);
 const inlineFileDataUrl = $derived(fileWorkspace.inlineFileDataUrl);
 let previewWorks = $state<WorkRecord[]>([]);
 let previewWorksLoadedFor = $state<string | null>(null);
+let previewWorksMutationVersion = $state(0);
 let previewWorksToken = 0;
 const inlineFileWork = $derived.by(() => {
 	const filePath = inlineFile?.response?.path ?? null;
@@ -548,6 +554,7 @@ $effect(() => {
 		previewWorksLoadedFor === currentSpaceId
 	)
 		return;
+	const mutationVersion = previewWorksMutationVersion;
 	const token = ++previewWorksToken;
 	void (async () => {
 		try {
@@ -559,7 +566,11 @@ $effect(() => {
 				return;
 			}
 			const { works } = await sdk.works.listBySpace(currentSpaceId);
-			if (token !== previewWorksToken) return;
+			if (
+				token !== previewWorksToken ||
+				mutationVersion !== previewWorksMutationVersion
+			)
+				return;
 			previewWorks = works;
 			previewWorksLoadedFor = currentSpaceId;
 		} catch {
@@ -780,6 +791,8 @@ const spaceRealtime = createSpaceRealtimeController({
 	},
 	onConnectionRecovered: () => {
 		void sessionChat.onConnectionRecovered();
+		previewWorksLoadedFor = null;
+		dispatchWorksChanged({ spaceId });
 	},
 	onHidden: () => {
 		sessionChat.onVisibilityChanged(false);
@@ -1314,6 +1327,17 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 			await handleSpaceFsChanged(payload);
 		} else if (payload.type === "space.ports.changed") {
 			applyPortsChanged(payload);
+		} else if (payload.type === "work.version.published") {
+			const published = parseWorkVersionPublished(payload);
+			if (published) {
+				previewWorksMutationVersion += 1;
+				previewWorks = upsertWorkSnapshot(previewWorks, published.work);
+				dispatchWorksChanged({
+					spaceId,
+					work: published.work,
+					version: published.version,
+				});
+			}
 		} else if (payload.type === "label.assignments.updated") {
 			const snapshot = parseResourceLabelRealtimePayload({
 				spaceId: payload.spaceId,

@@ -110,6 +110,9 @@ export type {
   ChannelEnvelope,
   LabelAssignmentsUpdatedEvent,
   RealtimeServerEvent,
+  RealtimeWorkRecord,
+  RealtimeWorkVersionRecord,
+  WorkVersionPublishedEvent,
 } from "@cohub/protocol/realtime";
 export type {
   BoardAwarenessUpdatedEvent,

@@ -11,11 +11,13 @@ import { hasPermission } from "../permissions.js";
 import { createWorkSessionToken, WORK_SESSION_TTL_SECONDS } from "../work-sessions.js";
 import { getSandboxPublicEndpoints } from "../sandbox-public-network.js";
 import { SANDBOX_PUBLIC_PORTS } from "@cohub/protocol/ports";
+import type { RealtimeWorkRecord, RealtimeWorkVersionRecord } from "@cohub/protocol/realtime";
 import { createLogger } from "@cohub/infra/logging";
 import { billingOperations, COHUB_BILLING_FEATURES } from "@cohub/billing";
 import { featureGateResponse } from "../lib/feature-gate.js";
 import { createWorkPublicUrl } from "../lib/work-public-url.js";
-import { applyRequestSourceToMeta } from "../lib/request-source.js";
+import { applyRequestSourceToMeta, getRequestSource } from "../lib/request-source.js";
+import { dispatchWorkVersionPublished } from "../work-events.js";
 
 const logger = createLogger({ serviceName: "cohub-api" });
 const router = new Hono();
@@ -143,14 +145,14 @@ const isAllowedWorkContentUrl = (url: string, kind: "asset" | "port") => {
   }
 };
 
-const serializeWork = (work: typeof works.$inferSelect) => ({
+const serializeWork = (work: typeof works.$inferSelect): RealtimeWorkRecord => ({
   id: work.id,
   spaceId: work.spaceId,
   userUuid: work.userUuid,
   slug: work.slug,
-  status: work.status,
-  visibility: work.visibility ?? "public",
-  targetType: work.targetType,
+  status: work.status as RealtimeWorkRecord["status"],
+  visibility: (work.visibility ?? "public") as RealtimeWorkRecord["visibility"],
+  targetType: work.targetType as RealtimeWorkRecord["targetType"],
   targetRef: work.targetRef,
   assetKey: work.assetKey,
   currentVersionId: work.currentVersionId,
@@ -158,19 +160,19 @@ const serializeWork = (work: typeof works.$inferSelect) => ({
   publishedAt: work.publishedAt?.toISOString() ?? null,
   workScopes: work.workScopes ?? [],
   allowedViewerScopes: work.allowedViewerScopes ?? [],
-  meta: work.meta ?? null,
+  meta: getWorkMeta(work.meta),
   createdAt: work.createdAt?.toISOString() ?? null,
   updatedAt: work.updatedAt?.toISOString() ?? null,
 });
 
-const serializeWorkVersion = (version: typeof workVersions.$inferSelect) => ({
+const serializeWorkVersion = (version: typeof workVersions.$inferSelect): RealtimeWorkVersionRecord => ({
   id: version.id,
   workId: version.workId,
   version: version.version,
-  targetType: version.targetType,
+  targetType: version.targetType as RealtimeWorkVersionRecord["targetType"],
   targetRef: version.targetRef,
   assetKey: version.assetKey,
-  meta: version.meta ?? null,
+  meta: getWorkMeta(version.meta),
   createdAt: version.createdAt?.toISOString() ?? null,
 });
 
@@ -427,7 +429,7 @@ router.post("/", async (c) => {
   });
 
   try {
-    const work = await db.transaction(async (tx) => {
+    const result = await db.transaction(async (tx) => {
       const [createdWork] = await tx.insert(works).values({
         spaceId,
         userUuid: user.uuid,
@@ -444,7 +446,7 @@ router.post("/", async (c) => {
         meta: pageMeta,
       }).returning();
       if (!createdWork) return null;
-      if (status !== "published") return createdWork;
+      if (status !== "published") return { work: createdWork, version: null };
       const [version] = await tx.insert(workVersions).values({
         workId: createdWork.id,
         version: 1,
@@ -456,16 +458,33 @@ router.post("/", async (c) => {
       }).returning();
       if (!version) throw new Error("failed to create work version");
       const [updatedWork] = await tx.update(works).set({ currentVersionId: version.id }).where(eq(works.id, createdWork.id)).returning();
-      return updatedWork ?? createdWork;
+      return { work: updatedWork ?? createdWork, version };
     }).catch((error: unknown) => {
       if (isWorkSlugConflict(error)) return null;
       throw error;
     });
-    if (!work) {
+    if (!result) {
       await cleanupWorkAssets(assetKey, { workId: "new", spaceId, reason: "create_slug_conflict" });
       return c.json({ message: "slug already exists" }, 409);
     }
-    return c.json({ work: serializeWork(work) }, 201);
+    const serializedWork = serializeWork(result.work);
+    if (result.version) {
+      const serializedVersion = serializeWorkVersion(result.version);
+      await dispatchWorkVersionPublished({
+        work: serializedWork,
+        version: serializedVersion,
+        previousVersionId: null,
+        actorUserId: user.uuid,
+        source: getRequestSource(c),
+      }).catch((error) => {
+        logger.warn("[works] failed to dispatch work.version.published", {
+          workId: result.work.id,
+          version: result.version?.version,
+          error,
+        });
+      });
+    }
+    return c.json({ work: serializedWork }, 201);
   } catch (error) {
     await cleanupWorkAssets(assetKey, { workId: "new", spaceId, reason: "create_failed" });
     throw error;
@@ -543,7 +562,7 @@ async function updateWork(
 async function publishWorkVersion(
   c: Context,
   current: typeof works.$inferSelect,
-  options?: { meta?: WorkMeta | null },
+  options: { actorUserId: string; meta?: WorkMeta | null },
 ) {
   const identityError = await ensureWorkPublicIdentity(c, current.spaceId);
   if (identityError) return identityError;
@@ -575,7 +594,10 @@ async function publishWorkVersion(
       const [versionedWork] = await tx.update(works).set({
         latestVersion: sql`${works.latestVersion} + 1`,
         updatedAt: now,
-      }).where(eq(works.id, current.id)).returning({ latestVersion: works.latestVersion });
+      }).where(eq(works.id, current.id)).returning({
+        latestVersion: works.latestVersion,
+        previousVersionId: works.currentVersionId,
+      });
       if (!versionedWork) throw new Error("failed to reserve work version");
       const [version] = await tx.insert(workVersions).values({
         workId: current.id,
@@ -597,9 +619,24 @@ async function publishWorkVersion(
         updatedAt: now,
       }).where(eq(works.id, current.id)).returning();
       if (!work) throw new Error("failed to publish work version");
-      return { work, version };
+      return { work, version, previousVersionId: versionedWork.previousVersionId };
     });
-    return c.json({ work: serializeWork(result.work), version: serializeWorkVersion(result.version) });
+    const serializedWork = serializeWork(result.work);
+    const serializedVersion = serializeWorkVersion(result.version);
+    await dispatchWorkVersionPublished({
+      work: serializedWork,
+      version: serializedVersion,
+      previousVersionId: result.previousVersionId,
+      actorUserId: options.actorUserId,
+      source: getRequestSource(c),
+    }).catch((error) => {
+      logger.warn("[works] failed to dispatch work.version.published", {
+        workId: result.work.id,
+        version: result.version.version,
+        error,
+      });
+    });
+    return c.json({ work: serializedWork, version: serializedVersion });
   } catch (error) {
     try {
       await cleanupWorkAssets(assetKey, { workId: current.id, spaceId: current.spaceId, reason: "publish_failed" });
@@ -644,7 +681,7 @@ router.post("/:id/versions", async (c) => {
   if (!work) return c.json({ message: "work not found" }, 404);
   if (!(await hasPermission(user, "space.edit", { spaceId: work.spaceId }))) return authzDenied(c);
   const meta = applyRequestSourceToMeta(c, null);
-  return publishWorkVersion(c, work, { meta });
+  return publishWorkVersion(c, work, { actorUserId: user.uuid, meta });
 });
 
 router.delete("/:id", async (c) => {
