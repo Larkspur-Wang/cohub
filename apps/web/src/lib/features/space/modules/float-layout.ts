@@ -11,6 +11,9 @@ export const FLOAT_PREVIEW_MIN_WIDTH = 400;
 /** Spacing between Chat / Preview / Files floating panels and viewport edges. */
 export const FLOAT_PANEL_GAP = 10;
 
+/** Tighter edge spacing between the left navigation rail and floating Chat. */
+export const FLOAT_CHAT_EDGE_GAP = 6;
+
 /**
  * Whether the workspace is wide enough for Chat + Files + Preview to coexist
  * in Float mode without squeezing the Preview below its minimum.

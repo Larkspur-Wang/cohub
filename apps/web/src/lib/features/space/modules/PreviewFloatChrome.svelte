@@ -138,6 +138,15 @@ $effect(() => {
 		{/if}
 
 		<div class="preview-float-divider"></div>
+		<button
+			type="button"
+			class="preview-float-control"
+			title="Exit Float"
+			aria-label="Exit Float"
+			onclick={() => run(onExit)}
+		>
+			<Minimize2 class="h-4 w-4" />
+		</button>
 		{#if onToggleFiles}
 			<button
 				type="button"
@@ -151,15 +160,6 @@ $effect(() => {
 				<PanelRight class="h-4 w-4" />
 			</button>
 		{/if}
-		<button
-			type="button"
-			class="preview-float-control"
-			title="Exit Float"
-			aria-label="Exit Float"
-			onclick={() => run(onExit)}
-		>
-			<Minimize2 class="h-4 w-4" />
-		</button>
 	</div>
 </div>
 

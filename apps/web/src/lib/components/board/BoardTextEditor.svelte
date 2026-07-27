@@ -1,5 +1,6 @@
 <script lang="ts">
 import { TEXT_FONT_SIZE, TEXT_LINE_HEIGHT } from "@neta-art/cohub/board";
+import { tick, untrack } from "svelte";
 import type { BoardEditor } from "$lib/board/editor.svelte";
 
 const { editor }: { editor: BoardEditor } = $props();
@@ -48,14 +49,19 @@ const layout = $derived.by(() => {
 });
 
 $effect(() => {
-	const item = editingItem;
-	if (item) {
-		draft = item.text;
-		queueMicrotask(() => {
-			textarea?.focus();
-			textarea?.select();
-		});
-	}
+	const id = editor.editingId;
+	if (!id) return;
+	const item = untrack(() => editor.itemById(id));
+	if (!item || (item.type !== "text" && item.type !== "geo")) return;
+
+	// Seed once per editing target. Frame previews replace the item while typing,
+	// but must never overwrite the uncommitted textarea draft.
+	draft = item.text;
+	void tick().then(() => {
+		if (editor.editingId !== id) return;
+		textarea?.focus({ preventScroll: true });
+		textarea?.select();
+	});
 });
 
 function commit() {

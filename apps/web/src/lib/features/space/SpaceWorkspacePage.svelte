@@ -110,6 +110,7 @@ import { resolveWorkspaceSpaceId } from "$lib/workspace-route";
 import { createBoardPreviewController } from "./modules/board-preview-controller.svelte";
 import { createFileWorkspaceController } from "./modules/file-workspace-controller.svelte";
 import {
+	FLOAT_CHAT_EDGE_GAP,
 	FLOAT_PANEL_GAP,
 	FLOAT_PREVIEW_MIN_WIDTH,
 	floatPanelsFit,
@@ -2641,7 +2642,7 @@ const headerActions = {
 	bind:this={workspaceBodyEl}
 	class="workspace-body relative flex-1 min-h-0 flex overflow-hidden bg-[var(--chat-bg)]"
 	class:workspace-body--preview-immersive={previewImmersiveMode}
-	style={`--immersive-chat-width: ${uiState.immersiveChatWidth}px; --immersive-chat-max-width: calc(100% - ${immersiveFilesInset}px - ${FLOAT_PREVIEW_MIN_WIDTH + FLOAT_PANEL_GAP}px); --preview-safe-left: ${previewImmersiveMode && immersiveChatVisible ? "calc(min(var(--immersive-chat-width), var(--immersive-chat-max-width)) + 20px)" : "10px"}; --preview-safe-right: ${immersiveFilesInset}px`}
+	style={`--immersive-chat-width: ${uiState.immersiveChatWidth}px; --immersive-chat-edge-gap: ${FLOAT_CHAT_EDGE_GAP}px; --immersive-chat-max-width: calc(100% - ${immersiveFilesInset}px - ${FLOAT_PREVIEW_MIN_WIDTH + FLOAT_PANEL_GAP}px); --preview-safe-left: ${previewImmersiveMode && immersiveChatVisible ? `calc(min(var(--immersive-chat-width), var(--immersive-chat-max-width)) + var(--immersive-chat-edge-gap) + ${FLOAT_PANEL_GAP}px)` : `${FLOAT_PANEL_GAP}px`}; --preview-safe-right: ${immersiveFilesInset}px`}
 >
   <SpaceDanmakuLayer controller={danmakuController} {spaceId} hidden={previewImmersiveMode} />
   <div
@@ -2870,7 +2871,7 @@ const headerActions = {
       flex: 0 0 min(var(--immersive-chat-width), var(--immersive-chat-max-width));
       max-width: min(var(--immersive-chat-width), var(--immersive-chat-max-width));
       min-width: min(320px, calc(100vw - 96px));
-      margin: 10px 0 10px 10px;
+      margin: 10px 0 10px var(--immersive-chat-edge-gap);
       overflow: hidden;
       border: 1px solid var(--border-subtle);
       border-radius: 10px;
@@ -2886,8 +2887,8 @@ const headerActions = {
   .immersive-chat-controls {
     position: absolute;
     top: 7px;
-    right: 7px;
-    left: auto;
+    right: auto;
+    left: 7px;
     z-index: 20;
     display: flex;
     align-items: center;
