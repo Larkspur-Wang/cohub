@@ -69,8 +69,10 @@ const stderr = [];
 child.stdout.on("data", (chunk) => stdout.push(chunk));
 child.stderr.on("data", (chunk) => stderr.push(chunk));
 
+// `close` (not `exit`) is what guarantees the piped stdio has been fully
+// drained, so a large run cannot lose its trailing summary line.
 const exitCode = await new Promise((resolve) => {
-  child.once("exit", (code, signal) => resolve(code ?? (signal ? 1 : 0)));
+  child.once("close", (code, signal) => resolve(code ?? (signal ? 1 : 0)));
   child.once("error", (error) => {
     stderr.push(Buffer.from(`${error.stack ?? error.message}\n`));
     resolve(1);
