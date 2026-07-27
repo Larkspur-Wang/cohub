@@ -445,6 +445,10 @@ export function createBoardEditor(options: BoardEditorOptions) {
 	 */
 	const selectedItems = $derived.by<BoardItem[]>(() => {
 		if (selection.length === 0) return [];
+		// Track the item snapshot explicitly. `ensureSpatial` can return before
+		// reading it when a pointer hit-test already refreshed the index.
+		const currentItems = items;
+		if (currentItems.length === 0) return [];
 		ensureSpatial();
 		const result: BoardItem[] = [];
 		for (const id of selection) {
