@@ -94,16 +94,24 @@ test("uniform shapes expose corners but not edge stretching", () => {
 	);
 });
 
-test("free shapes expose continuous edges and a separate rotation handle", () => {
+test("fine pointers rotate outside corners without a separate handle", () => {
 	const transform = resolveSelectionTransform([geo()], bounds);
 	assert.deepEqual(
 		selectionTransformControlAt(transform, worldPoint(100, 35), 1, "mouse"),
 		{ kind: "resize", handle: "e" },
 	);
-	const rotation = rotationHandlePosition(frame, 1);
 	assert.deepEqual(
-		selectionTransformControlAt(transform, rotation, 1, "mouse"),
+		selectionTransformControlAt(transform, worldPoint(-12, -12), 1, "mouse"),
 		{ kind: "rotate" },
+	);
+	assert.equal(
+		selectionTransformControlAt(
+			transform,
+			rotationHandlePosition(frame, 1),
+			1,
+			"mouse",
+		),
+		null,
 	);
 });
 
@@ -115,14 +123,23 @@ test("resize cursors follow the node's visual axes", () => {
 	assert.equal(resizeCursorForHandle("nw", -45), "ew-resize");
 });
 
-test("touch controls enlarge hit targets without changing geometry", () => {
+test("touch keeps enlarged corner resize priority", () => {
 	const transform = resolveSelectionTransform([text()], bounds);
-	assert.equal(
+	assert.deepEqual(
 		selectionTransformControlAt(transform, worldPoint(-14, -14), 1, "mouse"),
-		null,
+		{ kind: "rotate" },
 	);
 	assert.deepEqual(
 		selectionTransformControlAt(transform, worldPoint(-14, -14), 1, "touch"),
 		{ kind: "resize", handle: "nw" },
+	);
+	assert.deepEqual(
+		selectionTransformControlAt(
+			transform,
+			rotationHandlePosition(frame, 1),
+			1,
+			"touch",
+		),
+		{ kind: "rotate" },
 	);
 });

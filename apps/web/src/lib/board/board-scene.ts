@@ -161,6 +161,7 @@ export type SceneSyncInput = {
 
 export type SceneOverlayInput = {
 	zoom: number;
+	pointerType: string;
 	marquee: Rect | null;
 	selection: string[];
 	transform: BoardSelectionTransform | null;
@@ -491,6 +492,7 @@ export function createBoardScene(options: {
 		overlay.clear();
 		const {
 			zoom,
+			pointerType,
 			marquee,
 			selection,
 			transform,
@@ -552,7 +554,10 @@ export function createBoardScene(options: {
 			}
 		}
 
-		if (transform.canRotate) {
+		if (
+			transform.canRotate &&
+			(pointerType === "touch" || transform.resizeMode === "none")
+		) {
 			const rotation = rotationPointer ?? rotationHandlePosition(source, zoom);
 			const anchor = rotationPointer
 				? frameRayIntersection(source, rotationPointer)

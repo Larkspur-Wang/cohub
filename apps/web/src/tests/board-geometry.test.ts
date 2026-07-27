@@ -7,6 +7,7 @@ import {
 	degToRad,
 	fitToContent,
 	frameContainsPoint,
+	frameCornerRotationHandleAt,
 	frameCorners,
 	frameEdgeHandleAt,
 	frameHandlePosition,
@@ -255,6 +256,38 @@ test("selection handle positions sit on the frame corners", () => {
 	assert.deepEqual(frameHandlePosition(frame, "nw"), { x: 0, y: 0 });
 	assert.deepEqual(frameHandlePosition(frame, "se"), { x: 100, y: 60 });
 	assert.deepEqual(frameHandlePosition(frame, "n"), { x: 50, y: 0 });
+});
+
+test("corner rotation zones sit outside resize handles in screen space", () => {
+	const frame: BoardFrame = {
+		x: 0,
+		y: 0,
+		width: 100,
+		height: 60,
+		rotation: 0,
+	};
+	assert.equal(
+		frameCornerRotationHandleAt(frame, worldPoint(-12, -12), 1),
+		"nw",
+	);
+	assert.equal(
+		frameCornerRotationHandleAt(frame, worldPoint(112, 72), 1),
+		"se",
+	);
+	assert.equal(frameCornerRotationHandleAt(frame, worldPoint(-4, -4), 1), null);
+	assert.equal(frameCornerRotationHandleAt(frame, worldPoint(12, 12), 1), null);
+	assert.equal(frameCornerRotationHandleAt(frame, worldPoint(-6, -6), 2), "nw");
+
+	const rotated = { ...frame, rotation: 90 };
+	const rotatedOutside = localToWorld(rotated, -12, -12);
+	assert.equal(
+		frameCornerRotationHandleAt(
+			rotated,
+			worldPoint(rotatedOutside.x, rotatedOutside.y),
+			1,
+		),
+		"nw",
+	);
 });
 
 test("rotation handle sits below the frame and follows its rotation", () => {

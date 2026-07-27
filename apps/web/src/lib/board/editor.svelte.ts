@@ -2307,6 +2307,9 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		get hoveredTransformControl() {
 			return hoveredTransformControl;
 		},
+		get pointerType() {
+			return hoverPointerType;
+		},
 		get marquee() {
 			return marquee;
 		},

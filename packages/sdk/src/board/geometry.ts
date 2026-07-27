@@ -277,6 +277,10 @@ export type ResizeHandle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
 
 export const CORNER_RESIZE_HANDLES = ["nw", "ne", "se", "sw"] as const;
 export const EDGE_RESIZE_HANDLES = ["n", "e", "s", "w"] as const;
+export type CornerResizeHandle = (typeof CORNER_RESIZE_HANDLES)[number];
+
+/** Screen-space depth of the rotation zone outside each resize corner. */
+export const CORNER_ROTATION_ZONE_WIDTH = 16;
 
 export const RESIZE_HANDLES: ResizeHandle[] = [
 	"nw",
@@ -288,6 +292,39 @@ export const RESIZE_HANDLES: ResizeHandle[] = [
 	"sw",
 	"w",
 ];
+
+/**
+ * Hit-test the outward quadrant around each corner, outside its resize target.
+ * This gives fine pointers Figma-style corner rotation without adding chrome.
+ */
+export function frameCornerRotationHandleAt(
+	frame: BoardFrame,
+	point: WorldPoint,
+	zoom: number,
+	screenRadius = HANDLE_HIT_RADIUS,
+): CornerResizeHandle | null {
+	const rect = frameRect(frame);
+	const center = rectCenter(rect);
+	const local = frame.rotation
+		? rotatePointAround(point, center, -degToRad(frame.rotation))
+		: point;
+	const safeZoom = Math.max(zoom, 0.0001);
+	const innerRadius = screenRadius / safeZoom;
+	const outerRadius =
+		(screenRadius + CORNER_ROTATION_ZONE_WIDTH) / safeZoom;
+
+	for (const handle of CORNER_RESIZE_HANDLES) {
+		const corner = handlePosition(rect, handle);
+		const direction = HANDLE_DIRECTION[handle];
+		const outwardX = (local.x - corner.x) * direction.x;
+		const outwardY = (local.y - corner.y) * direction.y;
+		if (outwardX < -0.0001 || outwardY < -0.0001) continue;
+		const distance = Math.hypot(outwardX, outwardY);
+		if (distance > innerRadius && distance <= outerRadius) return handle;
+	}
+
+	return null;
+}
 
 /**
  * Hit-test the continuous edge zones of a rotated frame. Corners are inset so

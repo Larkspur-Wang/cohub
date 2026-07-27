@@ -452,6 +452,7 @@ function syncStage() {
 	scene.drawOverlay(
 		{
 			zoom: editor.camera.zoom,
+			pointerType: editor.pointerType,
 			marquee: editor.marquee,
 			selection: editor.selection,
 			transform: editor.selectionTransform,

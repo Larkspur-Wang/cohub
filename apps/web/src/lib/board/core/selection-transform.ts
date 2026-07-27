@@ -8,6 +8,7 @@ import type {
 } from "@neta-art/cohub/board";
 import {
 	CORNER_RESIZE_HANDLES,
+	frameCornerRotationHandleAt,
 	frameEdgeHandleAt,
 	frameHandlePosition,
 	HANDLE_HIT_RADIUS,
@@ -117,9 +118,17 @@ export function selectionTransformControlAt(
 	}
 
 	if (transform.canRotate) {
-		const position = rotationHandlePosition(transform.frame, zoom);
-		if (Math.hypot(position.x - point.x, position.y - point.y) <= radius)
+		const usesSeparateHandle =
+			pointerType === "touch" || transform.resizeMode === "none";
+		if (usesSeparateHandle) {
+			const position = rotationHandlePosition(transform.frame, zoom);
+			if (Math.hypot(position.x - point.x, position.y - point.y) <= radius)
+				return { kind: "rotate" };
+		} else if (
+			frameCornerRotationHandleAt(transform.frame, point, zoom, screenRadius)
+		) {
 			return { kind: "rotate" };
+		}
 	}
 
 	if (transform.resizeMode === "free") {
