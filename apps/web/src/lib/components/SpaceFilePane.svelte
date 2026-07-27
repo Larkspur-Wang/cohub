@@ -3,8 +3,6 @@ import type { SpaceFsFileResponse } from "@neta-art/cohub";
 import { Download, Eye, FileWarning, Pencil, Save, X } from "lucide-svelte";
 import CodeEditor from "$lib/components/CodeEditor.svelte";
 import MarkdownView from "$lib/components/MarkdownView.svelte";
-import { createLazyModuleLoader } from "$lib/lazy-module";
-import { isPdfFile } from "$lib/space-file-preview";
 import { isTextFileResponse } from "$lib/space-file-text";
 
 const {
@@ -35,10 +33,6 @@ const {
 	children?: import("svelte").Snippet;
 } = $props();
 
-const loadPdfFilePreviewModule = createLazyModuleLoader(
-	() => import("$lib/components/PdfFilePreview.svelte"),
-);
-
 let fileEdit = $state(true);
 
 $effect(() => {
@@ -46,15 +40,13 @@ $effect(() => {
 });
 
 const dataUrl = $derived.by(() => {
-	if (!file || isTextFileResponse(file)) return null;
-	if (file.delivery === "url") return file.url ?? null;
+	if (!file || isTextFileResponse(file) || file.delivery === "url") return null;
 	const mime = file.mimeType ?? "application/octet-stream";
 	return `data:${mime};base64,${file.content}`;
 });
 
 const isImage = $derived(Boolean(file?.mimeType?.startsWith("image/")));
 const isVideo = $derived(Boolean(file?.mimeType?.startsWith("video/")));
-const isPdf = $derived(isPdfFile(file));
 const isText = $derived(isTextFileResponse(file));
 const isMarkdown = $derived(
 	Boolean(file && isTextFileResponse(file) && /\.md$/i.test(file.path)),
@@ -158,13 +150,6 @@ const editorLanguage = $derived.by(() => {
           <track kind="captions" />
         </video>
       </div>
-    {:else if isPdf && dataUrl}
-      {#await loadPdfFilePreviewModule() then previewModule}
-        {@const LazyPdfFilePreview = previewModule.default}
-        <LazyPdfFilePreview source={dataUrl} name={file.name} />
-      {:catch}
-        <div class="flex h-full items-center justify-center p-4 text-[12px] text-error-soft">PDF preview failed to load.</div>
-      {/await}
     {:else}
       <div class="m-4 rounded-md border border-border-subtle bg-bg-primary p-4 text-[12px] text-text-secondary">
         <div><strong>Name:</strong> {file.name}</div>

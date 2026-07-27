@@ -30,7 +30,6 @@ import type {
 	OpenWorkspaceFileTarget,
 	WorkspaceFilePosition,
 } from "$lib/workspace-file-links";
-import { isPdfFile } from "$lib/space-file-preview";
 import { formatFileSize } from "../space-utils";
 import MobilePreviewTabsChrome from "./MobilePreviewTabsChrome.svelte";
 import PreviewFloatChrome from "./PreviewFloatChrome.svelte";
@@ -181,16 +180,12 @@ const loadRenderedFilePreviewModule = createLazyModuleLoader(
 const loadFileDiffViewModule = createLazyModuleLoader(
 	() => import("$lib/components/FileDiffView.svelte"),
 );
-const loadPdfFilePreviewModule = createLazyModuleLoader(
-	() => import("$lib/components/PdfFilePreview.svelte"),
-);
 
 const showDiffMode = $derived(!activeFsReadonly && inlineFileIsText);
 // Bump to force #await to re-subscribe after a cleared lazy-import failure.
 let codeEditorLoadAttempt = $state(0);
 let htmlPreviewLoadAttempt = $state(0);
 let fileDiffLoadAttempt = $state(0);
-let pdfPreviewLoadAttempt = $state(0);
 const codeEditorModulePromise = $derived.by(() => {
 	codeEditorLoadAttempt;
 	return loadCodeEditorModule();
@@ -202,10 +197,6 @@ const htmlPreviewModulePromise = $derived.by(() => {
 const fileDiffModulePromise = $derived.by(() => {
 	fileDiffLoadAttempt;
 	return loadFileDiffViewModule();
-});
-const pdfPreviewModulePromise = $derived.by(() => {
-	pdfPreviewLoadAttempt;
-	return loadPdfFilePreviewModule();
 });
 let fileActionMenuAnchorEl: HTMLElement | null = $state(null);
 let imageMarkOpen = $state(false);
@@ -230,7 +221,6 @@ const showHtmlMark = $derived(
 		inlineFileViewMode === "preview" &&
 		inlineFileHasRenderedPreview,
 );
-const inlineFileIsPdf = $derived(isPdfFile(inlineFile?.response));
 
 // Soft-fail: keep content surface when we still have something usable.
 // Empty text files (content === "") are still editable when open succeeded.
@@ -245,10 +235,7 @@ const hasUsableText = $derived(
 	),
 );
 const hasUsableMedia = $derived(
-	Boolean(
-		(inlineFileIsImage || inlineFileIsVideo || inlineFileIsPdf) &&
-			inlineFileDataUrl,
-	),
+	Boolean((inlineFileIsImage || inlineFileIsVideo) && inlineFileDataUrl),
 );
 const showExclusiveFallback = $derived(
 	Boolean(
@@ -540,22 +527,6 @@ $effect(() => {
 	{/if}
 {/snippet}
 
-{#snippet PdfFileBody()}
-	{#if inlineFile?.response && inlineFileDataUrl}
-		{#await pdfPreviewModulePromise then previewModule}
-			{@const LazyPdfFilePreview = previewModule.default}
-			<LazyPdfFilePreview
-				source={inlineFileDataUrl}
-				name={inlineFile.response.name}
-			/>
-		{:catch}
-			{@render LazyLoadError("PDF preview failed to load.", () => {
-				pdfPreviewLoadAttempt += 1;
-			})}
-		{/await}
-	{/if}
-{/snippet}
-
 {#snippet TextFileBody()}
 	{#if inlineFileViewMode === "diff" && showDiffMode}
 		{#await fileDiffModulePromise then diffModule}
@@ -684,10 +655,6 @@ $effect(() => {
             <video src={inlineFileDataUrl} controls class="max-h-full max-w-full rounded-md">
               <track kind="captions" />
             </video>
-          </div>
-        {:else if inlineFileIsPdf && inlineFileDataUrl}
-          <div class="min-h-0 flex-1">
-            {@render PdfFileBody()}
           </div>
         {:else}
           {@render FileOpenFallback({
@@ -878,20 +845,6 @@ $effect(() => {
               <video src={inlineFileDataUrl} controls class="max-h-full max-w-full rounded-md">
                 <track kind="captions" />
               </video>
-            </div>
-          {:else if inlineFileIsPdf && inlineFileDataUrl}
-            <div class="preview-chrome flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
-              <div class="preview-chrome-path min-w-0 flex-1 truncate text-xs sm:text-sm text-text-secondary">
-                {activeResponsePath}
-              </div>
-              <div class="text-xs text-text-tertiary hidden sm:inline">{formatFileSize(inlineFile.response.size)}</div>
-              {@render FileHeaderCoreActions(activeResponsePath)}
-              <button type="button" class="icon-btn" onclick={onCloseInlineFile} title="Close file">
-                <X class="w-4 h-4" />
-              </button>
-            </div>
-            <div class="min-h-0 flex-1">
-              {@render PdfFileBody()}
             </div>
           {:else}
             <div class="preview-chrome flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
