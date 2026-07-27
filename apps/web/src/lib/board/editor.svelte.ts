@@ -96,7 +96,7 @@ import {
 	clampBoardTextFontSize,
 	measureBoardText,
 } from "@neta-art/cohub/board";
-import { installBoardTextMeasurement } from "@neta-art/cohub/board/render";
+import { ensureBoardTextMeasurement } from "@neta-art/cohub/board/render";
 import {
 	createSpatialIndex,
 	type SpatialEntry,
@@ -251,10 +251,10 @@ function toContent(document: BoardDocument): SyncedContent {
 }
 
 export function createBoardEditor(options: BoardEditorOptions) {
-	// The model measures text through an injected measurer so it can run without
-	// PixiJS. In the browser the canvas-backed one is the accurate choice, and it
-	// must be installed before the first note is laid out.
-	installBoardTextMeasurement();
+	// The editor lays out text before any card renderer runs, and the model's
+	// fallback metrics are only an estimate, so make sure the canvas measurer is
+	// in place first.
+	ensureBoardTextMeasurement();
 
 	// ─── Reactive state ─────────────────────────────────────────────
 	// Synced content and the local camera are held separately so the viewport

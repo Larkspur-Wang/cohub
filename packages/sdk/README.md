@@ -154,6 +154,13 @@ Install `pixi.js` to use `board/render` or `board/export`, and add
 `@neta-art/cohub/board` never reaches for either, so HTTP-only installations
 stay lightweight.
 
+Text metrics follow the same split. The renderers measure through a real canvas
+and set that up themselves, so nothing extra is needed to draw or export. Called
+straight off `@neta-art/cohub/board` with no renderer in play,
+`measureBoardText` returns a per-character estimate instead — fine for laying
+out a board on a server, but call `installBoardTextMeasurement` from
+`board/render` first if the numbers have to match what the editor draws.
+
 ## Session subscriptions
 
 ```ts

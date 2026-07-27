@@ -17,6 +17,7 @@ type MeasureContext = {
 };
 
 let measureContext: MeasureContext | null | undefined;
+let installed = false;
 
 function getMeasureContext(): MeasureContext | null {
   if (measureContext !== undefined) return measureContext;
@@ -39,12 +40,27 @@ function measureText(text: string, fontSize: number): number | null {
 /**
  * Route board text measurement through the active Pixi DOM adapter.
  *
- * Called explicitly rather than on import: the package is marked side-effect
- * free, so a bundler is entitled to drop a module whose only job happens at
- * load time. Also safe to call again after the adapter is swapped, which drops
- * the cached context.
+ * Call this after swapping the adapter (see `../headless`), which drops the
+ * cached measuring context. Anything that goes through `getBoardCardRenderer`
+ * is already covered by `ensureBoardTextMeasurement`.
  */
 export function installBoardTextMeasurement(): void {
   measureContext = undefined;
+  installed = true;
   setBoardTextMeasurer(measureText);
+}
+
+/**
+ * Install the canvas measurer once, unless it already is.
+ *
+ * The core metrics module falls back to a per-character estimate when no
+ * measurer is set, which is off by ~90% for real text — wrong enough to
+ * misplace every label. Rather than make that a step consumers can forget, the
+ * renderer registry calls this before handing a renderer out. It cannot be an
+ * import-time side effect: the package is marked side-effect free, so a bundler
+ * is entitled to drop a module whose only job happens at load time.
+ */
+export function ensureBoardTextMeasurement(): void {
+  if (installed) return;
+  installBoardTextMeasurement();
 }

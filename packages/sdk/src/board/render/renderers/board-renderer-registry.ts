@@ -1,6 +1,7 @@
 import type { Container, Graphics, Texture } from "pixi.js";
 import type { BoardDocument, BoardItem } from "@cohub/protocol/board-document";
 import type { BoardShapeColors } from "../../core/palette.js";
+import { ensureBoardTextMeasurement } from "../text-measurement.js";
 import { arrowCardRenderer } from "./arrow-card-renderer.js";
 import { drawCardRenderer } from "./draw-card-renderer.js";
 import { fileCardRenderer } from "./file-card-renderer.js";
@@ -120,6 +121,10 @@ export function getBoardCardRenderer(
 	item: BoardItem,
 	context: BoardRenderContext,
 ) {
+	// Drawing a card measures its text, so the canvas measurer has to be in place
+	// by now. Doing it here means no caller can forget, and it costs one boolean
+	// check after the first call.
+	ensureBoardTextMeasurement();
 	return (
 		boardCardRenderers.find((renderer) => renderer.canRender(item, context)) ??
 		unknownCardRenderer
