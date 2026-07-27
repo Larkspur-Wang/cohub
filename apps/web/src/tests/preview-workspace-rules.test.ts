@@ -26,6 +26,23 @@ test("port deep-link keys must be trusted numeric ports", () => {
 	assert.equal(parsePreviewParam("port:80@evil"), null);
 });
 
+test("new and existing Space chats share one mounted workspace", () => {
+	const routes = new URL(
+		"../routes/(app)/spaces/[id]/sessions/",
+		import.meta.url,
+	);
+	const layout = readFileSync(new URL("+layout.svelte", routes), "utf8");
+	const pages = ["new/+page.svelte", "[sessionId]/+page.svelte"].map((file) =>
+		readFileSync(new URL(file, routes), "utf8"),
+	);
+
+	assert.match(layout, /<SpaceWorkspacePage \{data\} \/>/);
+	assert.match(layout, /page\.data\.sessionId/);
+	for (const routePage of pages) {
+		assert.doesNotMatch(routePage, /SpaceWorkspacePage/);
+	}
+});
+
 test("preview kinds share one workspace pane", () => {
 	const modules = new URL("../lib/features/space/modules/", import.meta.url);
 	const domain = readFileSync(
