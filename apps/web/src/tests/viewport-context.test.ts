@@ -6,7 +6,7 @@ import {
 	formatViewportContextLabel,
 	viewportContextId,
 } from "@cohub/protocol";
-import { visibleWorldRect } from "@neta-art/cohub-board";
+import { visibleWorldRect } from "@neta-art/cohub/board";
 import {
 	activeViewportSourceId,
 	nextDismissedIdsAfterSourceChange,

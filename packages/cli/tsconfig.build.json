@@ -19,14 +19,17 @@
       "@neta-art/cohub/websocket": [
         "../sdk/dist/websocket.d.ts"
       ],
-      "@neta-art/cohub-board": [
-        "../board/dist/index.d.ts"
+      "@neta-art/cohub/board": [
+        "../sdk/dist/board/index.d.ts"
       ],
-      "@neta-art/cohub-board/export": [
-        "../board/dist/export/index.d.ts"
+      "@neta-art/cohub/board/render": [
+        "../sdk/dist/board/render/index.d.ts"
       ],
-      "@neta-art/cohub-board/headless": [
-        "../board/dist/export/headless.d.ts"
+      "@neta-art/cohub/board/export": [
+        "../sdk/dist/board/export/index.d.ts"
+      ],
+      "@neta-art/cohub/board/headless": [
+        "../sdk/dist/board/headless/index.d.ts"
       ]
     }
   },

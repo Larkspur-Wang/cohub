@@ -7,9 +7,6 @@ const protocolDir = fileURLToPath(
 const sdkDir = fileURLToPath(
 	new URL("../../packages/sdk/src", import.meta.url),
 );
-const boardDir = fileURLToPath(
-	new URL("../../packages/board/src", import.meta.url),
-);
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
 	compilerOptions: {
@@ -43,11 +40,12 @@ const config = {
 			"@neta-art/cohub/debugger": `${sdkDir}/debugger.ts`,
 			"@neta-art/cohub/http": `${sdkDir}/http.ts`,
 			"@neta-art/cohub/websocket": `${sdkDir}/websocket.ts`,
+			// Board subpaths must precede the SDK wildcard alias.
+			"@neta-art/cohub/board/render": `${sdkDir}/board/render/index.ts`,
+			"@neta-art/cohub/board/export": `${sdkDir}/board/export/index.ts`,
+			"@neta-art/cohub/board/headless": `${sdkDir}/board/headless/index.ts`,
+			"@neta-art/cohub/board": `${sdkDir}/board/index.ts`,
 			"@neta-art/cohub/*": `${sdkDir}/*`,
-			// board render package subpaths — before the bare alias
-			"@neta-art/cohub-board/export": `${boardDir}/export/index.ts`,
-			"@neta-art/cohub-board/headless": `${boardDir}/export/headless.ts`,
-			"@neta-art/cohub-board": `${boardDir}/index.ts`,
 			// bare package aliases — must be last
 			"@neta-art/cohub": `${sdkDir}/index.ts`,
 		},

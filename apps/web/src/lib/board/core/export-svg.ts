@@ -13,7 +13,7 @@ import type {
 	BoardItem,
 	BoardNoteItem,
 	BoardTextItem,
-} from "@neta-art/cohub-board";
+} from "@neta-art/cohub/board";
 import {
 	arrowBounds,
 	buildStrokeOutline,
@@ -23,7 +23,7 @@ import {
 	itemBounds,
 	resolveArrow,
 	resolveBoardColor,
-} from "@neta-art/cohub-board";
+} from "@neta-art/cohub/board";
 
 const ESC: Record<string, string> = {
 	"&": "&amp;",

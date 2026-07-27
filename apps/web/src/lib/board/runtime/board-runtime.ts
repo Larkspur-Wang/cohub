@@ -1,5 +1,5 @@
 import type { BoardBootstrap, BoardOperation } from "@neta-art/cohub";
-import { BOARD_DOCUMENT_KIND, type BoardDocument } from "@neta-art/cohub-board";
+import { BOARD_DOCUMENT_KIND, type BoardDocument } from "@neta-art/cohub/board";
 import type {
 	BoardAutomationActivity,
 	BoardCollaboratorProfile,

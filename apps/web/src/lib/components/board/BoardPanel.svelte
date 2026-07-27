@@ -1,5 +1,5 @@
 <script lang="ts">
-import { screenToWorld, shapeCapabilities } from "@neta-art/cohub-board";
+import { screenToWorld, shapeCapabilities } from "@neta-art/cohub/board";
 import { onDestroy, onMount, untrack } from "svelte";
 import {
 	type BoardAwarenessController,

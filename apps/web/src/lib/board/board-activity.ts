@@ -1,6 +1,6 @@
 import type { BoardOperation, RequestSource } from "@neta-art/cohub";
-import type { BoardDocument, BoardFrame } from "@neta-art/cohub-board";
-import { selectionBounds } from "@neta-art/cohub-board";
+import type { BoardDocument, BoardFrame } from "@neta-art/cohub/board";
+import { selectionBounds } from "@neta-art/cohub/board";
 
 export const BOARD_AUTOMATION_ACTIVITY_MS = 2_500;
 const MAX_ACTIVITIES = 12;

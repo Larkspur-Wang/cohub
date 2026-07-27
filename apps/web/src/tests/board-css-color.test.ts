@@ -5,7 +5,7 @@ import {
 	buildFallbackShapeColors,
 	pickBoardColor,
 	resolveBoardColor,
-} from "@neta-art/cohub-board";
+} from "@neta-art/cohub/board";
 import {
 	hexNumberToCss,
 	parseCssColorToNumber,

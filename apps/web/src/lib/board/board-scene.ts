@@ -1,11 +1,4 @@
-import type {
-	BoardCardRenderer,
-	BoardFrame,
-	BoardItem,
-	BoardRenderContext,
-	BoardRenderPalette,
-	getBoardCardRenderer,
-} from "@neta-art/cohub-board";
+import type { BoardFrame, BoardItem } from "@neta-art/cohub/board";
 import {
 	CORNER_RESIZE_HANDLES,
 	frameCorners,
@@ -16,7 +9,13 @@ import {
 	rotationHandleAnchor,
 	rotationHandlePosition,
 	type WorldPoint,
-} from "@neta-art/cohub-board";
+} from "@neta-art/cohub/board";
+import type {
+	BoardCardRenderer,
+	BoardRenderContext,
+	BoardRenderPalette,
+	getBoardCardRenderer,
+} from "@neta-art/cohub/board/render";
 import type { Container, Graphics } from "pixi.js";
 import type {
 	BoardSelectionTransform,

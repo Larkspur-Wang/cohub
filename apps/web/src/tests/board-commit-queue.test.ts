@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { BoardDocument, BoardItem } from "@neta-art/cohub-board";
+import type { BoardDocument, BoardItem } from "@neta-art/cohub/board";
 import { createCommitQueue } from "../lib/board/board-commit-queue.ts";
 
 function makeDoc(items: BoardItem[]): BoardDocument {

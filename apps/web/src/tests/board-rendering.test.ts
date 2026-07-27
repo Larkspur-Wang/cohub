@@ -4,7 +4,7 @@ import {
 	syncTextResolution,
 	syncTextWrapWidth,
 	textResolutionForZoom,
-} from "@neta-art/cohub-board";
+} from "@neta-art/cohub/board/render";
 import type { Text } from "pixi.js";
 
 test("syncTextResolution updates only when zoom crosses a bucket", () => {

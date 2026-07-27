@@ -2,7 +2,7 @@ import {
 	type BoardItem,
 	boardImageKeySource,
 	imageAssetKey,
-} from "@neta-art/cohub-board";
+} from "@neta-art/cohub/board";
 import { Assets, type Texture } from "pixi.js";
 import {
 	DEFAULT_LRU_BUDGET,

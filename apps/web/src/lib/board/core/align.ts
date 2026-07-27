@@ -3,8 +3,8 @@
  * Returns a frame patch map; the editor applies it and refreshes bound arrows.
  */
 
-import type { BoardFrame } from "@neta-art/cohub-board";
-import { itemBounds, type Rect, selectionBounds } from "@neta-art/cohub-board";
+import type { BoardFrame } from "@neta-art/cohub/board";
+import { itemBounds, type Rect, selectionBounds } from "@neta-art/cohub/board";
 
 export type AlignMode =
 	| "left"

@@ -1,7 +1,7 @@
 /**
  * Board → image in the browser.
  *
- * The heavy lifting is shared with the CLI (`@neta-art/cohub-board/export`):
+ * The heavy lifting is shared with the CLI (`@neta-art/cohub/board/export`):
  * both build a scene from the same card renderers and extract a canvas. What is
  * web-specific lives here — reusing the live renderer and its already-resolved
  * theme colors and loaded textures, then turning the canvas into a download or
@@ -11,18 +11,20 @@
 import type {
 	BoardDocument,
 	BoardItem,
-	BoardRenderPalette,
 	BoardShapeColors,
-} from "@neta-art/cohub-board";
+} from "@neta-art/cohub/board";
+import {
+	type BoardExportRegion,
+	planBoardExport,
+	selectBoardExportAssets,
+} from "@neta-art/cohub/board";
 import {
 	type BoardExportOptions,
-	type BoardExportRegion,
 	type BoardExportWarning,
 	describeBoardExportWarning,
-	planBoardExport,
 	renderBoardExport,
-	selectBoardExportAssets,
-} from "@neta-art/cohub-board/export";
+} from "@neta-art/cohub/board/export";
+import type { BoardRenderPalette } from "@neta-art/cohub/board/render";
 import type { Renderer, Texture } from "pixi.js";
 
 export type BoardImageFormat = "png" | "jpeg" | "webp";

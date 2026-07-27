@@ -8,7 +8,7 @@ import type {
 	BoardItemStyle,
 	BoardMediaSnapshot,
 	BoardVideoItem,
-} from "@neta-art/cohub-board";
+} from "@neta-art/cohub/board";
 import {
 	computeDrawBounds,
 	fileBaseName,
@@ -16,7 +16,7 @@ import {
 	measureBoardText,
 	TEXT_FONT_SIZE,
 	unknownRealType,
-} from "@neta-art/cohub-board";
+} from "@neta-art/cohub/board";
 import { createBoardItemId } from "$lib/board/board-id";
 import { getResourceTitle, inferMediaKind } from "$lib/board/board-media";
 

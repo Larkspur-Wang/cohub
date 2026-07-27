@@ -13,14 +13,14 @@ import {
 	isUnknownItem,
 	sourceForItem,
 	unknownRealType,
-} from "@neta-art/cohub-board";
+} from "@neta-art/cohub/board";
 import { assignOrderKeys, sparseOrderKey } from "$lib/board/core/order-key";
 
 export {
 	boardBootstrapToDocument,
 	boardNodeToItem,
 	DEFAULT_BOARD_APPEARANCE,
-} from "@neta-art/cohub-board";
+} from "@neta-art/cohub/board";
 
 export function createEmptyBoardDocument(): BoardDocument {
 	return BoardDocumentSchema.parse({

@@ -9,7 +9,7 @@ import type {
 	SpaceRecord,
 	WorkRecord,
 } from "@neta-art/cohub";
-import type { BoardDocument } from "@neta-art/cohub-board";
+import type { BoardDocument } from "@neta-art/cohub/board";
 import type {
 	BoardAutomationActivity,
 	BoardCollaboratorProfile,

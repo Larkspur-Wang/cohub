@@ -3,7 +3,7 @@ import type {
 	ArrowEndpoint,
 	BoardFileSnapshot,
 	DrawPoint,
-} from "@neta-art/cohub-board";
+} from "@neta-art/cohub/board";
 import {
 	angleFromCenter,
 	bindEndpointAt,
@@ -36,7 +36,7 @@ import {
 	type WorldPoint,
 	worldPoint,
 	zoomAround,
-} from "@neta-art/cohub-board";
+} from "@neta-art/cohub/board";
 import { untrack } from "svelte";
 import { createCommitQueue } from "$lib/board/board-commit-queue";
 import {
@@ -91,11 +91,12 @@ import type {
 	BoardItem,
 	BoardItemStyle,
 	BoardViewport,
-} from "@neta-art/cohub-board";
+} from "@neta-art/cohub/board";
 import {
 	clampBoardTextFontSize,
 	measureBoardText,
-} from "@neta-art/cohub-board";
+} from "@neta-art/cohub/board";
+import { installBoardTextMeasurement } from "@neta-art/cohub/board/render";
 import {
 	createSpatialIndex,
 	type SpatialEntry,
@@ -250,6 +251,11 @@ function toContent(document: BoardDocument): SyncedContent {
 }
 
 export function createBoardEditor(options: BoardEditorOptions) {
+	// The model measures text through an injected measurer so it can run without
+	// PixiJS. In the browser the canvas-backed one is the accurate choice, and it
+	// must be installed before the first note is laid out.
+	installBoardTextMeasurement();
+
 	// ─── Reactive state ─────────────────────────────────────────────
 	// Synced content and the local camera are held separately so the viewport
 	// is never mistaken for persisted state. `document` composes them for

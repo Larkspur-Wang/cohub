@@ -8,7 +8,7 @@ import type {
   BoardTransactionInput,
   BoardValidationResult,
 } from "@neta-art/cohub";
-import type { BoardExportRegion } from "@neta-art/cohub-board/export";
+import type { BoardExportRegion } from "@neta-art/cohub/board";
 import type { Command } from "commander";
 import { BOARD_EXPORT_FORMATS, formatFromPath, runBoardExport } from "../board-export.js";
 import { createClient, createRealtimeClient } from "../client.js";

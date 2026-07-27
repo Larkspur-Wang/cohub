@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { BoardDocument } from "@neta-art/cohub-board";
+import type { BoardDocument } from "@neta-art/cohub/board";
 import type {
 	BoardAutomationActivity,
 	BoardCollaboratorProfile,

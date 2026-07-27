@@ -3,8 +3,8 @@ import type {
 	BoardEffect,
 	BoardPlaybackSnapshot,
 } from "@neta-art/cohub";
-import type { BoardItem } from "@neta-art/cohub-board";
-import { sampleRadius } from "@neta-art/cohub-board";
+import type { BoardItem } from "@neta-art/cohub/board";
+import { sampleRadius } from "@neta-art/cohub/board";
 import {
 	ColorMatrixFilter,
 	Container,

@@ -28,7 +28,7 @@ import {
 	type FileAvailability,
 	filePreviewMemoKey,
 	filePreviewScope,
-} from "@neta-art/cohub-board";
+} from "@neta-art/cohub/board";
 import { sdk } from "$lib/sdk";
 import {
 	isTextFileResponse,

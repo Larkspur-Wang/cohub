@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { BoardFrame, BoardItem } from "@neta-art/cohub-board";
-import { rotationHandlePosition, worldPoint } from "@neta-art/cohub-board";
+import type { BoardFrame, BoardItem } from "@neta-art/cohub/board";
+import { rotationHandlePosition, worldPoint } from "@neta-art/cohub/board";
 import "$lib/board/core/shapes";
 import {
 	resizeCursorForHandle,

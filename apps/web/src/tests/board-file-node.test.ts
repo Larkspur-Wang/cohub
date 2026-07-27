@@ -5,7 +5,7 @@ import {
 	type BoardItem,
 	BoardItemSchema,
 	shapeCapabilities,
-} from "@neta-art/cohub-board";
+} from "@neta-art/cohub/board";
 import {
 	boardItemToNode,
 	boardNodeToItem,

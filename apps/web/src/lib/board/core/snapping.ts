@@ -8,7 +8,7 @@
  * to test and reuse (drag, resize, arrow endpoints).
  */
 
-import type { Rect } from "@neta-art/cohub-board";
+import type { Rect } from "@neta-art/cohub/board";
 
 export type SnapAxis = "x" | "y";
 

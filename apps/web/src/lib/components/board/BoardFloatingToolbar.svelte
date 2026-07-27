@@ -3,7 +3,7 @@ import {
 	BOARD_COLORS,
 	boardColorCssVar,
 	GEO_KINDS,
-} from "@neta-art/cohub-board";
+} from "@neta-art/cohub/board";
 import {
 	ArrowUpRight,
 	ChevronUp,

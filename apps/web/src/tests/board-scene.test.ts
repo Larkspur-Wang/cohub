@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { BoardItem } from "@neta-art/cohub-board";
+import type { BoardItem } from "@neta-art/cohub/board";
+import { buildFallbackShapeColors } from "@neta-art/cohub/board";
 import {
 	type BoardCardRenderer,
 	type BoardRenderContext,
 	type BoardRenderPalette,
 	boardCardRenderersForTest,
-	buildFallbackShapeColors,
-} from "@neta-art/cohub-board";
+} from "@neta-art/cohub/board/render";
 import { createBoardScene } from "../lib/board/board-scene.ts";
 
 /**

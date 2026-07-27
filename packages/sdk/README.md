@@ -118,17 +118,41 @@ const stop = board.subscribe({
 stop();
 ```
 
-Import timeline compilation and extension registry helpers from the lightweight
-Board entry point:
+Board is split by dependency: the model runs anywhere, drawing needs PixiJS.
+`@neta-art/cohub/board` carries the document schema, geometry, the shape layer,
+timeline compilation and export planning, with no renderer and no PixiJS — so
+agents, servers and edge workers can read, write and measure boards without a
+graphics stack:
 
 ```ts
 import {
+  BoardDocumentSchema,
   clip,
   compileSequence,
   createBoardExtensionRegistry,
+  itemBounds,
+  planBoardExport,
   timeline,
 } from "@neta-art/cohub/board";
 ```
+
+Drawing pixels is where PixiJS enters. The card renderers and themes the editor
+uses live behind `@neta-art/cohub/board/render`, and turning a plan into an
+image has dedicated browser and Node.js entries:
+
+```ts
+import { getBoardCardRenderer } from "@neta-art/cohub/board/render";
+import { renderBoardExport } from "@neta-art/cohub/board/export";
+import {
+  createBoardHeadlessRenderer,
+  exportBoardImageBytes,
+} from "@neta-art/cohub/board/headless";
+```
+
+Install `pixi.js` to use `board/render` or `board/export`, and add
+`@napi-rs/canvas` as well for `board/headless`. Both are optional peers, and
+`@neta-art/cohub/board` never reaches for either, so HTTP-only installations
+stay lightweight.
 
 ## Session subscriptions
 

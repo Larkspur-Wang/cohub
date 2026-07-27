@@ -37,7 +37,6 @@
 		"@lezer/highlight": "^1.2.3",
 		"@logto/browser": "^3.0.13",
 		"@neta-art/cohub": "workspace:*",
-		"@neta-art/cohub-board": "workspace:*",
 		"@shikijs/langs": "^4.3.1",
 		"@shikijs/themes": "^4.3.1",
 		"codemirror": "^6.0.2",

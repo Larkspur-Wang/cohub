@@ -14,7 +14,7 @@ import {
 	KNOWN_BOARD_ITEM_TYPES,
 	parseBoardItemLoose,
 	selectionBounds,
-} from "@neta-art/cohub-board";
+} from "@neta-art/cohub/board";
 import { createBoardItemId } from "$lib/board/board-id";
 import { DUPLICATE_OFFSET } from "$lib/board/board-items";
 

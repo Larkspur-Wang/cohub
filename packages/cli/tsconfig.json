@@ -49,14 +49,17 @@
       "@neta-art/cohub/websocket": [
         "../sdk/src/websocket.ts"
       ],
-      "@neta-art/cohub-board": [
-        "../board/src/index.ts"
+      "@neta-art/cohub/board": [
+        "../sdk/src/board/index.ts"
       ],
-      "@neta-art/cohub-board/export": [
-        "../board/src/export/index.ts"
+      "@neta-art/cohub/board/render": [
+        "../sdk/src/board/render/index.ts"
       ],
-      "@neta-art/cohub-board/headless": [
-        "../board/src/export/headless.ts"
+      "@neta-art/cohub/board/export": [
+        "../sdk/src/board/export/index.ts"
+      ],
+      "@neta-art/cohub/board/headless": [
+        "../sdk/src/board/headless/index.ts"
       ],
       "@cohub/protocol/board-document": [
         "../protocol/src/board-document.ts"

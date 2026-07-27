@@ -5,8 +5,8 @@ import type {
 	BoardAwarenessUpdate,
 } from "@cohub/protocol/realtime";
 import type { BoardAwarenessUpdatedEvent } from "@neta-art/cohub";
-import type { BoardFrame, BoardItem } from "@neta-art/cohub-board";
-import { selectionBounds } from "@neta-art/cohub-board";
+import type { BoardFrame, BoardItem } from "@neta-art/cohub/board";
+import { selectionBounds } from "@neta-art/cohub/board";
 import type { BoardEditor, BoardInteraction } from "$lib/board/editor.svelte";
 
 const SEND_INTERVAL_MS = 40;

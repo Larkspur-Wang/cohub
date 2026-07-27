@@ -18,13 +18,14 @@ const packagesRoot = resolvePath(here, "..", "..", "..", "packages");
 /**
  * Workspace packages mapped to their sources, longest specifier first so a
  * subpath is never shadowed by the bare package name. Protocol is included
- * because the board package imports it by name and Node would otherwise resolve
+ * because the SDK Board module imports it by name and Node would otherwise resolve
  * it to an unbuilt `dist`.
  */
 const PACKAGE_SOURCES = [
-	["@neta-art/cohub-board/headless", `${packagesRoot}/board/src/export/headless.ts`],
-	["@neta-art/cohub-board/export", `${packagesRoot}/board/src/export/index.ts`],
-	["@neta-art/cohub-board", `${packagesRoot}/board/src/index.ts`],
+	["@neta-art/cohub/board/headless", `${packagesRoot}/sdk/src/board/headless/index.ts`],
+	["@neta-art/cohub/board/render", `${packagesRoot}/sdk/src/board/render/index.ts`],
+	["@neta-art/cohub/board/export", `${packagesRoot}/sdk/src/board/export/index.ts`],
+	["@neta-art/cohub/board", `${packagesRoot}/sdk/src/board/index.ts`],
 	["@cohub/protocol/board-document", `${packagesRoot}/protocol/src/board-document.ts`],
 	["@cohub/protocol/board-constants", `${packagesRoot}/protocol/src/board-constants.ts`],
 ];

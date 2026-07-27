@@ -5,7 +5,7 @@ import type {
 	ResizeHandle,
 	ShapeResizeMode,
 	WorldPoint,
-} from "@neta-art/cohub-board";
+} from "@neta-art/cohub/board";
 import {
 	CORNER_RESIZE_HANDLES,
 	frameEdgeHandleAt,
@@ -14,7 +14,7 @@ import {
 	resizeModeForCapabilities,
 	rotationHandlePosition,
 	shapeCapabilities,
-} from "@neta-art/cohub-board";
+} from "@neta-art/cohub/board";
 
 export type BoardTransformControl =
 	| { kind: "resize"; handle: ResizeHandle }

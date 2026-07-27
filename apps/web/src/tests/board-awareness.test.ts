@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import type { BoardAwarenessUpdate } from "@cohub/protocol/realtime";
 import type { BoardAwarenessUpdatedEvent } from "@neta-art/cohub";
-import type { BoardItem } from "@neta-art/cohub-board";
+import type { BoardItem } from "@neta-art/cohub/board";
 import { createBoardAwarenessController } from "../lib/board/board-awareness.ts";
 import type { BoardEditor } from "../lib/board/editor.svelte.ts";
 

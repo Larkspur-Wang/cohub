@@ -1,5 +1,5 @@
 <script lang="ts">
-import { BOARD_COLORS, boardColorCssVar } from "@neta-art/cohub-board";
+import { BOARD_COLORS, boardColorCssVar } from "@neta-art/cohub/board";
 import {
 	AlignCenterHorizontal,
 	AlignCenterVertical,

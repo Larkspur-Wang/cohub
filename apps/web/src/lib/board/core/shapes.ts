@@ -11,7 +11,7 @@ import type {
 	BoardArrowItem,
 	BoardDrawItem,
 	BoardGeoItem,
-} from "@neta-art/cohub-board";
+} from "@neta-art/cohub/board";
 import {
 	arrowBounds,
 	computeDrawBounds,
@@ -28,7 +28,7 @@ import {
 	type ShapeDefinition,
 	type WorldPoint,
 	worldPoint,
-} from "@neta-art/cohub-board";
+} from "@neta-art/cohub/board";
 
 /** Transform a world point into a draw item's local (unrotated) space. */
 function drawLocalPoint(item: BoardDrawItem, point: WorldPoint): WorldPoint {

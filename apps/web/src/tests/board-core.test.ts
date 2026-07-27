@@ -21,7 +21,7 @@ import {
 	translateArrow,
 	unknownRealType,
 	worldToAnchor,
-} from "@neta-art/cohub-board";
+} from "@neta-art/cohub/board";
 import {
 	boardBootstrapToDocument,
 	boardItemToNode,
@@ -46,8 +46,8 @@ import type {
 	BoardDrawItem,
 	BoardFrame,
 	BoardGeoItem,
-} from "@neta-art/cohub-board";
-import { worldPoint } from "@neta-art/cohub-board";
+} from "@neta-art/cohub/board";
+import { worldPoint } from "@neta-art/cohub/board";
 import {
 	operationsRequireBoardRuntimeRefresh,
 	resolveBoardRuntime,

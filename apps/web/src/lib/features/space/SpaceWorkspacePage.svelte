@@ -8,7 +8,7 @@ import type {
 	UserProfile,
 	WorkRecord,
 } from "@neta-art/cohub";
-import type { BoardDocument } from "@neta-art/cohub-board";
+import type { BoardDocument } from "@neta-art/cohub/board";
 import {
 	Check,
 	Copy,

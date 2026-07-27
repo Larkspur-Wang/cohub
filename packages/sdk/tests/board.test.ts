@@ -5,7 +5,7 @@ import {
 	DEFAULT_BOARD_RENDER_LIMITS,
 } from "@cohub/protocol";
 import { BoardTransactionError } from "../src/apis/spaces.js";
-import { createBoardExtensionRegistry } from "../src/board.js";
+import { createBoardExtensionRegistry } from "../src/board/animation.js";
 import { createBattleFixture } from "./fixtures/battle.js";
 
 test("battle fixture compilation is deterministic", () => {
@@ -27,7 +27,7 @@ test("built-in registry validates and estimates the battle fixture", () => {
 });
 
 test("SDK render limits stay aligned with the protocol", async () => {
-	const { DEFAULT_BOARD_LIMITS } = await import("../src/board.js");
+	const { DEFAULT_BOARD_LIMITS } = await import("../src/board/animation.js");
 	assert.deepEqual(DEFAULT_BOARD_LIMITS, DEFAULT_BOARD_RENDER_LIMITS);
 });
 

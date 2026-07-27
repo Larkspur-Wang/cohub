@@ -1,12 +1,10 @@
-import type {
-	BoardRenderPalette,
-	BoardShapeColors,
-} from "@neta-art/cohub-board";
+import type { BoardShapeColors } from "@neta-art/cohub/board";
 import {
 	BOARD_COLORS,
 	boardColorCssVar,
 	buildFallbackShapeColors,
-} from "@neta-art/cohub-board";
+} from "@neta-art/cohub/board";
+import type { BoardRenderPalette } from "@neta-art/cohub/board/render";
 import { readCssColorNumber } from "$lib/board/core/css-color";
 import { getResolvedTheme, type ResolvedTheme } from "$lib/theme.svelte";
 import { isDarkTheme } from "$lib/theme-registry";

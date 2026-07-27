@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { BoardViewport } from "@neta-art/cohub-board";
+import type { BoardViewport } from "@neta-art/cohub/board";
 import { Bot, Smartphone, Terminal } from "lucide-svelte";
 import type {
 	BoardAutomationActivity,

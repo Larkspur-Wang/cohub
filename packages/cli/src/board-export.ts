@@ -2,7 +2,7 @@
  * Board image export for the CLI.
  *
  * Rendering runs through the same PixiJS card renderers the web editor uses (see
- * `@neta-art/cohub-board`), on a Canvas2D backend. Everything platform-specific
+ * `@neta-art/cohub/board`), on a Canvas2D backend. Everything platform-specific
  * lives here: fetching the document over HTTP, pulling image bytes out of the
  * space, and locating fonts on disk.
  */
@@ -14,16 +14,14 @@ import {
   boardBootstrapToDocument,
   boardImageKeySource,
   type BoardDocument,
+  type BoardExportRegion,
   type BoardItem,
   imageAssetKey,
   isBoardPath,
   parseBoardManifest,
-} from "@neta-art/cohub-board";
-import {
-  type BoardExportRegion,
   planBoardExport,
   selectBoardExportAssets,
-} from "@neta-art/cohub-board/export";
+} from "@neta-art/cohub/board";
 import {
   type BoardHeadlessExportFormat,
   type BoardHeadlessFont,
@@ -31,7 +29,7 @@ import {
   type BoardHeadlessTexture,
   createBoardHeadlessRenderer,
   exportBoardImageBytes,
-} from "@neta-art/cohub-board/headless";
+} from "@neta-art/cohub/board/headless";
 import { createClient } from "./client.js";
 
 export const BOARD_EXPORT_FORMATS: BoardHeadlessExportFormat[] = ["png", "jpeg", "webp"];

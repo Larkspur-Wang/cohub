@@ -1,5 +1,5 @@
 <script lang="ts">
-import { TEXT_FONT_SIZE, TEXT_LINE_HEIGHT } from "@neta-art/cohub-board";
+import { TEXT_FONT_SIZE, TEXT_LINE_HEIGHT } from "@neta-art/cohub/board";
 import type { BoardEditor } from "$lib/board/editor.svelte";
 
 const { editor }: { editor: BoardEditor } = $props();

@@ -1,14 +1,9 @@
 <script lang="ts">
-import type { BoardFileSnapshot, BoardItem } from "@neta-art/cohub-board";
+import type { BoardFileSnapshot, BoardItem } from "@neta-art/cohub/board";
 import {
-	type BoardRenderContext,
-	type BoardRenderPalette,
 	type BoardShapeColors,
 	buildStrokeOutline,
 	expandRect,
-	getBoardCardRenderer,
-	getBoardResolution,
-	getBoardThemeRenderer,
 	pickBoardColor,
 	pointToWorld,
 	resolveArrow,
@@ -17,11 +12,18 @@ import {
 	screenPoint,
 	screenToWorld,
 	shapeCapabilities,
-	textZoomBucket,
 	VIEWPORT_MARGIN_RATIO,
 	visibleWorldRect,
 	worldPoint,
-} from "@neta-art/cohub-board";
+} from "@neta-art/cohub/board";
+import {
+	type BoardRenderContext,
+	type BoardRenderPalette,
+	getBoardCardRenderer,
+	getBoardResolution,
+	getBoardThemeRenderer,
+	textZoomBucket,
+} from "@neta-art/cohub/board/render";
 import { Application, Container, Graphics, type Renderer } from "pixi.js";
 import { onDestroy, onMount, untrack } from "svelte";
 import { createBoardAssetManager } from "$lib/board/board-asset-manager";

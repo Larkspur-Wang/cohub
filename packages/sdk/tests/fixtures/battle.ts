@@ -1,5 +1,5 @@
 import type { BoardEffect, BoardNodeInput } from "@cohub/protocol";
-import { clip, compileSequence, timeline } from "../../src/board.js";
+import { clip, compileSequence, timeline } from "../../src/board/animation.js";
 
 export function createBattleFixture(input: {
 	leftImagePath: string;

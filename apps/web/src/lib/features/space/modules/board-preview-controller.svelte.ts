@@ -6,7 +6,7 @@ import type {
 	SpaceFsPreparingFile,
 } from "@neta-art/cohub";
 import { BoardTransactionError, HttpError } from "@neta-art/cohub";
-import type { BoardDocument } from "@neta-art/cohub-board";
+import type { BoardDocument } from "@neta-art/cohub/board";
 import {
 	BOARD_AUTOMATION_ACTIVITY_MS,
 	type BoardAutomationActivity,

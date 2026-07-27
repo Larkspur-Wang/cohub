@@ -20,9 +20,9 @@
   },
   "dependencies": {
     "@neta-art/cohub": "workspace:*",
-    "@neta-art/cohub-board": "workspace:*",
     "@neta-art/generation": "^0.1.16",
     "commander": "^15.0.0",
+    "pixi.js": "^8.19.0",
     "sharp": "^0.35.3"
   },
   "publishConfig": {

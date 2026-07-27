@@ -4,7 +4,7 @@ import {
 	type Rect,
 	rectContainsPoint,
 	rectsIntersect,
-} from "@neta-art/cohub-board";
+} from "@neta-art/cohub/board";
 import {
 	createSpatialIndex,
 	type SpatialEntry,

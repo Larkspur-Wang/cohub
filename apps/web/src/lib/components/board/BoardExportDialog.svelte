@@ -1,10 +1,10 @@
 <script lang="ts">
-import type { BoardDocument, BoardItem } from "@neta-art/cohub-board";
+import type { BoardDocument, BoardItem } from "@neta-art/cohub/board";
 import {
 	BOARD_EXPORT_MAX_EDGE,
 	type BoardExportRegion,
 	planBoardExport,
-} from "@neta-art/cohub-board/export";
+} from "@neta-art/cohub/board";
 import { Check, Copy, Download, Loader2 } from "lucide-svelte";
 import {
 	type BoardImageFormat,
