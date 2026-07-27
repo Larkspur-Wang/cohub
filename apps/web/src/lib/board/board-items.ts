@@ -11,6 +11,7 @@ import type {
 } from "@neta-art/cohub/board";
 import {
 	computeDrawBounds,
+	DEFAULT_BOARD_TOOL_STYLES,
 	fileBaseName,
 	filePreviewKind,
 	measureBoardText,
@@ -202,7 +203,8 @@ export function createTextBoardItem(
 	text: string,
 	x: number,
 	y: number,
-	color = "neutral",
+	color: string = DEFAULT_BOARD_TOOL_STYLES.text.color,
+	fontSize: number = TEXT_FONT_SIZE,
 ): BoardItem {
 	// Anchor at the caret point (top-left of the first line).
 	return {
@@ -210,8 +212,8 @@ export function createTextBoardItem(
 		type: "text",
 		text,
 		color,
-		fontSize: TEXT_FONT_SIZE,
-		frame: createFrame(x, y, measureBoardText(text)),
+		fontSize,
+		frame: createFrame(x, y, measureBoardText(text, fontSize)),
 	};
 }
 
@@ -221,7 +223,7 @@ export function createGeoBoardItem(
 	geo: string,
 	x: number,
 	y: number,
-	color = "brand",
+	color: string = DEFAULT_BOARD_TOOL_STYLES.geo.color,
 	id = createBoardItemId(),
 ): BoardItem {
 	return {
@@ -283,6 +285,7 @@ export function createArrowBoardItem(
 	startBinding?: BoardArrowItem["start"],
 	endBinding?: BoardArrowItem["end"],
 	id = createBoardItemId(),
+	size: number = DEFAULT_BOARD_TOOL_STYLES.arrow.size,
 ): BoardItem {
 	const startX = startBinding ?? { kind: "point", x: start.x, y: start.y };
 	const endX = endBinding ?? { kind: "point", x: end.x, y: end.y };
@@ -294,7 +297,7 @@ export function createArrowBoardItem(
 		end: endX,
 		bend: 0,
 		color,
-		size: 2.5,
+		size,
 		arrowStart: false,
 		arrowEnd: true,
 		label: "",
@@ -307,7 +310,7 @@ const DEFAULT_FRAME_SIZE = { width: 480, height: 320 };
 export function createFrameBoardItem(
 	x: number,
 	y: number,
-	color = "neutral",
+	color: string = DEFAULT_BOARD_TOOL_STYLES.frame.color,
 	label = "Frame",
 	id = createBoardItemId(),
 ): BoardItem {

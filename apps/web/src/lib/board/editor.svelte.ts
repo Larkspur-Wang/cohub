@@ -92,7 +92,11 @@ import type {
 	BoardViewport,
 } from "@neta-art/cohub/board";
 import {
+	type BoardStyledToolId,
+	clampBoardStrokeSize,
 	clampBoardTextFontSize,
+	isBoardColorId,
+	isGeoKind,
 	measureBoardText,
 } from "@neta-art/cohub/board";
 import { ensureBoardTextMeasurement } from "@neta-art/cohub/board/render";
@@ -101,6 +105,10 @@ import {
 	type SpatialEntry,
 } from "$lib/board/board-spatial";
 import { type BoardToolId, isContinuousBoardTool } from "$lib/board/board-tool";
+import {
+	readBoardToolStyles,
+	writeBoardToolStyles,
+} from "$lib/board/board-tool-preferences";
 
 export type { BoardToolId } from "$lib/board/board-tool";
 export type BoardEmphasis = BoardItemStyle["emphasis"];
@@ -170,6 +178,7 @@ export type BoardInteraction =
 			start: WorldPoint;
 			current: WorldPoint;
 			color: string;
+			size: number;
 			/** Binding captured at the start point, if it landed on a shape. */
 			startBinding: ArrowEndpoint | null;
 	  }
@@ -286,11 +295,10 @@ export function createBoardEditor(options: BoardEditorOptions) {
 	 * keys on this so moved items re-enter/leave the viewport correctly. */
 	let geometryVersion = $state(0);
 
-	// Active creation style for the shape tools (color palette id, geo kind, draw
-	// stroke size). Held locally — like the camera, this is UI state, never synced.
-	let activeColor = $state("brand");
-	let activeGeo = $state("rectangle");
-	let drawSize = $state(4);
+	// Creation styles are local UI preferences, never synced into the document.
+	// Each tool keeps its own values so switching tools does not leak a drawing
+	// color or stroke width into an unrelated shape.
+	let toolStyles = $state(readBoardToolStyles());
 	/** Alignment guides for the in-progress drag, in world space (for rendering). */
 	let snapGuides = $state<SnapGuide[]>([]);
 	/** Space-bar temporary hand tool (does not change the persistent tool). */
@@ -669,6 +677,19 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		if (!isContinuousBoardTool(tool)) tool = "select";
 	}
 
+	function styledToolId(value = tool): BoardStyledToolId | null {
+		switch (value) {
+			case "text":
+			case "geo":
+			case "draw":
+			case "arrow":
+			case "frame":
+				return value;
+			default:
+				return null;
+		}
+	}
+
 	function addItemAt(item: BoardItem, opts?: { select?: boolean }) {
 		setItems([...synced.items, item]);
 		// Consecutive strokes stay unobstructed; one-shot tools surface their result.
@@ -704,15 +725,16 @@ export function createBoardEditor(options: BoardEditorOptions) {
 	}
 
 	function addText(text: string, at: WorldPoint) {
-		addItemAt(createTextBoardItem(text, at.x, at.y));
+		addItemAt(createTextBoardItem(text, at.x, at.y, toolStyles.text.color));
 	}
 
 	function addGeo(at: WorldPoint) {
-		addItemAt(createGeoBoardItem(activeGeo, at.x, at.y, activeColor));
+		const style = toolStyles.geo;
+		addItemAt(createGeoBoardItem(style.geo, at.x, at.y, style.color));
 	}
 
 	function addFrame(at: WorldPoint) {
-		addItemAt(createFrameBoardItem(at.x, at.y, activeColor));
+		addItemAt(createFrameBoardItem(at.x, at.y, toolStyles.frame.color));
 	}
 
 	/** Finish a shape/frame drag-create, using its default size for a short click. */
@@ -791,6 +813,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		start: WorldPoint,
 		end: WorldPoint,
 		color: string,
+		size: number,
 		startBinding: ArrowEndpoint | null,
 		endBinding: ArrowEndpoint | null,
 	) {
@@ -803,6 +826,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 				startBinding ?? undefined,
 				endBinding ?? undefined,
 				id,
+				size,
 			),
 		);
 	}
@@ -813,7 +837,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 	 * non-empty, so an abandoned draft leaves no trace.
 	 */
 	function beginTextDraft(at: WorldPoint) {
-		const item = createTextBoardItem("", at.x, at.y);
+		const item = createTextBoardItem("", at.x, at.y, toolStyles.text.color);
 		synced = { ...synced, items: [...synced.items, item] };
 		bumpSpatial();
 		bumpStructure();
@@ -1328,6 +1352,31 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		requestCommit();
 	}
 
+	/**
+	 * Resize a text item's frame to fit in-progress input, without touching the
+	 * persisted text. The inline editor calls this on every keystroke so the box
+	 * tracks width and line breaks live; the text itself (and the undo step) is
+	 * still recorded once, when the edit is committed.
+	 */
+	function previewTextLayout(id: string, text: string) {
+		const target = itemById(id);
+		if (target?.type !== "text") return;
+		const size = measureBoardText(text, target.fontSize);
+		if (
+			target.frame.width === size.width &&
+			target.frame.height === size.height
+		)
+			return;
+		setItems(
+			synced.items.map((item) =>
+				item.id === id ? { ...item, frame: { ...item.frame, ...size } } : item,
+			),
+			false,
+			[id],
+		);
+		refreshBoundArrowFrames(new Set([id]));
+	}
+
 	function updateText(id: string, text: string) {
 		const target = itemById(id);
 		if (!target || (target.type !== "text" && target.type !== "geo")) return;
@@ -1621,16 +1670,18 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		// Creation tools take over the primary pointer before any of the
 		// select-tool handle/hit logic below.
 		if (tool === "draw") {
+			const style = toolStyles.draw;
 			interaction = {
 				type: "drawing",
 				id: createBoardItemId(),
 				points: [{ x: event.world.x, y: event.world.y, p: event.pressure }],
-				color: activeColor,
-				size: drawSize,
+				color: style.color,
+				size: style.size,
 			};
 			return;
 		}
 		if (tool === "arrow") {
+			const style = toolStyles.arrow;
 			const target = topItemAt(event.world);
 			const startBinding =
 				target && shapeCapabilities(target).canBind
@@ -1641,20 +1692,23 @@ export function createBoardEditor(options: BoardEditorOptions) {
 				id: createBoardItemId(),
 				start: event.world,
 				current: event.world,
-				color: activeColor,
+				color: style.color,
+				size: style.size,
 				startBinding,
 			};
 			return;
 		}
 		if (tool === "geo" || tool === "frame") {
+			const color =
+				tool === "geo" ? toolStyles.geo.color : toolStyles.frame.color;
 			interaction = {
 				type: "creatingBox",
 				id: createBoardItemId(),
 				kind: tool,
 				start: event.world,
 				current: event.world,
-				color: activeColor,
-				geo: activeGeo,
+				color,
+				geo: toolStyles.geo.geo,
 			};
 			return;
 		}
@@ -2114,6 +2168,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 				gesture.start,
 				gesture.current,
 				gesture.color,
+				gesture.size,
 				gesture.startBinding,
 				endBinding,
 			);
@@ -2361,13 +2416,14 @@ export function createBoardEditor(options: BoardEditorOptions) {
 			return interaction.type !== "idle";
 		},
 		get activeColor() {
-			return activeColor;
+			const id = styledToolId();
+			return id ? toolStyles[id].color : toolStyles.text.color;
 		},
 		get activeGeo() {
-			return activeGeo;
+			return toolStyles.geo.geo;
 		},
-		get drawSize() {
-			return drawSize;
+		get activeStrokeSize() {
+			return tool === "arrow" ? toolStyles.arrow.size : toolStyles.draw.size;
 		},
 		get spaceHeld() {
 			return spaceHeld;
@@ -2393,13 +2449,23 @@ export function createBoardEditor(options: BoardEditorOptions) {
 			surfaceSize = value;
 		},
 		set activeColor(value: string) {
-			activeColor = value;
+			const id = styledToolId();
+			if (!id || !isBoardColorId(value)) return;
+			toolStyles[id].color = value;
+			writeBoardToolStyles(toolStyles);
 		},
 		set activeGeo(value: string) {
-			activeGeo = value;
+			if (!isGeoKind(value)) return;
+			toolStyles.geo.geo = value;
+			writeBoardToolStyles(toolStyles);
 		},
-		set drawSize(value: number) {
-			drawSize = value;
+		set activeStrokeSize(value: number) {
+			if (!Number.isFinite(value)) return;
+			const size = clampBoardStrokeSize(value);
+			if (tool === "arrow") toolStyles.arrow.size = size;
+			else if (tool === "draw") toolStyles.draw.size = size;
+			else return;
+			writeBoardToolStyles(toolStyles);
 		},
 		set spaceHeld(value: boolean) {
 			spaceHeld = value;
@@ -2438,6 +2504,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		bringToFront,
 		sendToBack,
 		updateText,
+		previewTextLayout,
 		applyMediaFileChange,
 		adoptMediaNaturalSizes,
 		applyFileSnapshots,

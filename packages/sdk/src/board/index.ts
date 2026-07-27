@@ -40,5 +40,6 @@ export {
 	resizeModeForCapabilities,
 } from "./core/shape-types.js";
 export * from "./core/text-metrics.js";
+export * from "./core/tool-styles.js";
 export * from "./geometry.js";
 export * from "./image-key.js";

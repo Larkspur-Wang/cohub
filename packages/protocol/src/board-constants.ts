@@ -61,10 +61,12 @@ export const BOARD_BUILTIN_EFFECT_KINDS = [
  * anything that draws.
  */
 export const BOARD_TEXT_FONT_FAMILY = "Geist";
-export const BOARD_TEXT_FONT_SIZE = 18;
-export const BOARD_TEXT_LINE_HEIGHT = 24;
+export const BOARD_TEXT_FONT_SIZE = 24;
+export const BOARD_TEXT_LINE_HEIGHT = 32;
 export const BOARD_TEXT_MIN_FONT_SIZE = 2;
 export const BOARD_TEXT_MAX_FONT_SIZE = 512;
+export const BOARD_DRAW_STROKE_SIZE = 4;
+export const BOARD_ARROW_STROKE_SIZE = 2.5;
 
 /**
  * Font stacks used by every board renderer.

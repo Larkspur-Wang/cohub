@@ -143,6 +143,7 @@ function gestureFromEditor(editor: BoardEditor): BoardAwarenessGesture | null {
 			start: interaction.start,
 			current: interaction.current,
 			color: interaction.color,
+			size: interaction.size,
 		};
 	}
 	if (interaction.type === "creatingBox") {

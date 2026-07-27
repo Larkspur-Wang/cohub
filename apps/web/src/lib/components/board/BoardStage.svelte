@@ -545,7 +545,11 @@ function drawRemoteAwareness(colors: BoardShapeColors, mode: "dark" | "light") {
 			overlay
 				.moveTo(gesture.start.x, gesture.start.y)
 				.lineTo(gesture.current.x, gesture.current.y)
-				.stroke({ color: color.stroke, width: 3 * inv, alpha: 0.88 });
+				.stroke({
+					color: color.stroke,
+					width: Math.max(gesture.size, 1.5 * inv),
+					alpha: 0.88,
+				});
 			overlay
 				.moveTo(
 					gesture.current.x - head * Math.cos(angle - spread),
@@ -558,7 +562,7 @@ function drawRemoteAwareness(colors: BoardShapeColors, mode: "dark" | "light") {
 				)
 				.stroke({
 					color: color.stroke,
-					width: 3 * inv,
+					width: Math.max(gesture.size, 1.5 * inv),
 					alpha: 0.92,
 					cap: "round",
 					join: "round",
@@ -640,7 +644,11 @@ function drawTransient(
 		overlay
 			.moveTo(start.x, start.y)
 			.lineTo(current.x, current.y)
-			.stroke({ color: color.stroke, width: 3 * inv, alpha: 0.9 });
+			.stroke({
+				color: color.stroke,
+				width: Math.max(interaction.size, 1.5 * inv),
+				alpha: 0.9,
+			});
 		const angle = Math.atan2(current.y - start.y, current.x - start.x);
 		const head = Math.max(14, 16 * inv);
 		const spread = Math.PI / 6;
@@ -656,7 +664,7 @@ function drawTransient(
 			)
 			.stroke({
 				color: color.stroke,
-				width: 3 * inv,
+				width: Math.max(interaction.size, 1.5 * inv),
 				alpha: 0.95,
 				cap: "round",
 				join: "round",

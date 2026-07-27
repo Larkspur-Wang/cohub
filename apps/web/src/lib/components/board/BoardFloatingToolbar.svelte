@@ -1,22 +1,31 @@
 <script lang="ts">
 import {
 	BOARD_COLORS,
+	BOARD_STROKE_MAX_SIZE,
+	BOARD_STROKE_MIN_SIZE,
 	boardColorCssVar,
+	DEFAULT_BOARD_TOOL_STYLES,
 	GEO_KINDS,
+	type GeoKind,
 } from "@neta-art/cohub/board";
 import {
 	ArrowUpRight,
 	ChevronUp,
+	Circle,
+	Diamond,
 	Frame,
 	Hand,
 	MousePointer2,
 	Pencil,
 	Redo2,
 	Square,
+	SquareRoundCorner,
+	Triangle,
 	Type,
 	Undo2,
 } from "lucide-svelte";
 import type { BoardEditor, BoardToolId } from "$lib/board/editor.svelte";
+import BoardNumberControl from "$lib/components/board/BoardNumberControl.svelte";
 
 const {
 	editor,
@@ -25,14 +34,15 @@ const {
 
 let moreOpen = $state(false);
 let styleOpen = $state(false);
+let previousTool = $state<BoardToolId | null>(null);
 
 type ToolDef = {
 	id: BoardToolId;
 	label: string;
 	shortcut: string;
 	icon: typeof MousePointer2;
-	/** Tools that consume the active color (show the palette while active). */
-	usesColor: boolean;
+	/** Creation tools that expose their contextual style row. */
+	hasStyle: boolean;
 	/** Shown behind "More" on narrow touch layouts. */
 	secondary?: boolean;
 };
@@ -43,50 +53,62 @@ const TOOLS: ToolDef[] = [
 		label: "Select",
 		shortcut: "V",
 		icon: MousePointer2,
-		usesColor: false,
+		hasStyle: false,
 	},
-	{ id: "hand", label: "Hand", shortcut: "H", icon: Hand, usesColor: false },
-	{ id: "draw", label: "Draw", shortcut: "D", icon: Pencil, usesColor: true },
+	{ id: "hand", label: "Hand", shortcut: "H", icon: Hand, hasStyle: false },
+	{ id: "draw", label: "Draw", shortcut: "D", icon: Pencil, hasStyle: true },
 	{
 		id: "arrow",
 		label: "Arrow",
 		shortcut: "A",
 		icon: ArrowUpRight,
-		usesColor: true,
+		hasStyle: true,
 	},
-	{ id: "text", label: "Text", shortcut: "T", icon: Type, usesColor: true },
-	{ id: "geo", label: "Shape", shortcut: "G", icon: Square, usesColor: true },
+	{ id: "text", label: "Text", shortcut: "T", icon: Type, hasStyle: true },
+	{ id: "geo", label: "Shape", shortcut: "G", icon: Square, hasStyle: true },
 	{
 		id: "frame",
 		label: "Frame",
 		shortcut: "F",
 		icon: Frame,
-		usesColor: true,
+		hasStyle: true,
 		secondary: true,
 	},
 ];
 
 const primaryTools = $derived(TOOLS.filter((tool) => !tool.secondary));
 const secondaryTools = $derived(TOOLS.filter((tool) => tool.secondary));
-const activeTool = $derived(TOOLS.find((t) => t.id === editor.tool));
-const showPalette = $derived(Boolean(activeTool?.usesColor && styleOpen));
+const activeTool = $derived(
+	TOOLS.find((candidate) => candidate.id === editor.tool),
+);
+const showStyles = $derived(Boolean(activeTool?.hasStyle && styleOpen));
 const secondaryActive = $derived(
 	secondaryTools.some((tool) => tool.id === editor.tool),
 );
 
-const GEO_LABELS: Record<string, string> = {
-	rectangle: "Rectangle",
-	rounded: "Rounded",
-	ellipse: "Ellipse",
-	diamond: "Diamond",
-	triangle: "Triangle",
+$effect(() => {
+	const current = editor.tool;
+	if (current === previousTool) return;
+	previousTool = current;
+	styleOpen = Boolean(
+		TOOLS.find((candidate) => candidate.id === current)?.hasStyle,
+	);
+	moreOpen = false;
+});
+
+const GEO_OPTIONS: Record<GeoKind, { label: string; icon: typeof Square }> = {
+	rectangle: { label: "Rectangle", icon: Square },
+	rounded: { label: "Rounded rectangle", icon: SquareRoundCorner },
+	ellipse: { label: "Ellipse", icon: Circle },
+	diamond: { label: "Diamond", icon: Diamond },
+	triangle: { label: "Triangle", icon: Triangle },
 };
 
 function selectTool(id: BoardToolId) {
 	const tool = TOOLS.find((candidate) => candidate.id === id);
 	const styleWasOpen = editor.tool === id && styleOpen;
 	editor.tool = id;
-	styleOpen = Boolean(tool?.usesColor && !styleWasOpen);
+	styleOpen = Boolean(tool?.hasStyle && !styleWasOpen);
 	moreOpen = false;
 }
 
@@ -102,31 +124,57 @@ function toolTitle(tool: ToolDef) {
 </script>
 
 <div class="board-toolbar-wrap" class:board-toolbar-wrap--immersive={immersive}>
-	{#if showPalette}
-		<div class="board-style-row" role="toolbar" aria-label="Shape style">
-			{#each BOARD_COLORS as color (color.id)}
-				<button
-					type="button"
-					class="color-swatch"
-					class:color-swatch--active={editor.activeColor === color.id}
-					title={color.label}
-					aria-label="Use {color.label}"
-					style:--swatch="var({boardColorCssVar(color.id, 'stroke')})"
-					onclick={() => { editor.activeColor = color.id; }}
-				></button>
-			{/each}
+	{#if showStyles}
+		<div class="board-style-row" role="toolbar" aria-label="{activeTool?.label ?? 'Tool'} style">
+			{#if editor.tool === "draw" || editor.tool === "arrow"}
+				<span class="style-kind" title="Stroke width" aria-hidden="true">
+					{#if editor.tool === "draw"}
+						<Pencil class="h-3.5 w-3.5" />
+					{:else}
+						<ArrowUpRight class="h-3.5 w-3.5" />
+					{/if}
+				</span>
+				<BoardNumberControl
+					value={editor.activeStrokeSize}
+					fallback={editor.tool === "draw"
+						? DEFAULT_BOARD_TOOL_STYLES.draw.size
+						: DEFAULT_BOARD_TOOL_STYLES.arrow.size}
+					min={BOARD_STROKE_MIN_SIZE}
+					max={BOARD_STROKE_MAX_SIZE}
+					step={editor.tool === "draw" ? 1 : 0.5}
+					label="Stroke width"
+					onChange={(value) => { editor.activeStrokeSize = value; }}
+				/>
+				<div class="style-divider"></div>
+			{/if}
+
+			<div class="color-list" role="group" aria-label="Color">
+				{#each BOARD_COLORS as color (color.id)}
+					<button
+						type="button"
+						class="color-swatch"
+						class:color-swatch--active={editor.activeColor === color.id}
+						title={color.label}
+						aria-label="Use {color.label}"
+						style:--swatch="var({boardColorCssVar(color.id, 'stroke')})"
+						onclick={() => { editor.activeColor = color.id; }}
+					></button>
+				{/each}
+			</div>
+
 			{#if editor.tool === "geo"}
 				<div class="style-divider"></div>
 				{#each GEO_KINDS as geo (geo)}
+					{@const option = GEO_OPTIONS[geo]}
 					<button
 						type="button"
 						class="geo-btn"
 						class:geo-btn--active={editor.activeGeo === geo}
-						title={GEO_LABELS[geo] ?? geo}
-						aria-label="Use {GEO_LABELS[geo] ?? geo}"
+						title={option.label}
+						aria-label="Use {option.label}"
 						onclick={() => { editor.activeGeo = geo; }}
 					>
-						{GEO_LABELS[geo]?.[0] ?? geo[0]}
+						<option.icon class="h-3.5 w-3.5" />
 					</button>
 				{/each}
 			{/if}
@@ -160,8 +208,8 @@ function toolTitle(tool: ToolDef) {
 				title={toolTitle(tool)}
 				aria-label="{tool.label} tool"
 				aria-pressed={editor.tool === tool.id}
-				aria-expanded={tool.usesColor
-					? editor.tool === tool.id && showPalette
+				aria-expanded={tool.hasStyle
+					? editor.tool === tool.id && showStyles
 					: undefined}
 				onclick={() => selectTool(tool.id)}
 			>
@@ -179,8 +227,8 @@ function toolTitle(tool: ToolDef) {
 					title={toolTitle(tool)}
 					aria-label="{tool.label} tool"
 					aria-pressed={editor.tool === tool.id}
-					aria-expanded={tool.usesColor
-						? editor.tool === tool.id && showPalette
+					aria-expanded={tool.hasStyle
+						? editor.tool === tool.id && showStyles
 						: undefined}
 					onclick={() => selectTool(tool.id)}
 				>
@@ -236,12 +284,16 @@ function toolTitle(tool: ToolDef) {
 		flex-direction: column;
 		align-items: center;
 		gap: 6px;
+		width: max-content;
+		max-width: calc(100% - 20px);
 		transform: translateX(-50%);
 	}
 
 	.board-toolbar-wrap--immersive {
 		left: var(--preview-safe-left, 10px);
 		right: var(--preview-safe-right, 10px);
+		width: auto;
+		max-width: none;
 		transform: none;
 	}
 
@@ -249,12 +301,32 @@ function toolTitle(tool: ToolDef) {
 		display: flex;
 		align-items: center;
 		gap: 4px;
+		max-width: 100%;
+		overflow-x: auto;
 		border-radius: 9px;
 		border: 1px solid var(--border-subtle);
 		background: color-mix(in srgb, var(--bg-elevated) 94%, transparent);
 		padding: 4px 6px;
 		box-shadow: 0 8px 20px color-mix(in srgb, var(--overlay-scrim-strong) 14%, transparent);
 		backdrop-filter: blur(12px);
+		scrollbar-width: none;
+	}
+	.board-style-row::-webkit-scrollbar { display: none; }
+
+	.style-kind {
+		display: inline-flex;
+		width: 18px;
+		height: 24px;
+		flex-shrink: 0;
+		align-items: center;
+		justify-content: center;
+		color: var(--text-tertiary);
+	}
+
+	.color-list {
+		display: flex;
+		align-items: center;
+		gap: 4px;
 	}
 
 	.color-swatch {
@@ -276,13 +348,11 @@ function toolTitle(tool: ToolDef) {
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		width: 22px;
-		height: 22px;
+		width: 24px;
+		height: 24px;
 		border-radius: 6px;
 		border: 1px solid transparent;
 		color: var(--text-secondary);
-		font-size: 10px;
-		font-weight: 600;
 		cursor: pointer;
 		transition: background-color 100ms ease, color 100ms ease;
 	}
@@ -355,7 +425,11 @@ function toolTitle(tool: ToolDef) {
 		backdrop-filter: blur(12px);
 	}
 
-	.secondary-inline { display: contents; }
+	.secondary-inline {
+		display: inline-flex;
+		align-items: center;
+		gap: 2px;
+	}
 	.more-btn { display: none; }
 
 	.tool-btn {
@@ -408,8 +482,10 @@ function toolTitle(tool: ToolDef) {
 		}
 		.board-style-row::-webkit-scrollbar { display: none; }
 		.tool-btn { width: 40px; height: 40px; flex-shrink: 0; }
+		.style-kind { width: 24px; height: 32px; }
+		.color-list { gap: 6px; }
 		.color-swatch { width: 26px; height: 26px; flex-shrink: 0; }
-		.geo-btn { width: 30px; height: 30px; flex-shrink: 0; }
+		.geo-btn { width: 32px; height: 32px; flex-shrink: 0; }
 
 		.secondary-inline { display: none; }
 		.more-btn { display: inline-flex; }

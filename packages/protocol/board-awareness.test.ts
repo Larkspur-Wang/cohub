@@ -69,4 +69,25 @@ test("Board awareness validates bounded state and gesture updates", () => {
 		},
 	};
 	assert.equal(BoardAwarenessClientPayloadSchema.safeParse(oversized).success, false);
+
+	const arrow = BoardAwarenessClientPayloadSchema.parse({
+		...payload,
+		update: {
+			type: "gesture",
+			gesture: {
+				kind: "arrow",
+				id: "arrow",
+				nodeId: "arrow",
+				start: { x: 0, y: 0 },
+				current: { x: 20, y: 10 },
+				color: "brand",
+			},
+		},
+	});
+	assert.equal(
+		arrow.update.type === "gesture" && arrow.update.gesture.kind === "arrow"
+			? arrow.update.gesture.size
+			: null,
+		2.5,
+	);
 });

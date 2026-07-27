@@ -64,6 +64,16 @@ function commit() {
 	editor.commitTextEdit(item.id, draft);
 }
 
+/**
+ * Grow/shrink the box while typing. Only free text is measured — a geo label
+ * lives inside a fixed shape, so its frame must not follow the caret.
+ */
+function handleInput(event: Event & { currentTarget: HTMLTextAreaElement }) {
+	const item = editingItem;
+	if (item?.type !== "text") return;
+	editor.previewTextLayout(item.id, event.currentTarget.value);
+}
+
 function handleKeydown(event: KeyboardEvent) {
 	event.stopPropagation();
 	if (
@@ -90,6 +100,7 @@ function handleKeydown(event: KeyboardEvent) {
 		style:line-height="{layout.lineHeight}px"
 		style:padding="{layout.padding}px"
 		class:board-text-editor--plain={layout.plain}
+		oninput={handleInput}
 		onblur={commit}
 		onkeydown={handleKeydown}
 		aria-label="Edit text"

@@ -1,5 +1,7 @@
 import { z } from "zod";
 import {
+  BOARD_ARROW_STROKE_SIZE,
+  BOARD_DRAW_STROKE_SIZE,
   BOARD_TEXT_FONT_SIZE,
   BOARD_TEXT_MAX_FONT_SIZE,
   BOARD_TEXT_MIN_FONT_SIZE,
@@ -117,7 +119,7 @@ export const BoardDrawItemSchema = BoardItemBaseSchema.extend({
 	type: z.literal("draw"),
 	points: z.array(DrawPointSchema).default([]),
 	color: z.string().min(1).default("brand"),
-	size: z.number().finite().positive().default(4),
+	size: z.number().finite().positive().default(BOARD_DRAW_STROKE_SIZE),
 });
 
 /** An arrow endpoint: a free point or a binding to another shape. */
@@ -142,7 +144,7 @@ export const BoardArrowItemSchema = BoardItemBaseSchema.extend({
 	end: ArrowEndpointSchema,
 	bend: z.number().finite().default(0),
 	color: z.string().min(1).default("brand"),
-	size: z.number().finite().positive().default(2.5),
+	size: z.number().finite().positive().default(BOARD_ARROW_STROKE_SIZE),
 	arrowStart: z.boolean().default(false),
 	arrowEnd: z.boolean().default(true),
 	label: z.string().default(""),

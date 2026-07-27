@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { BOARD_ARROW_STROKE_SIZE } from "../board-constants.js";
 
 const idSchema = z.string().min(1).max(160);
 const finiteSchema = z.number().finite();
@@ -84,6 +85,10 @@ export const BoardAwarenessGestureSchema = z.discriminatedUnion("kind", [
 		start: BoardAwarenessPointSchema,
 		current: BoardAwarenessPointSchema,
 		color: z.string().min(1).max(64),
+		size: finiteSchema
+			.positive()
+			.max(256)
+			.default(BOARD_ARROW_STROKE_SIZE),
 	}),
 	z.object({
 		kind: z.literal("box"),

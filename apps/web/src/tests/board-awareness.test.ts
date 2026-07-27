@@ -162,6 +162,41 @@ test("local awareness batches raw draw points and flushes before gesture end", a
 	controller.destroy();
 });
 
+test("local arrow awareness preserves the active stroke width", async () => {
+	const sent: BoardAwarenessUpdate[] = [];
+	const controller = createBoardAwarenessController({
+		send: async (_seq, update) => {
+			sent.push(update);
+		},
+		onChange: () => {},
+	});
+	const editor = {
+		interaction: {
+			type: "creatingArrow",
+			id: "arrow-local",
+			start: { x: 0, y: 0 },
+			current: { x: 40, y: 20 },
+			color: "rose",
+			size: 4.5,
+			startBinding: null,
+		},
+		itemById: () => null,
+	} as unknown as BoardEditor;
+
+	controller.syncGesture(editor);
+	await delay(20);
+	const update = sent.find(
+		(entry) => entry.type === "gesture" && entry.gesture.kind === "arrow",
+	);
+	assert.equal(
+		update?.type === "gesture" && update.gesture.kind === "arrow"
+			? update.gesture.size
+			: null,
+		4.5,
+	);
+	controller.destroy();
+});
+
 test("local state publishes the client form factor", async () => {
 	const sent: BoardAwarenessUpdate[] = [];
 	const controller = createBoardAwarenessController({

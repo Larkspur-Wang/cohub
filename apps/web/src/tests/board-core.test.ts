@@ -34,6 +34,7 @@ import {
 	createArrowBoardItem,
 	createDrawBoardItem,
 	createGeoBoardItem,
+	createTextBoardItem,
 	createVideoBoardItem,
 	duplicateBoardItem,
 	mediaFrameSize,
@@ -707,6 +708,27 @@ test("board bootstrap restores persisted document appearance", () => {
 });
 
 // ─── Item creation helpers ───────────────────────────────────────
+
+test("createTextBoardItem uses the shared readable default style", () => {
+	const item = createTextBoardItem("Hello", 10, 20);
+	assert.equal(item.type, "text");
+	if (item.type !== "text") return;
+	assert.equal(item.color, "neutral");
+	assert.equal(item.fontSize, 24);
+	assert.equal(item.frame.x, 10);
+	assert.equal(item.frame.y, 20);
+	assert.equal(item.frame.height, 32);
+});
+
+test("createTextBoardItem measures an explicit tool style", () => {
+	const item = createTextBoardItem("Hello", 0, 0, "rose", 32);
+	assert.equal(item.type, "text");
+	if (item.type !== "text") return;
+	assert.equal(item.color, "rose");
+	assert.equal(item.fontSize, 32);
+	assert.ok(item.frame.width > 0);
+	assert.ok(item.frame.height > 32);
+});
 
 test("createGeoBoardItem carries the chosen geometry", () => {
 	const item = createGeoBoardItem("ellipse", 0, 0, "blue");
