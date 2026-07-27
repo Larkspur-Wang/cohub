@@ -1,24 +1,30 @@
 <script lang="ts">
-import {
-	ChevronLeft,
-	ChevronRight,
-	LoaderCircle,
-	Minus,
-	MoveHorizontal,
-	Plus,
-} from "lucide-svelte";
+import { LoaderCircle } from "lucide-svelte";
 import type {
 	PDFDocumentLoadingTask,
 	PDFDocumentProxy,
 	RenderTask,
 } from "pdfjs-dist";
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-import { untrack } from "svelte";
+import { tick, untrack } from "svelte";
 
-const MIN_SCALE = 0.25;
-const MAX_SCALE = 4;
-const SCALE_STEP = 1.2;
-const MAX_CANVAS_PIXELS = 16_777_216;
+export type PdfPreviewControls = {
+	page: number;
+	pageCount: number;
+	scale: number;
+	fitWidth: boolean;
+	rendering: boolean;
+	goToPage: (page: number) => void;
+	zoomIn: () => void;
+	zoomOut: () => void;
+	fitPageWidth: () => void;
+};
+
+type PageLayout = {
+	page: number;
+	width: number;
+	height: number;
+};
 
 type Props = {
 	name: string;
@@ -26,7 +32,18 @@ type Props = {
 	base64?: string | null;
 	version: string;
 	isMobile?: boolean;
+	onControlsChange?: (controls: PdfPreviewControls | null) => void;
 };
+
+const MIN_SCALE = 0.25;
+const MAX_SCALE = 4;
+const SCALE_STEP = 1.2;
+const MAX_CANVAS_PIXELS = 16_777_216;
+const PAGE_GAP = 16;
+// Pre-render roughly one screen beyond the viewport so scrolling stays ahead of
+// rendering without materializing many canvases on short mobile pages.
+const RENDER_MARGIN_RATIO = 1;
+const MIN_RENDER_MARGIN = 400;
 
 let {
 	name,
@@ -34,19 +51,21 @@ let {
 	base64 = null,
 	version,
 	isMobile = false,
+	onControlsChange,
 }: Props = $props();
 
 let viewportElement: HTMLDivElement | null = $state(null);
-let canvasElement: HTMLCanvasElement | null = $state(null);
 let viewportWidth = $state(0);
+let viewportHeight = $state(0);
 let pdfDocument: PDFDocumentProxy | null = $state(null);
+let pageLayouts: PageLayout[] = $state([]);
+let visiblePages: number[] = $state([]);
 let pageNumber = $state(1);
-let pageCount = $state(0);
 let manualScale = $state(1);
 let renderedScale = $state(1);
 let fitWidth = $state(true);
 let loading = $state(true);
-let rendering = $state(false);
+let renderingCount = $state(0);
 let progress = $state<number | null>(null);
 let error = $state<string | null>(null);
 let passwordPrompt = $state(false);
@@ -56,14 +75,19 @@ let passwordInput: HTMLInputElement | null = $state(null);
 let passwordSubmit: ((password: string) => void) | null = null;
 let loadAttempt = $state(0);
 let loadGeneration = 0;
-let renderGeneration = 0;
+let layoutGeneration = 0;
 let loadingTask: PDFDocumentLoadingTask | null = null;
-let renderTask: RenderTask | null = null;
+const pageElements = new Map<number, HTMLElement>();
+const canvases = new Map<number, HTMLCanvasElement>();
+const renderTasks = new Map<number, RenderTask>();
+const renderedScales = new Map<number, number>();
+let mountVersion = $state(0);
 
 const sourceKey = $derived(
 	`${version}:${url ?? `inline:${base64?.length ?? 0}`}`,
 );
-const scaleLabel = $derived(`${Math.round(renderedScale * 100)}%`);
+const pageCount = $derived(pageLayouts.length);
+const rendering = $derived(renderingCount > 0);
 
 function clampScale(value: number) {
 	return Math.min(MAX_SCALE, Math.max(MIN_SCALE, value));
@@ -92,10 +116,26 @@ function readableLoadError(cause: unknown) {
 	return "The PDF could not be opened.";
 }
 
+function cancelRenders() {
+	for (const task of renderTasks.values()) task.cancel();
+	renderTasks.clear();
+	renderingCount = 0;
+	renderedScales.clear();
+}
+
+function releaseCanvas(canvas: HTMLCanvasElement) {
+	canvas.width = 1;
+	canvas.height = 1;
+}
+
 function disposeDocument() {
-	renderGeneration += 1;
-	renderTask?.cancel();
-	renderTask = null;
+	layoutGeneration += 1;
+	cancelRenders();
+	for (const canvas of canvases.values()) releaseCanvas(canvas);
+	canvases.clear();
+	pageElements.clear();
+	pageLayouts = [];
+	visiblePages = [];
 
 	const task = loadingTask;
 	const document = pdfDocument;
@@ -118,9 +158,9 @@ async function openPdf(
 	passwordValue = "";
 	passwordSubmit = null;
 	pageNumber = 1;
-	pageCount = 0;
 	fitWidth = true;
 	manualScale = 1;
+	renderedScale = 1;
 
 	try {
 		const pdfjs = await import("pdfjs-dist");
@@ -163,7 +203,6 @@ async function openPdf(
 			return;
 		}
 		pdfDocument = document;
-		pageCount = document.numPages;
 		passwordPrompt = false;
 		passwordSubmit = null;
 		loading = false;
@@ -174,82 +213,168 @@ async function openPdf(
 	}
 }
 
-async function renderPage(input: {
-	document: PDFDocumentProxy;
-	canvas: HTMLCanvasElement;
-	page: number;
-	width: number;
-	fit: boolean;
-	scale: number;
-}) {
-	const generation = ++renderGeneration;
-	renderTask?.cancel();
-	renderTask = null;
-	rendering = true;
+function calculateScale(firstPageWidth: number) {
+	if (!fitWidth) return clampScale(manualScale);
+	const horizontalPadding = isMobile ? 16 : 32;
+	const availableWidth = Math.max(160, viewportWidth - horizontalPadding);
+	return clampScale(availableWidth / firstPageWidth);
+}
+
+async function buildPageLayouts(document: PDFDocumentProxy) {
+	const generation = ++layoutGeneration;
+	const anchorPage = pageNumber;
+	const anchorElement = pageElements.get(anchorPage);
+	const anchorOffset =
+		anchorElement && viewportElement
+			? anchorElement.getBoundingClientRect().top -
+				viewportElement.getBoundingClientRect().top
+			: 0;
+
 	try {
-		const page = await input.document.getPage(input.page);
-		if (generation !== renderGeneration) return;
-		const naturalViewport = page.getViewport({ scale: 1 });
-		const horizontalPadding = isMobile ? 16 : 32;
-		const availableWidth = Math.max(160, input.width - horizontalPadding);
-		const scale = input.fit
-			? clampScale(availableWidth / naturalViewport.width)
-			: clampScale(input.scale);
+		const firstPage = await document.getPage(1);
+		if (generation !== layoutGeneration) return;
+		const firstViewport = firstPage.getViewport({ scale: 1 });
+		const scale = calculateScale(firstViewport.width);
+		const nextLayouts: PageLayout[] = [];
+		for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
+			const page =
+				pageNumber === 1 ? firstPage : await document.getPage(pageNumber);
+			if (generation !== layoutGeneration) return;
+			const viewport = page.getViewport({ scale });
+			nextLayouts.push({
+				page: pageNumber,
+				width: Math.floor(viewport.width),
+				height: Math.floor(viewport.height),
+			});
+		}
+
+		cancelRenders();
+		pageLayouts = nextLayouts;
+		renderedScale = scale;
+		await tick();
+		if (generation !== layoutGeneration) return;
+		const nextAnchor = pageElements.get(anchorPage);
+		if (viewportElement && nextAnchor) {
+			const nextOffset =
+				nextAnchor.getBoundingClientRect().top -
+				viewportElement.getBoundingClientRect().top;
+			viewportElement.scrollTop += nextOffset - anchorOffset;
+		}
+		updateVisiblePages();
+	} catch (cause) {
+		if (generation !== layoutGeneration) return;
+		console.error("PDF layout failed", cause);
+		error = "This PDF could not be laid out.";
+	}
+}
+
+async function renderPage(
+	pageNumber: number,
+	canvas: HTMLCanvasElement,
+	scale: number,
+) {
+	const document = pdfDocument;
+	const layout = pageLayouts[pageNumber - 1];
+	if (!document || !layout || renderTasks.has(pageNumber)) return;
+	renderedScales.set(pageNumber, scale);
+	renderingCount += 1;
+	try {
+		const page = await document.getPage(pageNumber);
+		if (canvases.get(pageNumber) !== canvas) return;
 		const viewport = page.getViewport({ scale });
 		const pixelRatio = Math.max(1, window.devicePixelRatio || 1);
 		const maxOutputScale = Math.sqrt(
 			MAX_CANVAS_PIXELS / Math.max(1, viewport.width * viewport.height),
 		);
 		const outputScale = Math.min(pixelRatio, maxOutputScale);
-
-		input.canvas.width = Math.max(1, Math.floor(viewport.width * outputScale));
-		input.canvas.height = Math.max(
-			1,
-			Math.floor(viewport.height * outputScale),
-		);
-		input.canvas.style.width = `${Math.floor(viewport.width)}px`;
-		input.canvas.style.height = `${Math.floor(viewport.height)}px`;
-
+		canvas.width = Math.max(1, Math.floor(viewport.width * outputScale));
+		canvas.height = Math.max(1, Math.floor(viewport.height * outputScale));
+		canvas.style.width = `${layout.width}px`;
+		canvas.style.height = `${layout.height}px`;
 		const task = page.render({
-			canvas: input.canvas,
+			canvas,
 			viewport,
 			transform:
 				outputScale === 1 ? undefined : [outputScale, 0, 0, outputScale, 0, 0],
 		});
-		renderTask = task;
+		renderTasks.set(pageNumber, task);
 		await task.promise;
-		if (generation !== renderGeneration) return;
-		renderedScale = scale;
 	} catch (cause) {
 		const errorName =
 			cause && typeof cause === "object" && "name" in cause
 				? String(cause.name)
 				: "";
-		if (
-			generation === renderGeneration &&
-			errorName !== "RenderingCancelledException"
-		) {
-			error = "This PDF page could not be rendered.";
+		if (errorName !== "RenderingCancelledException") {
+			renderedScales.delete(pageNumber);
+			console.error(`PDF page ${pageNumber} render failed`, cause);
 		}
 	} finally {
-		if (generation === renderGeneration) rendering = false;
+		renderTasks.delete(pageNumber);
+		renderingCount = Math.max(0, renderingCount - 1);
 	}
+}
+
+function mountCanvas(canvas: HTMLCanvasElement, page: number) {
+	canvases.set(page, canvas);
+	mountVersion += 1;
+	return {
+		destroy() {
+			if (canvases.get(page) !== canvas) return;
+			renderTasks.get(page)?.cancel();
+			renderTasks.delete(page);
+			renderedScales.delete(page);
+			canvases.delete(page);
+			releaseCanvas(canvas);
+		},
+	};
+}
+
+function mountPage(element: HTMLElement, page: number) {
+	pageElements.set(page, element);
+	return {
+		destroy() {
+			if (pageElements.get(page) === element) pageElements.delete(page);
+		},
+	};
+}
+
+function updateVisiblePages() {
+	const viewport = viewportElement;
+	if (!viewport || pageLayouts.length === 0) return;
+	const viewportRect = viewport.getBoundingClientRect();
+	const renderMargin = Math.max(
+		MIN_RENDER_MARGIN,
+		viewportRect.height * RENDER_MARGIN_RATIO,
+	);
+	const renderTop = viewportRect.top - renderMargin;
+	const renderBottom = viewportRect.bottom + renderMargin;
+	const viewportCenter = viewportRect.top + viewportRect.height / 2;
+	const nextVisible: number[] = [];
+	let nearestPage = pageNumber;
+	let nearestDistance = Number.POSITIVE_INFINITY;
+
+	for (const layout of pageLayouts) {
+		const element = pageElements.get(layout.page);
+		if (!element) continue;
+		const rect = element.getBoundingClientRect();
+		if (rect.bottom >= renderTop && rect.top <= renderBottom) {
+			nextVisible.push(layout.page);
+		}
+		const distance = Math.abs(rect.top + rect.height / 2 - viewportCenter);
+		if (distance < nearestDistance) {
+			nearestDistance = distance;
+			nearestPage = layout.page;
+		}
+	}
+	visiblePages = nextVisible;
+	pageNumber = nearestPage;
 }
 
 function goToPage(page: number) {
-	if (!Number.isFinite(pageCount) || pageCount < 1) return;
-	pageNumber = Math.min(pageCount, Math.max(1, Math.round(page)));
-	if (viewportElement) {
-		viewportElement.scrollTop = 0;
-		viewportElement.scrollLeft = 0;
-	}
-}
-
-function commitPageInput(event: Event) {
-	const input = event.currentTarget as HTMLInputElement;
-	const value = Number.parseInt(input.value, 10);
-	if (Number.isFinite(value)) goToPage(value);
-	input.value = String(pageNumber);
+	if (pageLayouts.length < 1) return;
+	const target = Math.min(pageLayouts.length, Math.max(1, Math.round(page)));
+	pageNumber = target;
+	pageElements.get(target)?.scrollIntoView({ block: "start" });
 }
 
 function zoomBy(factor: number) {
@@ -275,13 +400,19 @@ function submitPassword(event: SubmitEvent) {
 $effect(() => {
 	const element = viewportElement;
 	if (!element) return;
-	const updateWidth = () => {
+	const updateSize = () => {
 		viewportWidth = Math.floor(element.clientWidth);
+		viewportHeight = Math.floor(element.clientHeight);
 	};
-	updateWidth();
-	const observer = new ResizeObserver(updateWidth);
+	updateSize();
+	const observer = new ResizeObserver(updateSize);
 	observer.observe(element);
 	return () => observer.disconnect();
+});
+
+$effect(() => {
+	viewportHeight;
+	updateVisiblePages();
 });
 
 $effect(() => {
@@ -307,13 +438,48 @@ $effect(() => {
 
 $effect(() => {
 	const document = pdfDocument;
-	const canvas = canvasElement;
-	const page = pageNumber;
 	const width = viewportWidth;
-	const fit = fitWidth;
-	const scale = manualScale;
-	if (!document || !canvas || width <= 0 || page < 1) return;
-	void renderPage({ document, canvas, page, width, fit, scale });
+	fitWidth;
+	manualScale;
+	if (!document || width <= 0) return;
+	void buildPageLayouts(document);
+});
+
+$effect(() => {
+	const document = pdfDocument;
+	const scale = renderedScale;
+	const pages = visiblePages;
+	mountVersion;
+	if (!document || pages.length === 0) return;
+	untrack(() => {
+		for (const page of pages) {
+			const canvas = canvases.get(page);
+			if (!canvas) continue;
+			if (renderedScales.get(page) === scale) continue;
+			void renderPage(page, canvas, scale);
+		}
+	});
+});
+
+$effect(() => {
+	const callback = onControlsChange;
+	if (!callback) return;
+	const controls: PdfPreviewControls | null =
+		pdfDocument && pageCount > 0
+			? {
+					page: pageNumber,
+					pageCount,
+					scale: renderedScale,
+					fitWidth,
+					rendering,
+					goToPage,
+					zoomIn: () => zoomBy(SCALE_STEP),
+					zoomOut: () => zoomBy(1 / SCALE_STEP),
+					fitPageWidth,
+				}
+			: null;
+	untrack(() => callback(controls));
+	return () => untrack(() => callback(null));
 });
 </script>
 
@@ -324,16 +490,22 @@ $effect(() => {
 >
 	<div
 		bind:this={viewportElement}
-		class="h-full overflow-auto overscroll-contain px-2 pt-2 pb-20 sm:px-4 sm:pt-4"
+		class="h-full overflow-auto overscroll-contain px-2 py-2 sm:px-4 sm:py-4"
+		onscroll={updateVisiblePages}
 	>
-		<div class="flex min-h-full min-w-full items-start justify-center">
-			{#if pdfDocument}
-				<canvas
-					bind:this={canvasElement}
-					class="shrink-0 shadow-md"
-					aria-label={`Page ${pageNumber} of ${pageCount}`}
-				></canvas>
-			{/if}
+		<div class="flex min-h-full min-w-full flex-col items-center" style={`gap: ${PAGE_GAP}px`}>
+			{#each pageLayouts as layout (layout.page)}
+				<div
+					use:mountPage={layout.page}
+					class="pdf-page relative shrink-0 bg-bg-surface shadow-md"
+					style={`width: ${layout.width}px; height: ${layout.height}px`}
+					aria-label={`Page ${layout.page} of ${pageCount}`}
+				>
+					{#if visiblePages.includes(layout.page)}
+						<canvas use:mountCanvas={layout.page}></canvas>
+					{/if}
+				</div>
+			{/each}
 		</div>
 	</div>
 
@@ -378,146 +550,15 @@ $effect(() => {
 			</div>
 		</div>
 	{/if}
-
-	{#if pdfDocument && !loading && !passwordPrompt && !error}
-		<div
-			class="pdf-toolbar absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 items-center rounded-md border border-border-subtle bg-bg-surface p-1 shadow-lg"
-			class:pdf-toolbar--mobile={isMobile}
-		>
-			<button
-				type="button"
-				class="pdf-tool-btn"
-				disabled={pageNumber <= 1}
-				onclick={() => goToPage(pageNumber - 1)}
-				title="Previous page"
-				aria-label="Previous page"
-			>
-				<ChevronLeft class="h-4 w-4" />
-			</button>
-			<div class="pdf-page-control flex h-8 items-center gap-1 px-1 text-[11px] text-text-tertiary tabular-nums">
-				<input
-					type="number"
-					min="1"
-					max={pageCount}
-					value={pageNumber}
-					class="pdf-page-input h-7 w-9 rounded border border-border-subtle bg-bg-input px-1 text-center text-[11px] text-text-primary focus:border-brand/50 focus:outline-none"
-					aria-label="Page number"
-					onchange={commitPageInput}
-					onblur={commitPageInput}
-					onkeydown={(event) => {
-						if (event.key === "Enter") event.currentTarget.blur();
-					}}
-				/>
-				<span aria-label={`${pageCount} pages`}>/ {pageCount}</span>
-			</div>
-			<button
-				type="button"
-				class="pdf-tool-btn"
-				disabled={pageNumber >= pageCount}
-				onclick={() => goToPage(pageNumber + 1)}
-				title="Next page"
-				aria-label="Next page"
-			>
-				<ChevronRight class="h-4 w-4" />
-			</button>
-			<div class="pdf-divider mx-1 h-4 w-px bg-border-subtle"></div>
-			<button
-				type="button"
-				class="pdf-tool-btn"
-				disabled={renderedScale <= MIN_SCALE}
-				onclick={() => zoomBy(1 / SCALE_STEP)}
-				title="Zoom out"
-				aria-label="Zoom out"
-			>
-				<Minus class="h-4 w-4" />
-			</button>
-			<span class="hidden w-10 text-center text-[10px] text-text-tertiary tabular-nums sm:inline">
-				{scaleLabel}
-			</span>
-			<button
-				type="button"
-				class="pdf-tool-btn"
-				disabled={renderedScale >= MAX_SCALE}
-				onclick={() => zoomBy(SCALE_STEP)}
-				title="Zoom in"
-				aria-label="Zoom in"
-			>
-				<Plus class="h-4 w-4" />
-			</button>
-			<button
-				type="button"
-				class="pdf-tool-btn"
-				class:active={fitWidth}
-				onclick={fitPageWidth}
-				title="Fit width"
-				aria-label="Fit width"
-			>
-				<MoveHorizontal class="h-4 w-4" />
-			</button>
-			{#if rendering}
-				<span class="absolute -top-7 right-1 rounded-full bg-bg-surface p-1 shadow-sm">
-					<LoaderCircle class="h-3.5 w-3.5 animate-spin text-text-tertiary" aria-label="Rendering page" />
-				</span>
-			{/if}
-		</div>
-	{/if}
 </div>
 
 <style>
-	.pdf-tool-btn {
-		display: inline-flex;
-		height: 32px;
-		width: 32px;
-		flex: none;
-		align-items: center;
-		justify-content: center;
-		border-radius: 4px;
-		color: var(--text-tertiary);
-		transition:
-			background-color 120ms ease,
-			color 120ms ease;
-	}
-
-	.pdf-tool-btn:hover:not(:disabled),
-	.pdf-tool-btn.active {
-		background: var(--bg-hover);
-		color: var(--text-primary);
-	}
-
-	.pdf-tool-btn:focus-visible {
-		outline: 2px solid color-mix(in srgb, var(--brand) 55%, transparent);
-		outline-offset: -2px;
-	}
-
-	.pdf-tool-btn:disabled {
-		opacity: 0.35;
-	}
-
-	.pdf-toolbar--mobile .pdf-tool-btn {
-		height: 40px;
-		width: 40px;
-	}
-
-	.pdf-toolbar--mobile .pdf-page-control {
-		gap: 2px;
-		padding-inline: 0;
-	}
-
-	.pdf-toolbar--mobile .pdf-page-input {
-		width: 32px;
-	}
-
-	.pdf-toolbar--mobile .pdf-divider {
-		margin-inline: 0;
+	.pdf-page {
+		contain: layout paint;
 	}
 
 	canvas {
-		background: white;
-	}
-
-	@media (prefers-reduced-motion: reduce) {
-		.pdf-tool-btn {
-			transition: none;
-		}
+		display: block;
+		background: var(--bg-surface);
 	}
 </style>

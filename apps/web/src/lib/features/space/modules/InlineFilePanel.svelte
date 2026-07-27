@@ -12,6 +12,7 @@ import {
 	ListTree,
 	Minus,
 	MoreHorizontal,
+	MoveHorizontal,
 	Pencil,
 	Plus,
 	Rocket,
@@ -23,6 +24,7 @@ import { floatNear } from "$lib/actions/portal";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import type { FileViewMode } from "$lib/components/file-diff-view";
 import MarkdownView from "$lib/components/MarkdownView.svelte";
+import type { PdfPreviewControls } from "$lib/components/PdfPreview.svelte";
 import type { PreviewCaptureTarget } from "$lib/features/preview-mark";
 import PreviewMarkHost from "$lib/features/preview-mark/ui/PreviewMarkHost.svelte";
 import { createLazyModuleLoader } from "$lib/lazy-module";
@@ -192,6 +194,18 @@ let codeEditorLoadAttempt = $state(0);
 let htmlPreviewLoadAttempt = $state(0);
 let fileDiffLoadAttempt = $state(0);
 let pdfPreviewLoadAttempt = $state(0);
+let pdfControls = $state<PdfPreviewControls | null>(null);
+let pdfPageDraft = $state("");
+let pdfPageInputFocused = $state(false);
+const pdfPageValue = $derived(
+	pdfPageInputFocused ? pdfPageDraft : String(pdfControls?.page ?? ""),
+);
+
+function commitPdfPage() {
+	const parsed = Number.parseInt(pdfPageDraft, 10);
+	if (Number.isFinite(parsed)) pdfControls?.goToPage(parsed);
+	pdfPageDraft = String(pdfControls?.page ?? 1);
+}
 const codeEditorModulePromise = $derived.by(() => {
 	codeEditorLoadAttempt;
 	return loadCodeEditorModule();
@@ -322,6 +336,9 @@ $effect(() => {
 		</button>
 	{/if}
 	{@render FileHeaderCoreActions(activeResponsePath || activeFilePath)}
+	{#if inlineFileIsPdf && hasUsableMedia}
+		{@render PdfHeaderControls()}
+	{/if}
 	{#if hasUsableText && (inlineFileHasRenderedPreview || showDiffMode)}
 		<div class="float-view-mode">
 			<button
@@ -415,6 +432,55 @@ $effect(() => {
 				aria-label="Zoom in"
 			>
 				<Plus class="h-4 w-4" />
+			</button>
+		</div>
+	{/if}
+{/snippet}
+
+{#snippet PdfHeaderControls()}
+	{#if pdfControls}
+		<div class="pdf-header-controls">
+			<input
+				class="pdf-page-input"
+				type="text"
+				inputmode="numeric"
+				aria-label="Page number"
+				value={pdfPageValue}
+				oninput={(event) => {
+					pdfPageDraft = event.currentTarget.value;
+				}}
+				onfocus={(event) => {
+					pdfPageInputFocused = true;
+					pdfPageDraft = String(pdfControls?.page ?? 1);
+					event.currentTarget.select();
+				}}
+				onblur={() => {
+					pdfPageInputFocused = false;
+					commitPdfPage();
+				}}
+				onkeydown={(event) => {
+					if (event.key === "Enter") event.currentTarget.blur();
+				}}
+			/>
+			<span class="pdf-page-total">/ {pdfControls.pageCount}</span>
+			<span class="pdf-header-divider"></span>
+			<button type="button" class="icon-btn" title="Zoom out" aria-label="Zoom out" onclick={() => pdfControls?.zoomOut()}>
+				<Minus class="h-4 w-4" />
+			</button>
+			<span class="pdf-scale">{Math.round(pdfControls.scale * 100)}%</span>
+			<button type="button" class="icon-btn" title="Zoom in" aria-label="Zoom in" onclick={() => pdfControls?.zoomIn()}>
+				<Plus class="h-4 w-4" />
+			</button>
+			<button
+				type="button"
+				class="icon-btn"
+				class:active={pdfControls.fitWidth}
+				title="Fit width"
+				aria-label="Fit width"
+				aria-pressed={pdfControls.fitWidth}
+				onclick={() => pdfControls?.fitPageWidth()}
+			>
+				<MoveHorizontal class="h-4 w-4" />
 			</button>
 		</div>
 	{/if}
@@ -556,6 +622,9 @@ $effect(() => {
 					: inlineFile.response.content}
 				version={`${inlineFile.response.path}:${inlineFile.response.size}:${inlineFile.response.mtimeMs}`}
 				{isMobile}
+				onControlsChange={(controls) => {
+					pdfControls = controls;
+				}}
 			/>
 		{:catch}
 			{@render LazyLoadError("PDF preview failed to load.", () => {
@@ -615,6 +684,9 @@ $effect(() => {
 				onClose={onClosePreviewTab}
 			>
 				{#snippet trailing()}
+					{#if inlineFileIsPdf && hasUsableMedia}
+						{@render PdfHeaderControls()}
+					{/if}
 					{#if inlineFileCanGoBack}
 						<button
 							type="button"
@@ -890,8 +962,8 @@ $effect(() => {
             </div>
           {:else if inlineFileIsPdf && hasUsableMedia}
             <div class="preview-chrome flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
-              <div class="preview-chrome-path min-w-0 flex-1 truncate text-xs sm:text-sm text-text-secondary">
-                {activeResponsePath}
+              <div class="min-w-0 flex-1">
+                {@render PdfHeaderControls()}
               </div>
               <div class="hidden text-xs text-text-tertiary sm:inline">{formatFileSize(inlineFile.response.size)}</div>
               {@render FileHeaderCoreActions(activeResponsePath)}
@@ -933,6 +1005,50 @@ $effect(() => {
 
   .inline-file-preview--immersive :global(.preview-float-chrome + .file-status-banner) {
     margin-top: 58px;
+  }
+
+  .pdf-header-controls {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .pdf-page-input {
+    width: 2.5rem;
+    height: 1.75rem;
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
+    background: var(--bg-input);
+    color: var(--text-primary);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+  }
+
+  .pdf-page-input:focus {
+    border-color: color-mix(in srgb, var(--brand) 50%, transparent);
+    outline: none;
+  }
+
+  .pdf-page-total,
+  .pdf-scale {
+    flex-shrink: 0;
+    color: var(--text-tertiary);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .pdf-scale {
+    width: 2.75rem;
+    text-align: center;
+  }
+
+  .pdf-header-divider {
+    width: 1px;
+    height: 1rem;
+    margin-inline: 2px;
+    background: var(--border-subtle);
   }
 
   .float-view-mode,
