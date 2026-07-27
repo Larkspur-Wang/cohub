@@ -1392,9 +1392,10 @@ export function createFileWorkspaceController(
 		}
 	}
 
-	async function handleDeleteNode(node: SpaceFsNode) {
-		if (options.getActiveFsReadonly() || !options.getCanEditFiles()) return;
-		if (!confirm(`Delete ${node.name}?`)) return;
+	async function handleDeleteNode(node: SpaceFsNode): Promise<boolean> {
+		if (options.getActiveFsReadonly() || !options.getCanEditFiles())
+			return false;
+		if (!confirm(`Delete ${node.name}?`)) return false;
 		try {
 			await sdk
 				.space(options.getSpaceId())
@@ -1406,9 +1407,11 @@ export function createFileWorkspaceController(
 				await clearCachedSpaceFsSubtree(options.getSpaceId(), node.path);
 			if (inlineFileTabs.some((tab) => tab.path === node.path))
 				closeInlineFile(node.path);
+			return true;
 		} catch (error) {
 			fileTreeError =
 				error instanceof Error ? error.message : "Failed to delete";
+			return false;
 		}
 	}
 

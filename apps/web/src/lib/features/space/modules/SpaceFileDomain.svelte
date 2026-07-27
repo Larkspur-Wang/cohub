@@ -149,10 +149,12 @@ export type SpaceFileDomainProps = {
 	onReloadInlineFile: () => void | Promise<void>;
 	onOpenInlinePort: (port: string, url: string) => void;
 	onCommitInlineBoard: (
+		boardId: string,
+		path: string,
 		document: BoardDocument,
 		ops: BoardOperation[],
 	) => void | Promise<void>;
-	onRetryInlineBoardSave: () => void | Promise<void>;
+	onRetryInlineBoardSave: (boardId: string) => void | Promise<void>;
 	onBeginPreviewPanelResize: (event: PointerEvent) => void;
 	onTogglePreviewFocusMode: () => void | Promise<void>;
 	onTogglePreviewImmersiveMode: () => void | Promise<void>;

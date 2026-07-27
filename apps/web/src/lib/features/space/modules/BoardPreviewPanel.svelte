@@ -37,8 +37,13 @@ type Props = {
 	treeVisible?: boolean;
 	onToggleTree?: () => void | Promise<void>;
 	onToggleImmersive: () => void | Promise<void>;
-	onCommit: BoardRuntimeProps["onCommit"];
-	onRetrySave: () => void | Promise<void>;
+	onCommit: (
+		boardId: string,
+		path: string,
+		document: Parameters<BoardRuntimeProps["onCommit"]>[0],
+		ops: Parameters<BoardRuntimeProps["onCommit"]>[1],
+	) => void | Promise<void>;
+	onRetrySave: (boardId: string) => void | Promise<void>;
 	onActivatePreviewTab: (kind: PreviewTab["kind"], key: string) => void;
 	onClosePreviewTab: (kind: PreviewTab["kind"], key: string) => void;
 	onViewStateChange?: (state: BoardRuntimeViewState) => void;
@@ -128,8 +133,8 @@ const boardRuntimeModulePromise = $derived.by(() => {
 						{activities}
 						{onOpenActivity}
 						syncError={board.saveError}
-						onCommit={(document, ops) => onCommit(document, ops)}
-						onRetrySync={onRetrySave}
+						onCommit={(document, ops) => onCommit(board.boardId as string, board.path, document, ops)}
+						onRetrySync={() => onRetrySave(board.boardId as string)}
 						{onViewStateChange}
 						{onOpenFile}
 					/>

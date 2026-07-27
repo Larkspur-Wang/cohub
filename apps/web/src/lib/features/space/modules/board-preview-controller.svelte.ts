@@ -21,6 +21,11 @@ import {
 } from "$lib/board/board-document";
 import { resolveBoardManifestText } from "$lib/board/board-manifest-text";
 import {
+	boardPathMatchesTarget,
+	canAdoptBoardVersion,
+	hasBoardIdentity,
+} from "$lib/board/board-sync-policy";
+import {
 	type BoardRuntimeData,
 	operationsRequireBoardRuntimeRefresh,
 } from "$lib/board/runtime/board-runtime";
@@ -70,6 +75,8 @@ export function createBoardPreviewController(
 	let syncVersionByBoardId = $state<Record<string, number | null>>({});
 	const pendingFlushByBoardId = new Map<string, Promise<void>>();
 	const pendingFlushRequested = new Set<string>();
+	const manifestRefreshByPath = new Map<string, Promise<void>>();
+	const manifestRefreshRequested = new Set<string>();
 	/** Conflict-recovery attempts per document, to bound rebase retries. */
 	let conflictAttemptsByBoardId: Record<string, number> = {};
 	/**
@@ -179,6 +186,10 @@ export function createBoardPreviewController(
 		return false;
 	}
 
+	function inspect(boardId: string) {
+		return sdk.space(options.getSpaceId()).boards.inspect(boardId);
+	}
+
 	function isCurrent(token: number, path: string, sourceKey: string) {
 		const board = boards.find((item) => item.path === path);
 		return (
@@ -188,26 +199,40 @@ export function createBoardPreviewController(
 		);
 	}
 
-	async function openBoard(path: string) {
+	async function openBoard(
+		path: string,
+		input: { activate?: boolean; showLoading?: boolean } = {},
+	) {
+		const activate = input.activate ?? true;
+		const requestedLoading = input.showLoading ?? true;
 		const sourceKey = options.getSourceKey();
-		options.onOpenPanel?.();
-		options.onBeforeOpenBoard?.();
+		if (activate) {
+			options.onOpenPanel?.();
+			options.onBeforeOpenBoard?.();
+		}
 		const token = (requestTokenByPath[path] ?? 0) + 1;
 		requestTokenByPath = { ...requestTokenByPath, [path]: token };
-		activeBoardPath = path;
-		const loadingBoard: InlineBoardPanelState = {
-			path,
-			boardId: null,
-			document: null,
-			runtime: null,
-			loading: true,
-			saving: false,
-			error: null,
-			saveError: null,
-		};
-		boards = boards.some((item) => item.path === path)
-			? boards.map((item) => (item.path === path ? loadingBoard : item))
-			: [...boards, loadingBoard];
+		if (activate) activeBoardPath = path;
+		const existingBoard = boards.find((item) => item.path === path);
+		// Reopening a loaded tab is a background identity check. Keep its editor
+		// mounted until the authoritative manifest + bootstrap are both ready.
+		const showLoading = requestedLoading && !existingBoard?.document;
+		if (!showLoading && !existingBoard) return;
+		if (showLoading) {
+			const loadingBoard: InlineBoardPanelState = {
+				path,
+				boardId: null,
+				document: null,
+				runtime: null,
+				loading: true,
+				saving: false,
+				error: null,
+				saveError: null,
+			};
+			boards = existingBoard
+				? boards.map((item) => (item.path === path ? loadingBoard : item))
+				: [...boards, loadingBoard];
+		}
 		try {
 			const rawFile = await options.readFile(path);
 			if (!isCurrent(token, path, sourceKey)) return;
@@ -226,10 +251,41 @@ export function createBoardPreviewController(
 			}
 			const manifest = parseBoardManifest(content);
 			if (!manifest) throw new Error("Board manifest is invalid.");
-			const bootstrap = await sdk
-				.space(options.getSpaceId())
-				.boards.inspect(manifest.boardId);
+			// Expose the manifest identity while the first inspect is in flight, so
+			// realtime transactions can queue by boardId instead of being dropped.
+			if (showLoading) {
+				boards = boards.map((item) =>
+					item.path === path ? { ...item, boardId: manifest.boardId } : item,
+				);
+			}
+			const bootstrap = await inspect(manifest.boardId);
 			if (!isCurrent(token, path, sourceKey)) return;
+			const current = boards.find((item) => item.path === path);
+			const currentVersion = syncVersionByBoardId[bootstrap.board.id] ?? null;
+			if (
+				current?.boardId === bootstrap.board.id &&
+				isBusy(bootstrap.board.id)
+			) {
+				pendingRemoteBootstrap.add(bootstrap.board.id);
+				return;
+			}
+			// A realtime bootstrap may win the race with this inspect. Never replace
+			// a newer server snapshot with the older response.
+			if (
+				current?.boardId === bootstrap.board.id &&
+				!canAdoptBoardVersion(currentVersion, bootstrap.board.version)
+			) {
+				boards = boards.map((item) =>
+					item.path === path ? { ...item, loading: false } : item,
+				);
+				return;
+			}
+			if (
+				existingBoard?.boardId &&
+				existingBoard.boardId !== bootstrap.board.id
+			) {
+				clearActivitiesForBoard(existingBoard.boardId);
+			}
 			syncVersionByBoardId = {
 				...syncVersionByBoardId,
 				[bootstrap.board.id]: bootstrap.board.version,
@@ -265,6 +321,24 @@ export function createBoardPreviewController(
 			}
 		} catch (error) {
 			if (!isCurrent(token, path, sourceKey)) return;
+			if (!showLoading && error instanceof HttpError && error.status === 404) {
+				closeBoard(path);
+				return;
+			}
+			if (!showLoading) {
+				boards = boards.map((item) =>
+					item.path === path
+						? {
+								...item,
+								saveError:
+									error instanceof Error
+										? error.message
+										: "Failed to refresh board",
+							}
+						: item,
+				);
+				return;
+			}
 			boards = boards.map((item) =>
 				item.path === path
 					? {
@@ -283,6 +357,38 @@ export function createBoardPreviewController(
 		}
 	}
 
+	function hasBoardId(boardId: string) {
+		return hasBoardIdentity(boards, boardId);
+	}
+
+	function refreshBoardManifest(path: string) {
+		const activeRefresh = manifestRefreshByPath.get(path);
+		if (activeRefresh) {
+			manifestRefreshRequested.add(path);
+			return activeRefresh;
+		}
+		const refresh = (async () => {
+			try {
+				do {
+					manifestRefreshRequested.delete(path);
+					await openBoard(path, {
+						activate: false,
+						showLoading: false,
+					});
+				} while (manifestRefreshRequested.delete(path));
+			} finally {
+				manifestRefreshByPath.delete(path);
+			}
+		})();
+		manifestRefreshByPath.set(path, refresh);
+		return refresh;
+	}
+
+	async function reconcileOpenBoards() {
+		const paths = boards.map((item) => item.path);
+		await Promise.all(paths.map((path) => refreshBoardManifest(path)));
+	}
+
 	function closeBoard(path = activeBoardPath) {
 		if (!path) return;
 		requestTokenByPath = {
@@ -291,13 +397,29 @@ export function createBoardPreviewController(
 		};
 		const index = boards.findIndex((item) => item.path === path);
 		const closing = boards.find((item) => item.path === path);
-		if (closing?.boardId) clearActivitiesForBoard(closing.boardId);
 		const nextBoards = boards.filter((item) => item.path !== path);
+		if (
+			closing?.boardId &&
+			!nextBoards.some((item) => item.boardId === closing.boardId)
+		) {
+			clearActivitiesForBoard(closing.boardId);
+			pendingRemoteBootstrap.delete(closing.boardId);
+			pendingRemoteEvents = pendingRemoteEvents.filter(
+				(event) => event.boardId !== closing.boardId,
+			);
+		}
 		boards = nextBoards;
 		if (activeBoardPath === path)
 			activeBoardPath =
 				nextBoards[Math.max(0, index - 1)]?.path ?? nextBoards[0]?.path ?? null;
 		if (nextBoards.length === 0) options.onClosePanel?.();
+	}
+
+	function closeBoardsAtPath(path: string, recursive = false) {
+		const matches = boards
+			.filter((item) => boardPathMatchesTarget(item.path, path, recursive))
+			.map((item) => item.path);
+		for (const boardPath of matches) closeBoard(boardPath);
 	}
 
 	function activateBoard(path: string) {
@@ -388,9 +510,7 @@ export function createBoardPreviewController(
 	 * board-close mid-recovery (the stale txs simply replay and re-recover).
 	 */
 	async function recoverFromConflict(boardId: string) {
-		const bootstrap = await sdk
-			.space(options.getSpaceId())
-			.boards.inspect(boardId);
+		const bootstrap = await inspect(boardId);
 		syncVersionByBoardId = {
 			...syncVersionByBoardId,
 			[boardId]: bootstrap.board.version,
@@ -440,11 +560,15 @@ export function createBoardPreviewController(
 		}
 	}
 
-	async function commitBoard(document: BoardDocument, ops: BoardOperation[]) {
-		const board = boards.find((item) => item.path === activeBoardPath);
-		if (options.getReadonly?.() || !board?.boardId) return;
-		const boardId = board.boardId;
-		const savingPath = board.path;
+	async function commitBoard(
+		boardId: string,
+		path: string,
+		document: BoardDocument,
+		ops: BoardOperation[],
+	) {
+		if (options.getReadonly?.()) return;
+		const savingPath =
+			boards.find((item) => item.boardId === boardId)?.path ?? path;
 		const txId = crypto.randomUUID();
 		// A recovery re-commit with no resulting ops still must clear the stale
 		// pending txs (their changes are already reflected server-side).
@@ -455,7 +579,7 @@ export function createBoardPreviewController(
 		}
 		options.onMarkSavePending?.(savingPath);
 		boards = boards.map((item) =>
-			item.path === savingPath
+			item.boardId === boardId
 				? { ...item, saving: true, saveError: null }
 				: item,
 		);
@@ -478,7 +602,7 @@ export function createBoardPreviewController(
 			}
 		} catch (error) {
 			boards = boards.map((item) =>
-				item.path === savingPath
+				item.boardId === boardId
 					? {
 							...item,
 							saving: false,
@@ -495,18 +619,18 @@ export function createBoardPreviewController(
 		if (pendingRecoveryCleanup.has(boardId))
 			await cleanupStaleTransactions(boardId, txId);
 		boards = boards.map((item) =>
-			item.path === savingPath ? { ...item, document } : item,
+			item.boardId === boardId ? { ...item, document } : item,
 		);
 		try {
 			await flushPendingTransactions(boardId);
 			boards = boards.map((item) =>
-				item.path === savingPath
+				item.boardId === boardId
 					? { ...item, saving: false, saveError: null }
 					: item,
 			);
 		} catch (error) {
 			boards = boards.map((item) =>
-				item.path === savingPath
+				item.boardId === boardId
 					? {
 							...item,
 							saving: false,
@@ -530,8 +654,10 @@ export function createBoardPreviewController(
 	}
 
 	function isBusy(boardId: string): boolean {
-		const board = boards.find((item) => item.boardId === boardId);
-		return Boolean(board?.saving || pendingFlushByBoardId.has(boardId));
+		return Boolean(
+			boards.some((item) => item.boardId === boardId && item.saving) ||
+				pendingFlushByBoardId.has(boardId),
+		);
 	}
 
 	/**
@@ -539,6 +665,7 @@ export function createBoardPreviewController(
 	 * missing or the version sequence has a gap.
 	 */
 	function requestRemoteRefresh(boardId: string) {
+		if (!hasBoardId(boardId)) return;
 		pendingRemoteBootstrap.add(boardId);
 		if (isBusy(boardId)) return;
 		void drainRemoteRefresh(boardId);
@@ -551,6 +678,7 @@ export function createBoardPreviewController(
 		boardId: string,
 		event: { version: number; txId: string; ops: BoardOperation[] },
 	) {
+		if (!hasBoardId(boardId)) return;
 		pendingRemoteEvents.push({
 			boardId,
 			version: event.version,
@@ -642,9 +770,7 @@ export function createBoardPreviewController(
 				}
 
 				try {
-					const bootstrap = await sdk
-						.space(options.getSpaceId())
-						.boards.inspect(boardId);
+					const bootstrap = await inspect(boardId);
 					applyBootstrap(boardId, bootstrap);
 					const bootVersion = bootstrap.board.version;
 					// Re-queue only events newer than the bootstrap; drop the rest.
@@ -708,20 +834,23 @@ export function createBoardPreviewController(
 		setBoardError(boardId, error);
 	}
 
-	async function retryBoardSave(path = activeBoardPath) {
-		const board = boards.find((item) => item.path === path);
-		if (!board?.boardId || options.getReadonly?.()) return;
+	async function retryBoardSave(boardId: string) {
+		if (!hasBoardId(boardId) || options.getReadonly?.()) return;
 		boards = boards.map((item) =>
-			item.path === path ? { ...item, saving: true, saveError: null } : item,
+			item.boardId === boardId
+				? { ...item, saving: true, saveError: null }
+				: item,
 		);
 		try {
-			await flushPendingTransactions(board.boardId);
+			await flushPendingTransactions(boardId);
 			boards = boards.map((item) =>
-				item.path === path ? { ...item, saving: false, saveError: null } : item,
+				item.boardId === boardId
+					? { ...item, saving: false, saveError: null }
+					: item,
 			);
 		} catch (error) {
 			boards = boards.map((item) =>
-				item.path === path
+				item.boardId === boardId
 					? {
 							...item,
 							saving: false,
@@ -743,6 +872,8 @@ export function createBoardPreviewController(
 	function applyBootstrap(boardId: string, bootstrap: BoardBootstrap) {
 		const board = boards.find((item) => item.boardId === boardId);
 		if (!board || board.saving) return;
+		const currentVersion = syncVersionByBoardId[boardId] ?? null;
+		if (!canAdoptBoardVersion(currentVersion, bootstrap.board.version)) return;
 		syncVersionByBoardId = {
 			...syncVersionByBoardId,
 			[boardId]: bootstrap.board.version,
@@ -758,6 +889,7 @@ export function createBoardPreviewController(
 							clips: bootstrap.clips,
 							playback: bootstrap.playback,
 						},
+						loading: false,
 						saveError: null,
 					}
 				: item,
@@ -783,11 +915,15 @@ export function createBoardPreviewController(
 		commitBoard,
 		retryBoardSave,
 		flushPendingTransactions,
+		hasBoardId,
+		refreshBoardManifest,
+		reconcileOpenBoards,
 		requestRemoteRefresh,
 		requestRemoteOps,
 		noteRemoteTransaction,
 		isOwnTransaction,
 		renamePath,
+		closeBoardsAtPath,
 		setError,
 		applyPlayback,
 		applyBootstrap,

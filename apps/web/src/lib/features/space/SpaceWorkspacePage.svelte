@@ -783,11 +783,7 @@ const spaceRealtime = createSpaceRealtimeController({
 	onTransportOpen: () => sessionChat.onTransportOpen(),
 	onConnectionOpened: () => {
 		fileWorkspace.retryFailedInlineFiles();
-		if (inlineBoard?.boardId) {
-			void flushInlineBoardPendingTransactions(inlineBoard.boardId).catch(
-				() => undefined,
-			);
-		}
+		void boardPreview.reconcileOpenBoards();
 	},
 	onConnectionRecovered: () => {
 		void sessionChat.onConnectionRecovered();
@@ -805,11 +801,7 @@ const spaceRealtime = createSpaceRealtimeController({
 		fileWorkspace.retryFailedInlineFiles();
 		if (wsConnectionState === "open") {
 			void sessionChat.refreshSessions(false);
-		}
-		if (inlineBoard?.boardId) {
-			void flushInlineBoardPendingTransactions(inlineBoard.boardId).catch(
-				() => undefined,
-			);
+			void boardPreview.reconcileOpenBoards();
 		}
 	},
 	onOffline: () => undefined,
@@ -1276,7 +1268,7 @@ async function handleSpaceFsChanged(payload: ChannelEnvelope) {
 	}
 	if (!shouldPatchVisibleTree()) return;
 	if (eventPayload.resync) {
-		await loadFileTree(true);
+		await Promise.all([loadFileTree(true), boardPreview.reconcileOpenBoards()]);
 		for (const tab of inlineFileTabs) {
 			if (!fileWorkspace.isInlineFileDirty(tab.path))
 				await fileWorkspace
@@ -1286,6 +1278,20 @@ async function handleSpaceFsChanged(payload: ChannelEnvelope) {
 		return;
 	}
 	for (const change of eventPayload.changes ?? []) {
+		if (change.kind === "rename" && change.oldPath && change.path) {
+			boardPreview.renamePath(change.oldPath, change.path);
+		} else if (change.kind === "delete" && change.path) {
+			boardPreview.closeBoardsAtPath(change.path, change.nodeType === "dir");
+		}
+		if (
+			change.path &&
+			(change.kind === "create" ||
+				change.kind === "modify" ||
+				change.kind === "rename")
+		) {
+			await boardPreview.refreshBoardManifest(change.path);
+		}
+
 		const isOwnPendingChange = fileWorkspace.isOwnPendingFileSave(
 			change.path,
 			eventPayload.source,
@@ -1655,8 +1661,9 @@ async function handleDownloadNode(node: SpaceFsNode) {
 	await fileWorkspace.handleDownloadNode(node);
 }
 async function handleDeleteNode(node: SpaceFsNode) {
-	await fileWorkspace.handleDeleteNode(node);
-	if (inlineBoard?.path === node.path) closeInlineBoard();
+	const deleted = await fileWorkspace.handleDeleteNode(node);
+	if (!deleted) return;
+	boardPreview.closeBoardsAtPath(node.path, node.type === "dir");
 }
 async function openInlineFile(
 	path: string,
@@ -1696,17 +1703,16 @@ function closeInlineBoard() {
 	if (path) previewWorkspace.close("board", path);
 	else previewWorkspace.closeActive();
 }
-async function flushInlineBoardPendingTransactions(boardId: string) {
-	await boardPreview.flushPendingTransactions(boardId);
-}
 async function commitInlineBoard(
+	boardId: string,
+	path: string,
 	document: BoardDocument,
 	ops: BoardOperation[],
 ) {
-	await boardPreview.commitBoard(document, ops);
+	await boardPreview.commitBoard(boardId, path, document, ops);
 }
-async function retryInlineBoardSave() {
-	await boardPreview.retryBoardSave();
+async function retryInlineBoardSave(boardId: string) {
+	await boardPreview.retryBoardSave(boardId);
 }
 function openInlinePort(
 	port: string,
@@ -1969,7 +1975,7 @@ onMount(() => {
 			};
 			if (
 				typeof payload.boardId !== "string" ||
-				payload.boardId !== inlineBoard?.boardId
+				!boardPreview.hasBoardId(payload.boardId)
 			)
 				return;
 			// Skip only this client's own committed transactions (already reflected
@@ -2015,7 +2021,7 @@ onMount(() => {
 		.on("board.playback.changed", (event) => {
 			const snapshot =
 				event.payload as import("@neta-art/cohub").BoardPlaybackSnapshot;
-			if (snapshot.boardId !== inlineBoard?.boardId) return;
+			if (!boardPreview.hasBoardId(snapshot.boardId)) return;
 			boardPreview.applyPlayback(snapshot);
 		});
 	const offSpaceConfigUpdated = subscribeSpaceConfig((config) => {
