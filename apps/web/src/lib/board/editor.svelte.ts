@@ -72,7 +72,6 @@ import {
 	materializeClipboard,
 	parseClipboard,
 } from "$lib/board/core/clipboard";
-import { itemsToSvg } from "$lib/board/core/export-svg";
 import {
 	resolveSelectionTransform,
 	selectionTransformControlAt,
@@ -1069,15 +1068,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		setItems([...synced.items, ...fixed]);
 		selection = fixed.map((item) => item.id);
 		commitAction();
-	}
-
-	function exportSelectionSvg(): string {
-		const ids =
-			selection.length > 0
-				? new Set(selection)
-				: new Set(synced.items.map((item) => item.id));
-		const items = synced.items.filter((item) => ids.has(item.id));
-		return itemsToSvg(items, frameLookup());
 	}
 
 	function setSelectionEmphasis(emphasis: BoardEmphasis) {
@@ -2436,7 +2426,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		copySelection,
 		cutSelection,
 		pasteClipboard,
-		exportSelectionSvg,
 		setSelectionEmphasis,
 		setSelectionColor,
 		bringToFront,

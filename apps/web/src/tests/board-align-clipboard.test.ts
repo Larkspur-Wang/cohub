@@ -13,7 +13,6 @@ import {
 	materializeClipboard,
 	parseClipboard,
 } from "../lib/board/core/clipboard.ts";
-import { itemsToSvg } from "../lib/board/core/export-svg.ts";
 
 const frame = (x: number, y: number, w = 100, h = 80): BoardFrame => ({
 	x,
@@ -117,21 +116,6 @@ test("parseClipboard rejects duplicate ids and malformed entries", () => {
 		}),
 		null,
 	);
-});
-
-test("itemsToSvg emits an svg document for text", () => {
-	const text: BoardItem = {
-		id: "text",
-		type: "text",
-		text: "Hi",
-		color: "brand",
-		fontSize: 18,
-		frame: frame(0, 0),
-	};
-	const svg = itemsToSvg([text], () => undefined);
-	assert.match(svg, /^<\?xml/);
-	assert.match(svg, /<svg /);
-	assert.match(svg, /Hi/);
 });
 
 test("textZoomBucket quantises zoom for re-rasterisation", () => {

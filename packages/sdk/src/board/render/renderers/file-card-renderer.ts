@@ -1,4 +1,4 @@
-import { BOARD_FONT_STACK, BOARD_MONO_FONT_STACK } from "@cohub/protocol/board-constants";
+import { BOARD_FONT_STACK } from "@cohub/protocol/board-constants";
 import {
 	CanvasTextMetrics,
 	Container,
@@ -9,12 +9,7 @@ import {
 } from "pixi.js";
 import { syncTextResolution } from "../text-resolution.js";
 import type { BoardFileItem, BoardItem } from "@cohub/protocol/board-document";
-import {
-	fileBaseName,
-	filePreviewKind,
-	fileTypeLabel,
-	formatFileSize,
-} from "../../core/file-preview.js";
+import { fileBaseName, filePreviewKind } from "../../core/file-preview.js";
 import { positionShell } from "./base-card-renderer.js";
 import type {
 	BoardCardRenderer,
@@ -27,7 +22,7 @@ import { drawFarPlate } from "./far-plate.js";
  *
  * The card is an *entry point* to a workspace file, so it shows only what helps
  * you recognise and pick it: an optional cover, the name, a couple of lines of
- * excerpt, and the type. Everything else belongs to the file preview that opens
+ * excerpt. Everything else belongs to the file preview that opens
  * when the card is activated.
  *
  * Cost is managed through three levels of detail keyed on zoom, because a board
@@ -50,17 +45,12 @@ const TITLE_MAX_LINES = 2;
 const EXCERPT_SIZE = 11;
 const EXCERPT_LINE = EXCERPT_SIZE * 1.45;
 const EXCERPT_MAX_LINES = 4;
-const META_SIZE = 9;
-const META_LINE = META_SIZE * 1.3;
 const GAP = 4;
 
 /** Zoom below which the title is dropped (glyphs are sub-pixel). */
 const LOD_TITLE_ZOOM = 0.35;
-/** Zoom below which the excerpt and meta line are dropped. */
+/** Zoom below which the excerpt is dropped. */
 const LOD_BODY_ZOOM = 0.6;
-
-/** Availability of the referenced file, as reported by the render context. */
-type FileState = "ok" | "missing" | "unavailable";
 
 /** Upper bound on dashes in the unavailable-state edge, regardless of width. */
 const MAX_DASHES = 40;
@@ -75,13 +65,11 @@ type FileParts = {
 	coverMask: Graphics;
 	title: Text;
 	excerpt: Text;
-	meta: Text;
 	visualSig: string;
 	textSig: string;
 	/** Per-text resolution state: each Text owns its own rasterisation bucket. */
 	titleRes: { resolution: number };
 	excerptRes: { resolution: number };
-	metaRes: { resolution: number };
 };
 
 const partsByContainer = new WeakMap<Container, FileParts>();
@@ -100,16 +88,6 @@ function coverHeight(item: BoardFileItem, height: number): number {
 	// Never let the cover swallow the body: a short, resized card still needs
 	// room for the title, otherwise the node becomes an anonymous image plate.
 	return Math.max(0, Math.min(ideal, height - MIN_BODY_FOR_COVER));
-}
-
-function metaLine(item: BoardFileItem, state: FileState): string {
-	const type = fileTypeLabel(item.ref.path);
-	// State replaces the size: "how big" is moot when the file cannot be read, and
-	// the wording distinguishes a definite 404 from a read that merely failed.
-	if (state === "missing") return `${type} · missing`;
-	if (state === "unavailable") return `${type} · unavailable`;
-	const size = formatFileSize(item.snapshot?.size);
-	return size ? `${type} · ${size}` : type;
 }
 
 /**
@@ -219,22 +197,37 @@ function linesInRoom(room: number, lineHeight: number, max: number): number {
 	return Math.max(0, Math.min(max, Math.floor((room + 0.5) / lineHeight)));
 }
 
-/** Fill the cover band, cropping overflow (the band's aspect rarely matches). */
+/** Scale an image into a fixed cover band without cropping or distortion. */
+export function containCoverRect(
+	width: number,
+	height: number,
+	imageWidth: number,
+	imageHeight: number,
+): { x: number; y: number; width: number; height: number } {
+	if (width <= 0 || height <= 0 || imageWidth <= 0 || imageHeight <= 0) {
+		return { x: 0, y: 0, width: 0, height: 0 };
+	}
+	const scale = Math.min(width / imageWidth, height / imageHeight);
+	const renderedWidth = imageWidth * scale;
+	const renderedHeight = imageHeight * scale;
+	return {
+		x: (width - renderedWidth) / 2,
+		y: (height - renderedHeight) / 2,
+		width: renderedWidth,
+		height: renderedHeight,
+	};
+}
+
 function layoutCover(
 	sprite: Sprite,
 	width: number,
 	height: number,
 	texture: Texture,
 ) {
-	const tw = texture.width;
-	const th = texture.height;
-	if (!tw || !th || !height) return;
-	const scale = Math.max(width / tw, height / th);
-	sprite.width = tw * scale;
-	sprite.height = th * scale;
-	// Bias upward: the top of an image is usually the informative part.
-	sprite.x = (width - sprite.width) / 2;
-	sprite.y = 0;
+	const rect = containCoverRect(width, height, texture.width, texture.height);
+	sprite.position.set(rect.x, rect.y);
+	sprite.width = rect.width;
+	sprite.height = rect.height;
 }
 
 function syncClip(parts: FileParts, width: number, height: number) {
@@ -265,7 +258,6 @@ function sync(
 
 	syncTextResolution(parts.title, parts.titleRes, context.zoom);
 	syncTextResolution(parts.excerpt, parts.excerptRes, context.zoom);
-	syncTextResolution(parts.meta, parts.metaRes, context.zoom);
 
 	// The cache key is part of the signature so a pooled container adopted by a
 	// different file always re-renders, even at an identical frame size.
@@ -281,6 +273,7 @@ function sync(
 		fileState,
 		context.colorScheme,
 		context.palette.surface,
+		context.palette.hover,
 	].join("|");
 
 	if (visualSig !== parts.visualSig) {
@@ -322,9 +315,17 @@ function sync(
 		}
 
 		const showCover = band > 0 && Boolean(texture);
+		if (band > 0) {
+			// The quiet backing makes letterboxing intentional while the image keeps
+			// its full aspect ratio, and doubles as the loading/error placeholder.
+			parts.plate.rect(1, 1, width - 2, band - 1).fill({
+				color: context.palette.hover,
+				alpha: coverFailed ? 0.35 : 0.6,
+			});
+		}
 		if (showCover && texture) {
-			layoutCover(parts.cover, width, band, texture);
 			if (parts.cover.texture !== texture) parts.cover.texture = texture;
+			layoutCover(parts.cover, width, band, texture);
 			parts.coverMask
 				.clear()
 				.roundRect(0, 0, width, band, RADIUS)
@@ -337,15 +338,6 @@ function sync(
 		parts.cover.visible = showCover;
 		parts.coverMask.visible = showCover;
 
-		if (band > 0 && !texture) {
-			// Cover declared but not (yet) available: a quiet band, no error chrome.
-			// A failed remote cover is not worth shouting about on a thumbnail.
-			parts.plate.rect(1, 1, width - 2, band - 1).fill({
-				color: context.palette.hover,
-				alpha: coverFailed ? 0.35 : 0.6,
-			});
-		}
-
 		// Type stripe on the left edge of the body — a quiet, always-present hint
 		// that survives even when the text tiers are dropped.
 		if (!band) {
@@ -356,19 +348,16 @@ function sync(
 
 		parts.title.visible = detail !== "plate";
 		parts.excerpt.visible = detail === "full";
-		parts.meta.visible = detail === "full";
 	}
 
 	if (detail === "plate") return;
 
 	const title = item.snapshot?.title || fileBaseName(item.ref.path);
 	const excerpt = item.snapshot?.excerpt ?? "";
-	const meta = metaLine(item, fileState);
 	const innerWidth = Math.max(1, width - PADDING * 2);
 	const textSig = [
 		title,
 		excerpt,
-		meta,
 		detail,
 		innerWidth,
 		band,
@@ -380,12 +369,7 @@ function sync(
 	parts.textSig = textSig;
 
 	const top = band > 0 ? band + PADDING * 0.8 : PADDING;
-	const bottom = height - PADDING;
-	const showMeta = detail === "full";
-	// Reserve a meta row only when there is room for it under the title line.
-	const metaFits = showMeta && bottom - top >= TITLE_LINE + GAP + META_LINE;
-	const metaHeight = metaFits ? META_LINE : 0;
-	const contentBottom = bottom - metaHeight - (metaFits ? GAP : 0);
+	const contentBottom = height - PADDING;
 
 	const titleRoom = Math.max(0, contentBottom - top);
 	const titleLines = linesInRoom(titleRoom, TITLE_LINE, TITLE_MAX_LINES);
@@ -396,22 +380,7 @@ function sync(
 
 	if (detail !== "full") {
 		parts.excerpt.visible = false;
-		parts.meta.visible = false;
 		return;
-	}
-
-	if (metaFits) {
-		if (parts.meta.text !== meta) parts.meta.text = meta;
-		parts.meta.style.fill = context.palette.muted;
-		// Single-line meta: pin to the bottom padding edge.
-		parts.meta.position.set(
-			PADDING,
-			height - PADDING - Math.min(parts.meta.height, META_LINE),
-		);
-		// Soft horizontal clip via width — mask is the hard floor if it still runs long.
-		parts.meta.visible = true;
-	} else {
-		parts.meta.visible = false;
 	}
 
 	const excerptTop = top + (titleLines > 0 ? parts.title.height + GAP : 0);
@@ -467,21 +436,9 @@ export const fileCardRenderer: BoardCardRenderer = {
 			resolution,
 			roundPixels: true,
 		});
-		const meta = new Text({
-			text: "",
-			style: {
-				fill: context.palette.muted,
-				fontFamily: BOARD_MONO_FONT_STACK,
-				fontSize: META_SIZE,
-				fontWeight: "500",
-			},
-			resolution,
-			roundPixels: true,
-		});
-
 		// Clip applies to body only so the plate stroke is not half-cut by the mask.
 		body.mask = clip;
-		body.addChild(cover, coverMask, title, excerpt, meta);
+		body.addChild(cover, coverMask, title, excerpt);
 		root.addChild(plate, body, clip);
 		partsByContainer.set(root, {
 			root,
@@ -492,12 +449,10 @@ export const fileCardRenderer: BoardCardRenderer = {
 			coverMask,
 			title,
 			excerpt,
-			meta,
 			visualSig: "",
 			textSig: "",
 			titleRes: { resolution },
 			excerptRes: { resolution },
-			metaRes: { resolution },
 		});
 		if (item.type === "file") sync(root, item, context);
 		return root;

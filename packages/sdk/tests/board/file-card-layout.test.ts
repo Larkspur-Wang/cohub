@@ -1,9 +1,43 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+	containCoverRect,
 	ellipsizeWrappedLines,
 	fitLineWithEllipsis,
 } from "../../src/board/render/renderers/file-card-renderer.js";
+
+test("cover layout contains square images without cropping", () => {
+	assert.deepEqual(containCoverRect(260, 116, 1024, 1024), {
+		x: 72,
+		y: 0,
+		width: 116,
+		height: 116,
+	});
+});
+
+test("cover layout centers landscape and portrait images", () => {
+	assert.deepEqual(containCoverRect(200, 100, 400, 100), {
+		x: 0,
+		y: 25,
+		width: 200,
+		height: 50,
+	});
+	assert.deepEqual(containCoverRect(200, 100, 100, 400), {
+		x: 87.5,
+		y: 0,
+		width: 25,
+		height: 100,
+	});
+});
+
+test("cover layout safely handles missing dimensions", () => {
+	assert.deepEqual(containCoverRect(200, 100, 0, 100), {
+		x: 0,
+		y: 0,
+		width: 0,
+		height: 0,
+	});
+});
 
 test("ellipsize leaves short wraps untouched", () => {
 	assert.equal(ellipsizeWrappedLines(["one", "two"], 3), "one\ntwo");
