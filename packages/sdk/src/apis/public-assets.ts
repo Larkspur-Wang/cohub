@@ -1,6 +1,7 @@
 import type { HttpTransport } from "../transport.js";
 
 export type PublicAssetPurpose = "user_avatar" | "space_avatar" | "chat_attachment";
+export type PublicAssetUploadProtocol = "s3_post_v1" | "presigned_put_v1";
 /** Avatar + preprocessed chat images. General chat files may use any mime string. */
 export type PublicAssetMimeType = "image/webp" | "image/jpeg";
 
@@ -13,6 +14,7 @@ function sanitizeFormDataFilename(filename: string | undefined): string | undefi
 
 export type CreatePublicAssetUploadInput = {
   purpose: PublicAssetPurpose;
+  uploadProtocol?: PublicAssetUploadProtocol;
   spaceId?: string;
   sessionId?: string;
   file: {
@@ -22,16 +24,19 @@ export type CreatePublicAssetUploadInput = {
   };
 };
 
+type PublicAssetUploadBase = {
+  purpose: PublicAssetPurpose;
+  objectKey: string;
+  publicUrl: string;
+  uploadUrl: string;
+};
+
 export type CreatePublicAssetUploadResponse = {
   expiresAt: string;
-  asset: {
-    purpose: PublicAssetPurpose;
-    objectKey: string;
-    publicUrl: string;
-    uploadMethod: "POST";
-    uploadUrl: string;
-    uploadFields: Record<string, string>;
-  };
+  asset: PublicAssetUploadBase & (
+    | { uploadMethod: "POST"; uploadFields: Record<string, string> }
+    | { uploadMethod: "PUT"; uploadHeaders?: Record<string, string> }
+  );
 };
 
 export type UploadPublicAssetInput = {
@@ -72,6 +77,7 @@ export class PublicAssetsApi {
   async upload(input: UploadPublicAssetInput) {
     const plan = await this.createUpload({
       purpose: input.purpose,
+      uploadProtocol: input.purpose === "chat_attachment" ? "presigned_put_v1" : undefined,
       spaceId: input.spaceId,
       sessionId: input.sessionId,
       file: {
@@ -80,33 +86,40 @@ export class PublicAssetsApi {
         filename: input.filename,
       },
     });
-    const formData = new FormData();
-    for (const [key, value] of Object.entries(plan.asset.uploadFields)) {
-      formData.append(key, value);
-    }
-    // Safari rejects FormData filenames with CR/LF/control chars
-    // ("The string did not match the expected pattern.").
-    const safeFilename = sanitizeFormDataFilename(input.filename);
-    if (safeFilename) formData.append("file", input.file, safeFilename);
-    else formData.append("file", input.file);
     let response: Response;
-    try {
+    if (plan.asset.uploadMethod === "PUT") {
       response = await fetch(plan.asset.uploadUrl, {
-        method: plan.asset.uploadMethod,
-        body: formData,
+        method: "PUT",
+        headers: plan.asset.uploadHeaders,
+        body: input.file,
       });
-    } catch (error) {
-      if (
-        error instanceof TypeError &&
-        (error.message === "The string did not match the expected pattern." ||
-          /Failed to construct|invalid/i.test(error.message))
-      ) {
-        throw new Error(
-          `Public asset upload failed: invalid upload request${safeFilename ? ` (${safeFilename})` : ""}`,
-          { cause: error },
-        );
+    } else {
+      const formData = new FormData();
+      for (const [key, value] of Object.entries(plan.asset.uploadFields)) {
+        formData.append(key, value);
       }
-      throw error;
+      // Safari rejects FormData filenames with CR/LF/control chars.
+      const safeFilename = sanitizeFormDataFilename(input.filename);
+      if (safeFilename) formData.append("file", input.file, safeFilename);
+      else formData.append("file", input.file);
+      try {
+        response = await fetch(plan.asset.uploadUrl, {
+          method: "POST",
+          body: formData,
+        });
+      } catch (error) {
+        if (
+          error instanceof TypeError &&
+          (error.message === "The string did not match the expected pattern." ||
+            /Failed to construct|invalid/i.test(error.message))
+        ) {
+          throw new Error(
+            `Public asset upload failed: invalid upload request${safeFilename ? ` (${safeFilename})` : ""}`,
+            { cause: error },
+          );
+        }
+        throw error;
+      }
     }
     if (!response.ok) {
       const detail = await response.text().catch(() => "");

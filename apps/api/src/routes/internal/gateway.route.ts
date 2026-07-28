@@ -19,15 +19,15 @@ import {
   consumePublicAssetUploadQuota,
   createInternalPublicAssetUploadPlan,
   isAllowedPublicAssetDownloadUrl,
-  resolvePublicAssetDownloadUrlForInternal,
 } from "../../public-asset-storage.js";
+import { UserUploadConfigError } from "../../user-upload-storage.js";
 import {
   beginSpaceUploadComplete,
   buildSpaceUploadObjectKey,
   cancelSpaceUploadComplete,
   consumeSpaceUploadQuota,
-  createInternalPresignedPutUrl,
   createPresignedGetUrl,
+  createPresignedPutUrl,
   createSpaceUploadId,
   deleteSpaceUploadManifest,
   getSpaceUploadManifest,
@@ -65,7 +65,7 @@ const attachmentPlanErrorResponse = (error: unknown) => {
     const status = error.message.includes("too large") ? 413 : 400;
     return { status, body: { message: error.message } };
   }
-  if (error instanceof PublicAssetConfigError) {
+  if (error instanceof PublicAssetConfigError || error instanceof UserUploadConfigError) {
     return { status: 503, body: { message: "public asset storage is not configured" } };
   }
   return null;
@@ -420,7 +420,7 @@ router.post("/attachments/plan", async (c) => {
   }
   const filePlans = fileEntries.map((file) => {
     if (!file.objectKey) throw new Error("upload objectKey is required");
-    const signed = createInternalPresignedPutUrl(file.objectKey, file.mimeType);
+    const signed = createPresignedPutUrl(file.objectKey, file.mimeType);
     return { id: file.id, name: file.name, relativePath: file.relativePath, objectKey: file.objectKey, uploadUrl: signed.uploadUrl, uploadHeaders: signed.headers, expiresAt: signed.expiresAt };
   });
 
@@ -499,7 +499,7 @@ router.post("/attachments/materialize", async (c) => {
         name: relativePath.split("/").at(-1) ?? file.name,
         size: file.size,
         mimeType: file.mimeType ?? null,
-        downloadUrl: resolvePublicAssetDownloadUrlForInternal(file.downloadUrl) ?? file.downloadUrl,
+        downloadUrl: file.downloadUrl,
       });
     }
 
@@ -588,15 +588,12 @@ router.post("/attachments/complete", async (c) => {
         const rawUrl = entry.downloadUrl
           ? entry.downloadUrl
           : createPresignedGetUrl(entry.objectKey as string).downloadUrl;
-        const downloadUrl = entry.downloadUrl
-          ? (resolvePublicAssetDownloadUrlForInternal(rawUrl) ?? rawUrl)
-          : rawUrl;
         return {
           relativePath: entry.relativePath,
           name: entry.name,
           size: entry.size,
           mimeType: entry.mimeType,
-          downloadUrl,
+          downloadUrl: rawUrl,
         };
       }),
     });

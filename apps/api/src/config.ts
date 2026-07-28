@@ -40,6 +40,13 @@ export type AppConfig = {
   publicAssetOssAccessKeyId?: string;
   publicAssetOssSecretAccessKey?: string;
   publicAssetCdnBaseUrl?: string;
+  userUploadS3Endpoint?: string;
+  userUploadS3Region: string;
+  userUploadS3AccessKeyId?: string;
+  userUploadS3SecretAccessKey?: string;
+  chatAttachmentS3Bucket?: string;
+  chatAttachmentPublicBaseUrl?: string;
+  spaceUploadS3Bucket?: string;
   workAssetCdnBaseUrl?: string;
   checkpointAssetOssEndpoint?: string;
   checkpointAssetOssPublicEndpoint?: string;
@@ -162,6 +169,13 @@ export const config: AppConfig = {
   publicAssetOssAccessKeyId: process.env.PUBLIC_ASSET_OSS_ACCESS_KEY_ID,
   publicAssetOssSecretAccessKey: process.env.PUBLIC_ASSET_OSS_SECRET_ACCESS_KEY,
   publicAssetCdnBaseUrl: process.env.PUBLIC_ASSET_CDN_BASE_URL?.replace(/\/+$/, ""),
+  userUploadS3Endpoint: process.env.USER_UPLOAD_S3_ENDPOINT,
+  userUploadS3Region: process.env.USER_UPLOAD_S3_REGION ?? "auto",
+  userUploadS3AccessKeyId: process.env.USER_UPLOAD_S3_ACCESS_KEY_ID,
+  userUploadS3SecretAccessKey: process.env.USER_UPLOAD_S3_SECRET_ACCESS_KEY,
+  chatAttachmentS3Bucket: process.env.CHAT_ATTACHMENT_S3_BUCKET,
+  chatAttachmentPublicBaseUrl: process.env.CHAT_ATTACHMENT_PUBLIC_BASE_URL?.replace(/\/+$/, ""),
+  spaceUploadS3Bucket: process.env.SPACE_UPLOAD_S3_BUCKET,
   workAssetCdnBaseUrl: process.env.WORK_ASSET_CDN_BASE_URL?.replace(/\/+$/, ""),
   checkpointAssetOssEndpoint: process.env.CHECKPOINT_ASSET_OSS_ENDPOINT ?? process.env.TURN_OBJECT_S3_ENDPOINT ?? "http://127.0.0.1:9000",
   checkpointAssetOssPublicEndpoint: process.env.CHECKPOINT_ASSET_OSS_PUBLIC_ENDPOINT ?? process.env.TURN_OBJECT_S3_PUBLIC_ENDPOINT,

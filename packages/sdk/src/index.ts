@@ -133,7 +133,7 @@ export {
   parseBoardPlaybackPolicy,
 } from "@cohub/protocol";
 export * from "./board/animation.js";
-export type { CreatePublicAssetUploadInput, CreatePublicAssetUploadResponse, PublicAssetMimeType, PublicAssetPurpose, UploadChatAttachmentInput, UploadChatImageAttachmentInput, UploadPublicAssetInput } from "./apis/public-assets.js";
+export type { CreatePublicAssetUploadInput, CreatePublicAssetUploadResponse, PublicAssetMimeType, PublicAssetPurpose, PublicAssetUploadProtocol, UploadChatAttachmentInput, UploadChatImageAttachmentInput, UploadPublicAssetInput } from "./apis/public-assets.js";
 export type { WorkAuthorizeResponse, WorkCreateInput, WorkDetailResponse, WorkExtractedPageMeta, WorkGetResponse, WorkMeta, WorkPresentationMeta, WorkPublicOwnerRecord, WorkPublicSpaceRecord, WorkRecord, WorkResolveResponse, WorkSessionResponse, WorkStatus, WorkTargetType, WorkUpdateInput, WorkVersionRecord, WorkVisibility } from "./apis/works.js";
 export type { WorkCommerceCheckoutStatus, WorkCommerceCreditConsumeResponse, WorkCommerceCreditConsumeStatus, WorkCommerceEntitlement, WorkCommerceEntitlementsResponse, WorkCommerceOrder, WorkCommerceProductResolveResponse, WorkCommercePurchaseResponse } from "./apis/work-commerce.js";
 export type { WorkRuntimeCheckoutState, WorkRuntimeCheckoutStatus, WorkRuntimeContext } from "./work-runtime.js";

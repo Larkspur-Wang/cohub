@@ -42,10 +42,7 @@ import {
   type SpaceUploadManifestEntry,
 } from "../../space-upload-storage.js";
 import { enqueueSandboxUploadFilesJob } from "../../sandbox-bash-queue.js";
-import {
-  isAllowedPublicAssetDownloadUrl,
-  resolvePublicAssetDownloadUrlForInternal,
-} from "../../public-asset-storage.js";
+import { isAllowedPublicAssetDownloadUrl } from "../../public-asset-storage.js";
 import type {
   SpaceFsCreateUploadInput,
   SpaceFsCompleteUploadInput,
@@ -495,16 +492,12 @@ router.post("/uploads/:uploadId/complete", async (c) => {
         const rawUrl = entry.downloadUrl
           ? entry.downloadUrl
           : createPresignedGetUrl(entry.objectKey as string).downloadUrl;
-        // Public durable URLs → internal OSS when possible (sandbox VPC pull).
-        const downloadUrl = entry.downloadUrl
-          ? (resolvePublicAssetDownloadUrlForInternal(rawUrl) ?? rawUrl)
-          : rawUrl;
         return {
           relativePath: entry.relativePath,
           name: entry.name,
           size: entry.size,
           mimeType: entry.mimeType,
-          downloadUrl,
+          downloadUrl: rawUrl,
         };
       }),
     });
