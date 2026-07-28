@@ -1,5 +1,11 @@
 # @neta-art/cohub
 
+## 4.1.0
+
+### Minor Changes
+
+- 3a9a51d: Add delayed, looping Board autoplay configured through Board metadata.
+
 ## 4.0.1
 
 ### Patch Changes
