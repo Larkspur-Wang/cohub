@@ -15,10 +15,7 @@ import PageHeader from "$lib/components/PageHeader.svelte";
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
 import UserAvatar from "$lib/components/UserAvatar.svelte";
 import { sdk } from "$lib/sdk";
-import {
-	buildSpaceLandingRoute,
-	buildUserProfileRoute,
-} from "$lib/space-routes";
+import { buildSpaceLandingRoute } from "$lib/space-routes";
 
 type ExploreView = "list" | "wall";
 
@@ -72,11 +69,6 @@ function getSecondaryMeta(item: ExploreSpaceItem): string {
 
 function getSpaceHref(item: ExploreSpaceItem): string {
 	return item.spaceUrl || buildSpaceLandingRoute(item.id);
-}
-
-function getOwnerHref(item: ExploreSpaceItem): string | null {
-	const username = item.ownerUsername?.trim() || "";
-	return username ? buildUserProfileRoute(username) : null;
 }
 
 function getWallTone(index: number): string {
@@ -145,7 +137,7 @@ $effect(() => {
 				<div class="max-w-3xl">
 					<div class="text-[11px] font-semibold uppercase tracking-[0.18em] text-text-placeholder">Public spaces</div>
 					<h1 class="mt-2 text-[clamp(2rem,3vw,3.25rem)] font-semibold tracking-tight text-text-primary">Explore spaces with intent</h1>
-					<p class="mt-3 max-w-2xl text-[13px] leading-6 text-text-tertiary sm:text-[14px] sm:leading-7">Discover carefully surfaced spaces, scan the owner profile first, then jump into the workspace when it feels worth opening.</p>
+					<p class="mt-3 max-w-2xl text-[13px] leading-6 text-text-tertiary sm:text-[14px] sm:leading-7">Discover carefully surfaced spaces, review the context, then open the ones worth exploring.</p>
 				</div>
 
 				<div class="inline-flex w-fit rounded-full border border-border-subtle bg-bg-surface p-1 text-[12px] font-medium text-text-tertiary lg:mt-2 lg:shrink-0" role="tablist" aria-label="Explore view">
@@ -191,7 +183,6 @@ $effect(() => {
 					</div>
 					<div class="explore-wall columns-2 gap-2 sm:gap-3 lg:columns-5 2xl:columns-6">
 						{#each spaces as item, index (item.id)}
-							{@const ownerHref = getOwnerHref(item)}
 							<article class="group relative mb-2 break-inside-avoid overflow-hidden rounded-[16px] border border-border-subtle bg-bg-surface transition-[border-color,transform,background-color] duration-200 hover:-translate-y-0.5 hover:border-border-primary hover:bg-bg-hover/20 sm:mb-3">
 								<a
 									href={getSpaceHref(item)}
@@ -225,24 +216,10 @@ $effect(() => {
 								<div class="pointer-events-none relative z-[1] space-y-2 p-3">
 									<h2 class="line-clamp-2 text-[13px] font-semibold leading-4 tracking-tight text-text-primary">{getTitle(item)}</h2>
 									<div class="flex items-center gap-2 text-[11px] text-text-tertiary">
-										{#if ownerHref && item.ownerDisplayName}
-											<a
-												href={ownerHref}
-												class="pointer-events-auto relative z-[2] inline-flex min-w-0 items-center gap-1.5 rounded-full transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/70"
-												data-sveltekit-preload-data="hover"
-												title={`@${item.ownerUsername}`}
-											>
-												{#if item.ownerAvatarUrl}
-													<UserAvatar name={item.ownerDisplayName} avatarUrl={item.ownerAvatarUrl} size="xxs" class="border-0" />
-												{/if}
-												<span class="truncate">{getSecondaryMeta(item)}</span>
-											</a>
-										{:else}
-											{#if item.ownerAvatarUrl}
-												<UserAvatar name={item.ownerDisplayName} avatarUrl={item.ownerAvatarUrl} size="xxs" class="border-0" />
-											{/if}
-											<span class="truncate">{getSecondaryMeta(item)}</span>
+										{#if item.ownerAvatarUrl}
+											<UserAvatar name={item.ownerDisplayName} avatarUrl={item.ownerAvatarUrl} size="xxs" class="border-0" />
 										{/if}
+										<span class="truncate">{getSecondaryMeta(item)}</span>
 									</div>
 								</div>
 							</article>
@@ -271,7 +248,6 @@ $effect(() => {
 								<div class="grid gap-3 sm:gap-4">
 									{#each section.spaces as item (item.id)}
 										{@const primaryMeta = getPrimaryMeta(item)}
-										{@const ownerHref = getOwnerHref(item)}
 										<article class="group relative rounded-[18px] border border-border-subtle bg-bg-surface px-4 py-4 transition-[border-color,background-color,transform] duration-200 hover:-translate-y-0.5 hover:border-border-strong hover:bg-bg-hover/30 sm:px-5 sm:py-5">
 											<a
 												href={getSpaceHref(item)}
@@ -291,22 +267,10 @@ $effect(() => {
 														</div>
 														<div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-text-tertiary">
 															{#if item.ownerDisplayName}
-																{#if ownerHref}
-																	<a
-																		href={ownerHref}
-																		class="pointer-events-auto relative z-[2] inline-flex items-center gap-2 rounded-full border border-border-subtle bg-bg-primary/70 px-2 py-1 text-[11px] text-text-secondary transition-colors hover:border-border-strong hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/70"
-																		data-sveltekit-preload-data="hover"
-																		title={`@${item.ownerUsername}`}
-																	>
-																		<UserAvatar name={item.ownerDisplayName} avatarUrl={item.ownerAvatarUrl} size="xxs" class="border-0 bg-bg-hover-strong text-[8px]" />
-																		<span class="truncate">{item.ownerDisplayName}</span>
-																	</a>
-																{:else}
-																	<span class="inline-flex items-center gap-2 rounded-full border border-border-subtle bg-bg-primary/70 px-2 py-1 text-[11px] text-text-secondary">
-																		<UserAvatar name={item.ownerDisplayName} avatarUrl={item.ownerAvatarUrl} size="xxs" class="border-0 bg-bg-hover-strong text-[8px]" />
-																		<span class="truncate">{item.ownerDisplayName}</span>
-																	</span>
-																{/if}
+																<span class="inline-flex items-center gap-2 rounded-full border border-border-subtle bg-bg-primary/70 px-2 py-1 text-[11px] text-text-secondary">
+																	<UserAvatar name={item.ownerDisplayName} avatarUrl={item.ownerAvatarUrl} size="xxs" class="border-0 bg-bg-hover-strong text-[8px]" />
+																	<span class="truncate">{item.ownerDisplayName}</span>
+																</span>
 															{/if}
 															<span class="inline-flex items-center gap-1"><FolderKanban class="h-3.5 w-3.5" /> {item.accessLabel === "public" ? "Public" : "Sign-in required"}</span>
 														</div>

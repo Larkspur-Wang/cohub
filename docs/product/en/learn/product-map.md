@@ -87,7 +87,6 @@ Outside a single Space you also have:
 | --- | --- |
 | Sessions inbox | Cross-space recent Chats |
 | Explore / Trending | Discovery of public Spaces and activity |
-| Public profile | `/:username` |
 | Public Work page | `/:username/:spaceSlug/w/:workSlug` |
 | Account settings | Profile, appearance, billing, referrals, channel defaults |
 

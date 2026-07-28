@@ -87,7 +87,6 @@ Space settings 管的是 Space 的长期配置：
 | --- | --- |
 | Sessions inbox | 跨 Space 的最近 Chats |
 | Explore / Trending | 发现公开 Spaces 与动态 |
-| 公开主页 | `/:username` |
 | 公开 Work 页 | `/:username/:spaceSlug/w/:workSlug` |
 | 账户设置 | 资料、外观、账单、推荐、Channel 默认值 |
 
