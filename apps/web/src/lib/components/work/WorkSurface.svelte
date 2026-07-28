@@ -1,9 +1,11 @@
 <script lang="ts">
-import type { WorkRecord, WorkTargetType } from "@neta-art/cohub";
+import type { WorkContent, WorkRecord } from "@neta-art/cohub";
 import { onMount, untrack } from "svelte";
 import { page } from "$app/state";
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
 import UserIdentity from "$lib/components/UserIdentity.svelte";
+import WorkBoardSurface from "$lib/components/work/WorkBoardSurface.svelte";
+import WorkFileSurface from "$lib/components/work/WorkFileSurface.svelte";
 import { readWorkCheckoutState } from "$lib/components/work/work-checkout-state";
 import { createWorkBridgeHost } from "$lib/features/work/bridge-host.svelte";
 import WorkAuthorizeDialog from "$lib/features/work/WorkAuthorizeDialog.svelte";
@@ -13,9 +15,6 @@ import { emitSpaceConfigBackgroundAction } from "$lib/space-config";
 import { workDisplayTitle } from "$lib/work-page-meta";
 
 type WorkSurfaceMode = "page" | "background";
-type WorkContent =
-	| { url: string; targetType: "port"; port: string }
-	| { url: string; targetType: WorkTargetType; path: string };
 
 type WorkSpace = {
 	id: string;
@@ -68,8 +67,19 @@ const workTitle = $derived(workDisplayTitle(work.meta, work.slug));
 const publisherName = $derived(owner?.displayName ?? "Cohub");
 const publisherAvatarUrl = $derived(owner?.avatarUrl?.trim() || null);
 const hideCohubBar = $derived(work.meta?.presentation?.hideCohubBar === true);
+// Board and file Works render natively; only web and port Works are embedded.
+const boardContent = $derived(content?.kind === "board" ? content : null);
+const fileContent = $derived(content?.kind === "file" ? content : null);
+const embeddedContent = $derived(
+	content && (content.kind === "web" || content.kind === "port")
+		? content
+		: null,
+);
+const nativeContent = $derived(boardContent ?? fileContent);
 const iframeSrc = $derived.by(
-	() => content?.url ?? (work.targetType === "port" ? work.targetRef : ""),
+	() =>
+		embeddedContent?.url ??
+		(!content && work.targetType === "port" ? work.targetRef : ""),
 );
 function isAllowedFrameOrigin(origin: string, targetType: string) {
 	try {
@@ -94,7 +104,9 @@ const frameOrigin = $derived.by(() => {
 	}
 });
 const hasFrameSource = $derived(Boolean(iframeSrc && frameOrigin));
-const shouldRenderFrame = $derived(Boolean(bridgeReady && hasFrameSource));
+const shouldRenderFrame = $derived(
+	Boolean(bridgeReady && hasFrameSource && !nativeContent),
+);
 const frameReplyTarget = $derived(frameOrigin ?? page.url.origin);
 const framePreconnectOrigin = $derived.by(() => {
 	if (!frameOrigin || frameOrigin === page.url.origin) return null;
@@ -149,7 +161,15 @@ onMount(() => {
 </svelte:head>
 
 <div class={isBackground ? "work-surface background" : "work-surface page"}>
-	{#if shouldRenderFrame}
+	{#if boardContent}
+		<div class="work-native">
+			<WorkBoardSurface content={boardContent} />
+		</div>
+	{:else if fileContent}
+		<div class="work-native">
+			<WorkFileSurface content={fileContent} />
+		</div>
+	{:else if shouldRenderFrame}
 		<iframe
 			bind:this={frame}
 			class="work-frame"
@@ -240,6 +260,16 @@ onMount(() => {
 		border: 0;
 		background: var(--bg-primary);
 		user-select: none;
+	}
+
+	/* Native surfaces own their own scrolling and chrome. */
+	.work-native {
+		height: 100%;
+		min-height: 0;
+	}
+
+	.work-surface.page .work-native {
+		height: 100vh;
 	}
 
 	.work-surface.page .work-frame {

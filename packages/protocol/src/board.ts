@@ -18,6 +18,7 @@ export const BOARD_MIME_TYPE = "application/json" as const;
 export const BOARD_DOCUMENT_KIND = "cohub.board" as const;
 export const BOARD_MANIFEST_KIND = "cohub.board.manifest" as const;
 export const BOARD_CHECKPOINT_KIND = "cohub.board.checkpoint" as const;
+export const BOARD_SNAPSHOT_KIND = "cohub.board.snapshot" as const;
 export const BOARD_CLIPBOARD_KIND = "cohub.board.clipboard" as const;
 export const BOARD_CLIPBOARD_MIME = "application/x-cohub-board" as const;
 export const BOARD_PROTOCOL_VERSION = 1 as const;
@@ -224,6 +225,13 @@ export type BoardBootstrap = {
   sequences: BoardSequence[];
   clips: BoardClip[];
   playback: BoardPlaybackSnapshot | null;
+};
+
+/** Immutable semantic Board state shared by Checkpoints and published Works. */
+export type BoardSnapshot = BoardBootstrap & {
+  kind: typeof BOARD_SNAPSHOT_KIND;
+  version: typeof BOARD_PROTOCOL_VERSION;
+  capturedAt: string;
 };
 
 export const BoardCreateInputSchema = z.object({

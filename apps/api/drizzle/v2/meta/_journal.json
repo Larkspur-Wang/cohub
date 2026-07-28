@@ -351,6 +351,13 @@
       "when": 1785076218641,
       "tag": "0049_board_transaction_metadata",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1785252240485,
+      "tag": "0050_complete_wraith",
+      "breakpoints": true
     }
   ]
 }

@@ -38,7 +38,7 @@ For example:
 
 ## Publish From the UI
 
-Prepare something publishable in a Space: an HTML file (must end in `.html` or `.htm`), a directory containing `index.html` with relative assets, or a running dev server on a supported public sandbox port.
+Prepare something publishable in a Space: an HTML page, a `.board` file, any other single file, a directory containing `index.html` with relative assets, or a running dev server on a supported public sandbox port.
 
 Open the file, directory, or port preview, then click `Publish`. The dialog asks for a Work slug (and a username or space slug if missing). Under `Work can`, select permissions the Work receives directly. Under `Viewers can allow`, select permissions the Work may ask each viewer to grant later.
 
@@ -60,7 +60,9 @@ Editing a target changes the source used by the next version. The public page ch
 
 ## Targets and Limits
 
-File Works only accept HTML files. The published HTML asset must be between 1 byte and 5 MB.
+File Works accept any single file. An HTML page (`.html` / `.htm`) is published as a web page and must be between 1 byte and 5 MB. A `.board` file is published as an interactive read-only Board, together with the assets it references. Any other file is published for native preview (Markdown, code, image, video, audio, PDF) with a download fallback; the file must be under 100 MB.
+
+A Board publish captures the Board's own state plus the workspace files it actually references — images, videos, file-card covers, and effect or clip assets. Files a Board does not reference are never published, and file cards show the preview captured at publish time rather than the whole target file.
 
 Directory Works must contain `index.html`. The published directory must contain 1 to 1000 files and total 1 byte to 100 MB.
 
@@ -266,7 +268,7 @@ This guide was verified in a clean Space on 2026-06-19. File and directory Works
 
 If the public link cannot be formed, check that the user has a username and the Space has a slug.
 
-If a file Work fails, check that the target is an HTML file between 1 byte and 5 MB.
+If a file Work fails, check that an HTML target is between 1 byte and 5 MB, and that any other file is under 100 MB. If a Board Work fails, check that the `.board` file is valid and references at most 1000 assets totalling under 100 MB.
 
 If a directory Work fails, check that the directory contains `index.html`, has 1 to 1000 files, and is under 100 MB.
 

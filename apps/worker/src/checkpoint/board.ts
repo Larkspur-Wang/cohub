@@ -1,6 +1,6 @@
 import { readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import {
   boardCheckpoints,
   boardClips,
@@ -10,12 +10,12 @@ import {
   boards,
 } from "@cohub/db";
 import {
-  BOARD_CHECKPOINT_KIND,
   isBoardPath,
   parseBoardManifest,
   serializeBoardManifest,
 } from "@cohub/protocol";
 import { db } from "../db.js";
+import { captureBoardSnapshots } from "./board-snapshot.js";
 
 async function listBoardFiles(root: string, directory = root): Promise<string[]> {
   const entries = await readdir(directory, { withFileTypes: true });
@@ -30,33 +30,17 @@ async function listBoardFiles(root: string, directory = root): Promise<string[]>
 }
 
 export async function saveBoardCheckpointSnapshots(input: { checkpointId: string; spaceId: string }) {
-  return db.transaction(async (tx) => {
-    const sourceBoards = await tx.select().from(boards).where(eq(boards.spaceId, input.spaceId));
-    for (const board of sourceBoards) {
-      const [nodes, effects, sequences, clips] = await Promise.all([
-        tx.select().from(boardNodes).where(and(eq(boardNodes.boardId, board.id), isNull(boardNodes.deletedAt))),
-        tx.select().from(boardEffects).where(eq(boardEffects.boardId, board.id)),
-        tx.select().from(boardSequences).where(eq(boardSequences.boardId, board.id)),
-        tx.select().from(boardClips).where(eq(boardClips.boardId, board.id)),
-      ]);
-      await tx.insert(boardCheckpoints).values({
-        checkpointId: input.checkpointId,
-        sourceBoardId: board.id,
-        sourceSpaceId: input.spaceId,
-        sourceVersion: board.version,
-        snapshot: {
-          kind: BOARD_CHECKPOINT_KIND,
-          version: 1,
-          board,
-          nodes,
-          effects,
-          sequences,
-          clips,
-        },
-      });
-    }
-    return { count: sourceBoards.length };
-  }, { isolationLevel: "repeatable read" });
+  const snapshots = await captureBoardSnapshots({ spaceId: input.spaceId });
+  if (snapshots.length > 0) {
+    await db.insert(boardCheckpoints).values(snapshots.map((snapshot) => ({
+      checkpointId: input.checkpointId,
+      sourceBoardId: snapshot.board.id,
+      sourceSpaceId: input.spaceId,
+      sourceVersion: snapshot.board.version,
+      snapshot: snapshot as unknown as Record<string, unknown>,
+    })));
+  }
+  return { count: snapshots.length };
 }
 
 function records(value: unknown): Array<Record<string, unknown>> {
@@ -133,11 +117,19 @@ export async function restoreBoardCheckpointSnapshots(input: {
         })));
 
         const effects = records(snapshot.effects);
-        if (effects.length) await tx.insert(boardEffects).values(effects.map((effect) => ({
+        if (effects.length) await tx.insert(boardEffects).values(effects.map((effect) => {
+          const target = effect.target && typeof effect.target === "object" && !Array.isArray(effect.target)
+            ? effect.target as Record<string, unknown>
+            : null;
+          const targetType = typeof target?.type === "string" ? target.type : String(effect.targetType ?? "board");
+          const targetId = targetType === "node" && typeof target?.nodeId === "string"
+            ? target.nodeId
+            : typeof effect.targetId === "string" ? effect.targetId : null;
+          return {
           id: String(effect.id),
           boardId,
-          targetType: String(effect.targetType),
-          targetId: typeof effect.targetId === "string" ? effect.targetId : null,
+          targetType,
+          targetId,
           kind: String(effect.kind),
           kindVersion: Number(effect.kindVersion),
           enabled: effect.enabled !== false,
@@ -151,7 +143,8 @@ export async function restoreBoardCheckpointSnapshots(input: {
           revision: Number(effect.revision ?? 0),
           createdAt: now,
           updatedAt: now,
-        })));
+        };
+        }));
 
         const sequences = records(snapshot.sequences);
         if (sequences.length) await tx.insert(boardSequences).values(sequences.map((sequence) => ({

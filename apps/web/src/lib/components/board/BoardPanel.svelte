@@ -1,6 +1,7 @@
 <script lang="ts">
 import { screenToWorld, shapeCapabilities } from "@neta-art/cohub/board";
 import { onDestroy, onMount, untrack } from "svelte";
+import { createSpaceBoardAssetSource } from "$lib/board/board-asset-source";
 import {
 	type BoardAwarenessController,
 	createBoardAwarenessController,
@@ -27,6 +28,8 @@ const {
 	document: initialDocument,
 	runtime,
 	spaceId,
+	mode = "edit",
+	assetSource,
 	active = true,
 	immersive = false,
 	syncError = null,
@@ -39,6 +42,12 @@ const {
 	onViewStateChange,
 	onOpenFile,
 }: BoardRuntimeProps = $props();
+
+const readonly = $derived(mode === "view");
+/** Live Space by default; a published Board supplies an artifact-backed source. */
+const resolvedAssetSource = $derived(
+	assetSource ?? createSpaceBoardAssetSource(spaceId),
+);
 
 let stageWrap: HTMLDivElement | null = $state(null);
 let contextMenu = $state<{ x: number; y: number } | null>(null);
@@ -73,9 +82,13 @@ const awareness: BoardAwarenessController = createBoardAwarenessController({
 
 const editor = createBoardEditor({
 	document: untrack(() => initialDocument),
-	initialTool: defaultBoardTool(untrack(() => isMobile)),
+	// A view-only Board opens in Hand: the gesture set is pan, zoom and select.
+	initialTool: untrack(() =>
+		mode === "view" ? "hand" : defaultBoardTool(isMobile),
+	),
 	key: untrack(() => path),
-	onCommit: (document, ops) => onCommit(document, ops),
+	readonly: untrack(() => mode === "view"),
+	onCommit: (document, ops) => onCommit?.(document, ops),
 	onViewStateChange: (state) => {
 		onViewStateChange?.({ path, ...state });
 	},
@@ -90,6 +103,7 @@ $effect(() => {
 });
 
 $effect(() => {
+	if (readonly) return;
 	const tool = editor.tool;
 	const selection = editor.selection;
 	const bounds = editor.bounds;
@@ -110,12 +124,14 @@ $effect(() => {
 });
 
 $effect(() => {
+	if (readonly) return;
 	editor.interaction;
 	editor.geometryVersion;
 	untrack(() => awareness.syncGesture(editor));
 });
 
 $effect(() => {
+	if (readonly) return;
 	awarenessVersion;
 	const items = editor.items;
 	untrack(() => awareness.reconcile(items));
@@ -165,6 +181,63 @@ async function readClipboardText(): Promise<string | null> {
 	return null;
 }
 
+/**
+ * Keyboard set for a view-only Board: navigate, select, copy, export.
+ *
+ * Written as its own handler rather than as guards sprinkled through the editing
+ * one, so a new editing shortcut can never leak into view mode by omission.
+ */
+function handleReadonlyKeydown(
+	event: KeyboardEvent,
+	input: { mod: boolean; key: string },
+) {
+	const { mod, key } = input;
+	if (mod && key === "a") {
+		event.preventDefault();
+		editor.selectAll();
+		return;
+	}
+	if (mod && key === "c") {
+		const payload = editor.copySelection();
+		if (payload) {
+			event.preventDefault();
+			void writeClipboard(payload);
+		}
+		return;
+	}
+	if (mod && event.shiftKey && key === "e") {
+		event.preventDefault();
+		openExport();
+		return;
+	}
+	if ((mod && event.key === "0") || event.key === "/") {
+		event.preventDefault();
+		editor.fitView();
+		return;
+	}
+	switch (event.key) {
+		case "Enter": {
+			const single =
+				editor.selectedItems.length === 1 ? editor.selectedItems[0] : null;
+			if (single?.type !== "file") return;
+			event.preventDefault();
+			void onOpenFile?.(single.ref.path);
+			return;
+		}
+		case "Escape":
+			editor.clearSelection();
+			return;
+		case "v":
+		case "V":
+			editor.tool = "select";
+			return;
+		case "h":
+		case "H":
+			editor.tool = "hand";
+			return;
+	}
+}
+
 function handleKeydown(event: KeyboardEvent) {
 	if (!active || editor.editingId) return;
 	if (isEditableTarget(event.target)) return;
@@ -175,6 +248,11 @@ function handleKeydown(event: KeyboardEvent) {
 	if (event.code === "Space" && !event.repeat) {
 		event.preventDefault();
 		editor.spaceHeld = true;
+		return;
+	}
+
+	if (readonly) {
+		handleReadonlyKeydown(event, { mod, key });
 		return;
 	}
 
@@ -348,7 +426,7 @@ function retrySync() {
 }
 
 function handleContextMenu(event: MouseEvent) {
-	if (!active) return;
+	if (!active || readonly) return;
 	event.preventDefault();
 	if (!stageWrap) return;
 	const rect = stageWrap.getBoundingClientRect();
@@ -366,9 +444,13 @@ function handleContextMenu(event: MouseEvent) {
 }
 
 onMount(() => {
-	unsubscribeAwareness = boardClient.subscribe({
-		awareness: (event) => awareness.receive(event),
-	});
+	// View mode publishes and receives no presence: a published Board is read by
+	// viewers who are not collaborators, and often have no access to the Space.
+	if (!readonly) {
+		unsubscribeAwareness = boardClient.subscribe({
+			awareness: (event) => awareness.receive(event),
+		});
+	}
 	window.addEventListener("keydown", handleKeydown);
 	window.addEventListener("keyup", handleKeyup);
 	// Space hand can stick if the window blurs mid-hold (tab switch / alt-tab).
@@ -433,31 +515,39 @@ onDestroy(() => {
 			{awareness}
 			{awarenessVersion}
 			{spaceId}
+			{readonly}
+			assetSource={resolvedAssetSource}
 			{onOpenFile}
-			onPointerPresence={(cursor) => awareness.setCursor(cursor)}
+			onPointerPresence={(cursor) => { if (!readonly) awareness.setCursor(cursor); }}
 			onSurfaceChange={(size) => { editor.surfaceSize = size; surfaceSize = size; }}
 			onExportReady={(bridge) => { exportBridge = bridge; }}
 		/>
 
-		<BoardCollaboratorOverlay
-			peers={peers}
-			activities={boardActivities}
-			profiles={collaborators}
-			camera={editor.camera}
-			surface={surfaceSize}
-			cursorVisibleMs={awareness.cursorVisibleMs}
-			{isMobile}
-			onOpenActivity={(activity) => { void onOpenActivity?.(activity); }}
-		/>
+		{#if !readonly}
+			<BoardCollaboratorOverlay
+				peers={peers}
+				activities={boardActivities}
+				profiles={collaborators}
+				camera={editor.camera}
+				surface={surfaceSize}
+				cursorVisibleMs={awareness.cursorVisibleMs}
+				{isMobile}
+				onOpenActivity={(activity) => { void onOpenActivity?.(activity); }}
+			/>
+		{/if}
 
-		{#if !editor.hasContent}
+		{#if !editor.hasContent && !readonly}
 			<BoardEmptyState />
 		{/if}
 
-		<BoardTextEditor {editor} />
-		<BoardVideoPlayer {editor} {spaceId} {active} />
-		<BoardSelectionToolbar {editor} />
-		<BoardFloatingToolbar {editor} {immersive} />
+		{#if !readonly}
+			<BoardTextEditor {editor} />
+		{/if}
+		<BoardVideoPlayer {editor} assetSource={resolvedAssetSource} {active} />
+		{#if !readonly}
+			<BoardSelectionToolbar {editor} />
+			<BoardFloatingToolbar {editor} {immersive} />
+		{/if}
 		<BoardZoomMenu {editor} {immersive} />
 
 		{#if contextMenu}

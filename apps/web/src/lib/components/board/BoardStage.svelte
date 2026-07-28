@@ -27,6 +27,7 @@ import {
 import { Application, Container, Graphics, type Renderer } from "pixi.js";
 import { onDestroy, onMount, untrack } from "svelte";
 import { createBoardAssetManager } from "$lib/board/board-asset-manager";
+import type { BoardAssetSource } from "$lib/board/board-asset-source";
 import {
 	type BoardAwarenessController,
 	collaborationColor,
@@ -63,6 +64,8 @@ const {
 	editor,
 	runtime,
 	spaceId,
+	assetSource,
+	readonly = false,
 	active = true,
 	awareness,
 	awarenessVersion,
@@ -73,7 +76,18 @@ const {
 }: {
 	editor: BoardEditor;
 	runtime: BoardRuntimeData;
+	/**
+	 * Cache scope for previews. Still required in view mode: it namespaces asset
+	 * keys so identical paths from different Spaces never collide.
+	 */
 	spaceId: string;
+	/** Where referenced media is resolved from (live Space or published artifact). */
+	assetSource: BoardAssetSource;
+	/**
+	 * View-only stage: no drops, no shape editing, and no workspace reads. A
+	 * published Board is rendered from its snapshot alone.
+	 */
+	readonly?: boolean;
 	active?: boolean;
 	awareness: BoardAwarenessController;
 	awarenessVersion: number;
@@ -144,8 +158,12 @@ function handleSpaceStyleChanged(event: Event) {
 	themeCache = null;
 }
 
-// One manager per mounted board; the space id is fixed for the mount.
-const assets = createBoardAssetManager({ spaceId: untrack(() => spaceId) });
+// One manager per mounted board; the space id and source are fixed for the mount.
+const assets = createBoardAssetManager({
+	spaceId: untrack(() => spaceId),
+	resolveSpaceFileUrl: (_spaceId, path) =>
+		untrack(() => assetSource).resolveFileUrl(path),
+});
 const unsubscribeAssets = assets.subscribe(() => {
 	assetVersion += 1;
 });
@@ -155,7 +173,7 @@ const unsubscribeAssets = assets.subscribe(() => {
 let previewVersion = $state(filePreviewVersion());
 const unsubscribePreviews = subscribeFilePreviews((event) => {
 	previewVersion = filePreviewVersion();
-	if (!event || event.spaceId !== spaceId) return;
+	if (readonly || !event || event.spaceId !== spaceId) return;
 	assets.invalidatePath(event.path);
 	editor.applyMediaFileChange(event.path, event.meta);
 });
@@ -253,7 +271,11 @@ function itemsNearViewport(
 // whose file changed while the board was open. Both are bounded to what is near
 // the viewport, so a board with thousands of file cards reads only the handful
 // the user can actually see.
+//
+// Skipped entirely in view mode: a published Board has no live workspace behind
+// it, so cards render from the snapshot captured at publish time.
 $effect(() => {
+	if (readonly) return;
 	editor.structureVersion;
 	editor.geometryVersion;
 	const camera = editor.camera;
@@ -827,6 +849,9 @@ function handleDoubleClick(event: MouseEvent) {
 		void onOpenFile?.(item.ref.path);
 		return;
 	}
+	// View mode stops here: text editing and the blank-canvas text draft are both
+	// authoring actions.
+	if (readonly) return;
 	if (item && !item.locked && shapeCapabilities(item).canEdit) {
 		editor.editingId = item.id;
 	} else if (!item) {
@@ -874,6 +899,7 @@ async function enrichFileCards(targets: Array<{ id: string; path: string }>) {
 function handleDrop(event: DragEvent) {
 	event.preventDefault();
 	dropActive = false;
+	if (readonly) return;
 
 	const items: BoardDropItem[] = [];
 
@@ -1186,6 +1212,7 @@ onDestroy(() => {
 	style:touch-action="none"
 	use:pointerDropZone={{
 		resolve: (payload) => {
+			if (readonly) return null;
 			// Directories have no single file to reference, so the board declines them
 			// rather than silently dropping part of the payload.
 			const items = toBoardDropItems(payload);
@@ -1193,10 +1220,12 @@ onDestroy(() => {
 			return { label: "Add to board", effect: "copy" };
 		},
 		drop: (payload, point) => {
+			if (readonly) return;
 			dropBoardItems(point.clientX, point.clientY, toBoardDropItems(payload));
 		},
 	}}
 	ondragover={(event) => {
+		if (readonly) return;
 		const types = event.dataTransfer?.types;
 		if (!types) return;
 		// Accept both the rich resource payload and the bare path, so a drag from

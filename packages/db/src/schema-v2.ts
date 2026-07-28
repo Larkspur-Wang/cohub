@@ -298,6 +298,8 @@ export const workVersions = v2.table(
     targetType: varchar("target_type", { length: 20 }).notNull(),
     targetRef: text("target_ref").notNull(),
     assetKey: text("asset_key"),
+    contentKind: varchar("content_kind", { length: 20 }).notNull().default("web"),
+    artifact: jsonb("artifact").$type<Record<string, unknown>>(),
     /** Optional provenance / notes for this version (e.g. source session/turn). */
     meta: jsonb("meta").$type<Record<string, unknown>>(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
@@ -305,6 +307,7 @@ export const workVersions = v2.table(
   (table) => ({
     workIdx: index("v2_idx_work_versions_work_id").on(table.workId),
     workVersionUniqueIdx: uniqueIndex("v2_uq_work_versions_work_version").on(table.workId, table.version),
+    contentKindCheck: check("v2_chk_work_versions_content_kind", sql`${table.contentKind} in ('web', 'file', 'board')`),
   }),
 );
 

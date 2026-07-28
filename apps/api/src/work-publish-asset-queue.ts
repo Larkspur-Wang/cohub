@@ -5,6 +5,7 @@ import { injectTrace } from "@cohub/infra/tracing/propagator";
 import { config } from "./config.js";
 
 import type { WorkPublishExtractedPageMeta } from "@cohub/core/works";
+import type { WorkArtifactDescriptor } from "@cohub/protocol";
 
 export const WORK_PUBLISH_ASSET_JOB = "work.publish_asset";
 
@@ -25,6 +26,12 @@ export type WorkPublishAssetJobResult = {
   sizeBytes: number;
   fileCount?: number;
   extracted?: WorkPublishExtractedPageMeta | null;
+  /**
+   * Absent from workers predating content-kind publishing. The API derives a
+   * `web` descriptor in that case, so a rolling deploy in either order keeps
+   * publishing rather than failing on a missing field.
+   */
+  artifact?: WorkArtifactDescriptor;
 } | {
   ok: false;
   status: number;

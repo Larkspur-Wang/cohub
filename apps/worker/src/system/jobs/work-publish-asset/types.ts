@@ -1,4 +1,5 @@
 import type { WorkPublishExtractedPageMeta } from "@cohub/core/works";
+import type { WorkArtifactDescriptor } from "@cohub/protocol";
 
 export const WORK_PUBLISH_ASSET_JOB = "work.publish_asset";
 
@@ -19,6 +20,7 @@ export type WorkPublishAssetJobResult = {
   sizeBytes: number;
   fileCount?: number;
   extracted?: WorkPublishExtractedPageMeta | null;
+  artifact?: WorkArtifactDescriptor;
 } | {
   ok: false;
   status: number;

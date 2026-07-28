@@ -1,5 +1,6 @@
 import type { HttpTransport } from "../transport.js";
 import type { RequestSource } from "@cohub/protocol/provenance";
+import type { WorkArtifactDescriptor, WorkContentKind } from "@cohub/protocol";
 import type { Permission, SpacePublicProfile } from "../types.js";
 
 export type WorkTargetType = "file" | "directory" | "port";
@@ -94,13 +95,33 @@ export type WorkVersionRecord = {
   targetType: WorkTargetType;
   targetRef: string;
   assetKey: string | null;
+  contentKind: WorkContentKind;
+  artifact: WorkArtifactDescriptor | null;
   meta: WorkMeta | null;
   createdAt: string | null;
 };
 
 export type WorkContent =
-  | { url: string; targetType: "port"; port: string }
-  | { url: string; targetType: WorkTargetType; path: string };
+  | { kind: "port"; url: string; targetType: "port"; port: string }
+  | { kind: "web"; url: string; targetType: "file" | "directory"; path: string }
+  | {
+      kind: "file";
+      url: string;
+      targetType: "file";
+      path: string;
+      name: string;
+      mimeType: string | null;
+      sizeBytes: number;
+      sha256: string;
+    }
+  | {
+      kind: "board";
+      url: string;
+      targetType: "file";
+      path: string;
+      boardId: string;
+      boardVersion: number;
+    };
 
 export type WorkPublicSpaceRecord = {
   id: string;

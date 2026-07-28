@@ -9,6 +9,7 @@ import type {
 	BoardAutomationActivity,
 	BoardCollaboratorProfile,
 } from "$lib/board/board-activity";
+import type { BoardAssetSource } from "$lib/board/board-asset-source";
 import { createLazyModuleLoader } from "$lib/lazy-module";
 
 export type BoardRuntimeViewState = {
@@ -55,6 +56,21 @@ export function operationsRequireBoardRuntimeRefresh(
 	);
 }
 
+/**
+ * How a Board runtime is being used.
+ *
+ * `view` is not "edit with the buttons hidden": it also drops realtime awareness,
+ * workspace reads and every commit path, so the same runtime can render a
+ * published Board for a viewer with no access to the origin Space.
+ */
+export type BoardRuntimeMode = "edit" | "view";
+
+/** Persist a document change. Absent in view mode, which never commits. */
+export type BoardCommitHandler = (
+	document: BoardDocument,
+	ops: BoardOperation[],
+) => void | Promise<void>;
+
 /** Stable host contract for a complete board editor and renderer runtime. */
 export type BoardRuntimeProps = {
 	path: string;
@@ -62,6 +78,12 @@ export type BoardRuntimeProps = {
 	document: BoardDocument;
 	runtime: BoardRuntimeData;
 	spaceId: string;
+	mode?: BoardRuntimeMode;
+	/**
+	 * Where referenced media resolves from. Defaults to the live Space file API;
+	 * a published Board passes an artifact-backed source instead.
+	 */
+	assetSource?: BoardAssetSource;
 	/** Keep the editor mounted while suspending input and rendering. */
 	active?: boolean;
 	immersive?: boolean;
@@ -78,10 +100,7 @@ export type BoardRuntimeProps = {
 	activities?: BoardAutomationActivity[];
 	/** Open the chat turn behind an Agent marker. */
 	onOpenActivity?: (activity: BoardAutomationActivity) => void | Promise<void>;
-	onCommit: (
-		document: BoardDocument,
-		ops: BoardOperation[],
-	) => void | Promise<void>;
+	onCommit?: BoardCommitHandler;
 	onRetrySync?: () => void | Promise<void>;
 	onViewStateChange?: (state: BoardRuntimeViewState) => void;
 	/**

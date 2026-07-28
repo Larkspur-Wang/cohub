@@ -17,6 +17,7 @@ import {
 import { hasPermission } from "../permissions.js";
 import { createWorkSessionToken, WORK_SESSION_TTL_SECONDS } from "../work-sessions.js";
 import { getSandboxPublicEndpoints } from "../sandbox-public-network.js";
+import type { WorkArtifactDescriptor, WorkContentKind } from "@cohub/protocol";
 import { SANDBOX_PUBLIC_PORTS } from "@cohub/protocol/ports";
 import type { RealtimeWorkRecord, RealtimeWorkVersionRecord } from "@cohub/protocol/realtime";
 import { createLogger } from "@cohub/infra/logging";
@@ -189,6 +190,8 @@ const serializeWorkVersion = (version: typeof workVersions.$inferSelect): Realti
   targetType: version.targetType as RealtimeWorkVersionRecord["targetType"],
   targetRef: version.targetRef,
   assetKey: version.assetKey,
+  contentKind: version.contentKind as WorkContentKind,
+  artifact: isRecord(version.artifact) ? version.artifact as WorkArtifactDescriptor : null,
   meta: getWorkMeta(version.meta),
   createdAt: version.createdAt?.toISOString() ?? null,
 });
@@ -206,6 +209,7 @@ class WorkAssetPublishError extends Error {
 
 type WrittenWorkAsset = {
   assetKey: string;
+  artifact: WorkArtifactDescriptor;
   extracted: ReturnType<typeof materializeHtmlPageMeta> | null;
 };
 
@@ -235,7 +239,18 @@ async function writeWorkAsset(input: {
         createWorkAssetPublicUrl,
       )
     : null;
-  return { assetKey: result.assetKey, extracted };
+  return {
+    assetKey: result.assetKey,
+    // An older worker returns no descriptor; every publish it can perform is an
+    // HTML page or site, so `web` reconstructs it faithfully.
+    artifact: result.artifact ?? {
+      kind: "web",
+      mimeType: "text/html",
+      sizeBytes: result.sizeBytes,
+      fileCount: result.fileCount ?? 1,
+    },
+    extracted,
+  };
 }
 
 function withPublishedPageMeta(input: {
@@ -262,18 +277,52 @@ async function cleanupWorkAssets(assetKey: string | null | undefined, context: {
   }
 }
 
-const getWorkContent = (input: { spaceId: string; targetType: string; targetRef: string; assetKey: string | null }) => {
+const getWorkContent = (input: {
+  spaceId: string;
+  targetType: string;
+  targetRef: string;
+  assetKey: string | null;
+  contentKind: string;
+  artifact: Record<string, unknown> | null;
+}) => {
   if (input.targetType === "port") {
     const portRef = normalizePortRef(input.targetRef);
     if (!portRef) return null;
     const url = getSandboxPublicEndpoints(input.spaceId)[portRef]?.url;
     if (!url || !isAllowedWorkContentUrl(url, "port")) return null;
-    return { url, targetType: "port" as const, port: portRef };
+    return { kind: "port" as const, url, targetType: "port" as const, port: portRef };
   }
   if (!input.assetKey) return null;
   const url = createWorkAssetPublicUrl(input.assetKey);
   if (!isAllowedWorkContentUrl(url, "asset")) return null;
-  return { url, targetType: input.targetType, path: input.targetRef };
+  if (input.contentKind === "board" && input.artifact?.kind === "board") {
+    return {
+      kind: "board" as const,
+      url,
+      targetType: "file" as const,
+      path: input.targetRef,
+      boardId: String(input.artifact.boardId),
+      boardVersion: Number(input.artifact.boardVersion),
+    };
+  }
+  if (input.contentKind === "file" && input.artifact?.kind === "file") {
+    return {
+      kind: "file" as const,
+      url,
+      targetType: "file" as const,
+      path: input.targetRef,
+      name: String(input.artifact.name),
+      mimeType: typeof input.artifact.mimeType === "string" ? input.artifact.mimeType : null,
+      sizeBytes: Number(input.artifact.sizeBytes),
+      sha256: String(input.artifact.sha256),
+    };
+  }
+  return {
+    kind: "web" as const,
+    url,
+    targetType: input.targetType as "file" | "directory",
+    path: input.targetRef,
+  };
 };
 
 async function getPublishedWorkContent(work: typeof works.$inferSelect) {
@@ -285,6 +334,8 @@ async function getPublishedWorkContent(work: typeof works.$inferSelect) {
     targetType: version.targetType,
     targetRef: version.targetRef,
     assetKey: version.assetKey,
+    contentKind: version.contentKind,
+    artifact: version.artifact,
   });
 }
 
@@ -406,9 +457,6 @@ router.post("/", async (c) => {
   const targetType = typeof body?.targetType === "string" ? body.targetType : "";
   let targetRef = typeof body?.targetRef === "string" ? body.targetRef.trim() : "";
   if (!TARGET_TYPES.has(targetType) || !targetRef) return c.json({ message: "target is invalid" }, 400);
-  if (targetType === "file" && !/\.html?$/i.test(targetRef)) {
-    return c.json({ message: "only HTML files can be published as work" }, 400);
-  }
   if (targetType === "port") {
     const portRef = normalizePortRef(targetRef);
     if (!portRef) return c.json({ message: "port is invalid" }, 400);
@@ -470,6 +518,8 @@ router.post("/", async (c) => {
         targetType,
         targetRef,
         assetKey,
+        contentKind: written?.artifact.kind ?? "web",
+        artifact: written?.artifact ?? null,
         meta: versionMeta,
         createdAt: now,
       }).returning();
@@ -523,9 +573,6 @@ async function updateWork(
   const nextTargetType = typeof body?.targetType === "string" ? body.targetType : current.targetType;
   let nextTargetRef = typeof body?.targetRef === "string" ? body.targetRef.trim() : current.targetRef;
   if (!TARGET_TYPES.has(nextTargetType) || !nextTargetRef) return c.json({ message: "target is invalid" }, 400);
-  if (nextTargetType === "file" && !/\.html?$/i.test(nextTargetRef)) {
-    return c.json({ message: "only HTML files can be published as work" }, 400);
-  }
   if (nextTargetType === "port") {
     const portRef = normalizePortRef(nextTargetRef);
     if (!portRef) return c.json({ message: "port is invalid" }, 400);
@@ -622,6 +669,8 @@ async function publishWorkVersion(
         targetType: current.targetType,
         targetRef: current.targetRef,
         assetKey,
+        contentKind: written?.artifact.kind ?? "web",
+        artifact: written?.artifact ?? null,
         meta: versionMeta,
         createdAt: now,
       }).returning();

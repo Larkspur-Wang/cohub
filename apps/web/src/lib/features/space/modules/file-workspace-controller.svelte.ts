@@ -18,6 +18,7 @@ import {
 	defaultFileViewMode,
 	type FileViewMode,
 } from "$lib/components/file-diff-view";
+import { filePreviewModel } from "$lib/file-preview-model";
 import { sdk } from "$lib/sdk";
 import {
 	isTextFileResponse,
@@ -37,10 +38,6 @@ import { createFileAutosaveCoordinator } from "./file-autosave-coordinator";
 import {
 	buildFsEntry,
 	getParentDirPath,
-	hasRenderedFilePreview,
-	isHtmlPath,
-	isMarkdownPath,
-	isPdfFile,
 	makeFsNodes,
 	replaceNodeChildren,
 	resolveFsMoveDestination,
@@ -830,7 +827,7 @@ export function createFileWorkspaceController(
 				error: hydrateError,
 				tooLarge: false,
 				viewMode: defaultFileViewMode(
-					textReady && hasRenderedFilePreview(file),
+					textReady && filePreviewModel(file).hasRenderedPreview,
 				),
 			}));
 			if (textReady)
@@ -1568,51 +1565,37 @@ export function createFileWorkspaceController(
 			);
 		},
 		get inlineFileIsMarkdown() {
-			const response = getActiveInlineFile()?.response;
-			return Boolean(
-				response &&
-					isTextFileResponse(response) &&
-					isMarkdownPath(response.path),
+			return (
+				filePreviewModel(getActiveInlineFile()?.response).kind === "markdown"
 			);
 		},
 		get inlineFileIsHtml() {
-			const response = getActiveInlineFile()?.response;
-			return Boolean(
-				response && isTextFileResponse(response) && isHtmlPath(response.path),
-			);
+			return filePreviewModel(getActiveInlineFile()?.response).kind === "html";
 		},
 		get inlineFileHasRenderedPreview() {
-			const response = getActiveInlineFile()?.response;
-			return Boolean(response && hasRenderedFilePreview(response));
+			return filePreviewModel(getActiveInlineFile()?.response)
+				.hasRenderedPreview;
 		},
 		get inlineFileIsText() {
-			return isTextFileResponse(getActiveInlineFile()?.response);
+			return filePreviewModel(getActiveInlineFile()?.response).isText;
 		},
 		get inlineFileExt() {
-			const response = getActiveInlineFile()?.response;
-			return isTextFileResponse(response)
-				? (response?.name.split(".").pop()?.toLowerCase() ?? "plaintext")
-				: "plaintext";
+			return filePreviewModel(getActiveInlineFile()?.response).language;
 		},
 		get inlineFileIsImage() {
-			return Boolean(
-				getActiveInlineFile()?.response?.mimeType?.startsWith("image/"),
-			);
+			return filePreviewModel(getActiveInlineFile()?.response).kind === "image";
 		},
 		get inlineFileIsVideo() {
-			return Boolean(
-				getActiveInlineFile()?.response?.mimeType?.startsWith("video/"),
-			);
+			return filePreviewModel(getActiveInlineFile()?.response).kind === "video";
+		},
+		get inlineFileIsAudio() {
+			return filePreviewModel(getActiveInlineFile()?.response).kind === "audio";
 		},
 		get inlineFileIsPdf() {
-			return isPdfFile(getActiveInlineFile()?.response);
+			return filePreviewModel(getActiveInlineFile()?.response).kind === "pdf";
 		},
 		get inlineFileDataUrl() {
-			const response = getActiveInlineFile()?.response ?? null;
-			if (!response || isTextFileResponse(response)) return null;
-			return response.delivery === "url"
-				? (response.url ?? null)
-				: `data:${response.mimeType ?? "application/octet-stream"};base64,${response.content}`;
+			return filePreviewModel(getActiveInlineFile()?.response).mediaUrl;
 		},
 		get inlineFileDownloadUrl() {
 			const inlineFile = getActiveInlineFile();

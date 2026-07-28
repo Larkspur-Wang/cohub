@@ -8,6 +8,7 @@ import type { SpaceFsChangedPayload } from "../fs/index.js";
 import type { SpacePortsChangedPayload } from "../ports/index.js";
 import type { BoardOperation, BoardPlaybackSnapshot } from "../board.js";
 import type { RequestSource } from "../provenance.js";
+import type { WorkArtifactDescriptor, WorkContentKind } from "../work.js";
 import type {
   BoardAwarenessClientPayload,
   BoardAwarenessUpdate,
@@ -558,6 +559,8 @@ export type RealtimeWorkVersionRecord = {
   targetType: RealtimeWorkTargetType;
   targetRef: string;
   assetKey: string | null;
+  contentKind: WorkContentKind;
+  artifact: WorkArtifactDescriptor | null;
   meta: Record<string, unknown> | null;
   createdAt: string | null;
 };

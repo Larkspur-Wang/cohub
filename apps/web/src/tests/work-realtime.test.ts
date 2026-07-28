@@ -36,6 +36,8 @@ const version = (value: number): WorkVersionRecord => ({
 	targetType: "file",
 	targetRef: "index.html",
 	assetKey: "asset",
+	contentKind: "web",
+	artifact: null,
 	meta: null,
 	createdAt: "2026-07-20T00:00:00.000Z",
 });

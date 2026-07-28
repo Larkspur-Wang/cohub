@@ -248,6 +248,12 @@ export type BoardEditorOptions = {
 	initialTool?: BoardToolId;
 	/** Stable identity (e.g. file path) used to tell a document switch from a remote refresh. */
 	key?: string;
+	/**
+	 * View-only editor: navigation and selection stay live, but nothing is ever
+	 * committed. The final guard for a published Board, independent of whatever
+	 * chrome the host chooses to hide.
+	 */
+	readonly?: boolean;
 	onCommit: (
 		document: BoardDocument,
 		ops: BoardOperation[],
@@ -558,6 +564,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 
 	/** Sync the current document to the server (no undo semantics here). */
 	function requestCommit() {
+		if (options.readonly) return;
 		const snapshot = document;
 		const rev = localRev;
 		const gen = syncGeneration;
@@ -1714,6 +1721,32 @@ export function createBoardEditor(options: BoardEditorOptions) {
 			return;
 		}
 
+		// View-only: selection and marquee stay live because they only read the
+		// document, but every gesture below this point mutates it (create, translate,
+		// resize, rotate, arrow handles). Refusing them here — in the interaction
+		// state machine — is what makes a published Board actually immutable, rather
+		// than merely unsaved.
+		if (options.readonly) {
+			const hit = topItemAt(event.world);
+			if (hit) {
+				selection = additive
+					? selection.includes(hit.id)
+						? selection.filter((id) => id !== hit.id)
+						: [...selection, hit.id]
+					: [hit.id];
+				interaction = { type: "idle" };
+				return;
+			}
+			interaction = {
+				type: "brushing",
+				start: event.world,
+				current: event.world,
+				additive,
+				baseSelection: selection,
+			};
+			return;
+		}
+
 		// Creation tools take over the primary pointer before any of the
 		// select-tool handle/hit logic below.
 		if (tool === "draw") {
@@ -2487,6 +2520,12 @@ export function createBoardEditor(options: BoardEditorOptions) {
 			);
 		},
 		set tool(value: BoardToolId) {
+			// A view-only editor still pans and selects, so navigation tools are kept
+			// and every creation tool collapses to Hand rather than being half-usable.
+			if (options.readonly && value !== "hand" && value !== "select") {
+				tool = "hand";
+				return;
+			}
 			tool = value;
 			// Entering a freehand tool should clear sticky selection chrome
 			// so the next stroke isn't fighting handles (tldraw does the same).

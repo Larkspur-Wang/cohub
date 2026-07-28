@@ -5,6 +5,7 @@ import type {
 	BoardCollaboratorProfile,
 } from "$lib/board/board-activity";
 import {
+	type BoardCommitHandler,
 	type BoardRuntimeData,
 	type BoardRuntimeProps,
 	type BoardRuntimeViewState,
@@ -41,8 +42,8 @@ type Props = {
 	onCommit: (
 		boardId: string,
 		path: string,
-		document: Parameters<BoardRuntimeProps["onCommit"]>[0],
-		ops: Parameters<BoardRuntimeProps["onCommit"]>[1],
+		document: Parameters<BoardCommitHandler>[0],
+		ops: Parameters<BoardCommitHandler>[1],
 	) => void | Promise<void>;
 	onRetrySave: (boardId: string) => void | Promise<void>;
 	onActivatePreviewTab: (kind: PreviewTab["kind"], key: string) => void;

@@ -209,7 +209,7 @@ export function registerWorks(program: Command): void {
   worksCmd
     .command("publish <slug>")
     .description("Create or publish a work in the target space")
-    .option("--file <path>", "Publish a HTML file")
+    .option("--file <path>", "Publish a file (HTML page, board, or any other file)")
     .option("--dir <path>", "Publish a directory site")
     .option("--port <port>", "Publish a public sandbox port")
     .option("--disabled", "Create as disabled")
@@ -281,7 +281,7 @@ export function registerWorks(program: Command): void {
     .command("update <id>")
     .description("Update work settings")
     .option("--slug <slug>", "New work slug")
-    .option("--file <path>", "Use a HTML file target")
+    .option("--file <path>", "Use a file target (HTML page, board, or any other file)")
     .option("--dir <path>", "Use a directory site target")
     .option("--port <port>", "Use a public sandbox port target")
     .option("--disabled", "Set status to disabled")

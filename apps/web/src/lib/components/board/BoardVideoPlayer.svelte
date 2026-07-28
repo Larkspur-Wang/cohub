@@ -1,14 +1,14 @@
 <script lang="ts">
-import { resolveSpaceFileImageUrl } from "$lib/board/board-image-urls";
+import type { BoardAssetSource } from "$lib/board/board-asset-source";
 import type { BoardEditor } from "$lib/board/editor.svelte";
 
 const {
 	editor,
-	spaceId,
+	assetSource,
 	active = true,
 }: {
 	editor: BoardEditor;
-	spaceId: string;
+	assetSource: BoardAssetSource;
 	active?: boolean;
 } = $props();
 
@@ -60,7 +60,8 @@ $effect(() => {
 	loading = true;
 	let cancelled = false;
 
-	void resolveSpaceFileImageUrl(spaceId, nextPath)
+	void assetSource
+		.resolveFileUrl(nextPath)
 		.then((url) => {
 			if (cancelled) return;
 			if (!url) {
