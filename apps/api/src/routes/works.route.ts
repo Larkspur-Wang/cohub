@@ -6,7 +6,14 @@ import { publishWorkAssetInWorker, type WorkPublishAssetJobResult } from "../wor
 import type { Permission } from "@cohub/core/permissions";
 import { materializeHtmlPageMeta, mergeWorkPageMeta } from "@cohub/core/works";
 import { db } from "../db/index.js";
-import { authzDenied, getOptionalAuth, getSpacePublicProfile, requireValidId, useAuth } from "../lib/middleware.js";
+import {
+  authzDenied,
+  getOptionalAuth,
+  getSpacePublicProfile,
+  requireValidId,
+  useAuth,
+  type AuthUser,
+} from "../lib/middleware.js";
 import { hasPermission } from "../permissions.js";
 import { createWorkSessionToken, WORK_SESSION_TTL_SECONDS } from "../work-sessions.js";
 import { getSandboxPublicEndpoints } from "../sandbox-public-network.js";
@@ -18,6 +25,7 @@ import { featureGateResponse } from "../lib/feature-gate.js";
 import { createWorkPublicUrl } from "../lib/work-public-url.js";
 import { applyRequestSourceToMeta, getRequestSource } from "../lib/request-source.js";
 import { dispatchWorkVersionPublished } from "../work-events.js";
+import { ensureCurrentUserProfile } from "../user-profiles.js";
 
 const logger = createLogger({ serviceName: "cohub-api" });
 const router = new Hono();
@@ -91,21 +99,30 @@ const workHideCohubBarRequiredResponse = (c: Context) =>
     title: "Upgrade to hide the Cohub bar",
     conversionMessage: "Hiding the Cohub bar is available on Pro and Max.",
   });
-async function getMissingPublicWorkIdentity(spaceId: string) {
+async function getWorkPublicIdentity(spaceId: string) {
   const [row] = await db
-    .select({ spaceSlug: spaces.slug, ownerUsername: userProfiles.username })
+    .select({
+      ownerUserUuid: spaces.userUuid,
+      spaceSlug: spaces.slug,
+      ownerUsername: userProfiles.username,
+    })
     .from(spaces)
     .leftJoin(userProfiles, eq(userProfiles.userUuid, spaces.userUuid))
     .where(eq(spaces.id, spaceId))
     .limit(1);
   return {
+    ownerUserUuid: row?.ownerUserUuid ?? null,
     ownerUsername: row?.ownerUsername?.trim() || null,
     spaceSlug: row?.spaceSlug?.trim() || null,
   };
 }
 
-async function ensureWorkPublicIdentity(c: Context, spaceId: string) {
-  const identity = await getMissingPublicWorkIdentity(spaceId);
+async function ensureWorkPublicIdentity(c: Context, spaceId: string, actor: AuthUser) {
+  let identity = await getWorkPublicIdentity(spaceId);
+  if (!identity.ownerUsername && identity.ownerUserUuid === actor.uuid) {
+    await ensureCurrentUserProfile(actor);
+    identity = await getWorkPublicIdentity(spaceId);
+  }
   const missingOwner = !identity.ownerUsername;
   const missingSpaceSlug = !identity.spaceSlug;
   if (!missingOwner && !missingSpaceSlug) return null;
@@ -405,7 +422,7 @@ router.post("/", async (c) => {
   }
   const status = typeof body?.status === "string" ? body.status : "published";
   const visibility = typeof body?.visibility === "string" ? body.visibility : "public";
-  const identityError = await ensureWorkPublicIdentity(c, spaceId);
+  const identityError = await ensureWorkPublicIdentity(c, spaceId, user);
   if (identityError) return identityError;
   const meta = getWorkMeta(body?.meta);
   const presentationError = await ensureWorkPresentationAllowed(c, { userId: user.uuid, meta });
@@ -495,7 +512,7 @@ async function updateWork(
   c: Context,
   current: typeof works.$inferSelect,
   body: Record<string, unknown> | null,
-  actorUserId: string,
+  actor: AuthUser,
 ) {
   const nextSlug = typeof body?.slug === "string" ? body.slug.trim().toLowerCase() : current.slug;
   if (!SLUG_RE.test(nextSlug)) return c.json({ message: "slug must use lowercase letters, numbers, hyphens, or underscores" }, 400);
@@ -525,10 +542,10 @@ async function updateWork(
     return c.json({ message: "publish a version to publish this work" }, 409);
   }
   const nextVisibility = typeof body?.visibility === "string" ? body.visibility : (current.visibility ?? "public");
-  const identityError = await ensureWorkPublicIdentity(c, current.spaceId);
+  const identityError = await ensureWorkPublicIdentity(c, current.spaceId, actor);
   if (identityError) return identityError;
   const nextMeta = "meta" in (body ?? {}) ? getWorkMeta(body?.meta) : getWorkMeta(current.meta);
-  const presentationError = await ensureWorkPresentationAllowed(c, { userId: actorUserId, meta: nextMeta });
+  const presentationError = await ensureWorkPresentationAllowed(c, { userId: actor.uuid, meta: nextMeta });
   if (presentationError) return presentationError;
 
   const assetKey = nextStatus === "published" ? current.assetKey : null;
@@ -562,9 +579,9 @@ async function updateWork(
 async function publishWorkVersion(
   c: Context,
   current: typeof works.$inferSelect,
-  options: { actorUserId: string; meta?: WorkMeta | null },
+  options: { actor: AuthUser; meta?: WorkMeta | null },
 ) {
-  const identityError = await ensureWorkPublicIdentity(c, current.spaceId);
+  const identityError = await ensureWorkPublicIdentity(c, current.spaceId, options.actor);
   if (identityError) return identityError;
   let written: WrittenWorkAsset | null = null;
   try {
@@ -627,7 +644,7 @@ async function publishWorkVersion(
       work: serializedWork,
       version: serializedVersion,
       previousVersionId: result.previousVersionId,
-      actorUserId: options.actorUserId,
+      actorUserId: options.actor.uuid,
       source: getRequestSource(c),
     }).catch((error) => {
       logger.warn("[works] failed to dispatch work.version.published", {
@@ -657,7 +674,7 @@ router.patch("/:id", async (c) => {
   if (!(await hasPermission(user, "space.edit", { spaceId: current.spaceId }))) return authzDenied(c);
 
   const body = await c.req.json().catch(() => null) as Record<string, unknown> | null;
-  return updateWork(c, current, body, user.uuid);
+  return updateWork(c, current, body, user);
 });
 
 router.get("/:id/versions", async (c) => {
@@ -681,7 +698,7 @@ router.post("/:id/versions", async (c) => {
   if (!work) return c.json({ message: "work not found" }, 404);
   if (!(await hasPermission(user, "space.edit", { spaceId: work.spaceId }))) return authzDenied(c);
   const meta = applyRequestSourceToMeta(c, null);
-  return publishWorkVersion(c, work, { actorUserId: user.uuid, meta });
+  return publishWorkVersion(c, work, { actor: user, meta });
 });
 
 router.delete("/:id", async (c) => {
