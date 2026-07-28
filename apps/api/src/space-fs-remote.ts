@@ -13,7 +13,7 @@ import type { RpcEventPayload } from "@cohub/protocol/sandbox";
 import { assertSafeRelativePath, getMimeType, isTextMime, resolveReadMimeType, sanitizeFileName, SpaceFsError } from "./space-fs.js";
 import type { SpaceFsVisibility } from "./space-fs-ignore.js";
 import { matchesSpaceFsVersion } from "./space-fs-version.js";
-import { callSandboxRpc, SandboxOfflineError } from "./space-sandbox-rpc.js";
+import { callSandboxRpc, getSandboxCapabilities, SandboxOfflineError } from "./space-sandbox-rpc.js";
 
 // Local-sandbox filesystem backend. Mirrors the direct (PVC) backend's public
 // surface so routes stay provider-agnostic, but every operation is served over
@@ -85,6 +85,28 @@ const toPosixJoin = (base: string, rel: string) => {
   if (!rel) return base;
   return `${base.replace(/\/+$/, "")}/${rel}`;
 };
+
+const parentPath = (path: string) => {
+  const separator = path.lastIndexOf("/");
+  return separator < 0 ? "" : path.slice(0, separator);
+};
+
+async function collectMissingRemoteDirectories(spaceId: string, targetDir: string) {
+  if (!targetDir) return [];
+  const parts = targetDir.split("/").filter(Boolean);
+  const missing: string[] = [];
+  let prefix = "";
+  for (let index = 0; index < parts.length; index += 1) {
+    prefix = prefix ? `${prefix}/${parts[index]}` : (parts[index] as string);
+    if (missing.length > 0) {
+      missing.push(prefix);
+      continue;
+    }
+    const stats = await callSandboxRpc(spaceId, "fs.stat", { path: prefix });
+    if (!stats?.exists) missing.push(prefix);
+  }
+  return missing;
+}
 
 export async function listSpaceDirectory(
   spaceId: string,
@@ -256,22 +278,35 @@ export async function readSpaceFiles(
 export async function writeSpaceFile(spaceId: string, input: SpaceFsWriteFileInput) {
   const path = assertSafeSubpath(input.path);
   try {
+    const capabilities = await getSandboxCapabilities(spaceId);
+    const supportsDisposition = capabilities?.fsWriteDisposition === true;
+    const current = input.expected || !supportsDisposition
+      ? await callSandboxRpc(spaceId, "fs.stat", { path })
+      : null;
     if (input.expected) {
-      const current = await callSandboxRpc(spaceId, "fs.stat", { path });
       if (
-        !current.exists ||
+        !current?.exists ||
         current.isDirectory ||
         !matchesSpaceFsVersion(current, input.expected)
       ) {
         throw new SpaceFsError(409, "file_conflict", "File changed since it was opened.");
       }
     }
+    const legacyCreatedDirs = supportsDisposition
+      ? []
+      : await collectMissingRemoteDirectories(spaceId, parentPath(path));
     const result = await callSandboxRpc(spaceId, "fs.write", {
       path,
       content: input.content,
       encoding: input.encoding,
     });
-    return { path, size: result.bytesWritten, mtimeMs: result.mtimeMs ?? Date.now() };
+    return {
+      path,
+      size: result.bytesWritten,
+      mtimeMs: result.mtimeMs ?? Date.now(),
+      created: supportsDisposition ? result.created === true : !current?.exists,
+      createdDirs: supportsDisposition ? result.createdDirs ?? [] : legacyCreatedDirs,
+    };
   } catch (error) {
     mapRpcError(error);
   }
@@ -280,6 +315,11 @@ export async function writeSpaceFile(spaceId: string, input: SpaceFsWriteFileInp
 export async function createSpaceFileExclusive(spaceId: string, input: SpaceFsWriteFileInput) {
   const path = assertSafeSubpath(input.path);
   try {
+    const capabilities = await getSandboxCapabilities(spaceId);
+    const supportsDisposition = capabilities?.fsWriteDisposition === true;
+    const legacyCreatedDirs = supportsDisposition
+      ? []
+      : await collectMissingRemoteDirectories(spaceId, parentPath(path));
     // Atomic exclusive create: the sandbox opens with O_EXCL and fails with
     // ALREADY_EXISTS if the path is taken, so concurrent creates cannot clobber.
     const result = await callSandboxRpc(spaceId, "fs.write", {
@@ -288,7 +328,13 @@ export async function createSpaceFileExclusive(spaceId: string, input: SpaceFsWr
       encoding: input.encoding,
       exclusive: true,
     });
-    return { path, size: result.bytesWritten, mtimeMs: result.mtimeMs ?? Date.now() };
+    return {
+      path,
+      size: result.bytesWritten,
+      mtimeMs: result.mtimeMs ?? Date.now(),
+      created: true,
+      createdDirs: supportsDisposition ? result.createdDirs ?? [] : legacyCreatedDirs,
+    };
   } catch (error) {
     if (error instanceof SandboxRpcError && error.rpcErrorCode === "ALREADY_EXISTS") {
       throw new SpaceFsError(409, "path_exists", "A file already exists at this path.");
@@ -307,13 +353,31 @@ async function runProcess(spaceId: string, argv: string[]): Promise<{ exitCode: 
   return { exitCode: result.exitCode, stderr: stderr.trim() };
 }
 
+async function ensureRemoteDirectories(spaceId: string, path: string, supportsMkdir: boolean) {
+  if (!path) return { createdDirs: [] as string[], mtimeMs: Date.now() };
+  if (supportsMkdir) {
+    const result = await callSandboxRpc(spaceId, "fs.mkdir", { path });
+    return { createdDirs: result.createdDirs, mtimeMs: result.mtimeMs ?? Date.now() };
+  }
+
+  const createdDirs = await collectMissingRemoteDirectories(spaceId, path);
+  const { exitCode, stderr } = await runProcess(spaceId, ["mkdir", "-p", "--", path]);
+  if (exitCode !== 0) throw new SpaceFsError(400, "mkdir_failed", stderr || "failed to create directory");
+  const stats = await callSandboxRpc(spaceId, "fs.stat", { path });
+  return { createdDirs, mtimeMs: stats.mtimeMs ?? Date.now() };
+}
+
 export async function createSpaceDirectory(spaceId: string, path: string) {
   const safePath = assertSafeSubpath(path);
   try {
-    const { exitCode, stderr } = await runProcess(spaceId, ["mkdir", "-p", "--", safePath]);
-    if (exitCode !== 0) throw new SpaceFsError(400, "mkdir_failed", stderr || "failed to create directory");
-    const stat = await callSandboxRpc(spaceId, "fs.stat", { path: safePath });
-    return { path: safePath, mtimeMs: stat.mtimeMs ?? Date.now() };
+    const capabilities = await getSandboxCapabilities(spaceId);
+    const result = await ensureRemoteDirectories(spaceId, safePath, capabilities?.fsMkdir === true);
+    return {
+      path: safePath,
+      mtimeMs: result.mtimeMs,
+      created: result.createdDirs.includes(safePath),
+      createdDirs: result.createdDirs,
+    };
   } catch (error) {
     mapRpcError(error);
   }
@@ -349,9 +413,12 @@ export async function moveSpaceNode(spaceId: string, input: SpaceFsMoveInput) {
     const stat = await callSandboxRpc(spaceId, "fs.stat", { path: from });
     if (!stat.exists) throw new SpaceFsError(404, "path_not_found", "File or directory not found.");
     const nodeType: SpaceFsEntry["type"] | "unknown" = stat.isDirectory ? "dir" : "file";
+    const targetParent = parentPath(to);
+    const capabilities = await getSandboxCapabilities(spaceId);
+    const directoryResult = await ensureRemoteDirectories(spaceId, targetParent, capabilities?.fsMkdir === true);
     const { exitCode, stderr } = await runProcess(spaceId, ["mv", "--", from, to]);
     if (exitCode !== 0) throw new SpaceFsError(400, "move_failed", stderr || "failed to move");
-    return { fromPath: from, toPath: to, nodeType };
+    return { fromPath: from, toPath: to, nodeType, createdDirs: directoryResult.createdDirs };
   } catch (error) {
     mapRpcError(error);
   }
@@ -376,14 +443,14 @@ export async function downloadSpaceFile(
   }
 }
 
-export async function uploadSpaceFiles(
-  spaceId: string,
+type UploadCandidate = { file: File; name: string; path: string };
+
+function prepareUploadCandidates(
   files: File[],
   targetDir: string,
-): Promise<SpaceFsUploadResponse> {
-  const uploaded: SpaceFsUploadResponse["uploaded"] = [];
+): { candidates: UploadCandidate[]; errors: SpaceFsUploadResponse["errors"] } {
+  const candidates: UploadCandidate[] = [];
   const errors: SpaceFsUploadResponse["errors"] = [];
-
   for (const file of files.slice(0, MAX_UPLOAD_COUNT)) {
     const safeName = sanitizeFileName(file.name);
     if (!safeName) {
@@ -394,26 +461,66 @@ export async function uploadSpaceFiles(
       errors.push({ name: safeName, code: "file_too_large", message: "file exceeds 30MB limit for local sandboxes" });
       continue;
     }
-    const relPath = assertSafeSubpath(targetDir ? `${targetDir}/${safeName}` : safeName);
     try {
-      const buffer = Buffer.from(await file.arrayBuffer());
-      const result = await callSandboxRpc(spaceId, "fs.write", {
-        path: relPath,
-        content: buffer.toString("base64"),
-        encoding: "base64",
-      });
-      uploaded.push({
-        path: relPath,
+      candidates.push({
+        file,
         name: safeName,
-        size: result.bytesWritten,
-        mimeType: getMimeType(safeName),
-        mtimeMs: result.mtimeMs ?? Date.now(),
+        path: assertSafeSubpath(targetDir ? `${targetDir}/${safeName}` : safeName),
       });
-    } catch (error) {
-      if (error instanceof SandboxOfflineError) throw error;
-      errors.push({ name: safeName, code: "write_failed", message: "failed to write file" });
+    } catch {
+      errors.push({ name: safeName, code: "path_invalid", message: "invalid file path" });
     }
   }
+  return { candidates, errors };
+}
 
-  return { uploaded, errors };
+export async function uploadSpaceFiles(
+  spaceId: string,
+  files: File[],
+  targetDir: string,
+): Promise<SpaceFsUploadResponse> {
+  const safeTargetDir = targetDir ? assertSafeSubpath(targetDir) : "";
+  const { candidates, errors } = prepareUploadCandidates(files, safeTargetDir);
+  if (candidates.length === 0) return { uploaded: [], errors, createdDirs: [] };
+
+  try {
+    const capabilities = await getSandboxCapabilities(spaceId);
+    const supportsDisposition = capabilities?.fsWriteDisposition === true;
+    const createdDirs = new Set(
+      supportsDisposition ? [] : await collectMissingRemoteDirectories(spaceId, safeTargetDir),
+    );
+    const uploaded: SpaceFsUploadResponse["uploaded"] = [];
+
+    for (const candidate of candidates) {
+      try {
+        const existing = supportsDisposition
+          ? null
+          : await callSandboxRpc(spaceId, "fs.stat", { path: candidate.path });
+        const buffer = Buffer.from(await candidate.file.arrayBuffer());
+        const result = await callSandboxRpc(spaceId, "fs.write", {
+          path: candidate.path,
+          content: buffer.toString("base64"),
+          encoding: "base64",
+        });
+        if (supportsDisposition) {
+          for (const path of result.createdDirs ?? []) createdDirs.add(path);
+        }
+        uploaded.push({
+          path: candidate.path,
+          name: candidate.name,
+          size: result.bytesWritten,
+          mimeType: getMimeType(candidate.name),
+          mtimeMs: result.mtimeMs ?? Date.now(),
+          created: supportsDisposition ? result.created === true : !existing?.exists,
+        });
+      } catch (error) {
+        if (error instanceof SandboxOfflineError) throw error;
+        errors.push({ name: candidate.name, code: "write_failed", message: "failed to write file" });
+      }
+    }
+
+    return { uploaded, errors, createdDirs: uploaded.length > 0 ? [...createdDirs] : [] };
+  } catch (error) {
+    mapRpcError(error);
+  }
 }

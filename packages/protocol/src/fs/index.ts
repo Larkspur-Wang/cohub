@@ -96,6 +96,8 @@ export type SpaceFsUploadEntry = {
   size: number;
   mimeType: string | null;
   mtimeMs: number;
+  /** Whether this upload created the file rather than replacing it. */
+  created?: boolean;
 };
 
 export type SpaceFsUploadError = {
@@ -107,6 +109,8 @@ export type SpaceFsUploadError = {
 export type SpaceFsUploadResponse = {
   uploaded: SpaceFsUploadEntry[];
   errors: SpaceFsUploadError[];
+  /** Workspace-relative directories created while materializing the upload. */
+  createdDirs?: string[];
 };
 
 export type SpaceFsUploadPlanEntryInput = {

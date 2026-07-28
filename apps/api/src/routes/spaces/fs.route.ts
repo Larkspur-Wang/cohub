@@ -23,6 +23,7 @@ import {
   uploadSpaceFiles,
   writeSpaceFile,
 } from "../../space-fs-backend.js";
+import { buildCreatedDirectoryChanges, buildFileMutationChanges } from "../../space-fs-change.js";
 import { dispatchSpaceFsChanged } from "../../space-events.js";
 import type { SpaceFsVisibility } from "../../space-fs-ignore.js";
 import {
@@ -225,7 +226,7 @@ router.put("/file", async (c) => {
   }
   try {
     const result = await writeSpaceFile(spaceId, body);
-    const changes = [{ path: result.path, kind: "modify" as const, nodeType: "file" as const, size: result.size, mtimeMs: result.mtimeMs }];
+    const changes = buildFileMutationChanges(result);
     await dispatchSpaceFsChanged(spaceId, {
       source: "api-fs",
       mutationId: body.mutationId,
@@ -249,10 +250,13 @@ router.post("/dir", async (c) => {
   if (!body?.path) return c.json({ message: "path is required" }, 400);
   try {
     const result = await createSpaceDirectory(spaceId, body.path);
-    await dispatchSpaceFsChanged(spaceId, {
-      source: "api-fs",
-      changes: [{ path: result.path, kind: "create", nodeType: "dir", mtimeMs: result.mtimeMs }],
-    }).catch((error) => logger.error("[SpaceFS] failed to publish file-system change", error));
+    if (result.createdDirs.length > 0) {
+      await dispatchSpaceFsChanged(spaceId, {
+        source: "api-fs",
+        changes: buildCreatedDirectoryChanges(result.createdDirs).map((change) =>
+          change.path === result.path ? { ...change, mtimeMs: result.mtimeMs } : change),
+      }).catch((error) => logger.error("[SpaceFS] failed to publish file-system change", error));
+    }
     return c.json(result);
   } catch (error) {
     const { status, body: errBody } = spaceFsJsonError(error);
@@ -302,7 +306,10 @@ router.post("/move", async (c) => {
     const result = await moveSpaceNode(spaceId, move);
     await dispatchSpaceFsChanged(spaceId, {
       source: "api-fs",
-      changes: [{ path: result.toPath, oldPath: result.fromPath, kind: "rename", nodeType: result.nodeType === "symlink" ? "unknown" : result.nodeType }],
+      changes: [
+        ...buildCreatedDirectoryChanges(result.createdDirs),
+        { path: result.toPath, oldPath: result.fromPath, kind: "rename", nodeType: result.nodeType === "symlink" ? "unknown" : result.nodeType },
+      ],
     }).catch((error) => logger.error("[SpaceFS] failed to publish file-system change", error));
     return c.json(result);
   } catch (error) {
@@ -535,14 +542,14 @@ router.post("/upload", async (c) => {
 
   try {
     const result = await uploadSpaceFiles(spaceId, files, dir);
-    if (result.uploaded.length > 0) {
-      const changes = result.uploaded.map((file) => ({
-        path: file.path,
-        kind: "create" as const,
-        nodeType: "file" as const,
-        size: file.size,
-        mtimeMs: file.mtimeMs,
-      }));
+    if (result.uploaded.length > 0 || (result.createdDirs?.length ?? 0) > 0) {
+      const changes = [
+        ...buildCreatedDirectoryChanges(result.createdDirs),
+        ...result.uploaded.flatMap((file) => buildFileMutationChanges({
+          ...file,
+          created: file.created !== false,
+        })),
+      ];
       await dispatchSpaceFsChanged(spaceId, {
         source: "api-fs",
         changes,

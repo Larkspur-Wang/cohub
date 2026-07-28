@@ -37,8 +37,9 @@ type Options struct {
 	// SpaceID identifies the space this sandbox serves.
 	SpaceID string
 	// Server serves each opened data channel.
-	Server SessionServer
-	Logger *slog.Logger
+	Server       SessionServer
+	OnRegistered func()
+	Logger       *slog.Logger
 }
 
 // control frames exchanged on the control channel. Kept intentionally small and
@@ -186,6 +187,9 @@ func (c *Client) connectControl(ctx context.Context) error {
 		switch frame.Type {
 		case "registered":
 			opts.Logger.Info("relay registered", slog.String("spaceId", opts.SpaceID))
+			if opts.OnRegistered != nil {
+				opts.OnRegistered()
+			}
 		case "open":
 			if frame.Channel == "" {
 				opts.Logger.Warn("relay open without channel id")

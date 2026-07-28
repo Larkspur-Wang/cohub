@@ -32,6 +32,7 @@ import {
   deleteSpaceNode,
   SpaceFsError,
 } from "../../space-fs-backend.js";
+import { buildFileMutationChanges } from "../../space-fs-change.js";
 import { dispatchSpaceFsChanged } from "../../space-events.js";
 
 const router = new Hono();
@@ -120,7 +121,7 @@ router.post("/", async (c) => {
 
     await dispatchSpaceFsChanged(spaceId, {
       source: "api-fs",
-      changes: [{ path: written.path, kind: "create", nodeType: "file", size: written.size, mtimeMs: written.mtimeMs }],
+      changes: buildFileMutationChanges(written),
     }).catch(() => undefined);
     return c.json(result);
   } catch (error) {
