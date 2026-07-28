@@ -63,6 +63,7 @@ const {
 	editor,
 	runtime,
 	spaceId,
+	active = true,
 	awareness,
 	awarenessVersion,
 	onPointerPresence,
@@ -73,6 +74,7 @@ const {
 	editor: BoardEditor;
 	runtime: BoardRuntimeData;
 	spaceId: string;
+	active?: boolean;
 	awareness: BoardAwarenessController;
 	awarenessVersion: number;
 	onPointerPresence?: (
@@ -373,7 +375,7 @@ function syncBackground(theme: BoardThemeSnapshot) {
 }
 
 function scheduleRender() {
-	if (renderFrame || !app) return;
+	if (renderFrame || !app || !active) return;
 	renderFrame = requestAnimationFrame(() => {
 		renderFrame = 0;
 		app?.render();
@@ -1059,8 +1061,11 @@ onMount(async () => {
 			height: app?.screen.height ?? 0,
 		}),
 		getAccentColor: () => getPalette().brand,
-		render: () => app?.render(),
+		render: () => {
+			if (active) app?.render();
+		},
 	});
+	animationRuntime.setActive(active);
 	animationRuntime.setData(runtime);
 
 	// The export path deliberately reuses this renderer and this theme snapshot:
@@ -1095,6 +1100,17 @@ onMount(async () => {
 
 $effect(() => {
 	animationRuntime?.setData(runtime);
+});
+
+$effect(() => {
+	animationRuntime?.setActive(active);
+	if (!active) {
+		cancelAnimationFrame(renderFrame);
+		renderFrame = 0;
+		return;
+	}
+	resizeStage();
+	syncStage();
 });
 
 $effect(() => {

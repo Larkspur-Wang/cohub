@@ -98,6 +98,16 @@ test("preview kinds share one workspace pane", () => {
 		/\{#key board\.boardId\}[\s\S]*<BoardRuntime/,
 		"switching Board tabs must remount document-scoped runtime resources",
 	);
+	assert.doesNotMatch(
+		domain,
+		/\{#if activePreviewKind === "board" && inlineBoard\}/,
+		"switching preview kinds must not unmount the active Board runtime",
+	);
+	assert.match(
+		domain,
+		/\{#if inlineBoard\}[\s\S]*hidden=\{activePreviewKind !== "board"\}[\s\S]*active=\{activePreviewKind === "board"\}/,
+		"inactive Board previews must remain mounted and suspended",
+	);
 	assert.match(
 		codeEditor,
 		/data-drawer-swipe-ignore=\{allowDrawerSwipe \? undefined : ""\}/,

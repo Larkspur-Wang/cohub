@@ -450,11 +450,18 @@ function closePreviewTab(kind: "file" | "board" | "port", key: string) {
 		/>
 {/if}
 
-{#if activePreviewKind === "board" && inlineBoard}
+{#if inlineBoard}
+	<div
+		class="h-full min-h-0"
+		hidden={activePreviewKind !== "board"}
+		inert={activePreviewKind !== "board"}
+		aria-hidden={activePreviewKind !== "board"}
+	>
 		<BoardPreviewPanel
 		board={inlineBoard}
 		previewTabs={previewTabs}
 		spaceId={spaceId}
+		active={activePreviewKind === "board"}
 		{treeVisible}
 		{onToggleTree}
 		onActivatePreviewTab={activatePreviewTab}
@@ -470,6 +477,7 @@ function closePreviewTab(kind: "file" | "board" | "port", key: string) {
 		onViewStateChange={onBoardViewStateChange}
 		onOpenFile={onOpenInlineFile}
 		/>
+	</div>
 {/if}
 
 {#if activePreviewKind === "port" && inlinePortPreview}

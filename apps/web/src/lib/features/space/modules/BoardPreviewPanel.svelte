@@ -29,6 +29,7 @@ type Props = {
 	board: InlineBoardPanelState;
 	previewTabs: PreviewTab[];
 	spaceId: string;
+	active?: boolean;
 	immersive: boolean;
 	isMobile: boolean;
 	collaborators?: Map<string, BoardCollaboratorProfile>;
@@ -55,6 +56,7 @@ let {
 	board,
 	previewTabs,
 	spaceId,
+	active = true,
 	immersive,
 	isMobile,
 	collaborators = new Map(),
@@ -127,6 +129,7 @@ const boardRuntimeModulePromise = $derived.by(() => {
 						document={board.document}
 						runtime={board.runtime}
 						spaceId={spaceId}
+						{active}
 						{immersive}
 						{isMobile}
 						{collaborators}

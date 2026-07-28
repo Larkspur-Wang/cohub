@@ -41,6 +41,8 @@ export type BoardRuntimeProps = {
 	document: BoardDocument;
 	runtime: BoardRuntimeData;
 	spaceId: string;
+	/** Keep the editor mounted while suspending input and rendering. */
+	active?: boolean;
 	immersive?: boolean;
 	syncError?: string | null;
 	/**

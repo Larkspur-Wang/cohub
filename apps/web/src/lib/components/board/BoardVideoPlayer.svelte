@@ -5,9 +5,11 @@ import type { BoardEditor } from "$lib/board/editor.svelte";
 const {
 	editor,
 	spaceId,
+	active = true,
 }: {
 	editor: BoardEditor;
 	spaceId: string;
+	active?: boolean;
 } = $props();
 
 let videoEl: HTMLVideoElement | null = $state(null);
@@ -84,9 +86,13 @@ $effect(() => {
 
 $effect(() => {
 	// Focus the player when it mounts so keyboard space works.
-	if (videoEl && src) {
+	if (active && videoEl && src) {
 		queueMicrotask(() => videoEl?.focus());
 	}
+});
+
+$effect(() => {
+	if (!active) videoEl?.pause();
 });
 
 function stopPropagation(event: Event) {

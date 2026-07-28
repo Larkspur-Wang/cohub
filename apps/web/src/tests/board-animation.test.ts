@@ -243,6 +243,13 @@ test("persistent effects resume after their target is materialized", () => {
 			assert.equal(node.container.y, 10);
 			assert.equal(node.container.scale.x, 1.5);
 		}
+
+		runtime.setActive(false);
+		assert.equal(callbacks.size, 0);
+		runtime.invalidatePoses();
+		assert.equal(callbacks.size, 0);
+		runtime.setActive(true);
+		assert.equal(callbacks.size, 1);
 	} finally {
 		runtime.destroy();
 		Date.now = originalDateNow;

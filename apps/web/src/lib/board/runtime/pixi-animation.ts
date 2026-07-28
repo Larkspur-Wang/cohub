@@ -320,6 +320,7 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 	const filterRestores = new Map<string, FilterRestore>();
 	let worldPose: BasePose | null = null;
 	let frameId = 0;
+	let active = true;
 	let destroyed = false;
 	let reducedMotion = false;
 	const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -882,18 +883,29 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 
 	function tick() {
 		frameId = 0;
-		if (destroyed || document.hidden) return;
+		if (destroyed || !active || document.hidden) return;
 		if (renderFrame(Date.now())) frameId = requestAnimationFrame(tick);
 	}
 
 	function start() {
-		if (!frameId && !destroyed && !document.hidden)
+		if (!frameId && !destroyed && active && !document.hidden)
 			frameId = requestAnimationFrame(tick);
 	}
 
 	function setData(next: BoardRuntimeData) {
 		if (next.clips !== data.clips) clearResources();
 		data = next;
+		start();
+	}
+
+	function setActive(next: boolean) {
+		if (active === next || destroyed) return;
+		active = next;
+		if (!active) {
+			cancelAnimationFrame(frameId);
+			frameId = 0;
+			return;
+		}
 		start();
 	}
 
@@ -929,6 +941,7 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 
 	return {
 		setData,
+		setActive,
 		start,
 		prepareSceneSync,
 		invalidatePoses,

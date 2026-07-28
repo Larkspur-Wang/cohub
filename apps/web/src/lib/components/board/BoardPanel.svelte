@@ -27,6 +27,7 @@ const {
 	document: initialDocument,
 	runtime,
 	spaceId,
+	active = true,
 	immersive = false,
 	syncError = null,
 	isMobile = false,
@@ -165,7 +166,7 @@ async function readClipboardText(): Promise<string | null> {
 }
 
 function handleKeydown(event: KeyboardEvent) {
-	if (editor.editingId) return;
+	if (!active || editor.editingId) return;
 	if (isEditableTarget(event.target)) return;
 	const mod = event.metaKey || event.ctrlKey;
 	const key = event.key.toLowerCase();
@@ -327,6 +328,7 @@ function handleKeydown(event: KeyboardEvent) {
 }
 
 function handleKeyup(event: KeyboardEvent) {
+	if (!active) return;
 	if (event.code === "Space") {
 		editor.spaceHeld = false;
 	}
@@ -346,6 +348,7 @@ function retrySync() {
 }
 
 function handleContextMenu(event: MouseEvent) {
+	if (!active) return;
 	event.preventDefault();
 	if (!stageWrap) return;
 	const rect = stageWrap.getBoundingClientRect();
@@ -380,6 +383,13 @@ onMount(() => {
 		unsubscribeAwareness = null;
 		void awareness.destroy().finally(() => unsubscribe?.());
 	};
+});
+
+$effect(() => {
+	if (active) return;
+	contextMenu = null;
+	exportOpen = false;
+	clearSpaceHeld();
 });
 
 onDestroy(() => {
@@ -419,6 +429,7 @@ onDestroy(() => {
 		<BoardStage
 			{editor}
 			{runtime}
+			{active}
 			{awareness}
 			{awarenessVersion}
 			{spaceId}
@@ -444,7 +455,7 @@ onDestroy(() => {
 		{/if}
 
 		<BoardTextEditor {editor} />
-		<BoardVideoPlayer {editor} {spaceId} />
+		<BoardVideoPlayer {editor} {spaceId} {active} />
 		<BoardSelectionToolbar {editor} />
 		<BoardFloatingToolbar {editor} {immersive} />
 		<BoardZoomMenu {editor} {immersive} />
