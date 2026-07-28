@@ -1,5 +1,23 @@
 [
 	{
+		"version": "2.3",
+		"date": "2026-07-28",
+		"tags": ["v2.3.0"],
+		"highlights": [
+			"**Board playback policy**: Boards can persist an autoplay policy in metadata (`sequenceId`, `delayMs`, `loop`), so opening a Board plays the right sequence with local, per-viewer timing instead of ad-hoc client wiring. Wired end-to-end through the protocol schema, API board ops, SDK, and CLI.",
+			"**Filesystem event pipeline hardening**: The sandbox watcher closes the recursive inotify race by registering each directory before reading its children, recovers from `ErrEventOverflow` by re-walking and requesting an authoritative resync, emits deterministically ordered batches, and falls back to resync instead of allocating unbounded change lists. `fs.write` now reports create/modify disposition and the parent directories it created, and a new `fs.mkdir` RPC plus capability flags let clients update trees precisely.",
+			"**Mobile-safe board navigation**: Touch devices default to the hand tool, with tap-to-select gated behind a pointer-type check and an 8px slop threshold, so panning a Board on a phone no longer causes accidental edits.",
+			"**Public profile pages removed**: The `(public)/[username]` route, its loaders, and the identity affordances linking into it are gone, cutting roughly 590 lines and simplifying `UserIdentity`, presence stacks, and the explore/trending surfaces."
+		],
+		"fixes": [
+			"Board preview state, including animation poses and video playback, survives switching between workspace preview tabs.",
+			"Persistent animation poses no longer drift when a Board re-mounts or replays.",
+			"Board links sent in chat open in the board preview instead of the generic file view.",
+			"Work publish ensures the owner has a username before publishing, avoiding broken public URLs.",
+			"Immersive preview panel chrome and Board text editing alignment polish."
+		]
+	},
+	{
 		"version": "2.2",
 		"date": "2026-07-27",
 		"tags": ["v2.2.0"],
