@@ -100,6 +100,12 @@ await board.apply({
     { type: "board.patch", payload: { patch: { title: "Updated plan" } } },
   ],
 });
+
+await board.play({
+  commandId: crypto.randomUUID(),
+  type: "play",
+  sequenceId: "ambient",
+});
 ```
 
 A bound `BoardClient` injects its `boardId` into validation and transaction
@@ -134,6 +140,34 @@ import {
   planBoardExport,
   timeline,
 } from "@neta-art/cohub/board";
+
+const sequence = compileSequence({
+  id: "ambient",
+  name: "Ambient",
+  seed: "ambient-v1",
+  timeline: clip({
+    kind: "motion.keyframes",
+    target: { type: "node", nodeId: "image" },
+    duration: 1_000,
+    keyframes: [
+      { at: 0, value: { y: 0 } },
+      { at: 500, value: { y: -8 } },
+      { at: 1_000, value: { y: 0 } },
+    ],
+  }),
+});
+
+await space.boards.create({
+  path: "boards/ambient.board",
+  metadata: {
+    playback: {
+      sequenceId: sequence.sequence.id,
+      delayMs: 500,
+      loop: true,
+    },
+  },
+  sequences: [sequence],
+});
 ```
 
 Drawing pixels is where PixiJS enters. The card renderers and themes the editor

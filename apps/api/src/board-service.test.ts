@@ -12,6 +12,7 @@ import {
   normalizeBoardOperation,
   normalizeBoardTransaction,
   normalizeNodes,
+  normalizePlaybackPosition,
   structuralValidation,
   MAX_BOARD_NODES,
   NODE_WRITE_CHUNK,
@@ -60,6 +61,12 @@ test("rejects malformed playback commands before persistence", () => {
     type: "rewind",
     playbackId: "22222222-2222-4222-8222-222222222222",
   }).success, false);
+});
+
+test("normalizes shared playback positions", () => {
+  assert.equal(normalizePlaybackPosition(1_250, 1_000), 1_000);
+  assert.equal(normalizePlaybackPosition(-250, 1_000), 0);
+  assert.equal(normalizePlaybackPosition(250, 0), 0);
 });
 
 test("requires an exact base version", () => {
@@ -147,6 +154,79 @@ test("rejects clips outside their sequence", () => {
       },
     }),
     (error) => error instanceof BoardServiceError && error.status === 400,
+  );
+});
+
+test("validates Board playback metadata and its final sequence reference", () => {
+  assert.throws(
+    () => operation({
+      type: "board.patch",
+      payload: {
+        patch: {
+          metadata: {
+            playback: {
+              sequenceId: "ambient",
+              loop: "forever",
+            },
+          },
+        },
+      },
+    }),
+    (error) => error instanceof BoardServiceError && error.code === "INVALID_PLAYBACK_POLICY",
+  );
+
+  const transaction = normalizeBoardTransaction({
+    txId: "tx-autoplay",
+    boardId,
+    baseVersion: 0,
+    operations: [
+      {
+        type: "board.patch",
+        payload: {
+          patch: {
+            metadata: {
+              playback: {
+                sequenceId: "ambient",
+                delayMs: 250,
+                loop: true,
+              },
+            },
+          },
+        },
+      },
+      {
+        type: "sequence.upsert",
+        payload: {
+          sequence: {
+            id: "ambient",
+            name: "Ambient",
+            duration: 1_000,
+            seed: "ambient",
+            restPose: {},
+            metadata: {},
+          },
+          clips: [],
+        },
+      },
+    ],
+  });
+  const context = {
+    boardVersion: 0,
+    metadata: {},
+    nodeIds: [],
+    effects: [],
+    sequences: [],
+  };
+  assert.deepEqual(errorsOf(contextualValidation(transaction, context)), []);
+
+  const missingSequence = normalizeBoardTransaction({
+    ...transaction,
+    txId: "tx-missing-autoplay",
+    operations: transaction.operations.slice(0, 1),
+  });
+  assert.deepEqual(
+    errorsOf(contextualValidation(missingSequence, context)),
+    ["INVALID_REFERENCE"],
   );
 });
 

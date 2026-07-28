@@ -3,6 +3,7 @@ import {
   BOARD_BUILTIN_EFFECT_KINDS,
   BoardClipSchema,
   BoardEffectSchema,
+  BoardPlaybackPolicySchema,
   BoardSequenceSchema,
   DEFAULT_BOARD_RENDER_LIMITS,
   type BoardClip,
@@ -115,8 +116,29 @@ function cleanRecord(value: unknown, fieldName: string): Record<string, unknown>
   return value;
 }
 
+function cleanBoardMetadata(value: unknown): Record<string, unknown> {
+  const metadata = cleanRecord(value, "board.metadata");
+  if (metadata.playback !== undefined) {
+    const parsed = BoardPlaybackPolicySchema.safeParse(metadata.playback);
+    if (!parsed.success) {
+      throw new BoardServiceError(
+        400,
+        parsed.error.issues[0]?.message ?? "invalid Board playback metadata",
+        "INVALID_PLAYBACK_POLICY",
+      );
+    }
+    return { ...metadata, playback: parsed.data };
+  }
+  return metadata;
+}
+
 function finite(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+export function normalizePlaybackPosition(position: number, duration: number): number {
+  if (duration <= 0) return 0;
+  return Math.min(duration, Math.max(0, position));
 }
 
 function optionalString(value: unknown, fieldName: string, maxLength = MAX_REF_LENGTH): string | null {
@@ -303,7 +325,7 @@ export function normalizeBoardOperation(operation: BoardOperation): BoardOperati
         if (typeof operation.payload.patch.title !== "string" || !operation.payload.patch.title.trim()) throw new BoardServiceError(400, "board title is required");
         patch.title = operation.payload.patch.title.trim().slice(0, 255);
       }
-      if ("metadata" in operation.payload.patch) patch.metadata = cleanRecord(operation.payload.patch.metadata, "board.metadata");
+      if ("metadata" in operation.payload.patch) patch.metadata = cleanBoardMetadata(operation.payload.patch.metadata);
       if (Object.keys(patch).length === 0) throw new BoardServiceError(400, "board.patch is empty");
       return { ...base, type: "board.patch", payload: { patch } };
     }
@@ -420,6 +442,7 @@ export type BoardValidationContext = {
   nodeIds: Iterable<string>;
   effects: Iterable<Pick<BoardEffect, "id" | "target">>;
   sequences: Iterable<{ id: string; clips: BoardClip[] }>;
+  metadata?: Record<string, unknown>;
 };
 
 export function structuralValidation(transaction: BoardTransaction): BoardValidationResult {
@@ -477,6 +500,7 @@ export function contextualValidation(
   const nodeIds = new Set(context.nodeIds);
   const effects = new Map([...context.effects].map((effect) => [effect.id, effect.target]));
   const sequences = new Map([...context.sequences].map((sequence) => [sequence.id, sequence.clips]));
+  let boardMetadata = context.metadata ?? {};
   const error = (code: string, message: string, path: string) => {
     diagnostics.push({ severity: "error", code, message, path });
   };
@@ -491,6 +515,10 @@ export function contextualValidation(
 
   for (const [index, operation] of transaction.operations.entries()) {
     const path = `operations.${index}`;
+    if (operation.type === "board.patch") {
+      boardMetadata = operation.payload.patch.metadata ?? boardMetadata;
+      continue;
+    }
     if (operation.type === "node.create") {
       if (nodeIds.has(operation.payload.node.nodeId)) error("NODE_EXISTS", `node already exists: ${operation.payload.node.nodeId}`, `${path}.payload.node.nodeId`);
       if (operation.payload.node.parentId && !nodeIds.has(operation.payload.node.parentId)) {
@@ -539,7 +567,10 @@ export function contextualValidation(
       }
       sequences.set(
         operation.payload.sequence.id,
-        operation.payload.clips.map((clip) => ({ ...clip, sequenceId: operation.payload.sequence.id })),
+        operation.payload.clips.map((clip) => ({
+          ...clip,
+          sequenceId: operation.payload.sequence.id,
+        })),
       );
       continue;
     }
@@ -547,6 +578,15 @@ export function contextualValidation(
       if (!sequences.has(operation.payload.sequenceId)) error("SEQUENCE_NOT_FOUND", `sequence does not exist: ${operation.payload.sequenceId}`, `${path}.payload.sequenceId`);
       sequences.delete(operation.payload.sequenceId);
     }
+  }
+
+  const playbackPolicy = BoardPlaybackPolicySchema.safeParse(boardMetadata.playback);
+  if (playbackPolicy.success && !sequences.has(playbackPolicy.data.sequenceId)) {
+    error(
+      "INVALID_REFERENCE",
+      `playback sequence does not exist: ${playbackPolicy.data.sequenceId}`,
+      "board.metadata.playback.sequenceId",
+    );
   }
 
   return {

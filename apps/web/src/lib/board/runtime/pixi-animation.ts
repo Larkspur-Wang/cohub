@@ -2,6 +2,7 @@ import type {
 	BoardClip,
 	BoardEffect,
 	BoardPlaybackSnapshot,
+	BoardSequence,
 } from "@neta-art/cohub";
 import type { BoardItem } from "@neta-art/cohub/board";
 import { sampleRadius } from "@neta-art/cohub/board";
@@ -27,9 +28,10 @@ import {
 	composePose,
 	createPose,
 	hashUnit,
-	playbackPosition,
+	playbackSampleAt,
 	sampleKeyframePose,
 	samplePathPose,
+	sequencePosition,
 	sequenceRestPoses,
 } from "$lib/board/runtime/animation-core";
 import type { BoardRuntimeData } from "$lib/board/runtime/board-runtime";
@@ -304,6 +306,7 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 		sequences: [],
 		clips: [],
 		playback: null,
+		playbackPolicy: null,
 	};
 	const basePoses = new Map<string, BasePose>();
 	const effectOrigins = new Map<string, number>();
@@ -320,6 +323,9 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 	const filterRestores = new Map<string, FilterRestore>();
 	let worldPose: BasePose | null = null;
 	let frameId = 0;
+	let autoplayKey: string | null = null;
+	let autoplayPlayback: BoardPlaybackSnapshot | null = null;
+	let autoplayTimer: ReturnType<typeof setTimeout> | null = null;
 	let active = true;
 	let destroyed = false;
 	let reducedMotion = false;
@@ -598,14 +604,24 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 		resource.container.visible = true;
 	}
 
-	function nodeTimelinePose(nodeId: string, position: number): AnimationPose {
+	function nodeTimelinePose(
+		nodeId: string,
+		sequence: BoardSequence,
+		position: number,
+		loop: boolean,
+	): AnimationPose {
 		const pose = createPose();
+		const samplePosition = sequencePosition(position, sequence.duration, loop);
 		for (const clip of data.clips) {
-			if (clip.target.type !== "node" || clip.target.nodeId !== nodeId)
+			if (
+				clip.sequenceId !== sequence.id ||
+				clip.target.type !== "node" ||
+				clip.target.nodeId !== nodeId
+			)
 				continue;
 			if (clip.kind !== "motion.keyframes" && clip.kind !== "motion.path")
 				continue;
-			const sample = clipSampleAt(clip, position);
+			const sample = clipSampleAt(clip, samplePosition);
 			if (!sample) continue;
 			composePose(
 				pose,
@@ -619,8 +635,10 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 
 	function updateTrail(
 		clip: BoardClip,
+		sequence: BoardSequence,
 		position: number,
 		progress: number,
+		loop: boolean,
 		layers: NonNullable<ReturnType<RuntimeOptions["getLayers"]>>,
 	) {
 		if (clip.target.type !== "node") return;
@@ -648,7 +666,12 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 		for (let index = 0; index < resource.points.length; index += 1) {
 			const samplePosition =
 				position - history * (1 - index / (resource.points.length - 1));
-			const pose = nodeTimelinePose(clip.target.nodeId, samplePosition);
+			const pose = nodeTimelinePose(
+				clip.target.nodeId,
+				sequence,
+				samplePosition,
+				loop,
+			);
 			resource.points[index].set(entry.base.x + pose.x, entry.base.y + pose.y);
 		}
 		resource.rope.tint = finite(clip.params.color)
@@ -722,8 +745,10 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 
 	function applyClip(
 		clip: BoardClip,
+		sequence: BoardSequence,
 		position: number,
 		playback: BoardPlaybackSnapshot,
+		loop: boolean,
 		poses: Map<string, AnimationPose>,
 		cameraPose: AnimationPose,
 		jobs: Array<() => void>,
@@ -765,7 +790,9 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 			return true;
 		}
 		if (clip.kind === "effects.trail") {
-			jobs.push(() => updateTrail(clip, position, progress, layers));
+			jobs.push(() =>
+				updateTrail(clip, sequence, position, progress, loop, layers),
+			);
 			return true;
 		}
 		if (clip.kind === "effects.impact") {
@@ -824,7 +851,7 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 			}
 		}
 
-		const playback = data.playback;
+		const playback = data.playback ?? autoplayPlayback;
 		const sequence = playback
 			? (data.sequences.find(
 					(item) =>
@@ -832,8 +859,14 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 						item.revision === playback.sequenceRevision,
 				) ?? null)
 			: null;
-		const position = playback ? playbackPosition(playback, now) : 0;
-		const ended = Boolean(sequence && position >= sequence.duration);
+		const loop =
+			playback === autoplayPlayback && Boolean(data.playbackPolicy?.loop);
+		const sample =
+			playback && sequence
+				? playbackSampleAt(playback, sequence.duration, now, loop)
+				: null;
+		const position = sample?.position ?? 0;
+		const ended = sample?.ended ?? false;
 		const useRestPose = Boolean(
 			sequence && (reducedMotion || playback?.status === "stopped" || ended),
 		);
@@ -842,14 +875,21 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 		if (useRestPose) {
 			for (const [nodeId, restPose] of sequenceRestPoses(sequence))
 				composePose(poseFor(poses, nodeId), restPose);
-		} else if (playback && playback.status !== "stopped" && sequence) {
+		} else if (
+			playback &&
+			playback.status !== "stopped" &&
+			sequence &&
+			!sample?.waiting
+		) {
 			for (const clip of data.clips) {
 				if (clip.sequenceId !== sequence.id) continue;
 				hasSupportedClip =
 					applyClip(
 						clip,
+						sequence,
 						position,
 						playback,
+						loop,
 						poses,
 						cameraPose,
 						jobs,
@@ -870,7 +910,8 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 			!reducedMotion &&
 			playback?.status === "playing" &&
 			Boolean(sequence) &&
-			!ended;
+			!ended &&
+			!sample?.waiting;
 		return (
 			hasContinuousEffect ||
 			Boolean(
@@ -892,9 +933,65 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 			frameId = requestAnimationFrame(tick);
 	}
 
+	function clearAutoplayTimer() {
+		if (autoplayTimer) clearTimeout(autoplayTimer);
+		autoplayTimer = null;
+	}
+
+	function scheduleAutoplayStart() {
+		clearAutoplayTimer();
+		if (!autoplayPlayback || destroyed || !active) return;
+		const remaining = autoplayPlayback.effectiveAt - Date.now();
+		if (remaining <= 0) {
+			start();
+			return;
+		}
+		autoplayTimer = setTimeout(
+			scheduleAutoplayStart,
+			Math.min(remaining, 2_147_483_647),
+		);
+	}
+
+	function syncAutoplay() {
+		if (data.playback) {
+			clearAutoplayTimer();
+			autoplayKey = null;
+			autoplayPlayback = null;
+			return;
+		}
+		if (!active) return;
+		const policy = data.playbackPolicy;
+		const sequence = policy
+			? (data.sequences.find((item) => item.id === policy.sequenceId) ?? null)
+			: null;
+		if (!policy || !sequence || (policy.loop && sequence.duration <= 0)) {
+			clearAutoplayTimer();
+			autoplayKey = null;
+			autoplayPlayback = null;
+			return;
+		}
+		const key = `${sequence.id}:${sequence.revision}:${policy.delayMs}:${policy.loop}`;
+		if (key === autoplayKey && autoplayPlayback) return;
+		autoplayKey = key;
+		autoplayPlayback = {
+			boardId: sequence.boardId,
+			playbackId: crypto.randomUUID(),
+			sequenceId: sequence.id,
+			sequenceRevision: sequence.revision,
+			playbackRevision: 0,
+			status: "playing",
+			position: 0,
+			effectiveAt: Date.now() + policy.delayMs,
+			timeScale: 1,
+			seed: sequence.seed,
+		};
+		scheduleAutoplayStart();
+	}
+
 	function setData(next: BoardRuntimeData) {
 		if (next.clips !== data.clips) clearResources();
 		data = next;
+		syncAutoplay();
 		start();
 	}
 
@@ -902,10 +999,13 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 		if (active === next || destroyed) return;
 		active = next;
 		if (!active) {
+			clearAutoplayTimer();
 			cancelAnimationFrame(frameId);
 			frameId = 0;
 			return;
 		}
+		syncAutoplay();
+		scheduleAutoplayStart();
 		start();
 	}
 
@@ -920,7 +1020,7 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 		worldPose = null;
 		// Scene sync may materialize the first target after the runtime's initial
 		// frame has stopped. Resume only when there is animation data to evaluate.
-		if (data.effects.length > 0 || data.playback) start();
+		if (data.effects.length > 0 || data.playback || autoplayPlayback) start();
 	}
 
 	function visibilityChanged() {
@@ -947,6 +1047,7 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 		invalidatePoses,
 		destroy() {
 			destroyed = true;
+			clearAutoplayTimer();
 			cancelAnimationFrame(frameId);
 			frameId = 0;
 			document.removeEventListener("visibilitychange", visibilityChanged);

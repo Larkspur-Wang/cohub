@@ -13,6 +13,19 @@ test("battle fixture compilation is deterministic", () => {
 	assert.deepEqual(createBattleFixture(input), createBattleFixture(input));
 });
 
+test("battle fixtures preserve Board playback policy", () => {
+	const fixture = createBattleFixture({
+		leftImagePath: "assets/left.png",
+		rightImagePath: "assets/right.png",
+		autoplayDelay: 750,
+	});
+	assert.deepEqual(fixture.metadata.playback, {
+		sequenceId: "battle",
+		delayMs: 750,
+		loop: true,
+	});
+});
+
 test("built-in registry validates and estimates the battle fixture", () => {
 	const fixture = createBattleFixture({
 		leftImagePath: "assets/left.png",

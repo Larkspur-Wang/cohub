@@ -69,6 +69,9 @@ router.post("/", async (c) => {
   try {
     nodes = normalizeNodes(body.nodes ?? []);
     operations = [
+      ...(body.metadata
+        ? [{ type: "board.patch", payload: { patch: { metadata: body.metadata } } } satisfies BoardOperation]
+        : []),
       ...(body.effects ?? []).map((effect): BoardOperation => ({ type: "effect.upsert", payload: { effect } })),
       ...(body.sequences ?? []).map(({ sequence, clips }): BoardOperation => ({ type: "sequence.upsert", payload: { sequence, clips } })),
     ].map(normalizeBoardOperation);

@@ -5,6 +5,7 @@ export function createBattleFixture(input: {
 	leftImagePath: string;
 	rightImagePath: string;
 	seed?: string;
+	autoplayDelay?: number;
 }) {
 	const seed = input.seed ?? "cohub-battle-v1";
 	const nodes: BoardNodeInput[] = [
@@ -157,5 +158,16 @@ export function createBattleFixture(input: {
 		),
 		metadata: { fixture: "battle-v1" },
 	});
-	return { nodes, effects, ...compiled };
+	return {
+		metadata: {
+			playback: {
+				sequenceId: compiled.sequence.id,
+				delayMs: input.autoplayDelay ?? 0,
+				loop: true,
+			},
+		},
+		nodes,
+		effects,
+		...compiled,
+	};
 }

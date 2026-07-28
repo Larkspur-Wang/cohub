@@ -241,6 +241,32 @@ export function playbackPosition(
 	);
 }
 
+export function sequencePosition(
+	position: number,
+	duration: number,
+	loop: boolean,
+): number {
+	if (duration <= 0) return 0;
+	if (!loop) return Math.min(duration, Math.max(0, position));
+	const normalized = position % duration;
+	return normalized < 0 ? normalized + duration : normalized;
+}
+
+export function playbackSampleAt(
+	playback: BoardPlaybackSnapshot,
+	duration: number,
+	now: number,
+	loop = false,
+): { position: number; ended: boolean; waiting: boolean } {
+	const waiting = playback.status === "playing" && now < playback.effectiveAt;
+	const elapsed = playbackPosition(playback, now);
+	return {
+		position: sequencePosition(elapsed, duration, loop),
+		ended: duration <= 0 || (!loop && elapsed >= duration),
+		waiting,
+	};
+}
+
 export function hashUnit(value: string): number {
 	let result = 2166136261;
 	for (let index = 0; index < value.length; index += 1) {

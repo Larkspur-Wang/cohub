@@ -39,6 +39,7 @@ import {
   BoardServiceError,
   contextualValidation,
   normalizeBoardTransaction,
+  normalizePlaybackPosition,
   NODE_WRITE_CHUNK,
   type BoardValidationContext,
   ZERO_BOARD_COST,
@@ -182,6 +183,7 @@ export async function getBoardCapabilities(spaceId: string, boardId: string): Pr
 
 function createValidationContext(input: {
   boardVersion: number;
+  metadata: Record<string, unknown>;
   nodes: Array<{ nodeId: string }>;
   effects: Array<typeof boardEffects.$inferSelect>;
   sequences: Array<typeof boardSequences.$inferSelect>;
@@ -195,6 +197,7 @@ function createValidationContext(input: {
   }
   return {
     boardVersion: input.boardVersion,
+    metadata: input.metadata,
     nodeIds: input.nodes.map((node) => node.nodeId),
     effects: input.effects.map(effectFromRow),
     sequences: input.sequences.map((sequence) => ({
@@ -209,7 +212,7 @@ export async function validateBoardTransaction(input: {
   value: unknown;
 }): Promise<BoardValidationResult> {
   const transaction = normalizeBoardTransaction(input.value);
-  const [board] = await db.select({ id: boards.id, version: boards.version }).from(boards)
+  const [board] = await db.select({ id: boards.id, version: boards.version, metadata: boards.metadata }).from(boards)
     .where(and(eq(boards.id, transaction.boardId), eq(boards.spaceId, input.spaceId))).limit(1);
   if (!board) throw new BoardServiceError(404, "board not found", "BOARD_NOT_FOUND");
   const [nodes, effects, sequences, clips] = await Promise.all([
@@ -220,6 +223,7 @@ export async function validateBoardTransaction(input: {
   ]);
   return contextualValidation(transaction, createValidationContext({
     boardVersion: board.version,
+    metadata: board.metadata,
     nodes,
     effects,
     sequences,
@@ -300,6 +304,7 @@ export async function applyBoardTransaction(input: {
     ]);
     const validation = contextualValidation(transaction, createValidationContext({
       boardVersion: board.version,
+      metadata: board.metadata,
       nodes: validationNodes,
       effects: validationEffects,
       sequences: validationSequences,
@@ -397,7 +402,7 @@ export async function applyBoardTransaction(input: {
             sequenceRevision: revision,
             playbackRevision: activePlayback.playbackRevision + 1,
             status: "stopped",
-            position: Math.min(value.duration, currentPosition(activePlayback, now)),
+            position: currentPosition(activePlayback, now, value.duration),
             effectiveAt: now,
             seed: value.seed,
             commandId: `sequence-update:${transaction.txId}`,
@@ -518,9 +523,15 @@ export async function applyBoardTransaction(input: {
   return inspectBoard(input.spaceId, transaction.boardId);
 }
 
-function currentPosition(row: typeof boardPlaybackStates.$inferSelect, now: Date): number {
-  if (row.status !== "playing") return row.position;
-  return row.position + Math.max(0, now.getTime() - row.effectiveAt.getTime()) * row.timeScale;
+function currentPosition(
+  row: typeof boardPlaybackStates.$inferSelect,
+  now: Date,
+  duration: number,
+): number {
+  const position = row.status === "playing"
+    ? row.position + Math.max(0, now.getTime() - row.effectiveAt.getTime()) * row.timeScale
+    : row.position;
+  return normalizePlaybackPosition(position, duration);
 }
 
 export async function applyBoardPlaybackCommand(input: {
@@ -545,7 +556,7 @@ export async function applyBoardPlaybackCommand(input: {
         eq(boardSequences.id, input.command.sequenceId),
       )).limit(1);
       if (!sequence) throw new BoardServiceError(404, "board sequence not found", "SEQUENCE_NOT_FOUND");
-      const position = Math.min(sequence.duration, Math.max(0, input.command.position ?? 0));
+      const position = normalizePlaybackPosition(input.command.position ?? 0, sequence.duration);
       const timeScale = input.command.timeScale ?? 1;
       const values = {
         boardId: input.boardId,
@@ -575,9 +586,11 @@ export async function applyBoardPlaybackCommand(input: {
       eq(boardSequences.id, existing.sequenceId),
     )).limit(1);
     if (!sequence) throw new BoardServiceError(404, "board sequence not found", "SEQUENCE_NOT_FOUND");
-    const position = Math.min(
+    const position = normalizePlaybackPosition(
+      input.command.type === "seek"
+        ? input.command.position
+        : currentPosition(existing, now, sequence.duration),
       sequence.duration,
-      input.command.type === "seek" ? input.command.position : currentPosition(existing, now),
     );
     const status = input.command.type === "pause" ? "paused" : input.command.type === "stop" ? "stopped" : existing.status;
     const [row] = await tx.update(boardPlaybackStates).set({

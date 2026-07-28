@@ -1,4 +1,9 @@
-import type { BoardBootstrap, BoardOperation } from "@neta-art/cohub";
+import { parseBoardPlaybackPolicy } from "@cohub/protocol";
+import type {
+	BoardBootstrap,
+	BoardOperation,
+	BoardPlaybackPolicy,
+} from "@neta-art/cohub";
 import { BOARD_DOCUMENT_KIND, type BoardDocument } from "@neta-art/cohub/board";
 import type {
 	BoardAutomationActivity,
@@ -21,7 +26,21 @@ export type BoardRuntimeViewState = {
 export type BoardRuntimeData = Pick<
 	BoardBootstrap,
 	"effects" | "sequences" | "clips" | "playback"
->;
+> & {
+	playbackPolicy: BoardPlaybackPolicy | null;
+};
+
+export function boardRuntimeDataFromBootstrap(
+	bootstrap: BoardBootstrap,
+): BoardRuntimeData {
+	return {
+		effects: bootstrap.effects,
+		sequences: bootstrap.sequences,
+		clips: bootstrap.clips,
+		playback: bootstrap.playback,
+		playbackPolicy: parseBoardPlaybackPolicy(bootstrap.board.metadata),
+	};
+}
 
 /** Runtime operations carry server-assigned revisions, so refresh them atomically. */
 export function operationsRequireBoardRuntimeRefresh(
@@ -30,7 +49,9 @@ export function operationsRequireBoardRuntimeRefresh(
 	return operations.some(
 		(operation) =>
 			operation.type.startsWith("effect.") ||
-			operation.type.startsWith("sequence."),
+			operation.type.startsWith("sequence.") ||
+			(operation.type === "board.patch" &&
+				operation.payload.patch.metadata !== undefined),
 	);
 }
 

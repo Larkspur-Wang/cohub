@@ -49,6 +49,7 @@ export type {
   BoardNodeRecord,
   BoardOperation,
   BoardPlaybackCommand,
+  BoardPlaybackPolicy,
   BoardPlaybackSnapshot,
   BoardRecord,
   BoardRenderCost,

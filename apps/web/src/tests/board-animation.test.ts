@@ -4,6 +4,7 @@ import type {
 	BoardClip,
 	BoardEffect,
 	BoardPlaybackSnapshot,
+	BoardSequence,
 } from "@neta-art/cohub";
 import { Container } from "pixi.js";
 import {
@@ -12,8 +13,10 @@ import {
 	createPose,
 	hashUnit,
 	playbackPosition,
+	playbackSampleAt,
 	sampleKeyframePose,
 	samplePathPose,
+	sequencePosition,
 } from "$lib/board/runtime/animation-core";
 import { createBoardAnimationRuntime } from "$lib/board/runtime/pixi-animation";
 
@@ -125,6 +128,33 @@ test("playback and seeded random values can be reconstructed after reconnect", (
 	);
 });
 
+test("loop playback wraps without ending and honors its initial delay", () => {
+	const playback: BoardPlaybackSnapshot = {
+		boardId: "11111111-1111-4111-8111-111111111111",
+		playbackId: "22222222-2222-4222-8222-222222222222",
+		sequenceId: "sequence",
+		sequenceRevision: 1,
+		playbackRevision: 1,
+		status: "playing",
+		position: 250,
+		effectiveAt: 1_500,
+		timeScale: 1,
+		seed: "loop",
+	};
+	assert.deepEqual(playbackSampleAt(playback, 1_000, 1_000, true), {
+		position: 250,
+		ended: false,
+		waiting: true,
+	});
+	assert.deepEqual(playbackSampleAt(playback, 1_000, 3_500, true), {
+		position: 250,
+		ended: false,
+		waiting: false,
+	});
+	assert.equal(sequencePosition(-100, 1_000, true), 900);
+	assert.equal(sequencePosition(1_250, 1_000, false), 1_000);
+});
+
 test("persistent effects resume after their target is materialized", () => {
 	const descriptors = new Map(
 		["window", "document", "requestAnimationFrame", "cancelAnimationFrame"].map(
@@ -220,6 +250,7 @@ test("persistent effects resume after their target is materialized", () => {
 			sequences: [],
 			clips: [],
 			playback: null,
+			playbackPolicy: null,
 		});
 		runFrame();
 		assert.equal(callbacks.size, 0);
@@ -243,6 +274,50 @@ test("persistent effects resume after their target is materialized", () => {
 			assert.equal(node.container.y, 10);
 			assert.equal(node.container.scale.x, 1.5);
 		}
+
+		const sequence: BoardSequence = {
+			id: "sequence",
+			boardId: "11111111-1111-4111-8111-111111111111",
+			name: "Autoplay",
+			duration: 1_000,
+			seed: "autoplay",
+			restPose: {},
+			metadata: {},
+			revision: 0,
+		};
+		runtime.setActive(false);
+		runtime.setData({
+			effects: [],
+			sequences: [sequence],
+			clips: [
+				makeClip({
+					start: 0,
+					duration: 1_000,
+					keyframes: [
+						{ at: 0, value: { x: 40 } },
+						{ at: 1_000, value: { x: 100 } },
+					],
+				}),
+			],
+			playback: null,
+			playbackPolicy: {
+				sequenceId: sequence.id,
+				delayMs: 500,
+				loop: true,
+			},
+		});
+		assert.equal(callbacks.size, 0);
+		runtime.setActive(true);
+		assert.equal(callbacks.size, 1);
+		now = 250;
+		runFrame();
+		assert.equal(node.container.x, 0);
+		assert.equal(callbacks.size, 0);
+		now = 750;
+		runtime.invalidatePoses();
+		runFrame();
+		assert.equal(node.container.x, 40);
+		assert.equal(callbacks.size, 1);
 
 		runtime.setActive(false);
 		assert.equal(callbacks.size, 0);

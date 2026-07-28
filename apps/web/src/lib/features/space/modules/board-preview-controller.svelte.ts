@@ -27,6 +27,7 @@ import {
 } from "$lib/board/board-sync-policy";
 import {
 	type BoardRuntimeData,
+	boardRuntimeDataFromBootstrap,
 	operationsRequireBoardRuntimeRefresh,
 } from "$lib/board/runtime/board-runtime";
 import {
@@ -296,12 +297,7 @@ export function createBoardPreviewController(
 							path,
 							boardId: bootstrap.board.id,
 							document: boardBootstrapToDocument(bootstrap),
-							runtime: {
-								effects: bootstrap.effects,
-								sequences: bootstrap.sequences,
-								clips: bootstrap.clips,
-								playback: bootstrap.playback,
-							},
+							runtime: boardRuntimeDataFromBootstrap(bootstrap),
 							loading: false,
 							saving: false,
 							error: null,
@@ -525,12 +521,7 @@ export function createBoardPreviewController(
 				? {
 						...item,
 						document: boardBootstrapToDocument(bootstrap),
-						runtime: {
-							effects: bootstrap.effects,
-							sequences: bootstrap.sequences,
-							clips: bootstrap.clips,
-							playback: bootstrap.playback,
-						},
+						runtime: boardRuntimeDataFromBootstrap(bootstrap),
 						saving: false,
 						saveError: null,
 					}
@@ -883,12 +874,7 @@ export function createBoardPreviewController(
 				? {
 						...item,
 						document: boardBootstrapToDocument(bootstrap),
-						runtime: {
-							effects: bootstrap.effects,
-							sequences: bootstrap.sequences,
-							clips: bootstrap.clips,
-							playback: bootstrap.playback,
-						},
+						runtime: boardRuntimeDataFromBootstrap(bootstrap),
 						loading: false,
 						saveError: null,
 					}

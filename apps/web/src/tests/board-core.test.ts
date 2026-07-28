@@ -60,6 +60,10 @@ test("runtime operations require an atomic bootstrap refresh", () => {
 		type: "board.patch",
 		payload: { patch: { title: "Board" } },
 	} as BoardOperation;
+	const metadataOperation = {
+		type: "board.patch",
+		payload: { patch: { metadata: { playback: {} } } },
+	} as BoardOperation;
 	const effectOperation = {
 		type: "effect.delete",
 		payload: { effectId: "effect-1" },
@@ -69,6 +73,7 @@ test("runtime operations require an atomic bootstrap refresh", () => {
 		payload: { sequenceId: "sequence-1" },
 	} as BoardOperation;
 	assert.equal(operationsRequireBoardRuntimeRefresh([boardOperation]), false);
+	assert.equal(operationsRequireBoardRuntimeRefresh([metadataOperation]), true);
 	assert.equal(operationsRequireBoardRuntimeRefresh([effectOperation]), true);
 	assert.equal(operationsRequireBoardRuntimeRefresh([sequenceOperation]), true);
 });

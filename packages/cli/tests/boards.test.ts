@@ -36,6 +36,9 @@ test("Board commands and every subcommand expose -h", () => {
   for (const command of boards.commands) {
     assert.match(command.helpInformation(), /-h, --help/, `${command.name()} is missing -h`);
   }
+  const play = boards.commands.find((command) => command.name() === "play");
+  assert.ok(play);
+  assert.doesNotMatch(play.helpInformation(), /--loop/);
 });
 
 test("Board JSON and inspect inputs are parsed without rewriting payload data", () => {

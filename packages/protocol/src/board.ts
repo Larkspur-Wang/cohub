@@ -1,11 +1,7 @@
 import { z } from "zod";
-import {
-  BOARD_BUILTIN_CAPABILITIES,
-  BOARD_BUILTIN_CLIP_KINDS,
-  BOARD_BUILTIN_EFFECT_KINDS,
-  DEFAULT_BOARD_RENDER_LIMITS,
-  type BoardCapability,
-  type BoardRenderCost,
+import type {
+  BoardCapability,
+  BoardRenderCost,
 } from "./board-constants.js";
 
 export {
@@ -233,6 +229,7 @@ export type BoardBootstrap = {
 export const BoardCreateInputSchema = z.object({
   path: z.string().min(1),
   title: z.string().min(1).max(255).optional(),
+  metadata: jsonObjectSchema.optional(),
   nodes: z.array(BoardNodeInputSchema).max(50_000).optional(),
   effects: z.array(BoardEffectSchema.omit({ boardId: true, revision: true })).optional(),
   sequences: z.array(z.object({
@@ -270,6 +267,21 @@ export type BoardValidationResult = {
 };
 
 export type BoardCapabilities = { protocolVersion: 1; capabilities: BoardCapability[]; limits: BoardRenderCost };
+
+/** Persisted on `boards.metadata.playback`: how a Board plays when opened. */
+export const BoardPlaybackPolicySchema = z.object({
+  sequenceId: idSchema,
+  /** Delay before the first local playback after opening the Board, in milliseconds. */
+  delayMs: finiteSchema.nonnegative().default(0),
+  loop: z.boolean().default(false),
+});
+
+export type BoardPlaybackPolicy = z.infer<typeof BoardPlaybackPolicySchema>;
+
+export function parseBoardPlaybackPolicy(metadata: Record<string, unknown>): BoardPlaybackPolicy | null {
+  const parsed = BoardPlaybackPolicySchema.safeParse(metadata.playback);
+  return parsed.success ? parsed.data : null;
+}
 
 export type BoardPlaybackStatus = "playing" | "paused" | "stopped";
 export type BoardPlaybackSnapshot = {
