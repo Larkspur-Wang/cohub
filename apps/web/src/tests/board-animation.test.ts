@@ -334,3 +334,332 @@ test("persistent effects resume after their target is materialized", () => {
 		}
 	}
 });
+
+const stubEnvKeys = [
+	"window",
+	"document",
+	"requestAnimationFrame",
+	"cancelAnimationFrame",
+	"setTimeout",
+	"clearTimeout",
+] as const;
+
+function stubAnimationEnv() {
+	const descriptors = new Map(
+		stubEnvKeys.map(
+			(key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)] as const,
+		),
+	);
+	const originalDateNow = Date.now;
+	const rafCallbacks = new Map<number, FrameRequestCallback>();
+	const timers = new Map<number, () => void>();
+	let nextFrameId = 1;
+	let nextTimerId = 1;
+	let now = 0;
+
+	Object.defineProperties(globalThis, {
+		window: {
+			configurable: true,
+			value: {
+				matchMedia: () => ({
+					matches: false,
+					addEventListener() {},
+					removeEventListener() {},
+				}),
+			},
+		},
+		document: {
+			configurable: true,
+			value: { hidden: false, addEventListener() {}, removeEventListener() {} },
+		},
+		requestAnimationFrame: {
+			configurable: true,
+			value: (callback: FrameRequestCallback) => {
+				const id = nextFrameId++;
+				rafCallbacks.set(id, callback);
+				return id;
+			},
+		},
+		cancelAnimationFrame: {
+			configurable: true,
+			value: (id: number) => rafCallbacks.delete(id),
+		},
+		setTimeout: {
+			configurable: true,
+			value: (callback: () => void) => {
+				const id = nextTimerId++;
+				timers.set(id, callback);
+				return id;
+			},
+		},
+		clearTimeout: {
+			configurable: true,
+			value: (id: number) => timers.delete(id),
+		},
+	});
+	Date.now = () => now;
+
+	const runFrame = () => {
+		const entry = rafCallbacks.entries().next().value;
+		assert.ok(entry, "expected a pending rAF callback");
+		rafCallbacks.delete(entry[0]);
+		entry[1](now);
+	};
+
+	const runTimer = () => {
+		const entry = timers.entries().next().value;
+		assert.ok(entry, "expected a pending timer");
+		timers.delete(entry[0]);
+		entry[1]();
+	};
+
+	const restore = () => {
+		Date.now = originalDateNow;
+		for (const [key, descriptor] of descriptors) {
+			if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+			else Reflect.deleteProperty(globalThis, key);
+		}
+	};
+
+	return {
+		now: (value: number) => {
+			now = value;
+		},
+		runFrame,
+		runTimer,
+		rafCount: () => rafCallbacks.size,
+		timerCount: () => timers.size,
+		restore,
+	};
+}
+
+test("shared playback clamps a future server timestamp once", () => {
+	const env = stubAnimationEnv();
+	const node = { item: {} as never, container: new Container() };
+	const sequence: BoardSequence = {
+		id: "seq",
+		boardId: "11111111-1111-4111-8111-111111111111",
+		name: "Battle",
+		duration: 2_000,
+		seed: "battle",
+		restPose: {},
+		metadata: {},
+		revision: 3,
+	};
+	const playback: BoardPlaybackSnapshot = {
+		boardId: sequence.boardId,
+		playbackId: "22222222-2222-4222-8222-222222222222",
+		sequenceId: sequence.id,
+		sequenceRevision: 3,
+		playbackRevision: 1,
+		status: "playing",
+		position: 0,
+		effectiveAt: 5_000,
+		timeScale: 1,
+		seed: "shared",
+	};
+
+	const runtime = createBoardAnimationRuntime({
+		getNode: () => node,
+		getWorld: () => new Container(),
+		getLayers: () => ({
+			behind: new Container(),
+			front: new Container(),
+			screen: new Container(),
+		}),
+		getScreen: () => ({ width: 800, height: 600 }),
+		getAccentColor: () => 0xff3e00,
+		render() {},
+	});
+
+	const runtimeData = {
+		effects: [],
+		sequences: [sequence],
+		clips: [
+			makeClip({
+				sequenceId: sequence.id,
+				start: 0,
+				duration: 2_000,
+				keyframes: [
+					{ at: 0, value: { x: 0 } },
+					{ at: 2_000, value: { x: 200 } },
+				],
+			}),
+		],
+		playback,
+		playbackPolicy: null,
+	};
+
+	try {
+		env.now(1_000);
+		runtime.setData(runtimeData);
+		assert.equal(
+			playback.effectiveAt,
+			5_000,
+			"server snapshot remains unchanged",
+		);
+		assert.equal(env.timerCount(), 0, "shared playback does not use a timer");
+
+		env.now(1_200);
+		env.runFrame();
+		assert.equal(
+			node.container.x,
+			20,
+			"playback starts from local receipt time",
+		);
+
+		// Unrelated Board updates must not move the local clock anchor.
+		env.now(1_500);
+		runtime.setData({ ...runtimeData });
+		env.runFrame();
+		assert.equal(node.container.x, 50);
+		assert.equal(env.rafCount(), 1);
+	} finally {
+		runtime.destroy();
+		env.restore();
+	}
+});
+
+test("delayed autoplay restores its timer after reactivation", () => {
+	const env = stubAnimationEnv();
+	const node = { item: {} as never, container: new Container() };
+	const sequence: BoardSequence = {
+		id: "seq",
+		boardId: "11111111-1111-4111-8111-111111111111",
+		name: "Autoplay",
+		duration: 2_000,
+		seed: "autoplay",
+		restPose: {},
+		metadata: {},
+		revision: 3,
+	};
+	const runtime = createBoardAnimationRuntime({
+		getNode: () => node,
+		getWorld: () => new Container(),
+		getLayers: () => ({
+			behind: new Container(),
+			front: new Container(),
+			screen: new Container(),
+		}),
+		getScreen: () => ({ width: 800, height: 600 }),
+		getAccentColor: () => 0xff3e00,
+		render() {},
+	});
+
+	try {
+		env.now(100);
+		runtime.setData({
+			effects: [],
+			sequences: [sequence],
+			clips: [
+				makeClip({
+					sequenceId: sequence.id,
+					start: 0,
+					duration: 2_000,
+					keyframes: [
+						{ at: 0, value: { x: 0 } },
+						{ at: 2_000, value: { x: 200 } },
+					],
+				}),
+			],
+			playback: null,
+			playbackPolicy: {
+				sequenceId: sequence.id,
+				delayMs: 500,
+				loop: true,
+			},
+		});
+		assert.equal(env.timerCount(), 1);
+
+		runtime.setActive(false);
+		assert.equal(env.timerCount(), 0);
+		env.now(200);
+		runtime.setActive(true);
+		assert.equal(env.timerCount(), 1);
+		env.runFrame();
+		assert.equal(env.rafCount(), 0);
+
+		env.now(600);
+		env.runTimer();
+		env.now(700);
+		env.runFrame();
+		assert.equal(node.container.x, 10);
+		assert.equal(env.rafCount(), 1);
+	} finally {
+		runtime.destroy();
+		env.restore();
+	}
+});
+
+test("shared playback with a past effectiveAt starts immediately", () => {
+	const env = stubAnimationEnv();
+	const node = { item: {} as never, container: new Container() };
+	const sequence: BoardSequence = {
+		id: "seq",
+		boardId: "11111111-1111-4111-8111-111111111111",
+		name: "Battle",
+		duration: 2_000,
+		seed: "battle",
+		restPose: {},
+		metadata: {},
+		revision: 3,
+	};
+	const playback: BoardPlaybackSnapshot = {
+		boardId: sequence.boardId,
+		playbackId: "22222222-2222-4222-8222-222222222222",
+		sequenceId: sequence.id,
+		sequenceRevision: 3,
+		playbackRevision: 1,
+		status: "playing",
+		position: 0,
+		effectiveAt: 1_000,
+		timeScale: 1,
+		seed: "shared",
+	};
+
+	const runtime = createBoardAnimationRuntime({
+		getNode: () => node,
+		getWorld: () => new Container(),
+		getLayers: () => ({
+			behind: new Container(),
+			front: new Container(),
+			screen: new Container(),
+		}),
+		getScreen: () => ({ width: 800, height: 600 }),
+		getAccentColor: () => 0xff3e00,
+		render() {},
+	});
+
+	try {
+		env.now(1_500); // past effectiveAt → not waiting
+		runtime.setData({
+			effects: [],
+			sequences: [sequence],
+			clips: [
+				makeClip({
+					sequenceId: sequence.id,
+					start: 0,
+					duration: 2_000,
+					keyframes: [
+						{ at: 0, value: { x: 0 } },
+						{ at: 2_000, value: { x: 200 } },
+					],
+				}),
+			],
+			playback,
+			playbackPolicy: null,
+		});
+		assert.equal(
+			env.timerCount(),
+			0,
+			"no deferred timer when effectiveAt is past",
+		);
+		assert.equal(env.rafCount(), 1, "rAF loop starts immediately");
+
+		env.runFrame();
+		assert.ok(node.container.x > 0, "node moves immediately");
+	} finally {
+		runtime.destroy();
+		env.restore();
+	}
+});

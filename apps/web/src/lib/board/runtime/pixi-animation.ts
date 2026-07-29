@@ -323,6 +323,7 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 	const filterRestores = new Map<string, FilterRestore>();
 	let worldPose: BasePose | null = null;
 	let frameId = 0;
+	let sharedPlayback: BoardPlaybackSnapshot | null = null;
 	let autoplayKey: string | null = null;
 	let autoplayPlayback: BoardPlaybackSnapshot | null = null;
 	let autoplayTimer: ReturnType<typeof setTimeout> | null = null;
@@ -851,7 +852,7 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 			}
 		}
 
-		const playback = data.playback ?? autoplayPlayback;
+		const playback = sharedPlayback ?? autoplayPlayback;
 		const sequence = playback
 			? (data.sequences.find(
 					(item) =>
@@ -952,13 +953,26 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 		);
 	}
 
-	function syncAutoplay() {
+	function syncPlayback() {
 		if (data.playback) {
 			clearAutoplayTimer();
 			autoplayKey = null;
 			autoplayPlayback = null;
+			// Server and client clocks may differ. Anchor each shared revision once.
+			const effectiveAt =
+				sharedPlayback?.playbackId === data.playback.playbackId &&
+				sharedPlayback.playbackRevision === data.playback.playbackRevision
+					? sharedPlayback.effectiveAt
+					: data.playback.status === "playing"
+						? Math.min(data.playback.effectiveAt, Date.now())
+						: data.playback.effectiveAt;
+			sharedPlayback =
+				effectiveAt === data.playback.effectiveAt
+					? data.playback
+					: { ...data.playback, effectiveAt };
 			return;
 		}
+		sharedPlayback = null;
 		if (!active) return;
 		const policy = data.playbackPolicy;
 		const sequence = policy
@@ -991,7 +1005,7 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 	function setData(next: BoardRuntimeData) {
 		if (next.clips !== data.clips) clearResources();
 		data = next;
-		syncAutoplay();
+		syncPlayback();
 		start();
 	}
 
@@ -1004,8 +1018,8 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 			frameId = 0;
 			return;
 		}
-		syncAutoplay();
-		scheduleAutoplayStart();
+		syncPlayback();
+		if (autoplayPlayback && !autoplayTimer) scheduleAutoplayStart();
 		start();
 	}
 
