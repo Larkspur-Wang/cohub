@@ -1,5 +1,16 @@
 # @neta-art/cohub
 
+## 4.2.0
+
+### Minor Changes
+
+- 4e9e994: Add SDK support for publishing arbitrary files and read-only Boards as Works.
+
+  Work responses now expose their content kind and immutable artifact metadata,
+  including captured Board snapshots and assets.
+
+- 22c00f4: Add negotiated presigned PUT support for durable chat attachments while retaining legacy POST uploads.
+
 ## 4.1.0
 
 ### Minor Changes
