@@ -4,6 +4,21 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v2.4 — 2026-07-29
+
+- **File and Board Works**: publishing is no longer HTML-only — any space file (markdown, code, image, video, audio, PDF, with a download fallback for unknown types) and read-only Boards can now be published as public Works. Board Works pack the full render dependency closure (image/video refs, file-card covers, effect and clip assets), dedupe by content hash, and record per-asset capture status so viewers never get pointed back at the origin Space.
+- **Board runtime view mode**: the runtime gained `mode: "edit" | "view"`, where view mode refuses commits, blocks mutating pointer gestures at the interaction state-machine level, drops awareness, and hides authoring chrome — making read-only sharing safe by construction rather than by UI hiding.
+- **Shared file preview pipeline**: a new `filePreviewModel` derives kind, language, and media URL from a single `SpaceFsFileResponse` shape, and `FilePreviewSurface` renders every supported type. The workspace file controller dropped its duplicate MIME/extension checks and Work surfaces normalize into the same shape, collapsing three code paths into one.
+- **R2-backed user uploads**: chat attachments and space uploads now route through negotiated presigned PUT URLs against durable object storage, with legacy POST uploads retained for compatibility.
+- **Repeatable-read Board snapshots**: `captureBoardSnapshots` captures board, nodes, effects, sequences, and clips in a single repeatable-read transaction, now shared by both checkpoint save and Work publish instead of two divergent implementations.
+
+### Bug Fixes
+
+- Normalized shared Board playback timing so animations resume at the correct position on viewer load
+- Generated Logto-compatible usernames to fix profile creation failures for identities with unsupported characters
+- Unknown file types now degrade to a download fallback in previews rather than being rejected outright
+- Seedance Fast examples now advertise only the supported 480p and 720p output resolutions
+
 ## v2.3 — 2026-07-28
 
 - **Board playback policy**: Boards can persist an autoplay policy in metadata (`sequenceId`, `delayMs`, `loop`), so opening a Board plays the right sequence with local, per-viewer timing instead of ad-hoc client wiring. Wired end-to-end through the protocol schema, API board ops, SDK, and CLI.
