@@ -3,7 +3,7 @@ import {
 	boardImageKeySource,
 	imageAssetKey,
 } from "@neta-art/cohub/board";
-import { Assets, type Texture } from "pixi.js";
+import { Assets, Texture } from "pixi.js";
 import {
 	DEFAULT_LRU_BUDGET,
 	type LruBudget,
@@ -101,6 +101,43 @@ export type BoardAssetManager = {
 
 const MAX_RETRY_DELAY = 30_000;
 
+/** Load an image in the page's CORS context when Pixi's worker path fails. */
+function loadImageElementTexture(url: string): Promise<Texture> {
+	return new Promise((resolve, reject) => {
+		const image = new Image();
+		image.crossOrigin = "anonymous";
+		image.onload = () => {
+			try {
+				resolve(Texture.from(image));
+			} catch (error) {
+				reject(error);
+			}
+		};
+		image.onerror = () =>
+			reject(new Error(`Failed to load board image: ${url}`));
+		image.src = url;
+	});
+}
+
+/**
+ * Keep Pixi's worker/ImageBitmap fast path, but recover through an anonymous
+ * image element when that browser context rejects a cross-origin cover.
+ */
+async function loadImageTexture(url: string): Promise<Texture> {
+	try {
+		return await Assets.load<Texture>(url);
+	} catch (workerError) {
+		try {
+			return await loadImageElementTexture(url);
+		} catch (imageError) {
+			throw new AggregateError(
+				[workerError, imageError],
+				`Failed to load board image: ${url}`,
+			);
+		}
+	}
+}
+
 /** Approximate GPU footprint of a texture (RGBA8). Unknown sizes count as 0. */
 function footprintOf(texture: Texture | null): number {
 	if (!texture) return 0;
@@ -130,7 +167,7 @@ export type BoardAssetManagerOptions = {
 	videoConcurrency?: number;
 	/** Cooling-pool ceiling for unreferenced textures kept on the GPU. */
 	lruBudget?: LruBudget;
-	/** Injectable preview loader. Images use Pixi Assets; videos decode one frame. */
+	/** Injectable preview loader. Images use Pixi with an HTML image fallback; videos decode one frame. */
 	loadTexture?: (
 		url: string,
 		media: BoardAssetMedia,
@@ -139,7 +176,8 @@ export type BoardAssetManagerOptions = {
 	 * Frees a texture. Must resolve once the texture is truly gone, so a pending
 	 * unload of a URL can be awaited before that URL is loaded again (otherwise a
 	 * quick pan-back could re-acquire a texture that is still being unloaded and
-	 * is about to be destroyed). Defaults to Pixi's global Assets cache.
+	 * is about to be destroyed). Defaults to clearing Pixi's cache and disposing
+	 * any fallback texture owned by the Board.
 	 */
 	unloadTexture?: (
 		url: string,
@@ -181,10 +219,10 @@ export type BoardAssetManagerOptions = {
  * - On failure with live references a timer re-enqueues the load after the
  *   backoff elapses, so a failed preview recovers even on a static board.
  *
- * Ownership scope: images use Pixi's global `Assets` cache; generated video
- * previews are owned directly by this manager. Both are reference-counted per
- * mounted board. If multiple stages ever share URLs, image ownership must move
- * to an app-level reference count.
+ * Ownership scope: Pixi owns fast-path images in its `Assets` cache; fallback
+ * images and generated video previews are owned directly by this manager. All are
+ * reference-counted per mounted board. If multiple stages ever share URLs, image
+ * ownership must move to an app-level reference count.
  */
 export function createBoardAssetManager(
 	options: BoardAssetManagerOptions,
@@ -201,19 +239,20 @@ export function createBoardAssetManager(
 		((url, media) =>
 			media === "video"
 				? loadVideoThumbnailTexture(url)
-				: Assets.load<Texture>(url));
+				: loadImageTexture(url));
 	// In-flight unloads keyed by URL. A load of the same URL awaits any pending
-	// unload first, closing the race where a re-requested texture is handed back
-	// by the shared Assets cache while still being unloaded (then destroyed).
+	// unload first, closing the race where a re-requested texture is created while
+	// the previous texture for the same URL is still being destroyed.
 	const pendingUnloads = new Map<string, Promise<void>>();
 	const unloadTexture =
 		options.unloadTexture ??
-		((url, texture, media) => {
+		(async (url, texture, media) => {
 			if (media === "video" || !url) {
 				texture?.destroy(true);
-				return Promise.resolve();
+				return;
 			}
-			return Assets.unload(url).catch(() => {});
+			await Assets.unload(url).catch(() => {});
+			if (!texture?.destroyed) texture?.destroy(true);
 		});
 	/** Release a texture and serialize a reload against its asynchronous unload. */
 	function releaseTexture(key: string, url: string, texture: Texture | null) {
@@ -327,7 +366,12 @@ export function createBoardAssetManager(
 		}
 	}
 
-	function settle(key: string, entry: Entry, texture: Texture | null) {
+	function settle(
+		key: string,
+		entry: Entry,
+		texture: Texture | null,
+		error?: unknown,
+	) {
 		entry.loading = false;
 		inflight.delete(key);
 		active -= 1;
@@ -352,7 +396,7 @@ export function createBoardAssetManager(
 			entry.attempts += 1;
 			entry.retryAt =
 				now() + Math.min(1000 * 2 ** entry.attempts, MAX_RETRY_DELAY);
-			console.warn(`[board] failed to load preview for ${key}`);
+			console.warn(`[board] failed to load preview for ${key}`, error);
 			if (entry.refs <= 0) evict(key, entry);
 			else {
 				scheduleRetry(key, entry);
@@ -393,7 +437,7 @@ export function createBoardAssetManager(
 				})
 				.then(
 					(texture) => settle(task.key, entry, texture ?? null),
-					() => settle(task.key, entry, null),
+					(error) => settle(task.key, entry, null, error),
 				);
 		}
 	}
