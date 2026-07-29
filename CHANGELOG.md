@@ -6,18 +6,15 @@ All notable changes to Cohub are documented in this file.
 
 ## v2.4 — 2026-07-29
 
-- **File and Board Works**: publishing is no longer HTML-only — any space file (markdown, code, image, video, audio, PDF, with a download fallback for unknown types) and read-only Boards can now be published as public Works. Board Works pack the full render dependency closure (image/video refs, file-card covers, effect and clip assets), dedupe by content hash, and record per-asset capture status so viewers never get pointed back at the origin Space.
-- **Board runtime view mode**: the runtime gained `mode: "edit" | "view"`, where view mode refuses commits, blocks mutating pointer gestures at the interaction state-machine level, drops awareness, and hides authoring chrome — making read-only sharing safe by construction rather than by UI hiding.
-- **Shared file preview pipeline**: a new `filePreviewModel` derives kind, language, and media URL from a single `SpaceFsFileResponse` shape, and `FilePreviewSurface` renders every supported type. The workspace file controller dropped its duplicate MIME/extension checks and Work surfaces normalize into the same shape, collapsing three code paths into one.
-- **R2-backed user uploads**: chat attachments and space uploads now route through negotiated presigned PUT URLs against durable object storage, with legacy POST uploads retained for compatibility.
-- **Repeatable-read Board snapshots**: `captureBoardSnapshots` captures board, nodes, effects, sequences, and clips in a single repeatable-read transaction, now shared by both checkpoint save and Work publish instead of two divergent implementations.
+- **Agent-actionable board viewport context**: chat viewport context now carries the viewed board's `boardId` instead of raw camera coordinates, so the agent can inspect and render the exact board a user is looking at, while `visibleRect` and selected nodes still convey focus. `ViewportCamera` is removed from the protocol and from the `BoardViewState`/`BoardRuntimeViewState` report contract.
+- **Trusted identity resolution for user profiles**: profile provisioning resolves a Logto identity only from a verified token subject or a previously verified binding, returning a transient profile otherwise. Usernames are never minted or promoted under a guessed binding, and cached handles are only reused when they belong to the same verified identity.
+- **Owner profiles ensured at resource boundaries**: every owned-space path, including Home ensure, now goes through `createOwnedSpace`, which establishes the owner's durable profile before the Space row is inserted; principals without a sign-in get an explicit 403 instead of a half-provisioned space.
 
 ### Bug Fixes
 
-- Normalized shared Board playback timing so animations resume at the correct position on viewer load
-- Generated Logto-compatible usernames to fix profile creation failures for identities with unsupported characters
-- Unknown file types now degrade to a download fallback in previews rather than being rejected outright
-- Seedance Fast examples now advertise only the supported 480p and 720p output resolutions
+- Cross-origin board covers now recover through an anonymous image-element loader when Pixi's worker/ImageBitmap path rejects them, keeping the fast path intact and surfacing the underlying error in retry logs.
+- Fallback board textures are disposed alongside the Pixi cache entry on unload, closing a GPU texture leak and the reload race for the same URL.
+- Work public identity resolves the space owner's username for any owner, not only when the acting user happens to be that owner.
 
 ## v2.3 — 2026-07-28
 
