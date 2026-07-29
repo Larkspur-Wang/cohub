@@ -609,6 +609,7 @@ $effect(() => {
 		sessionChat.reportActiveSource({
 			kind: "board",
 			path: inlineBoard.path,
+			boardId: inlineBoard.boardId,
 		});
 		return;
 	}

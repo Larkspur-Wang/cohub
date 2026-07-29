@@ -16,7 +16,6 @@ export type FileViewportObservation = {
 
 export type BoardViewportObservation = {
 	path: string;
-	camera?: ViewportBoardContext["camera"] | null;
 	visibleRect?: ViewportVisibleRect | null;
 	selectedNodes?: ViewportSelectedNode[] | null;
 };
@@ -28,7 +27,7 @@ export type PortViewportObservation = {
 
 export type ActiveViewportSource =
 	| { kind: "file"; path: string }
-	| { kind: "board"; path: string }
+	| { kind: "board"; path: string; boardId?: string | null }
 	| { kind: "port"; port: string; url?: string | null }
 	| null;
 
@@ -66,15 +65,6 @@ function sameSelectedNodes(
 	);
 }
 
-function sameCamera(
-	a: ViewportBoardContext["camera"] | undefined,
-	b: ViewportBoardContext["camera"] | undefined,
-) {
-	if (!a && !b) return true;
-	if (!a || !b) return false;
-	return a.x === b.x && a.y === b.y && a.zoom === b.zoom;
-}
-
 function buildFileContext(
 	path: string,
 	visibleLines?: ViewportVisibleLines | null,
@@ -94,22 +84,14 @@ function buildFileContext(
 }
 
 function buildBoardContext(
-	path: string,
+	source: { path: string; boardId?: string | null },
 	observation?: BoardViewportObservation | null,
 ): ViewportBoardContext {
 	const selectedNodes = observation?.selectedNodes?.filter(Boolean) ?? [];
 	return {
 		kind: "board",
-		path,
-		...(observation?.camera
-			? {
-					camera: {
-						x: observation.camera.x,
-						y: observation.camera.y,
-						zoom: observation.camera.zoom,
-					},
-				}
-			: {}),
+		path: source.path,
+		...(source.boardId ? { boardId: source.boardId } : {}),
 		...(observation?.visibleRect
 			? {
 					visibleRect: {
@@ -201,7 +183,7 @@ export function createViewportContextController() {
 		if (source.kind === "board") {
 			const observation =
 				boardObservation?.path === source.path ? boardObservation : null;
-			return buildBoardContext(source.path, observation);
+			return buildBoardContext(source, observation);
 		}
 		return buildPortContext(source.port, source.url);
 	});
@@ -226,7 +208,6 @@ export function createViewportContextController() {
 		const prev = boardObservation;
 		if (
 			prev?.path === next.path &&
-			sameCamera(prev.camera ?? undefined, next.camera ?? undefined) &&
 			sameVisibleRect(
 				prev.visibleRect ?? undefined,
 				next.visibleRect ?? undefined,
@@ -319,7 +300,6 @@ export function createViewportContextController() {
 	function setBoardViewState(
 		path: string,
 		state: {
-			camera?: ViewportBoardContext["camera"] | null;
 			visibleRect?: ViewportVisibleRect | null;
 			selectedNodes?: ViewportSelectedNode[] | null;
 		},
@@ -331,7 +311,6 @@ export function createViewportContextController() {
 
 		pendingBoardObservation = {
 			path,
-			camera: state.camera ?? undefined,
 			visibleRect: state.visibleRect ?? undefined,
 			selectedNodes: state.selectedNodes ?? undefined,
 		};

@@ -177,7 +177,6 @@ export type SpaceFileDomainProps = {
 	) => void;
 	onBoardViewStateChange?: (state: {
 		path: string;
-		camera: BoardDocument["viewport"];
 		visibleRect: {
 			x: number;
 			y: number;

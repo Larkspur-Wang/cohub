@@ -38,11 +38,6 @@ function titleFor(context: ViewportContext) {
 					.join(", ")}`,
 			);
 		}
-		if (context.camera) {
-			parts.push(
-				`camera (${Math.round(context.camera.x)}, ${Math.round(context.camera.y)}) @ ${Math.round(context.camera.zoom * 100)}%`,
-			);
-		}
 		if (context.visibleRect) {
 			parts.push(
 				`view ${Math.round(context.visibleRect.width)}×${Math.round(context.visibleRect.height)}`,

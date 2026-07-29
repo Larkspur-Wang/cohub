@@ -237,7 +237,6 @@ export type BoardPointerEvent = {
 };
 
 export type BoardViewState = {
-	camera: BoardViewport;
 	visibleRect: Rect | null;
 	selectedNodes: Array<{ id: string; type: string; title?: string }>;
 };
@@ -2322,7 +2321,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 			const title = titleForBoardItem(item).trim();
 			return [{ id: item.id, type: item.type, ...(title ? { title } : {}) }];
 		});
-		options.onViewStateChange({ camera, visibleRect, selectedNodes });
+		options.onViewStateChange({ visibleRect, selectedNodes });
 	}
 
 	$effect(() => {

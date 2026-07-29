@@ -4,6 +4,7 @@ import {
 	buildViewportContentBlock,
 	buildViewportReferencesText,
 	formatViewportContextLabel,
+	parseViewportContextsFromMeta,
 	viewportContextId,
 } from "@cohub/protocol";
 import { visibleWorldRect } from "@neta-art/cohub/board";
@@ -45,12 +46,34 @@ test("viewport reference text stays agent-readable", () => {
 	);
 });
 
-test("viewport content block meta round-trips for timeline chips", () => {
+test("board context carries boardId and view for agent inspection", () => {
+	const boardId = "550e8400-e29b-41d4-a716-446655440000";
 	const contexts = [
 		{
 			kind: "board" as const,
 			path: "board.board",
-			camera: { x: 0, y: 0, zoom: 1 },
+			boardId,
+			visibleRect: { x: 0, y: 0, width: 1200, height: 800 },
+			selectedNodes: [{ id: "card-1", type: "text", title: "Note" }],
+		},
+	];
+	const text = buildViewportReferencesText(contexts);
+	assert.equal(
+		text,
+		[
+			"Viewport:",
+			`- board: \`board.board\` (id: ${boardId}; selected: Note; view 1200×800 at (0, 0))`,
+		].join("\n"),
+	);
+});
+
+test("viewport content block meta round-trips for timeline chips", () => {
+	const boardId = "550e8400-e29b-41d4-a716-446655440000";
+	const contexts = [
+		{
+			kind: "board" as const,
+			path: "board.board",
+			boardId,
 			selectedNodes: [{ id: "card-1", type: "text", title: "Note" }],
 		},
 	];
@@ -62,6 +85,10 @@ test("viewport content block meta round-trips for timeline chips", () => {
 		formatViewportContextLabel(contexts[0]),
 		"board.board · 1 selected",
 	);
+	// boardId survives the meta round-trip
+	const parsed = parseViewportContextsFromMeta(block?._meta);
+	assert.equal(parsed[0].kind, "board");
+	assert.equal(parsed[0].boardId, boardId);
 });
 
 test("activeViewportSourceId matches viewportContextId shape", () => {

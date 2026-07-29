@@ -14,7 +14,6 @@ import { createLazyModuleLoader } from "$lib/lazy-module";
 
 export type BoardRuntimeViewState = {
 	path: string;
-	camera: BoardDocument["viewport"];
 	visibleRect: {
 		x: number;
 		y: number;

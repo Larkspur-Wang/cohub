@@ -4024,7 +4024,6 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	}
 	function reportBoardView(state: BoardViewportObservation) {
 		viewport.setBoardViewState(state.path, {
-			camera: state.camera,
 			visibleRect: state.visibleRect,
 			selectedNodes: state.selectedNodes,
 		});

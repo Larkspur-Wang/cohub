@@ -21,12 +21,6 @@ export type ViewportVisibleLines = {
   end: number;
 };
 
-export type ViewportCamera = {
-  x: number;
-  y: number;
-  zoom: number;
-};
-
 export type ViewportVisibleRect = {
   x: number;
   y: number;
@@ -49,7 +43,8 @@ export type ViewportFileContext = {
 export type ViewportBoardContext = {
   kind: "board";
   path: string;
-  camera?: ViewportCamera;
+  /** Board entity id; lets the agent inspect/render the board the user is viewing. */
+  boardId?: string;
   visibleRect?: ViewportVisibleRect;
   selectedNodes?: ViewportSelectedNode[];
 };
@@ -77,14 +72,6 @@ function formatVisibleLines(range: ViewportVisibleLines | undefined) {
   return start === end ? `L${start}` : `L${start}-${end}`;
 }
 
-function formatCamera(camera: ViewportCamera | undefined) {
-  if (!camera) return "";
-  const x = Math.round(camera.x);
-  const y = Math.round(camera.y);
-  const zoom = Math.round(camera.zoom * 100);
-  return `camera (${x}, ${y}) @ ${zoom}%`;
-}
-
 function formatVisibleRect(rect: ViewportVisibleRect | undefined) {
   if (!rect) return "";
   return `view ${Math.round(rect.width)}×${Math.round(rect.height)} at (${Math.round(rect.x)}, ${Math.round(rect.y)})`;
@@ -98,8 +85,7 @@ function formatSelectedNodes(nodes: ViewportSelectedNode[] | undefined) {
   if (!nodes || nodes.length === 0) return "";
   const labels = nodes.map((node) => {
     const title = node.title ? escapeViewportLabel(node.title) : "";
-    const id = escapeViewportLabel(node.id);
-    return title ? `${title} (${id})` : id;
+    return title || escapeViewportLabel(node.id);
   });
   return `selected: ${labels.join(", ")}`;
 }
@@ -128,9 +114,11 @@ export function formatViewportContextLine(context: ViewportContext): string {
   }
   if (context.kind === "board") {
     const details = [
-      formatCamera(context.camera),
-      formatVisibleRect(context.visibleRect),
+      ...(context.boardId
+        ? [`id: ${escapeViewportLabel(context.boardId)}`]
+        : []),
       formatSelectedNodes(context.selectedNodes),
+      formatVisibleRect(context.visibleRect),
     ].filter(Boolean);
     const suffix = details.length > 0 ? ` (${details.join("; ")})` : "";
     return `- board: \`${escapeAttachmentPath(context.path)}\`${suffix}`;
@@ -201,12 +189,6 @@ export function parseViewportContextsFromMeta(
       continue;
     }
     if (record.kind === "board" && typeof record.path === "string") {
-      const camera =
-        record.camera &&
-        typeof record.camera === "object" &&
-        !Array.isArray(record.camera)
-          ? (record.camera as Record<string, unknown>)
-          : null;
       const visibleRect =
         record.visibleRect &&
         typeof record.visibleRect === "object" &&
@@ -232,17 +214,8 @@ export function parseViewportContextsFromMeta(
       result.push({
         kind: "board",
         path: record.path,
-        ...(camera &&
-        typeof camera.x === "number" &&
-        typeof camera.y === "number" &&
-        typeof camera.zoom === "number"
-          ? {
-              camera: {
-                x: camera.x,
-                y: camera.y,
-                zoom: camera.zoom,
-              },
-            }
+        ...(typeof record.boardId === "string" && record.boardId
+          ? { boardId: record.boardId }
           : {}),
         ...(visibleRect &&
         typeof visibleRect.x === "number" &&
