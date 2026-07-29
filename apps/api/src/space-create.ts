@@ -14,6 +14,7 @@ import type { PreparedSpaceModInsert } from "./space-mods.js";
 import { ensureSpaceSandbox, reconcileSpaceSandbox } from "./space-sandboxes.js";
 import { setSpaceEnv } from "./space-sessions.js";
 import { enqueueTask } from "./tasks.js";
+import { ensurePersistedCurrentUserProfile } from "./user-profiles.js";
 
 const logger = createLogger({ serviceName: "cohub-api" });
 
@@ -119,11 +120,7 @@ async function markBootstrapFailed(
   return updated ?? space;
 }
 
-/**
- * Insert owned space + host membership + optional mods/channels.
- * Callers own validation and error → HTTP mapping.
- */
-export async function createOwnedSpaceRecord(
+async function insertOwnedSpaceRecord(
   input: CreateOwnedSpaceInput,
 ): Promise<CreateOwnedSpaceResult> {
   const spaceId = crypto.randomUUID();
@@ -211,6 +208,17 @@ export async function createOwnedSpaceRecord(
 
     return { space: createdSpace, insertedChannels };
   });
+}
+
+/**
+ * Establish the owner's durable profile, then atomically insert the Space record.
+ * All owned-space creation paths pass through here, including Home ensure.
+ */
+export async function createOwnedSpace(
+  input: CreateOwnedSpaceInput,
+): Promise<CreateOwnedSpaceResult> {
+  await ensurePersistedCurrentUserProfile(input.user);
+  return insertOwnedSpaceRecord(input);
 }
 
 /**

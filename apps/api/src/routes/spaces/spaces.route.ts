@@ -23,7 +23,7 @@ import { config } from "../../config.js";
 import { scheduleSandboxAutoDestroy } from "../../sandbox-idle-scheduler.js";
 import { attachSandboxPublicEndpoints } from "../../sandbox-public-network.js";
 import {
-  createOwnedSpaceRecord,
+  createOwnedSpace,
   provisionCreatedSpace,
   type ProvisionCreatedSpaceResult,
   type SpaceBootstrapSource,
@@ -53,6 +53,7 @@ import { assignLabelsToSession, getPinnedSpaceIds, parseLabelRefs, resolveLabelP
 import { assignSessionSourceSystemLabel } from "@cohub/core/labels/session-source";
 import { hasPermission, getSpaceMemberRole, filterSessionsByPermission, resolvePermissionAccess, asAccountIdentity } from "../../permissions.js";
 import { checkpoints } from "@cohub/db";
+import { LogtoUserRequiredError } from "../../user-profiles.js";
 import {
   CHECKPOINT_DIFF_CACHE_CONTROL,
   getCheckpointDiffFile,
@@ -630,7 +631,7 @@ async function insertHomeSpaceRecord(
   preparedModValues: PreparedHomeMods,
   bootstrapSource: SpaceBootstrapSource,
 ): Promise<SpaceRow> {
-  const { space } = await createOwnedSpaceRecord({
+  const { space } = await createOwnedSpace({
     user,
     name: HOME_SPACE_NAME,
     slug: HOME_SPACE_SLUG,
@@ -905,7 +906,7 @@ router.post("/", async (c) => {
   }
 
   const createMods = Array.isArray(body.mods) ? body.mods : getDefaultSpaceModsForEnv(config.env);
-  // spaceId is remapped inside createOwnedSpaceRecord; placeholder for prepare only.
+  // spaceId is remapped inside createOwnedSpace; placeholder for prepare only.
   const preparedModValues = await prepareSpaceModInserts({
     actor: user,
     spaceId: crypto.randomUUID(),
@@ -924,7 +925,7 @@ router.post("/", async (c) => {
   let space: typeof spaces.$inferSelect | undefined;
   let insertedChannels: Array<typeof spaceChannels.$inferSelect> = [];
   try {
-    const result = await createOwnedSpaceRecord({
+    const result = await createOwnedSpace({
       user,
       name,
       slug,
@@ -946,6 +947,9 @@ router.post("/", async (c) => {
     space = result.space;
     insertedChannels = result.insertedChannels;
   } catch (error) {
+    if (error instanceof LogtoUserRequiredError) {
+      return c.json({ message: error.message }, 403);
+    }
     const constraint = uniqueViolationConstraint(error);
     if (constraint?.includes("user_slug")) return c.json({ message: "space slug already exists" }, 409);
     const modResponse = spaceModErrorResponse(error);

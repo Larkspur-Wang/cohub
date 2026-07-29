@@ -3,9 +3,37 @@ import { describe, it } from "node:test";
 import {
   buildDefaultUsernameCandidates,
   normalizeUsername,
+  resolveTrustedLogtoUserId,
   slugifyUsernameBase,
   usernameBaseFromEmail,
 } from "./user-profiles.js";
+
+describe("resolveTrustedLogtoUserId", () => {
+  const userUuid = "11111111-2222-4333-8444-555555555555";
+
+  it("prefers a verified token subject", () => {
+    assert.equal(resolveTrustedLogtoUserId({
+      userUuid,
+      tokenLogtoUserId: " logto-user ",
+      storedLogtoUserId: "stale-user",
+    }), "logto-user");
+  });
+
+  it("reuses a stored identity when the token has no subject", () => {
+    assert.equal(resolveTrustedLogtoUserId({
+      userUuid,
+      storedLogtoUserId: "logto-user",
+    }), "logto-user");
+  });
+
+  it("rejects missing and guessed stored identities", () => {
+    assert.equal(resolveTrustedLogtoUserId({ userUuid }), null);
+    assert.equal(resolveTrustedLogtoUserId({
+      userUuid,
+      storedLogtoUserId: userUuid,
+    }), null);
+  });
+});
 
 describe("usernameBaseFromEmail", () => {
   it("slugifies email local parts", () => {

@@ -16,7 +16,7 @@ export type PublicUserProfile = {
 };
 
 export type UserProfile = PublicUserProfile & {
-  logtoUserId: string;
+  logtoUserId?: string;
   syncedAt: string;
 };
 
@@ -382,11 +382,12 @@ async function assignDefaultUsernameViaLogto(input: {
   userUuid: string;
   logtoUserId: string;
   fields: UserProfileFields;
+  stored: UserProfile | null;
 }): Promise<UserProfileFields> {
   if (input.fields.username) return input.fields;
 
-  // Prefer promoting a previously cached local username into Logto (still SoT write-first).
-  const stored = await getStoredUserProfile(input.userUuid);
+  // Promote only a username cached under the same verified Logto identity.
+  const stored = input.stored?.logtoUserId === input.logtoUserId ? input.stored : null;
   if (stored?.username) {
     try {
       return await commitUsernameToLogto({
@@ -461,73 +462,138 @@ async function assignDefaultUsernameViaLogto(input: {
     : new UsernameConflictError("unable to allocate a default username");
 }
 
-export async function ensureCurrentUserProfile(user: AuthUser): Promise<UserProfile> {
-  const logtoUserId = typeof user.sub === "string" && user.sub.trim() ? user.sub.trim() : null;
+export function resolveTrustedLogtoUserId(input: {
+  userUuid: string;
+  tokenLogtoUserId?: string | null;
+  storedLogtoUserId?: string | null;
+}): string | null {
+  const tokenLogtoUserId = input.tokenLogtoUserId?.trim();
+  if (tokenLogtoUserId) return tokenLogtoUserId;
 
-  // No Logto principal → cannot mint a username (Logto is SoT). Mirror stored profile only.
-  if (!logtoUserId) {
-    const stored = await getStoredUserProfile(user.uuid);
-    if (stored) return stored;
+  const storedLogtoUserId = input.storedLogtoUserId?.trim();
+  if (!storedLogtoUserId || storedLogtoUserId === input.userUuid) return null;
+  return storedLogtoUserId;
+}
 
-    return await upsertUserProfile({
-      userUuid: user.uuid,
-      logtoUserId: user.uuid,
-      fields: normalizeUserProfile({ userUuid: user.uuid, source: sourceFromAuthUser(user) }),
-    });
-  }
+function transientUserProfile(user: AuthUser, stored: UserProfile | null): UserProfile {
+  const fields = normalizeUserProfile({ userUuid: user.uuid, source: sourceFromAuthUser(user) });
+  return {
+    userUuid: user.uuid,
+    // Without a verified Logto identity, local username data is not authoritative.
+    username: null,
+    displayName: stored?.displayName ?? fields.displayName,
+    avatarUrl: stored?.avatarUrl ?? fields.avatarUrl,
+    syncedAt: stored?.syncedAt ?? new Date().toISOString(),
+  };
+}
 
+async function syncUserProfileFromLogto(input: {
+  user: AuthUser;
+  logtoUserId: string;
+  stored: UserProfile | null;
+}): Promise<UserProfile> {
   let logtoUser: Record<string, unknown>;
   try {
-    logtoUser = await getLogtoUser(logtoUserId);
+    logtoUser = await getLogtoUser(input.logtoUserId);
   } catch (error) {
-    logger.warn("[user-profile] Failed to refresh current user from Logto, using stored profile when available:", error);
-    const stored = await getStoredUserProfile(user.uuid);
-    if (stored) return stored;
+    logger.warn("[user-profile] Failed to refresh current user from Logto, using stored profile when available:", {
+      userUuid: input.user.uuid,
+      logtoUserId: input.logtoUserId,
+      error,
+    });
+    if (input.stored?.logtoUserId === input.logtoUserId) return input.stored;
 
-    // No SoT and no cache: store non-username fields only — never invent a username here.
+    // A verified user token established this binding even when Logto is temporarily unavailable.
     return await upsertUserProfile({
-      userUuid: user.uuid,
-      logtoUserId,
+      userUuid: input.user.uuid,
+      logtoUserId: input.logtoUserId,
       fields: mergeAuthEmailIntoFields(
-        user,
-        normalizeUserProfile({ userUuid: user.uuid, source: sourceFromAuthUser(user) }),
+        input.user,
+        normalizeUserProfile({ userUuid: input.user.uuid, source: sourceFromAuthUser(input.user) }),
       ),
     });
   }
 
   let fields = mergeAuthEmailIntoFields(
-    user,
-    normalizeUserProfile({ userUuid: user.uuid, source: logtoUser }),
+    input.user,
+    normalizeUserProfile({ userUuid: input.user.uuid, source: logtoUser }),
   );
 
-  // Hot path: Logto already has username → just sync local cache, no allocation.
   if (!fields.username) {
     try {
       // Write Logto first; only then mirror into local. Never invent local-only.
       fields = await assignDefaultUsernameViaLogto({
-        userUuid: user.uuid,
-        logtoUserId,
+        userUuid: input.user.uuid,
+        logtoUserId: input.logtoUserId,
         fields,
+        stored: input.stored,
       });
     } catch (error) {
-      // Logto write failed → do not invent or keep a diverging local-only handle.
-      // Preserve an existing local cache only for this response; do not overwrite
-      // it with username=null (that would discard recovery data for a later retry).
       logger.warn("[user-profile] Default username assignment failed; not writing local-only username:", {
-        userUuid: user.uuid,
+        userUuid: input.user.uuid,
         error,
       });
-      const stored = await getStoredUserProfile(user.uuid);
-      if (stored) return stored;
-      // No cache yet: store non-username fields from Logto so /api/me still works.
+      if (input.stored?.logtoUserId === input.logtoUserId) return input.stored;
+      // No matching cache yet: store non-username fields from Logto so /api/me still works.
     }
   }
 
   return await upsertUserProfile({
-    userUuid: user.uuid,
-    logtoUserId,
+    userUuid: input.user.uuid,
+    logtoUserId: input.logtoUserId,
     fields,
   });
+}
+
+/**
+ * Ensure a profile through either a verified user token or a previously verified binding.
+ * Principals without either identity return a transient profile and never create a guessed binding.
+ */
+export async function ensureCurrentUserProfile(user: AuthUser): Promise<UserProfile> {
+  const stored = await getStoredUserProfile(user.uuid);
+  const tokenLogtoUserId = typeof user.sub === "string" && user.sub.trim() ? user.sub.trim() : null;
+  const logtoUserId = resolveTrustedLogtoUserId({
+    userUuid: user.uuid,
+    tokenLogtoUserId,
+    storedLogtoUserId: stored?.logtoUserId,
+  });
+
+  if (!logtoUserId) return transientUserProfile(user, stored);
+  if (!tokenLogtoUserId && stored?.username) return stored;
+
+  return await syncUserProfileFromLogto({ user, logtoUserId, stored });
+}
+
+/** Ensure a durable profile exists before creating resources owned by the user. */
+export async function ensurePersistedCurrentUserProfile(user: AuthUser): Promise<UserProfile> {
+  const profile = await ensureCurrentUserProfile(user);
+  if (!profile.logtoUserId) {
+    throw new LogtoUserRequiredError("profile provisioning requires user sign-in");
+  }
+  return profile;
+}
+
+/** Ensure a profile for a resource owner, optionally using a verified actor identity hint. */
+export async function ensureUserProfileByUuid(
+  userUuid: string,
+  actor?: AuthUser | null,
+): Promise<UserProfile | null> {
+  const ownerActor = actor?.uuid === userUuid ? actor : null;
+  const stored = await getStoredUserProfile(userUuid);
+  const tokenLogtoUserId = typeof ownerActor?.sub === "string" && ownerActor.sub.trim()
+    ? ownerActor.sub.trim()
+    : null;
+  const logtoUserId = resolveTrustedLogtoUserId({
+    userUuid,
+    tokenLogtoUserId,
+    storedLogtoUserId: stored?.logtoUserId,
+  });
+
+  if (!logtoUserId) return null;
+  if (!tokenLogtoUserId && stored?.username) return stored;
+
+  const user = ownerActor ?? ({ uuid: userUuid } as AuthUser);
+  return await syncUserProfileFromLogto({ user, logtoUserId, stored });
 }
 
 export async function updateCurrentUserProfile(user: AuthUser, input: { displayName?: string; avatarUrl?: string | null; username?: string | null }) {
@@ -535,7 +601,11 @@ export async function updateCurrentUserProfile(user: AuthUser, input: { displayN
   // actor uuid, so fall back to the stored profile's logtoUserId for those cases.
   const logtoUserIdFromToken = typeof user.sub === "string" && user.sub.trim() ? user.sub.trim() : null;
   const storedProfile = await getStoredUserProfile(user.uuid);
-  const logtoUserId = logtoUserIdFromToken ?? storedProfile?.logtoUserId ?? null;
+  const logtoUserId = resolveTrustedLogtoUserId({
+    userUuid: user.uuid,
+    tokenLogtoUserId: logtoUserIdFromToken,
+    storedLogtoUserId: storedProfile?.logtoUserId,
+  });
   if (!logtoUserId) throw new LogtoUserRequiredError("profile updates require user sign-in");
 
   const username = input.username === undefined ? undefined : normalizeUsername(input.username);

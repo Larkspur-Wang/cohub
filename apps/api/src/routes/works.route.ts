@@ -26,7 +26,7 @@ import { featureGateResponse } from "../lib/feature-gate.js";
 import { createWorkPublicUrl } from "../lib/work-public-url.js";
 import { applyRequestSourceToMeta, getRequestSource } from "../lib/request-source.js";
 import { dispatchWorkVersionPublished } from "../work-events.js";
-import { ensureCurrentUserProfile } from "../user-profiles.js";
+import { ensureUserProfileByUuid } from "../user-profiles.js";
 
 const logger = createLogger({ serviceName: "cohub-api" });
 const router = new Hono();
@@ -120,8 +120,8 @@ async function getWorkPublicIdentity(spaceId: string) {
 
 async function ensureWorkPublicIdentity(c: Context, spaceId: string, actor: AuthUser) {
   let identity = await getWorkPublicIdentity(spaceId);
-  if (!identity.ownerUsername && identity.ownerUserUuid === actor.uuid) {
-    await ensureCurrentUserProfile(actor);
+  if (!identity.ownerUsername && identity.ownerUserUuid) {
+    await ensureUserProfileByUuid(identity.ownerUserUuid, actor);
     identity = await getWorkPublicIdentity(spaceId);
   }
   const missingOwner = !identity.ownerUsername;
