@@ -19,7 +19,7 @@ import type { ChannelProvider, GatewayOutboundCommand } from "@cohub/protocol/ga
 import { getRealtimeUserRoom } from "@cohub/protocol/realtime";
 import { sessionMessages, sessionTurns, spaceChannels, spaceSessionBindings, spaceSessions, providerMessageRefs, userChannels, userProfiles } from "@cohub/db";
 import { sanitizeContentBlocksForPostgresJson, sanitizePostgresJsonValue } from "@cohub/core/content/sanitize";
-import { countToolCallsInContent, deriveMessagePreviewText, extractPlainText, summarizeSessionTurnCompactions } from "@cohub/core/sessions";
+import { countToolCallsInContent, deriveMessagePreviewText, extractPlainText, resolveMessageTurnId, summarizeSessionTurnCompactions } from "@cohub/core/sessions";
 import { buildTraceHeaders, getCurrentRequestId } from "@cohub/infra/tracing";
 import { enqueueSessionMessagePostprocess } from "./session-message-postprocess-queue.js";
 import { normalizeAssistantTurn } from "./assistant-message-normalizer.js";
@@ -279,10 +279,12 @@ async function persistMessageNode(input: PersistMessageInput & { message: Persis
   const startedAt = toDateOrNull(input.message.startedAt) ?? completedAt;
   const durationMs = typeof input.message.durationMs === "number" ? Math.max(0, Math.floor(input.message.durationMs)) : Math.max(0, completedAt.getTime() - startedAt.getTime());
   const anchorUserMessageId = input.anchorUserMessageId?.trim() || null;
+  const messageTurnId = resolveMessageTurnId(input.message.meta);
 
   const [messageNode] = await db.insert(sessionMessages).values({
     id: input.message.id?.trim() || undefined,
     sessionId: input.sessionId,
+    turnId: messageTurnId,
     role: messageRole,
     content,
     text,
@@ -624,7 +626,14 @@ async function dispatchFinalAssistantToGateway(input: { spaceId: string; session
   }
 }
 
-export async function persistUserMessage(input: { spaceId: string; sessionId: string; userMessageId: string; turnId?: string | null; agentSessionEntryId?: string | null; content: ContentBlock[]; meta?: Record<string, unknown> | null; startedAt?: string | null }) {
+export async function persistUserMessage(input: { spaceId: string; sessionId: string; userMessageId: string; turnId: string; agentSessionEntryId?: string | null; content: ContentBlock[]; meta?: Record<string, unknown> | null; startedAt?: string | null }) {
+  const turnId = resolveMessageTurnId({ turnId: input.turnId });
+  if (!turnId) throw new Error("Valid user message turn id is required");
+  const [turnRow] = await db.select().from(sessionTurns).where(and(
+    eq(sessionTurns.id, turnId),
+    eq(sessionTurns.sessionId, input.sessionId),
+  )).limit(1);
+  if (!turnRow) throw new Error("User message turn not found in session");
   const timing = completeMessageTiming({ startedAt: input.startedAt });
   const persisted = await persistMessageNode({
     spaceId: input.spaceId,
@@ -632,16 +641,12 @@ export async function persistUserMessage(input: { spaceId: string; sessionId: st
     previousMessageId: null,
     anchorUserMessageId: input.userMessageId,
     idempotencyKey: await buildUserIdempotencyKey({ messageId: input.userMessageId, content: input.content, meta: input.meta ?? null }),
-    message: { id: input.userMessageId, role: "user", content: input.content, meta: { ...(input.meta ?? {}), turnId: input.turnId ?? (typeof input.meta?.turnId === "string" ? input.meta.turnId : null), messageId: input.userMessageId, clientMessageId: typeof input.meta?.clientMessageId === "string" ? input.meta.clientMessageId : null, agentSessionEntryId: input.agentSessionEntryId ?? (typeof input.meta?.sessionEntryId === "string" ? input.meta.sessionEntryId : null) }, provider: null, model: null, stopReason: null, errorMessage: null, usage: null, ...timing },
+    message: { id: input.userMessageId, role: "user", content: input.content, meta: { ...(input.meta ?? {}), turnId, messageId: input.userMessageId, clientMessageId: typeof input.meta?.clientMessageId === "string" ? input.meta.clientMessageId : null, agentSessionEntryId: input.agentSessionEntryId ?? (typeof input.meta?.sessionEntryId === "string" ? input.meta.sessionEntryId : null) }, provider: null, model: null, stopReason: null, errorMessage: null, usage: null, ...timing },
   });
   const record = toMessageRecord(persisted.message);
   if (!persisted.created) return { ok: true, message: record, created: false };
   await publishMessagePersisted(input.spaceId, record);
-  const turnId = typeof record.meta?.turnId === "string" ? record.meta.turnId : null;
-  if (turnId) {
-    const [turnRow] = await db.select().from(sessionTurns).where(and(eq(sessionTurns.id, turnId), eq(sessionTurns.sessionId, input.sessionId))).limit(1);
-    if (turnRow) await publishTurnCreated(input.spaceId, toTurnRecord(turnRow)).catch((error) => logger.warn("[Realtime] failed to publish turn created", error));
-  }
+  await publishTurnCreated(input.spaceId, toTurnRecord(turnRow)).catch((error) => logger.warn("[Realtime] failed to publish turn created", error));
   return { ok: true, message: record };
 }
 
@@ -919,6 +924,7 @@ export async function persistCompactionEvent(
       const messageTurnId = input.scope === "within_turn" ? input.ownerTurnId : compactTurnId;
       const [messageRow] = await tx.insert(sessionMessages).values({
         sessionId: input.sessionId,
+        turnId: messageTurnId,
         role: "system",
         content: [{ type: "system_note", note_type: "compacted", text: input.summary }],
         text: null,

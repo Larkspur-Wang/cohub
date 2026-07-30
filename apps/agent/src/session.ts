@@ -868,11 +868,13 @@ export function subscribeSessionEvents(handle: SessionHandle) {
             },
           });
           try {
+            const turnId = handle.currentTurnId;
+            if (!turnId) throw new Error("User message turn id is required");
             await persistUserMessage({
               spaceId: handle.spaceId,
               sessionId: handle.sessionId,
               userMessageId,
-              turnId: typeof meta?.turnId === "string" ? meta.turnId : handle.currentTurnId ?? null,
+              turnId,
               agentSessionEntryId,
               content,
               meta,
