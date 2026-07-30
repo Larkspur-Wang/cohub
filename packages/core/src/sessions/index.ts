@@ -1,3 +1,4 @@
+export * from "./compaction.js";
 export * from "./content.js";
 export * from "./prompt.js";
 export * from "./prompt-auth.js";
