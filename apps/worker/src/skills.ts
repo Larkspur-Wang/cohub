@@ -5,6 +5,7 @@ import {
   formatSkillExpansion,
   getDirectoryRevision,
   getModSkillsRedisKey,
+  getProjectSkillsRedisKey,
   getSpaceModSkillsRedisKey,
   getUserSkillsRedisKey,
   isValidSkillName,
@@ -64,15 +65,6 @@ function getUserSkillsDir(userId: string) {
 
 function getProjectSkillsDir(spaceId: string) {
   return resolve(config.spaceStorageRoot, spaceId, "workspace", SKILLS_DIR);
-}
-
-async function loadProjectSkills(spaceId: string): Promise<SkillsConfig> {
-  const { content } = await loadSkillsFromDirectory({
-    dir: getProjectSkillsDir(spaceId),
-    sandboxDir: SANDBOX_WORKSPACE_SKILLS_PATH,
-    scope: "project",
-  });
-  return content;
 }
 
 function getModLatestDir(modSpaceId: string) {
@@ -249,7 +241,15 @@ async function fetchSkills(options: LoadSkillsOptions): Promise<Skill[]> {
   }
 
   if (options.spaceId && config.spaceStorageRoot) {
-    configs.push(await loadProjectSkills(options.spaceId));
+    const projectDir = getProjectSkillsDir(options.spaceId);
+    const revision = await getDirectoryRevision(projectDir, join(projectDir, CHECKPOINT_META_PATH));
+    configs.push(await loadCachedSkills({
+      redisKey: getProjectSkillsRedisKey(options.spaceId, revision),
+      dir: projectDir,
+      sandboxDir: SANDBOX_WORKSPACE_SKILLS_PATH,
+      scope: "project",
+      allowMissing: true,
+    }));
   }
 
   return mergeSkillsConfigs(...configs).skills;
