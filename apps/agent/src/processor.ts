@@ -883,6 +883,10 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
 
       if (accessMode === "full_access") warmupSandboxConnection(data.spaceId);
 
+      const executionModel = {
+        provider: activeHandle.session.agent.state.model.provider,
+        id: activeHandle.session.agent.state.model.id,
+      };
       const rawTurnUserMessages: TurnUserMessage[] = buildUserMessagesForBatch(batch)
         .filter((item) => Boolean(item.userMessageId))
         .map((item) => ({
@@ -956,8 +960,8 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
           turnSeq: batch.ownerTurn.sequence,
           userMessageId: directShellItem.userMessageId,
           requestId,
-          modelProvider: activeHandle.session.agent.state.model.provider,
-          modelId: activeHandle.session.agent.state.model.id,
+          modelProvider: executionModel.provider,
+          modelId: executionModel.id,
           isResumedSession: activeHandle.sessionManager.buildSessionContext().messages.length > 0,
         }, async (turnSpan) => {
           await runWithToolExecutionContext({
@@ -967,6 +971,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
             turnSeq: batch.ownerTurn.sequence,
             anchorUserMessageId: directShellItem.userMessageId,
             llmRound: 0,
+            model: executionModel,
             actorUserId,
             executionToken,
             executionScopes,
@@ -1025,8 +1030,8 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
         turnSeq: batch.ownerTurn.sequence,
         userMessageId: ownerUserMessageId,
         requestId,
-        modelProvider: activeHandle.session.agent.state.model.provider,
-        modelId: activeHandle.session.agent.state.model.id,
+        modelProvider: executionModel.provider,
+        modelId: executionModel.id,
         isResumedSession: activeHandle.sessionManager.buildSessionContext().messages.length > 0,
       }, async (turnSpan) => {
         await runWithToolExecutionContext({
@@ -1036,6 +1041,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
           turnSeq: batch.ownerTurn.sequence,
           anchorUserMessageId: ownerUserMessageId,
           llmRound: 0,
+          model: executionModel,
           actorUserId,
           executionToken,
           executionScopes,
