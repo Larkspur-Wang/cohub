@@ -2,6 +2,8 @@
 
 *Your own space to create, play, and build with people and agents.*
 
+We burn 10 billion tokens per week inside our company within Cohub Spaces.
+
 Cohub is a living Space for people and agents. Start anywhere, make in any medium, share as Works.
 
 It combines:
