@@ -4,6 +4,19 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v2.9 — 2026-08-03
+
+- **Custom audio player**: chat markdown, work and workspace file previews, and task run outputs now share one AudioPlayer component with play/pause, seek, playback rate, volume/mute, download, plus loading and error states. Markdown links progressively hydrate into the player while keeping a `preload="none"` native `<audio>` as the no-JS and streaming fallback.
+- **Hidden generation models**: declarations can set `hidden: true` to drop out of default Web and CLI discovery while staying reachable via exact-ID search, `cohub models show`, direct requests, and explicit Limited policies. New `filterDiscoverableGenerationModels` and `isGenerationModelHidden` helpers ship in the protocol and are re-exported from the SDK, so the models API still returns the full catalog — visibility is a discovery hint, not an authorization control.
+- **Searchable generation model picker**: the model selector gained a dedicated search box with fuzzy scoring over model IDs and titles, selected and exact-match hidden models always included, and a distinct empty state for no matches.
+- **Shorter space invitation codes**: invitation tokens are now 12-character URL-safe strings instead of the 36-character `inv_` hex form, making shared links far more compact. Creation moved to a `createSpaceInvitation` helper whose Lua script checks `EXISTS` before writing and retries on collision, so a new code can never overwrite a live invitation.
+
+### Bug Fixes
+
+- Audio files in the workspace inline file preview rendered "Preview not available" instead of a player.
+- Audio player instances mounted into markdown are now swept when `{@html}` drops them during streaming or re-render, preventing leaked media elements.
+- Playback no longer flips to an error state on `AbortError` or stale `play()` rejections caused by rapid pause and source switches.
+
 ## v2.8 — 2026-08-03
 
 - **Image-to-text fallback**: images sent to text-only models are now transparently described by a configured vision model, with descriptions persisted per turn (JSONL sidecar plus DB) so they are reused instead of re-billed, and per-call provider/model/usage/cost recorded on the turn. Configuration lives in a shared `config-runtime/image-to-text` module with Redis-cached platform and per-user overrides, wired through API completions, the agent runtime, and the message postprocess worker.

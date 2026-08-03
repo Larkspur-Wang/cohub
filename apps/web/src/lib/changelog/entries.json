@@ -1,5 +1,21 @@
 [
 	{
+		"version": "2.9",
+		"date": "2026-08-03",
+		"tags": ["v2.9.0"],
+		"highlights": [
+			"**Custom audio player**: chat markdown, work and workspace file previews, and task run outputs now share one AudioPlayer component with play/pause, seek, playback rate, volume/mute, download, plus loading and error states. Markdown links progressively hydrate into the player while keeping a `preload=\"none\"` native `<audio>` as the no-JS and streaming fallback.",
+			"**Hidden generation models**: declarations can set `hidden: true` to drop out of default Web and CLI discovery while staying reachable via exact-ID search, `cohub models show`, direct requests, and explicit Limited policies. New `filterDiscoverableGenerationModels` and `isGenerationModelHidden` helpers ship in the protocol and are re-exported from the SDK, so the models API still returns the full catalog — visibility is a discovery hint, not an authorization control.",
+			"**Searchable generation model picker**: the model selector gained a dedicated search box with fuzzy scoring over model IDs and titles, selected and exact-match hidden models always included, and a distinct empty state for no matches.",
+			"**Shorter space invitation codes**: invitation tokens are now 12-character URL-safe strings instead of the 36-character `inv_` hex form, making shared links far more compact. Creation moved to a `createSpaceInvitation` helper whose Lua script checks `EXISTS` before writing and retries on collision, so a new code can never overwrite a live invitation."
+		],
+		"fixes": [
+			"Audio files in the workspace inline file preview rendered \"Preview not available\" instead of a player.",
+			"Audio player instances mounted into markdown are now swept when `{@html}` drops them during streaming or re-render, preventing leaked media elements.",
+			"Playback no longer flips to an error state on `AbortError` or stale `play()` rejections caused by rapid pause and source switches."
+		]
+	},
+	{
 		"version": "2.8",
 		"date": "2026-08-03",
 		"tags": ["v2.8.0"],
