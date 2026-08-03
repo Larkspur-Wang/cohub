@@ -19,7 +19,7 @@ import { abortSessionTurn, failSessionTurn, interruptSessionTurn } from "../../s
 import { hasPermission } from "../../permissions.js";
 import { dispatchTurnFinalized } from "../../session-output.js";
 import { submitSessionPrompt, type PromptAccessMode, type SubmitSessionPromptContext } from "../../session-prompts.js";
-import { parsePromptEnv, PromptEnvValidationError } from "@cohub/core/sessions";
+import { ModelUnavailableError, parsePromptEnv, PromptEnvValidationError } from "@cohub/core/sessions";
 import { verifyWorkSessionToken } from "../../work-sessions.js";
 import { mergePromptContextAuth, promptAuthContextFromWorkSession } from "../../prompt-auth-context.js";
 import { getSpaceSandboxBySpaceId, updateSpaceSandbox, recoverSpaceSandbox } from "../../space-sandboxes.js";
@@ -443,6 +443,9 @@ router.post("/:spaceId/sessions/:sessionId/prompt", async (c) => {
     });
     return c.json({ ok: true, ...result });
   } catch (error) {
+    if (error instanceof ModelUnavailableError) {
+      return c.json({ code: error.code, message: "requested model is not available" }, 422);
+    }
     if (error instanceof SandboxNotReadyError) return c.json({ message: "sandbox is not ready" }, 503);
     if (error instanceof BillingAccessBlockedError) return c.json(serializeBillingBlocked(error), 402);
     throw error as Error;

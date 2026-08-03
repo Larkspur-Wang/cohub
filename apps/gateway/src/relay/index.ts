@@ -146,7 +146,7 @@ export async function handleRelayControlConnection(socket: WebSocket, request: I
     if (frame.type === "register") {
       const spaceId = typeof frame.spaceId === "string" ? frame.spaceId.trim() : "";
       if (!spaceId) {
-        socket.send(JSON.stringify({ type: "error", message: "spaceId is required" }));
+        socket.send(JSON.stringify({ type: "error", status: 400, message: "spaceId is required" }));
         closeSocket(socket, 4400, "spaceId is required");
         return;
       }
@@ -155,8 +155,8 @@ export async function handleRelayControlConnection(socket: WebSocket, request: I
         return { ok: false as const, status: 500, message: "authorization failed" };
       });
       if (!auth.ok) {
-        socket.send(JSON.stringify({ type: "error", message: auth.message }));
-        closeSocket(socket, 4403, "forbidden");
+        socket.send(JSON.stringify({ type: "error", status: auth.status, message: auth.message }));
+        closeSocket(socket, auth.status >= 500 ? 1011 : 4403, auth.status >= 500 ? "authorization unavailable" : "forbidden");
         return;
       }
 

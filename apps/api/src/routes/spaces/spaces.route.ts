@@ -66,7 +66,7 @@ import {
 import { checkpointFsJsonError, listCheckpointDirectory, readCheckpointFile } from "../../checkpoint-fs.js";
 import type { AuthUser } from "../../lib/middleware.js";
 import { submitSessionPrompt } from "../../session-prompts.js";
-import { parsePromptEnv, PromptEnvValidationError } from "@cohub/core/sessions";
+import { ModelUnavailableError, parsePromptEnv, PromptEnvValidationError } from "@cohub/core/sessions";
 import { delegatedPromptAuthFromWorkSession, promptAuthContextFromWorkSession } from "../../prompt-auth-context.js";
 import { buildSessionTurnResponse } from "../../session-turn-response.js";
 import { getSessionTurnById, hydrateTurnAuthorProfiles } from "../../session-turns.js";
@@ -84,6 +84,7 @@ import { redisCommandClient } from "../../redis.js";
 import { featureGateResponse } from "../../lib/feature-gate.js";
 import { billingBlockedResponse } from "../../lib/billing-blocked.js";
 import { applyRequestSourceToMeta, getRequestSource, resolveSessionSourceFromRequest } from "../../lib/request-source.js";
+import { validatePromptModel } from "../../llm/models.js";
 
 
 const logger = createLogger({ serviceName: "cohub-api" });
@@ -1869,6 +1870,16 @@ router.post("/:id/prompt", async (c) => {
     return c.json({ message: "generationPolicy is invalid" }, 400);
   }
 
+  const requestedModel = body.model?.trim() || null;
+  const requestedProvider = body.provider?.trim() || (requestedModel ? "cohub" : null);
+  if (
+    requestedModel &&
+    requestedProvider &&
+    !(await validatePromptModel({ userId: user.uuid, provider: requestedProvider, model: requestedModel }))
+  ) {
+    return c.json({ code: "model_unavailable", message: "requested model is not available" }, 422);
+  }
+
   let promptLabelIds: string[] = [];
   try {
     const labelPaths = parseLabelRefs(body.labelRefs);
@@ -1947,15 +1958,17 @@ router.post("/:id/prompt", async (c) => {
         clientMessageId,
         content,
         source,
-        model: body.model ?? null,
-        provider: body.provider ?? null,
+        model: requestedModel,
+        provider: requestedProvider,
         thinkingLevel: promptThinkingLevel ?? null,
         generationPolicy,
         intent: promptIntent,
         accessMode,
         env: promptEnv,
         context: { kind: "public_api", auth: getPromptAuthContext(c, spaceId) },
-      });
+      }, {}, requestedModel && requestedProvider
+        ? { prevalidatedModel: { provider: requestedProvider, model: requestedModel } }
+        : {});
       const response = await buildSpacePromptTurnResponse(await getSpaceSessionById(sessionId), turnId);
       if (!response) return c.json({ message: "turn not found" }, 500);
       return c.json(response);
@@ -1971,6 +1984,12 @@ router.post("/:id/prompt", async (c) => {
           return c.json({ ...body, sessionId: createdSessionId }, res.status as never);
         }
         return res;
+      }
+      if (error instanceof ModelUnavailableError) {
+        return c.json(
+          { code: error.code, message: "requested model is not available", ...(createdSessionId ? { sessionId: createdSessionId } : {}) },
+          422,
+        );
       }
       if (error instanceof SandboxNotReadyError) {
         return c.json(

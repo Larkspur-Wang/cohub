@@ -12,6 +12,8 @@ import { getSessionDomainServices } from "../session-services.js";
 import { createLogger } from "@cohub/infra/logging";
 import { db } from "../db.js";
 import { dispatchLabelAssignmentsUpdated } from "../label-events.js";
+import { UnrecoverableError } from "bullmq";
+import { validatePromptModel } from "../models.js";
 
 const MAX_TASK_SOURCE_LENGTH = 255;
 
@@ -66,6 +68,11 @@ const sendMessageHandler = async (job: import("bullmq").Job, context?: { taskRun
   if (!taskRunId) throw new Error("taskRunId is required for send_message task");
 
   const promptEnv = parsePromptEnv(env);
+  const modelId = model?.trim();
+  const providerId = provider?.trim() || "cohub";
+  if (modelId && !(await validatePromptModel({ userId, provider: providerId, model: modelId }))) {
+    throw new UnrecoverableError(`Requested model is not available: ${providerId}/${modelId}`);
+  }
   const source = normalizeTaskSource(payloadSource);
   const targetSessionId = sessionId?.trim() || null;
   const createdSession = targetSessionId ? null : await sessionPromptService.registerCronjobSession(spaceId, { source, title: title ?? null, userUuid: userId });

@@ -15,7 +15,7 @@ import { createLogger } from "@cohub/infra/logging";
 
 
 const logger = createLogger({ serviceName: "cohub-agent" });
-export const redis = new Redis(env.REDIS_URL);
+export const redis = new Redis(env.REDIS_URL, { disableClientInfo: true });
 
 export const xaddWithMaxlen = async (client: Redis, streamKey: string, ...args: (string | number)[]) => {
   return client.xadd(streamKey, "MAXLEN", "~", 2000, ...args);

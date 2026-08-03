@@ -193,3 +193,17 @@ export function flattenModelsCatalog(config: ModelsConfig | null | undefined): M
   }
   return entries;
 }
+
+export function isRuntimeModelAvailable(
+  configs: Array<ModelsConfig | null | undefined>,
+  provider: string,
+  modelId: string,
+): boolean {
+  const providerConfig = mergeModelsConfigs(...configs).providers[provider];
+  const model = providerConfig?.models?.find((entry) => entry.id === modelId);
+  return Boolean(
+    model &&
+    (model.api ?? providerConfig?.api) &&
+    (model.baseUrl ?? providerConfig?.baseUrl),
+  );
+}

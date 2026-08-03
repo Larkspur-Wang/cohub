@@ -103,13 +103,14 @@ export const defaultCriticalJobOptions = {
 export const createQueueTelemetry = (serviceName: string) =>
   new BullMQOtel({ tracerName: serviceName });
 
-export const createBullmqConnectionOptions = (url: string) => ({ url });
+export const createBullmqConnectionOptions = (url: string) => ({ url, disableClientInfo: true });
 
 export const createBullmqRedisConnection = (url: string, options: RedisOptions = {}) =>
   new Redis(url, {
     maxRetriesPerRequest: null,
     enableReadyCheck: false,
     ...options,
+    disableClientInfo: true,
   });
 
 export function createBullmqQueue<DataType = unknown, ResultType = unknown, NameType extends string = string>(

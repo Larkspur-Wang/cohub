@@ -1,7 +1,7 @@
 import { createReadStream, createWriteStream, type WriteStream } from "node:fs";
-import { access, copyFile, mkdir, writeFile } from "node:fs/promises";
+import { access, copyFile, mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { createInterface } from "node:readline";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { createLogger } from "@cohub/infra/logging";
@@ -138,10 +138,66 @@ async function pathExists(path: string): Promise<boolean> {
   }
 }
 
-async function parseEntries(path: string): Promise<FileEntry[]> {
+async function syncFile(path: string) {
+  const handle = await open(path, "r");
+  try {
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+
+async function archiveAndReplaceSessionFile(path: string, sessionDir: string, replacement: Uint8Array): Promise<string> {
+  const recoveryDir = join(sessionDir, "archives", "recovery");
+  await mkdir(recoveryDir, { recursive: true });
+  const recoveryId = randomUUID();
+  const archivePath = join(recoveryDir, `${basename(path)}.${recoveryId}.partial`);
+  const tempPath = join(dirname(path), `.${basename(path)}.${recoveryId}.recovered`);
+
+  await copyFile(path, archivePath);
+  await syncFile(archivePath);
+  await syncFile(recoveryDir);
+  try {
+    await writeFile(tempPath, replacement);
+    await syncFile(tempPath);
+    await rename(tempPath, path);
+    await syncFile(dirname(path));
+  } finally {
+    await rm(tempPath, { force: true }).catch(() => undefined);
+  }
+  return archivePath;
+}
+
+async function recoverTrailingPartialEntry(path: string, sessionDir: string, failedLine: number): Promise<string | null> {
+  const raw = await readFile(path);
+  if (raw.length === 0 || raw.at(-1) === 0x0a) return null;
+
+  const lastNewline = raw.lastIndexOf(0x0a);
+  if (lastNewline < 0) return null;
+  const completeLineCount = raw.subarray(0, lastNewline + 1).reduce((count, byte) => count + (byte === 0x0a ? 1 : 0), 0);
+  if (failedLine !== completeLineCount + 1) return null;
+  return archiveAndReplaceSessionFile(path, sessionDir, raw.subarray(0, lastNewline + 1));
+}
+
+async function repairMissingFinalNewline(path: string, sessionDir: string): Promise<string | null> {
+  const raw = await readFile(path);
+  if (raw.length === 0 || raw.at(-1) === 0x0a) return null;
+  return archiveAndReplaceSessionFile(path, sessionDir, Buffer.concat([raw, Buffer.from("\n")]));
+}
+
+async function parseEntries(
+  path: string,
+  options: { sessionDir?: string; recoverTrailingPartial?: boolean } = {},
+): Promise<FileEntry[]> {
   if (!(await pathExists(path))) return [];
   const entries: FileEntry[] = [];
-  const lines = createInterface({ input: createReadStream(path, { encoding: "utf-8" }), crlfDelay: Infinity });
+  const input = createReadStream(path, { encoding: "utf-8" });
+  let finalByte: number | null = null;
+  input.on("data", (chunk) => {
+    if (chunk.length === 0) return;
+    finalByte = typeof chunk === "string" ? chunk.charCodeAt(chunk.length - 1) : (chunk.at(-1) ?? finalByte);
+  });
+  const lines = createInterface({ input, crlfDelay: Infinity });
   let lineNumber = 0;
   for await (const line of lines) {
     lineNumber += 1;
@@ -149,8 +205,20 @@ async function parseEntries(path: string): Promise<FileEntry[]> {
     try {
       entries.push(JSON.parse(line) as FileEntry);
     } catch (error) {
+      if (options.recoverTrailingPartial && options.sessionDir && entries[0]?.type === "session") {
+        const archivePath = await recoverTrailingPartialEntry(path, options.sessionDir, lineNumber);
+        if (archivePath) {
+          logger.warn(`[SessionManager] recovered trailing partial JSONL entry path=${path} archive=${archivePath}`);
+          return parseEntries(path);
+        }
+      }
       throw new Error(`Invalid session JSONL ${path}:${lineNumber}: ${error instanceof Error ? error.message : String(error)}`);
     }
+  }
+
+  if (options.recoverTrailingPartial && options.sessionDir && entries[0]?.type === "session" && finalByte !== 0x0a) {
+    const archivePath = await repairMissingFinalNewline(path, options.sessionDir);
+    if (archivePath) logger.warn(`[SessionManager] repaired missing final JSONL newline path=${path} archive=${archivePath}`);
   }
   return entries;
 }
@@ -188,8 +256,12 @@ export class SessionManager {
     return new SessionManager(cwd, sessionDir);
   }
 
-  static async open(path: string, sessionDir: string): Promise<SessionManager> {
-    const parsed = await parseEntries(path);
+  static async open(
+    path: string,
+    sessionDir: string,
+    options: { recoverTrailingPartial?: boolean } = {},
+  ): Promise<SessionManager> {
+    const parsed = await parseEntries(path, { sessionDir, recoverTrailingPartial: options.recoverTrailingPartial });
     const header = parsed.find((entry) => entry.type === "session") as SessionHeader | undefined;
     const cwd = header?.cwd ?? process.cwd();
     return new SessionManager(cwd, sessionDir, path, parsed);

@@ -36,12 +36,15 @@ import {
   createSpaceUploadId,
   deleteSpaceUploadManifest,
   getSpaceUploadManifest,
+  MAX_SPACE_UPLOAD_FILE_BYTES,
+  MAX_SPACE_UPLOAD_FILES,
+  MAX_SPACE_UPLOAD_TOTAL_BYTES,
   saveSpaceUploadManifest,
   SpaceUploadRateLimitError,
   type SpaceUploadDestination,
   type SpaceUploadManifestEntry,
 } from "../../space-upload-storage.js";
-import { enqueueSandboxUploadFilesJob } from "../../sandbox-bash-queue.js";
+import { enqueueSandboxUploadFilesJob, SandboxUploadSizeMismatchError } from "../../sandbox-bash-queue.js";
 import { isAllowedPublicAssetDownloadUrl } from "../../public-asset-storage.js";
 import type {
   SpaceFsCreateUploadInput,
@@ -51,10 +54,6 @@ import type {
 
 const logger = createLogger({ serviceName: "cohub-api" });
 const router = new Hono();
-
-const MAX_UPLOAD_FILE_BYTES = 1024 * 1024 * 1024;
-const MAX_UPLOAD_TOTAL_BYTES = 2 * 1024 * 1024 * 1024;
-const MAX_UPLOAD_FILES = 1000;
 
 const assertSafeUploadPathPart = (part: string) => {
   if (
@@ -366,7 +365,7 @@ router.post("/uploads", async (c) => {
 
   const body = await c.req.json<SpaceFsCreateUploadInput>().catch(() => null);
   if (!body?.entries?.length) return c.json({ message: "entries are required" }, 400);
-  if (body.entries.length > MAX_UPLOAD_FILES) return c.json({ message: "too many files" }, 413);
+  if (body.entries.length > MAX_SPACE_UPLOAD_FILES) return c.json({ message: "too many files" }, 413);
 
   const uploadId = createSpaceUploadId();
   const seenIds = new Set<string>();
@@ -387,7 +386,7 @@ router.post("/uploads", async (c) => {
       if (typeof entry.relativePath !== "string" || entry.relativePath.length === 0 || entry.relativePath.length > 4096) {
         return c.json({ message: "invalid upload path" }, 400);
       }
-      if (!Number.isSafeInteger(entry.size) || entry.size < 0 || entry.size > MAX_UPLOAD_FILE_BYTES) {
+      if (!Number.isSafeInteger(entry.size) || entry.size < 0 || entry.size > MAX_SPACE_UPLOAD_FILE_BYTES) {
         return c.json({ message: "file too large" }, 413);
       }
       if (entry.mimeType != null && (typeof entry.mimeType !== "string" || entry.mimeType.length > 255)) {
@@ -401,7 +400,7 @@ router.post("/uploads", async (c) => {
         return c.json({ message: "invalid download url" }, 400);
       }
       totalBytes += entry.size;
-      if (totalBytes > MAX_UPLOAD_TOTAL_BYTES) return c.json({ message: "upload too large" }, 413);
+      if (totalBytes > MAX_SPACE_UPLOAD_TOTAL_BYTES) return c.json({ message: "upload too large" }, 413);
       const relativePath = normalizeUploadRelativePath(entry.relativePath || entry.name);
       if (seenPaths.has(relativePath)) return c.json({ message: "duplicate upload path" }, 400);
       seenPaths.add(relativePath);
@@ -418,7 +417,7 @@ router.post("/uploads", async (c) => {
       });
     }
 
-    // Charge quota only after full validation so bad requests cannot burn the window.
+    // Charge quota only after full validation so bad requests cannot consume tokens.
     await consumeSpaceUploadQuota(user.uuid, entries.length);
 
     const planned = entries.map((entry) => {
@@ -441,7 +440,8 @@ router.post("/uploads", async (c) => {
     return c.json({ uploadId, expiresAt, entries: planned });
   } catch (error) {
     if (error instanceof SpaceUploadRateLimitError) {
-      return c.json({ message: error.message }, 429);
+      c.header("Retry-After", String(error.retryAfterSeconds));
+      return c.json({ message: error.message, retryAfterSeconds: error.retryAfterSeconds }, 429);
     }
     const message = error instanceof Error ? error.message.toLowerCase().replace(/\.$/, "") : "failed to create upload";
     return c.json({ message }, 400);
@@ -509,6 +509,9 @@ router.post("/uploads/:uploadId/complete", async (c) => {
     });
   } catch (error) {
     await cancelSpaceUploadComplete(spaceId, uploadId);
+    if (error instanceof SandboxUploadSizeMismatchError) {
+      return c.json({ code: "upload_size_mismatch", message: "uploaded file size does not match" }, 422);
+    }
     logger.error("[space-fs] failed to complete upload", error, {
       spaceId,
       uploadId,

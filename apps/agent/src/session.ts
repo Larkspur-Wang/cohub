@@ -1113,7 +1113,7 @@ export async function loadOrCreateSessionHandle(input: {
   let sessionManager: SessionManager;
   if (await pathExists(existingSessionFile)) {
     logger.debug(`[Session] restore sessionId=${input.sessionId} spaceId=${input.spaceId}`);
-    sessionManager = await SessionManager.open(existingSessionFile, spaceSessionsDir);
+    sessionManager = await SessionManager.open(existingSessionFile, spaceSessionsDir, { recoverTrailingPartial: true });
   } else {
     const tmpManager = SessionManager.create(spaceWorkspaceDir, spaceSessionsDir);
     tmpManager.newSession({ id: input.sessionId });

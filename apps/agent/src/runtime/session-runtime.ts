@@ -13,7 +13,7 @@ import { getCurrentToolExecutionContext, runWithToolExecutionContext, type ToolE
 import { isToolFailureDetails } from "./tools/index.js";
 import { applyRequestProfile } from "./request-profile.js";
 import { mergeHeaders } from "@cohub/infra/config-runtime/models";
-
+import { ModelUnavailableError } from "@cohub/core/sessions";
 import type { SpaceModListItem } from "@cohub/core/space-mods";
 
 export type CohubAgentSessionEvent = AgentEvent;
@@ -938,7 +938,7 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
         ? input.modelRegistry.find(input.requestedModel.provider, input.requestedModel.id)
         : undefined;
       if (input.requestedModel && !requested) {
-        throw new Error(`Requested model is not available: ${input.requestedModel.provider}/${input.requestedModel.id}`);
+        throw new ModelUnavailableError(input.requestedModel.provider, input.requestedModel.id);
       }
       const target = requested
         ?? input.modelRegistry.find(currentModel.provider, currentModel.id)

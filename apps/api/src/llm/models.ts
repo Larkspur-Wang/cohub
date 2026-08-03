@@ -5,6 +5,7 @@ import {
   getUserModelsRedisKey,
   mergeHeaders,
   mergeModelsConfigs,
+  isRuntimeModelAvailable,
   MODELS_CACHE_TTL_SEC,
   parseCachedModelsConfig,
   parseModelsConfig,
@@ -190,6 +191,17 @@ export class CompletionModelRegistry {
   getHeaders(provider: string, modelId?: string) {
     return modelId ? this.find(provider, modelId)?.headers : undefined;
   }
+}
+
+export async function validatePromptModel(input: {
+  userId: string;
+  provider?: string | null;
+  model?: string | null;
+}) {
+  const modelId = input.model?.trim();
+  if (!modelId) return true;
+  const provider = input.provider?.trim() || "cohub";
+  return isRuntimeModelAvailable(await loadRuntimeModelsConfigs(input.userId), provider, modelId);
 }
 
 export async function resolveCompletionModel(input: {

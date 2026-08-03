@@ -636,7 +636,16 @@ export async function listSpaceDirectory(
       observation,
       "directory_read",
       "Read directory entry names; slow when the directory is large or the backing volume is under IO pressure.",
-      () => readdir(target),
+      async () => {
+        try {
+          return await readdir(target);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+            throw new SpaceFsError(404, "path_not_found", "File or directory not found.");
+          }
+          throw error;
+        }
+      },
       (result) => ({
         entryCount: result.length,
         scannedEntryLimit: MAX_DIR_ENTRIES,

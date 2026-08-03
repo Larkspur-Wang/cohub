@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
-import type { Job } from "bullmq";
+import { UnrecoverableError, type Job } from "bullmq";
 import type { ContentBlock } from "@cohub/protocol/core";
+import { ModelUnavailableError } from "@cohub/core/sessions";
 import type { ImageContent } from "@earendil-works/pi-ai";
 import { readPublicAssetImageUrl } from "./public-asset-storage.js";
 import { imageOmittedText, normalizeAgentImage, normalizeContentBlocksImages } from "./image-normalizer.js";
@@ -1154,6 +1155,9 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
           error,
         });
         drainAfterRelease = { spaceId: data.spaceId, sessionId: data.sessionId, reason: "turn_failed" };
+      }
+      if (error instanceof ModelUnavailableError) {
+        throw new UnrecoverableError(error.message);
       }
       throw error;
     } finally {
