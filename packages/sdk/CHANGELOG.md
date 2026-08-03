@@ -1,5 +1,11 @@
 # @neta-art/cohub
 
+## 4.5.0
+
+### Minor Changes
+
+- 59443a9: Add friendly-first space invite URLs, invitation location metadata, reliable invitation limits and usage tracking, and CLI commands for creating, listing, and revoking invite links.
+
 ## 4.4.0
 
 ### Minor Changes
