@@ -49,6 +49,10 @@ test("preview kinds share one workspace pane", () => {
 		new URL("SpaceFileDomain.svelte", modules),
 		"utf8",
 	);
+	const previewPane = readFileSync(
+		new URL("../lib/components/WorkspacePreviewPane.svelte", import.meta.url),
+		"utf8",
+	);
 	const panels = [
 		"InlineFilePanel.svelte",
 		"BoardPreviewPanel.svelte",
@@ -68,6 +72,14 @@ test("preview kinds share one workspace pane", () => {
 	);
 
 	assert.equal(domain.match(/<WorkspacePreviewPane\b/g)?.length, 1);
+	assert.match(domain, /open=\{Boolean\(activePreviewKind\)\}/);
+	assert.match(domain, /out:previewContentOut/);
+	assert.match(domain, /prefers-reduced-motion: reduce/);
+	assert.match(previewPane, /class:workspace-preview-pane--closed=\{!open\}/);
+	assert.match(previewPane, /aria-hidden=\{!open\}/);
+	assert.match(previewPane, /@starting-style/);
+	assert.doesNotMatch(previewPane, /visibility:\s*hidden/);
+	assert.doesNotMatch(previewPane, /previewPanelClip|in:|out:/);
 	assert.equal(domain.match(/<PreviewTabs\b/g)?.length, 1);
 	for (const panel of panels) {
 		assert.doesNotMatch(panel, /WorkspacePreviewPane/);

@@ -10,6 +10,7 @@ import type {
 	WorkRecord,
 } from "@neta-art/cohub";
 import type { BoardDocument } from "@neta-art/cohub/board";
+import { fade } from "svelte/transition";
 import type {
 	BoardAutomationActivity,
 	BoardCollaboratorProfile,
@@ -18,6 +19,7 @@ import type { FileViewMode } from "$lib/components/file-diff-view";
 import PreviewExpandMenu from "$lib/components/PreviewExpandMenu.svelte";
 import WorkPublishDialog from "$lib/components/WorkPublishDialog.svelte";
 import WorkspacePreviewPane from "$lib/components/WorkspacePreviewPane.svelte";
+import { DURATION_PANEL, svelteEaseIn } from "$lib/motion.svelte";
 import type { SpaceFsNode } from "$lib/space-fs";
 import { patchCachedSpaceList } from "$lib/stores/space-list-cache";
 import { cacheSpaceRecordSoon } from "$lib/stores/space-record-cache";
@@ -360,16 +362,30 @@ function closePreviewTab(kind: "file" | "board" | "port", key: string) {
 	else if (kind === "board") onCloseInlineBoardTab(key);
 	else onCloseInlinePortTab(key);
 }
+
+function previewContentOut(node: Element) {
+	const reducedMotion =
+		typeof window !== "undefined" &&
+		window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+	return fade(node, {
+		duration: isMobile || reducedMotion ? 0 : DURATION_PANEL,
+		easing: svelteEaseIn,
+	});
+}
 </script>
 
-{#if activePreviewKind}
-	<WorkspacePreviewPane
-		width={previewPanelWidth}
-		ariaLabel="Workspace preview"
-		onResizeStart={onBeginPreviewPanelResize}
-		immersive={previewImmersiveMode}
-	>
-		<div class="relative flex h-full min-w-0 flex-col overflow-hidden">
+<WorkspacePreviewPane
+	width={previewPanelWidth}
+	ariaLabel="Workspace preview"
+	onResizeStart={onBeginPreviewPanelResize}
+	immersive={previewImmersiveMode}
+	open={Boolean(activePreviewKind)}
+>
+	{#if activePreviewKind}
+		<div
+			class="relative flex h-full min-w-0 flex-col overflow-hidden"
+			out:previewContentOut
+		>
 			{#if !isMobile && !previewImmersiveMode}
 				<PreviewTabs
 					tabs={previewTabs}
@@ -498,8 +514,8 @@ function closePreviewTab(kind: "file" | "board" | "port", key: string) {
 {/if}
 			</div>
 		</div>
-	</WorkspacePreviewPane>
-{/if}
+	{/if}
+</WorkspacePreviewPane>
 
 <FilesSidebarPanel
 	{spaceId}
