@@ -10,12 +10,15 @@ All notable changes to Cohub are documented in this file.
 - **Hidden generation models**: declarations can set `hidden: true` to drop out of default Web and CLI discovery while staying reachable via exact-ID search, `cohub models show`, direct requests, and explicit Limited policies. New `filterDiscoverableGenerationModels` and `isGenerationModelHidden` helpers ship in the protocol and are re-exported from the SDK, so the models API still returns the full catalog — visibility is a discovery hint, not an authorization control.
 - **Searchable generation model picker**: the model selector gained a dedicated search box with fuzzy scoring over model IDs and titles, selected and exact-match hidden models always included, and a distinct empty state for no matches.
 - **Shorter space invitation codes**: invitation tokens are now 12-character URL-safe strings instead of the 36-character `inv_` hex form, making shared links far more compact. Creation moved to a `createSpaceInvitation` helper whose Lua script checks `EXISTS` before writing and retries on collision, so a new code can never overwrite a live invitation.
+- **Generation meta contract**: `meta` is now strictly model-owned input validated against the model declaration, while Cohub request provenance and task context (`requestSource`, `taskRunId`, `spaceId`, `sessionId`, `turnId`) travel separately and are never forwarded to generation providers.
+- **Speech generation guidance**: the `cohub generate` skill now covers text-to-speech, with worked examples for description-based voice design (`qwen-audio-3.0-tts-plus`) and reference-audio voice cloning (`higgs-tts`), backed by new regression tests for both request shapes.
 
 ### Bug Fixes
 
 - Audio files in the workspace inline file preview rendered "Preview not available" instead of a player.
 - Audio player instances mounted into markdown are now swept when `{@html}` drops them during streaming or re-render, preventing leaked media elements.
 - Playback no longer flips to an error state on `AbortError` or stale `play()` rejections caused by rapid pause and source switches.
+- Stopped injecting Cohub-internal task context into outbound provider request metadata, so provider payloads and recorded usage meta now carry only the caller's model metadata.
 
 ## v2.8 — 2026-08-03
 
