@@ -27,7 +27,6 @@ import {
 	COMPOSER_ATTACHMENT_ACCEPT,
 	type ComposerAttachment,
 	type ComposerImageAttachment,
-	summarizeComposerAttachmentUpload,
 } from "$lib/composer-attachments";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import type { SpaceMentionSuggestion } from "$lib/mentions/space";
@@ -175,9 +174,6 @@ let isTextareaFocused = $state(false);
 let resizeFrame: number | null = null;
 
 const hasDraft = $derived(hasVisibleDraftText(value) || attachments.length > 0);
-const attachmentUpload = $derived(
-	summarizeComposerAttachmentUpload(attachments),
-);
 const showAbort = $derived(Boolean(isRunning && !hasDraft));
 const submitDisabled = $derived(
 	disabled || sending || (!hasDraft && !showAbort),
@@ -1132,9 +1128,6 @@ $effect(() => {
 								>
 									<img src={attachment.previewUrl} alt={attachment.name} class="h-full w-full object-contain transition-transform duration-200 group-hover:scale-[1.02]" />
 								</button>
-								{#if attachment.status === 'uploading' || attachment.status === 'finalizing'}
-									<UploadProgress class="absolute inset-x-0 bottom-0 z-10" value={attachment.status === 'uploading' ? attachment.progress ?? 0 : null} label={`Upload ${attachment.name}`} />
-								{/if}
 							{:else}
 								<div class="min-w-0 flex-1 pr-4">
 									<div class="truncate text-[12px] font-medium leading-4 text-text-primary" title={attachment.kind === 'file' ? attachment.relativePath : attachment.name}>{attachment.kind === 'file' ? attachment.relativePath : attachment.name}</div>
@@ -1149,6 +1142,9 @@ $effect(() => {
 									</div>
 								</div>
 							{/if}
+							{#if (attachment.kind === 'file' || attachment.kind === 'image') && (attachment.status === 'uploading' || attachment.status === 'finalizing')}
+								<UploadProgress class="absolute inset-x-0 bottom-0 z-10" value={attachment.status === 'uploading' ? attachment.progress ?? 0 : null} label={`Upload ${attachment.name}`} />
+							{/if}
 							<button
 								type="button"
 								class="absolute right-1.5 top-1.5 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-bg-elevated/90 text-text-tertiary opacity-0 shadow-sm ring-1 ring-border-subtle transition-all hover:text-text-primary group-hover:opacity-100"
@@ -1160,15 +1156,6 @@ $effect(() => {
 						</div>
 					{/each}
 				</div>
-				{#if attachmentUpload}
-					<div class="mb-2 px-3" aria-live="polite">
-						<div class="mb-1 flex items-center justify-between gap-3 text-[10px] leading-3 text-text-tertiary">
-							<span>{attachmentUpload.stage === 'finalizing' ? 'Preparing message' : `Uploading ${attachmentUpload.count} attachment${attachmentUpload.count === 1 ? '' : 's'}`}</span>
-							{#if attachmentUpload.stage === 'uploading'}<span class="tabular-nums">{attachmentUpload.progress}%</span>{/if}
-						</div>
-						<UploadProgress value={attachmentUpload.stage === 'uploading' ? attachmentUpload.progress : null} label={attachmentUpload.stage === 'finalizing' ? 'Preparing message' : 'Attachment upload progress'} />
-					</div>
-				{/if}
 			{/if}
 
 			<div class="flex items-end gap-2">
