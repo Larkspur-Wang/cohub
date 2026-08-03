@@ -15,10 +15,13 @@ env: prod
 logLevel: info
 workerSecret: ""
 workspaceRoot: /space-storage
+checkpointCacheRoot: /checkpoint-cache
 sessionsDir: /sessions
 platformConfigRoot: /configs
 spaceStoragePvc: cohub-spaces-pvc
+checkpointCachePvc: cohub-checkpoints-pvc
 workspaceSubpath: workspaces/prod
+checkpointCacheSubpath: workspaces/prod/checkpoints
 sessionsSubpath: sessions/prod
 configsSubpath: configs/prod
 sessionsNamespace: cohub-sessions

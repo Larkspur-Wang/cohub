@@ -38,6 +38,13 @@ export const EnvSchema = z.object({
       message: "WORKSPACE_ROOT must be an absolute path",
     })
     .default("/space-storage"),
+  CHECKPOINT_CACHE_ROOT: z
+    .string()
+    .min(1)
+    .refine((value) => value.startsWith("/"), {
+      message: "CHECKPOINT_CACHE_ROOT must be an absolute path",
+    })
+    .default("/checkpoint-cache"),
   SESSIONS_DIR: z
     .string()
     .min(1)

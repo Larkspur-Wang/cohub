@@ -15,10 +15,13 @@ env: dev
 logLevel: debug
 workerSecret: ""
 workspaceRoot: /space-storage
+checkpointCacheRoot: /checkpoint-cache
 sessionsDir: /sessions
 platformConfigRoot: /configs
 spaceStoragePvc: cohub-spaces-pvc
+checkpointCachePvc: cohub-checkpoints-pvc
 workspaceSubpath: workspaces/dev
+checkpointCacheSubpath: workspaces/dev/checkpoints
 sessionsSubpath: sessions/dev
 configsSubpath: configs/dev
 sessionsNamespace: cohub-sessions-dev

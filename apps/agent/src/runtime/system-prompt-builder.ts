@@ -2,6 +2,7 @@ import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { SpaceModListItem } from "@cohub/core/space-mods";
 import {
+  bindModSkillsConfig,
   loadSkillsFromDirectory,
   mergeSkillsConfigs,
   type Skill,
@@ -9,12 +10,12 @@ import {
 } from "@cohub/infra/config-runtime/skills";
 import {
   getAgentPlatformAgentPath,
+  getAgentModSnapshotPath,
   getAgentPlatformSkillsPath,
   getAgentUserAgentsPath,
   getAgentUserConfigPath,
   getAgentUserSkillsPath,
   getAgentWorkspaceAgentsPath,
-  getAgentWorkspacePath,
   getAgentWorkspaceSkillsPath,
   SANDBOX_PLATFORM_SKILLS_PATH,
   SANDBOX_USER_CONFIG_PATH,
@@ -101,12 +102,26 @@ async function loadSkillsFromDir(input: {
   return content.skills;
 }
 
-async function loadMergedSkills(cwd: string, userId?: string | null, spaceMods: SpaceModListItem[] = [], options: { includeUserSkills?: boolean } = {}): Promise<Skill[]> {
-  const modSkillGroups = await Promise.all(spaceMods.map((mod) => loadSkillsFromDir({
-    agentDir: join(getAgentWorkspacePath(mod.modSpaceId), ".agents", "skills"),
+async function loadModSkills(mod: SpaceModListItem): Promise<Skill[]> {
+  const skillsDir = join(getAgentModSnapshotPath(mod.modSpaceId), ".agents", "skills");
+  const skills = await loadSkillsFromDir({
+    agentDir: skillsDir,
     sandboxDir: `${mod.mountPath}/.agents/skills`,
     scope: "mod",
-  })));
+  });
+  return bindModSkillsConfig(
+    { skills },
+    {
+      skillsDir,
+      sandboxDir: `${mod.mountPath}/.agents/skills`,
+      modSpaceId: mod.modSpaceId,
+      mountSlug: mod.mountSlug,
+    },
+  ).skills;
+}
+
+async function loadMergedSkills(cwd: string, userId?: string | null, spaceMods: SpaceModListItem[] = [], options: { includeUserSkills?: boolean } = {}): Promise<Skill[]> {
+  const modSkillGroups = await Promise.all(spaceMods.map(loadModSkills));
 
   const [platformSkills, userSkills, workspaceSkills] = await Promise.all([
     loadSkillsFromDir({
@@ -179,14 +194,14 @@ export async function buildCohubSystemPrompt(options: BuildCohubSystemPromptOpti
 
   const appendSystemPrompts = (await Promise.all([
     readTextIfExists(join(getAgentPlatformAgentPath(), "APPEND_SYSTEM.md")),
-    ...spaceMods.map((mod) => readTextIfExists(join(getAgentWorkspacePath(mod.modSpaceId), ".cohub", "APPEND_SYSTEM.md"))),
+    ...spaceMods.map((mod) => readTextIfExists(join(getAgentModSnapshotPath(mod.modSpaceId), ".cohub", "APPEND_SYSTEM.md"))),
     ...(userAgentDir ? [readTextIfExists(join(userAgentDir, "APPEND_SYSTEM.md"))] : []),
     readTextIfExists(join(workspaceAgentDir, "APPEND_SYSTEM.md")),
   ])).filter((value): value is string => Boolean(value));
 
   const [userContextFiles, modContextGroups, projectContextFiles, skills] = await Promise.all([
     userId ? loadContextFilesFromRoot(getAgentUserConfigPath(userId), SANDBOX_USER_CONFIG_PATH) : Promise.resolve([]),
-    Promise.all(spaceMods.map((mod) => loadContextFilesFromRoot(getAgentWorkspacePath(mod.modSpaceId), mod.mountPath))),
+    Promise.all(spaceMods.map((mod) => loadContextFilesFromRoot(getAgentModSnapshotPath(mod.modSpaceId), mod.mountPath))),
     loadContextFilesFromRoot(cwd, SANDBOX_WORKSPACE_PATH),
     selectedTools.includes("read") ? loadMergedSkills(cwd, userId, spaceMods, { includeUserSkills }) : Promise.resolve([]),
   ]);
