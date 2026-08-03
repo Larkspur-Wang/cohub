@@ -4,6 +4,19 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v2.7 — 2026-08-03
+
+- **Friendly space invitations**: invite links now resolve through `/username/space-slug/join/<token>` with a shared invite page, plus Redis Lua-backed atomic usage reservation, per-space invite caps, and revocation — exposed end-to-end through the SDK and new `cohub spaces invites create/ls/revoke` commands
+- **Filesystem cache reconciliation rewrite**: the web space-fs repository moved to IndexedDB v14 with a dedicated epoch store, a transactional `idbRunTransaction` helper, sequence-gap detection that escalates to full resync, and a refresh coordinator that merges pending batches per lane so concurrent change events no longer thrash the cache or the UI
+- **Mod resources served from checkpoint snapshots**: agent now loads mod skills, rules, and append-system prompts from the `latest` checkpoint cache instead of the live workspace, so mounted mods and sandboxes always agree on one immutable snapshot; deploy manifests mount `CHECKPOINT_CACHE_ROOT` read-only
+- **Preview navigation state machine**: workspace file preview extracted into a standalone transition-id based navigation module, replacing the ad-hoc clip transition and eliminating stale renders when route, user, and restore sources race
+- Project skills load directly from the live workspace, dropping the revision-keyed Redis cache layer for immediate freshness after edits
+
+### Bug Fixes
+
+- Abort signals and other non-plain objects are preserved in completion payloads — image URL restoration no longer walks class instances and strips them
+- Preview panel open and close transitions are now reliable instead of intermittently dropping frames or getting stuck
+
 ## v2.6 — 2026-07-31
 
 - **Space turn browsing**: a new permission-aware `GET /api/spaces/:id/turns` endpoint lists turns across all visible Sessions with author, session, and time-boundary filters plus stable cursor pagination, exposed through protocol types, the SDK (`SpaceTurnsApi`), and a new `cohub spaces turns ls` command with table and JSON output. The web workspace replays recent turns from other members through the existing danmaku layer, using local cursors, cross-tab lease coordination, deduplication, and live-message priority so catch-up never crowds out real-time activity.

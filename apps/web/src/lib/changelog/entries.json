@@ -1,5 +1,21 @@
 [
 	{
+		"version": "2.7",
+		"date": "2026-08-03",
+		"tags": ["v2.7.0"],
+		"highlights": [
+			"**Friendly space invitations**: invite links now resolve through `/username/space-slug/join/<token>` with a shared invite page, plus Redis Lua-backed atomic usage reservation, per-space invite caps, and revocation — exposed end-to-end through the SDK and new `cohub spaces invites create/ls/revoke` commands",
+			"**Filesystem cache reconciliation rewrite**: the web space-fs repository moved to IndexedDB v14 with a dedicated epoch store, a transactional `idbRunTransaction` helper, sequence-gap detection that escalates to full resync, and a refresh coordinator that merges pending batches per lane so concurrent change events no longer thrash the cache or the UI",
+			"**Mod resources served from checkpoint snapshots**: agent now loads mod skills, rules, and append-system prompts from the `latest` checkpoint cache instead of the live workspace, so mounted mods and sandboxes always agree on one immutable snapshot; deploy manifests mount `CHECKPOINT_CACHE_ROOT` read-only",
+			"**Preview navigation state machine**: workspace file preview extracted into a standalone transition-id based navigation module, replacing the ad-hoc clip transition and eliminating stale renders when route, user, and restore sources race",
+			"Project skills load directly from the live workspace, dropping the revision-keyed Redis cache layer for immediate freshness after edits"
+		],
+		"fixes": [
+			"Abort signals and other non-plain objects are preserved in completion payloads — image URL restoration no longer walks class instances and strips them",
+			"Preview panel open and close transitions are now reliable instead of intermittently dropping frames or getting stuck"
+		]
+	},
+	{
 		"version": "2.6",
 		"date": "2026-07-31",
 		"tags": ["v2.6.0"],
