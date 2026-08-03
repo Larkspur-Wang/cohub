@@ -13,7 +13,9 @@ import { getCurrentToolExecutionContext, runWithToolExecutionContext, type ToolE
 import { isToolFailureDetails } from "./tools/index.js";
 import { applyRequestProfile } from "./request-profile.js";
 import { mergeHeaders } from "@cohub/infra/config-runtime/models";
+import type { ImageToTextConfig } from "@cohub/infra/config-runtime/image-to-text";
 import { ModelUnavailableError } from "@cohub/core/sessions";
+import { prepareAgentImagesForModel } from "./image-to-text.js";
 import type { SpaceModListItem } from "@cohub/core/space-mods";
 
 export type CohubAgentSessionEvent = AgentEvent;
@@ -33,7 +35,7 @@ export type CohubAgentSession = {
   enqueueSteer(text: string, images?: ImageContent[]): void;
   waitForIdle(): Promise<void>;
   setModel(model: Model<Api>): Promise<void>;
-  configureRuntimeIdentity(input: { userId?: string | null; spaceOwnerUserId?: string | null; modelRegistry: CohubModelRegistry; requestedModel?: { provider: string; id: string }; requestedThinkingLevel?: string | null }): Promise<void>;
+  configureRuntimeIdentity(input: { userId?: string | null; spaceOwnerUserId?: string | null; modelRegistry: CohubModelRegistry; imageToTextConfig?: ImageToTextConfig | null; requestedModel?: { provider: string; id: string }; requestedThinkingLevel?: string | null }): Promise<void>;
   configureTools(tools: ToolLike[]): Promise<void>;
   reload(): Promise<void>;
   abort(): Promise<void>;
@@ -209,6 +211,7 @@ export type CreateCohubAgentSessionOptions = {
   modelRegistry: CohubModelRegistry;
   tools: ToolLike[];
   spaceMods?: SpaceModListItem[];
+  imageToTextConfig?: ImageToTextConfig | null;
   model?: Model<Api>;
 };
 
@@ -460,7 +463,7 @@ function toLlmMessages(messages: AgentMessage[]) {
       });
     }
   }
-  return applyLlmRequestSizeGuard(result) as never;
+  return result as never;
 }
 
 function normalizeUserId(userId?: string | null) {
@@ -533,7 +536,16 @@ export function wrapAssistantMessageStream(
   return wrapped;
 }
 
-function createStreamFn(getRuntime: () => { modelRegistry: CohubModelRegistry; userId: string | null; threadId: string }): StreamFn {
+function attachImageToTextCalls(message: AssistantMessage, calls: Awaited<ReturnType<typeof prepareAgentImagesForModel>>["calls"]) {
+  if (calls.length === 0) return;
+  const record = message as unknown as Record<string, unknown>;
+  const meta = record.meta && typeof record.meta === "object" && !Array.isArray(record.meta)
+    ? record.meta as Record<string, unknown>
+    : {};
+  record.meta = { ...meta, imageToText: { schemaVersion: 1, calls } };
+}
+
+function createStreamFn(getRuntime: () => { modelRegistry: CohubModelRegistry; imageToTextConfig: ImageToTextConfig | null; sessionManager: SessionManager; userId: string | null; threadId: string }): StreamFn {
   const tracer = getAgentTracer();
 
   return async (model: Model<Api>, ctx: Context, options?: SimpleStreamOptions) => {
@@ -566,6 +578,22 @@ function createStreamFn(getRuntime: () => { modelRegistry: CohubModelRegistry; u
         if (toolCtx?.assistantMessageTiming && !toolCtx.assistantMessageTiming.startedAt) {
           toolCtx.assistantMessageTiming.startedAt = new Date().toISOString();
         }
+        const prepared = await prepareAgentImagesForModel({
+          context: ctx,
+          targetModel: model,
+          config: runtime.imageToTextConfig,
+          sessionManager: runtime.sessionManager,
+          sessionId: toolCtx?.sessionId ?? runtime.threadId,
+          executionTurnId: toolCtx?.turnId,
+          signal: options?.signal,
+        }).catch((error) => {
+          logger.warn("[ImageToText] context preparation failed; continuing with original images", error);
+          return { context: ctx, calls: [] };
+        });
+        const requestContext: Context = {
+          ...prepared.context,
+          messages: applyLlmRequestSizeGuard(structuredClone(prepared.context.messages)) as Context["messages"],
+        };
         const streamHeaders = mergeHeaders(
           runtime.modelRegistry.getHeaders(model.provider, model.id),
           options?.headers as Record<string, string> | undefined,
@@ -604,7 +632,7 @@ function createStreamFn(getRuntime: () => { modelRegistry: CohubModelRegistry; u
               })
             : streamHeaders,
         });
-        const stream = streamSimpleWithModels(models, model, ctx, requestOptions);
+        const stream = streamSimpleWithModels(models, model, requestContext, requestOptions);
 
         return wrapAssistantMessageStream(stream, {
           model,
@@ -615,6 +643,7 @@ function createStreamFn(getRuntime: () => { modelRegistry: CohubModelRegistry; u
               llmRound.markFirstToken();
             }
             if (event.type === "done") {
+              attachImageToTextCalls(event.message, prepared.calls);
               recordLlmUsage(llmRound.span, {
                 inputTokens: event.message.usage?.input,
                 outputTokens: event.message.usage?.output,
@@ -625,6 +654,7 @@ function createStreamFn(getRuntime: () => { modelRegistry: CohubModelRegistry; u
               });
               llmRound.finish({ finishReason: event.reason, outcome: "ok" });
             } else if (event.type === "error") {
+              attachImageToTextCalls(event.error, prepared.calls);
               recordLlmUsage(llmRound.span, {
                 inputTokens: event.error.usage?.input,
                 outputTokens: event.error.usage?.output,
@@ -671,11 +701,14 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
   let runtimeUserId = normalizeUserId(options.userId);
   let runtimeSpaceOwnerUserId = normalizeUserId(options.spaceOwnerUserId);
   let runtimeModelRegistry = options.modelRegistry;
+  let runtimeImageToTextConfig = options.imageToTextConfig ?? null;
   let runtimeTools = options.tools;
   let systemPromptStateKey: string | null = null;
   const sessionAffinity = options.sessionManager.getSessionAffinity();
   const getRuntime = () => ({
     modelRegistry: runtimeModelRegistry,
+    imageToTextConfig: runtimeImageToTextConfig,
+    sessionManager: options.sessionManager,
     userId: runtimeUserId,
     threadId: sessionAffinity.threadId,
   });
@@ -960,6 +993,7 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
       runtimeUserId = nextUserId;
       runtimeSpaceOwnerUserId = nextSpaceOwnerUserId;
       runtimeModelRegistry = input.modelRegistry;
+      runtimeImageToTextConfig = input.imageToTextConfig ?? null;
       agent.state.systemPrompt = nextSystemPrompt;
       systemPromptStateKey = nextKey;
       const shouldChangeThinkingLevel = nextThinkingLevel !== agent.state.thinkingLevel;

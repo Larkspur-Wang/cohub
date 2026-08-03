@@ -10,6 +10,7 @@ import { sendOutput } from "./redis.js";
 import { logger } from "./logger.js";
 import { getAgentTracer } from "@cohub/infra/tracing/agent";
 import type { CohubModelRegistry } from "./runtime/model-registry.js";
+import type { ImageToTextConfig } from "@cohub/infra/config-runtime/image-to-text";
 import {
   ensureAgentSpaceSessionPath,
   getAgentSessionFilePath,
@@ -1068,6 +1069,7 @@ export async function loadOrCreateSessionHandle(input: {
   sessionId: string;
   userId?: string | null;
   modelRegistry: CohubModelRegistry;
+  imageToTextConfig?: ImageToTextConfig | null;
   tools: ReturnType<typeof createSandboxCodingTools>;
   model?: { provider: string; id: string };
   sessionHandles: Map<string, SessionHandle>;
@@ -1131,6 +1133,7 @@ export async function loadOrCreateSessionHandle(input: {
     spaceOwnerUserId,
     sessionManager,
     modelRegistry: input.modelRegistry,
+    imageToTextConfig: input.imageToTextConfig,
     tools: input.tools,
     spaceMods,
     ...(resolvedModel ? { model: resolvedModel } : {}),

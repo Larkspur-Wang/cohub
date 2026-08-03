@@ -46,6 +46,24 @@ export type CompletionAssistantMessage = {
   errorMessage?: string | null;
 };
 
+export type CompletionImageDescriptionFallback = {
+  type: "image_description";
+  messageIndex: number;
+  imageIndex: number;
+  provider: string;
+  model: string;
+  status: "succeeded" | "failed";
+  description?: {
+    text: string;
+    provider: string;
+    model: string;
+    generatedAt: string;
+  };
+  usage: CompletionUsage | null;
+  durationMs: number;
+  error?: string;
+};
+
 export type SpaceCompletionResult = {
   completionId: string;
   provider: string;
@@ -53,6 +71,8 @@ export type SpaceCompletionResult = {
   systemPromptPath: string | null;
   message: CompletionAssistantMessage;
   usage: CompletionUsage | null;
+  /** Newly generated fallbacks. Persist successful descriptions in the source image `_meta` for reuse. */
+  contextFallbacks?: CompletionImageDescriptionFallback[];
 };
 
 export type SpaceCompletionStreamEvent =
@@ -80,6 +100,7 @@ export type SpaceCompletionStreamEvent =
       completionId: string;
       message: CompletionAssistantMessage;
       usage: CompletionUsage | null;
+      contextFallbacks?: CompletionImageDescriptionFallback[];
     }
   | {
       type: "error";

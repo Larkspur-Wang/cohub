@@ -14,8 +14,12 @@ export const SANDBOX_USER_SKILLS_PATH = `${SANDBOX_USER_AGENTS_PATH}/skills`;
 export const SANDBOX_WORKSPACE_AGENTS_PATH = `${SANDBOX_WORKSPACE_PATH}/.agents`;
 export const SANDBOX_WORKSPACE_SKILLS_PATH = `${SANDBOX_WORKSPACE_AGENTS_PATH}/skills`;
 
+export function getAgentConfigRoot() {
+  return process.env.PLATFORM_CONFIG_ROOT ?? "/configs";
+}
+
 export function getAgentPlatformConfigPath() {
-  return join(process.env.PLATFORM_CONFIG_ROOT ?? "/configs", "platform");
+  return join(getAgentConfigRoot(), "platform");
 }
 
 export function getAgentPlatformAgentPath() {
@@ -39,7 +43,7 @@ export function getAgentPlatformAuthPath() {
 }
 
 export function getAgentUserConfigPath(userId: string) {
-  return join(process.env.PLATFORM_CONFIG_ROOT ?? "/configs", "users", assertValidUserId(userId));
+  return join(getAgentConfigRoot(), "users", assertValidUserId(userId));
 }
 
 export function getAgentUserAgentPath(userId: string) {

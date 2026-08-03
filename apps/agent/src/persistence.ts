@@ -19,7 +19,7 @@ import type { ChannelProvider, GatewayOutboundCommand } from "@cohub/protocol/ga
 import { getRealtimeUserRoom } from "@cohub/protocol/realtime";
 import { sessionMessages, sessionTurns, spaceChannels, spaceSessionBindings, spaceSessions, providerMessageRefs, userChannels, userProfiles } from "@cohub/db";
 import { sanitizeContentBlocksForPostgresJson, sanitizePostgresJsonValue } from "@cohub/core/content/sanitize";
-import { countToolCallsInContent, deriveMessagePreviewText, extractPlainText, resolveMessageTurnId, summarizeSessionTurnCompactions } from "@cohub/core/sessions";
+import { addImageToTextCallsToSummary, countToolCallsInContent, createImageToTextUsageSummaryAccumulator, deriveMessagePreviewText, extractPlainText, finalizeImageToTextUsageSummary, readImageToTextCalls, resolveMessageTurnId, summarizeSessionTurnCompactions, sumImageToTextUsage } from "@cohub/core/sessions";
 import { buildTraceHeaders, getCurrentRequestId } from "@cohub/infra/tracing";
 import { enqueueSessionMessagePostprocess } from "./session-message-postprocess-queue.js";
 import { normalizeAssistantTurn } from "./assistant-message-normalizer.js";
@@ -454,6 +454,7 @@ const buildIntermediateObjectsForTurn = async (input: { spaceId: string; session
   const prefix = buildTurnObjectPrefix(input);
   const toolCallsBaseObjectKey = `${prefix}intermediate/messages/`;
   let totalUsage: Usage | null = null;
+  const imageToText = createImageToTextUsageSummaryAccumulator();
   let totalDurationMs: number | null = null;
   let toolCallCount = 0;
   let hasError = false;
@@ -465,6 +466,9 @@ const buildIntermediateObjectsForTurn = async (input: { spaceId: string; session
     const details = extractToolCalls(content);
     toolCallCount += details.length;
     totalUsage = addUsage(totalUsage, row.usage as Usage | null | undefined);
+    const imageToTextCalls = readImageToTextCalls(row.meta);
+    addImageToTextCallsToSummary(imageToText, imageToTextCalls);
+    totalUsage = addUsage(totalUsage, sumImageToTextUsage(row.meta));
     totalDurationMs = addDurationMs(totalDurationMs, row.durationMs ?? null);
     hasError = hasError || Boolean(row.errorMessage) || details.some((tool) => tool.result?.isError);
     const toolCallsObjectKey = details.length > 0 ? `${toolCallsBaseObjectKey}${row.id}/tool-calls.json` : null;
@@ -508,8 +512,9 @@ const buildIntermediateObjectsForTurn = async (input: { spaceId: string; session
     lastMessageText: messages.at(-1)?.text ?? null,
     hasError,
     compaction: summarizeSessionTurnCompactions(messages),
+    imageToText: finalizeImageToTextUsageSummary(imageToText),
   };
-  if (messages.length === 0) return { index: null, summary, rows };
+  if (messages.length === 0) return { index: null, summary, rows, imageToTextAccumulator: imageToText };
 
   try {
     await writeTurnObjects(toolFiles);
@@ -532,15 +537,27 @@ const buildIntermediateObjectsForTurn = async (input: { spaceId: string; session
       },
       summary,
       rows,
+      imageToTextAccumulator: imageToText,
     };
   } catch (error) {
     logger.warn("[SessionTurn] failed to write intermediate objects", error);
-    return { index: null, summary, rows };
+    return { index: null, summary, rows, imageToTextAccumulator: imageToText };
   }
 };
 
 async function finalizeSessionTurnFromMessage(input: { spaceId: string; sessionId: string; turnId: string; status: Exclude<SessionTurnStatus, "running">; assistantContent: ContentBlock[]; assistantText: string | null; provider: string | null; model: string | null; stopReason: string | null; errorMessage: string | null; usage: Usage | null; metaPatch?: Record<string, unknown> | null }) {
   const intermediate = await buildIntermediateObjectsForTurn(input);
+  const imageToText = intermediate?.imageToTextAccumulator ?? createImageToTextUsageSummaryAccumulator();
+  const finalCalls = readImageToTextCalls(input.metaPatch);
+  addImageToTextCallsToSummary(imageToText, finalCalls);
+  const imageToTextSummary = finalizeImageToTextUsageSummary(imageToText);
+  const currentImageToText = normalizeRecord(input.metaPatch?.imageToText);
+  const turnMetaPatch = {
+    ...(input.metaPatch ?? {}),
+    ...(imageToTextSummary.callCount > 0
+      ? { imageToText: { ...(currentImageToText ?? {}), schemaVersion: 1, summary: imageToTextSummary } }
+      : {}),
+  };
   const completedAt = new Date();
   const completedAtIso = completedAt.toISOString();
   const [row] = await db.update(sessionTurns).set({
@@ -552,8 +569,8 @@ async function finalizeSessionTurnFromMessage(input: { spaceId: string; sessionI
     stopReason: input.stopReason,
     errorMessage: input.errorMessage,
     finalUsage: input.usage,
-    totalUsage: addUsage(intermediate?.summary.usage, input.usage),
-    ...(input.metaPatch && Object.keys(input.metaPatch).length > 0 ? { meta: sql`coalesce(${sessionTurns.meta}, '{}'::jsonb) || ${JSON.stringify(input.metaPatch)}::jsonb` } : {}),
+    totalUsage: addUsage(addUsage(intermediate?.summary.usage, input.usage), sumImageToTextUsage(input.metaPatch)),
+    ...(Object.keys(turnMetaPatch).length > 0 ? { meta: sql`coalesce(${sessionTurns.meta}, '{}'::jsonb) || ${JSON.stringify(turnMetaPatch)}::jsonb` } : {}),
     summary: { text: input.assistantText, finishReason: input.status === "interrupted" ? "interrupted" : input.status === "failed" ? "failed" : "completed" },
     intermediateIndex: intermediate?.index ?? null,
     intermediateSummary: intermediate?.summary ?? null,
@@ -698,7 +715,7 @@ export async function persistAssistantMessage(input: { spaceId: string; spaceSes
   if (record.meta?.messageKind === "assistant_final" || record.meta?.messageKind === "assistant_error") {
     const turnId = typeof record.meta.turnId === "string" ? record.meta.turnId : null;
     if (turnId) {
-      const { turn: finalized, messages: turnMessages } = await finalizeSessionTurnFromMessage({ spaceId: input.spaceId, sessionId: input.spaceSessionId, turnId, status: effectiveStopReason === "aborted" ? "interrupted" : record.meta.messageKind === "assistant_error" ? "failed" : "completed", assistantContent: record.content, assistantText: record.text, provider: record.provider, model: record.model, stopReason: record.stopReason, errorMessage: record.errorMessage, usage: record.usage, metaPatch: { ...(typeof record.meta.agentSessionEntryId === "string" ? { agentSessionEntryId: record.meta.agentSessionEntryId } : {}), ...(typeof record.durationMs === "number" ? { finalMessageDurationMs: record.durationMs } : {}), ...(typeof input.thinkingLevel === "string" && input.thinkingLevel.trim() ? { effectiveThinkingLevel: input.thinkingLevel } : {}) } });
+      const { turn: finalized, messages: turnMessages } = await finalizeSessionTurnFromMessage({ spaceId: input.spaceId, sessionId: input.spaceSessionId, turnId, status: effectiveStopReason === "aborted" ? "interrupted" : record.meta.messageKind === "assistant_error" ? "failed" : "completed", assistantContent: record.content, assistantText: record.text, provider: record.provider, model: record.model, stopReason: record.stopReason, errorMessage: record.errorMessage, usage: record.usage, metaPatch: { ...(typeof record.meta.agentSessionEntryId === "string" ? { agentSessionEntryId: record.meta.agentSessionEntryId } : {}), ...(record.meta.imageToText ? { imageToText: record.meta.imageToText } : {}), ...(typeof record.durationMs === "number" ? { finalMessageDurationMs: record.durationMs } : {}), ...(typeof input.thinkingLevel === "string" && input.thinkingLevel.trim() ? { effectiveThinkingLevel: input.thinkingLevel } : {}) } });
       if (finalized) {
         indexTurnReferences({ spaceId: input.spaceId, sessionId: finalized.sessionId, turnId: finalized.id, messages: turnMessages });
         await publishTurnFinalized(input.spaceId, finalized).catch((error) => logger.warn("[Realtime] failed to publish finalized turn", error));
@@ -722,9 +739,10 @@ async function finalizeInterruptedTurn(input: { spaceId: string; sessionId: stri
     eq(sessionMessages.role, "assistant"),
   )).orderBy(desc(sessionMessages.sequence)).limit(1);
   const intermediate = await buildIntermediateObjectsForTurn(input);
+  const imageToTextSummary = intermediate?.summary.imageToText;
   const completedAt = new Date();
   const completedAtIso = completedAt.toISOString();
-  const [row] = await db.update(sessionTurns).set({ status: "interrupted", assistantContent: last?.content ?? null, assistantText: last?.text ?? null, provider: last?.provider ?? null, model: last?.model ?? null, stopReason: input.stopReason, errorMessage: null, finalUsage: last?.usage as Usage | null ?? null, totalUsage: intermediate?.summary.usage ?? null, summary: input.summary, intermediateIndex: intermediate?.index ?? null, intermediateSummary: intermediate?.summary ?? null, completedAt, durationMs: sql<number>`greatest(0, floor(extract(epoch from (${completedAtIso}::timestamptz - ${sessionTurns.startedAt})) * 1000)::int)`, updatedAt: completedAt }).where(and(eq(sessionTurns.id, input.turnId), eq(sessionTurns.sessionId, input.sessionId), inArray(sessionTurns.status, ["running", "abort_requested", "interrupted"]))).returning();
+  const [row] = await db.update(sessionTurns).set({ status: "interrupted", assistantContent: last?.content ?? null, assistantText: last?.text ?? null, provider: last?.provider ?? null, model: last?.model ?? null, stopReason: input.stopReason, errorMessage: null, finalUsage: last?.usage as Usage | null ?? null, totalUsage: intermediate?.summary.usage ?? null, summary: input.summary, intermediateIndex: intermediate?.index ?? null, intermediateSummary: intermediate?.summary ?? null, ...(imageToTextSummary && imageToTextSummary.callCount > 0 ? { meta: sql`coalesce(${sessionTurns.meta}, '{}'::jsonb) || ${JSON.stringify({ imageToText: { schemaVersion: 1, summary: imageToTextSummary } })}::jsonb` } : {}), completedAt, durationMs: sql<number>`greatest(0, floor(extract(epoch from (${completedAtIso}::timestamptz - ${sessionTurns.startedAt})) * 1000)::int)`, updatedAt: completedAt }).where(and(eq(sessionTurns.id, input.turnId), eq(sessionTurns.sessionId, input.sessionId), inArray(sessionTurns.status, ["running", "abort_requested", "interrupted"]))).returning();
   return { turn: row ? toTurnRecord(row) : null, messages: intermediate.rows };
 }
 

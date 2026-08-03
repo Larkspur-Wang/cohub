@@ -62,6 +62,9 @@
       "@cohub/infra/config-runtime/models": [
         "../../packages/infra/src/config-runtime/models.ts"
       ],
+      "@cohub/infra/config-runtime/image-to-text": [
+        "../../packages/infra/src/config-runtime/image-to-text.ts"
+      ],
       "@cohub/infra/config-runtime/skills": [
         "../../packages/infra/src/config-runtime/skills.ts"
       ],

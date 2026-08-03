@@ -81,6 +81,14 @@ export type SessionTurnCompactionSummary = {
   } | null;
 };
 
+export type ImageToTextUsageSummary = {
+  callCount: number;
+  successCount: number;
+  errorCount: number;
+  sourceCount: number;
+  usage: Usage | null;
+};
+
 export type SessionTurnIntermediateSummary = {
   messageCount: number;
   toolCallCount: number;
@@ -89,6 +97,7 @@ export type SessionTurnIntermediateSummary = {
   lastMessageText?: string | null;
   hasError?: boolean;
   compaction?: SessionTurnCompactionSummary | null;
+  imageToText?: ImageToTextUsageSummary | null;
 };
 
 export type StoredIntermediateMessage = {

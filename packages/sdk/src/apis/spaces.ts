@@ -1990,6 +1990,7 @@ export class SpaceClient {
           completionId: result.completionId,
           message: result.message,
           usage: result.usage,
+          ...(result.contextFallbacks ? { contextFallbacks: result.contextFallbacks } : {}),
         };
         return result;
       }
@@ -2037,6 +2038,7 @@ export class SpaceClient {
           systemPromptPath: meta?.systemPromptPath ?? null,
           message: event.message,
           usage: event.usage ?? lastUsage,
+          ...(event.contextFallbacks ? { contextFallbacks: event.contextFallbacks } : {}),
         };
       }
       if (event.type === "error") {

@@ -17,6 +17,7 @@ import { ensureSandboxConnection } from "./sandbox-pool.js";
 import { createSandboxCodingTools } from "./sandbox/tools.js";
 import { CohubModelRegistry } from "./runtime/model-registry.js";
 import { loadRuntimeModelsConfigs } from "./runtime/models-loader.js";
+import { loadImageToTextConfig } from "./runtime/image-to-text-config.js";
 import { CompactionStateRecoveryError, maybeAutoCompact, OverflowRecoveryError, type CompactionOutcome } from "./runtime/compaction.js";
 import { clearCurrentSessionExecutionAuth, setCurrentSessionExecutionAuth } from "./runtime/session-execution-auth.js";
 import { resolveSpaceFileVisibility } from "./runtime/cross-space-query-access.js";
@@ -617,12 +618,19 @@ async function prepareHandle(input: {
   requestedModel?: { provider: string; id: string };
   requestedThinkingLevel?: string | null;
 }) {
-  const modelRegistry = await getModelRegistryForUser(input.actorUserId);
+  const [modelRegistry, imageToTextConfig] = await Promise.all([
+    getModelRegistryForUser(input.actorUserId),
+    loadImageToTextConfig(input.actorUserId).catch((error) => {
+      logger.warn("[ImageToText] config unavailable; continuing without fallback", error);
+      return null;
+    }),
+  ]);
   const handle = await loadOrCreateSessionHandle({
     spaceId: input.spaceId,
     sessionId: input.sessionId,
     userId: input.actorUserId,
     modelRegistry,
+    imageToTextConfig,
     tools,
     model: input.requestedModel,
     sessionHandles,
@@ -632,6 +640,7 @@ async function prepareHandle(input: {
     userId: input.actorUserId,
     spaceOwnerUserId: handle.spaceOwnerUserId,
     modelRegistry,
+    imageToTextConfig,
     requestedModel: input.requestedModel,
     requestedThinkingLevel: input.requestedThinkingLevel,
   });

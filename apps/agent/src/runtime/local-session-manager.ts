@@ -228,6 +228,7 @@ export class SessionManager {
   private entries: SessionEntry[] = [];
   private byId = new Map<string, SessionEntry>();
   private userMessageIds = new Set<string>();
+  private userMessageEntryIds = new Map<string, string>();
   private leafId: string | null = null;
   public sessionFile?: string;
   private fileReady = false;
@@ -291,6 +292,16 @@ export class SessionManager {
 
   getEntries(): SessionEntry[] {
     return [...this.entries];
+  }
+
+  getCustomEntries(customType: string): CustomEntry[] {
+    return this.getBranch().filter(
+      (entry): entry is CustomEntry => entry.type === "custom" && entry.customType === customType,
+    );
+  }
+
+  findUserMessageEntryId(userMessageId: string): string | null {
+    return this.userMessageEntryIds.get(userMessageId.trim()) ?? null;
   }
 
   /** Returns the linear branch from root to current leaf. */
@@ -837,11 +848,14 @@ export class SessionManager {
   private indexBranchUserMessage(entry: SessionEntry) {
     if (entry.type !== "message") return;
     const userMessageId = getSessionUserMessageId(entry.message);
-    if (userMessageId) this.userMessageIds.add(userMessageId);
+    if (!userMessageId) return;
+    this.userMessageIds.add(userMessageId);
+    this.userMessageEntryIds.set(userMessageId, entry.id);
   }
 
   private rebuildBranchUserMessageIndex() {
     this.userMessageIds = new Set();
+    this.userMessageEntryIds = new Map();
     for (const entry of this.getBranch()) this.indexBranchUserMessage(entry);
   }
 
