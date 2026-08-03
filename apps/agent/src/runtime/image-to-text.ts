@@ -228,6 +228,41 @@ function collectImages(messages: Context["messages"], sessionManager: SessionMan
   return images;
 }
 
+function projectDescribedImages(
+  context: Context,
+  images: PendingImage[],
+  descriptions: Map<string, StoredImageDescription>,
+): Context {
+  const replacementsByMessage = new Map<number, Array<{ blockIndex: number; text: string }>>();
+  for (const image of images) {
+    const description = descriptions.get(image.sourceKey);
+    if (!description) continue;
+    let replacements = replacementsByMessage.get(image.messageIndex);
+    if (!replacements) {
+      replacements = [];
+      replacementsByMessage.set(image.messageIndex, replacements);
+    }
+    replacements.push({ blockIndex: image.blockIndex, text: description.text });
+  }
+  if (replacementsByMessage.size === 0) return context;
+  // Copy only the messages being modified so tool functions and other
+  // non-cloneable runtime references on the context stay intact.
+  return {
+    ...context,
+    messages: context.messages.map((message, messageIndex) => {
+      const replacements = replacementsByMessage.get(messageIndex);
+      if (!replacements) return message;
+      const record = message as unknown as Record<string, unknown>;
+      if (!Array.isArray(record.content)) return message;
+      const content = [...record.content];
+      for (const replacement of replacements) {
+        content[replacement.blockIndex] = imageDescriptionText(replacement.text);
+      }
+      return { ...message, content } as Context["messages"][number];
+    }),
+  };
+}
+
 async function mapWithConcurrency<T>(items: T[], concurrency: number, mapper: (item: T) => Promise<void>): Promise<void> {
   let nextIndex = 0;
   await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, async () => {
@@ -330,14 +365,5 @@ export async function prepareAgentImagesForModel(input: {
     });
   });
 
-  const projected = structuredClone(input.context) as Context;
-  for (const image of images) {
-    const description = descriptions.get(image.sourceKey);
-    if (!description) continue;
-    const message = projected.messages[image.messageIndex] as unknown as Record<string, unknown> | undefined;
-    if (message && Array.isArray(message.content)) {
-      message.content[image.blockIndex] = imageDescriptionText(description.text);
-    }
-  }
-  return { context: projected, calls };
+  return { context: projectDescribedImages(input.context, images, descriptions), calls };
 }

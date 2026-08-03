@@ -52,6 +52,7 @@ export type ImageToTextConfigOverride = Omit<Partial<ImageToTextConfig>, "model"
 export type CachedImageToTextConfig = {
   rev: string;
   updatedAt: string;
+  sourceCheckpointId?: string | null;
   content: ImageToTextConfigOverride | null;
 };
 
@@ -140,11 +141,13 @@ function createFastContentHash(rawText: string): string {
 export function createCachedImageToTextConfig(input: {
   rawText?: string;
   content: ImageToTextConfigOverride | null;
+  sourceCheckpointId?: string | null;
   updatedAt?: string;
 }): CachedImageToTextConfig {
   return {
-    rev: input.rawText ? createFastContentHash(input.rawText) : "missing:image-to-text",
+    rev: input.rawText ? createFastContentHash(input.rawText) : `missing:${input.sourceCheckpointId ?? "image-to-text"}`,
     updatedAt: input.updatedAt ?? new Date().toISOString(),
+    sourceCheckpointId: input.sourceCheckpointId ?? null,
     content: input.content,
   };
 }
@@ -162,6 +165,7 @@ export function parseCachedImageToTextConfig(rawText: string): CachedImageToText
   return {
     rev: typeof parsed.rev === "string" ? parsed.rev : "unknown",
     updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : new Date(0).toISOString(),
+    sourceCheckpointId: typeof parsed.sourceCheckpointId === "string" ? parsed.sourceCheckpointId : null,
     content,
   };
 }
