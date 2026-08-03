@@ -1,5 +1,11 @@
 # @neta-art/cohub
 
+## 4.6.0
+
+### Minor Changes
+
+- 4735eea: Add optional browser upload progress and cancellation signals for public assets.
+
 ## 4.5.0
 
 ### Minor Changes
