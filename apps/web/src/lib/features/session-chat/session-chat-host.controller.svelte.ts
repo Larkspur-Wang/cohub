@@ -2708,17 +2708,25 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		if (fileAttachments.length === 0) return new Map<string, string>();
 		composer.setUploading("file");
 		const urls = new Map<string, string>();
-		await Promise.all(
+		const results = await Promise.allSettled(
 			fileAttachments.map(async (attachment) => {
 				const asset = await uploadChatAttachmentFile({
 					spaceId: opSpaceId,
 					sessionId: sessionId ?? undefined,
 					file: attachment.file,
 					filename: attachment.name,
+					onProgress: ({ ratio }) =>
+						composer.setAttachmentUploadProgress(
+							attachment.id,
+							Math.round(ratio * 100),
+						),
 				});
 				urls.set(attachment.id, asset.publicUrl);
+				composer.setAttachmentFinalizing(attachment.id);
 			}),
 		);
+		const failed = results.find((result) => result.status === "rejected");
+		if (failed?.status === "rejected") throw failed.reason;
 		return urls;
 	}
 
@@ -2742,6 +2750,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			imageAttachments.map(async (attachment) => {
 				if (attachment.uploadedUrl) {
 					urls.set(attachment.id, attachment.uploadedUrl);
+					composer.setAttachmentFinalizing(attachment.id);
 					return;
 				}
 				try {
@@ -2751,8 +2760,14 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 						file: attachment.file,
 						mediaType: attachment.mediaType,
 						filename: attachment.name,
+						onProgress: ({ ratio }) =>
+							composer.setAttachmentUploadProgress(
+								attachment.id,
+								Math.round(ratio * 100),
+							),
 					});
 					urls.set(attachment.id, asset.publicUrl);
+					composer.setAttachmentFinalizing(attachment.id);
 				} catch (error) {
 					// Image specialization failed — still upload as a normal durable file.
 					demotedIds.add(attachment.id);
@@ -2770,8 +2785,14 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 							sessionId: sessionId ?? undefined,
 							file: attachment.file,
 							filename: attachment.name,
+							onProgress: ({ ratio }) =>
+								composer.setAttachmentUploadProgress(
+									attachment.id,
+									Math.round(ratio * 100),
+								),
 						});
 						fileUrls.set(attachment.id, asset.publicUrl);
+						composer.setAttachmentFinalizing(attachment.id);
 					} catch (fileError) {
 						console.warn("[composer] demoted image file durable failed", {
 							name: attachment.name,
@@ -2890,8 +2911,6 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			);
 			hadFileUpload = fileAttachments.length > 0;
 			hadImageUpload = imageAttachments.length > 0;
-			if (fileAttachments.length > 0) composer.setUploading("file");
-			if (imageAttachments.length > 0) composer.setUploading("image");
 
 			// Client uploads once to durable public storage.
 			// With space, server materializes from those URLs into sandbox (no second client upload).

@@ -15,6 +15,7 @@ import { onMount } from "svelte";
 import { page } from "$app/state";
 import { ensureAuth } from "$lib/auth";
 import { handleUnauthorizedError } from "$lib/auth-redirect";
+import UploadProgress from "$lib/components/UploadProgress.svelte";
 import UserAvatar from "$lib/components/UserAvatar.svelte";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { uploadUserAvatarImage } from "$lib/public-asset-images";
@@ -44,6 +45,10 @@ let editingField = $state<EditableField | null>(null);
 let draftValue = $state("");
 let savingField = $state<EditableField | null>(null);
 let uploadingAvatar = $state(false);
+let avatarUploadStage = $state<"idle" | "preparing" | "uploading" | "saving">(
+	"idle",
+);
+let avatarUploadProgress = $state(0);
 let uuidCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 
 const profileTitle = $derived(displayName || username || "User");
@@ -179,8 +184,16 @@ async function uploadAvatar(file: File) {
 	if (uploadingAvatar) return;
 	inlineError = "";
 	uploadingAvatar = true;
+	avatarUploadStage = "preparing";
+	avatarUploadProgress = 0;
 	try {
-		const asset = await uploadUserAvatarImage(file);
+		const asset = await uploadUserAvatarImage(file, {
+			onProgress: ({ ratio }) => {
+				avatarUploadStage = "uploading";
+				avatarUploadProgress = Math.round(ratio * 100);
+			},
+		});
+		avatarUploadStage = "saving";
 		const profile = await authStore.updateProfile({
 			avatarUrl: asset.publicUrl,
 		});
@@ -190,6 +203,8 @@ async function uploadAvatar(file: File) {
 			error instanceof Error ? error.message : "Failed to upload avatar";
 	} finally {
 		uploadingAvatar = false;
+		avatarUploadStage = "idle";
+		avatarUploadProgress = 0;
 	}
 }
 
@@ -256,11 +271,14 @@ onMount(() => {
 									</span>
 									<input type="file" accept="image/jpeg,image/png,image/webp" class="sr-only" disabled={uploadingAvatar} onchange={handleAvatarFileChange} />
 								</label>
-								<label class="inline-flex cursor-pointer items-center gap-1 rounded-[4px] px-1 py-0.5 text-[11px] leading-none text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary focus-within:bg-bg-hover focus-within:text-text-secondary {uploadingAvatar ? 'pointer-events-none opacity-50' : ''}">
+								<label class="inline-flex cursor-pointer items-center gap-1 rounded-[4px] px-1 py-0.5 text-[11px] leading-none text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary focus-within:bg-bg-hover focus-within:text-text-secondary {uploadingAvatar ? 'pointer-events-none opacity-70' : ''}">
 									{#if uploadingAvatar}<Loader2 class="h-3 w-3 animate-spin" />{:else}<Upload class="h-3 w-3" />{/if}
-									<span>{avatarUrl ? "Change" : "Upload"}</span>
+									<span aria-live="polite">{avatarUploadStage === "preparing" ? "Preparing" : avatarUploadStage === "uploading" ? `${avatarUploadProgress}%` : avatarUploadStage === "saving" ? "Saving" : avatarUrl ? "Change" : "Upload"}</span>
 									<input type="file" accept="image/jpeg,image/png,image/webp" class="sr-only" disabled={uploadingAvatar} onchange={handleAvatarFileChange} />
 								</label>
+								{#if uploadingAvatar}
+									<UploadProgress class="w-12 rounded-full" value={avatarUploadStage === "uploading" ? avatarUploadProgress : null} label="Avatar upload progress" />
+								{/if}
 							</div>
 						{/if}
 						<div class="min-w-0 flex-1 pt-0.5">

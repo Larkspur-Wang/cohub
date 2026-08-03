@@ -64,3 +64,117 @@ it("negotiates R2 PUT for chat attachments while retaining avatar POST uploads",
     globalThis.fetch = originalFetch;
   }
 });
+
+it("reports browser upload progress without changing the fetch fallback", async () => {
+  const transport = {
+    request: async () => ({
+      expiresAt: "2026-01-01T00:00:00.000Z",
+      asset: {
+        purpose: "chat_attachment" as const,
+        objectKey: "chat-attachments/user/file.txt",
+        publicUrl: "https://uploads.example.com/chat-attachments/user/file.txt",
+        uploadMethod: "PUT" as const,
+        uploadUrl: "https://bucket.example.com/chat-attachments/user/file.txt",
+        uploadHeaders: { "content-type": "text/plain" },
+      },
+    }),
+  } as unknown as HttpTransport;
+  const progress: Array<{ loadedBytes: number; totalBytes: number; ratio: number }> = [];
+  const originalXhr = globalThis.XMLHttpRequest;
+
+  class FakeXMLHttpRequest {
+    status = 0;
+    responseText = "";
+    upload = { onprogress: null } as XMLHttpRequestUpload;
+    onload: ((event: ProgressEvent) => void) | null = null;
+    onerror: ((event: ProgressEvent) => void) | null = null;
+    onabort: ((event: ProgressEvent) => void) | null = null;
+
+    open() {}
+    setRequestHeader() {}
+    abort() {
+      this.onabort?.({} as ProgressEvent);
+    }
+    send() {
+      queueMicrotask(() => {
+        this.upload.onprogress?.({
+          lengthComputable: true,
+          loaded: 1,
+          total: 4,
+        } as ProgressEvent);
+        this.status = 204;
+        this.onload?.({} as ProgressEvent);
+      });
+    }
+  }
+
+  globalThis.XMLHttpRequest = FakeXMLHttpRequest as unknown as typeof XMLHttpRequest;
+  try {
+    const api = new PublicAssetsApi(transport);
+    await api.uploadChatAttachment({
+      file: new Blob(["test"], { type: "text/plain" }),
+      mimeType: "text/plain",
+      filename: "file.txt",
+      onProgress: (event) => progress.push(event),
+    });
+
+    assert.deepEqual(progress, [
+      { loadedBytes: 1, totalBytes: 4, ratio: 0.25 },
+      { loadedBytes: 4, totalBytes: 4, ratio: 1 },
+    ]);
+  } finally {
+    globalThis.XMLHttpRequest = originalXhr;
+  }
+});
+
+it("does not create an upload plan for an already-aborted request", async () => {
+  let requestCount = 0;
+  const transport = {
+    request: async () => {
+      requestCount += 1;
+      throw new Error("unexpected request");
+    },
+  } as unknown as HttpTransport;
+  const controller = new AbortController();
+  controller.abort();
+
+  const api = new PublicAssetsApi(transport);
+  await assert.rejects(
+    api.uploadChatAttachment({
+      file: new Blob(["test"], { type: "text/plain" }),
+      mimeType: "text/plain",
+      filename: "file.txt",
+      signal: controller.signal,
+    }),
+    (error: unknown) => error instanceof Error && error.name === "AbortError",
+  );
+  assert.equal(requestCount, 0);
+});
+
+it("forwards abort signals to upload plan requests", async () => {
+  const controller = new AbortController();
+  let requestSignal: AbortSignal | null | undefined;
+  const transport = {
+    request: async (_path: string, init: RequestInit) => {
+      requestSignal = init.signal;
+      return {
+        expiresAt: "2026-01-01T00:00:00.000Z",
+        asset: {
+          purpose: "chat_attachment" as const,
+          objectKey: "chat-attachments/user/file.txt",
+          publicUrl: "https://uploads.example.com/chat-attachments/user/file.txt",
+          uploadMethod: "PUT" as const,
+          uploadUrl: "https://bucket.example.com/chat-attachments/user/file.txt",
+        },
+      };
+    },
+  } as unknown as HttpTransport;
+
+  const api = new PublicAssetsApi(transport);
+  await api.createUpload({
+    purpose: "chat_attachment",
+    file: { size: 4, mimeType: "text/plain", filename: "file.txt" },
+  }, { signal: controller.signal });
+
+  assert.equal(requestSignal, controller.signal);
+});

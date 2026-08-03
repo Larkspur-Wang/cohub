@@ -95,6 +95,12 @@ function getFileExtension(name: string) {
 
 export const COMPOSER_ATTACHMENT_ACCEPT = "";
 
+export type ComposerAttachmentUploadStatus =
+	| "ready"
+	| "uploading"
+	| "finalizing"
+	| "failed";
+
 export type ComposerImageAttachment = {
 	kind: "image";
 	id: string;
@@ -104,7 +110,8 @@ export type ComposerImageAttachment = {
 	previewUrl: string;
 	uploadedUrl?: string;
 	size: number;
-	status: "ready" | "uploading" | "failed";
+	status: ComposerAttachmentUploadStatus;
+	progress?: number;
 };
 
 export type ComposerTextAttachment = {
@@ -124,13 +131,53 @@ export type ComposerFileAttachment = {
 	mediaType: string | null;
 	file: File;
 	size: number;
-	status: "ready" | "uploading" | "failed";
+	status: ComposerAttachmentUploadStatus;
+	progress?: number;
 };
 
 export type ComposerAttachment =
 	| ComposerImageAttachment
 	| ComposerTextAttachment
 	| ComposerFileAttachment;
+
+export function summarizeComposerAttachmentUpload(
+	attachments: ComposerAttachment[],
+) {
+	const active = attachments.filter(
+		(
+			attachment,
+		): attachment is ComposerFileAttachment | ComposerImageAttachment =>
+			(attachment.kind === "file" || attachment.kind === "image") &&
+			(attachment.status === "uploading" || attachment.status === "finalizing"),
+	);
+	if (active.length === 0) return null;
+	if (active.every((attachment) => attachment.status === "finalizing")) {
+		return {
+			stage: "finalizing" as const,
+			progress: 100,
+			count: active.length,
+		};
+	}
+	const totalBytes = active.reduce(
+		(sum, attachment) => sum + attachment.size,
+		0,
+	);
+	const loadedBytes = active.reduce(
+		(sum, attachment) =>
+			sum +
+			attachment.size *
+				(attachment.status === "finalizing"
+					? 1
+					: Math.max(0, Math.min(100, attachment.progress ?? 0)) / 100),
+		0,
+	);
+	return {
+		stage: "uploading" as const,
+		progress:
+			totalBytes > 0 ? Math.round((loadedBytes / totalBytes) * 100) : 100,
+		count: active.length,
+	};
+}
 
 export function createComposerAttachmentId(file: File) {
 	return `${file.name}-${file.lastModified}-${Math.random().toString(36).slice(2, 8)}`;

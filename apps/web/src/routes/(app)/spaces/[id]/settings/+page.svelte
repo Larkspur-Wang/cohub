@@ -55,6 +55,7 @@ import {
 import ChannelModelPicker from "$lib/components/ChannelModelPicker.svelte";
 import Sheet from "$lib/components/Sheet.svelte";
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
+import UploadProgress from "$lib/components/UploadProgress.svelte";
 import UserAvatar from "$lib/components/UserAvatar.svelte";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { uploadSpaceAvatarImage } from "$lib/public-asset-images";
@@ -211,6 +212,10 @@ let spaceDescriptionDraft = $state("");
 let spaceDescriptionSaving = $state(false);
 let spaceProfileError = $state("");
 let spaceAvatarUploading = $state(false);
+let spaceAvatarUploadStage = $state<
+	"idle" | "preparing" | "uploading" | "saving"
+>("idle");
+let spaceAvatarUploadProgress = $state(0);
 let editingSpaceSlug = $state(false);
 let spaceSlugDraft = $state("");
 let spaceSlugSaving = $state(false);
@@ -663,9 +668,19 @@ function handleDescriptionKeydown(event: KeyboardEvent) {
 async function uploadSpaceAvatar(file: File) {
 	if (!canEditSpaceProfile || spaceAvatarUploading) return;
 	spaceAvatarUploading = true;
+	spaceAvatarUploadStage = "preparing";
+	spaceAvatarUploadProgress = 0;
 	spaceProfileError = "";
 	try {
-		const asset = await uploadSpaceAvatarImage({ spaceId, file });
+		const asset = await uploadSpaceAvatarImage({
+			spaceId,
+			file,
+			onProgress: ({ ratio }) => {
+				spaceAvatarUploadStage = "uploading";
+				spaceAvatarUploadProgress = Math.round(ratio * 100);
+			},
+		});
+		spaceAvatarUploadStage = "saving";
 		const result = await sdk.space(spaceId).profile({
 			description: space?.description ?? null,
 			avatarUrl: asset.publicUrl,
@@ -677,6 +692,8 @@ async function uploadSpaceAvatar(file: File) {
 			err instanceof Error ? err.message : "Failed to upload space avatar";
 	} finally {
 		spaceAvatarUploading = false;
+		spaceAvatarUploadStage = "idle";
+		spaceAvatarUploadProgress = 0;
 	}
 }
 
@@ -1556,11 +1573,14 @@ $effect(() => {
 										</span>
 										<input type="file" accept="image/jpeg,image/png,image/webp" class="sr-only" disabled={spaceAvatarUploading} onchange={handleSpaceAvatarFileChange} />
 									</label>
-									<label class="inline-flex cursor-pointer items-center gap-1 rounded-[4px] px-1 py-0.5 text-[11px] leading-none text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary {spaceAvatarUploading ? 'pointer-events-none opacity-50' : ''}">
+									<label class="inline-flex cursor-pointer items-center gap-1 rounded-[4px] px-1 py-0.5 text-[11px] leading-none text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary {spaceAvatarUploading ? 'pointer-events-none opacity-70' : ''}">
 										{#if spaceAvatarUploading}<Loader2 class="h-3 w-3 animate-spin" />{:else}<Upload class="h-3 w-3" />{/if}
-										<span>{space?.publicProfile?.avatarUrl ? "Change" : "Upload"}</span>
+										<span aria-live="polite">{spaceAvatarUploadStage === "preparing" ? "Preparing" : spaceAvatarUploadStage === "uploading" ? `${spaceAvatarUploadProgress}%` : spaceAvatarUploadStage === "saving" ? "Saving" : space?.publicProfile?.avatarUrl ? "Change" : "Upload"}</span>
 										<input type="file" accept="image/jpeg,image/png,image/webp" class="sr-only" disabled={spaceAvatarUploading} onchange={handleSpaceAvatarFileChange} />
 									</label>
+									{#if spaceAvatarUploading}
+										<UploadProgress class="w-12 rounded-full" value={spaceAvatarUploadStage === "uploading" ? spaceAvatarUploadProgress : null} label="Space avatar upload progress" />
+									{/if}
 								{:else}
 									<SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="lg" class="h-14 w-14 rounded-full" />
 								{/if}

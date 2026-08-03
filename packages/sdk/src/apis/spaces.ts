@@ -417,13 +417,14 @@ export class SpaceFilesApi {
     );
   }
 
-  createUpload(input: SpaceFsCreateUploadInput) {
+  createUpload(input: SpaceFsCreateUploadInput, options: { signal?: AbortSignal } = {}) {
     return this.transport.request<SpaceFsCreateUploadResponse>(
       `/api/spaces/${this.spaceId}/fs/uploads`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(input),
+        signal: options.signal,
       },
     );
   }
