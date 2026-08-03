@@ -65,6 +65,9 @@ COHUB_SPACE_ID=<spaceId> cohub spaces get
 cohub spaces create --name "<name>" --description "<description>" --json
 cohub spaces update <spaceId> --slug <space-slug>
 cohub spaces rename <spaceId> "<new name>"
+cohub -s <spaceId> spaces invites create --role builder --days 7
+cohub -s <spaceId> spaces invites ls
+cohub -s <spaceId> spaces invites revoke <code> --yes
 cohub -s <spaceId> run -- git status
 ```
 

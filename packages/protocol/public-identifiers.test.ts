@@ -32,8 +32,10 @@ describe("public identifier assignment", () => {
     });
   });
 
-  it("reserves the Work route discriminator only for space slugs", () => {
+  it("reserves nested public route discriminators only for space slugs", () => {
+    assert.equal(isReservedPublicIdentifier("spaceSlug", "join"), true);
     assert.equal(isReservedPublicIdentifier("spaceSlug", "w"), true);
+    assert.equal(isReservedPublicIdentifier("username", "join"), false);
     assert.equal(isReservedPublicIdentifier("username", "w"), false);
   });
 

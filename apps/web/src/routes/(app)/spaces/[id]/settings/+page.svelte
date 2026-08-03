@@ -19,6 +19,7 @@ import type {
 	SpaceRole,
 	SpaceSandboxAutoDestroyPolicy,
 } from "@neta-art/cohub";
+import { buildSpaceInvitePath } from "@neta-art/cohub";
 import {
 	ArrowLeft,
 	Check,
@@ -739,7 +740,21 @@ async function forceRecoverSandbox() {
 async function loadPage() {
 	loading = true;
 	error = "";
+	invitationsError = "";
 	try {
+		const spacePromise = sdk.space(spaceId).get();
+		const invitationPromise = spacePromise.then(
+			async (result): Promise<SpaceInvitation[]> => {
+				if (!result.access?.permissions.includes("member.manage")) return [];
+				try {
+					return (await sdk.space(spaceId).invitations.list()).items;
+				} catch (err) {
+					invitationsError =
+						err instanceof Error ? err.message : "Failed to load invitations";
+					return [];
+				}
+			},
+		);
 		const [
 			spaceResult,
 			accessResult,
@@ -750,9 +765,9 @@ async function loadPage() {
 			allChannelResult,
 			sandboxResult,
 			sandboxConfigResult,
-			invitationResult,
+			invitationItems,
 		] = await Promise.all([
-			sdk.space(spaceId).get(),
+			spacePromise,
 			sdk
 				.space(spaceId)
 				.access.get()
@@ -782,10 +797,7 @@ async function loadPage() {
 				.space(spaceId)
 				.getConfig()
 				.catch(() => null),
-			sdk
-				.space(spaceId)
-				.invitations.list()
-				.catch(() => ({ items: [] })),
+			invitationPromise,
 		]);
 		space = spaceResult;
 		spaceDescriptionDraft = spaceResult.description ?? "";
@@ -807,7 +819,7 @@ async function loadPage() {
 					| Record<string, SandboxSpecOption>
 					| undefined) ?? sandboxSpecs;
 		}
-		invitations = invitationResult.items;
+		invitations = invitationItems;
 		applySandboxConfigFromSpace(spaceResult);
 		if (channelHealthRefreshTimer) clearInterval(channelHealthRefreshTimer);
 		channelHealthRefreshTimer = setInterval(() => {
@@ -1033,6 +1045,11 @@ async function removeMember(userId: string) {
 }
 
 async function loadInvitations() {
+	if (!canManageSpaceMembers) {
+		invitations = [];
+		invitationsError = "";
+		return;
+	}
 	loadingInvitations = true;
 	invitationsError = "";
 	try {
@@ -1080,7 +1097,13 @@ async function createInvite() {
 }
 
 async function copyInviteLink(token: string) {
-	const url = `${window.location.origin}/invite/${token}`;
+	const path = buildSpaceInvitePath({
+		spaceId,
+		ownerUsername: getSpaceOwnerUsername(space),
+		spaceSlug: getSpaceSlug(space),
+		inviteCode: token,
+	});
+	const url = `${window.location.origin}${path}`;
 	try {
 		if (navigator.clipboard?.writeText) {
 			await navigator.clipboard.writeText(url);
@@ -1614,7 +1637,9 @@ $effect(() => {
 								<h1 class="text-[18px] font-semibold tracking-tight text-text-primary">Access</h1>
 								<p class="mt-1 text-[13px] leading-5 text-text-tertiary">Who can view and build here.</p>
 							</div>
-							<button type="button" onclick={() => { showInvitePanel = true; inviteCreateError = ""; }} disabled={!canManageSpaceMembers} class="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-[5px] border border-brand-border bg-brand-muted px-2.5 text-[12px] font-medium text-brand transition-colors hover:bg-brand-muted-hover disabled:opacity-50"><Link class="h-3.5 w-3.5" /> Invite</button>
+							{#if canManageSpaceMembers}
+								<button type="button" onclick={() => { showInvitePanel = true; inviteCreateError = ""; }} class="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-[5px] border border-brand-border bg-brand-muted px-2.5 text-[12px] font-medium text-brand transition-colors hover:bg-brand-muted-hover"><Link class="h-3.5 w-3.5" /> Invite</button>
+							{/if}
 						</div>
 
 						<!-- Default roles: settings rows -->
@@ -1675,6 +1700,7 @@ $effect(() => {
 							{#if addingMemberError}<p class="mt-2 text-[12px] text-error-soft break-words">{addingMemberError}</p>{/if}
 						</div>
 
+						{#if canManageSpaceMembers}
 						<!-- Invite links -->
 						<div class="border-t border-border-subtle py-6">
 							<div class="flex items-center justify-between gap-3">
@@ -1707,6 +1733,7 @@ $effect(() => {
 								</div>
 							{/if}
 						</div>
+						{/if}
 						</section>
 
 						<!-- ════════ Environment ════════ -->
@@ -1970,6 +1997,7 @@ $effect(() => {
 	</div>
 </div>
 
+{#if canManageSpaceMembers}
 <Sheet open={showInvitePanel} onClose={() => { showInvitePanel = false; }} maxWidth="400px">
 	<div class="p-5 pb-safe">
 		<div class="mb-4 flex items-start justify-between gap-3">
@@ -1991,6 +2019,7 @@ $effect(() => {
 		</div>
 	</div>
 </Sheet>
+{/if}
 
 <SandboxSpecPicker
 	open={specPickerOpen}

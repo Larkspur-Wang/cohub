@@ -47,7 +47,8 @@ const RESERVED_PLATFORM_PATH_SEGMENT_SET = new Set<string>(
 );
 const RESERVED_SPACE_SLUG_SET = new Set<string>([
   ...RESERVED_PLATFORM_PATH_SEGMENTS,
-  // Fixed public Work route discriminator: /:username/:spaceSlug/w/:workSlug.
+  // Fixed public route discriminators below /:username/:spaceSlug.
+  "join",
   "w",
 ]);
 

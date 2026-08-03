@@ -10,6 +10,7 @@ import { createClient } from "../client.js";
 import { table, json as outJson, jsonRequested, ok, error, handleHttp } from "../output.js";
 import { resolveSpace } from "../space.js";
 import { registerSpaceCommerce } from "./space-commerce.js";
+import { registerSpaceInvitations } from "./space-invitations.js";
 import { registerSpaceTurns } from "./space-turns.js";
 
 type ModOptions = {
@@ -430,6 +431,7 @@ export function registerPrompt(program: Command): void {
 
 export function registerSpaces(program: Command): void {
   const spacesCmd = program.command("spaces").description("Space management");
+  registerSpaceInvitations(spacesCmd);
 
   // ── spaces ls ──
   spacesCmd

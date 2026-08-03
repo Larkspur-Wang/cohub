@@ -1575,30 +1575,38 @@ export type SpaceInvitation = {
   expiresInSeconds: number | null;
 };
 
+export type SpaceInvitationLocation = {
+  spaceId: string;
+  spaceSlug: string | null;
+  ownerUsername: string | null;
+};
+
+export type SpaceInvitationListResponse = SpaceInvitationLocation & {
+  items: SpaceInvitation[];
+};
+
 export type CreateInvitationInput = {
   role?: SpaceRole;
   ttlSeconds?: number;
   maxUses?: number;
 };
 
-export type CreateInvitationResponse = {
+export type CreateInvitationResponse = SpaceInvitationLocation & {
   token: string;
   role: SpaceRole;
   expiresAt: string;
   maxUses: number | null;
 };
 
-export type InvitationDetail = {
+export type InvitationDetail = SpaceInvitationLocation & {
   token: string;
-  spaceId: string;
   spaceName: string;
   role: SpaceRole;
   expiresInSeconds: number | null;
 };
 
-export type AcceptInvitationResponse = {
+export type AcceptInvitationResponse = SpaceInvitationLocation & {
   ok: true;
-  spaceId: string;
   spaceName: string;
   role: SpaceRole;
 };
