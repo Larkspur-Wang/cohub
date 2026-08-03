@@ -51,6 +51,8 @@ type GenerationTaskResult = {
 
 `requestId` and `cost` are observed provider fields captured via `generateResult()`. Older completed tasks may omit them.
 
+`meta` is model-owned input and is validated against the model declaration. Cohub request provenance and task context are stored separately and are never forwarded to generation providers.
+
 ## Billing
 
 Generation requests share the platform credit balance with LLM turns.
