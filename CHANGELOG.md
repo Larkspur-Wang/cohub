@@ -4,6 +4,20 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v2.8 — 2026-08-03
+
+- **Image-to-text fallback**: images sent to text-only models are now transparently described by a configured vision model, with descriptions persisted per turn (JSONL sidecar plus DB) so they are reused instead of re-billed, and per-call provider/model/usage/cost recorded on the turn. Configuration lives in a shared `config-runtime/image-to-text` module with Redis-cached platform and per-user overrides, wired through API completions, the agent runtime, and the message postprocess worker.
+- **Upload transfer progress**: file uploads report real byte-level progress across the composer, space file pane, and profile/space settings, with an accessible indeterminate-to-determinate progress bar and cancellation via `AbortSignal`. The SDK gained `onProgress` and `signal` on public asset and chat attachment uploads, switching to XHR to expose upload events.
+- **Runtime reliability hardening**: agent session JSONL files now recover from truncated trailing entries and missing final newlines by archiving the partial file and fsyncing the repair before reopening; sandbox uploads verify transferred size and surface a typed mismatch error; prompt submission validates the requested provider/model against platform and user model configs; the QQ gateway classifies 4xx config failures to back off for five minutes instead of hot-looping, adds handshake timeouts and tracing spans, and the Go relay client applies the same retry classification.
+- **LLM image plumbing refactor**: remote-image URL marshaling moved out of `stream-completion.ts` into a dedicated `llm/image-content` module shared by the completion and image-to-text paths, and model-config loading was factored into reusable `config-runtime/models` helpers consumed by API, worker, and agent.
+
+### Bug Fixes
+
+- Image-to-text config cache now refreshes when a checkpoint publishes new config, so model changes take effect without waiting for TTL expiry.
+- Agent context projection no longer deep-clones the whole context, preserving tool function references and leaving the original context unmutated.
+- Upload progress is scoped per attachment instead of shared across a batch, so concurrent uploads no longer overwrite each other's state.
+- Danmaku speed, lane spacing, and visible-item caps retuned for smoother density under bursts.
+
 ## v2.7 — 2026-08-03
 
 - **Friendly space invitations**: invite links now resolve through `/username/space-slug/join/<token>` with a shared invite page, plus Redis Lua-backed atomic usage reservation, per-space invite caps, and revocation — exposed end-to-end through the SDK and new `cohub spaces invites create/ls/revoke` commands
