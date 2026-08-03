@@ -7,9 +7,14 @@ import { redisCommandClient } from "./redis.js";
 
 const INVITE_PREFIX = "invite";
 const INVITATION_SCAN_BATCH_SIZE = 100;
+const INVITATION_TOKEN_CREATE_ATTEMPTS = 5;
 export const MAX_SPACE_INVITATIONS = 100;
 
 const CREATE_INVITATION_SCRIPT = `
+if redis.call("EXISTS", KEYS[1]) == 1 then
+  return "token_exists"
+end
+
 if redis.call("SCARD", KEYS[2]) >= tonumber(ARGV[9]) then
   return "limit_reached"
 end
@@ -85,7 +90,15 @@ export type InvitationUseReservation =
   | "revoked"
   | "exhausted";
 
-export type StoreSpaceInvitationResult = "created" | "limit_reached";
+export type StoreSpaceInvitationResult =
+  | "created"
+  | "limit_reached"
+  | "token_exists";
+
+export type CreateSpaceInvitationResult = {
+  token: string;
+  status: Exclude<StoreSpaceInvitationResult, "token_exists">;
+};
 
 export type ListedSpaceInvitation = {
   token: string;
@@ -140,7 +153,7 @@ export function spaceInvitationIndexKey(spaceId: string) {
 }
 
 export function generateInvitationToken() {
-  return `inv_${randomBytes(16).toString("hex")}`;
+  return randomBytes(9).toString("base64url");
 }
 
 export async function getInvitationSpaceLocation(
@@ -180,6 +193,19 @@ export async function storeSpaceInvitation(
     String(MAX_SPACE_INVITATIONS),
   );
   return result as StoreSpaceInvitationResult;
+}
+
+export async function createSpaceInvitation(
+  input: Omit<StoreSpaceInvitationInput, "token">,
+  client: InvitationStoreClient = redisCommandClient,
+  generateToken: () => string = generateInvitationToken,
+): Promise<CreateSpaceInvitationResult> {
+  for (let attempt = 0; attempt < INVITATION_TOKEN_CREATE_ATTEMPTS; attempt += 1) {
+    const token = generateToken();
+    const status = await storeSpaceInvitation({ ...input, token }, client);
+    if (status !== "token_exists") return { token, status };
+  }
+  throw new Error("Failed to generate a unique invitation code");
 }
 
 export async function listSpaceInvitations(

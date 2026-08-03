@@ -4,12 +4,11 @@ import { requireValidId, useAuth } from "../../lib/middleware.js";
 import { getRoleForSpaceUser } from "../../permissions.js";
 import { redisCommandClient } from "../../redis.js";
 import {
-  generateInvitationToken,
+  createSpaceInvitation,
   getInvitationSpaceLocation,
   invitationKey,
   listSpaceInvitations,
   MAX_SPACE_INVITATIONS,
-  storeSpaceInvitation,
 } from "../../space-invitations.js";
 import { getSpaceById } from "../../space-sessions.js";
 
@@ -54,10 +53,8 @@ router.post("/", async (c) => {
   const location = await getInvitationSpaceLocation(spaceId);
   if (!location) return c.json({ message: "space not found" }, 404);
 
-  const token = generateInvitationToken();
   const createdAt = new Date();
   const invitation = {
-    token,
     spaceId,
     spaceName: space.name,
     creatorId: user.uuid,
@@ -66,12 +63,12 @@ router.post("/", async (c) => {
     createdAt: createdAt.toISOString(),
     ttlSeconds,
   };
-  let creation = await storeSpaceInvitation(invitation);
-  if (creation === "limit_reached") {
+  let creation = await createSpaceInvitation(invitation);
+  if (creation.status === "limit_reached") {
     await listSpaceInvitations(spaceId);
-    creation = await storeSpaceInvitation(invitation);
+    creation = await createSpaceInvitation(invitation);
   }
-  if (creation === "limit_reached") {
+  if (creation.status === "limit_reached") {
     return c.json(
       { message: `space can have at most ${MAX_SPACE_INVITATIONS} invitation links` },
       409,
@@ -79,7 +76,7 @@ router.post("/", async (c) => {
   }
 
   return c.json({
-    token,
+    token: creation.token,
     role,
     expiresAt: new Date(createdAt.getTime() + ttlSeconds * 1000).toISOString(),
     maxUses: maxUses || null,

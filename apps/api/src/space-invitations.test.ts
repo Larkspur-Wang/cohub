@@ -1,10 +1,55 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  createSpaceInvitation,
+  generateInvitationToken,
   listSpaceInvitations,
   MAX_SPACE_INVITATIONS,
   storeSpaceInvitation,
 } from "./space-invitations.js";
+
+const invitationInput = {
+  spaceId: "space-1",
+  spaceName: "Research",
+  creatorId: "user-1",
+  role: "builder" as const,
+  maxUses: 0,
+  createdAt: "2026-08-03T00:00:00.000Z",
+  ttlSeconds: 3600,
+};
+
+test("generates compact URL-safe invitation codes", () => {
+  const token = generateInvitationToken();
+
+  assert.equal(token.length, 12);
+  assert.match(token, /^[A-Za-z0-9_-]{12}$/);
+});
+
+test("retries without overwriting an existing invitation token", async () => {
+  const generatedTokens = ["duplicate", "available"];
+  const evaluatedKeys: string[] = [];
+  let evaluatedScript = "";
+
+  const result = await createSpaceInvitation(
+    invitationInput,
+    {
+      async eval(script: string, _keyCount: number, key: string) {
+        evaluatedScript = script;
+        evaluatedKeys.push(key);
+        return key === "invite:duplicate" ? "token_exists" : "created";
+      },
+    },
+    () => {
+      const token = generatedTokens.shift();
+      assert.ok(token);
+      return token;
+    },
+  );
+
+  assert.deepEqual(result, { token: "available", status: "created" });
+  assert.deepEqual(evaluatedKeys, ["invite:duplicate", "invite:available"]);
+  assert.ok(evaluatedScript.indexOf("EXISTS") < evaluatedScript.indexOf("HSET"));
+});
 
 test("lists invitations in Redis batches and removes stale index entries", async () => {
   const invitationData = new Map<string, Record<string, string>>([
@@ -96,14 +141,8 @@ test("passes the space invitation limit to the atomic create script", async () =
   let evaluated: unknown[] = [];
   const result = await storeSpaceInvitation(
     {
+      ...invitationInput,
       token: "inv_test",
-      spaceId: "space-1",
-      spaceName: "Research",
-      creatorId: "user-1",
-      role: "builder",
-      maxUses: 0,
-      createdAt: "2026-08-03T00:00:00.000Z",
-      ttlSeconds: 3600,
     },
     {
       async eval(...args: unknown[]) {
