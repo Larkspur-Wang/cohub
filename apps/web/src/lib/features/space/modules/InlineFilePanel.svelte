@@ -21,6 +21,7 @@ import {
 	X,
 } from "lucide-svelte";
 import { floatNear } from "$lib/actions/portal";
+import AudioPlayer from "$lib/components/AudioPlayer.svelte";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import type { FileViewMode } from "$lib/components/file-diff-view";
 import MarkdownView from "$lib/components/MarkdownView.svelte";
@@ -75,6 +76,7 @@ type Props = {
 	inlineFileExt: string;
 	inlineFileIsImage: boolean;
 	inlineFileIsVideo: boolean;
+	inlineFileIsAudio: boolean;
 	inlineFileIsPdf: boolean;
 	inlineFileDataUrl: string | null;
 	inlineFileSpaceId: string;
@@ -139,6 +141,7 @@ let {
 	inlineFileExt,
 	inlineFileIsImage,
 	inlineFileIsVideo,
+	inlineFileIsAudio,
 	inlineFileIsPdf,
 	inlineFileDataUrl,
 	inlineFileSpaceId,
@@ -260,7 +263,8 @@ const hasUsableText = $derived(
 );
 const hasUsableMedia = $derived(
 	Boolean(
-		((inlineFileIsImage || inlineFileIsVideo) && inlineFileDataUrl) ||
+		((inlineFileIsImage || inlineFileIsVideo || inlineFileIsAudio) &&
+			inlineFileDataUrl) ||
 			(inlineFileIsPdf &&
 				inlineFile.response &&
 				(inlineFile.response.content || inlineFile.response.url)),
@@ -766,6 +770,18 @@ $effect(() => {
               <track kind="captions" />
             </video>
           </div>
+        {:else if inlineFileIsAudio && inlineFileDataUrl}
+          <div class="flex flex-1 items-center justify-center p-4">
+            <div class="w-full max-w-md">
+              <AudioPlayer
+                src={inlineFileDataUrl}
+                title={inlineFile.response.name}
+                subtitle={formatFileSize(inlineFile.response.size)}
+                downloadUrl={inlineFileDownloadUrl}
+                downloadName={inlineFileDownloadName}
+              />
+            </div>
+          </div>
         {:else if inlineFileIsPdf && hasUsableMedia}
           <div class="min-h-0 flex-1">
             {@render PdfFilePreview()}
@@ -959,6 +975,28 @@ $effect(() => {
               <video src={inlineFileDataUrl} controls class="max-h-full max-w-full rounded-md">
                 <track kind="captions" />
               </video>
+            </div>
+          {:else if inlineFileIsAudio && inlineFileDataUrl}
+            <div class="preview-chrome flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
+              <div class="preview-chrome-path min-w-0 flex-1 truncate text-xs sm:text-sm text-text-secondary">
+                {activeResponsePath}
+              </div>
+              <div class="text-xs text-text-tertiary hidden sm:inline">{formatFileSize(inlineFile.response.size)}</div>
+              {@render FileHeaderCoreActions(activeResponsePath)}
+              <button type="button" class="icon-btn" onclick={onCloseInlineFile} title="Close file">
+                <X class="w-4 h-4" />
+              </button>
+            </div>
+            <div class="flex flex-1 items-center justify-center p-4">
+              <div class="w-full max-w-md">
+                <AudioPlayer
+                  src={inlineFileDataUrl}
+                  title={inlineFile.response.name}
+                  subtitle={formatFileSize(inlineFile.response.size)}
+                  downloadUrl={inlineFileDownloadUrl}
+                  downloadName={inlineFileDownloadName}
+                />
+              </div>
             </div>
           {:else if inlineFileIsPdf && hasUsableMedia}
             <div class="preview-chrome flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">

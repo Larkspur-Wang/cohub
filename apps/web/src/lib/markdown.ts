@@ -271,7 +271,9 @@ function renderMediaPreviewHtml(input: {
 	const caption = label ? `<figcaption>${escapeHtml(label)}</figcaption>` : "";
 
 	if (input.type === "audio") {
-		return `<figure class="markdown-media markdown-audio"><audio controls preload="metadata" src="${src}"${title}></audio>${caption}</figure>`;
+		// preload="none": the native element is only a no-JS / streaming
+		// fallback — the enhanced player issues its own metadata request.
+		return `<figure class="markdown-media markdown-audio"><audio controls preload="none" src="${src}"${title}></audio>${caption}</figure>`;
 	}
 
 	const ariaLabel = label ? escapeHtml(label) : "Video preview";

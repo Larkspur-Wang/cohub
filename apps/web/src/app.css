@@ -681,13 +681,13 @@ body.pointer-dragging {
 
 .markdown-content .markdown-audio {
 	width: min(100%, 31.2rem);
-	padding: 0.75rem;
-	border: 1px solid var(--border-subtle);
-	border-radius: 0.75rem;
-	background: var(--bg-surface-muted, var(--bg-surface));
 }
 
 .markdown-content .markdown-audio > audio {
+	width: 100%;
+}
+
+.markdown-content .markdown-audio .markdown-audio-mount {
 	width: 100%;
 }
 

@@ -1,6 +1,7 @@
 <script lang="ts">
 import type { SpaceFsFileResponse } from "@neta-art/cohub";
 import { Download } from "lucide-svelte";
+import AudioPlayer from "$lib/components/AudioPlayer.svelte";
 import MarkdownView from "$lib/components/MarkdownView.svelte";
 import { filePreviewModel } from "$lib/file-preview-model";
 import { createLazyModuleLoader } from "$lib/lazy-module";
@@ -75,7 +76,13 @@ function formatSize(bytes: number) {
 		</div>
 	{:else if model.kind === "audio" && model.mediaUrl}
 		<div class="audio-preview">
-			<audio src={model.mediaUrl} controls aria-label={file.name}></audio>
+			<AudioPlayer
+				src={model.mediaUrl}
+				title={file.name}
+				subtitle={formatSize(file.size)}
+				downloadUrl={downloadUrl || undefined}
+				downloadName={file.name}
+			/>
 		</div>
 	{:else if model.kind === "pdf"}
 		{#await loadPdfPreview() then module}
@@ -136,8 +143,10 @@ function formatSize(bytes: number) {
 		border-radius: 6px;
 	}
 
-	.audio-preview audio {
+	.audio-preview {
 		width: min(34rem, calc(100% - 2rem));
+		padding: 1rem;
+		margin-inline: auto;
 	}
 
 	.preview-message {

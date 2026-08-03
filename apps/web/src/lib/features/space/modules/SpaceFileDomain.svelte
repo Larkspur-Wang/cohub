@@ -98,6 +98,7 @@ export type SpaceFileDomainProps = {
 	inlineFileExt: string;
 	inlineFileIsImage: boolean;
 	inlineFileIsVideo: boolean;
+	inlineFileIsAudio: boolean;
 	inlineFileIsPdf: boolean;
 	inlineFileDataUrl: string | null;
 	inlineFileWork: WorkRecord | null;
@@ -240,6 +241,7 @@ let {
 	inlineFileExt,
 	inlineFileIsImage,
 	inlineFileIsVideo,
+	inlineFileIsAudio,
 	inlineFileIsPdf,
 	inlineFileDataUrl,
 	inlineFileWork,
@@ -431,6 +433,7 @@ function previewContentOut(node: Element) {
 		{inlineFileExt}
 		{inlineFileIsImage}
 		{inlineFileIsVideo}
+		{inlineFileIsAudio}
 		{inlineFileIsPdf}
 		{inlineFileDataUrl}
 		inlineFileSpaceId={spaceId}
