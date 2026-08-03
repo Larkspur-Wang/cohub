@@ -3,6 +3,7 @@ import type { PublicGenerationDeclaration } from "@cohub/protocol/generation";
 import type { ModelStatusEntry } from "@cohub/protocol/model/status";
 import { Brain, Check, ChevronDown, Image } from "lucide-svelte";
 import Dialog from "$lib/components/Dialog.svelte";
+import { getGenerationModelPickerItems } from "$lib/generation-model-catalog";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import {
 	AVAILABILITY_LABEL,
@@ -104,6 +105,7 @@ const {
 }: Props = $props();
 
 let searchQuery = $state("");
+let generationSearchQuery = $state("");
 let selectedIndex = $state(0);
 let navigationMode: "mouse" | "keyboard" = $state("mouse");
 let activeTab: "chat" | "generation" = $state("chat");
@@ -583,9 +585,17 @@ const filteredModels = $derived.by(() => {
 	return result;
 });
 
+const filteredGenerationModels = $derived(
+	getGenerationModelPickerItems(generationModels, {
+		query: generationSearchQuery,
+		selectedModelIds: selectedGenerationModels,
+	}),
+);
+
 $effect(() => {
 	if (open) {
 		searchQuery = "";
+		generationSearchQuery = "";
 		selectedIndex = 0;
 		navigationMode = "mouse";
 		closeThinkingMenu();
@@ -1043,17 +1053,27 @@ const hoverCardPos = $derived.by(() => {
 				</button>
 			</div>
 
+			<div class="mt-3">
+				<input
+					type="text"
+					placeholder="Search generation models"
+					aria-label="Search generation models"
+					bind:value={generationSearchQuery}
+					class="w-full rounded-md border-0 bg-bg-input px-3 py-2 text-[13px] text-text-primary outline-none ring-1 ring-border-subtle placeholder:text-text-placeholder transition-shadow duration-100 focus:ring-brand/45"
+				/>
+			</div>
+
 			<div class="mt-3 px-1 text-[11px] font-medium uppercase tracking-wider text-text-tertiary">
 				Generation models
 			</div>
 
-			{#if generationModels.length === 0}
+			{#if filteredGenerationModels.length === 0}
 				<div class="mt-2 px-3 py-6 text-center text-[13px] text-text-tertiary">
-					No generation models available
+					{generationSearchQuery ? "No matching models" : "No generation models available"}
 				</div>
 			{:else}
 				<div class="mt-1.5 -mx-3">
-					{#each generationModels as model (model.model)}
+					{#each filteredGenerationModels as model (model.model)}
 						<div class="px-3 py-2 transition-colors duration-100 hover:bg-bg-hover/60">
 							<div class="flex items-start gap-2.5">
 								<input

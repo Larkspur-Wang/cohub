@@ -52,14 +52,17 @@ export {
   assertGenerationRequestAllowedByPolicy,
   decodeGenerationPolicy,
   encodeGenerationPolicy,
+  filterDiscoverableGenerationModels,
   filterGenerationDeclarationsByPolicy,
   findGenerationModelPolicy,
   getAllowedGenerationModelIds,
+  isGenerationModelHidden,
   normalizeGenerationPolicy,
   parseGenerationPolicyFromEnv,
 } from "@cohub/protocol/generation";
 export type {
   GenerationModelPolicy,
+  GenerationModelVisibility,
   GenerationParameterConstraint,
   GenerationPolicy,
   GenerationUsageBilling,

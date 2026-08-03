@@ -1,5 +1,6 @@
 import type { GenerationContentBlock, GenerationModelDeclaration } from "@neta-art/generation";
 import type { BillingPayload } from "../billing.js";
+export * from "./catalog.js";
 export * from "./policy.js";
 
 export type {

@@ -154,6 +154,8 @@ parameters:
     enum: [auto, low, medium, high]
 ```
 
+Set `hidden: true` on a declaration to exclude the model from default Web and CLI discovery. Hidden models remain available through exact-ID search, `cohub models show <model>`, direct generation requests, and explicit Limited policies. The models API and SDK continue to return the complete catalog with the `hidden` field, so this is a discovery hint rather than an authorization or runtime availability control.
+
 See the full examples:
 
 - [`docs/examples/generations/gpt-image-2.yaml`](./examples/generations/gpt-image-2.yaml)
