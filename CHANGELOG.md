@@ -4,21 +4,17 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
-## v2.9 — 2026-08-03
+## v2.9 — 2026-08-04
 
-- **Custom audio player**: chat markdown, work and workspace file previews, and task run outputs now share one AudioPlayer component with play/pause, seek, playback rate, volume/mute, download, plus loading and error states. Markdown links progressively hydrate into the player while keeping a `preload="none"` native `<audio>` as the no-JS and streaming fallback.
-- **Hidden generation models**: declarations can set `hidden: true` to drop out of default Web and CLI discovery while staying reachable via exact-ID search, `cohub models show`, direct requests, and explicit Limited policies. New `filterDiscoverableGenerationModels` and `isGenerationModelHidden` helpers ship in the protocol and are re-exported from the SDK, so the models API still returns the full catalog — visibility is a discovery hint, not an authorization control.
-- **Searchable generation model picker**: the model selector gained a dedicated search box with fuzzy scoring over model IDs and titles, selected and exact-match hidden models always included, and a distinct empty state for no matches.
-- **Shorter space invitation codes**: invitation tokens are now 12-character URL-safe strings instead of the 36-character `inv_` hex form, making shared links far more compact. Creation moved to a `createSpaceInvitation` helper whose Lua script checks `EXISTS` before writing and retries on collision, so a new code can never overwrite a live invitation.
-- **Generation meta contract**: `meta` is now strictly model-owned input validated against the model declaration, while Cohub request provenance and task context (`requestSource`, `taskRunId`, `spaceId`, `sessionId`, `turnId`) travel separately and are never forwarded to generation providers.
-- **Speech generation guidance**: the `cohub generate` skill now covers text-to-speech, with worked examples for description-based voice design (`qwen-audio-3.0-tts-plus`) and reference-audio voice cloning (`higgs-tts`), backed by new regression tests for both request shapes.
+- **Sandbox filesystem mutations**: File writes, directory creation, deletes, and moves in cloud spaces are now executed inside the sandbox by the agent over its existing connection pool, so sandbox-local watchers observe every change and the direct PVC write path is only used when no sandbox is dialable
+- **Idempotent file mutations**: All filesystem operations and board creation accept a mutationId that maps to a stable, space-scoped BullMQ job id (canonical payload hashing included), so client retries reuse the same job instead of re-applying a mutation; board create derives deterministic board/transaction ids and safely reuses or cleans up orphaned manifests on retry
+- **Interactive mutation queue**: A new sandbox_fs_mutation job type with a 30-second interactive timeout and fail-fast errors, best-effort cancellation of queued jobs on timeout, and automatic redaction of file content from Redis once a job settles
+- **Save reliability in the web editor**: Autosave retries reuse the persisted mutationId so a save interrupted by reload dedupes on the backend instead of issuing a second mutation, and sandbox-inotify echoes during an in-flight save are no longer misread as external edits
 
 ### Bug Fixes
 
-- Audio files in the workspace inline file preview rendered "Preview not available" instead of a player.
-- Audio player instances mounted into markdown are now swept when `{@html}` drops them during streaming or re-render, preventing leaked media elements.
-- Playback no longer flips to an error state on `AbortError` or stale `play()` rejections caused by rapid pause and source switches.
-- Stopped injecting Cohub-internal task context into outbound provider request metadata, so provider payloads and recorded usage meta now carry only the caller's model metadata.
+- Inline write limits hardened: base64 payloads could bypass the decoded-size cap with whitespace padding and reach Redis — both raw and decoded sizes are now bounded with a 413 response
+- mutationId validation (length and format) is now enforced on dir, delete, and move routes, not just file writes
 
 ## v2.8 — 2026-08-03
 
