@@ -88,6 +88,21 @@ export type SpaceFsWriteFileInput = {
 export type SpaceFsMoveInput = {
   fromPath: string;
   toPath: string;
+  /** Optional idempotency key used by backends that support retry dedupe. */
+  mutationId?: string;
+};
+
+export type SpaceFsCreateDirectoryInput = {
+  path: string;
+  /** Optional idempotency key used by backends that support retry dedupe. */
+  mutationId?: string;
+};
+
+export type SpaceFsDeleteNodeInput = {
+  path: string;
+  recursive?: boolean;
+  /** Optional idempotency key used by backends that support retry dedupe. */
+  mutationId?: string;
 };
 
 export type SpaceFsUploadEntry = {

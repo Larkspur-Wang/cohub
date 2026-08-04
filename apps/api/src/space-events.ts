@@ -41,23 +41,30 @@ function enqueueSpaceHookFromEvent(input: {
   });
 }
 
+type SpaceEventDispatchOptions = {
+  skipHooks?: boolean;
+  skipRealtime?: boolean;
+};
+
 export async function dispatchSpaceDomainEvent(input: RealtimeServerEvent & {
   rooms?: RealtimeRoom[];
-}) {
-  await Promise.all([
-    dispatchRealtimeEvent(input),
-    enqueueSpaceHookFromEvent({
+}, options?: SpaceEventDispatchOptions) {
+  const deliveries: Promise<unknown>[] = [];
+  if (!options?.skipRealtime) deliveries.push(dispatchRealtimeEvent(input));
+  if (!options?.skipHooks) {
+    deliveries.push(enqueueSpaceHookFromEvent({
       id: input.id,
       type: input.type,
       timestamp: input.timestamp,
       spaceId: input.spaceId,
       sessionId: input.sessionId,
       payload: input.payload as Record<string, unknown>,
-    }),
-  ]);
+    }));
+  }
+  await Promise.all(deliveries);
 }
 
-export async function dispatchSpaceFsChanged(spaceId: string, payload: SpaceFsChangedPayload) {
+export async function dispatchSpaceFsChanged(spaceId: string, payload: SpaceFsChangedPayload, options?: SpaceEventDispatchOptions) {
   await Promise.all([
     dispatchSpaceDomainEvent({
       id: randomUUID(),
@@ -67,7 +74,7 @@ export async function dispatchSpaceFsChanged(spaceId: string, payload: SpaceFsCh
       spaceId,
       sessionId: null,
       payload,
-    }),
+    }, options),
     enqueueFsCdnWarmForChanges(spaceId, payload.changes).catch((error) => {
       logger.error("[SpaceFS] Failed to enqueue CDN prewarm:", error);
     }),

@@ -29,7 +29,7 @@ export const queueDefinitions = [
     criticality: "critical",
     concurrencyEnv: "AGENT_WORKER_CONCURRENCY",
     defaultConcurrencyPerWorker: DEFAULT_AGENT_WORKER_CONCURRENCY,
-    registeredJobs: ["agent_turns", "agent_session_fork", "sandbox_bash", "run_command"],
+    registeredJobs: ["agent_turns", "agent_session_fork", "sandbox_bash", "run_command", "sandbox_fs_mutation"],
   },
   {
     name: COHUB_SYSTEM_QUEUE,

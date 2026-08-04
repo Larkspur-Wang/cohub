@@ -2,6 +2,7 @@
 // fs-api deployment. See deploy/fs-api/manifests/httproute.tmpl.yaml.
 import { createLogger } from "@cohub/infra/logging";
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { readFile } from "node:fs/promises";
 import { ensureFsCdnManifest, shouldUseFsCdnForMeta } from "../../space-fs-cdn-cache.js";
 import { FS_CDN_DOWNLOAD_WAIT_TIMEOUT_MS } from "../../space-fs-cdn-constants.js";
@@ -54,6 +55,20 @@ import type {
 
 const logger = createLogger({ serviceName: "cohub-api" });
 const router = new Hono();
+
+/** Inline text writes are capped at the same limit as inline reads. */
+const MAX_INLINE_WRITE_BYTES = 10 * 1024 * 1024;
+const MAX_INLINE_WRITE_REQUEST_BYTES = Math.ceil(MAX_INLINE_WRITE_BYTES * 4 / 3) + 256 * 1024;
+
+/** Client mutation ids are bounded before they are used in queue job ids. */
+const isValidMutationId = (value: unknown) =>
+  value === undefined || (typeof value === "string" && value.length <= 128);
+
+/** Strip the internal event-ownership marker before returning a mutation result. */
+function withoutExecutedBy<T extends { executedBy?: string }>(value: T) {
+  const { executedBy: _executedBy, ...rest } = value;
+  return rest;
+}
 
 const assertSafeUploadPathPart = (part: string) => {
   if (
@@ -190,7 +205,10 @@ router.post("/files", async (c) => {
   }
 });
 
-router.put("/file", async (c) => {
+router.put("/file", bodyLimit({
+  maxSize: MAX_INLINE_WRITE_REQUEST_BYTES,
+  onError: (c) => c.json({ message: "file exceeds 10MB limit" }, 413),
+}), async (c) => {
   const user = useAuth(c);
   if (user instanceof Response) return user;
   const spaceId = c.req.param("id");
@@ -209,6 +227,20 @@ router.put("/file", async (c) => {
   if (!body?.path || typeof body.content !== "string" || !body.encoding) {
     return c.json({ message: "path, content and encoding are required" }, 400);
   }
+  // Cap both the encoded string and the decoded payload: base64 decoding
+  // ignores whitespace, so a huge whitespace-only string would otherwise
+  // bypass the decoded-size check and reach Redis in full.
+  const rawBytes = Buffer.byteLength(body.content, "utf8");
+  if (rawBytes > MAX_INLINE_WRITE_BYTES * 2) {
+    return c.json({ message: "file exceeds 10MB limit" }, 413);
+  }
+  const writeBytes =
+    body.encoding === "base64"
+      ? Buffer.from(body.content, "base64").length
+      : rawBytes;
+  if (writeBytes > MAX_INLINE_WRITE_BYTES) {
+    return c.json({ message: "file exceeds 10MB limit" }, 413);
+  }
   if (
     body.expected &&
     (!Number.isFinite(body.expected.mtimeMs) ||
@@ -217,18 +249,20 @@ router.put("/file", async (c) => {
   ) {
     return c.json({ message: "expected file version is invalid" }, 400);
   }
-  if (body.mutationId !== undefined && (typeof body.mutationId !== "string" || body.mutationId.length > 128)) {
+  if (!isValidMutationId(body.mutationId)) {
     return c.json({ message: "mutationId is invalid" }, 400);
   }
   try {
     const result = await writeSpaceFile(spaceId, body);
+    // The sandbox watcher owns realtime and hooks; the API only performs CDN invalidation here.
     const changes = buildFileMutationChanges(result);
     await dispatchSpaceFsChanged(spaceId, {
       source: "api-fs",
       mutationId: body.mutationId,
       changes,
-    }).catch((error) => logger.error("[SpaceFS] failed to publish file-system change", error));
-    return c.json(result);
+    }, result.executedBy === "sandbox" ? { skipHooks: true, skipRealtime: true } : undefined)
+      .catch((error) => logger.error("[SpaceFS] failed to publish file-system change", error));
+    return c.json(withoutExecutedBy(result));
   } catch (error) {
     const { status, body: errBody } = spaceFsJsonError(error);
     return c.json(errBody, status as never);
@@ -242,18 +276,21 @@ router.post("/dir", async (c) => {
   if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
   if (!(await hasPermission(user, "file.edit", { spaceId }))) return authzDenied(c);
 
-  const body = await c.req.json<{ path: string }>().catch(() => null);
+  const body = await c.req.json<{ path: string; mutationId?: string }>().catch(() => null);
   if (!body?.path) return c.json({ message: "path is required" }, 400);
+  if (!isValidMutationId(body.mutationId)) return c.json({ message: "mutationId is invalid" }, 400);
   try {
-    const result = await createSpaceDirectory(spaceId, body.path);
+    const result = await createSpaceDirectory(spaceId, body.path, body.mutationId);
     if (result.createdDirs.length > 0) {
       await dispatchSpaceFsChanged(spaceId, {
         source: "api-fs",
+        mutationId: body.mutationId,
         changes: buildCreatedDirectoryChanges(result.createdDirs).map((change) =>
           change.path === result.path ? { ...change, mtimeMs: result.mtimeMs } : change),
-      }).catch((error) => logger.error("[SpaceFS] failed to publish file-system change", error));
+      }, result.executedBy === "sandbox" ? { skipHooks: true, skipRealtime: true } : undefined)
+        .catch((error) => logger.error("[SpaceFS] failed to publish file-system change", error));
     }
-    return c.json(result);
+    return c.json(withoutExecutedBy(result));
   } catch (error) {
     const { status, body: errBody } = spaceFsJsonError(error);
     return c.json(errBody, status as never);
@@ -269,14 +306,18 @@ router.delete("/node", async (c) => {
 
   const rawPath = c.req.query("path") ?? "";
   const recursive = c.req.query("recursive") === "true";
+  const mutationId = c.req.query("mutationId");
+  if (!isValidMutationId(mutationId)) return c.json({ message: "mutationId is invalid" }, 400);
   try {
     const path = assertSafeRelativePath(rawPath);
-    const result = await deleteSpaceNode(spaceId, path, recursive);
+    const result = await deleteSpaceNode(spaceId, path, recursive, mutationId);
     await dispatchSpaceFsChanged(spaceId, {
       source: "api-fs",
+      mutationId,
       changes: [{ path: result.path, kind: "delete", nodeType: result.nodeType === "symlink" ? "unknown" : result.nodeType }],
-    }).catch((error) => logger.error("[SpaceFS] failed to publish file-system change", error));
-    return c.json(result);
+    }, result.executedBy === "sandbox" ? { skipHooks: true, skipRealtime: true } : undefined)
+      .catch((error) => logger.error("[SpaceFS] failed to publish file-system change", error));
+    return c.json(withoutExecutedBy(result));
   } catch (error) {
     const { status, body: errBody } = spaceFsJsonError(error);
     return c.json(errBody, status as never);
@@ -294,20 +335,24 @@ router.post("/move", async (c) => {
   if (!body || typeof body !== "object" || Array.isArray(body)) return c.json({ message: "fromPath and toPath are required" }, 400);
   const input = body as Record<string, unknown>;
   if (typeof input.fromPath !== "string" || typeof input.toPath !== "string") return c.json({ message: "fromPath and toPath are required" }, 400);
+  if (!isValidMutationId(input.mutationId)) return c.json({ message: "mutationId is invalid" }, 400);
   try {
     const move = {
       fromPath: assertSafeRelativePath(input.fromPath),
       toPath: assertSafeRelativePath(input.toPath),
+      mutationId: input.mutationId as string | undefined,
     };
     const result = await moveSpaceNode(spaceId, move);
     await dispatchSpaceFsChanged(spaceId, {
       source: "api-fs",
+      mutationId: move.mutationId,
       changes: [
         ...buildCreatedDirectoryChanges(result.createdDirs),
         { path: result.toPath, oldPath: result.fromPath, kind: "rename", nodeType: result.nodeType === "symlink" ? "unknown" : result.nodeType },
       ],
-    }).catch((error) => logger.error("[SpaceFS] failed to publish file-system change", error));
-    return c.json(result);
+    }, result.executedBy === "sandbox" ? { skipHooks: true, skipRealtime: true } : undefined)
+      .catch((error) => logger.error("[SpaceFS] failed to publish file-system change", error));
+    return c.json(withoutExecutedBy(result));
   } catch (error) {
     const { status, body: errBody } = spaceFsJsonError(error);
     return c.json(errBody, status as never);

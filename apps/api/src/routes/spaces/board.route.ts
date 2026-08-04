@@ -22,6 +22,7 @@ import {
   NODE_WRITE_CHUNK,
   validateBoardTransaction,
 } from "../../board-service.js";
+import { buildBoardCreateIdentity } from "../../board-create-idempotency.js";
 import { db } from "../../db/index.js";
 import { authzDenied, getOptionalAuth, requireValidId, useAuth } from "../../lib/middleware.js";
 import { getRequestSource } from "../../lib/request-source.js";
@@ -30,12 +31,55 @@ import {
   assertSafeRelativePath,
   createSpaceFileExclusive,
   deleteSpaceNode,
+  readSpaceFile,
   SpaceFsError,
 } from "../../space-fs-backend.js";
 import { buildFileMutationChanges } from "../../space-fs-change.js";
 import { dispatchSpaceFsChanged } from "../../space-events.js";
 
 const router = new Hono();
+
+type BoardManifestWrite = Awaited<ReturnType<typeof createSpaceFileExclusive>>;
+
+async function readOwnedBoardManifest(spaceId: string, path: string, boardId: string): Promise<BoardManifestWrite | null> {
+  try {
+    const file = await readSpaceFile(spaceId, path);
+    if (!("content" in file)) return null;
+    const manifest = JSON.parse(file.content) as { boardId?: unknown };
+    if (manifest.boardId !== boardId) return null;
+    return {
+      path,
+      size: file.size,
+      mtimeMs: file.mtimeMs,
+      created: false,
+      createdDirs: [],
+      executedBy: "api",
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function createOrReuseBoardManifest(
+  spaceId: string,
+  input: Parameters<typeof createSpaceFileExclusive>[1],
+  boardId: string,
+): Promise<BoardManifestWrite> {
+  try {
+    return await createSpaceFileExclusive(spaceId, input);
+  } catch (error) {
+    if (!(error instanceof SpaceFsError) || error.status !== 409) throw error;
+    const owned = await readOwnedBoardManifest(spaceId, input.path, boardId);
+    if (owned) return owned;
+    throw error;
+  }
+}
+
+/** Remove only a manifest that provably belongs to this create request. */
+async function removeOrphanBoardManifest(spaceId: string, path: string, boardId: string) {
+  const owned = await readOwnedBoardManifest(spaceId, path, boardId);
+  if (owned) await deleteSpaceNode(spaceId, path).catch(() => undefined);
+}
 
 function errorResponse(error: unknown) {
   if (error instanceof BoardServiceError) return { status: error.status, message: error.message, code: error.code };
@@ -81,14 +125,42 @@ router.post("/", async (c) => {
     return c.json({ message: response.message, code: response.code }, response.status as never);
   }
 
-  const boardId = crypto.randomUUID();
-  let written: Awaited<ReturnType<typeof createSpaceFileExclusive>> | null = null;
+  const identity = buildBoardCreateIdentity({
+    spaceId,
+    mutationId: body.mutationId,
+    payload: { path, title, nodes, operations },
+  });
+  const boardId = identity?.boardId ?? crypto.randomUUID();
+  const transactionId = identity?.transactionId ?? crypto.randomUUID();
+  const applyInitialOperations = () => applyBoardTransaction({
+    spaceId,
+    actorId: user.uuid,
+    requestSource: getRequestSource(c),
+    transaction: { txId: transactionId, boardId, baseVersion: 0, operations },
+  });
+
+  if (identity) {
+    try {
+      const existing = await inspectBoard(spaceId, boardId);
+      return c.json(operations.length > 0 && existing.board.version === 0
+        ? await applyInitialOperations()
+        : existing);
+    } catch (error) {
+      if (!(error instanceof BoardServiceError) || error.code !== "BOARD_NOT_FOUND") {
+        const response = errorResponse(error);
+        return c.json({ message: response.message, code: response.code }, response.status as never);
+      }
+    }
+  }
+
+  let written: BoardManifestWrite | null = null;
   try {
-    written = await createSpaceFileExclusive(spaceId, {
+    written = await createOrReuseBoardManifest(spaceId, {
       path,
       content: serializeBoardManifest({ kind: "cohub.board.manifest", version: 1, boardId, title }),
       encoding: "utf-8",
-    });
+      mutationId: body.mutationId,
+    }, boardId);
     const now = new Date();
     await db.transaction(async (tx) => {
       await tx.insert(boards).values({ id: boardId, spaceId, title, version: 0, metadata: {}, createdAt: now, updatedAt: now });
@@ -111,22 +183,27 @@ router.post("/", async (c) => {
     });
 
     const result = operations.length
-      ? await applyBoardTransaction({
-          spaceId,
-          actorId: user.uuid,
-          requestSource: getRequestSource(c),
-          transaction: { txId: crypto.randomUUID(), boardId, baseVersion: 0, operations },
-        })
+      ? await applyInitialOperations()
       : await inspectBoard(spaceId, boardId);
 
+    // Board rows are the authoritative state: publish after the transaction
+    // commits so clients retry their load on this event, even when the sandbox
+    // watcher already emitted the manifest create earlier. Hooks are only
+    // skipped on the sandbox path where the watcher already fired them; a
+    // direct PVC fallback has no watcher event, so hooks must fire here.
     await dispatchSpaceFsChanged(spaceId, {
       source: "api-fs",
+      mutationId: body.mutationId,
       changes: buildFileMutationChanges(written),
-    }).catch(() => undefined);
+    }, written.executedBy === "sandbox" ? { skipHooks: true } : undefined).catch(() => undefined);
     return c.json(result);
   } catch (error) {
     await db.delete(boards).where(and(eq(boards.id, boardId), eq(boards.spaceId, spaceId))).catch(() => undefined);
-    if (written) await deleteSpaceNode(spaceId, written.path).catch(() => undefined);
+    if (written) {
+      await deleteSpaceNode(spaceId, written.path).catch(() => undefined);
+    } else {
+      void removeOrphanBoardManifest(spaceId, path, boardId);
+    }
     const response = errorResponse(error);
     return c.json({ message: response.message, code: response.code }, response.status as never);
   }

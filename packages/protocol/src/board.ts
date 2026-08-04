@@ -236,6 +236,8 @@ export type BoardSnapshot = BoardBootstrap & {
 
 export const BoardCreateInputSchema = z.object({
   path: z.string().min(1),
+  /** Reused by clients when board creation is interrupted and retried. */
+  mutationId: z.string().max(128).optional(),
   title: z.string().min(1).max(255).optional(),
   metadata: jsonObjectSchema.optional(),
   nodes: z.array(BoardNodeInputSchema).max(50_000).optional(),

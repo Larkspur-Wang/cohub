@@ -416,6 +416,12 @@ export async function moveSpaceNode(spaceId: string, input: SpaceFsMoveInput) {
     const targetParent = parentPath(to);
     const capabilities = await getSandboxCapabilities(spaceId);
     const directoryResult = await ensureRemoteDirectories(spaceId, targetParent, capabilities?.fsMkdir === true);
+    // BSD mv has no -T flag. Reject an existing destination directory before
+    // using the portable argv form so the API keeps exact-target semantics.
+    const targetStat = await callSandboxRpc(spaceId, "fs.stat", { path: to });
+    if (targetStat.exists && targetStat.isDirectory) {
+      throw new SpaceFsError(400, "move_failed", "Destination path is a directory.");
+    }
     const { exitCode, stderr } = await runProcess(spaceId, ["mv", "--", from, to]);
     if (exitCode !== 0) throw new SpaceFsError(400, "move_failed", stderr || "failed to move");
     return { fromPath: from, toPath: to, nodeType, createdDirs: directoryResult.createdDirs };

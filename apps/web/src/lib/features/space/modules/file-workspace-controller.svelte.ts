@@ -127,6 +127,10 @@ export function createFileWorkspaceController(
 	let pendingUploadFiles = $state<File[]>([]);
 	let pendingUploadEntries = $state<{ file: File; relativePath: string }[]>([]);
 	let pendingFileSavePaths = $state<Set<string>>(new Set());
+	const pendingSaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+	// Reuse the same mutationId across autosave retries of one logical save so
+	// the backend can dedupe on the job id instead of re-issuing the mutation.
+	const pendingSaveMutationIds = new Map<string, string>();
 	const ownFileMutationIds = new Set<string>();
 	const fileSaveRetryAttempts = new Map<string, number>();
 	const pendingDraftPersistTimers = new Map<
@@ -203,24 +207,37 @@ export function createFileWorkspaceController(
 		mutationId?: string,
 	) {
 		if (mutationId) return ownFileMutationIds.has(mutationId);
-		return Boolean(
-			path &&
-				source === "api-fs" &&
-				kind === "modify" &&
-				pendingFileSavePaths.has(path),
-		);
+		if (!path || !pendingFileSavePaths.has(path)) return false;
+		// While a file is being saved, its change echo must not be treated as an
+		// external edit: direct PVC writes arrive as api-fs, sandbox mutations
+		// arrive as sandbox-inotify (no mutationId) from the sandbox watcher.
+		if (source === "api-fs") return kind === "modify";
+		if (source === "sandbox-inotify")
+			return kind === "modify" || kind === "create";
+		return false;
 	}
 
 	function markFileSavePending(path: string) {
+		// A new save for the same path extends the window: cancel any pending
+		// cleanup so an earlier save's timer cannot clear a newer save's marker.
+		const existing = pendingSaveTimers.get(path);
+		if (existing) clearTimeout(existing);
+		pendingSaveTimers.delete(path);
 		pendingFileSavePaths = new Set(pendingFileSavePaths).add(path);
 	}
 
 	function clearFileSavePendingSoon(path: string) {
-		setTimeout(() => {
-			const next = new Set(pendingFileSavePaths);
-			next.delete(path);
-			pendingFileSavePaths = next;
-		}, 3000);
+		const existing = pendingSaveTimers.get(path);
+		if (existing) clearTimeout(existing);
+		pendingSaveTimers.set(
+			path,
+			setTimeout(() => {
+				pendingSaveTimers.delete(path);
+				const next = new Set(pendingFileSavePaths);
+				next.delete(path);
+				pendingFileSavePaths = next;
+			}, 3000),
+		);
 	}
 
 	function queuePendingDraftTask(
@@ -249,7 +266,7 @@ export function createFileWorkspaceController(
 
 	function persistPendingDraft(
 		path: string,
-		mutationId = crypto.randomUUID(),
+		mutationId: string = crypto.randomUUID(),
 		context = getWorkspaceContext(),
 	) {
 		const tab = inlineFileTabs.find((item) => item.path === path);
@@ -337,7 +354,12 @@ export function createFileWorkspaceController(
 			syncStatus: baselineMatches ? "dirty" : "conflict",
 			saveError: baselineMatches ? null : "Changed elsewhere",
 		}));
-		if (baselineMatches) fileAutosave.schedule(path);
+		if (baselineMatches) {
+			// Reuse the persisted mutationId so a retry after reload dedupes on
+			// the same job id instead of issuing a second mutation.
+			pendingSaveMutationIds.set(path, pending.mutationId);
+			fileAutosave.schedule(path);
+		}
 	}
 
 	function updateInlineFileDraft(path: string, draft: string) {
@@ -473,6 +495,9 @@ export function createFileWorkspaceController(
 		uploadPaneVisible = false;
 		pendingUploadFiles = [];
 		pendingUploadEntries = [];
+		for (const timer of pendingSaveTimers.values()) clearTimeout(timer);
+		pendingSaveTimers.clear();
+		pendingSaveMutationIds.clear();
 		pendingFileSavePaths = new Set();
 		return true;
 	}
@@ -1029,7 +1054,7 @@ export function createFileWorkspaceController(
 
 		const nextContent = inlineFile.draft;
 		const baseResponse = response;
-		const mutationId = crypto.randomUUID();
+		const mutationId = pendingSaveMutationIds.get(path) ?? crypto.randomUUID();
 		await persistPendingDraft(path, mutationId, context);
 		if (
 			!isCurrentWorkspaceContext(context) ||
@@ -1042,6 +1067,10 @@ export function createFileWorkspaceController(
 			const oldest = ownFileMutationIds.values().next().value;
 			if (oldest) ownFileMutationIds.delete(oldest);
 		}
+		// Sandbox mutations echo through sandbox-inotify without a mutationId, so
+		// also mark the path as a pending save to keep that echo from being read
+		// as an external change.
+		markFileSavePending(path);
 		setInlineFileTab(path, (tab) => ({
 			...tab,
 			saving: true,
@@ -1058,6 +1087,7 @@ export function createFileWorkspaceController(
 					: { mtimeMs: baseResponse.mtimeMs, size: baseResponse.size },
 				mutationId,
 			});
+			pendingSaveMutationIds.delete(path);
 			const savedSize = result.size;
 			const savedMtimeMs = result.mtimeMs;
 			const current = inlineFileTabs.find((tab) => tab.path === path);
@@ -1118,6 +1148,8 @@ export function createFileWorkspaceController(
 			)
 				return "blocked" as const;
 			const conflict = error instanceof HttpError && error.status === 409;
+			if (conflict) pendingSaveMutationIds.delete(path);
+			else pendingSaveMutationIds.set(path, mutationId);
 			setInlineFileTab(path, (tab) => ({
 				...tab,
 				saving: false,
@@ -1135,7 +1167,8 @@ export function createFileWorkspaceController(
 			}
 			return "blocked" as const;
 		} finally {
-			if (isCurrentWorkspaceContext(context))
+			if (isCurrentWorkspaceContext(context)) {
+				clearFileSavePendingSoon(path);
 				setInlineFileTab(path, (tab) =>
 					tab.requestToken === requestToken && tab.syncStatus === "saving"
 						? {
@@ -1150,6 +1183,7 @@ export function createFileWorkspaceController(
 							}
 						: tab,
 				);
+			}
 		}
 	}
 
@@ -1271,6 +1305,7 @@ export function createFileWorkspaceController(
 			await sdk.space(options.getSpaceId()).boards.create({
 				path,
 				title: fileName,
+				mutationId: crypto.randomUUID(),
 				nodes: createEmptyBoardDocument().items.map((item, index, all) =>
 					boardItemToNode(item, index, all.length),
 				),
@@ -1292,7 +1327,9 @@ export function createFileWorkspaceController(
 		if (!name?.trim()) return;
 		const path = parentPath ? `${parentPath}/${name.trim()}` : name.trim();
 		try {
-			await sdk.space(options.getSpaceId()).files.createDir(path);
+			await sdk
+				.space(options.getSpaceId())
+				.files.createDir(path, crypto.randomUUID());
 			await patchFsDirectory(parentPath, (entries) => [
 				...entries,
 				buildFsEntry(path, "dir"),
@@ -1362,7 +1399,11 @@ export function createFileWorkspaceController(
 			if (isInlineFileDirty(tab.path))
 				throw new Error("Resolve file sync before moving it.");
 		}
-		await sdk.space(options.getSpaceId()).files.move({ fromPath, toPath });
+		await sdk.space(options.getSpaceId()).files.move({
+			fromPath,
+			toPath,
+			mutationId: crypto.randomUUID(),
+		});
 		await applyMovedNode(node, fromPath, toPath);
 		return true;
 	}
@@ -1423,7 +1464,7 @@ export function createFileWorkspaceController(
 		try {
 			await sdk
 				.space(context.spaceId)
-				.files.delete(node.path, node.type === "dir");
+				.files.delete(node.path, node.type === "dir", crypto.randomUUID());
 			await patchFsDirectory(
 				parentPath,
 				(entries) => entries.filter((entry) => entry.path !== node.path),
@@ -1526,6 +1567,9 @@ export function createFileWorkspaceController(
 		fileAutosave.dispose();
 		for (const timer of pendingDraftPersistTimers.values()) clearTimeout(timer);
 		pendingDraftPersistTimers.clear();
+		for (const timer of pendingSaveTimers.values()) clearTimeout(timer);
+		pendingSaveTimers.clear();
+		pendingSaveMutationIds.clear();
 	}
 
 	function renameOpenPaths(fromPath: string, toPath: string) {

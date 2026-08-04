@@ -593,7 +593,20 @@ export type SpaceFsWriteFileInput = {
   };
   mutationId?: string;
 };
-export type SpaceFsMoveInput = { fromPath: string; toPath: string };
+export type SpaceFsMoveInput = {
+  fromPath: string;
+  toPath: string;
+  mutationId?: string;
+};
+export type SpaceFsCreateDirectoryInput = {
+  path: string;
+  mutationId?: string;
+};
+export type SpaceFsDeleteNodeInput = {
+  path: string;
+  recursive?: boolean;
+  mutationId?: string;
+};
 export type SpaceFsUploadEntry = {
   path: string;
   name: string;

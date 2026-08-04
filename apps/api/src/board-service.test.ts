@@ -127,6 +127,8 @@ test("validates Board create input before side effects", () => {
   assert.equal(BoardCreateInputSchema.safeParse({ path: "battle.board", effects: {} }).success, false);
   assert.equal(BoardCreateInputSchema.safeParse({ path: "battle.board", sequences: {} }).success, false);
   assert.equal(BoardCreateInputSchema.safeParse({ path: "battle.board" }).success, true);
+  assert.equal(BoardCreateInputSchema.safeParse({ path: "battle.board", mutationId: "mutation-1" }).success, true);
+  assert.equal(BoardCreateInputSchema.safeParse({ path: "battle.board", mutationId: "x".repeat(129) }).success, false);
 });
 
 test("rejects clips outside their sequence", () => {

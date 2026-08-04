@@ -371,20 +371,21 @@ export class SpaceFilesApi {
     );
   }
 
-  createDir(path: string) {
+  createDir(path: string, mutationId?: string) {
     return this.transport.request<{ ok: true; path: string; size: number; mtimeMs: number }>(
       `/api/spaces/${this.spaceId}/fs/dir`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path }),
+        body: JSON.stringify({ path, ...(mutationId ? { mutationId } : {}) }),
       },
     );
   }
 
-  delete(path: string, recursive = false) {
+  delete(path: string, recursive = false, mutationId?: string) {
     const params = new URLSearchParams({ path });
     if (recursive) params.set("recursive", "true");
+    if (mutationId) params.set("mutationId", mutationId);
     return this.transport.request<{ ok: true; path: string }>(
       `/api/spaces/${this.spaceId}/fs/node?${params.toString()}`,
       { method: "DELETE" },

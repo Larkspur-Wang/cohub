@@ -285,7 +285,7 @@ async function recoverAndRetryAfterInfraError<T>(spaceId: string, error: Sandbox
   return retry();
 }
 
-async function tracedRpc<M extends RpcMethod>(
+export async function tracedRpc<M extends RpcMethod>(
   connection: SandboxConnection,
   method: M,
   params: RpcRequestMap[M]["params"],
