@@ -1,5 +1,11 @@
 # @neta-art/cohub
 
+## 4.7.1
+
+### Patch Changes
+
+- 3931642: Add idempotency keys to directory creation, deletion, move, and Board creation so interrupted filesystem mutations can be retried safely.
+
 ## 4.7.0
 
 ### Minor Changes
