@@ -47,6 +47,29 @@ export type CohubBalanceProductMeta = {
   policy_version: string;
 };
 
+export type ProductStatus = "draft" | "active";
+export type ProductVisibility = "public" | "private";
+
+/**
+ * Status and visibility a product must be created with.
+ *
+ * Billing refuses to bind a Benefit to a `draft` product, so a Balance product
+ * cannot be staged as a draft. It is created `active` but `private` instead:
+ * binding succeeds, while the public resolve and checkout paths both require
+ * `visibility === "public"` and therefore cannot see it until provisioning
+ * finishes and the caller's requested state is applied.
+ */
+export function resolveBalanceProductCreateState(input: {
+  hasBalance: boolean;
+  requestedStatus: ProductStatus;
+  requestedVisibility: ProductVisibility;
+}): { status: ProductStatus; visibility: ProductVisibility } {
+  if (!input.hasBalance) {
+    return { status: input.requestedStatus, visibility: input.requestedVisibility };
+  }
+  return { status: "active", visibility: "private" };
+}
+
 export function resolveCohubBalanceSpec(input: {
   value: unknown;
   productAmountMinor: number;

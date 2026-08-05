@@ -35,6 +35,7 @@ import {
   collectManagedBalanceBenefitKeys,
   isCohubBalanceBenefitValid,
   readCohubBalanceDescriptor,
+  resolveBalanceProductCreateState,
   resolveCohubBalanceSpec,
   type CohubBalanceDescriptor,
 } from "../../lib/space-commerce-balance.js";
@@ -414,18 +415,37 @@ router.post("/:id/commerce/products", async (c) => {
   try {
     const mapping = await requireSpaceCommerceBusiness(spaceId);
     const sdk = await createSpaceCommerceSdk();
+    // Balance products are provisioned private-then-published: Billing rejects
+    // binding a Benefit to a draft product, so the product must already be
+    // active while we bind. Private visibility keeps it out of the public
+    // resolve and checkout paths until provisioning completes.
+    const createState = resolveBalanceProductCreateState({
+      hasBalance: Boolean(balanceSpec),
+      requestedStatus: status,
+      requestedVisibility: visibility,
+    });
     const createProduct = (key: string) => sdk.admin.products.create({
       business_key: mapping.billingBusinessKey,
       key,
       name,
       description,
-      status: balanceSpec ? "draft" : status,
-      visibility,
+      status: createState.status,
+      visibility: createState.visibility,
       amount: amountMinor,
       currency: "USD",
       billing_type: "one_time",
       billing_period: "one_time",
       billing_interval_count: 1,
+      ...(balanceSpec
+        ? {
+          meta: {
+            [COHUB_BALANCE_META_KEY]: buildCohubBalanceProductMeta(
+              balanceSpec,
+              buildCohubBalanceBenefitKey(key, balanceSpec.amountUsd),
+            ),
+          },
+        }
+        : {}),
     });
     let product: Awaited<ReturnType<typeof createProduct>>;
     if (explicitKey) {
@@ -489,19 +509,21 @@ router.post("/:id/commerce/products", async (c) => {
               [COHUB_BOUND_BENEFIT_KEYS_META_KEY]: boundKeys,
               [COHUB_BALANCE_META_KEY]: buildCohubBalanceProductMeta(balanceSpec, benefitKey),
             },
+            status,
+            visibility,
           },
         });
-        if (status === "active") {
-          product = await sdk.admin.products.update({
-            product_key: product.key,
-            patch: {
-              business_key: mapping.billingBusinessKey,
-              status: "active",
-            },
-          });
-        }
         balanceDescriptor = readCohubBalanceDescriptor(product);
       } catch (error) {
+        logger.error("[space-commerce] Cohub Balance provisioning failed", {
+          businessKey: mapping.billingBusinessKey,
+          productKey: product.key,
+          benefitKey,
+          benefitCreated,
+          billingStatus: isBillingApiError(error) ? error.status : undefined,
+          billingMessage: isBillingApiError(error) ? error.message : undefined,
+          error,
+        });
         await compensateFailedBalanceProvision({
           sdk,
           businessKey: mapping.billingBusinessKey,

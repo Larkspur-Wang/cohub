@@ -16,10 +16,47 @@ import {
   isCohubBalanceProductValid,
   parseCohubBalanceProductMeta,
   readCohubBalanceDescriptor,
+  resolveBalanceProductCreateState,
   resolveCohubBalanceSpec,
   serializeCohubBalance,
   COHUB_BALANCE_META_KEY,
 } from "./space-commerce-balance.js";
+
+test("never creates a Balance product as draft, because Billing cannot bind to drafts", () => {
+  // Regression: staging a Balance product as `draft` made bindBenefit fail with
+  // 409, so provisioning could never succeed.
+  for (const requestedStatus of ["draft", "active"] as const) {
+    for (const requestedVisibility of ["public", "private"] as const) {
+      const state = resolveBalanceProductCreateState({
+        hasBalance: true,
+        requestedStatus,
+        requestedVisibility,
+      });
+      assert.equal(state.status, "active");
+      // Must not be publicly reachable before the Benefit is bound.
+      assert.equal(state.visibility, "private");
+    }
+  }
+});
+
+test("passes through the requested state when there is no Balance", () => {
+  assert.deepEqual(
+    resolveBalanceProductCreateState({
+      hasBalance: false,
+      requestedStatus: "draft",
+      requestedVisibility: "public",
+    }),
+    { status: "draft", visibility: "public" },
+  );
+  assert.deepEqual(
+    resolveBalanceProductCreateState({
+      hasBalance: false,
+      requestedStatus: "active",
+      requestedVisibility: "private",
+    }),
+    { status: "active", visibility: "private" },
+  );
+});
 
 test("resolves a whole-dollar Cohub Balance spec", () => {
   const spec = resolveCohubBalanceSpec({ value: 5, productAmountMinor: 799 });
