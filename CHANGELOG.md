@@ -4,6 +4,20 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v2.11 — 2026-08-06
+
+- **Realtime rooms**: Works can now create or join code-scoped rooms through `client.work.realtime` and exchange generic JSON events over the existing Gateway WebSocket — with member presence, room-scoped sequencing, publish ACKs, and short-lived admission tickets — so a published Work can run multiplayer state with no backend of its own.
+- **High-frequency sends**: `room.send()` omits the per-event acknowledgment round trip that caps `publish` at ~1000/RTT events per second, making it suitable for input frames and other high-rate traffic; failures surface via `room.onSendError()` instead of rejected promises.
+- **Per-viewer seats**: rooms created with `seatPerUser` give each viewer at most one seat — a second tab or a rejoin after an unclean disconnect takes over the existing seat — while members carry an opaque `userKey` so applications can group a viewer's connections without seeing the account id.
+- **Redis-only room infrastructure**: rooms are backed by renewable membership leases, a bounded serialized mutation queue, per-connection rate limits, 16KB payload caps, and an absolute 24-hour lifetime that activity never extends; each Work is limited to 512 active rooms with quota enforced at creation (HTTP 429 `ROOM_QUOTA_EXCEEDED`).
+
+### Bug Fixes
+
+- Fixed a join race where a member joining between the snapshot read and the local subscription was delivered to neither; the subscription is now established before the snapshot is taken.
+- Fixed an event leak where a connection holding a valid ticket for a full room could briefly enter the routing table and receive room events during the capacity check.
+- Restored the client-side sequence filter so pub/sub can no longer replay an event already reflected in the snapshot, which could re-run custom events or revert presence to a stale value.
+- Unified membership teardown in the Gateway so a swept or superseded connection stops receiving room events and is closed with reason `superseded` instead of lingering in the member list.
+
 ## v2.10 — 2026-08-05
 
 - **Cohub Balance**: platform-managed prepaid balance for Space commerce products — a whole-dollar `cohubBalanceUsd` provisions a Billing product plus a global USD credit benefit, buyers receive the full balance on purchase, and the amount is configurable end-to-end via the API, SDK, CLI (`--cohub-balance-usd`), and web product editor
