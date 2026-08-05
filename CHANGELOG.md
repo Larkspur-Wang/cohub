@@ -4,6 +4,19 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v2.10 — 2026-08-05
+
+- **Cohub Balance**: platform-managed prepaid balance for Space commerce products — a whole-dollar `cohubBalanceUsd` provisions a Billing product plus a global USD credit benefit, buyers receive the full balance on purchase, and the amount is configurable end-to-end via the API, SDK, CLI (`--cohub-balance-usd`), and web product editor
+- **Purchase idempotency**: Work commerce purchases now carry a stable `purchaseAttemptId` (or `Idempotency-Key` header) that maps to a Billing order idempotency key, so client retries after timeouts resolve to the original order instead of creating duplicates
+- **Resolve fan-out hardening**: the public work-commerce product resolve endpoint now fans out to Billing with a bounded concurrency pool (max 4) and caps on product key count and length, and bound benefit keys are read from authoritative Billing bindings instead of product meta — bounding upstream load and eliminating stale benefit attribution
+- **New Chat background accessibility**: HTML new-chat backgrounds are live documents with focusable controls, so only image/video backgrounds are treated as decorative (`aria-hidden`); HTML backgrounds stay in the accessibility tree, with regression tests added to the protocol package
+
+### Bug Fixes
+
+- HTML new-chat backgrounds are no longer hidden from assistive technology while their controls remained keyboard-focusable (WCAG 4.1.2)
+- Bound benefit keys are resolved from Billing bindings instead of product meta, fixing stale benefit attribution in commerce resolve and serialize paths
+- Cohub Balance products are provisioned active-and-private instead of draft — Billing refuses binding a benefit to a draft product — with compensation rollback when provisioning fails
+
 ## v2.9 — 2026-08-04
 
 - **Sandbox filesystem mutations**: File writes, directory creation, deletes, and moves in cloud spaces are now executed inside the sandbox by the agent over its existing connection pool, so sandbox-local watchers observe every change and the direct PVC write path is only used when no sandbox is dialable

@@ -1,5 +1,21 @@
 [
 	{
+		"version": "2.10",
+		"date": "2026-08-05",
+		"tags": ["v2.10.0"],
+		"highlights": [
+			"**Cohub Balance**: platform-managed prepaid balance for Space commerce products — a whole-dollar `cohubBalanceUsd` provisions a Billing product plus a global USD credit benefit, buyers receive the full balance on purchase, and the amount is configurable end-to-end via the API, SDK, CLI (`--cohub-balance-usd`), and web product editor",
+			"**Purchase idempotency**: Work commerce purchases now carry a stable `purchaseAttemptId` (or `Idempotency-Key` header) that maps to a Billing order idempotency key, so client retries after timeouts resolve to the original order instead of creating duplicates",
+			"**Resolve fan-out hardening**: the public work-commerce product resolve endpoint now fans out to Billing with a bounded concurrency pool (max 4) and caps on product key count and length, and bound benefit keys are read from authoritative Billing bindings instead of product meta — bounding upstream load and eliminating stale benefit attribution",
+			"**New Chat background accessibility**: HTML new-chat backgrounds are live documents with focusable controls, so only image/video backgrounds are treated as decorative (`aria-hidden`); HTML backgrounds stay in the accessibility tree, with regression tests added to the protocol package"
+		],
+		"fixes": [
+			"HTML new-chat backgrounds are no longer hidden from assistive technology while their controls remained keyboard-focusable (WCAG 4.1.2)",
+			"Bound benefit keys are resolved from Billing bindings instead of product meta, fixing stale benefit attribution in commerce resolve and serialize paths",
+			"Cohub Balance products are provisioned active-and-private instead of draft — Billing refuses binding a benefit to a draft product — with compensation rollback when provisioning fails"
+		]
+	},
+	{
 		"version": "2.9",
 		"date": "2026-08-04",
 		"tags": ["v2.9.0", "v2.9.1", "v2.9.2"],
