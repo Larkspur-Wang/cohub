@@ -22,6 +22,7 @@ import type {
 import type { PlannedGatewayOutboundCommand } from "@cohub/protocol/gateway";
 import {
   getRealtimeBoardRoom,
+  getRealtimeRoom,
   getRealtimeSpaceRoom,
   getRealtimeUserRoom,
   getSessionTurnPatchStreamKey,
@@ -30,6 +31,7 @@ import {
   WS_BOARD_AWARENESS_CAPABILITY,
   WS_COMPACT_STREAM_CAPABILITY,
   WS_ROOM_SUBSCRIPTION_CAPABILITY,
+  WS_REALTIME_ROOM_CAPABILITY,
   wsClientEventSchema,
 } from "@cohub/protocol/realtime";
 import { getOrCreateRequestId } from "@cohub/infra/tracing";
@@ -52,6 +54,18 @@ import {
   REALTIME_OUTBOUND_CHANNEL,
   AGENT_REALTIME_PATCH_CHANNEL,
 } from "./redis.js";
+import {
+  WORK_ROOM_MAX_PENDING_OPS,
+  type WorkRoomPresenceRate,
+  consumeWorkRoomPresenceRate,
+  joinWorkRoom,
+  leaveWorkRoom,
+  publishWorkRoomControlEvent,
+  publishWorkRoomEvent,
+  renewWorkRoomMembership,
+  sweepWorkRoomLeases,
+  updateWorkRoomPresence,
+} from "./work-room.js";
 
 const logger = createLogger({ serviceName: "cohub-gateway" });
 type WsConnectionContext = {
@@ -69,6 +83,10 @@ type WsConnectionContext = {
   boardAwarenessRate: BoardAwarenessRate;
   boardAwarenessPending: number;
   boardAwarenessTail: Promise<void>;
+  workRooms: Map<string, { participantId: string; ticket: string; room: import("@cohub/protocol/realtime").RealtimeRoomDescriptor }>;
+  workRoomOpsPending: number;
+  workRoomOpsTail: Promise<void>;
+  workRoomPresenceRate: WorkRoomPresenceRate;
 };
 
 type GatewayWsBroadcastPayload = RealtimeServerEvent & {
@@ -219,9 +237,28 @@ const persistWsConnection = async (ctx: WsConnectionContext) => {
   }), "EX", WS_CONNECTION_TTL_SECONDS);
 };
 
+const releaseWorkRoomMemberships = async (ctx: WsConnectionContext) => {
+  for (const roomId of [...ctx.workRooms.keys()]) {
+    try {
+      const member = await leaveWorkRoom(ctx, roomId);
+      if (member) {
+        await publishWorkRoomControlEvent({
+          roomId,
+          type: "realtime.room.member.left",
+          payload: { roomId, member },
+        });
+      }
+    } catch (error) {
+      logger.warn("[Gateway] failed to release Work room membership", { roomId, connectionId: ctx.connectionId, error });
+    }
+    unsubscribeConnectionFromRoom(ctx, getRealtimeRoom(roomId));
+  }
+};
+
 const cleanupWsConnection = async (ctx: WsConnectionContext | undefined) => {
   if (!ctx) return;
   unsubscribeConnectionFromAllRooms(ctx);
+  await releaseWorkRoomMemberships(ctx);
   wsSockets.delete(ctx.connectionId);
   wsConnections.delete(ctx.connectionId);
   await redisCommandClient.del(getWsConnectionKey(ctx.connectionId)).catch(() => undefined);
@@ -453,6 +490,79 @@ const touchWsConnection = async (ctx: WsConnectionContext) => {
     .filter((spaceId): spaceId is string => Boolean(spaceId));
   if (spaceIds.length === 0 || !ctx.userId) return;
   await Promise.all(spaceIds.map((spaceId) => writeSpacePresenceConnection(ctx, spaceId))).catch(() => undefined);
+};
+
+const touchWorkRoomMemberships = async (ctx: WsConnectionContext, socket: WebSocket) => {
+  for (const roomId of [...ctx.workRooms.keys()]) {
+    const membership = ctx.workRooms.get(roomId);
+    // Fail open on Redis errors: a transient failure should not tear down a live room.
+    const status = await renewWorkRoomMembership(ctx, roomId).catch(() => "active" as const);
+    if (status === "active") {
+      // Announce peers whose lease lapsed without a clean close, so a crashed
+      // gateway does not leave ghost members in everyone else's member list.
+      await sweepWorkRoomLeases(roomId).catch((error) => {
+        logger.warn("[Gateway] failed to sweep Work room leases", { roomId, connectionId: ctx.connectionId, error });
+      });
+      continue;
+    }
+    ctx.workRooms.delete(roomId);
+    unsubscribeConnectionFromRoom(ctx, getRealtimeRoom(roomId));
+    // "revoked" means the room outlived our membership (lease swept, or the slot was
+    // taken over by another connection), so peers still need a member list update.
+    // "expired" means the whole room is gone and nobody is left to notify.
+    if (status === "revoked" && membership) {
+      await publishWorkRoomControlEvent({
+        roomId,
+        type: "realtime.room.member.left",
+        payload: { roomId, member: { participantId: membership.participantId } },
+      }).catch((error) => {
+        logger.warn("[Gateway] failed to announce Work room membership loss", { roomId, connectionId: ctx.connectionId, error });
+      });
+    }
+    sendWsEnvelope(socket, buildRealtimeEnvelope({
+      domain: "room",
+      type: "realtime.room.closed",
+      rooms: [getRealtimeRoom(roomId)],
+      payload: { roomId, reason: status },
+    }));
+  }
+};
+
+const WORK_ROOM_PUBLISH_ERROR_CODES: Record<string, string> = {
+  "room event payload is too large": "PAYLOAD_TOO_LARGE",
+  "room event rate exceeded": "RATE_LIMITED",
+  "room is full": "ROOM_FULL",
+  "room expired": "ROOM_EXPIRED",
+  "room membership is stale": "ROOM_MEMBERSHIP_STALE",
+};
+
+/**
+ * Serialises the Redis-mutating room operations of one connection and bounds how
+ * many can be waiting, so a client cannot pile up unbounded work. Publishes and
+ * presence updates share the queue, which also keeps them ordered relative to
+ * each other. The operation reports its own failures; only the depth counter is
+ * managed here.
+ */
+const enqueueWorkRoomOp = (
+  ctx: WsConnectionContext,
+  socket: WebSocket,
+  requestId: string | undefined,
+  label: "publish" | "presence",
+  run: () => Promise<void>,
+) => {
+  if (ctx.workRoomOpsPending >= WORK_ROOM_MAX_PENDING_OPS) {
+    sendWsError(socket, "BACKPRESSURE", `room ${label} queue is full`, requestId);
+    return;
+  }
+  ctx.workRoomOpsPending += 1;
+  const queued = ctx.workRoomOpsTail.then(async () => {
+    try {
+      await run();
+    } finally {
+      ctx.workRoomOpsPending = Math.max(0, ctx.workRoomOpsPending - 1);
+    }
+  });
+  ctx.workRoomOpsTail = queued.catch(() => undefined);
 };
 
 const getRoomAuthCacheKey = (authToken: string, room: RealtimeRoom) => {
@@ -861,6 +971,10 @@ async function main() {
       boardAwarenessRate: { startedAt: Date.now(), count: 0 },
       boardAwarenessPending: 0,
       boardAwarenessTail: Promise.resolve(),
+      workRooms: new Map(),
+      workRoomOpsPending: 0,
+      workRoomOpsTail: Promise.resolve(),
+      workRoomPresenceRate: { startedAt: Date.now(), count: 0 },
     };
     wsConnections.set(connectionId, ctx);
     wsSockets.set(connectionId, socket);
@@ -890,6 +1004,7 @@ async function main() {
 
         if (message.type === "ping") {
           await touchWsConnection(ctx);
+          await touchWorkRoomMemberships(ctx, socket);
           sendWsEnvelope(socket, buildRealtimeEnvelope({
             domain: "system",
             type: "system.pong",
@@ -910,6 +1025,10 @@ async function main() {
             sendWsError(socket, "UNAUTHORIZED", result.error.message, requestId);
             return;
           }
+          // Release Work room memberships before adopting the new identity: room
+          // publishes authorize against the stored membership, so a leftover entry
+          // would let the new identity publish into the previous identity's rooms.
+          await releaseWorkRoomMemberships(ctx);
           unsubscribeConnectionFromAllRooms(ctx);
           ctx.compactStreamAliases.clear();
           ctx.presenceMetaBySpace.clear();
@@ -929,7 +1048,7 @@ async function main() {
             domain: "system",
             type: "system.auth.ok",
             requestId: requestId ?? null,
-            payload: { connectionId, user: result.user, capabilities: [WS_ROOM_SUBSCRIPTION_CAPABILITY, WS_BOARD_AWARENESS_CAPABILITY] },
+            payload: { connectionId, user: result.user, capabilities: [WS_ROOM_SUBSCRIPTION_CAPABILITY, WS_BOARD_AWARENESS_CAPABILITY, WS_REALTIME_ROOM_CAPABILITY] },
           }));
           return;
         }
@@ -999,6 +1118,136 @@ async function main() {
             requestId: requestId ?? null,
             payload: { rooms: [...ctx.rooms] },
           }));
+          return;
+        }
+
+        if (message.type === "realtime.room.join") {
+          if (!ctx.capabilities.has(WS_REALTIME_ROOM_CAPABILITY)) {
+            sendWsError(socket, "UNSUPPORTED_CAPABILITY", "Realtime rooms are not enabled", requestId);
+            return;
+          }
+          let joinedRoom = false;
+          try {
+            const result = await joinWorkRoom(ctx, message.payload);
+            joinedRoom = true;
+            const roomRef = getRealtimeRoom(message.payload.roomId);
+            subscribeConnectionToRoom(ctx, roomRef);
+            const sequence = await publishWorkRoomControlEvent({
+              roomId: message.payload.roomId,
+              type: "realtime.room.member.joined",
+              payload: { roomId: message.payload.roomId, member: result.member },
+            });
+            await persistWsConnection(ctx);
+            sendWsEnvelope(socket, buildRealtimeEnvelope({
+              domain: "room",
+              type: "realtime.room.joined",
+              requestId: requestId ?? null,
+              rooms: [roomRef],
+              payload: {
+                room: result.room,
+                participantId: result.participantId,
+                members: result.members,
+                sequence,
+              },
+            }));
+          } catch (error) {
+            if (joinedRoom) {
+              const roomId = message.payload.roomId;
+              const member = await leaveWorkRoom(ctx, roomId).catch(() => null);
+              unsubscribeConnectionFromRoom(ctx, getRealtimeRoom(roomId));
+              if (member) {
+                await publishWorkRoomControlEvent({
+                  roomId,
+                  type: "realtime.room.member.left",
+                  payload: { roomId, member },
+                }).catch(() => undefined);
+              }
+            }
+            const messageText = error instanceof Error ? error.message : "room join failed";
+            const code = messageText === "room is full" ? "ROOM_FULL" : messageText === "room expired" ? "ROOM_EXPIRED" : "ROOM_JOIN_FAILED";
+            sendWsError(socket, code, messageText, requestId);
+          }
+          return;
+        }
+
+        if (message.type === "realtime.room.publish") {
+          enqueueWorkRoomOp(ctx, socket, requestId, "publish", async () => {
+            try {
+              const result = await publishWorkRoomEvent(ctx, message.payload);
+              sendWsEnvelope(socket, buildRealtimeEnvelope({
+                domain: "room",
+                type: "realtime.room.request.ok",
+                requestId: requestId ?? null,
+                roomId: message.payload.roomId,
+                payload: {
+                  roomId: message.payload.roomId,
+                  sequence: result.sequence,
+                  eventId: result.eventId,
+                  clientEventId: result.clientEventId,
+                },
+              }));
+            } catch (error) {
+              const messageText = error instanceof Error ? error.message : "room publish failed";
+              sendWsError(socket, WORK_ROOM_PUBLISH_ERROR_CODES[messageText] ?? "ROOM_PUBLISH_FAILED", messageText, requestId);
+            }
+          });
+          return;
+        }
+
+        if (message.type === "realtime.room.presence.update") {
+          if (!consumeWorkRoomPresenceRate(ctx.workRoomPresenceRate)) {
+            sendWsError(socket, "ROOM_PRESENCE_RATE_EXCEEDED", "room presence rate exceeded", requestId);
+            return;
+          }
+          enqueueWorkRoomOp(ctx, socket, requestId, "presence", async () => {
+            try {
+              const presenceJson = JSON.stringify(message.payload.presence);
+              if (Buffer.byteLength(presenceJson, "utf8") > 2 * 1024) {
+                throw new Error("room presence is too large");
+              }
+              const member = await updateWorkRoomPresence(ctx, message.payload.roomId, message.payload.presence);
+              const sequence = await publishWorkRoomControlEvent({
+                roomId: message.payload.roomId,
+                type: "realtime.room.presence.updated",
+                payload: { roomId: message.payload.roomId, member },
+              });
+              sendWsEnvelope(socket, buildRealtimeEnvelope({
+                domain: "room",
+                type: "realtime.room.request.ok",
+                requestId: requestId ?? null,
+                roomId: message.payload.roomId,
+                payload: { roomId: message.payload.roomId, sequence },
+              }));
+            } catch (error) {
+              sendWsError(socket, "ROOM_PRESENCE_FAILED", error instanceof Error ? error.message : "room presence update failed", requestId);
+            }
+          });
+          return;
+        }
+
+        if (message.type === "realtime.room.leave") {
+          try {
+            const member = await leaveWorkRoom(ctx, message.payload.roomId);
+            unsubscribeConnectionFromRoom(ctx, getRealtimeRoom(message.payload.roomId));
+            let sequence: number | undefined;
+            if (member) {
+              sequence = await publishWorkRoomControlEvent({
+                roomId: message.payload.roomId,
+                type: "realtime.room.member.left",
+                payload: { roomId: message.payload.roomId, member },
+              });
+            }
+            await persistWsConnection(ctx);
+            sendWsEnvelope(socket, buildRealtimeEnvelope({
+              domain: "room",
+              type: "realtime.room.request.ok",
+              requestId: requestId ?? null,
+              roomId: message.payload.roomId,
+              payload: { roomId: message.payload.roomId, sequence },
+            }));
+          } catch (error) {
+            sendWsError(socket, "ROOM_LEAVE_FAILED", error instanceof Error ? error.message : "room leave failed", requestId);
+          }
           return;
         }
 

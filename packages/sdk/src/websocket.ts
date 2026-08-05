@@ -4,6 +4,7 @@ import {
   WS_BOARD_AWARENESS_CAPABILITY,
   WS_COMPACT_STREAM_CAPABILITY,
   WS_ROOM_SUBSCRIPTION_CAPABILITY,
+  WS_REALTIME_ROOM_CAPABILITY,
   normalizeRealtimeRooms,
   type ChannelEnvelope,
   type RealtimeCompactFrame,
@@ -56,7 +57,7 @@ export type WebsocketClientEvents = {
   error: { error: unknown; recoverable: boolean };
   event: WebsocketEventPayload;
   ready: { connectionId: string };
-  auth: { connectionId: string; user: Record<string, unknown> };
+  auth: { connectionId: string; user: Record<string, unknown>; capabilities: string[] };
   messageAccepted: {
     requestId?: string | null;
     clientMessageId?: string | null;
@@ -153,7 +154,7 @@ const isRealtimeEnvelope = (value: unknown): value is ChannelEnvelope => {
   if (!isRecord(value)) return false;
   if (typeof value.id !== "string") return false;
   if (typeof value.timestamp !== "number") return false;
-  if (value.domain !== "system" && value.domain !== "session" && value.domain !== "space" && value.domain !== "label") return false;
+  if (value.domain !== "system" && value.domain !== "session" && value.domain !== "space" && value.domain !== "label" && value.domain !== "room") return false;
   if (typeof value.type !== "string") return false;
   if (!isRecord(value.payload)) return false;
   return true;
@@ -239,9 +240,14 @@ export class WebsocketClient {
   private readonly compactStreamContexts = new Map<string, CompactStreamContext>();
   private readonly patchStreamBuffers = new Map<string, PatchStreamBuffer>();
   private readonly roomSubscriptions = new Map<RealtimeRoom, RoomSubscriptionState>();
+  private readonly serverCapabilities = new Set<string>();
 
   public state: WebsocketClientState = "idle";
   public connectionId: string | null = null;
+
+  supportsCapability(capability: string) {
+    return this.serverCapabilities.has(capability);
+  }
 
   private readonly listeners = createEventMap();
 
@@ -439,6 +445,57 @@ export class WebsocketClient {
     });
   }
 
+  async joinRealtimeRoom(input: { roomId: string; ticket: string; requestId?: string }) {
+    await this.ensureOpen();
+    this.send({
+      type: "realtime.room.join",
+      requestId: input.requestId,
+      payload: { roomId: input.roomId, ticket: input.ticket },
+    });
+  }
+
+  async publishRealtimeRoom(input: {
+    roomId: string;
+    event: string;
+    data: unknown;
+    clientEventId?: string;
+    requestId?: string;
+  }) {
+    await this.ensureOpen();
+    this.send({
+      type: "realtime.room.publish",
+      requestId: input.requestId,
+      payload: {
+        roomId: input.roomId,
+        event: input.event,
+        data: input.data,
+        clientEventId: input.clientEventId,
+      },
+    });
+  }
+
+  async leaveRealtimeRoom(input: { roomId: string; requestId?: string }) {
+    await this.ensureOpen();
+    this.send({
+      type: "realtime.room.leave",
+      requestId: input.requestId,
+      payload: { roomId: input.roomId },
+    });
+  }
+
+  async updateRealtimeRoomPresence(input: {
+    roomId: string;
+    presence: Record<string, unknown> | null;
+    requestId?: string;
+  }) {
+    await this.ensureOpen();
+    this.send({
+      type: "realtime.room.presence.update",
+      requestId: input.requestId,
+      payload: { roomId: input.roomId, presence: input.presence },
+    });
+  }
+
   async sendMessage(input: {
     spaceId: string;
     sessionId: string;
@@ -551,7 +608,7 @@ export class WebsocketClient {
     const waiter = this.createAuthWaiter();
     this.send({
       type: "auth",
-      payload: { token, capabilities: [WS_COMPACT_STREAM_CAPABILITY, WS_ROOM_SUBSCRIPTION_CAPABILITY, WS_BOARD_AWARENESS_CAPABILITY] },
+      payload: { token, capabilities: [WS_COMPACT_STREAM_CAPABILITY, WS_ROOM_SUBSCRIPTION_CAPABILITY, WS_BOARD_AWARENESS_CAPABILITY, WS_REALTIME_ROOM_CAPABILITY] },
     });
     await waiter.promise;
     await this.restoreRoomSubscriptions();
@@ -646,9 +703,14 @@ export class WebsocketClient {
         const user = envelope.payload.user && typeof envelope.payload.user === "object"
           ? (envelope.payload.user as Record<string, unknown>)
           : {};
+        const capabilities = Array.isArray(envelope.payload.capabilities)
+          ? envelope.payload.capabilities.filter((value): value is string => typeof value === "string")
+          : [];
+        this.serverCapabilities.clear();
+        for (const capability of capabilities) this.serverCapabilities.add(capability);
         if (connectionId) {
           this.connectionId = connectionId;
-          this.emit("auth", { connectionId, user });
+          this.emit("auth", { connectionId, user, capabilities });
         }
         this.resolveAuthWaiter();
         this.emit("event", envelope);

@@ -17,26 +17,38 @@ import type {
 export const WS_COMPACT_STREAM_CAPABILITY = "session.compact_stream.v1";
 export const WS_ROOM_SUBSCRIPTION_CAPABILITY = "realtime.rooms.v1";
 export const WS_BOARD_AWARENESS_CAPABILITY = "board.awareness.v1";
+export const WS_REALTIME_ROOM_CAPABILITY = "realtime.room.v1";
 export const REALTIME_OUTBOUND_CHANNEL = "pubsub:realtime:outbound";
 export const AGENT_REALTIME_PATCH_CHANNEL = "pubsub:realtime:agent_patches";
+export const REALTIME_ROOM_KEY_PREFIX = "cohub:realtime-room:v1";
+
+export const getRealtimeRoomMetaKey = (roomId: string) => `${REALTIME_ROOM_KEY_PREFIX}:room:${roomId}`;
+export const getRealtimeRoomCodeKey = (workId: string, code: string) => `${REALTIME_ROOM_KEY_PREFIX}:code:${workId}:${code}`;
+export const getRealtimeRoomMembersKey = (roomId: string) => `${REALTIME_ROOM_KEY_PREFIX}:room:${roomId}:members`;
+export const getRealtimeRoomLeasesKey = (roomId: string) => `${REALTIME_ROOM_KEY_PREFIX}:room:${roomId}:leases`;
+export const getRealtimeRoomSequenceKey = (roomId: string) => `${REALTIME_ROOM_KEY_PREFIX}:room:${roomId}:sequence`;
+export const getRealtimeRoomRateKey = (roomId: string) => `${REALTIME_ROOM_KEY_PREFIX}:room:${roomId}:rate`;
+export const getRealtimeRoomIndexKey = (workId: string) => `${REALTIME_ROOM_KEY_PREFIX}:work:${workId}:rooms`;
 
 export type RealtimeRoom =
   | `space:${string}`
   | `user:${string}`
-  | `board:${string}`;
+  | `board:${string}`
+  | `room:${string}`;
 
 export const getRealtimeSpaceRoom = (spaceId: string): RealtimeRoom => `space:${spaceId}`;
 export const getRealtimeUserRoom = (userId: string): RealtimeRoom => `user:${userId}`;
 export const getRealtimeBoardRoom = (boardId: string): RealtimeRoom => `board:${boardId}`;
+export const getRealtimeRoom = (roomId: string): RealtimeRoom => `room:${roomId}`;
 
-export const parseRealtimeRoom = (room: string): { kind: "space" | "user" | "board"; id: string } | null => {
+export const parseRealtimeRoom = (room: string): { kind: "space" | "user" | "board" | "room"; id: string } | null => {
   const trimmed = room.trim();
   const separatorIndex = trimmed.indexOf(":");
   if (separatorIndex <= 0) return null;
   const kind = trimmed.slice(0, separatorIndex);
   const id = trimmed.slice(separatorIndex + 1).trim();
   if (!id) return null;
-  if (kind !== "space" && kind !== "user" && kind !== "board") return null;
+  if (kind !== "space" && kind !== "user" && kind !== "board" && kind !== "room") return null;
   return { kind, id };
 };
 
@@ -57,17 +69,22 @@ export type WsClientEvent =
   | { type: "session.message.create"; requestId?: string; payload: { spaceId: string; sessionId: string; clientMessageId?: string; content: ContentBlock[]; model?: string; provider?: string; thinkingLevel?: ModelThinkingLevel } }
   | { type: "presence.update"; requestId?: string; payload: { spaceId: string; meta?: Record<string, unknown> | null } }
   | { type: "board.awareness.update"; requestId?: string; payload: BoardAwarenessClientPayload }
+  | { type: "realtime.room.join"; requestId?: string; payload: { roomId: string; ticket: string } }
+  | { type: "realtime.room.publish"; requestId?: string; payload: { roomId: string; event: string; data: unknown; clientEventId?: string } }
+  | { type: "realtime.room.leave"; requestId?: string; payload: { roomId: string } }
+  | { type: "realtime.room.presence.update"; requestId?: string; payload: { roomId: string; presence: Record<string, unknown> | null } }
   | { type: "ping"; requestId?: string; payload?: Record<string, unknown> }
   | { type: "ack"; requestId?: string; payload?: { eventId?: string } };
 
 export type RealtimeEnvelope = {
   id: string;
   timestamp: number;
-  domain: "system" | "session" | "space" | "label";
+  domain: "system" | "session" | "space" | "label" | "room";
   type: string;
   requestId?: string | null;
   spaceId?: string | null;
   sessionId?: string | null;
+  roomId?: string | null;
   rooms?: RealtimeRoom[];
   payload: Record<string, unknown>;
 };
@@ -75,6 +92,117 @@ export type RealtimeEnvelope = {
 export type ChannelEnvelope = RealtimeEnvelope;
 export type RealtimeEnvelopeBase = RealtimeEnvelope;
 export type RealtimeDomain = RealtimeEnvelopeBase["domain"];
+
+export type RealtimeRoomDescriptor = {
+  id: string;
+  code: string;
+  createdAt: string;
+  expiresAt: string;
+  maxParticipants: number;
+};
+
+export type RealtimeRoomMember = {
+  participantId: string;
+  joinedAt: string;
+  presence: Record<string, unknown> | null;
+};
+
+export type RealtimeRoomEvent = {
+  id: string;
+  timestamp: number;
+  domain: "room";
+  type: "realtime.room.event";
+  requestId?: string | null;
+  spaceId?: null;
+  sessionId?: null;
+  rooms: RealtimeRoom[];
+  payload: {
+    roomId: string;
+    sequence: number;
+    event: string;
+    data: unknown;
+    clientEventId: string | null;
+    sender: { participantId: string };
+  };
+};
+
+export type RealtimeRoomJoinedEvent = {
+  id: string;
+  timestamp: number;
+  domain: "room";
+  type: "realtime.room.joined";
+  requestId?: string | null;
+  spaceId?: null;
+  sessionId?: null;
+  rooms: RealtimeRoom[];
+  payload: {
+    room: RealtimeRoomDescriptor;
+    participantId: string;
+    members: RealtimeRoomMember[];
+    sequence: number;
+  };
+};
+
+export type RealtimeRoomMemberChangedEvent = {
+  id: string;
+  timestamp: number;
+  domain: "room";
+  type: "realtime.room.member.joined" | "realtime.room.member.left";
+  requestId?: string | null;
+  spaceId?: null;
+  sessionId?: null;
+  rooms: RealtimeRoom[];
+  payload: {
+    roomId: string;
+    sequence: number;
+    member: RealtimeRoomMember;
+  };
+};
+
+export type RealtimeRoomPresenceUpdatedEvent = {
+  id: string;
+  timestamp: number;
+  domain: "room";
+  type: "realtime.room.presence.updated";
+  requestId?: string | null;
+  spaceId?: null;
+  sessionId?: null;
+  rooms: RealtimeRoom[];
+  payload: {
+    roomId: string;
+    sequence: number;
+    member: RealtimeRoomMember;
+  };
+};
+
+export type RealtimeRoomRequestEvent = {
+  id: string;
+  timestamp: number;
+  domain: "room";
+  type: "realtime.room.request.ok";
+  requestId?: string | null;
+  spaceId?: null;
+  sessionId?: null;
+  roomId?: string | null;
+  payload: {
+    roomId: string;
+    sequence?: number;
+    eventId?: string | null;
+    clientEventId?: string | null;
+  };
+};
+
+export type RealtimeRoomClosedEvent = {
+  id: string;
+  timestamp: number;
+  domain: "room";
+  type: "realtime.room.closed";
+  requestId?: string | null;
+  spaceId?: null;
+  sessionId?: null;
+  rooms: RealtimeRoom[];
+  payload: { roomId: string; reason: "expired" | "left" | "revoked" };
+};
 
 export type RealtimeCompactFrame =
   | { t: "d"; sid: string; s: number; b: number; v: unknown }
@@ -99,7 +227,7 @@ export type SystemAuthOkEvent = {
   requestId?: string | null;
   spaceId?: string | null;
   sessionId?: string | null;
-  payload: { connectionId: string; user: Record<string, unknown> };
+  payload: { connectionId: string; user: Record<string, unknown>; capabilities?: string[] };
 };
 
 export type SystemRequestErrorEvent = {
@@ -671,7 +799,13 @@ export type RealtimeServerEvent =
   | WorkVersionPublishedEvent
   | TaskCreatedEvent
   | TaskUpdatedEvent
-  | LabelAssignmentsUpdatedEvent;
+  | LabelAssignmentsUpdatedEvent
+  | RealtimeRoomEvent
+  | RealtimeRoomJoinedEvent
+  | RealtimeRoomMemberChangedEvent
+  | RealtimeRoomPresenceUpdatedEvent
+  | RealtimeRoomRequestEvent
+  | RealtimeRoomClosedEvent;
 
 export type WsServerEnvelope = RealtimeEnvelope;
 export type ChannelServerEnvelope = ChannelEnvelope;

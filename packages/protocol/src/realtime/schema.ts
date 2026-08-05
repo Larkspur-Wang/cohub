@@ -5,7 +5,7 @@ import { BoardAwarenessClientPayloadSchema } from "./board-awareness.js";
 export type * from "./types.js";
 
 const contentBlockMetaSchema = z.record(z.string(), z.unknown());
-const realtimeRoomSchema = z.string().regex(/^(space|user|board):[^:]+$/);
+const realtimeRoomSchema = z.string().regex(/^(space|user|board|room):[^:]+$/);
 
 export const contentBlockSchema = z.discriminatedUnion("type", [
   z.object({
@@ -105,6 +105,34 @@ export const wsClientEventSchema = z.discriminatedUnion("type", [
     payload: BoardAwarenessClientPayloadSchema,
   }),
   z.object({
+    type: z.literal("realtime.room.join"),
+    requestId: z.string().optional(),
+    payload: z.object({ roomId: z.string().uuid(), ticket: z.string().min(1) }),
+  }),
+  z.object({
+    type: z.literal("realtime.room.publish"),
+    requestId: z.string().optional(),
+    payload: z.object({
+      roomId: z.string().uuid(),
+      event: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/),
+      data: z.unknown(),
+      clientEventId: z.string().max(128).optional(),
+    }),
+  }),
+  z.object({
+    type: z.literal("realtime.room.leave"),
+    requestId: z.string().optional(),
+    payload: z.object({ roomId: z.string().uuid() }),
+  }),
+  z.object({
+    type: z.literal("realtime.room.presence.update"),
+    requestId: z.string().optional(),
+    payload: z.object({
+      roomId: z.string().uuid(),
+      presence: z.record(z.string(), z.unknown()).nullable(),
+    }),
+  }),
+  z.object({
     type: z.literal("ping"),
     requestId: z.string().optional(),
     payload: z.record(z.string(), z.unknown()).optional(),
@@ -119,7 +147,7 @@ export const wsClientEventSchema = z.discriminatedUnion("type", [
 export const realtimeEnvelopeSchema = z.object({
   id: z.string(),
   timestamp: z.number(),
-  domain: z.enum(["system", "session", "space", "label"]),
+  domain: z.enum(["system", "session", "space", "label", "room"]),
   type: z.string(),
   requestId: z.string().nullable().optional(),
   spaceId: z.string().nullable().optional(),

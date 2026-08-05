@@ -259,6 +259,39 @@ lets you send a prompt but does NOT let you read the reply — that needs
 `session.view` (a work scope). Similarly, `generation.create` lets you create
 a generation task, but polling its result needs `taskrun.view` (a work scope).
 
+### Realtime rooms
+
+Work runtime rooms are generic, temporary event channels. The SDK does not
+know the Work's business events; define their names and payload types in the
+Work itself.
+
+```ts
+type Events = {
+  "shared.state.updated": { value: number };
+  "activity.submitted": { itemId: string };
+};
+
+const room = await client.work.realtime.createRoom<Events>({
+  code: "TEAM-ALPHA", // optional; generated when omitted
+  maxParticipants: 64,
+  expiresInSeconds: 2 * 60 * 60,
+});
+
+const stop = room.subscribe("shared.state.updated", (event) => {
+  console.log(event.sequence, event.data.value, event.self);
+});
+
+await room.publish("shared.state.updated", { value: 42 });
+await room.setPresence({ status: "active" });
+await room.leave();
+stop();
+```
+
+`expiresInSeconds` is an absolute lifetime from server-side room creation. It
+never extends on publish, presence, or heartbeat. The maximum lifetime is
+24 hours. Room events are live and ordered while connected, with publish ACKs
+and sequence-gap detection; events missed during a disconnect are not replayed.
+
 For the complete API-to-scope mapping, initialization recipe, capability
 recipes, a full working example, and a pitfalls checklist, see the
 **[Work Runtime Guide](./docs/work-runtime-guide.md)**.

@@ -985,6 +985,48 @@ Before publishing your Work, verify each item:
 
 ---
 
+## Realtime rooms in a Work
+
+Realtime rooms are available through `client.work.realtime` and use the Work
+runtime identity automatically. They do not require a viewer scope or an
+additional consent dialog.
+
+```js
+const room = await client.work.realtime.createRoom({
+  code: "TEAM-ALPHA",
+  maxParticipants: 64,
+  expiresInSeconds: 2 * 60 * 60,
+});
+
+const stop = room.subscribe("shared.state.updated", (event) => {
+  console.log(event.sequence, event.data);
+});
+
+await room.publish("shared.state.updated", { value: 42 });
+await room.leave();
+stop();
+```
+
+A Work can join an existing room with `client.work.realtime.joinRoom({ code })`.
+Room codes are scoped to the Work and are case-insensitive. They identify a
+room but are not credentials; the runtime Work session and the short-lived
+room admission ticket provide authorization.
+
+`expiresInSeconds` is an absolute lifetime measured from server-side creation.
+Activity never extends it, and the maximum lifetime is 24 hours. The room is
+logically expired at `expiresAt`; connected clients receive a closed state and
+new publishes or joins fail.
+
+Each Work can hold up to 512 active rooms at once. Expired rooms free their slot
+automatically, and `createRoom` fails with HTTP 429 and `ROOM_QUOTA_EXCEEDED`
+when the limit is reached.
+
+Events are generic JSON payloads. The SDK does not define business event names,
+and the Work should define its own event map in TypeScript. Events are ordered
+and acknowledged while a connection is live. Events missed during a disconnect
+are not replayed, so applications should publish a current state snapshot after
+rejoining when needed. Payloads are transient and are not stored in the Work.
+
 ## 8. Publishing a Work (API/SDK)
 
 Before creating a Work through the API, ensure the owner has a username and

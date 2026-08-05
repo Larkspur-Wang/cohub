@@ -10,6 +10,7 @@ import {
   authzDenied,
   getOptionalAuth,
   getSpacePublicProfile,
+  getWorkSessionPrincipal,
   requireValidId,
   useAuth,
   type AuthUser,
@@ -27,6 +28,12 @@ import { createWorkPublicUrl } from "../lib/work-public-url.js";
 import { applyRequestSourceToMeta, getRequestSource } from "../lib/request-source.js";
 import { dispatchWorkVersionPublished } from "../work-events.js";
 import { ensureUserProfileByUuid } from "../user-profiles.js";
+import {
+  createWorkRoom,
+  createWorkRoomAdmission,
+  getWorkRoomByCode,
+  WorkRoomError,
+} from "../work-realtime-rooms.js";
 
 const logger = createLogger({ serviceName: "cohub-api" });
 const router = new Hono();
@@ -764,6 +771,67 @@ router.delete("/:id", async (c) => {
     await tx.delete(works).where(eq(works.id, work.id));
   });
   return c.json({ ok: true });
+});
+
+const workRoomErrorResponse = (c: Context, error: unknown) => {
+  if (!(error instanceof WorkRoomError)) return c.json({ message: "failed to create realtime room" }, 503);
+  if (error.code === "ROOM_QUOTA_EXCEEDED") return c.json({ code: error.code, message: error.message }, 429);
+  const status = error.code === "ROOM_CODE_TAKEN" ? 409 : 400;
+  return c.json({ code: error.code, message: error.message }, status);
+};
+
+const getPublishedWorkForRoom = async (c: Context, workId: string) => {
+  const principal = getWorkSessionPrincipal(c);
+  if (!principal || principal.workId !== workId) return null;
+  const work = await getWorkById(workId);
+  if (work?.status !== "published" || work.spaceId !== principal.spaceId) return null;
+  return { principal, work };
+};
+
+router.post("/:id/realtime/rooms", async (c) => {
+  const id = c.req.param("id");
+  if (!requireValidId(id)) return c.json({ message: "work not found" }, 404);
+  const context = await getPublishedWorkForRoom(c, id);
+  if (!context) return authzDenied(c);
+  const body = await c.req.json().catch(() => null) as {
+    code?: unknown;
+    expiresInSeconds?: unknown;
+    maxParticipants?: unknown;
+  } | null;
+  try {
+    const room = await createWorkRoom({
+      workId: id,
+      code: body?.code,
+      expiresInSeconds: body?.expiresInSeconds,
+      maxParticipants: body?.maxParticipants,
+    });
+    return c.json(createWorkRoomAdmission({
+      workId: id,
+      userUuid: context.principal.userUuid,
+      room,
+    }));
+  } catch (error) {
+    return workRoomErrorResponse(c, error);
+  }
+});
+
+router.post("/:id/realtime/rooms/join", async (c) => {
+  const id = c.req.param("id");
+  if (!requireValidId(id)) return c.json({ message: "work not found" }, 404);
+  const context = await getPublishedWorkForRoom(c, id);
+  if (!context) return authzDenied(c);
+  const body = await c.req.json().catch(() => null) as { code?: unknown } | null;
+  const room = await getWorkRoomByCode(id, body?.code);
+  if (!room || room.workId !== id) return c.json({ code: "ROOM_NOT_FOUND", message: "room not found" }, 404);
+  try {
+    return c.json(createWorkRoomAdmission({
+      workId: id,
+      userUuid: context.principal.userUuid,
+      room,
+    }));
+  } catch (error) {
+    return workRoomErrorResponse(c, error);
+  }
 });
 
 router.post("/:id/session", async (c) => {

@@ -6,6 +6,7 @@ export { VoiceApi, VoiceInputClient, createVoiceInputClient } from "./voice-inpu
 export { UsersApi } from "./apis/users.js";
 export { WorksApi } from "./apis/works.js";
 export { WorkCommerceApi } from "./apis/work-commerce.js";
+export { WorkRealtimeApi, WorkRoom } from "./apis/work-realtime.js";
 export { ReferencesApi } from "./apis/references.js";
 export { ReferralsApi } from "./apis/referrals.js";
 export { buildSpaceInvitePath, buildSpacePath } from "./apis/invitations.js";
@@ -133,6 +134,19 @@ export type {
   SpaceTurnListOptions,
   WebSocketConnectionState,
 } from "./apis/spaces.js";
+export type {
+  RealtimeRoomDescriptor,
+  RealtimeRoomEvent,
+  RealtimeRoomMember,
+} from "@cohub/protocol/realtime";
+export type {
+  WorkRoomAdmissionResponse,
+  WorkRoomCreateInput,
+  WorkRoomEvent,
+  WorkRoomEventMap,
+  WorkRoomPublishResult,
+  WorkRoomState,
+} from "./apis/work-realtime.js";
 export { BoardClient, BoardTransactionError } from "./apis/spaces.js";
 export {
   BoardPlaybackPolicySchema,

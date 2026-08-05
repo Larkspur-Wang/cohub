@@ -2,7 +2,7 @@ import type { AuthUserProfile } from "@cohub/identity";
 import { AuthorizationError, verifyUserAccessToken } from "@cohub/identity";
 import { buildTraceHeaders, getTraceResponseHeaders, type TraceIdentifiers } from "@cohub/infra/tracing";
 import type { ContentBlock } from "@cohub/protocol/core";
-import type { RealtimeRoom } from "@cohub/protocol/realtime";
+import type { RealtimeRoom, RealtimeRoomDescriptor } from "@cohub/protocol/realtime";
 import type { BillingPayload } from "@cohub/protocol";
 import type { GatewayAuthUser } from "./config.js";
 import { gatewayConfig } from "./config.js";
@@ -132,6 +132,28 @@ export const notifySpacePresenceUpdated = async (spaceId: string): Promise<void>
     const text = await response.text().catch(() => "");
     throw new Error(`Space presence update failed ${response.status}: ${text}`);
   }
+};
+
+export const authorizeWorkRoom = async (input: {
+  authToken: string;
+  roomId: string;
+  ticket: string;
+}): Promise<{ room: RealtimeRoomDescriptor; participantId: string }> => {
+  const response = await fetch(`${gatewayConfig.apiBaseUrl}/internal/gateway/authorize-work-room`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-worker-secret": gatewayConfig.workerSecret,
+      authorization: `Bearer ${input.authToken}`,
+      ...buildTraceHeaders(),
+    },
+    body: JSON.stringify({ roomId: input.roomId, ticket: input.ticket }),
+  });
+  const data = await parseJson<{ ok?: boolean; room?: RealtimeRoomDescriptor; participantId?: string; message?: string }>(response);
+  if (!response.ok || !data?.ok || !data.room || !data.participantId) {
+    throw new Error(data?.message || `Work room authorization failed ${response.status}`);
+  }
+  return { room: data.room, participantId: data.participantId };
 };
 
 export const authorizeBoardAwareness = async (input: {
