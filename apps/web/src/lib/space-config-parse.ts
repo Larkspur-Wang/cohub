@@ -1,4 +1,5 @@
 export {
+	isDecorativeNewChatBackground,
 	type NewChatBackgroundConfig,
 	type NewChatComposerApplyPayload,
 	parseSpaceConfig,

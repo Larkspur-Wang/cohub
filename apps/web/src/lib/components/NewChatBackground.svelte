@@ -5,6 +5,7 @@ import NewChatWorkBackground from "$lib/components/NewChatWorkBackground.svelte"
 import { parseNewChatBackgroundAction } from "$lib/new-chat-background-bridge";
 import type { NewChatBackgroundConfig } from "$lib/space-config";
 import { emitSpaceConfigBackgroundAction } from "$lib/space-config";
+import { isDecorativeNewChatBackground } from "$lib/space-config-parse";
 import { type CohubWorkUrl, parseCohubWorkUrl } from "$lib/work-url";
 
 type Props = {
@@ -26,6 +27,10 @@ const spacePath = $derived(
 
 const objectFit = $derived(background.fit === "fill" ? "fill" : background.fit);
 let iframeEl = $state<HTMLIFrameElement | null>(null);
+
+// An html background is a live document with focusable controls, so it must
+// stay in the accessibility tree; only image/video are safe to hide.
+const decorative = $derived(isDecorativeNewChatBackground(background));
 
 function getBackgroundOrigin() {
 	if (!externalUrl) return null;
@@ -102,7 +107,11 @@ $effect(() => {
 });
 </script>
 
-<div class="new-chat-background" style:opacity={background.opacity} aria-hidden="true">
+<div
+  class="new-chat-background"
+  style:opacity={background.opacity}
+  aria-hidden={decorative ? "true" : undefined}
+>
   {#if background.type === "image"}
     <img src={background.source.url} alt="" style:object-fit={objectFit} style:object-position={background.position} draggable="false" />
   {:else if background.type === "video"}
@@ -117,7 +126,7 @@ $effect(() => {
       {/snippet}
     </svelte:boundary>
   {:else if externalUrl}
-    <iframe bind:this={iframeEl} src={externalUrl} title="New chat background" sandbox={sandbox} referrerpolicy="no-referrer" loading="eager"></iframe>
+    <iframe bind:this={iframeEl} src={externalUrl} title="New chat content" sandbox={sandbox} referrerpolicy="no-referrer" loading="eager"></iframe>
   {:else}
     <div class="new-chat-background-state">Background is unavailable.</div>
   {/if}

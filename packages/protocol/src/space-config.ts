@@ -40,6 +40,25 @@ export type NewChatBackgroundConfig = NewChatBackgroundBase &
       }
   );
 
+/**
+ * Whether a New Chat background is purely decorative, i.e. safe to hide from
+ * assistive technology with `aria-hidden`.
+ *
+ * Images and videos are decoration. An `html` background is a live document:
+ * it can hold focusable controls, announce through live regions, and post
+ * `composer.apply` back to the host. Hiding one prunes it from the
+ * accessibility tree while its controls stay keyboard-focusable — leaving
+ * focus stops a screen reader cannot announce (WCAG 4.1.2). So `html` is
+ * treated as content even if a particular page happens to be decorative:
+ * over-exposing decoration is a minor annoyance, hiding real controls is a
+ * blocker.
+ */
+export function isDecorativeNewChatBackground(
+  background: Pick<NewChatBackgroundConfig, "type">,
+): boolean {
+  return background.type === "image" || background.type === "video";
+}
+
 export type NewChatComposerApplyPayload = {
   prompt?: string;
   model?: {

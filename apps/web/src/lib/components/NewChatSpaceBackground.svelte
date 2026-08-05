@@ -52,7 +52,7 @@ $effect(() => {
 {:else if previewSession.src}
 	<iframe
 		bind:this={frame}
-		title="New chat background"
+		title="New chat content"
 		sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals"
 		referrerpolicy="no-referrer"
 		loading="eager"
