@@ -32,6 +32,7 @@ export type WorkAuthorizeRequest = {
 export type WorkPurchaseRequest = {
 	requestId: string;
 	productKey: string;
+	purchaseAttemptId: string;
 };
 
 /**
@@ -271,7 +272,10 @@ export function createWorkBridgeCore(
 		}
 	}
 
-	async function createPurchase(productKey: string) {
+	async function createPurchase(
+		productKey: string,
+		purchaseAttemptId: string,
+	) {
 		const userToken = await getAccessToken();
 		if (!userToken) {
 			await config.requestSignIn(
@@ -289,7 +293,7 @@ export function createWorkBridgeCore(
 					Authorization: `Bearer ${userToken}`,
 					"Content-Type": "application/json",
 				},
-				body: JSON.stringify({ productKey }),
+				body: JSON.stringify({ productKey, purchaseAttemptId }),
 			},
 		);
 		if (!response.ok)
@@ -309,6 +313,7 @@ export function createWorkBridgeCore(
 			reason?: string;
 			forceRefresh?: boolean;
 			productKey?: string;
+			purchaseAttemptId?: string;
 		};
 		if (!data?.requestId) return;
 		try {
@@ -358,7 +363,25 @@ export function createWorkBridgeCore(
 					});
 					return;
 				}
-				state.pendingPurchase = { requestId: data.requestId, productKey };
+				const suppliedPurchaseAttemptId =
+					typeof data.purchaseAttemptId === "string"
+						? data.purchaseAttemptId.trim()
+						: "";
+				const purchaseAttemptId = suppliedPurchaseAttemptId || data.requestId
+					.replace(/[^a-zA-Z0-9_-]/g, "_")
+					.slice(0, 128);
+				if (!/^[a-zA-Z0-9_-]{1,128}$/.test(purchaseAttemptId)) {
+					reply(data.requestId, {
+						type: "cohub.work.error",
+						message: "Purchase attempt id is invalid.",
+					});
+					return;
+				}
+				state.pendingPurchase = {
+					requestId: data.requestId,
+					productKey,
+					purchaseAttemptId,
+				};
 				state.purchaseError = null;
 				state.purchaseOpen = true;
 				notify();
@@ -459,6 +482,7 @@ export function createWorkBridgeCore(
 		try {
 			const checkout = await createPurchase(
 				state.pendingPurchase.productKey,
+				state.pendingPurchase.purchaseAttemptId,
 			);
 			reply(state.pendingPurchase.requestId, {
 				type: "cohub.work.purchase.result",

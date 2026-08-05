@@ -152,7 +152,8 @@ export class CohubClient {
         if (!context?.work?.id) throw new Error("Work context is unavailable — not running inside a published Work runtime.");
         return this.workCommerce.consumeCredits(context.work.id, input);
       },
-      purchase: async (input: { productKey: string }) => this.workRuntime.purchase(input),
+      purchase: async (input: { productKey: string; purchaseAttemptId?: string }) =>
+        this.workRuntime.purchase(input),
       getCheckoutState: async (): Promise<{ status: WorkCommerceCheckoutStatus; orderId: string | null }> => {
         const result = await this.workRuntime.checkoutState();
         return { status: result?.status ?? null, orderId: result?.orderId ?? null };

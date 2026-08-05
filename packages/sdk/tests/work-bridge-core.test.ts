@@ -332,6 +332,7 @@ test("purchase message opens purchase dialog", async () => {
 			type: "cohub.work.purchase",
 			requestId: "r1",
 			productKey: "pro-monthly",
+			purchaseAttemptId: "attempt-1",
 		}),
 	);
 
@@ -340,6 +341,64 @@ test("purchase message opens purchase dialog", async () => {
 	assert.equal(state.purchaseOpen, true);
 	assert.equal(state.pendingPurchase?.requestId, "r1");
 	assert.equal(state.pendingPurchase?.productKey, "pro-monthly");
+	assert.equal(state.pendingPurchase?.purchaseAttemptId, "attempt-1");
+});
+
+test("purchase confirmation retries with the same attempt id", async () => {
+	const requestBodies: Array<Record<string, unknown>> = [];
+	const originalFetch = globalThis.fetch;
+	globalThis.fetch = ((_url: string, init: RequestInit) => {
+		requestBodies.push(JSON.parse(String(init.body)));
+		if (requestBodies.length === 1) {
+			return Promise.resolve(
+				new Response(JSON.stringify({ message: "Allocation failed" }), {
+					status: 500,
+				}),
+			);
+		}
+		return Promise.resolve(
+			new Response(
+				JSON.stringify({
+					checkout: {
+						checkoutUsable: false,
+						orderId: "order-1",
+						productKey: "pro-monthly",
+					},
+				}),
+				{ status: 200 },
+			),
+		);
+	}) as typeof fetch;
+
+	try {
+		const config = makeConfig();
+		const core = createWorkBridgeCore(config);
+		await core.handleMessage(
+			messageEvent({
+				type: "cohub.work.purchase",
+				requestId: "r1",
+				productKey: "pro-monthly",
+				purchaseAttemptId: "attempt-1",
+			}),
+		);
+
+		await core.confirmPurchase();
+		assert.equal(core.getState().purchaseError, "Allocation failed");
+		assert.equal(
+			core.getState().pendingPurchase?.purchaseAttemptId,
+			"attempt-1",
+		);
+
+		await core.confirmPurchase();
+		assert.deepEqual(requestBodies, [
+			{ productKey: "pro-monthly", purchaseAttemptId: "attempt-1" },
+			{ productKey: "pro-monthly", purchaseAttemptId: "attempt-1" },
+		]);
+		assert.equal(config.replies[0].payload.type, "cohub.work.purchase.result");
+		assert.equal(core.getState().purchaseOpen, false);
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
 });
 
 test("cancelPurchase replies with null checkout and closes dialog", async () => {
@@ -354,6 +413,7 @@ test("cancelPurchase replies with null checkout and closes dialog", async () => 
 		}),
 	);
 
+	assert.equal(core.getState().pendingPurchase?.purchaseAttemptId, "r1");
 	core.cancelPurchase();
 
 	assert.equal(core.getState().purchaseOpen, false);

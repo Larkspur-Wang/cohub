@@ -59,7 +59,8 @@ const getParentOrigin = () => {
 };
 
 const generateRequestId = () =>
-  globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
+  globalThis.crypto?.randomUUID?.() ??
+  `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 /**
  * Bridge-mode transport: posts messages to `window.parent` (the Cohub host
@@ -439,9 +440,14 @@ export class WorkRuntimeApi {
     return Boolean(this.token);
   }
 
-  async purchase(input: { productKey: string }) {
+  async purchase(input: { productKey: string; purchaseAttemptId?: string }) {
+    const purchaseAttemptId = input.purchaseAttemptId?.trim() || generateRequestId();
     const response = await this.transport.request<{ checkout: { providerKey: string | null; checkoutUrl: string | null; checkoutUsable: boolean; status: string | null; message: string | null; orderId: string; productKey: string } | null }>(
-      { type: "cohub.work.purchase", productKey: input.productKey },
+      {
+        type: "cohub.work.purchase",
+        productKey: input.productKey,
+        purchaseAttemptId,
+      },
       { timeoutMs: 120_000 },
     );
     return response?.checkout ?? null;

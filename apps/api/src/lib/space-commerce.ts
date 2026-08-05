@@ -6,7 +6,7 @@ import {
   COHUB_BILLING_FEATURES,
 } from "@cohub/billing";
 import { createLogger } from "@cohub/infra/logging";
-import type { CreditsBenefit, Product } from "./commerce-types.js";
+import type { CreditsBenefit } from "./commerce-types.js";
 import { isBillingApiError } from "./billing-api-error.js";
 import type { SpaceCommerceSdk } from "./space-commerce-provider.js";
 
@@ -78,8 +78,12 @@ export async function loadBusinessCreditBenefits(input: {
   return (await loadProvider()).loadBusinessCreditBenefits(input);
 }
 
-export async function readBoundBenefitKeys(product: Product): Promise<string[]> {
-  return (await loadProvider()).readBoundBenefitKeys(product);
+export async function loadBoundBenefitKeys(input: {
+  sdk: SpaceCommerceSdk;
+  businessKey: string;
+  productKey: string;
+}): Promise<string[]> {
+  return (await loadProvider()).loadBoundBenefitKeys(input);
 }
 
 function normalizeBusinessKeyValue(value: string) {

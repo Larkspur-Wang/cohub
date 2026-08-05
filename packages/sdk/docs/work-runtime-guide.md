@@ -656,6 +656,10 @@ if (checkoutState.orderId) {
 }
 ```
 
+`purchase()` creates a purchase attempt ID automatically. If application code
+retries the call after a timeout, pass the same `purchaseAttemptId` to ensure
+the retry resolves to the original Billing order.
+
 ---
 
 ## 6. Complete working example

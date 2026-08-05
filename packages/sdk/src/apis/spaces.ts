@@ -1361,6 +1361,7 @@ export class SpaceCommerceApi {
     name: string;
     description?: string;
     amountUsd: number;
+    cohubBalanceUsd?: number;
     status?: "draft" | "active";
     visibility?: "public" | "private";
   }) {

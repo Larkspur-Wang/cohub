@@ -74,7 +74,10 @@ test("WorkRuntimeApi delegates to the injected transport", async () => {
 	await runtime.context();
 	await runtime.getAccessToken();
 	await runtime.requestAuthorization({ scopes: ["file.view"] });
-	await runtime.purchase({ productKey: "pro-1" });
+	await runtime.purchase({
+		productKey: "pro-1",
+		purchaseAttemptId: "attempt-1",
+	});
 	await runtime.checkoutState();
 
 	assert.equal(calls.length, 5);
@@ -93,6 +96,7 @@ test("WorkRuntimeApi delegates to the injected transport", async () => {
 	assert.deepEqual(calls[3].message, {
 		type: "cohub.work.purchase",
 		productKey: "pro-1",
+		purchaseAttemptId: "attempt-1",
 	});
 	assert.deepEqual(calls[4].options, { timeoutMs: 8_000, retryIntervalMs: 250 });
 });

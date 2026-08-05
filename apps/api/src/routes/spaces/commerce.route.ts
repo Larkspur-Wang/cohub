@@ -26,6 +26,18 @@ import type { Benefit, CommerceOrder, CreditsBenefit, Product, ProductBenefit } 
 import { createLogger } from "@cohub/infra/logging";
 import type { SpaceCommerceSdk } from "../../lib/space-commerce.js";
 import { fallbackPublicUserProfile, getProfilesByUuids } from "../../user-profiles.js";
+import {
+  buildCohubBalanceBenefitConfig,
+  buildCohubBalanceBenefitKey,
+  buildCohubBalanceProductMeta,
+  COHUB_BALANCE_META_KEY,
+  CohubBalanceValidationError,
+  collectManagedBalanceBenefitKeys,
+  isCohubBalanceBenefitValid,
+  readCohubBalanceDescriptor,
+  resolveCohubBalanceSpec,
+  type CohubBalanceDescriptor,
+} from "../../lib/space-commerce-balance.js";
 
 const router = new Hono();
 const logger = createLogger({ serviceName: "cohub-api" });
@@ -106,6 +118,62 @@ async function syncProductBenefitMeta(input: {
   }
 }
 
+async function compensateFailedBalanceProvision(input: {
+  sdk: SpaceCommerceSdk;
+  businessKey: string;
+  productKey: string;
+  benefitKey: string;
+  benefitCreated: boolean;
+}) {
+  const compensations: Array<{ resource: string; run: () => Promise<unknown> }> = [];
+  if (input.benefitCreated) {
+    compensations.push({
+      resource: "benefit",
+      run: () => input.sdk.admin.benefits.update({
+        benefit_key: input.benefitKey,
+        patch: { business_key: input.businessKey, status: "archived" },
+      }),
+    });
+  }
+  compensations.push({
+    resource: "product",
+    run: () => input.sdk.admin.products.update({
+      product_key: input.productKey,
+      patch: { business_key: input.businessKey, status: "archived" },
+    }),
+  });
+
+  for (const compensation of compensations) {
+    try {
+      await compensation.run();
+    } catch (error) {
+      logger.error("[space-commerce] failed to compensate Balance provisioning", {
+        resource: compensation.resource,
+        businessKey: input.businessKey,
+        productKey: input.productKey,
+        benefitKey: input.benefitKey,
+        error,
+      });
+    }
+  }
+}
+
+/** True when a Benefit is the platform-managed Balance of a product in this business. */
+async function isManagedBalanceBenefit(input: {
+  sdk: SpaceCommerceSdk;
+  businessKey: string;
+  benefitKey: string;
+}): Promise<boolean> {
+  const bindings = await input.sdk.admin.products.listProductsByBenefit({
+    business_key: input.businessKey,
+    benefit_key: input.benefitKey,
+  });
+  return bindings.some((binding: { product: Pick<Product, "meta"> }) => {
+    const descriptor = readCohubBalanceDescriptor(binding.product);
+    return descriptor?.benefitKey === input.benefitKey;
+  });
+}
+
 type SerializedProductBenefitBinding = {
   id: string | null;
   productKey: string;
@@ -161,8 +229,10 @@ async function listSpaceCommerceProducts(input: { sdk: SpaceCommerceSdk; busines
 async function listProductBenefitBindings(input: {
   sdk: SpaceCommerceSdk;
   businessKey: string;
+  /** Reuses an already-loaded catalog; omit to load it here. */
+  products?: readonly Product[];
 }): Promise<SerializedProductBenefitBinding[]> {
-  const products = await listSpaceCommerceProducts(input);
+  const products = input.products ?? await listSpaceCommerceProducts(input);
   const bindings = new Map<string, SerializedProductBenefitBinding>();
   let billingListSupported = true;
 
@@ -243,10 +313,11 @@ async function listBenefitKeys(sdk: SpaceCommerceSdk, businessKey: string): Prom
 async function loadProductCreditBenefits(input: {
   sdk: SpaceCommerceSdk;
   businessKey: string;
+  products?: readonly Product[];
 }): Promise<Map<string, CreditsBenefit[]>> {
   const [creditBenefitsMap, bindings] = await Promise.all([
-    await loadBusinessCreditBenefits({ sdk: input.sdk, businessKey: input.businessKey }),
-    listProductBenefitBindings({ sdk: input.sdk, businessKey: input.businessKey }),
+    loadBusinessCreditBenefits({ sdk: input.sdk, businessKey: input.businessKey }),
+    listProductBenefitBindings(input),
   ]);
   const byProduct = new Map<string, CreditsBenefit[]>();
   for (const binding of bindings) {
@@ -296,7 +367,11 @@ router.get("/:id/commerce/products", async (c) => {
       loadProductCreditBenefits({ sdk, businessKey: mapping.billingBusinessKey }),
     ]);
     return c.json({
-      products: result.items.map((product: Product) => serializeProduct(product, creditBenefitsByProduct.get(product.key) ?? [])),
+      products: result.items.map((product: Product) => serializeProduct(
+        product,
+        creditBenefitsByProduct.get(product.key) ?? [],
+        readCohubBalanceDescriptor(product),
+      )),
       businessKey: mapping.billingBusinessKey,
     });
   } catch (error) {
@@ -320,9 +395,22 @@ router.post("/:id/commerce/products", async (c) => {
   const description = typeof body?.description === "string" ? body.description.trim() : undefined;
   const visibility = body?.visibility === "private" ? "private" : "public";
   const status = body?.status === "draft" ? "draft" : "active";
-  const amount = Number(body?.amountUsd);
+  const amount = typeof body?.amountUsd === "number" ? body.amountUsd : Number.NaN;
   if (!name) return c.json({ message: "name is required" }, 400);
   if (!Number.isFinite(amount) || amount < MIN_PRODUCT_AMOUNT_USD) return c.json({ message: "amountUsd must be at least 0.5" }, 400);
+  const amountMinor = Math.round(amount * 100);
+  let balanceSpec: ReturnType<typeof resolveCohubBalanceSpec>;
+  try {
+    balanceSpec = resolveCohubBalanceSpec({
+      value: body?.cohubBalanceUsd,
+      productAmountMinor: amountMinor,
+    });
+  } catch (error) {
+    if (error instanceof CohubBalanceValidationError) {
+      return c.json({ message: error.message }, 400);
+    }
+    throw error;
+  }
   try {
     const mapping = await requireSpaceCommerceBusiness(spaceId);
     const sdk = await createSpaceCommerceSdk();
@@ -331,9 +419,9 @@ router.post("/:id/commerce/products", async (c) => {
       key,
       name,
       description,
-      status,
+      status: balanceSpec ? "draft" : status,
       visibility,
-      amount: Math.round(amount * 100),
+      amount: amountMinor,
       currency: "USD",
       billing_type: "one_time",
       billing_period: "one_time",
@@ -355,7 +443,79 @@ router.post("/:id/commerce/products", async (c) => {
         product = await createProduct(generatedKey);
       }
     }
-    return c.json({ product: serializeProduct(product, []), businessKey: mapping.billingBusinessKey });
+
+    let balanceDescriptor: CohubBalanceDescriptor | null = null;
+    if (balanceSpec) {
+      const benefitKey = buildCohubBalanceBenefitKey(product.key, balanceSpec.amountUsd);
+      let benefitCreated = false;
+      try {
+        let balanceBenefit: Benefit;
+        try {
+          balanceBenefit = await sdk.admin.benefits.create({
+            business_key: mapping.billingBusinessKey,
+            key: benefitKey,
+            type: "credits",
+            name: `Cohub Balance ${balanceSpec.amountUsd}`,
+            description: "Platform-managed Cohub Balance included with this product.",
+            config: buildCohubBalanceBenefitConfig(balanceSpec),
+            status: "active",
+          });
+          benefitCreated = true;
+        } catch (error) {
+          if (!isCommerceConflict(error)) throw error;
+          balanceBenefit = await sdk.admin.benefits.get({
+            business_key: mapping.billingBusinessKey,
+            benefit_key: benefitKey,
+          });
+        }
+        if (
+          balanceBenefit.type !== "credits" ||
+          !isCohubBalanceBenefitValid(balanceBenefit, balanceSpec)
+        ) {
+          throw new Error("Existing Cohub Balance benefit has incompatible configuration");
+        }
+        await sdk.admin.products.bindBenefit({
+          business_key: mapping.billingBusinessKey,
+          product_key: product.key,
+          benefit_key: benefitKey,
+        });
+        const boundKeys = [...metaBenefitKeys(product), benefitKey].sort();
+        product = await sdk.admin.products.update({
+          product_key: product.key,
+          patch: {
+            business_key: mapping.billingBusinessKey,
+            meta: {
+              ...product.meta,
+              [COHUB_BOUND_BENEFIT_KEYS_META_KEY]: boundKeys,
+              [COHUB_BALANCE_META_KEY]: buildCohubBalanceProductMeta(balanceSpec, benefitKey),
+            },
+          },
+        });
+        if (status === "active") {
+          product = await sdk.admin.products.update({
+            product_key: product.key,
+            patch: {
+              business_key: mapping.billingBusinessKey,
+              status: "active",
+            },
+          });
+        }
+        balanceDescriptor = readCohubBalanceDescriptor(product);
+      } catch (error) {
+        await compensateFailedBalanceProvision({
+          sdk,
+          businessKey: mapping.billingBusinessKey,
+          productKey: product.key,
+          benefitKey,
+          benefitCreated,
+        });
+        throw error;
+      }
+    }
+    return c.json({
+      product: serializeProduct(product, [], balanceDescriptor),
+      businessKey: mapping.billingBusinessKey,
+    });
   } catch (error) {
     const response = handleSpaceCommerceRouteError(c, error);
     if (response) return response;
@@ -396,7 +556,10 @@ router.patch("/:id/commerce/products/:productKey", async (c) => {
         }),
       },
     });
-    return c.json({ product: serializeProduct(product, []), businessKey: mapping.billingBusinessKey });
+    return c.json({
+      product: serializeProduct(product, [], readCohubBalanceDescriptor(product)),
+      businessKey: mapping.billingBusinessKey,
+    });
   } catch (error) {
     const response = handleSpaceCommerceRouteError(c, error);
     if (response) return response;
@@ -413,13 +576,22 @@ router.get("/:id/commerce/benefits", async (c) => {
   try {
     const mapping = await requireSpaceCommerceBusiness(spaceId);
     const sdk = await createSpaceCommerceSdk();
-    const result = await sdk.admin.benefits.list({
-      business_key: mapping.billingBusinessKey,
-      include_count: false,
-      limit: 100,
-      page: 1,
+    const [result, products] = await Promise.all([
+      sdk.admin.benefits.list({
+        business_key: mapping.billingBusinessKey,
+        include_count: false,
+        limit: 100,
+        page: 1,
+      }),
+      listSpaceCommerceProducts({ sdk, businessKey: mapping.billingBusinessKey }),
+    ]);
+    const managedBenefitKeys = collectManagedBalanceBenefitKeys(products);
+    return c.json({
+      benefits: result.items
+        .filter((item: Benefit) => !managedBenefitKeys.has(item.key))
+        .map((item: Benefit) => serializeBenefit(item)),
+      businessKey: mapping.billingBusinessKey,
     });
-    return c.json({ benefits: result.items.map((item: Benefit) => serializeBenefit(item)), businessKey: mapping.billingBusinessKey });
   } catch (error) {
     const response = handleSpaceCommerceRouteError(c, error);
     if (response) return response;
@@ -523,6 +695,13 @@ router.patch("/:id/commerce/benefits/:benefitKey", async (c) => {
   try {
     const mapping = await requireSpaceCommerceBusiness(spaceId);
     const sdk = await createSpaceCommerceSdk();
+    if (await isManagedBalanceBenefit({
+      sdk,
+      businessKey: mapping.billingBusinessKey,
+      benefitKey,
+    })) {
+      return c.json({ message: "Cohub Balance benefits are platform-managed" }, 403);
+    }
     // Credits benefits have an immutable config (amount, token, scope).
     // Only feature benefits accept metadata updates.
     if (patch.config) {
@@ -558,11 +737,17 @@ router.get("/:id/commerce/product-benefits", async (c) => {
   try {
     const mapping = await requireSpaceCommerceBusiness(spaceId);
     const sdk = await createSpaceCommerceSdk();
+    const products = await listSpaceCommerceProducts({ sdk, businessKey: mapping.billingBusinessKey });
     const productBenefits = await listProductBenefitBindings({
       sdk,
       businessKey: mapping.billingBusinessKey,
+      products,
     });
-    return c.json({ productBenefits, businessKey: mapping.billingBusinessKey });
+    const managedBenefitKeys = collectManagedBalanceBenefitKeys(products);
+    return c.json({
+      productBenefits: productBenefits.filter((binding) => !managedBenefitKeys.has(binding.benefitKey)),
+      businessKey: mapping.billingBusinessKey,
+    });
   } catch (error) {
     const response = handleSpaceCommerceRouteError(c, error);
     if (response) return response;
@@ -586,6 +771,13 @@ router.post("/:id/commerce/product-benefits", async (c) => {
   try {
     const mapping = await requireSpaceCommerceBusiness(spaceId);
     const sdk = await createSpaceCommerceSdk();
+    if (await isManagedBalanceBenefit({
+      sdk,
+      businessKey: mapping.billingBusinessKey,
+      benefitKey,
+    })) {
+      return c.json({ message: "Cohub Balance benefits are platform-managed" }, 403);
+    }
     const productBenefit = await sdk.admin.products.bindBenefit({
       business_key: mapping.billingBusinessKey,
       product_key: productKey,
@@ -621,6 +813,13 @@ router.delete("/:id/commerce/product-benefits", async (c) => {
   try {
     const mapping = await requireSpaceCommerceBusiness(spaceId);
     const sdk = await createSpaceCommerceSdk();
+    if (await isManagedBalanceBenefit({
+      sdk,
+      businessKey: mapping.billingBusinessKey,
+      benefitKey,
+    })) {
+      return c.json({ message: "Cohub Balance benefits are platform-managed" }, 403);
+    }
     await sdk.admin.products.unbindBenefit({
       business_key: mapping.billingBusinessKey,
       product_key: productKey,

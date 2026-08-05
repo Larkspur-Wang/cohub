@@ -318,6 +318,11 @@ export type SpaceCommerceProduct = {
     validity: string | null;
     creditBenefits: SpaceCommerceProductCreditBenefit[];
   };
+  cohubBalance: {
+    amountUsd: number;
+    amountMinor: number;
+    policyVersion: string;
+  } | null;
   isDefaultPlan: boolean;
 };
 
