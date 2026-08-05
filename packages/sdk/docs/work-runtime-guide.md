@@ -1027,6 +1027,56 @@ and acknowledged while a connection is live. Events missed during a disconnect
 are not replayed, so applications should publish a current state snapshot after
 rejoining when needed. Payloads are transient and are not stored in the Work.
 
+### High-frequency events
+
+`publish` waits for a server ack, so a loop that awaits every call is capped at
+roughly `1000 / rtt` events per second. For input frames and other high-rate
+traffic use `send`, which skips the ack:
+
+```js
+// 30 input frames per second, no per-event round trip
+room.send("input.frame", { frame, pad });
+
+room.onSendError((error) => console.warn("dropped frame", error.message));
+room.onStateChange((state) => { if (state !== "joined") pauseSimulation(); });
+```
+
+Ordering is still guaranteed by the server. Failures (rate limit, membership lost)
+arrive through `onSendError` for the room that failed, and calls while the room is
+not joined are dropped rather than queued. An invalid event name, an oversized
+payload, or data JSON cannot encode (`undefined`, a function, a symbol) is rejected
+locally before reaching the server. Use `publish` when a specific event must be
+confirmed, and `send` for the steady stream.
+
+### Seats and participant identity
+
+By default every connection is its own participant, so a viewer who opens the
+Work in two tabs appears twice. This suits presence-style features such as
+multiple cursors. Each member also carries an opaque `userKey` that is stable per
+room and viewer, so an application can group or de-duplicate participants without
+seeing the underlying account.
+
+A room created with `seatPerUser: true` instead gives each viewer at most one
+seat:
+
+```js
+const room = await client.work.realtime.createRoom({
+  maxParticipants: 2,
+  seatPerUser: true,
+});
+```
+
+Joining then takes over the seat the viewer already holds instead of consuming
+another one. This matters for small fixed-size rooms: after an unclean disconnect
+(a killed tab, a dropped network, a sleeping laptop) the previous seat stays
+leased for up to a minute, and in a two-seat room that would otherwise block the
+viewer from rejoining. A clean close releases the seat immediately either way.
+
+On takeover the server keeps the existing participant id, so peers see no churn,
+and `room.participantId` reflects the server value rather than the id issued at
+admission. The superseded connection is closed with reason `superseded` and emits
+no leave event, because the participant is still present.
+
 ## 8. Publishing a Work (API/SDK)
 
 Before creating a Work through the API, ensure the owner has a username and

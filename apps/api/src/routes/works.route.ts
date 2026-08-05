@@ -797,6 +797,7 @@ router.post("/:id/realtime/rooms", async (c) => {
     code?: unknown;
     expiresInSeconds?: unknown;
     maxParticipants?: unknown;
+    seatPerUser?: unknown;
   } | null;
   try {
     const room = await createWorkRoom({
@@ -804,6 +805,7 @@ router.post("/:id/realtime/rooms", async (c) => {
       code: body?.code,
       expiresInSeconds: body?.expiresInSeconds,
       maxParticipants: body?.maxParticipants,
+      seatPerUser: body?.seatPerUser,
     });
     return c.json(createWorkRoomAdmission({
       workId: id,

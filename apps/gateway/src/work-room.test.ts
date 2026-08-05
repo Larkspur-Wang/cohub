@@ -4,9 +4,11 @@ import type { Redis } from "ioredis";
 import type { RealtimeRoomDescriptor } from "@cohub/protocol/realtime";
 import {
   WORK_ROOM_MAX_PRESENCE_RATE,
+  WorkRoomMembershipLostError,
   consumeWorkRoomPresenceRate,
   renewWorkRoomMembership,
   sweepWorkRoomLeases,
+  updateWorkRoomPresence,
 } from "./work-room.js";
 
 const room = { id: "room-1", code: "DEMO", createdAt: "", expiresAt: "", maxParticipants: 8 } as unknown as RealtimeRoomDescriptor;
@@ -25,15 +27,30 @@ test("renewing a Work room membership distinguishes expiry from revocation", asy
   assert.equal(await renewWorkRoomMembership(active, "room-1", evalStub(1)), "active");
   assert.equal(active.workRooms.size, 1, "an active lease keeps the membership");
 
-  // -2 means the room itself expired; nobody is left to notify.
-  const expired = connection();
-  assert.equal(await renewWorkRoomMembership(expired, "room-1", evalStub(-2)), "expired");
-  assert.equal(expired.workRooms.size, 0);
+  // -1 room outlived the membership (peers need an update), -2 room gone, -5 seat
+  // taken over by a newer connection (the participant is still present).
+  for (const [code, expected] of [[-1, "revoked"], [-2, "expired"], [-5, "superseded"]] as const) {
+    const ctx = connection();
+    assert.equal(await renewWorkRoomMembership(ctx, "room-1", evalStub(code)), expected);
+    assert.equal(ctx.workRooms.size, 1, "teardown belongs to the Gateway, not here");
+  }
+});
 
-  // -1 means the room outlived our membership, so peers still need an update.
-  const revoked = connection();
-  assert.equal(await renewWorkRoomMembership(revoked, "room-1", evalStub(-1)), "revoked");
-  assert.equal(revoked.workRooms.size, 0);
+test("an operation that outruns the heartbeat reports why the membership is gone", async () => {
+  // Without an attributable status the Gateway cannot tear down, and the connection
+  // keeps a room it can no longer use without ever being told.
+  for (const [code, status] of [[-1, "revoked"], [-2, "expired"], [-3, "revoked"], [-5, "superseded"]] as const) {
+    await assert.rejects(
+      () => updateWorkRoomPresence(connection(), "room-1", null, evalStub(code)),
+      (error: unknown) => error instanceof WorkRoomMembershipLostError && error.status === status,
+    );
+  }
+
+  // A rate limit is not a membership problem; the seat is still held.
+  await assert.rejects(
+    () => updateWorkRoomPresence(connection(), "room-1", null, evalStub(-4)),
+    (error: unknown) => !(error instanceof WorkRoomMembershipLostError),
+  );
 });
 
 test("renewing an unknown Work room reports revocation without touching Redis", async () => {

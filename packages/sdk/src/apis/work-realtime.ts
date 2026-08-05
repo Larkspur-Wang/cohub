@@ -1,4 +1,8 @@
 const randomId = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+import {
+  REALTIME_ROOM_EVENT_NAME_PATTERN,
+  REALTIME_ROOM_MAX_PAYLOAD_BYTES,
+} from "@cohub/protocol/realtime";
 import type {
   RealtimeRoomDescriptor,
   RealtimeRoomEvent,
@@ -15,11 +19,17 @@ export type WorkRoomCreateInput = {
   code?: string;
   expiresInSeconds?: number;
   maxParticipants?: number;
+  /**
+   * Give each viewer at most one seat, so a second tab or a rejoin after an unclean
+   * disconnect takes it over. Defaults to false: every connection is a participant.
+   */
+  seatPerUser?: boolean;
 };
 
 export type WorkRoomAdmissionResponse = {
   room: RealtimeRoomDescriptor;
   participantId: string;
+  userKey: string;
   ticket: string;
 };
 
@@ -54,6 +64,23 @@ type EventHandler<T> = (event: WorkRoomEvent<T>) => void;
 type StateHandler = (state: WorkRoomState) => void;
 type MembersHandler = (members: RealtimeRoomMember[]) => void;
 
+const textEncoder = new TextEncoder();
+const byteLength = (text: string) => textEncoder.encode(text).byteLength;
+
+/**
+ * Ceiling on deltas held during a join, so a stalled handshake cannot buffer without
+ * limit. Dropping the tail needs no extra signal: the gap detection below reports it.
+ */
+const WORK_ROOM_MAX_JOIN_BUFFER = 512;
+
+/** Room events that mutate state, so they must not be applied before the join snapshot. */
+const WORK_ROOM_DELTA_EVENTS = new Set([
+  "realtime.room.event",
+  "realtime.room.member.joined",
+  "realtime.room.member.left",
+  "realtime.room.presence.updated",
+]);
+
 const requestError = (event: WebsocketEventPayload) => {
   const payload = event.payload as { code?: unknown; message?: unknown };
   return new Error(
@@ -77,10 +104,14 @@ export class WorkRoom<Events extends WorkRoomEventMap = WorkRoomEventMap> {
   readonly createdAt: string;
   readonly expiresAt: string;
   readonly maxParticipants: number;
-  readonly participantId: string;
+  readonly seatPerUser: boolean;
+  /** Opaque, stable identity of this viewer inside the room. */
+  readonly userKey: string;
+  private _participantId: string;
 
   private _state: WorkRoomState = "connecting";
   private _members: RealtimeRoomMember[] = [];
+  private joinBuffer: WebsocketEventPayload[] | null = null;
   private lastSequence = 0;
   private hasJoined = false;
   private explicitLeave = false;
@@ -91,6 +122,7 @@ export class WorkRoom<Events extends WorkRoomEventMap = WorkRoomEventMap> {
   private readonly stateHandlers = new Set<StateHandler>();
   private readonly membersHandlers = new Set<MembersHandler>();
   private readonly outOfSyncHandlers = new Set<(expected: number, actual: number) => void>();
+  private readonly sendErrorHandlers = new Set<(error: Error) => void>();
   private readonly offEvent: () => void;
   private readonly offOpen: () => void;
   private readonly offClose: () => void;
@@ -105,7 +137,9 @@ export class WorkRoom<Events extends WorkRoomEventMap = WorkRoomEventMap> {
     this.createdAt = admission.room.createdAt;
     this.expiresAt = admission.room.expiresAt;
     this.maxParticipants = admission.room.maxParticipants;
-    this.participantId = admission.participantId;
+    this.seatPerUser = admission.room.seatPerUser === true;
+    this.userKey = admission.userKey;
+    this._participantId = admission.participantId;
 
     this.offEvent = websocket.on("event", (event) => this.handleEvent(event));
     this.offOpen = websocket.on("open", () => {
@@ -134,6 +168,14 @@ export class WorkRoom<Events extends WorkRoomEventMap = WorkRoomEventMap> {
 
   get state() {
     return this._state;
+  }
+
+  /**
+   * Identity of this connection inside the room. A `seatPerUser` join can take over a
+   * seat the viewer already holds, so this may differ from the id issued at admission.
+   */
+  get participantId() {
+    return this._participantId;
   }
 
   get members() {
@@ -172,8 +214,61 @@ export class WorkRoom<Events extends WorkRoomEventMap = WorkRoomEventMap> {
     return () => this.outOfSyncHandlers.delete(handler);
   }
 
+  /** Reports failures of {@link send}, which has no ack to reject. */
+  onSendError(handler: (error: Error) => void) {
+    this.sendErrorHandlers.add(handler);
+    return () => this.sendErrorHandlers.delete(handler);
+  }
+
+  /**
+   * Publishes without waiting for the server ack, for high-frequency traffic such as
+   * input frames. Awaiting {@link publish} instead caps a loop at `1000 / rtt` events
+   * per second. Ordering still holds, but failures surface through
+   * {@link onSendError} rather than a rejected promise, and calls are ignored while
+   * the room is not joined; watch {@link onStateChange} to know when it resumes.
+   */
+  send<K extends Extract<keyof Events, string>>(type: K, data: Events[K]) {
+    if (this._state !== "joined" || !this.hasJoined) return;
+    // Checked locally: the Gateway rejects a malformed frame before it knows which room
+    // it came from, so the failure would be lost.
+    const failure = this.validateSend(type, data);
+    if (failure) {
+      for (const handler of this.sendErrorHandlers) handler(failure);
+      return;
+    }
+    void this.websocket
+      .publishRealtimeRoom({ roomId: this.id, event: type, data })
+      .catch((error) => {
+        const reason = error instanceof Error ? error : new Error(String(error));
+        for (const handler of this.sendErrorHandlers) handler(reason);
+      });
+  }
+
+  private validateSend(type: string, data: unknown) {
+    if (!REALTIME_ROOM_EVENT_NAME_PATTERN.test(type)) {
+      return new Error(`invalid room event name: ${type}`);
+    }
+    let encoded: string | undefined;
+    try {
+      encoded = JSON.stringify(data);
+    } catch {
+      return new Error("room event data is not serializable");
+    }
+    // Encodes to nothing, so the data key would vanish from the frame and the server
+    // would reject it. Covers undefined, functions, symbols and toJSON() => undefined.
+    if (encoded === undefined) {
+      return new Error("room event data is not serializable");
+    }
+    if (byteLength(encoded) > REALTIME_ROOM_MAX_PAYLOAD_BYTES) {
+      return new Error("room event payload is too large");
+    }
+    return null;
+  }
+
   async publish<K extends Extract<keyof Events, string>>(type: K, data: Events[K], options?: { clientEventId?: string }) {
     this.assertJoined();
+    const failure = this.validateSend(type, data);
+    if (failure) throw failure;
     const requestId = randomId();
     const response = await this.request(requestId, new Set(["realtime.room.request.ok"]), () =>
       this.websocket.publishRealtimeRoom({
@@ -235,22 +330,36 @@ export class WorkRoom<Events extends WorkRoomEventMap = WorkRoomEventMap> {
     }
     this.setState(isReconnect ? "reconnecting" : "connecting");
     const requestId = randomId();
-    const response = await this.request(requestId, new Set(["realtime.room.joined"]), () =>
-      this.websocket.joinRealtimeRoom({ roomId: this.id, ticket: this.admission.ticket, requestId }),
-    );
-    const payload = response.payload as {
-      participantId?: unknown;
-      members?: unknown;
-      sequence?: unknown;
-    };
-    if (payload.participantId !== this.participantId || !Array.isArray(payload.members)) {
-      throw new Error("invalid room join response");
+    this.joinBuffer = [];
+    try {
+      const response = await this.request(requestId, new Set(["realtime.room.joined"]), () =>
+        this.websocket.joinRealtimeRoom({ roomId: this.id, ticket: this.admission.ticket, requestId }),
+      );
+      const payload = response.payload as {
+        participantId?: unknown;
+        members?: unknown;
+        sequence?: unknown;
+      };
+      if (typeof payload.participantId !== "string" || !Array.isArray(payload.members)) {
+        throw new Error("invalid room join response");
+      }
+      // A seatPerUser room may hand back a seat this viewer already holds.
+      this._participantId = payload.participantId;
+      this._members = payload.members as RealtimeRoomMember[];
+      this.lastSequence = typeof payload.sequence === "number" ? payload.sequence : 0;
+    } catch (error) {
+      this.joinBuffer = null;
+      throw error;
     }
-    this._members = payload.members as RealtimeRoomMember[];
-    this.lastSequence = typeof payload.sequence === "number" ? payload.sequence : 0;
     this.hasJoined = true;
     this.setState("joined");
     this.notifyMembers();
+
+    // Deltas held during the handshake. The snapshot is dated with the sequence it was
+    // read at, so everything buffered is newer and applies on top of it.
+    const buffered = this.joinBuffer ?? [];
+    this.joinBuffer = null;
+    for (const item of buffered) this.handleEvent(item);
   }
 
   private request(requestId: string, expected: Set<string>, send: () => Promise<void>) {
@@ -268,26 +377,49 @@ export class WorkRoom<Events extends WorkRoomEventMap = WorkRoomEventMap> {
     });
   }
 
+  /** Detaches the entry awaiting this requestId, so the caller can settle it. */
+  private takePending(requestId: string | null | undefined) {
+    const pending = requestId ? this.pending.get(requestId) : undefined;
+    if (!pending || !requestId) return null;
+    this.pending.delete(requestId);
+    clearTimeout(pending.timer);
+    return pending;
+  }
+
   private handleEvent(event: WebsocketEventPayload) {
     if (!isRoomEvent(event, this.id)) {
-      if (event.requestId && this.pending.has(event.requestId) && event.type === "system.request.error") {
-        const pending = this.pending.get(event.requestId);
-        if (pending) {
-          this.pending.delete(event.requestId);
-          clearTimeout(pending.timer);
-          pending.reject(requestError(event));
-        }
+      // Connection-level errors stay in the system domain. Without a requestId they
+      // cannot be attributed, so they are left alone rather than blamed on this room.
+      if (event.type === "system.request.error") {
+        this.takePending(event.requestId)?.reject(requestError(event));
       }
       return;
     }
 
-    if (event.requestId && this.pending.has(event.requestId)) {
-      const pending = this.pending.get(event.requestId);
-      if (pending?.expected.has(event.type)) {
-        this.pending.delete(event.requestId);
-        clearTimeout(pending.timer);
-        pending.resolve(event);
+    if (event.type === "realtime.room.request.error") {
+      const failure = requestError(event);
+      if (event.requestId) {
+        // Belongs to a request. With no pending entry it is late or another room's, so
+        // it is not a send() failure either way.
+        this.takePending(event.requestId)?.reject(failure);
+        return;
       }
+      // Only an unattributed error can be a fire-and-forget send().
+      for (const handler of this.sendErrorHandlers) handler(failure);
+      return;
+    }
+
+    const awaiting = event.requestId ? this.pending.get(event.requestId) : undefined;
+    if (awaiting?.expected.has(event.type)) {
+      this.takePending(event.requestId);
+      awaiting.resolve(event);
+    }
+
+    // The server subscribes before it answers the join, so deltas can arrive first.
+    // Applying them now would let the older snapshot overwrite them.
+    if (this.joinBuffer && WORK_ROOM_DELTA_EVENTS.has(event.type)) {
+      if (this.joinBuffer.length < WORK_ROOM_MAX_JOIN_BUFFER) this.joinBuffer.push(event);
+      return;
     }
 
     const payload = event.payload as Record<string, unknown>;
@@ -310,6 +442,8 @@ export class WorkRoom<Events extends WorkRoomEventMap = WorkRoomEventMap> {
       this.hasJoined = false;
       if (payload.reason === "expired") this.setState("expired");
       else this.setState("closed");
+      // Listeners come off next, so nothing would be left to answer an in-flight request.
+      this.rejectPending(new Error(`room closed: ${typeof payload.reason === "string" ? payload.reason : "unknown"}`));
       this.dispose();
       return;
     }

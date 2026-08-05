@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { ContentBlock } from "../core/content.js";
 import type { RealtimeCompactFrame, RealtimeEnvelope, RealtimeRoom } from "./types.js";
+import { REALTIME_ROOM_EVENT_NAME_PATTERN } from "./types.js";
 import { BoardAwarenessClientPayloadSchema } from "./board-awareness.js";
 export type * from "./types.js";
 
@@ -114,7 +115,7 @@ export const wsClientEventSchema = z.discriminatedUnion("type", [
     requestId: z.string().optional(),
     payload: z.object({
       roomId: z.string().uuid(),
-      event: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/),
+      event: z.string().regex(REALTIME_ROOM_EVENT_NAME_PATTERN),
       data: z.unknown(),
       clientEventId: z.string().max(128).optional(),
     }),

@@ -67,6 +67,7 @@ export const normalizeWorkRoomOptions = (input: {
   code?: unknown;
   expiresInSeconds?: unknown;
   maxParticipants?: unknown;
+  seatPerUser?: unknown;
 }) => {
   const code = input.code === undefined ? null : normalizeWorkRoomCode(input.code);
   if (input.code !== undefined && !code) {
@@ -93,7 +94,11 @@ export const normalizeWorkRoomOptions = (input: {
     );
   }
 
-  return { code, expiresInSeconds, maxParticipants };
+  if (input.seatPerUser !== undefined && typeof input.seatPerUser !== "boolean") {
+    throw new WorkRoomError("seatPerUser must be a boolean", "INVALID_CAPACITY");
+  }
+
+  return { code, expiresInSeconds, maxParticipants, seatPerUser: input.seatPerUser === true };
 };
 
 export const serializeWorkRoom = (value: WorkRoomRecord): RealtimeRoomDescriptor => ({
@@ -102,6 +107,7 @@ export const serializeWorkRoom = (value: WorkRoomRecord): RealtimeRoomDescriptor
   createdAt: value.createdAt,
   expiresAt: value.expiresAt,
   maxParticipants: value.maxParticipants,
+  seatPerUser: value.seatPerUser,
 });
 
 const readRoom = (raw: string | null): WorkRoomRecord | null => {
@@ -117,7 +123,8 @@ const readRoom = (raw: string | null): WorkRoomRecord | null => {
       typeof parsed.expiresAt !== "string" ||
       typeof parsed.maxParticipants !== "number"
     ) return null;
-    return parsed as WorkRoomRecord;
+    // Rooms created before seatPerUser existed keep the per-connection default.
+    return { ...parsed, seatPerUser: parsed.seatPerUser === true } as WorkRoomRecord;
   } catch {
     return null;
   }
@@ -157,6 +164,7 @@ export async function createWorkRoom(input: {
   code?: unknown;
   expiresInSeconds?: unknown;
   maxParticipants?: unknown;
+  seatPerUser?: unknown;
   redis?: Redis;
 }) {
   const options = normalizeWorkRoomOptions(input);
@@ -171,6 +179,7 @@ export async function createWorkRoom(input: {
     createdAt: new Date(createdAtMs).toISOString(),
     expiresAt: new Date(expiresAtMs).toISOString(),
     maxParticipants: options.maxParticipants,
+    seatPerUser: options.seatPerUser,
   };
 
   for (let attempt = 0; attempt < 5; attempt += 1) {
@@ -214,6 +223,7 @@ export type WorkRoomTicketPayload = {
   roomId: string;
   userUuid: string;
   participantId: string;
+  userKey: string;
   exp: number;
 };
 
@@ -224,6 +234,7 @@ export const createWorkRoomTicket = (input: Omit<WorkRoomTicketPayload, "typ" | 
     roomId: input.roomId,
     userUuid: input.userUuid,
     participantId: input.participantId,
+    userKey: input.userKey,
     exp: Math.floor(input.expiresAt / 1000),
   };
   const header = ticketBase64(JSON.stringify({ alg: "HS256", typ: "COHUB_ROOM" }));
@@ -247,6 +258,7 @@ export const verifyWorkRoomTicket = (token: string): WorkRoomTicketPayload | nul
       !payload.roomId ||
       !payload.userUuid ||
       !payload.participantId ||
+      !payload.userKey ||
       !Number.isInteger(payload.exp) ||
       payload.exp * 1000 <= Date.now()
     ) return null;
@@ -256,20 +268,34 @@ export const verifyWorkRoomTicket = (token: string): WorkRoomTicketPayload | nul
   }
 };
 
+/**
+ * Opaque, stable identity for a viewer inside one room. Connections of the same
+ * viewer share it, which lets a room enforce one seat per viewer and lets an
+ * application group participants, without exposing the account id to peers.
+ * `secret` is injectable for tests; production always uses the configured key.
+ */
+export const deriveWorkRoomUserKey = (roomId: string, userUuid: string, secret: string = ticketSecret()) =>
+  createHmac("sha256", secret).update(`participant:${roomId}:${userUuid}`).digest("hex").slice(0, 32);
+
 export const createWorkRoomAdmission = (input: {
   workId: string;
   userUuid: string;
   room: WorkRoomRecord;
 }) => {
+  // Per connection by default: two tabs are two participants. A room created with
+  // seatPerUser collapses them at join time using the userKey below.
   const participantId = randomUUID();
+  const userKey = deriveWorkRoomUserKey(input.room.id, input.userUuid);
   return {
     room: serializeWorkRoom(input.room),
     participantId,
+    userKey,
     ticket: createWorkRoomTicket({
       workId: input.workId,
       roomId: input.room.id,
       userUuid: input.userUuid,
       participantId,
+      userKey,
       expiresAt: Date.parse(input.room.expiresAt),
     }),
   };

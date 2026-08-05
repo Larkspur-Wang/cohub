@@ -22,6 +22,11 @@ export const REALTIME_OUTBOUND_CHANNEL = "pubsub:realtime:outbound";
 export const AGENT_REALTIME_PATCH_CHANNEL = "pubsub:realtime:agent_patches";
 export const REALTIME_ROOM_KEY_PREFIX = "cohub:realtime-room:v1";
 
+/** Accepted room event names. Shared so a client can reject one before sending. */
+export const REALTIME_ROOM_EVENT_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
+/** Maximum encoded size of a room event payload. */
+export const REALTIME_ROOM_MAX_PAYLOAD_BYTES = 16 * 1024;
+
 export const getRealtimeRoomMetaKey = (roomId: string) => `${REALTIME_ROOM_KEY_PREFIX}:room:${roomId}`;
 export const getRealtimeRoomCodeKey = (workId: string, code: string) => `${REALTIME_ROOM_KEY_PREFIX}:code:${workId}:${code}`;
 export const getRealtimeRoomMembersKey = (roomId: string) => `${REALTIME_ROOM_KEY_PREFIX}:room:${roomId}:members`;
@@ -99,12 +104,25 @@ export type RealtimeRoomDescriptor = {
   createdAt: string;
   expiresAt: string;
   maxParticipants: number;
+  /**
+   * When true a viewer holds at most one seat: rejoining from another tab, or
+   * after an unclean disconnect, takes over the existing seat instead of
+   * consuming a second one. Default false, which gives every connection its own
+   * seat (two tabs are two participants).
+   */
+  seatPerUser: boolean;
 };
 
 export type RealtimeRoomMember = {
   participantId: string;
   joinedAt: string;
   presence: Record<string, unknown> | null;
+  /**
+   * Opaque, stable per room and viewer. Connections of the same viewer share it,
+   * so an application can group or de-duplicate participants without seeing the
+   * underlying account id.
+   */
+  userKey?: string;
 };
 
 export type RealtimeRoomEvent = {
@@ -192,6 +210,22 @@ export type RealtimeRoomRequestEvent = {
   };
 };
 
+export type RealtimeRoomRequestErrorEvent = {
+  id: string;
+  timestamp: number;
+  domain: "room";
+  type: "realtime.room.request.error";
+  requestId?: string | null;
+  spaceId?: null;
+  sessionId?: null;
+  roomId?: string | null;
+  payload: {
+    roomId: string;
+    code: string;
+    message: string;
+  };
+};
+
 export type RealtimeRoomClosedEvent = {
   id: string;
   timestamp: number;
@@ -201,7 +235,7 @@ export type RealtimeRoomClosedEvent = {
   spaceId?: null;
   sessionId?: null;
   rooms: RealtimeRoom[];
-  payload: { roomId: string; reason: "expired" | "left" | "revoked" };
+  payload: { roomId: string; reason: "expired" | "left" | "revoked" | "superseded" };
 };
 
 export type RealtimeCompactFrame =
@@ -805,6 +839,7 @@ export type RealtimeServerEvent =
   | RealtimeRoomMemberChangedEvent
   | RealtimeRoomPresenceUpdatedEvent
   | RealtimeRoomRequestEvent
+  | RealtimeRoomRequestErrorEvent
   | RealtimeRoomClosedEvent;
 
 export type WsServerEnvelope = RealtimeEnvelope;

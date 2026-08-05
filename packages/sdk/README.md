@@ -292,6 +292,12 @@ never extends on publish, presence, or heartbeat. The maximum lifetime is
 24 hours. Room events are live and ordered while connected, with publish ACKs
 and sequence-gap detection; events missed during a disconnect are not replayed.
 
+For high-frequency traffic such as input frames, `room.send(type, data)` skips
+the per-event ACK that would otherwise cap throughput at one round trip per
+event; failures surface through `room.onSendError`. Every connection is its own
+participant by default; create the room with `seatPerUser: true` to give each
+viewer a single seat instead.
+
 For the complete API-to-scope mapping, initialization recipe, capability
 recipes, a full working example, and a pitfalls checklist, see the
 **[Work Runtime Guide](./docs/work-runtime-guide.md)**.

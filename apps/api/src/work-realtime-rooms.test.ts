@@ -7,6 +7,7 @@ import {
   WORK_ROOM_MAX_PARTICIPANTS,
   WorkRoomError,
   createWorkRoom,
+  deriveWorkRoomUserKey,
   normalizeWorkRoomCode,
   normalizeWorkRoomOptions,
 } from "./work-realtime-rooms.js";
@@ -21,8 +22,11 @@ test("normalizes Work room codes without making them case-sensitive", () => {
 test("validates the absolute room lifetime and capacity limits", () => {
   assert.deepEqual(
     normalizeWorkRoomOptions({ code: "demo", expiresInSeconds: 3_600, maxParticipants: 64 }),
-    { code: "DEMO", expiresInSeconds: 3_600, maxParticipants: 64 },
+    { code: "DEMO", expiresInSeconds: 3_600, maxParticipants: 64, seatPerUser: false },
   );
+  // Per connection unless the room opts in, so two tabs stay two participants.
+  assert.equal(normalizeWorkRoomOptions({ seatPerUser: true }).seatPerUser, true);
+  assert.throws(() => normalizeWorkRoomOptions({ seatPerUser: "yes" }), /seatPerUser/);
   assert.throws(
     () => normalizeWorkRoomOptions({ expiresInSeconds: WORK_ROOM_MAX_EXPIRES_IN_SECONDS + 1 }),
     /expiresInSeconds/,
@@ -70,4 +74,19 @@ test("passes the quota limit, room index key and millisecond expiry into the cre
   // PXAT millisecond precision keeps a natural expiry distinguishable from a
   // vanished room, so the value must not be truncated to whole seconds.
   assert.equal(expiresAt, String(Date.parse(room.expiresAt)));
+});
+
+test("derives a user key that is stable per viewer and scoped to one room", () => {
+  const secret = "test-work-room-key";
+  const roomA = "00000000-0000-4000-8000-000000000001";
+  const roomB = "00000000-0000-4000-8000-000000000002";
+  const key = deriveWorkRoomUserKey(roomA, "user-1", secret);
+
+  // Every connection of the same viewer must agree, so a seatPerUser room can
+  // recognise a seat the viewer already holds.
+  assert.equal(deriveWorkRoomUserKey(roomA, "user-1", secret), key);
+  assert.notEqual(deriveWorkRoomUserKey(roomA, "user-2", secret), key);
+  assert.notEqual(deriveWorkRoomUserKey(roomB, "user-1", secret), key);
+  // Stays opaque: it is keyed material, not the raw user uuid.
+  assert.doesNotMatch(key, /user-1/);
 });

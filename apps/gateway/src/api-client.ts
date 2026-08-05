@@ -138,7 +138,7 @@ export const authorizeWorkRoom = async (input: {
   authToken: string;
   roomId: string;
   ticket: string;
-}): Promise<{ room: RealtimeRoomDescriptor; participantId: string }> => {
+}): Promise<{ room: RealtimeRoomDescriptor; participantId: string; userKey: string }> => {
   const response = await fetch(`${gatewayConfig.apiBaseUrl}/internal/gateway/authorize-work-room`, {
     method: "POST",
     headers: {
@@ -149,11 +149,11 @@ export const authorizeWorkRoom = async (input: {
     },
     body: JSON.stringify({ roomId: input.roomId, ticket: input.ticket }),
   });
-  const data = await parseJson<{ ok?: boolean; room?: RealtimeRoomDescriptor; participantId?: string; message?: string }>(response);
-  if (!response.ok || !data?.ok || !data.room || !data.participantId) {
+  const data = await parseJson<{ ok?: boolean; room?: RealtimeRoomDescriptor; participantId?: string; userKey?: string; message?: string }>(response);
+  if (!response.ok || !data?.ok || !data.room || !data.participantId || !data.userKey) {
     throw new Error(data?.message || `Work room authorization failed ${response.status}`);
   }
-  return { room: data.room, participantId: data.participantId };
+  return { room: data.room, participantId: data.participantId, userKey: data.userKey };
 };
 
 export const authorizeBoardAwareness = async (input: {

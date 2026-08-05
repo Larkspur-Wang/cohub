@@ -209,6 +209,7 @@ router.post("/authorize-work-room", async (c) => {
     ok: true,
     room: serializeWorkRoom(room),
     participantId: ticketPayload.participantId,
+    userKey: ticketPayload.userKey,
   });
 });
 
