@@ -422,6 +422,54 @@ test("the join snapshot does not discard deltas that raced it", async () => {
   await websocket.disconnect();
 });
 
+test("the join snapshot drops buffered deltas it already reflects", async () => {
+  const websocket = openSocket();
+  const room = new WorkRoom<{ tick: { n: number } }>(websocket, admission({
+    participantId: "participant-a",
+  }));
+  const received: number[] = [];
+  room.subscribe("tick", (event) => received.push(event.data.n));
+
+  const { socket, pending } = await authenticate(() => room.connect());
+  const request = await awaitJoinRequest(socket);
+
+  // Pub/sub can deliver an event published before the snapshot only after we
+  // subscribed. These are at or below the snapshot sequence, so the snapshot already
+  // reflects them: the event is history and the presence would revert a fresher seat.
+  socket.receive(envelope({
+    type: "realtime.room.event",
+    payload: {
+      roomId: "room-1",
+      sequence: 4,
+      event: "tick",
+      data: { n: 4 },
+      clientEventId: null,
+      sender: { participantId: "participant-b" },
+    },
+  }));
+  socket.receive(envelope({
+    type: "realtime.room.presence.updated",
+    payload: { roomId: "room-1", sequence: 5, member: member("participant-b", { presence: { ready: false } }) },
+  }));
+  answerJoin(socket, request.requestId, {
+    participantId: "participant-a",
+    sequence: 5,
+    members: [member("participant-a"), member("participant-b", { presence: { ready: true } })],
+  });
+  await pending;
+
+  assert.deepEqual(received, [], "a delta at or below the snapshot is not replayed");
+  assert.deepEqual(
+    room.members.find((item) => item.participantId === "participant-b")?.presence,
+    { ready: true },
+    "the snapshot presence is not clobbered by an older buffered update",
+  );
+
+  socket.close();
+  await waitFor(() => room.state === "closed");
+  await websocket.disconnect();
+});
+
 test("WorkRoom adopts the server seat in a seatPerUser room", async () => {
   const websocket = openSocket();
   const room = new WorkRoom(websocket, admission({

@@ -57,11 +57,13 @@ import {
 import {
   WORK_ROOM_MAX_PENDING_OPS,
   type WorkRoomPresenceRate,
+  authorizeWorkRoomJoin,
+  claimWorkRoomSeat,
   consumeWorkRoomPresenceRate,
-  joinWorkRoom,
   leaveWorkRoom,
   publishWorkRoomControlEvent,
   publishWorkRoomEvent,
+  readWorkRoomSnapshot,
   renewWorkRoomMembership,
   sweepWorkRoomLeases,
   updateWorkRoomPresence,
@@ -1164,11 +1166,17 @@ async function main() {
             return;
           }
           let joinedRoom = false;
+          let subscribedRoom = false;
+          const roomRef = getRealtimeRoom(message.payload.roomId);
           try {
-            const result = await joinWorkRoom(ctx, message.payload);
+            const admission = await authorizeWorkRoomJoin(ctx, message.payload);
+            // Claim the seat before entering the public routing table, so a connection
+            // that never gets a seat (a full room) cannot receive room events in the
+            // meantime.
+            const result = await claimWorkRoomSeat(ctx, { ...message.payload, admission });
             joinedRoom = true;
-            const roomRef = getRealtimeRoom(message.payload.roomId);
             subscribeConnectionToRoom(ctx, roomRef);
+            subscribedRoom = true;
             // A seatPerUser takeover reuses a seat that peers already know about, so
             // announcing it would show a spurious join and burn a sequence number.
             if (result.isNew) {
@@ -1179,6 +1187,11 @@ async function main() {
               });
             }
             await persistWsConnection(ctx);
+            // Read the snapshot after subscribing: a member that joins in between is then
+            // delivered over pub/sub and buffered by the client, rather than missing from
+            // both the snapshot and this connection's stream. Its sequence is the client's
+            // baseline for dropping deltas it already reflects.
+            const snapshot = await readWorkRoomSnapshot(message.payload.roomId);
             sendWsEnvelope(socket, buildRealtimeEnvelope({
               domain: "room",
               type: "realtime.room.joined",
@@ -1187,17 +1200,14 @@ async function main() {
               payload: {
                 room: result.room,
                 participantId: result.participantId,
-                members: result.members,
-                // Same Lua call as `members`, so both describe one instant. Dating this
-                // later would make a client discard changes it never received.
-                sequence: result.sequence,
+                members: snapshot.members,
+                sequence: snapshot.sequence,
               },
             }));
           } catch (error) {
             if (joinedRoom) {
               const roomId = message.payload.roomId;
               const member = await leaveWorkRoom(ctx, roomId).catch(() => null);
-              unsubscribeConnectionFromRoom(ctx, getRealtimeRoom(roomId));
               if (member) {
                 await publishWorkRoomControlEvent({
                   roomId,
@@ -1206,6 +1216,7 @@ async function main() {
                 }).catch(() => undefined);
               }
             }
+            if (subscribedRoom) unsubscribeConnectionFromRoom(ctx, roomRef);
             const messageText = error instanceof Error ? error.message : "room join failed";
             const code = messageText === "room is full" ? "ROOM_FULL" : messageText === "room expired" ? "ROOM_EXPIRED" : "ROOM_JOIN_FAILED";
             sendWorkRoomError(socket, message.payload.roomId, code, messageText, requestId);

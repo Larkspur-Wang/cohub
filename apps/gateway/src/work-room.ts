@@ -100,19 +100,27 @@ local leaseUntil = math.min(now + tonumber(ARGV[3]) * 1000, tonumber(meta.expire
 redis.call("zadd", KEYS[3], leaseUntil, participantId)
 redis.call("pexpireat", KEYS[2], math.floor(tonumber(meta.expiresAtMs)))
 redis.call("pexpireat", KEYS[3], math.floor(tonumber(meta.expiresAtMs)))
+member.connectionId = nil
+return {1, isNew, cjson.encode(member)}
+`;
+
+// Read-only member snapshot plus the current sequence, taken as one cut. Run after the
+// connection is subscribed so the sequence is a baseline the event stream extends: a
+// client drops buffered deltas at or below it and applies the rest.
+const SNAPSHOT_ROOM_SCRIPT = `
+local time = redis.call("time")
+local now = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
 local members = {}
-for _, participantId in ipairs(redis.call("zrange", KEYS[3], 0, -1)) do
-  local raw = redis.call("hget", KEYS[2], participantId)
+for _, participantId in ipairs(redis.call("zrangebyscore", KEYS[2], now, "+inf")) do
+  local raw = redis.call("hget", KEYS[1], participantId)
   if raw then
     local item = cjson.decode(raw)
     item.connectionId = nil
     table.insert(members, item)
   end
 end
-member.connectionId = nil
--- Read without consuming: the joined payload needs a baseline for gap detection.
-local sequence = tonumber(redis.call("get", KEYS[4])) or 0
-return {1, isNew, cjson.encode(members), cjson.encode(member), sequence}
+local sequence = tonumber(redis.call("get", KEYS[3])) or 0
+return {cjson.encode(members), sequence}
 `;
 
 const LEAVE_ROOM_SCRIPT = `
@@ -280,39 +288,53 @@ const joinError = (code: number) => {
   return new Error("room request failed");
 };
 
-export async function joinWorkRoom(ctx: RoomConnection, input: { roomId: string; ticket: string }, redis: Redis = redisCommandClient) {
+/** Authorizes a join with no side effect, so the caller can order the steps that follow. */
+export async function authorizeWorkRoomJoin(ctx: RoomConnection, input: { roomId: string; ticket: string }) {
   if (!ctx.token || !ctx.userId) throw new Error("authentication required");
-  const admission = await authorizeWorkRoom({ authToken: ctx.token, roomId: input.roomId, ticket: input.ticket });
-  const [metaKey, membersKey, leasesKey, sequenceKey] = roomKeys(input.roomId);
+  return authorizeWorkRoom({ authToken: ctx.token, roomId: input.roomId, ticket: input.ticket });
+}
+
+/**
+ * Claims the seat only. The caller subscribes to the room next and then reads the
+ * snapshot with {@link readWorkRoomSnapshot}: an unseated connection must never enter
+ * the public routing table, yet the snapshot must be taken after subscribing so no
+ * event slips through the gap between the two.
+ */
+export async function claimWorkRoomSeat(
+  ctx: RoomConnection,
+  input: { roomId: string; ticket: string; admission: Awaited<ReturnType<typeof authorizeWorkRoomJoin>> },
+  redis: Redis = redisCommandClient,
+) {
+  const { admission } = input;
+  const [metaKey, membersKey, leasesKey] = roomKeys(input.roomId);
   const result = await redis.eval(
     JOIN_ROOM_SCRIPT,
-    4,
+    3,
     metaKey,
     membersKey,
     leasesKey,
-    sequenceKey,
     admission.participantId,
     ctx.connectionId,
     String(WORK_ROOM_MEMBER_LEASE_SECONDS),
     new Date().toISOString(),
     admission.userKey,
-  ) as [number, number?, string?, string?, number?];
+  ) as [number, number?, string?];
   const code = Number(result[0]);
   if (code !== 1) throw joinError(code);
-  const members = JSON.parse(result[2] ?? "[]") as RealtimeRoomMember[];
-  const member = toStoredMember(result[3] ?? "{}");
+  const member = toStoredMember(result[2] ?? "{}");
   if (!member) throw new Error("invalid room member");
   // seatPerUser may hand back an existing seat, so the stored member wins.
   const participantId = member.participantId;
   ctx.workRooms.set(input.roomId, { participantId, ticket: input.ticket, room: admission.room });
-  return {
-    ...admission,
-    participantId,
-    members,
-    member,
-    isNew: Number(result[1]) === 1,
-    sequence: Number(result[4] ?? 0),
-  };
+  return { ...admission, participantId, member, isNew: Number(result[1]) === 1 };
+}
+
+/** Atomic member snapshot and baseline sequence, read after the caller subscribed. */
+export async function readWorkRoomSnapshot(roomId: string, redis: Redis = redisCommandClient) {
+  const [, membersKey, leasesKey, sequenceKey] = roomKeys(roomId);
+  const result = await redis.eval(SNAPSHOT_ROOM_SCRIPT, 3, membersKey, leasesKey, sequenceKey) as [string?, number?];
+  const members = JSON.parse(result[0] ?? "[]") as RealtimeRoomMember[];
+  return { members, sequence: Number(result[1] ?? 0) };
 }
 
 export async function leaveWorkRoom(ctx: RoomConnection, roomId: string, redis: Redis = redisCommandClient) {

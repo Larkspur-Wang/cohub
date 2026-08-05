@@ -355,11 +355,16 @@ export class WorkRoom<Events extends WorkRoomEventMap = WorkRoomEventMap> {
     this.setState("joined");
     this.notifyMembers();
 
-    // Deltas held during the handshake. The snapshot is dated with the sequence it was
-    // read at, so everything buffered is newer and applies on top of it.
+    // Deltas held during the handshake. Pub/sub can deliver an event published before
+    // the snapshot only after we subscribed, so anything at or below the snapshot
+    // sequence is already reflected and is dropped rather than replayed.
     const buffered = this.joinBuffer ?? [];
     this.joinBuffer = null;
-    for (const item of buffered) this.handleEvent(item);
+    for (const item of buffered) {
+      const sequence = (item.payload as { sequence?: unknown }).sequence;
+      if (typeof sequence === "number" && sequence <= this.lastSequence) continue;
+      this.handleEvent(item);
+    }
   }
 
   private request(requestId: string, expected: Set<string>, send: () => Promise<void>) {
