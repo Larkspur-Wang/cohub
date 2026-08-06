@@ -107,6 +107,10 @@ cohub -s <spaceId> works publish site --dir dist
 cohub -s <spaceId> works ls --json
 ```
 
+Realtime rooms use a published Work's runtime identity. Use
+`client.work.realtime` inside the Work; the CLI intentionally has no room
+commands.
+
 ### Local Sandbox
 
 Expose a local folder as the Space Sandbox:

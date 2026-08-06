@@ -292,6 +292,9 @@ cohub works resolve <workSlug> --owner <username> --space-slug <spaceSlug>
 
 Use `--json` for machine-readable output. The resolve command requires both `--owner` and `--space-slug` so missing public profile data fails with a clear message.
 
+Realtime rooms use a published Work's runtime identity, so they are available
+through `client.work.realtime` in the SDK rather than as CLI commands.
+
 ## Saves
 
 ```bash

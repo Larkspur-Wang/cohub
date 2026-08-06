@@ -216,7 +216,7 @@ A **Work** is a published, shareable web page hosted by Cohub. When a viewer
 opens a Work, it runs inside a Cohub-managed runtime that provides short-lived
 access tokens — no API keys required.
 
-Three runtime-only APIs are available **exclusively inside a published Work**:
+Four runtime-only APIs are available **exclusively inside a published Work**:
 
 - `client.context()` — returns Work identity, Space identity, and current
   permission scopes. Returns `null` outside a Work runtime.
@@ -224,6 +224,8 @@ Three runtime-only APIs are available **exclusively inside a published Work**:
   and caches a token with the approved scopes.
 - `client.work.commerce.*` — entitlement checks, credit consumption,
   purchases.
+- `client.work.realtime.*` — temporary rooms, typed events, presence, and
+  membership.
 
 ### Quick start (inside a Work)
 

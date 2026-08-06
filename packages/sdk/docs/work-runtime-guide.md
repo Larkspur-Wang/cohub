@@ -2,8 +2,8 @@
 
 This guide explains how to use the Cohub SDK **inside a published Work** — the
 only environment where runtime APIs (`context()`, `auth.request`,
-`work.commerce.*`) function. Read this before writing any Work that calls Cohub
-capabilities from browser-side JavaScript.
+`work.commerce.*`, `work.realtime.*`) function. Read this before writing any
+Work that calls Cohub capabilities from browser-side JavaScript.
 
 It is written to be self-contained: an agent or developer who reads only this
 file plus the SDK type definitions should be able to build a working Work
@@ -24,6 +24,7 @@ without reverse-engineering source code.
    - [File reads](#file-reads-spacefiles)
    - [Account-level data](#account-level-data-spaceslist--userlistsessions--usergetusage)
    - [Commerce](#commerce-workcommerce)
+   - [Realtime rooms](#realtime-rooms-workrealtime)
 6. [Complete working example](#6-complete-working-example)
 7. [Common pitfalls checklist](#7-common-pitfalls-checklist)
 8. [Publishing a Work (API/SDK)](#8-publishing-a-work-apisdk)
@@ -55,18 +56,19 @@ requiring the viewer to paste an API key.
 └─────────────────────────────────────────┘
 ```
 
-Three runtime-only APIs form the foundation; everything else is standard SDK:
+Four runtime-only APIs form the foundation; everything else is standard SDK:
 
 | API | What it does | Returns |
 |---|---|---|
 | `client.context()` | Asks the host for the Work's identity | `{ work, space, viewer?, permissions }` or `null` |
 | `client.auth.request({ scopes, reason })` | Shows the viewer a consent dialog; on approval, caches a token carrying those scopes | `true` / `false` |
 | `client.work.commerce.*` | Entitlement checks, credit consumption, purchases | (see Commerce section) |
+| `client.work.realtime.*` | Temporary rooms, events, presence, and membership | (see Realtime rooms section) |
 
-> **Runtime-only constraint.** These three APIs only work inside a **published**
+> **Runtime-only constraint.** These APIs only work inside a **published**
 > Work. Outside that context (a static asset URL, a local `file://` preview,
-> a plain Node script) `context()` returns `null` and `auth.request` / commerce
-> calls fail. Always develop against a published Work.
+> a plain Node script) `context()` returns `null` and the other runtime APIs
+> fail. Always develop against a published Work.
 
 ---
 
@@ -220,6 +222,7 @@ result needs `taskrun.view` (a work scope).
 | Commerce: entitlements | `client.work.commerce.getEntitlements()` | *(runtime only, no scope)* | — |
 | Commerce: consume credits | `client.work.commerce.consumeCredits()` | *(runtime only, no scope)* | — |
 | Commerce: purchase | `client.work.commerce.purchase()` | *(runtime only, no scope)* | — |
+| Realtime rooms | `client.work.realtime.createRoom()` / `joinRoom()` | *(runtime only, no scope)* | — |
 
 ### Minimal scope sets for common Work types
 
@@ -268,11 +271,11 @@ Works are typically single HTML files with no bundler. Import the SDK from an
 ESM CDN:
 
 ```js
-import { createCohubClient } from "https://esm.sh/@neta-art/cohub@2";
+import { createCohubClient } from "https://esm.sh/@neta-art/cohub@latest";
 ```
 
-> Pin to a major version (`@2`) or an exact version (`@2.6.0`) to avoid
-> breaking changes. Check `npm view @neta-art/cohub version` for the latest.
+`@latest` keeps a Work on the current SDK release. Pin an exact version only
+when a deployment needs reproducible dependency updates.
 
 ### Environment detection — critical
 
@@ -660,12 +663,120 @@ if (checkoutState.orderId) {
 retries the call after a timeout, pass the same `purchaseAttemptId` to ensure
 the retry resolves to the original Billing order.
 
+### Realtime rooms (`work.realtime`)
+
+**Scopes:** none — uses the published Work's runtime identity without an
+additional consent dialog. The CLI and ordinary server auth cannot create or
+join these rooms.
+
+```js
+const room = await client.work.realtime.createRoom({
+  code: "TEAM-ALPHA", // optional; generated when omitted
+  maxParticipants: 64,
+  expiresInSeconds: 2 * 60 * 60,
+});
+
+const stopEvents = room.subscribe("shared.state.updated", (event) => {
+  console.log(event.sequence, event.data, event.self);
+});
+console.log(room.members); // initial snapshot
+const stopMembers = room.onMembersChanged((members) => {
+  console.log(members);
+});
+
+await room.setPresence({ status: "active" });
+await room.publish("shared.state.updated", { value: 42 });
+
+stopEvents();
+stopMembers();
+await room.leave();
+```
+
+Join an existing room with
+`client.work.realtime.joinRoom({ code: "TEAM-ALPHA" })`. Codes are scoped to
+one Work and are identifiers, not credentials; the runtime session and a
+short-lived admission ticket provide authorization.
+
+| Surface | Purpose |
+|---|---|
+| `createRoom()` / `joinRoom()` | Create or enter a code-scoped room |
+| `subscribe()` / `subscribeAll()` | Receive typed or all business events |
+| `publish()` | Send an acknowledged event; accepts an optional correlation-only `clientEventId` |
+| `send()` / `onSendError()` | Send without an ACK for high-rate traffic; observe asynchronous failures |
+| `members` / `onMembersChanged()` | Read the initial member snapshot and later membership or presence changes |
+| `setPresence()` | Replace this participant's transient presence object |
+| `state` / `onStateChange()` | Observe `connecting`, `joined`, `reconnecting`, `expired`, or `closed` |
+| `onOutOfSync()` | Detect sequence jumps in the current live stream |
+| `leave()` | Release membership and SDK listeners |
+
+Room events are ordered while connected but are not replayed. A reconnect
+refreshes the member snapshot and advances the sequence cursor, so use
+`onStateChange()` to resync authoritative application state after reconnecting;
+`onOutOfSync()` only reports gaps visible in the current live stream. Payloads
+are transient and are not stored in the Work.
+
+| Limit | Value |
+|---|---|
+| Room code | Generated when omitted; custom codes are 3–48 uppercase letters, digits, `_`, or `-`, starting with a letter or digit |
+| Lifetime | 2 hours by default; 60 seconds to 24 hours, absolute from creation |
+| Participants | 16 by default; 2–128 |
+| Active rooms | 512 per Work |
+| Event name | 1–64 ASCII letters, digits, `.`, `_`, `:`, or `-`, starting with a letter or digit; `cohub.*` is reserved |
+| Event payload | 16 KB of JSON |
+| Presence payload | 2 KB of JSON |
+| Publish rate | 2,000 events per second per room |
+| Presence rate | 30 updates per second per connection |
+| Pending mutations | 256 per connection before backpressure errors |
+
+`createRoom()` returns HTTP 429 with `ROOM_QUOTA_EXCEEDED` at the active-room
+limit. Activity never extends `expiresAt`; expired rooms release their slot
+automatically.
+
+#### High-frequency events
+
+`publish()` waits for an ACK, so a loop that awaits each call is capped at
+roughly `1000 / RTT` events per second. Use `send()` for input frames and other
+high-rate traffic:
+
+```js
+room.onSendError((error) => console.warn("dropped frame", error.message));
+room.onStateChange((state) => {
+  if (state !== "joined") pauseSimulation();
+});
+
+room.send("input.frame", { frame, pad });
+```
+
+`send()` preserves server ordering but drops calls while the room is not joined
+and reports rate, validation, membership, and backpressure failures through
+`onSendError()`. Use `publish()` whenever a specific event must be confirmed.
+
+#### Seats and participant identity
+
+Every connection is a participant by default, so two tabs appear twice. Each
+member includes an opaque `userKey` that is stable for one room and viewer,
+letting an application group connections without seeing the account ID.
+
+Set `seatPerUser: true` when each viewer should occupy at most one seat:
+
+```js
+const room = await client.work.realtime.createRoom({
+  maxParticipants: 2,
+  seatPerUser: true,
+});
+```
+
+A second tab or reconnect takes over the existing seat instead of consuming a
+new one. The server keeps the participant ID, updates `room.participantId`, and
+closes the superseded connection without emitting a leave event. Without this
+mode, an unclean disconnect can retain its seat lease for up to one minute.
+
 ---
 
 ## 6. Complete working example
 
-A no-build HTML Work that tests LLM chat and image generation. This is the
-exact pattern that was verified end-to-end. Adapt it to your needs.
+A no-build HTML Work for LLM chat and image generation. Use it as a starting
+point and keep only the capabilities you need.
 
 > **Publish this Work with:**
 > - workScopes: `["space.view", "session.view", "taskrun.view"]`
@@ -724,7 +835,7 @@ exact pattern that was verified end-to-end. Adapt it to your needs.
 ### `app.js`
 
 ```js
-import { createCohubClient } from "https://esm.sh/@neta-art/cohub@2";
+import { createCohubClient } from "https://esm.sh/@neta-art/cohub@latest";
 
 // --- Environment detection (critical: browsers don't inject ENV) ---
 const isDevWork =
@@ -984,98 +1095,6 @@ Before publishing your Work, verify each item:
   to fetch available models dynamically (requires auth but no scope).
 
 ---
-
-## Realtime rooms in a Work
-
-Realtime rooms are available through `client.work.realtime` and use the Work
-runtime identity automatically. They do not require a viewer scope or an
-additional consent dialog.
-
-```js
-const room = await client.work.realtime.createRoom({
-  code: "TEAM-ALPHA",
-  maxParticipants: 64,
-  expiresInSeconds: 2 * 60 * 60,
-});
-
-const stop = room.subscribe("shared.state.updated", (event) => {
-  console.log(event.sequence, event.data);
-});
-
-await room.publish("shared.state.updated", { value: 42 });
-await room.leave();
-stop();
-```
-
-A Work can join an existing room with `client.work.realtime.joinRoom({ code })`.
-Room codes are scoped to the Work and are case-insensitive. They identify a
-room but are not credentials; the runtime Work session and the short-lived
-room admission ticket provide authorization.
-
-`expiresInSeconds` is an absolute lifetime measured from server-side creation.
-Activity never extends it, and the maximum lifetime is 24 hours. The room is
-logically expired at `expiresAt`; connected clients receive a closed state and
-new publishes or joins fail.
-
-Each Work can hold up to 512 active rooms at once. Expired rooms free their slot
-automatically, and `createRoom` fails with HTTP 429 and `ROOM_QUOTA_EXCEEDED`
-when the limit is reached.
-
-Events are generic JSON payloads. The SDK does not define business event names,
-and the Work should define its own event map in TypeScript. Events are ordered
-and acknowledged while a connection is live. Events missed during a disconnect
-are not replayed, so applications should publish a current state snapshot after
-rejoining when needed. Payloads are transient and are not stored in the Work.
-
-### High-frequency events
-
-`publish` waits for a server ack, so a loop that awaits every call is capped at
-roughly `1000 / rtt` events per second. For input frames and other high-rate
-traffic use `send`, which skips the ack:
-
-```js
-// 30 input frames per second, no per-event round trip
-room.send("input.frame", { frame, pad });
-
-room.onSendError((error) => console.warn("dropped frame", error.message));
-room.onStateChange((state) => { if (state !== "joined") pauseSimulation(); });
-```
-
-Ordering is still guaranteed by the server. Failures (rate limit, membership lost)
-arrive through `onSendError` for the room that failed, and calls while the room is
-not joined are dropped rather than queued. An invalid event name, an oversized
-payload, or data JSON cannot encode (`undefined`, a function, a symbol) is rejected
-locally before reaching the server. Use `publish` when a specific event must be
-confirmed, and `send` for the steady stream.
-
-### Seats and participant identity
-
-By default every connection is its own participant, so a viewer who opens the
-Work in two tabs appears twice. This suits presence-style features such as
-multiple cursors. Each member also carries an opaque `userKey` that is stable per
-room and viewer, so an application can group or de-duplicate participants without
-seeing the underlying account.
-
-A room created with `seatPerUser: true` instead gives each viewer at most one
-seat:
-
-```js
-const room = await client.work.realtime.createRoom({
-  maxParticipants: 2,
-  seatPerUser: true,
-});
-```
-
-Joining then takes over the seat the viewer already holds instead of consuming
-another one. This matters for small fixed-size rooms: after an unclean disconnect
-(a killed tab, a dropped network, a sleeping laptop) the previous seat stays
-leased for up to a minute, and in a two-seat room that would otherwise block the
-viewer from rejoining. A clean close releases the seat immediately either way.
-
-On takeover the server keeps the existing participant id, so peers see no churn,
-and `room.participantId` reflects the server value rather than the id issued at
-admission. The superseded connection is closed with reason `superseded` and emits
-no leave event, because the participant is still present.
 
 ## 8. Publishing a Work (API/SDK)
 

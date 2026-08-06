@@ -64,7 +64,7 @@ await session.messages.send({
 - Save → Space 下的 checkpoint API
 - Work → `client.works`
 
-## 实时
+## Session 实时更新
 
 在 Agent 工作时订阅 session 事件：
 
@@ -110,6 +110,34 @@ await client.auth.request({
 - Work scopes 与 viewer-consent scopes 会被强制执行
 
 启用 commerce 且 Work 已发布时，commerce helpers 在 `client.work.commerce.*`。
+
+### Realtime rooms
+
+在已发布 Work 内，`client.work.realtime` 提供临时房间，用于多人状态、
+presence 与通用 JSON 事件。它使用 Work runtime 身份，无需额外 scope 或
+授权弹窗。
+
+```ts
+const room = await client.work.realtime.createRoom({
+  code: "TEAM-ALPHA", // 可选
+  expiresInSeconds: 2 * 60 * 60,
+});
+
+const stop = room.subscribe("shared.state.updated", ({ data }) => {
+  console.log(data);
+});
+
+await room.publish("shared.state.updated", { value: 42 });
+stop();
+await room.leave();
+```
+
+事件在连接期间保持有序，但不会重放。高频数据使用 `room.send()`，重连后
+应重新同步权威状态。Realtime rooms 仅适用于 Work runtime；普通服务端鉴权
+与 CLI 无法创建或加入房间。
+
+生命周期、presence、成员、席位与限制详见
+[Work Runtime Guide](https://github.com/talesofai/cohub/blob/main/packages/sdk/docs/work-runtime-guide.md#realtime-rooms-workrealtime)。
 
 ## 主要 client 表面
 

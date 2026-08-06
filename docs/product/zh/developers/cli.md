@@ -107,6 +107,9 @@ cohub -s <spaceId> works publish site --dir dist
 cohub -s <spaceId> works ls --json
 ```
 
+Realtime rooms 使用已发布 Work 的 runtime 身份。请在 Work 内使用
+`client.work.realtime`；CLI 不提供房间命令。
+
 ### 本地 Sandbox
 
 把本地目录暴露为 Space Sandbox：

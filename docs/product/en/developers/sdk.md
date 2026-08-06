@@ -64,7 +64,7 @@ Product mapping:
 - Save → checkpoint APIs under a Space
 - Work → `client.works`
 
-## Realtime
+## Session realtime
 
 Subscribe to session events while an Agent is working:
 
@@ -110,6 +110,35 @@ Important:
 - Work scopes and viewer-consent scopes are enforced
 
 Commerce helpers live under `client.work.commerce.*` when commerce is enabled and the Work is published.
+
+### Realtime rooms
+
+Inside a published Work, `client.work.realtime` provides temporary rooms for
+multiplayer state, presence, and generic JSON events. It uses the Work runtime
+identity and needs no additional scope or consent dialog.
+
+```ts
+const room = await client.work.realtime.createRoom({
+  code: "TEAM-ALPHA", // optional
+  expiresInSeconds: 2 * 60 * 60,
+});
+
+const stop = room.subscribe("shared.state.updated", ({ data }) => {
+  console.log(data);
+});
+
+await room.publish("shared.state.updated", { value: 42 });
+stop();
+await room.leave();
+```
+
+Events are ordered while connected but are not replayed. Use `room.send()` for
+high-rate traffic, and resync authoritative state after reconnecting. Realtime
+rooms are runtime-only; normal server auth and the CLI cannot create or join
+them.
+
+See the [Work Runtime Guide](https://github.com/talesofai/cohub/blob/main/packages/sdk/docs/work-runtime-guide.md#realtime-rooms-workrealtime)
+for lifecycle, presence, membership, seat, and limit details.
 
 ## Main client surfaces
 
