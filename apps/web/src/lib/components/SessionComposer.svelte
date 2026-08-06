@@ -504,6 +504,7 @@ function toggleComposerExpansion() {
 
 function submitDraft() {
 	if (submitDisabled || !hasDraft) return;
+	closeVoiceInput();
 	onsubmit();
 	textareaEl?.blur();
 	collapseComposer();
@@ -531,36 +532,44 @@ async function startVoiceInput() {
 	voiceSuffix = value.slice(end);
 	voiceCommittedText = "";
 	voicePartialText = "";
-	voiceClient = sdk.voice.createInputClient({
+	const client = sdk.voice.createInputClient({
 		onPartial: (text) => {
+			if (voiceClient !== client) return;
 			voicePartialText = text;
 			applyVoiceText(text);
 		},
 		onFinal: (text) => {
+			if (voiceClient !== client) return;
 			voiceCommittedText += text;
 			voicePartialText = "";
 			applyVoiceText();
 		},
 		onError: (message) => {
+			if (voiceClient !== client) return;
 			voiceError = message;
 		},
 		onDone: () => {
+			if (voiceClient !== client) return;
 			isVoiceRecording = false;
 			isVoiceStarting = false;
-			voiceClient?.close();
 			voiceClient = null;
+			client.close();
 		},
 	});
+	voiceClient = client;
 	try {
-		await voiceClient.start();
+		await client.start();
+		if (voiceClient !== client) return;
 		isVoiceRecording = true;
 	} catch (error) {
+		if (voiceClient !== client) return;
 		voiceError = error instanceof Error ? error.message : "Voice input failed";
-		voiceClient?.close();
-		voiceClient = null;
-		isVoiceRecording = false;
-	} finally {
 		isVoiceStarting = false;
+		isVoiceRecording = false;
+		voiceClient = null;
+		client.close();
+	} finally {
+		if (voiceClient === client) isVoiceStarting = false;
 	}
 }
 
@@ -576,6 +585,14 @@ function stopVoiceInput() {
 	if (!isVoiceRecording) return;
 	isVoiceRecording = false;
 	voiceClient?.stop();
+}
+
+function closeVoiceInput() {
+	const client = voiceClient;
+	voiceClient = null;
+	isVoiceRecording = false;
+	isVoiceStarting = false;
+	client?.close();
 }
 
 function applyPromptTemplate(item: SlashCommandMenuItem) {
@@ -1014,7 +1031,7 @@ onMount(() => {
 		spaceMentionLocalController?.abort();
 		spaceMentionRemoteController?.abort();
 		pastedSpaceResolveController?.abort();
-		voiceClient?.close();
+		closeVoiceInput();
 		cancelScheduledResize();
 		cancelScheduledCaretSync();
 		if (spaceMentionDebounceTimer != null)
