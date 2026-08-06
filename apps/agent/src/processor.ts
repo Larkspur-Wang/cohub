@@ -18,6 +18,7 @@ import { createSandboxCodingTools } from "./sandbox/tools.js";
 import { CohubModelRegistry } from "./runtime/model-registry.js";
 import { loadRuntimeModelsConfigs } from "./runtime/models-loader.js";
 import { loadImageToTextConfig } from "./runtime/image-to-text-config.js";
+import { loadSpaceEnvSnapshot } from "./runtime/env-cache.js";
 import { CompactionStateRecoveryError, maybeAutoCompact, OverflowRecoveryError, type CompactionOutcome } from "./runtime/compaction.js";
 import { clearCurrentSessionExecutionAuth, setCurrentSessionExecutionAuth } from "./runtime/session-execution-auth.js";
 import { resolveSpaceFileVisibility } from "./runtime/cross-space-query-access.js";
@@ -876,6 +877,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
       }
       const spaceInfo = await getSpace({ spaceId: data.spaceId }).catch(() => null);
       logSpaceBootstrapWarning(data.spaceId, spaceInfo?.space?.meta);
+      const spaceEnv = await loadSpaceEnvSnapshot(data.spaceId);
       handle = await prepareHandle({
         spaceId: data.spaceId,
         sessionId: data.sessionId,
@@ -990,6 +992,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
             metrics: turnMetrics,
             assistantMessageTiming,
             generationPolicy,
+            spaceEnv,
             env: promptEnv,
             abortSignal: abortController.signal,
           }, async () => {
@@ -1060,6 +1063,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
           metrics: turnMetrics,
           assistantMessageTiming,
           generationPolicy,
+          spaceEnv,
           env: promptEnv,
           abortSignal: abortController.signal,
         }, async () => {

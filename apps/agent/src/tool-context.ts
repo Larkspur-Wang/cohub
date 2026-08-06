@@ -29,6 +29,8 @@ export type ToolExecutionContext = {
   metrics?: TurnTelemetryMetrics;
   assistantMessageTiming?: AssistantMessageTimingContext;
   generationPolicy?: GenerationPolicy | null;
+  /** Space-level env snapshot loaded once for this execution scope. */
+  spaceEnv?: Readonly<Record<string, string>>;
   env?: PromptEnv | null;
   fileVisibility?: AgentFileVisibility;
   abortSignal?: AbortSignal;

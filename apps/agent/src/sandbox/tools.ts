@@ -59,7 +59,6 @@ import {
   createSpaceAwareLsTool,
   createSpaceAwareReadTool,
 } from "../runtime/tools/space-aware-query-tools.js";
-import { getUserEnvForProcess } from "../runtime/env-cache.js";
 import { type SandboxConnection, disconnectSandboxWsClient } from "@cohub/sandbox-client";
 import {
   getSandboxRpcFailurePresentation,
@@ -482,7 +481,7 @@ function createRemoteBashOperations(): BashOperations {
               const actorUserId = ctx?.actorUserId ?? sessionExecutionAuth?.actorUserId ?? null;
               const executionToken = ctx?.executionToken ?? sessionExecutionAuth?.executionToken ?? null;
               const injectedEnv: Record<string, string> = {
-                ...(ctx?.spaceId ? getUserEnvForProcess(ctx.spaceId) : {}),
+                ...(ctx?.spaceEnv ?? {}),
                 ...(env ?? {}),
                 ...(ctx?.env ?? {}),
                 ...(ctx?.generationPolicy ? { [GENERATION_POLICY_ENV_KEY]: encodeGenerationPolicy(ctx.generationPolicy) } : {}),

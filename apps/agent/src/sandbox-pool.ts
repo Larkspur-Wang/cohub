@@ -19,7 +19,6 @@ import { db } from "./db.js";
 import { env } from "./env.js";
 import { updateSpaceRuntime } from "./ownership.js";
 import { sendSpaceFsChanged, sendSpacePortsChanged } from "./redis.js";
-import { refreshUserEnv } from "./runtime/env-cache.js";
 
 
 const logger = createLogger({ serviceName: "cohub-agent" });
@@ -276,11 +275,6 @@ async function connectSandboxOnce(spaceId: string, options?: { timeoutMs?: numbe
     headers: relayAuthHeaders(wsUrl),
     hooks: {
       onHeartbeat: (message) => syncSandboxHeartbeat(spaceId, message),
-      onAttached: () => {
-        void refreshUserEnv(spaceId).catch((err) => {
-          logger.warn(`[SandboxPool] Failed to refresh env for ${spaceId}: ${err instanceof Error ? err.message : String(err)}`);
-        });
-      },
       onFsChanged: (payload) => {
         void sendSpaceFsChanged(spaceId, payload);
       },

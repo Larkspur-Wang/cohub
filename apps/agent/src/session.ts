@@ -24,7 +24,6 @@ import { db } from "./db.js";
 import { createCohubAgentSession, type CohubAgentSession } from "./runtime/session-runtime.js";
 import type { AgentTurnAbortEvent } from "./abort.js";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import { refreshUserEnv } from "./runtime/env-cache.js";
 import type { createSandboxCodingTools } from "./sandbox/tools.js";
 import type { Permission } from "@cohub/core/permissions";
 import type { PromptAccessMode } from "@cohub/core/sessions";
@@ -1074,10 +1073,6 @@ export async function loadOrCreateSessionHandle(input: {
   model?: { provider: string; id: string };
   sessionHandles: Map<string, SessionHandle>;
 }) {
-  await refreshUserEnv(input.spaceId).catch((error: unknown) => {
-    logger.warn(`[Session] Failed to refresh env for ${input.spaceId}: ${error instanceof Error ? error.message : String(error)}`);
-  });
-
   const sessionKey = getSessionKey(input.spaceId, input.sessionId);
   await ensureAgentSpaceSessionPath(input.spaceId);
 

@@ -7,6 +7,7 @@ import { createSandboxCodingTools } from "./sandbox/tools.js";
 import { runWithToolExecutionContext } from "./tool-context.js";
 import { logger } from "./logger.js";
 import type { AgentSandboxBashUploadJobData } from "./queue.js";
+import { loadSpaceEnvSnapshot } from "./runtime/env-cache.js";
 
 const SCRIPT_PATH = new URL("./jobs/sandbox-bash/upload-files.sh", import.meta.url);
 const tools = createSandboxCodingTools();
@@ -121,9 +122,11 @@ export async function processSandboxBashJob(job: Job<AgentSandboxBashUploadJobDa
     ...logMeta,
   });
 
+  const spaceEnv = await loadSpaceEnvSnapshot(data.spaceId);
   await runWithToolExecutionContext({
     spaceId: data.spaceId,
     sessionId: data.sessionId,
+    spaceEnv,
     llmRound: 0,
     toolCallId,
     requestId: data.requestId ?? undefined,

@@ -19,6 +19,7 @@ import { createAgentExecutionToken } from "./execution-grants.js";
 import { normalizePermissionScopes } from "@cohub/core/permissions";
 import { getAbortEvent } from "./abort.js";
 import { clearActiveAbortController, setActiveAbortController, setActiveAbortEvent } from "./active-turns.js";
+import { loadSpaceEnvSnapshot } from "./runtime/env-cache.js";
 
 const tools = createSandboxCodingTools();
 const tracer = getAgentTracer();
@@ -109,6 +110,7 @@ export async function processRunCommandJob(job: Job<AgentRunCommandJobData>): Pr
         scopes: executionScopes,
       })
     : null;
+  const spaceEnv = await loadSpaceEnvSnapshot(data.spaceId);
   let latestOutput = "";
   let lastProgressAt = 0;
   let lastProgressSignature = "";
@@ -163,6 +165,7 @@ export async function processRunCommandJob(job: Job<AgentRunCommandJobData>): Pr
       executionToken,
       executionScopes,
       generationPolicy: data.generationPolicy ?? null,
+      spaceEnv,
       env: data.env ?? null,
       llmRound: 0,
       toolCallId,

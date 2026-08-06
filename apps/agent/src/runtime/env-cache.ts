@@ -5,7 +5,6 @@ import { createLogger } from "@cohub/infra/logging";
 
 
 const logger = createLogger({ serviceName: "cohub-agent" });
-const cachedUserEnvBySpace = new Map<string, Record<string, string>>();
 let redisClient: Redis | null = null;
 
 /** Get a Redis client (lazy init, reused across calls; ioredis handles auto-reconnect) */
@@ -19,35 +18,33 @@ function getRedisClient(): Redis {
   return redisClient;
 }
 
-/**
- * Fetch space env from Redis cache (set by API on env changes).
- * Falls back to empty object if Redis is unavailable.
- */
-export async function refreshUserEnv(spaceId: string): Promise<void> {
-  try {
-    const key = SPACE_ENV_REDIS_KEY(spaceId);
-    const raw = await getRedisClient().get(key);
-    if (!raw) {
-      cachedUserEnvBySpace.set(spaceId, {});
-      return;
-    }
+/** Parse and sanitize the Redis value written by the API. */
+export function parseUserEnv(raw: string | null): Record<string, string> {
+  if (!raw) return {};
 
-    const parsed: Array<{ name: string; value: string }> = JSON.parse(raw);
-    const nextEnv: Record<string, string> = {};
-    for (const entry of parsed) {
-      // Double-safety: skip system keys even if somehow stored
-      if (!SYSTEM_ENV_KEY_SET.has(entry.name) && entry.name.length > 0) {
-        nextEnv[entry.name] = entry.value;
-      }
-    }
-    cachedUserEnvBySpace.set(spaceId, nextEnv);
-  } catch (err) {
-    // Redis unavailable or bad data — keep using stale cache for this space
-    logger.warn(`[EnvCache] Failed to refresh env for ${spaceId}: ${err instanceof Error ? err.message : String(err)}`);
+  const parsed: unknown = JSON.parse(raw);
+  if (!Array.isArray(parsed)) throw new Error("space env cache must be an array");
+
+  const userEnv: Record<string, string> = {};
+  for (const entry of parsed) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    const { name, value } = entry as { name?: unknown; value?: unknown };
+    if (typeof name !== "string" || typeof value !== "string") continue;
+    if (!SYSTEM_ENV_KEY_SET.has(name) && name.length > 0) userEnv[name] = value;
   }
+  return userEnv;
 }
 
-/** Return a snapshot of the current user env for process injection */
-export function getUserEnvForProcess(spaceId: string): Record<string, string> {
-  return { ...(cachedUserEnvBySpace.get(spaceId) ?? {}) };
+/**
+ * Load one immutable space env snapshot for a process execution scope. Nothing
+ * is retained across scopes, so later work observes the latest Redis value.
+ */
+export async function loadSpaceEnvSnapshot(spaceId: string): Promise<Record<string, string>> {
+  try {
+    const raw = await getRedisClient().get(SPACE_ENV_REDIS_KEY(spaceId));
+    return parseUserEnv(raw);
+  } catch (err) {
+    logger.warn(`[EnvCache] Failed to load env for ${spaceId}: ${err instanceof Error ? err.message : String(err)}`);
+    return {};
+  }
 }
