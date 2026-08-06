@@ -86,7 +86,7 @@ Outside a single Space you also have:
 | Surface | Role |
 | --- | --- |
 | Sessions inbox | Cross-space recent Chats |
-| Explore / Trending | Discovery of public Spaces and activity |
+| Trending | Discovery of public activity |
 | Public Work page | `/:username/:spaceSlug/w/:workSlug` |
 | Account settings | Profile, appearance, billing, referrals, channel defaults |
 

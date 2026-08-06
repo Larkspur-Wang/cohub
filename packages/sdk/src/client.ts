@@ -1,7 +1,6 @@
 import { ChannelsApi } from "./apis/channels.js";
 import { BillingApi } from "./apis/billing.js";
 import { CronJobsApi } from "./apis/cron-jobs.js";
-import { ExploreApi } from "./apis/explore.js";
 import { GenerationsApi } from "./apis/generations.js";
 import { ModelsApi } from "./apis/models.js";
 import { PromptsApi } from "./apis/prompts.js";
@@ -50,7 +49,6 @@ export class CohubClient {
   readonly references: ReferencesApi;
   readonly tasks: TasksApi;
   readonly cronJobs: CronJobsApi;
-  readonly explore: ExploreApi;
   readonly invite: PublicInviteApi;
   readonly referrals: ReferralsApi;
   readonly voice: VoiceApi;
@@ -121,7 +119,6 @@ export class CohubClient {
     this.references = new ReferencesApi(this.transport);
     this.tasks = new TasksApi(this.transport);
     this.cronJobs = new CronJobsApi(this.transport);
-    this.explore = new ExploreApi(this.transport);
     this.invite = new PublicInviteApi(this.transport);
     this.referrals = new ReferralsApi(this.transport);
     this.works = new WorksApi(this.transport);

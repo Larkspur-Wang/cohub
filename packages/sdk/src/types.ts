@@ -1418,43 +1418,6 @@ export type SpaceModListItem = {
   modSpaceDescription: string | null;
 };
 
-/**
- * Public-safe DTO for Explore spaces.
- * Only contains fields safe for unauthenticated product rendering.
- */
-export type ExploreSpaceItem = {
-  id: string;
-  slug: string | null;
-  title: string;
-  summary: string | null;
-  spaceUrl: string;
-  avatarUrl: string | null;
-  avatarAlt: string | null;
-  ownerDisplayName: string | null;
-  ownerAvatarUrl: string | null;
-  ownerUsername: string | null;
-  category: string | null;
-  tags: string[];
-  saveCount: number;
-  forkCount: number;
-  updatedAt: string | null;
-  accessLabel: "public" | "sign-in-required" | "unknown";
-  latestSaveLabel: string | null;
-};
-
-export type ExploreSection = {
-  key: string;
-  title: string | null;
-  subtitle: string | null;
-  description: string | null;
-  spaces: ExploreSpaceItem[];
-};
-
-export type ExploreSpacesResponse = {
-  sections: ExploreSection[];
-  spaces: ExploreSpaceItem[];
-};
-
 export type Permission =
   | "space.view"
   | "space.edit"

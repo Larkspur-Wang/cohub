@@ -48,9 +48,6 @@
       "@cohub/infra/config-runtime/generations": [
         "../../packages/infra/src/config-runtime/generations.ts"
       ],
-      "@cohub/infra/config-runtime/explore": [
-        "../../packages/infra/src/config-runtime/explore.ts"
-      ],
       "@cohub/infra/tracing/provider": [
         "../../packages/infra/src/tracing/provider.ts"
       ],

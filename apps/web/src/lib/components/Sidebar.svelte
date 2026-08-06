@@ -18,7 +18,6 @@ import {
 	Check,
 	ChevronDown,
 	Clock,
-	Compass,
 	CreditCard,
 	Download,
 	FolderKanban,
@@ -3997,7 +3996,6 @@ $effect(() => {
             {:else}
               <a href={settingsReturnTo} class="rail-menu-item" onclick={(e) => { e.preventDefault(); showUserMenu = false; returnFromSettings(); }}><FolderKanban class="h-3.5 w-3.5" /><span>Spaces</span></a>
             {/if}
-            <a href="/explore?view=wall" class="rail-menu-item" onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/explore?view=wall'); }}><Compass class="h-3.5 w-3.5" /><span>Explore</span></a>
             <a href="/trending" class="rail-menu-item" onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/trending'); }}><BarChart3 class="h-3.5 w-3.5" /><span>Trending</span></a>
             <button type="button" class="rail-menu-item w-full" onclick={openHelpPanel}><Keyboard class="h-3.5 w-3.5" /><span>Help</span></button>
             <button type="button" class="rail-menu-item w-full" onclick={saveDebugLog}><Download class="h-3.5 w-3.5" /><span>Save debug log</span></button>
@@ -4491,14 +4489,6 @@ $effect(() => {
             <span>Spaces</span>
           </a>
         {/if}
-        <a
-          href="/explore?view=wall"
-          class="flex items-center gap-2 px-2.5 py-[7px] text-[12px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
-          onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/explore?view=wall'); }}
-        >
-          <Compass class="w-3.5 h-3.5" />
-          <span>Explore</span>
-        </a>
         <a
           href="/trending"
           class="flex items-center gap-2 px-2.5 py-[7px] text-[12px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"

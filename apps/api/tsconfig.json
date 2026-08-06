@@ -94,9 +94,6 @@
       "@cohub/infra/config-runtime/generation-declarations": [
         "../../packages/infra/src/config-runtime/generation-declarations.ts"
       ],
-      "@cohub/infra/config-runtime/explore": [
-        "../../packages/infra/src/config-runtime/explore.ts"
-      ],
       "@cohub/infra/tracing/provider": [
         "../../packages/infra/src/tracing/provider.ts"
       ],

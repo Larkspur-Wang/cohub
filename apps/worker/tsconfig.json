@@ -82,9 +82,6 @@
       "@cohub/db/schema-v2": [
         "../../packages/db/src/schema-v2.ts"
       ],
-      "@cohub/infra/config-runtime/explore": [
-        "../../packages/infra/src/config-runtime/explore.ts"
-      ],
       "@cohub/identity": [
         "../../packages/identity/src/index.ts"
       ],
