@@ -36,6 +36,12 @@ For example:
 /username/works-guide-test-2026-06-19/w/works-guide-file
 ```
 
+Query parameters and the URL fragment on a public Work link are forwarded to
+embedded web and port Works. This supports shareable application state such as
+`?view=timeline#today`. Parameters in the `cohub_*` namespace are reserved for
+the Cohub host and are available only through their documented SDK APIs. Do not
+put secrets or access tokens in a Work URL.
+
 ## Publish From the UI
 
 Prepare something publishable in a Space: an HTML page, a `.board` file, any other single file, a directory containing `index.html` with relative assets, or a running dev server on a supported public sandbox port.

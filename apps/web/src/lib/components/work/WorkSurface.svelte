@@ -13,6 +13,7 @@ import WorkPurchaseDialog from "$lib/features/work/WorkPurchaseDialog.svelte";
 import { parseNewChatBackgroundAction } from "$lib/new-chat-background-bridge";
 import { emitSpaceConfigBackgroundAction } from "$lib/space-config";
 import { workDisplayTitle } from "$lib/work-page-meta";
+import { buildWorkIframeUrl, type WorkLaunchState } from "$lib/work-url";
 
 type WorkSurfaceMode = "page" | "background";
 
@@ -48,6 +49,7 @@ type Props = {
 	owner?: WorkOwner;
 	content?: WorkContent | null;
 	mode?: WorkSurfaceMode;
+	launchState?: WorkLaunchState | null;
 };
 
 const {
@@ -56,6 +58,7 @@ const {
 	owner = null,
 	content = null,
 	mode = "page",
+	launchState = null,
 }: Props = $props();
 
 let frame: HTMLIFrameElement | null = $state(null);
@@ -76,11 +79,12 @@ const embeddedContent = $derived(
 		: null,
 );
 const nativeContent = $derived(boardContent ?? fileContent);
-const iframeSrc = $derived.by(
-	() =>
+const iframeSrc = $derived.by(() => {
+	const contentUrl =
 		embeddedContent?.url ??
-		(!content && work.targetType === "port" ? work.targetRef : ""),
-);
+		(!content && work.targetType === "port" ? work.targetRef : "");
+	return buildWorkIframeUrl(contentUrl, launchState);
+});
 function isAllowedFrameOrigin(origin: string, targetType: string) {
 	try {
 		const { protocol, hostname } = new URL(origin);

@@ -1,6 +1,7 @@
 <script lang="ts">
 import type { WorkDetailResponse } from "@neta-art/cohub";
 import { onMount } from "svelte";
+import { page } from "$app/state";
 import WorkPageHead from "$lib/components/work/WorkPageHead.svelte";
 import WorkSurface from "$lib/components/work/WorkSurface.svelte";
 import { sdk } from "$lib/sdk";
@@ -27,6 +28,11 @@ type ClientData = {
 };
 
 const props = $props<{ data: ReadyData | ClientData }>();
+
+const launchState = $derived({
+	search: page.url.search,
+	hash: page.url.hash,
+});
 
 let clientDetail = $state<WorkDetailResponse | null>(null);
 let clientError = $state("");
@@ -123,6 +129,7 @@ $effect(() => {
 		space={ready.space}
 		owner={ready.owner}
 		content={ready.content}
+		{launchState}
 	/>
 {:else if ready}
 	<!-- SSR / first paint: head already has share meta; surface hydrates client-side. -->
