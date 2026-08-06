@@ -48,6 +48,37 @@ test("generation pricing is removed from collaborator task views without mutatin
   assert.equal((run.result as Record<string, unknown>).billing !== undefined, true);
 });
 
+test("Space creation Git tokens are removed for every viewer without mutating storage", () => {
+  const run = {
+    taskType: "create_space",
+    userUuid: "creator_1",
+    payload: {
+      data: {
+        source: {
+          type: "git_repo",
+          repoUrl: "https://example.test/repo.git",
+          ref: "main",
+        },
+        gitToken: "secret",
+      },
+    },
+    result: null,
+  };
+
+  for (const viewer of ["creator_1", "collaborator_1"]) {
+    assert.deepEqual(sanitizeTaskRunPricingForViewer(run, viewer).payload, {
+      data: {
+        source: {
+          type: "git_repo",
+          repoUrl: "https://example.test/repo.git",
+          ref: "main",
+        },
+      },
+    });
+  }
+  assert.equal((run.payload.data as Record<string, unknown>).gitToken, "secret");
+});
+
 test("non-generation task responses are unchanged", () => {
   const run = {
     taskType: "echo",

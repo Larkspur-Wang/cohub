@@ -63,6 +63,7 @@ cohub spaces get <spaceId> --json
 cohub -s <spaceId> spaces get
 COHUB_SPACE_ID=<spaceId> cohub spaces get
 cohub spaces create --name "<name>" --description "<description>" --json
+cohub spaces create --name "<name>" --checkpoint <checkpointId> --json
 cohub spaces update <spaceId> --slug <space-slug>
 cohub spaces rename <spaceId> "<new name>"
 cohub -s <spaceId> spaces invites create --role builder --days 7

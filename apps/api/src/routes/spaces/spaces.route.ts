@@ -34,6 +34,10 @@ import {
   type SpaceSandboxAutoDestroyPolicy,
   type SpaceSandboxProvider,
 } from "../../space-create.js";
+import {
+  normalizeSpaceBootstrapSource,
+  sanitizeSpaceBootstrapSource,
+} from "../../space-bootstrap-source.js";
 import { getSpaceSandboxBySpaceId, markSandboxSpecPendingRestart, recoverSpaceSandbox, resizeSpaceSandboxToSpec } from "../../space-sandboxes.js";
 import {
   createInitialSpaceSession,
@@ -888,27 +892,13 @@ router.post("/", async (c) => {
     return c.json({ message: "channel binding already exists for this channel" }, 409);
   }
 
-  let normalizedBootstrapSource:
-    | { type: "blank" }
-    | { type: "git_repo"; repoUrl: string; ref: string | null }
-    | { type: "checkpoint"; checkpointId: string };
+  let normalizedBootstrapSource: SpaceBootstrapSource;
   const gitToken = body.gitHubToken?.trim() || c.req.header("X-Git-Token")?.trim() || null;
   try {
-    normalizedBootstrapSource = (() => {
-      const source = body.bootstrapSource;
-      if (!source || source.type === "blank") return { type: "blank" } as const;
-      if (source.type === "git_repo") {
-        const repoUrl = source.repoUrl?.trim();
-        if (!repoUrl) throw new Error("repoUrl is required");
-        return { type: "git_repo", repoUrl, ref: source.ref?.trim() || null } as const;
-      }
-      if (source.type === "checkpoint") {
-        const checkpointId = source.checkpointId?.trim();
-        if (!checkpointId || !requireValidId(checkpointId)) throw new Error("checkpointId is required");
-        return { type: "checkpoint", checkpointId } as const;
-      }
-      return { type: "blank" } as const;
-    })();
+    normalizedBootstrapSource = normalizeSpaceBootstrapSource(
+      body.bootstrapSource,
+      requireValidId,
+    );
   } catch (error) {
     return c.json({ message: error instanceof Error ? error.message.toLowerCase().replace(/\.$/, "") : "invalid bootstrap source" }, 400);
   }
@@ -1067,17 +1057,6 @@ async function serializeSpaceForResponse(space: typeof spaces.$inferSelect, user
   };
 }
 
-function sanitizeRepoUrl(url: string): string {
-  try {
-    const parsed = new URL(url);
-    parsed.username = "";
-    parsed.password = "";
-    return parsed.toString();
-  } catch {
-    return url;
-  }
-}
-
 function sanitizeSpaceMeta(meta: unknown): Record<string, unknown> | null {
   if (!meta || typeof meta !== "object" || Array.isArray(meta)) {
     return meta as null;
@@ -1100,20 +1079,13 @@ function sanitizeSpaceMeta(meta: unknown): Record<string, unknown> | null {
   ) {
     return metaObj;
   }
-  const sourceObj = source as Record<string, unknown>;
-  if (sourceObj.type === "git_repo" && typeof sourceObj.repoUrl === "string") {
-    return {
-      ...metaObj,
-      bootstrap: {
-        ...bootstrapObj,
-        source: {
-          ...sourceObj,
-          repoUrl: sanitizeRepoUrl(sourceObj.repoUrl as string),
-        },
-      },
-    };
-  }
-  return metaObj;
+  return {
+    ...metaObj,
+    bootstrap: {
+      ...bootstrapObj,
+      source: sanitizeSpaceBootstrapSource(source),
+    },
+  };
 }
 
 router.get("/:id", async (c) => {

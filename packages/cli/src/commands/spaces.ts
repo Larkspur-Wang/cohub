@@ -3,7 +3,13 @@ import { createReadStream } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import { basename, dirname, relative, resolve, sep } from "node:path";
 import { resolveCohubEnvironment } from "@neta-art/cohub";
-import type { ContentBlock, LabelListItem, LabelResourceType } from "@neta-art/cohub";
+import type {
+  CohubHttpClient,
+  ContentBlock,
+  CreateSpaceInput,
+  LabelListItem,
+  LabelResourceType,
+} from "@neta-art/cohub";
 import type { Command } from "commander";
 import { uploadAvatarAsset, uploadChatImageAsset } from "../avatar.js";
 import { createClient } from "../client.js";
@@ -23,6 +29,16 @@ type ModOptions = {
 type SpaceUpdateOptions = {
   name?: string;
   slug?: string;
+  json?: boolean;
+};
+
+export type SpaceCreateOptions = {
+  name: string;
+  description?: string;
+  checkpoint?: string;
+  autoDestroy?: string;
+  idleTtl?: string;
+  spec?: string;
   json?: boolean;
 };
 
@@ -121,6 +137,33 @@ const parseAutoDestroy = (opts: { autoDestroy?: string; idleTtl?: string }) => {
 };
 
 const parseSandboxSpec = (value: string | undefined) => value ? parseChoice(value, "sandbox spec", SANDBOX_SPEC_IDS) : undefined;
+
+export function buildSpaceCreateInput(opts: SpaceCreateOptions): CreateSpaceInput {
+  const autoDestroy = parseAutoDestroy(opts);
+  const spec = parseSandboxSpec(opts.spec);
+  const checkpointId = opts.checkpoint?.trim();
+  if (opts.checkpoint !== undefined && !checkpointId) {
+    return error("Invalid checkpoint", "Checkpoint ID is required");
+  }
+
+  return {
+    name: opts.name,
+    description: opts.description,
+    ...(checkpointId
+      ? { bootstrapSource: { type: "checkpoint", checkpointId } as const }
+      : {}),
+    ...((autoDestroy || spec)
+      ? {
+          config: {
+            sandbox: {
+              ...(autoDestroy ? { autoDestroy } : {}),
+              ...(spec ? { spec } : {}),
+            },
+          },
+        }
+      : {}),
+  };
+}
 
 const formatAutoDestroy = (policy: { mode: "idle"; ttlSeconds: number } | { mode: "never" } | undefined) => {
   if (!policy) return `${cliEnv === "prod" ? "12h" : "10m"} (default)`;
@@ -429,6 +472,38 @@ export function registerPrompt(program: Command): void {
     .action((words: string[], opts: CompletionOptions) => runCompletionCommand(program, words, opts));
 }
 
+export function registerSpaceCreate(
+  spacesCmd: Command,
+  dependencies: { createClient?: () => CohubHttpClient } = {},
+): Command {
+  const getClient = dependencies.createClient ?? createClient;
+  return spacesCmd
+    .command("create")
+    .description("Create a new space")
+    .requiredOption("-n, --name <name>", "Space name")
+    .option("-d, --description <desc>", "Space description")
+    .option("--checkpoint <id>", "Create from a checkpoint")
+    .option("--auto-destroy <mode>", "Sandbox auto destroy mode: idle or never")
+    .option("--idle-ttl <seconds>", "Idle auto destroy TTL in seconds, max 2592000 (30d)")
+    .option("--spec <spec>", "Sandbox spec: standard, boost, or ultra")
+    .option("--json", "Output as JSON")
+    .action(async (opts: SpaceCreateOptions) => {
+      const client = getClient();
+      try {
+        const result = await client.spaces.create(buildSpaceCreateInput(opts));
+        if (jsonRequested(opts)) return outJson(result);
+        ok(`Space created: ${result.space.id}`);
+        table([{ ...result.space, taskRunId: result.taskRunId }], [
+          { key: "id", label: "ID" },
+          { key: "name", label: "Name" },
+          { key: "taskRunId", label: "Task" },
+        ]);
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+}
+
 export function registerSpaces(program: Command): void {
   const spacesCmd = program.command("spaces").description("Space management");
   registerSpaceInvitations(spacesCmd);
@@ -491,36 +566,7 @@ export function registerSpaces(program: Command): void {
     });
 
   // ── spaces create ──
-  spacesCmd
-    .command("create")
-    .description("Create a new space")
-    .option("-n, --name <name>", "Space name")
-    .option("-d, --description <desc>", "Space description")
-    .option("--auto-destroy <mode>", "Sandbox auto destroy mode: idle or never")
-    .option("--idle-ttl <seconds>", "Idle auto destroy TTL in seconds, max 2592000 (30d)")
-    .option("--spec <spec>", "Sandbox spec: standard, boost, or ultra")
-    .option("--json", "Output as JSON")
-    .action(async (opts: { name?: string; description?: string; autoDestroy?: string; idleTtl?: string; spec?: string; json?: boolean }) => {
-      const client = createClient();
-      try {
-        const autoDestroy = parseAutoDestroy(opts);
-        const spec = parseSandboxSpec(opts.spec);
-        const result = await client.spaces.create({
-          name: opts.name,
-          description: opts.description,
-          ...((autoDestroy || spec) ? { config: { sandbox: { ...(autoDestroy ? { autoDestroy } : {}), ...(spec ? { spec } : {}) } } } : {}),
-        });
-        if (jsonRequested(opts)) return outJson(result);
-        ok(`Space created: ${result.space.id}`);
-        table([result.space], [
-          { key: "id", label: "ID" },
-          { key: "name", label: "Name" },
-          { key: "taskRunId", label: "Task" },
-        ]);
-      } catch (e: unknown) {
-        handleHttp(e);
-      }
-    });
+  registerSpaceCreate(spacesCmd);
 
   // ── spaces update ──
   spacesCmd

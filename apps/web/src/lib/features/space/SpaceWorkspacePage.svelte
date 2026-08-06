@@ -1079,25 +1079,8 @@ const browserTabTitle = $derived.by(() => {
 		? `${spaceTitle} · ${spaceDescriptionTitle} — Cohub`
 		: `${spaceTitle} — Cohub`;
 });
-const bootstrapMeta = $derived.by(() => {
-	const raw = space?.meta;
-	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-	const bootstrap = (raw as Record<string, unknown>).bootstrap;
-	if (!bootstrap || typeof bootstrap !== "object" || Array.isArray(bootstrap))
-		return null;
-	return bootstrap as Record<string, unknown>;
-});
-const bootstrapStatus = $derived.by<
-	"pending" | "running" | "ready" | "failed" | null
->(() => {
-	const value = bootstrapMeta?.status;
-	return value === "pending" ||
-		value === "running" ||
-		value === "ready" ||
-		value === "failed"
-		? value
-		: null;
-});
+const bootstrapMeta = $derived(space?.meta?.bootstrap ?? null);
+const bootstrapStatus = $derived(bootstrapMeta?.status ?? null);
 const canCreateSession = $derived(Boolean(space && !creatingSession));
 async function loadPreviewEndpoints() {
 	await portPreview.loadEndpoints();

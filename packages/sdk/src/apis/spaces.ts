@@ -249,7 +249,7 @@ export class SpacesApi {
   }
 
   create(
-    input?: CreateSpaceInput,
+    input: CreateSpaceInput,
     headers?: Record<string, string>,
   ) {
     return this.transport.request<SpaceCreateResponse>("/api/spaces", {
@@ -258,7 +258,7 @@ export class SpacesApi {
         ...headers,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(input ?? {}),
+      body: JSON.stringify(input),
     });
   }
 }

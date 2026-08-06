@@ -19,12 +19,15 @@ import { scanWorkspace } from "../checkpoint/scan.js";
 import { buildInternalRepoRemoteUrl, createInternalRepository } from "../gitea.js";
 import { runGit as runSystemGit } from "../checkpoint/git.js";
 import { ensureWorkerLocalTmpDir, getWorkerLocalTmpDir, removeWorkerLocalTmpDir } from "../local-tmp.js";
+import {
+  resolveCreateSpaceSource,
+  type ResolvedSpaceCreateSource,
+} from "./create-space-source.js";
 
 const logger = createLogger({ serviceName: "cohub-worker" });
 const SAVE_VERSION = 2;
 type BootstrapStatus = "pending" | "running" | "ready" | "failed";
 type BootstrapStage = "prepare" | "import" | "checkpoint_restore" | "finalize";
-type SpaceCreateSource = { type: "blank" } | { type: "git_repo"; repoUrl: string; ref?: string | null } | { type: "checkpoint"; checkpointId: string };
 
 const SAFE_GIT_REF_REGEX = /^[a-zA-Z0-9._/-]+$/;
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
@@ -33,17 +36,6 @@ const getBootstrapMeta = (space: typeof spaces.$inferSelect) => {
   const meta = isRecord(space.meta) ? space.meta : {};
   const bootstrap = isRecord(meta.bootstrap) ? meta.bootstrap : {};
   return { meta, bootstrap: isRecord(bootstrap) ? bootstrap : undefined };
-};
-
-const resolveSource = (payload: TaskPayload): SpaceCreateSource & { gitToken?: string } => {
-  const source = payload.data?.source;
-  if (!isRecord(source) || typeof source.type !== "string") return { type: "blank" };
-  if (source.type === "git_repo" && typeof source.repoUrl === "string") {
-    const gitToken = typeof payload.data?.gitToken === "string" ? (payload.data.gitToken as string).trim() || undefined : undefined;
-    return { type: "git_repo", repoUrl: source.repoUrl.trim(), ref: typeof source.ref === "string" ? source.ref.trim() || null : null, gitToken };
-  }
-  if (source.type === "checkpoint" && typeof source.checkpointId === "string") return { type: "checkpoint", checkpointId: source.checkpointId.trim() };
-  return { type: "blank" };
 };
 
 const sanitizeBootstrapError = (value: unknown) => {
@@ -65,7 +57,7 @@ const ensureValidGitRef = (value: string) => {
 const updateBootstrap = async (input: {
   space: typeof spaces.$inferSelect;
   taskRunId: string;
-  source: SpaceCreateSource;
+  source?: ResolvedSpaceCreateSource;
   status: BootstrapStatus;
   stage?: BootstrapStage;
   errorMessage?: string | null;
@@ -81,7 +73,7 @@ const updateBootstrap = async (input: {
     bootstrap: {
       ...existingBootstrap,
       taskRunId: input.taskRunId,
-      source: input.source,
+      source: input.source ?? existingBootstrap?.source ?? { type: "blank" },
       status: input.status,
       stage: input.stage ?? null,
       errorMessage: input.errorMessage ?? null,
@@ -245,7 +237,21 @@ const createSpaceHandler = async (job: Job) => {
   const [space] = await db.select().from(spaces).where(eq(spaces.id, spaceId)).limit(1);
   if (!space) throw new Error("space not found");
 
-  const source = resolveSource(payload);
+  let resolvedSource: ReturnType<typeof resolveCreateSpaceSource>;
+  try {
+    resolvedSource = resolveCreateSpaceSource(payload);
+  } catch (error) {
+    await updateBootstrap({
+      space,
+      taskRunId,
+      status: "failed",
+      errorMessage: sanitizeBootstrapError(error),
+      errorCode: getBootstrapErrorCode(error),
+      finishedAt: new Date().toISOString(),
+    }).catch(() => undefined);
+    throw error;
+  }
+  const { source, gitToken } = resolvedSource;
   const progress = (stage: string, extra?: Record<string, unknown>) => job.updateProgress({ stage, updatedAt: new Date().toISOString(), ...extra });
   const stageTimings: Record<string, number> = {};
   let currentSpace = await updateBootstrap({ space, taskRunId, source, status: "running", stage: source.type === "checkpoint" ? "checkpoint_restore" : source.type === "git_repo" ? "import" : "prepare", startedAt: new Date().toISOString() });
@@ -291,7 +297,7 @@ const createSpaceHandler = async (job: Job) => {
       if (source.type === "git_repo") {
         currentSpace = await updateBootstrap({ space: currentSpace, taskRunId, source, status: "running", stage: "import", stageTimings });
         await progress("import_git_repo");
-        const { duration } = await timeIt("bootstrapFromGitRepo", () => bootstrapFromGitRepo({ workspaceDir, repoUrl: source.repoUrl, ref: source.ref, gitToken: source.gitToken }));
+        const { duration } = await timeIt("bootstrapFromGitRepo", () => bootstrapFromGitRepo({ workspaceDir, repoUrl: source.repoUrl, ref: source.ref, gitToken }));
         stageTimings.bootstrapFromGitRepo = duration;
       } else {
         await progress("prepare_blank_workspace");

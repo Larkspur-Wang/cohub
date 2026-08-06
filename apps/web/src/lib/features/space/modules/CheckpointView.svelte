@@ -306,10 +306,10 @@ async function handleCreateCheckpointSubmit(event: SubmitEvent) {
 		await goto(buildSpaceTaskRoute(spaceId, taskRunId));
 	} catch (error) {
 		if (error instanceof HttpError && error.status === 409) {
-			checkpointCreateError = "Checkpoint save in progress.";
+			checkpointCreateError = "Save in progress.";
 		} else {
 			checkpointCreateError =
-				error instanceof Error ? error.message : "Failed to save checkpoint";
+				error instanceof Error ? error.message : "Failed to create Save";
 		}
 	} finally {
 		checkpointCreateSubmitting = false;
@@ -359,12 +359,11 @@ onDestroy(() => {
 					<header class="space-y-1.5">
 						<div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">New save</div>
 						<h1 class="text-[18px] font-semibold tracking-tight text-text-primary sm:text-[20px]">
-							Save checkpoint
+							Save workspace
 						</h1>
 						<p class="text-[13px] leading-5 text-text-tertiary">
-							Snapshot
-							<span class="font-medium text-text-secondary">{space?.name ?? space?.title ?? spaceId}</span>
-							as a reusable checkpoint.
+							Create a reusable Save of
+							<span class="font-medium text-text-secondary">{space?.name ?? space?.title ?? spaceId}</span>.
 						</p>
 					</header>
 
@@ -458,7 +457,7 @@ onDestroy(() => {
 							<div class="flex flex-wrap items-center gap-2">
 								<span class="inline-flex items-center gap-1.5 rounded-full bg-brand/10 px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-brand">
 									<GitCommitHorizontal class="h-3 w-3" />
-									Checkpoint
+									Save
 								</span>
 								<span class="font-mono text-[11px] text-text-placeholder">{formatCheckpointTimestamp(checkpointDetail.createdAt)}</span>
 							</div>
@@ -664,7 +663,7 @@ onDestroy(() => {
 												data-sveltekit-preload-data="hover"
 											>{checkpointDetail.parentCheckpointId}</a>
 										{:else}
-											<span class="text-text-secondary">Root checkpoint</span>
+											<span class="text-text-secondary">Root save</span>
 										{/if}
 									</div>
 									<div class="flex items-start gap-3">
@@ -694,7 +693,7 @@ onDestroy(() => {
 					</section>
 				</div>
 			{:else}
-				<div class="text-[13px] text-text-tertiary">Checkpoint not found.</div>
+				<div class="text-[13px] text-text-tertiary">Save not found.</div>
 			{/if}
 		</div>
 	</div>

@@ -1,4 +1,5 @@
 import type {
+	SpaceBootstrapStatus,
 	SpaceMember,
 	SpaceRecord,
 	SpaceUsageResponse,
@@ -22,17 +23,10 @@ export type SpaceSandboxSnapshot = {
 	stopReason?: string | null;
 };
 
-export type BootstrapStatus = "pending" | "running" | "ready" | "failed" | null;
+export type BootstrapStatus = SpaceBootstrapStatus | null;
 
-function readBootstrapStatus(space: SpaceRecord): string | null {
-	const raw = space.meta;
-	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-	const bootstrap = (raw as Record<string, unknown>).bootstrap;
-	if (!bootstrap || typeof bootstrap !== "object" || Array.isArray(bootstrap)) {
-		return null;
-	}
-	const status = (bootstrap as Record<string, unknown>).status;
-	return typeof status === "string" ? status : null;
+function readBootstrapStatus(space: SpaceRecord): BootstrapStatus {
+	return space.meta?.bootstrap?.status ?? null;
 }
 
 export function createSpaceStatusController(options: {

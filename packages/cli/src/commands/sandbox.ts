@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { stat } from "node:fs/promises";
 import { createInterface } from "node:readline";
-import { resolve } from "node:path";
+import { basename, resolve } from "node:path";
 import { resolveCohubEnvironment, resolveWebsocketUrl } from "@neta-art/cohub";
 import type { Command } from "commander";
 import { requireAccessToken } from "../auth.js";
@@ -38,6 +38,9 @@ const confirm = async (question: string): Promise<boolean> => {
 
 const webBaseUrl = (): string =>
   resolveCohubEnvironment() === "prod" ? "https://cohub.run" : "https://dev.cohub.run";
+
+export const resolveLocalSpaceName = (rootDir: string, requestedName?: string): string =>
+  requestedName?.trim() || basename(rootDir) || "local-space";
 
 // Consent copy is deliberately explicit: a local sandbox runs agent-issued
 // shell commands as the current OS user. File RPCs are fenced to the folder,
@@ -107,7 +110,7 @@ export function registerSandbox(program: Command): void {
           if (!proceed) return error("Aborted", "No space was created");
         }
         const created = await client.spaces.create({
-          name: opts.name,
+          name: resolveLocalSpaceName(rootDir, opts.name),
           config: { sandbox: { provider: "local" } },
         });
         spaceId = created.space.id;

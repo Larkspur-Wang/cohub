@@ -10,19 +10,28 @@ type TaskRunPricingView = {
 };
 
 /**
- * Generation pricing reveals the creator's subscription tier. Keep the
- * server-side snapshot intact while removing it from collaborator-visible
- * task responses.
+ * Keep server-side task snapshots intact while removing secrets from every
+ * response and creator pricing from collaborator-visible responses.
  */
 export function sanitizeTaskRunPricingForViewer<T extends TaskRunPricingView>(
   run: T,
   viewerUserId: string | null | undefined,
 ): T {
+  let payload = run.payload;
+  if (run.taskType === "create_space" && isRecord(payload) && isRecord(payload.data)) {
+    const data = { ...payload.data };
+    if (Object.hasOwn(data, "gitToken")) {
+      delete data.gitToken;
+      payload = { ...payload, data };
+    }
+  }
+
   const isGeneration = run.taskType === "generation";
   const isBillingRetry = run.taskType === "generation.billing_retry";
-  if ((!isGeneration && !isBillingRetry) || (viewerUserId && run.userUuid === viewerUserId)) return run;
+  if ((!isGeneration && !isBillingRetry) || (viewerUserId && run.userUuid === viewerUserId)) {
+    return payload === run.payload ? run : { ...run, payload };
+  }
 
-  let payload = run.payload;
   if (isRecord(payload) && isRecord(payload.data)) {
     const data = { ...payload.data };
     let dataChanged = false;

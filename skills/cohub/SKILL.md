@@ -271,6 +271,7 @@ cohub -s <spaceId> run --command "pnpm test"
 cohub spaces ls
 cohub spaces get <spaceId>
 cohub spaces create --name "<name>" --description "<description>"
+cohub spaces create --name "<name>" --checkpoint <checkpointId>
 cohub spaces rename <spaceId> "<new name>"
 cohub spaces update <spaceId> --slug <space-slug>
 cohub spaces avatar <path>

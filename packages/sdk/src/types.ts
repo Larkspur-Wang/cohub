@@ -728,6 +728,32 @@ export type SpaceConfig = {
   sandbox?: SpaceSandboxConfig;
 };
 
+export type SpaceBootstrapSource =
+  | { type: "blank" }
+  | { type: "git_repo"; repoUrl: string; ref?: string | null }
+  | { type: "checkpoint"; checkpointId: string };
+
+export type SpaceBootstrapStatus = "pending" | "running" | "ready" | "failed";
+
+export type SpaceBootstrapStage =
+  | "prepare"
+  | "import"
+  | "checkpoint_restore"
+  | "finalize";
+
+export type SpaceBootstrapMeta = {
+  source: SpaceBootstrapSource;
+  status: SpaceBootstrapStatus;
+  stage: SpaceBootstrapStage | null;
+  taskRunId: string | null;
+  errorMessage: string | null;
+  errorCode?: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  stageTimings?: Record<string, number>;
+  initialCheckpointTaskRunId?: string | null;
+};
+
 export type SpacePublicProfile = {
   avatarUrl: string | null;
 };
@@ -735,6 +761,7 @@ export type SpacePublicProfile = {
 export type SpaceMeta = JsonObject & {
   config?: SpaceConfig;
   extraEnv?: SpaceEnvInput[];
+  bootstrap?: SpaceBootstrapMeta;
   publicProfile?: Partial<SpacePublicProfile> | null;
 };
 
@@ -767,11 +794,6 @@ export type SpaceRecord = {
   isPinned?: boolean;
 };
 
-export type SpaceBootstrapSource =
-  | { type: "blank" }
-  | { type: "git_repo"; repoUrl?: string; ref?: string | null }
-  | { type: "checkpoint"; checkpointId: string };
-
 export type SpaceConfigInput = {
   sandbox?: {
     provider?: SpaceSandboxProvider;
@@ -788,7 +810,7 @@ export type CreateSpaceModInput = {
 };
 
 export type CreateSpaceInput = {
-  name?: string;
+  name: string;
   slug?: string | null;
   description?: string | null;
   source?: string;
