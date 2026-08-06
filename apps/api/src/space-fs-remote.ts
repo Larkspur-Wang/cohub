@@ -1,18 +1,18 @@
 import { basename } from "node:path";
 import { SandboxRpcError } from "@cohub/sandbox-client";
-import type {
-  SpaceFsEntry,
-  SpaceFsFileResponse,
-  SpaceFsMoveInput,
-  SpaceFsReadFilesResponse,
-  SpaceFsTreeResponse,
-  SpaceFsUploadResponse,
-  SpaceFsWriteFileInput,
+import {
+  matchesSpaceFsVersion,
+  type SpaceFsEntry,
+  type SpaceFsFileResponse,
+  type SpaceFsMoveInput,
+  type SpaceFsReadFilesResponse,
+  type SpaceFsTreeResponse,
+  type SpaceFsUploadResponse,
+  type SpaceFsWriteFileInput,
 } from "@cohub/protocol/fs";
 import type { RpcEventPayload } from "@cohub/protocol/sandbox";
 import { assertSafeRelativePath, getMimeType, isTextMime, resolveReadMimeType, sanitizeFileName, SpaceFsError } from "./space-fs.js";
 import type { SpaceFsVisibility } from "./space-fs-ignore.js";
-import { matchesSpaceFsVersion } from "./space-fs-version.js";
 import { callSandboxRpc, getSandboxCapabilities, SandboxOfflineError } from "./space-sandbox-rpc.js";
 
 // Local-sandbox filesystem backend. Mirrors the direct (PVC) backend's public

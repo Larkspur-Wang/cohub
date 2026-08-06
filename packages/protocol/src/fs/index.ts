@@ -85,6 +85,26 @@ export type SpaceFsWriteFileInput = {
   mutationId?: string;
 };
 
+export type SpaceFsVersion = {
+  size?: number;
+  mtimeMs?: number;
+};
+
+/**
+ * Compare file versions at the integer-millisecond precision carried by every
+ * filesystem transport. Node may expose fractional milliseconds while the Go
+ * sandbox protocol uses Unix milliseconds, so comparing the raw values would
+ * report a conflict for the same file.
+ */
+export function matchesSpaceFsVersion(
+  actual: SpaceFsVersion,
+  expected: { size: number; mtimeMs: number },
+) {
+  return actual.size === expected.size
+    && actual.mtimeMs !== undefined
+    && Math.trunc(actual.mtimeMs) === Math.trunc(expected.mtimeMs);
+}
+
 export type SpaceFsMoveInput = {
   fromPath: string;
   toPath: string;

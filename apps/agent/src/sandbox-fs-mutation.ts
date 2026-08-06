@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { Job } from "bullmq";
-import { SandboxRpcError, type SandboxConnection } from "@cohub/sandbox-client";
+import { matchesSpaceFsVersion } from "@cohub/protocol/fs";
 import type { RpcEventPayload, RpcMethod, RpcRequestMap } from "@cohub/protocol/sandbox";
+import { SandboxRpcError, type SandboxConnection } from "@cohub/sandbox-client";
 import { getAgentTracer, wrapToolCall } from "@cohub/infra/tracing/agent";
 import { ensureSandboxConnection } from "./sandbox-pool.js";
 import { tracedRpc } from "./sandbox/tools.js";
@@ -31,13 +32,6 @@ function rpc<M extends RpcMethod>(
   options?: RpcOptions,
 ) {
   return tracedRpc(connection, method, params, options, false);
-}
-
-function matchesSpaceFsVersion(
-  actual: { size?: number; mtimeMs?: number },
-  expected: { size: number; mtimeMs: number },
-) {
-  return actual.size === expected.size && actual.mtimeMs === expected.mtimeMs;
 }
 
 const parentPath = (path: string) => {

@@ -20,19 +20,19 @@ import {
 import { FS_CDN_READ_MANY_WAIT_TIMEOUT_MS, FS_CDN_READ_WAIT_TIMEOUT_MS } from "./space-fs-cdn-constants.js";
 import { config } from "./config.js";
 import { createSpaceGitignoreFilter, type SpaceFsVisibility } from "./space-fs-ignore.js";
-import type {
-  SpaceFsEntry,
-  SpaceFsFileResponse,
-  SpaceFsMoveInput,
-  SpaceFsReadFilesError,
-  SpaceFsReadFilesResponse,
-  SpaceFsPreparingFile,
-  SpaceFsTreeResponse,
-  SpaceFsUploadResponse,
-  SpaceFsWriteFileInput,
+import {
+  matchesSpaceFsVersion,
+  type SpaceFsEntry,
+  type SpaceFsFileResponse,
+  type SpaceFsMoveInput,
+  type SpaceFsReadFilesError,
+  type SpaceFsReadFilesResponse,
+  type SpaceFsPreparingFile,
+  type SpaceFsTreeResponse,
+  type SpaceFsUploadResponse,
+  type SpaceFsWriteFileInput,
 } from "@cohub/protocol/fs";
 import { isTextMime } from "./space-fs-mime.js";
-import { matchesSpaceFsVersion } from "./space-fs-version.js";
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const MAX_BATCH_READ_FILES = 50;
