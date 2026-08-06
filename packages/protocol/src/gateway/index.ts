@@ -144,6 +144,7 @@ const gatewayInboundEventBaseSchema = z.object({
   sender: gatewayInboundSenderSchema,
   content: z.array(contentBlockSchema),
   meta: recordSchema.nullable().optional(),
+  providerEvent: z.unknown().optional(),
 });
 
 export const gatewayMessageCreateEventSchema = gatewayInboundEventBaseSchema.extend({
@@ -194,6 +195,7 @@ export interface GatewayInboundEventBase {
   };
   content: ContentBlock[];
   meta?: Record<string, unknown> | null;
+  providerEvent?: unknown;
 }
 
 export interface GatewayMessageCreateEvent extends GatewayInboundEventBase {

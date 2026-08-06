@@ -12,6 +12,7 @@ import { assignSessionSourceSystemLabel } from "@cohub/core/labels/session-sourc
 import { dispatchLabelAssignmentsUpdated } from "./realtime-events.js";
 import { createLogger } from "@cohub/infra/logging";
 import { registerSpaceSession } from "./space-sessions.js";
+import { buildProviderMessageRefMeta } from "./lib/provider-message-ref.js";
 
 const logger = createLogger({ serviceName: "cohub-api" });
 
@@ -216,11 +217,11 @@ const createInboundCommandRef = async (input: {
   externalMessageId: input.event.externalMessageId,
   externalAuthorId: input.event.sender.id,
   externalAuthorName: input.event.sender.name ?? null,
-  meta: {
+  meta: buildProviderMessageRefMeta({
     bindingKey: input.resolved.bindingKey,
     command: input.command.name,
     contextIncluded: false,
-  },
+  }, input.event.providerEvent),
 });
 
 const dispatchCommandReply = async (input: {

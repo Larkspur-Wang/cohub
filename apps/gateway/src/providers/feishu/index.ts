@@ -347,6 +347,7 @@ export class FeishuProvider implements GatewayProvider {
         name: "", // Enriched later if needed
       },
       content: [] as ContentBlock[],
+      providerEvent: data,
       meta: {
         chatType: msg.chat_type,
         isDm,

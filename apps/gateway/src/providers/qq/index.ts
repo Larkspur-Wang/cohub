@@ -196,19 +196,19 @@ export class QQProvider implements GatewayProvider {
 
   private async handleEvent(event: QQDispatchEvent) {
     if (event.eventType === "C2C_MESSAGE_CREATE") {
-      await this.publishC2CMessage(event.data as QQC2CMessageEvent, event.seq);
+      await this.publishC2CMessage(event.data as QQC2CMessageEvent, event);
       return;
     }
     if (event.eventType === "GROUP_AT_MESSAGE_CREATE" || event.eventType === "GROUP_MESSAGE_CREATE") {
-      await this.publishGroupMessage(event.data as QQGroupMessageEvent, event.seq, event.eventType);
+      await this.publishGroupMessage(event.data as QQGroupMessageEvent, event);
       return;
     }
     if (event.eventType === "AT_MESSAGE_CREATE") {
-      await this.publishGuildMessage(event.data as QQGuildMessageEvent, event.seq);
+      await this.publishGuildMessage(event.data as QQGuildMessageEvent, event);
     }
   }
 
-  private async publishC2CMessage(message: QQC2CMessageEvent, seq?: number) {
+  private async publishC2CMessage(message: QQC2CMessageEvent, providerEvent: QQDispatchEvent) {
     const openid = message.author?.user_openid || message.author?.union_openid || message.author?.id;
     if (!openid || !message.id || message.author?.bot) return;
     const text = await this.resolveReferencedContent(normalizeContent(message.content), message.message_scene?.ext, message.msg_elements);
@@ -223,13 +223,15 @@ export class QQProvider implements GatewayProvider {
       senderId: openid,
       content,
       text,
-      seq,
+      seq: providerEvent.seq,
       attachments,
+      providerEvent: providerEvent.raw,
       meta: { rawEventType: "C2C_MESSAGE_CREATE", msgIdx: extractRefIdx(message.message_scene?.ext, "msg_idx"), sourceChannel: sourceChannel("c2c", openid) },
     });
   }
 
-  private async publishGroupMessage(message: QQGroupMessageEvent, seq: number | undefined, rawEventType: string) {
+  private async publishGroupMessage(message: QQGroupMessageEvent, providerEvent: QQDispatchEvent) {
+    const rawEventType = providerEvent.eventType;
     const groupOpenid = message.group_openid || message.group_id;
     const senderId = message.author?.member_openid || message.author?.id || "unknown";
     if (!groupOpenid || !message.id || message.author?.bot) return;
@@ -250,13 +252,14 @@ export class QQProvider implements GatewayProvider {
       senderName: message.author?.username,
       content,
       text,
-      seq,
+      seq: providerEvent.seq,
       attachments,
+      providerEvent: providerEvent.raw,
       meta: { rawEventType, groupId: message.group_id ?? null, msgIdx: extractRefIdx(message.message_scene?.ext, "msg_idx"), sourceChannel: sourceChannel("group", groupOpenid) },
     });
   }
 
-  private async publishGuildMessage(message: QQGuildMessageEvent, seq?: number) {
+  private async publishGuildMessage(message: QQGuildMessageEvent, providerEvent: QQDispatchEvent) {
     if (!message.channel_id || !message.id || message.author?.bot) return;
     const text = await this.resolveReferencedContent(normalizeContent(message.content), message.message_scene?.ext, message.msg_elements);
     const attachments = collectQQAttachments({ attachments: message.attachments, msgElements: message.msg_elements });
@@ -271,8 +274,9 @@ export class QQProvider implements GatewayProvider {
       senderName: message.member?.nick ?? message.author?.username,
       content,
       text,
-      seq,
+      seq: providerEvent.seq,
       attachments,
+      providerEvent: providerEvent.raw,
       meta: { rawEventType: "AT_MESSAGE_CREATE", guildId: message.guild_id, msgIdx: extractRefIdx(message.message_scene?.ext, "msg_idx"), sourceChannel: sourceChannel("guild", message.channel_id) },
     });
   }
@@ -297,6 +301,7 @@ export class QQProvider implements GatewayProvider {
     text: string;
     seq?: number;
     attachments?: QQMessageAttachment[];
+    providerEvent: unknown;
     meta: Record<string, unknown>;
   }) {
     const bindingKey = buildQQBindingKey(input.kind, input.externalConversationId);
@@ -329,6 +334,7 @@ export class QQProvider implements GatewayProvider {
         name: input.senderName,
       },
       content: input.content,
+      providerEvent: input.providerEvent,
       meta: input.meta,
     } satisfies Omit<GatewayInboundEvent, "eventType" | "command">;
     const mediaEvent = { ...base, eventType: command ? "channel_command" : "message_create", ...(command ? { command } : {}) } as GatewayInboundEvent;

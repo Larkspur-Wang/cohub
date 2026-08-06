@@ -731,6 +731,7 @@ async function handleMessageCreateInboundEvent(event: GatewayInboundEvent) {
       externalAuthorId: event.sender.id,
       externalAuthorName: event.sender.name ?? null,
       meta: { bindingKey: resolved.bindingKey },
+      providerEvent: event.providerEvent,
     },
   });
 }

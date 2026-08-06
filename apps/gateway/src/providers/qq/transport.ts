@@ -174,7 +174,7 @@ export class QQWebSocketTransport {
         this.markReady();
         return;
       }
-      if (t) await this.options.onEvent({ eventType: t, data: d, seq: s });
+      if (t) await this.options.onEvent({ eventType: t, data: d, seq: s, raw: payload });
       return;
     }
 

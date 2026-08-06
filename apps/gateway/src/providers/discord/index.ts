@@ -43,6 +43,7 @@ const buildDiscordBindingKey = (message: Message) => {
 const buildDiscordBindingKeyForChannel = (channelId: string) => `discord:conversation:${channelId}`;
 
 const DISCORD_NATIVE_COMMAND_MESSAGE_PREFIX = "interaction:";
+const DISCORD_RAW_EVENT_MAX_ENTRIES = 1_000;
 
 const buildDiscordSourceChannel = (input: {
   isDM: boolean;
@@ -188,7 +189,29 @@ export class DiscordProvider implements GatewayProvider {
     });
   }
 
+  private readonly rawInboundEvents = new Map<string, unknown>();
+
+  private storeRawInboundEvent(id: string, event: unknown) {
+    if (this.rawInboundEvents.size >= DISCORD_RAW_EVENT_MAX_ENTRIES) {
+      const oldestId = this.rawInboundEvents.keys().next().value;
+      if (oldestId) this.rawInboundEvents.delete(oldestId);
+    }
+    this.rawInboundEvents.set(id, event);
+  }
+
+  private takeRawInboundEvent(id: string) {
+    const event = this.rawInboundEvents.get(id);
+    this.rawInboundEvents.delete(id);
+    return event;
+  }
+
   private setupListeners() {
+    this.client.on(Events.Raw, (packet) => {
+      if ((packet.t === "MESSAGE_CREATE" || packet.t === "INTERACTION_CREATE") && typeof packet.d?.id === "string") {
+        this.storeRawInboundEvent(packet.d.id, packet);
+      }
+    });
+
     this.client.on(Events.ClientReady, (readyClient) => {
       logger.info(`[Discord:${this.channelId}] ✓ Connected as ${readyClient.user.tag} (${readyClient.user.id})`);
       logger.info(`[Discord:${this.channelId}] Guilds: ${readyClient.guilds.cache.size}`);
@@ -316,11 +339,13 @@ export class DiscordProvider implements GatewayProvider {
     });
 
     this.client.on(Events.InteractionCreate, async (interaction) => {
+      const providerEvent = this.takeRawInboundEvent(interaction.id);
       if (!interaction.isChatInputCommand()) return;
-      await this.handleCommandInteraction(interaction);
+      await this.handleCommandInteraction(interaction, providerEvent);
     });
 
     this.client.on(Events.MessageCreate, async (message: Message) => {
+      const providerEvent = this.takeRawInboundEvent(message.id);
       const channelType = `${message.channel?.type ?? "unknown"}`;
       const isDM = message.channel?.isDMBased?.() ?? false;
       const isThread = message.channel?.isThread?.() ?? false;
@@ -448,6 +473,7 @@ export class DiscordProvider implements GatewayProvider {
           name: message.author.username,
         },
         content,
+        providerEvent,
         meta: {
           guildId: message.guildId ?? null,
           channelId: message.channelId,
@@ -589,7 +615,7 @@ export class DiscordProvider implements GatewayProvider {
     logger.info(`[Discord:${this.channelId}] Native commands registered: ${GATEWAY_CHANNEL_COMMAND_SPECS.map((command) => command.slash).join(", ")}`);
   }
 
-  private async handleCommandInteraction(interaction: CommandInteraction) {
+  private async handleCommandInteraction(interaction: CommandInteraction, providerEvent: unknown) {
     const command = resolveChannelCommand(`/${interaction.commandName}`);
     if (!command) return;
 
@@ -662,6 +688,7 @@ export class DiscordProvider implements GatewayProvider {
         name: interaction.user.username,
       },
       content: [{ type: "text", text: `/${interaction.commandName}` }],
+      providerEvent,
       meta: {
         guildId: interaction.guildId ?? null,
         channelId,

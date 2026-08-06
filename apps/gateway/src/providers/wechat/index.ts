@@ -511,6 +511,7 @@ export class WeChatProvider implements GatewayProvider {
         },
       },
       sender: { id: fromUserId, name: fromUserId },
+      providerEvent: message,
       meta: {
         accountId: this.credentials.accountId ?? null,
         seq: message.seq ?? null,

@@ -87,6 +87,7 @@ export type QQDispatchEvent = {
   eventType: string;
   data: unknown;
   seq?: number;
+  raw: QQWSPayload;
 };
 
 export type QQWSPayload = {

@@ -3,6 +3,7 @@ import type { GatewayInboundEvent } from "@cohub/protocol/gateway";
 import { getOrCreateRequestId } from "@cohub/infra/tracing";
 import { createProviderMessageRef } from "./channels.js";
 import { submitSessionPrompt, type ChannelPromptContext } from "./session-prompts.js";
+import { buildProviderMessageRefMeta } from "./lib/provider-message-ref.js";
 
 export type SessionInteractionInboundRef = {
   provider: string;
@@ -12,6 +13,7 @@ export type SessionInteractionInboundRef = {
   externalAuthorId?: string | null;
   externalAuthorName?: string | null;
   meta?: Record<string, unknown> | null;
+  providerEvent?: unknown;
 };
 
 export type ResolvedInboundInteraction = {
@@ -74,7 +76,7 @@ export const executeSessionInteraction = async (input: ResolvedInboundInteractio
         externalAuthorId: input.inboundRef.externalAuthorId ?? null,
         externalAuthorName: input.inboundRef.externalAuthorName ?? null,
         meta: {
-          ...(input.inboundRef.meta ?? {}),
+          ...buildProviderMessageRefMeta(input.inboundRef.meta, input.inboundRef.providerEvent),
           messageKind: "user",
           anchorUserMessageId: userMessageId,
           turnId,
