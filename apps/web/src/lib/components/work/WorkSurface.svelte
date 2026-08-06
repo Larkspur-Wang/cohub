@@ -116,8 +116,9 @@ const framePreconnectOrigin = $derived.by(() => {
 	if (!frameOrigin || frameOrigin === page.url.origin) return null;
 	return frameOrigin;
 });
-const frameSandbox =
-	"allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals";
+const frameSandbox = $derived(
+	`allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals${isBackground ? "" : " allow-pointer-lock"}`,
+);
 const checkoutState = $derived(readWorkCheckoutState(page.url));
 
 // `work` and `isBackground` are constant for the lifetime of this surface
