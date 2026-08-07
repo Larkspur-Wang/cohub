@@ -6,10 +6,15 @@ All notable changes to Cohub are documented in this file.
 
 ## v2.13 — 2026-08-07
 
-- **Work mentions**: Chat now supports structured mentions of published Works (`cohub://works/<username>/<space>/<work>`) alongside space and session mentions — pasting a Cohub work URL into the composer auto-converts it to a mention with a resolved title, and mentions render as clickable chips in messages and flow through the reference system as first-class resources.
-- **Immutable artifact manifests**: File and directory Works are now published under content-addressed roots with a signed `manifest.json` recording per-file SHA-256, sizes, MIME types, entrypoint, and safe output paths, so any client can reconstruct a published artifact byte-for-byte from CDN storage.
-- **Verified `cohub works download` command**: The CLI can now download file and directory Works by id, public URL, mention URI, or `username/space/work` reference — it fetches the small manifest, streams files from the CDN with bounded concurrency, verifies every checksum, restores HTML bundles with companion assets as directory trees, and installs atomically without ever overwriting existing output. `works get` accepts the same reference formats.
-- **Work references in the SDK**: `work` joins space, session, checkpoint, and file as a reference resource type; the SDK exposes `WorkContent.download` manifest descriptors and `WorksApi.getBySlug` now accepts an `AbortSignal` for cancelable lookups.
+- **CDN-tolerant Work downloads**: CLI Work downloads no longer fail when a CDN rewrites published content — files are no longer size- or checksum-compared against the manifest, a 1 GiB per-file safety cap still applies, and results now report when content verification was skipped while manifest integrity remains enforced.
+- **Precise Feishu thread routing**: The gateway binds messages to thread conversations only when an explicit thread ID is present, so replies without a thread stay in the chat conversation; root message IDs are preserved as message metadata for later correlation.
+- **Sanitized provider events**: Feishu provider events stored by the gateway are stripped of sensitive top-level fields (token, tenant_key) before persistence.
+
+### Bug Fixes
+
+- Fixed CLI Work downloads failing when CDN-transformed content mismatched the published file size or checksum.
+- Fixed Feishu replies without an explicit thread being misrouted into a thread conversation based on root message IDs.
+- Fixed Feishu provider events persisting credentials (token, tenant_key) in stored event data.
 
 ## v2.12 — 2026-08-07
 
