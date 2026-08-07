@@ -19,6 +19,26 @@ export function buildFeishuBindingKey(chatId: string, threadId?: string | null):
   return threadId ? `feishu:conversation:${chatId}:${threadId}` : `feishu:conversation:${chatId}`;
 }
 
+export function resolveFeishuMessageRelations(message: {
+  chat_type: "p2p" | "group";
+  thread_id?: string;
+  root_id?: string;
+  parent_id?: string;
+}) {
+  return {
+    conversationThreadId: message.thread_id ?? null,
+    parentMessageId: message.parent_id ?? null,
+    rootMessageId: message.root_id ?? null,
+    threadId: message.thread_id ?? null,
+  };
+}
+
+export function filterFeishuProviderEvent(data: unknown): unknown {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return data;
+  const { token: _token, tenant_key: _tenantKey, ...providerEvent } = data as Record<string, unknown>;
+  return providerEvent;
+}
+
 // Replace <at user_id="ou_xxx">name</at> with @name
 export function resolveAtMentions(content: string): string {
   return content.replace(/<at\s+user_id="([^"]+)">(.*?)<\/at>/g, "@$2");

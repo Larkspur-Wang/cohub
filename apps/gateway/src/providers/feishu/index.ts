@@ -13,6 +13,8 @@ import { buildFeishuDeliveryPlan } from "../../session-output-planner.js";
 import {
   resolveReceiveIdType,
   buildFeishuBindingKey,
+  filterFeishuProviderEvent,
+  resolveFeishuMessageRelations,
 } from "./utils.js";
 import { parseFeishuMessageContent, type FeishuParsedMessageBlock } from "./parse.js";
 import {
@@ -301,9 +303,13 @@ export class FeishuProvider implements GatewayProvider {
       ]) ?? [],
     });
 
-    const threadId = msg.thread_id || msg.root_id || null;
-    const parentMessageId = msg.root_id || msg.parent_id || null;
-    const bindingKey = buildFeishuBindingKey(msg.chat_id, threadId);
+    const {
+      conversationThreadId,
+      parentMessageId,
+      rootMessageId,
+      threadId,
+    } = resolveFeishuMessageRelations(msg);
+    const bindingKey = buildFeishuBindingKey(msg.chat_id, conversationThreadId);
     const senderId = event.sender?.sender_id?.open_id ?? "";
     const sourceChannel = buildFeishuSourceChannel({
       isDm,
@@ -323,21 +329,22 @@ export class FeishuProvider implements GatewayProvider {
       bindingKey,
       binding: {
         key: bindingKey,
-        parentKey: threadId ? buildFeishuBindingKey(msg.chat_id, null) : null,
+        parentKey: conversationThreadId ? buildFeishuBindingKey(msg.chat_id, null) : null,
       },
       conversation: {
         id: msg.chat_id,
-        parentId: threadId ?? undefined,
+        parentId: conversationThreadId ?? undefined,
         meta: {
           chatType: msg.chat_type,
           isDm,
-          threadId,
+          threadId: conversationThreadId,
           sourceChannel,
         },
       },
       message: {
         parentMessageId: parentMessageId ?? undefined,
         meta: {
+          rootId: rootMessageId,
           threadId,
           messageType: msg.message_type,
         },
@@ -347,7 +354,7 @@ export class FeishuProvider implements GatewayProvider {
         name: "", // Enriched later if needed
       },
       content: [] as ContentBlock[],
-      providerEvent: data,
+      providerEvent: filterFeishuProviderEvent(data),
       meta: {
         chatType: msg.chat_type,
         isDm,
