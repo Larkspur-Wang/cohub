@@ -1,5 +1,11 @@
 # @neta-art/cohub-cli
 
+## 3.7.0
+
+### Minor Changes
+
+- Add `cohub works stats` for viewing published Work view analytics by ID, URL, mention URI, or public slug.
+
 ## 3.6.4
 
 ### Patch Changes
