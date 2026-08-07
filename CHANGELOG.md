@@ -4,6 +4,13 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v2.13 — 2026-08-07
+
+- **Work mentions**: Chat now supports structured mentions of published Works (`cohub://works/<username>/<space>/<work>`) alongside space and session mentions — pasting a Cohub work URL into the composer auto-converts it to a mention with a resolved title, and mentions render as clickable chips in messages and flow through the reference system as first-class resources.
+- **Immutable artifact manifests**: File and directory Works are now published under content-addressed roots with a signed `manifest.json` recording per-file SHA-256, sizes, MIME types, entrypoint, and safe output paths, so any client can reconstruct a published artifact byte-for-byte from CDN storage.
+- **Verified `cohub works download` command**: The CLI can now download file and directory Works by id, public URL, mention URI, or `username/space/work` reference — it fetches the small manifest, streams files from the CDN with bounded concurrency, verifies every checksum, restores HTML bundles with companion assets as directory trees, and installs atomically without ever overwriting existing output. `works get` accepts the same reference formats.
+- **Work references in the SDK**: `work` joins space, session, checkpoint, and file as a reference resource type; the SDK exposes `WorkContent.download` manifest descriptors and `WorksApi.getBySlug` now accepts an `AbortSignal` for cancelable lookups.
+
 ## v2.12 — 2026-08-07
 
 - **Space creation alignment**: `cohub spaces create` now supports `--checkpoint` bootstrap, the SDK exposes typed bootstrap lifecycle metadata (`SpaceBootstrapMeta`) and requires a space `name`, and bootstrap sources are validated and sanitized end-to-end — Git credentials are stripped from repo URLs, bootstrap metadata, and task-run responses.
