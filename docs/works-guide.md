@@ -196,6 +196,16 @@ For a focused commerce example, see:
 - `docs/examples/work-capability-lab/commerce-demo.md`
 - `docs/examples/work-capability-lab/commerce-demo.html`
 
+## Download Published Artifacts
+
+Newly published file and directory Works include an immutable artifact manifest. Download them by id, public URL, mention URI, or public slug reference:
+
+```bash
+cohub works download <workId|url|username/space/work> --output <path>
+```
+
+The CLI reads the small manifest, streams files directly from the CDN with bounded concurrency, verifies every SHA-256 checksum, and atomically restores the published artifact. Existing outputs are never overwritten. An HTML file with published companion assets is restored as a directory bundle so no artifact files are lost. Board and port Works are not downloadable because neither maps safely to a restorable file or directory artifact.
+
 ## Publish Through the API or SDK
 
 The SDK exposes `works.create`, `works.update`, `works.publishVersion`, `works.delete`, `works.get`, `works.getBySlug`, and `works.listBySpace`.

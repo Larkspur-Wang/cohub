@@ -13,9 +13,9 @@ import ThinkingBlocks from "$lib/components/ThinkingBlocks.svelte";
 import ToolCallList from "$lib/components/ToolCallList.svelte";
 import ViewportContextBlocks from "$lib/components/ViewportContextBlocks.svelte";
 import {
-	type SpaceMentionTextToken,
-	tokenizeSpaceMentionText,
-} from "$lib/mentions/space";
+	type ResourceMentionTextToken,
+	tokenizeResourceMentionText,
+} from "$lib/mentions/resource";
 import type { OpenWorkspaceFileTarget } from "$lib/workspace-file-links";
 
 type TextBlock = Extract<ContentBlock, { type: "text" }>;
@@ -98,39 +98,31 @@ const userShellCommandBlocks = $derived(
 	),
 );
 
-type SpaceMentionToken = Extract<
-	SpaceMentionTextToken,
-	{ type: "spaceMention" }
->;
+type ResourceMentionToken = Exclude<ResourceMentionTextToken, { type: "text" }>;
 
 type UserTextToken =
 	| { type: "text"; text: string }
-	| {
-			type: "spaceMention";
-			text: string;
-			label: string;
-			spaceId: string;
-			raw: string;
-			uri: string;
-			href: string;
-	  };
+	| (ResourceMentionToken & { text: string });
 
 const userMentionButtonClass =
 	"inline-flex max-w-full translate-y-[-1px] items-baseline rounded-[5px] bg-brand-muted px-1.5 py-0.5 text-[0.92em] font-medium leading-none text-brand-muted-fg ring-1 ring-brand-border/70 transition-colors hover:bg-brand-muted-hover focus:outline-none focus:ring-1 focus:ring-brand";
 
-function buildUserMentionHref(token: SpaceMentionToken) {
-	return `${token.href}?from=${encodeURIComponent(page.url.pathname)}`;
+function buildUserMentionHref(token: ResourceMentionToken) {
+	if (token.type === "workMention") return token.href;
+	const url = new URL(token.href, page.url.origin);
+	url.searchParams.set("from", page.url.pathname);
+	return `${url.pathname}${url.search}${url.hash}`;
 }
 
-function openUserMention(token: SpaceMentionToken, event: MouseEvent) {
+function openUserMention(token: ResourceMentionToken, event: MouseEvent) {
 	event.preventDefault();
 	event.stopPropagation();
 	window.open(buildUserMentionHref(token), "_blank", "noopener,noreferrer");
 }
 
 function tokenizeUserText(value: string) {
-	return tokenizeSpaceMentionText(value).map((token) => {
-		if (token.type === "spaceMention") {
+	return tokenizeResourceMentionText(value).map((token) => {
+		if (token.type !== "text") {
 			return { ...token, text: `@${token.label}` } satisfies UserTextToken;
 		}
 		return token satisfies UserTextToken;
@@ -202,12 +194,12 @@ const segments = $derived.by(() => {
 	{#if userTextBlocks.length > 0}
 		<div class="whitespace-pre-wrap break-words text-inherit" class:mt-2={userShellCommandBlocks.length > 0}>
 			{#each userTextTokens as token}
-				{#if token.type === 'spaceMention'}
+				{#if token.type !== 'text'}
 					<button
 						type="button"
 						class={userMentionButtonClass}
 						title={`Open ${token.label} in a new window`}
-						aria-label={`Open space ${token.label} in a new window`}
+						aria-label={`Open ${token.type === 'workMention' ? 'work' : 'space'} ${token.label} in a new window`}
 						onclick={(event) => openUserMention(token, event)}
 					>{token.text}</button>
 				{:else}{token.text}{/if}

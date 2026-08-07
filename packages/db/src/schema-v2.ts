@@ -37,7 +37,8 @@ export type ReferenceResourceType =
   | "session"
   | "space"
   | "checkpoint"
-  | "file";
+  | "file"
+  | "work";
 
 /** The nature of a reference between two resources. */
 export type ReferenceKind =

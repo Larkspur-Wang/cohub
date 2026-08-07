@@ -234,12 +234,21 @@ For publishing files, directory sites, or sandbox ports as shareable Works, use 
 
 For Works with stronger capabilities (Cohub agent, generation, etc.), use the `@neta-art/cohub` SDK — install a fresh copy and read its README before writing any SDK code.
 
-Discover existing Works:
+Discover existing Works and resolve Work mentions or public links:
 
 ```bash
 cohub works ls
-cohub works get <workId>
+cohub works get <workId|url|username/space/work>
+cohub works get cohub://works/<username>/<spaceSlug>/<workSlug> --json
 ```
+
+Download a published file or directory Work before inspecting it with file tools:
+
+```bash
+cohub works download <workId|url|mentionUri> --output <path> --json
+```
+
+HTML files with companion assets download as directory bundles. Board and port Works are not downloadable; open their public URL with browser tooling when rendered inspection is needed.
 
 ```bash
 cohub works -h

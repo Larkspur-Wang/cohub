@@ -98,9 +98,12 @@ cohub -s <spaceId> works publish app --port 5173
 
 ```bash
 cohub -s <spaceId> works ls --json
-cohub works get <workId> --json
+cohub works get <workId|url|username/space/work> --json
+cohub works download <workId|url|username/space/work> --output <path>
 cohub works publish-version <workId>
 ```
+
+`works download` 直接从 CDN 恢复新发布的文件或目录产物，并校验 checksum。带有配套资源的 HTML 文件会恢复为目录 bundle。Board 和 port Work 不支持下载。
 
 ## 实用建议
 

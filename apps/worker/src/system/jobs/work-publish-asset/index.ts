@@ -17,6 +17,8 @@ import {
   isBoardPath,
   parseBoardManifest,
   type BoardSnapshot,
+  type WorkArtifactManifest,
+  type WorkArtifactManifestFile,
   type WorkBoardArtifactManifest,
   type WorkBoardAsset,
 } from "@cohub/protocol";
@@ -183,7 +185,8 @@ function getS3Client() {
 
 const cacheBuster = () => randomUUID().replaceAll("-", "").slice(0, 12);
 const envPrefix = () => (config.env === "prod" ? "" : `${config.env}/`);
-const buildWorkAssetPrefix = (input: { spaceId: string; workSlug: string }) => `${envPrefix()}w/${input.spaceId}/${input.workSlug}/${cacheBuster()}`;
+const buildWorkArtifactRoot = (input: { spaceId: string; workSlug: string }) => `${envPrefix()}w/${input.spaceId}/${input.workSlug}/${cacheBuster()}`;
+const workContentPrefix = (artifactRootKey: string) => `${artifactRootKey}/content`;
 
 function getMimeType(path: string) {
   const lower = basename(path).toLowerCase();
@@ -436,6 +439,36 @@ async function putWorkAssetObject(input: { objectKey: string; body: Buffer | str
   }));
 }
 
+async function writeArtifactManifest(input: {
+  artifactRootKey: string;
+  targetType: "file" | "directory";
+  targetRef: string;
+  entrypoint: string;
+  files: WorkArtifactManifestFile[];
+}) {
+  const files = input.files;
+  const manifest: WorkArtifactManifest = {
+    kind: "cohub.work.artifact-manifest",
+    version: 1,
+    targetType: input.targetType,
+    targetRef: input.targetRef,
+    entrypoint: input.entrypoint,
+    fileCount: files.length,
+    sizeBytes: files.reduce((sum, file) => sum + file.sizeBytes, 0),
+    files,
+  };
+  const body = `${JSON.stringify(manifest)}\n`;
+  const manifestKey = `${input.artifactRootKey}/meta/manifest.json`;
+  const manifestSha256 = createHash("sha256").update(body).digest("hex");
+  await putWorkAssetObject({
+    objectKey: manifestKey,
+    body,
+    contentType: "application/json; charset=utf-8",
+    sha256: manifestSha256,
+  });
+  return { artifactRootKey: input.artifactRootKey, manifestKey, manifestSha256 };
+}
+
 type FileSnapshot = {
   size: number;
   mtimeMs: number;
@@ -628,7 +661,8 @@ async function writeWorkHtmlAsset(input: {
   const sizeBytes = input.file.size + companionBytes;
   if (sizeBytes > MAX_WORK_SITE_BYTES) throw new WorkPublishAssetError(413, "HTML publish size exceeds 1GiB.", "file_too_large");
 
-  const prefix = buildWorkAssetPrefix({ spaceId: input.spaceId, workSlug: input.workSlug });
+  const artifactRootKey = buildWorkArtifactRoot({ spaceId: input.spaceId, workSlug: input.workSlug });
+  const prefix = workContentPrefix(artifactRootKey);
   const objectKey = `${prefix}/index.html`;
   await putWorkFileObject({
     objectKey,
@@ -636,25 +670,54 @@ async function writeWorkHtmlAsset(input: {
     prepared: input.prepared,
     contentType: "text/html; charset=utf-8",
   });
-  await mapWithConcurrency(companions, WORK_SITE_UPLOAD_CONCURRENCY, async (file) => {
-    await putWorkAssetObject({
-      objectKey: `${prefix}/${file.relativePath}`,
-      body: file.content,
-      contentType: file.mimeType ?? "application/octet-stream",
-      sha256: createHash("sha256").update(file.content).digest("hex"),
-    });
-  });
+  const manifestFiles: WorkArtifactManifestFile[] = [
+    {
+      artifactPath: "index.html",
+      outputPath: input.file.name,
+      mimeType: "text/html",
+      sizeBytes: input.prepared.snapshot.size,
+      sha256: input.prepared.sha256,
+    },
+  ];
+  await mapWithConcurrency(
+    companions.map((file, index) => ({ file, index })),
+    WORK_SITE_UPLOAD_CONCURRENCY,
+    async ({ file, index }) => {
+      const sha256 = createHash("sha256").update(file.content).digest("hex");
+      await putWorkAssetObject({
+        objectKey: `${prefix}/${file.relativePath}`,
+        body: file.content,
+        contentType: file.mimeType ?? "application/octet-stream",
+        sha256,
+      });
+      manifestFiles[index + 1] = {
+        artifactPath: file.relativePath,
+        outputPath: file.relativePath,
+        mimeType: file.mimeType,
+        sizeBytes: file.content.byteLength,
+        sha256,
+      };
+    },
+  );
 
   const uploadedPaths = ["index.html", ...companions.map((file) => file.relativePath)];
+  const download = await writeArtifactManifest({
+    artifactRootKey,
+    targetType: "file",
+    targetRef: input.file.relativePath,
+    entrypoint: "index.html",
+    files: manifestFiles,
+  });
   return {
     assetKey: objectKey,
     sizeBytes,
     fileCount: uploadedPaths.length,
     extracted: extractPageMetaFromHtml(input.html, "index.html", uploadedPaths),
+    download,
   };
 }
 
-async function writeWorkSiteAssets(input: { spaceId: string; workSlug: string; files: WorkSourceFile[] }) {
+async function writeWorkSiteAssets(input: { spaceId: string; workSlug: string; targetRef: string; files: WorkSourceFile[] }) {
   if (input.files.length <= 0 || input.files.length > MAX_WORK_SITE_FILES) {
     throw new WorkPublishAssetError(400, `work site must contain 1 to ${MAX_WORK_SITE_FILES} files`);
   }
@@ -665,22 +728,43 @@ async function writeWorkSiteAssets(input: { spaceId: string; workSlug: string; f
   if (totalBytes <= 0 || totalBytes > MAX_WORK_SITE_BYTES) throw new WorkPublishAssetError(400, "work site must be 1 byte to 1GiB");
 
   const preparedEntry = await prepareWorkFile(entry, WORK_HTML_METADATA_MAX_BYTES);
-  const prefix = buildWorkAssetPrefix({ spaceId: input.spaceId, workSlug: input.workSlug });
-  await mapWithConcurrency(input.files, WORK_FILE_UPLOAD_CONCURRENCY, async (file) => {
-    await putWorkFileObject({
-      objectKey: `${prefix}/${file.relativePath}`,
-      file,
-      prepared: file === entry ? preparedEntry : undefined,
-      contentType: file.mimeType ?? "application/octet-stream",
-    });
-  });
+  const artifactRootKey = buildWorkArtifactRoot({ spaceId: input.spaceId, workSlug: input.workSlug });
+  const prefix = workContentPrefix(artifactRootKey);
+  const manifestFiles = new Array<WorkArtifactManifestFile>(input.files.length);
+  await mapWithConcurrency(
+    input.files.map((file, index) => ({ file, index })),
+    WORK_FILE_UPLOAD_CONCURRENCY,
+    async ({ file, index }) => {
+      const uploaded = await putWorkFileObject({
+        objectKey: `${prefix}/${file.relativePath}`,
+        file,
+        prepared: file === entry ? preparedEntry : undefined,
+        contentType: file.mimeType ?? "application/octet-stream",
+      });
+      manifestFiles[index] = {
+        artifactPath: file.relativePath,
+        outputPath: file.relativePath,
+        mimeType: file.mimeType,
+        sizeBytes: uploaded.size,
+        sha256: uploaded.sha256,
+      };
+    },
+  );
 
+  const download = await writeArtifactManifest({
+    artifactRootKey,
+    targetType: "directory",
+    targetRef: input.targetRef,
+    entrypoint: "index.html",
+    files: manifestFiles,
+  });
   const html = preparedEntry.prefix?.toString("utf8") ?? "";
   return {
     assetKey: `${prefix}/index.html`,
     sizeBytes: totalBytes,
     fileCount: input.files.length,
     extracted: extractPageMetaFromHtml(html, "index.html", input.files.map((file) => file.relativePath)),
+    download,
   };
 }
 
@@ -689,13 +773,28 @@ async function writeWorkFileAsset(input: {
   workSlug: string;
   file: WorkSourceFile;
 }) {
-  const prefix = buildWorkAssetPrefix({ spaceId: input.spaceId, workSlug: input.workSlug });
+  const artifactRootKey = buildWorkArtifactRoot({ spaceId: input.spaceId, workSlug: input.workSlug });
+  const prefix = workContentPrefix(artifactRootKey);
   const extension = extname(input.file.name).toLowerCase();
-  const objectKey = `${prefix}/content${extension}`;
+  const artifactPath = `content${extension}`;
+  const objectKey = `${prefix}/${artifactPath}`;
   const { sha256, size } = await putWorkFileObject({
     objectKey,
     file: input.file,
     contentType: input.file.mimeType ?? "application/octet-stream",
+  });
+  const download = await writeArtifactManifest({
+    artifactRootKey,
+    targetType: "file",
+    targetRef: input.file.relativePath,
+    entrypoint: artifactPath,
+    files: [{
+      artifactPath,
+      outputPath: input.file.name,
+      mimeType: input.file.mimeType,
+      sizeBytes: size,
+      sha256,
+    }],
   });
   return {
     assetKey: objectKey,
@@ -708,6 +807,7 @@ async function writeWorkFileAsset(input: {
       mimeType: input.file.mimeType,
       sizeBytes: size,
       sha256,
+      download,
     },
   };
 }
@@ -837,7 +937,8 @@ async function writeWorkBoardAsset(input: {
     throw new WorkPublishAssetError(413, `Board references more than ${MAX_WORK_SITE_FILES} assets.`, "board_too_many_assets");
   }
 
-  const prefix = buildWorkAssetPrefix({ spaceId: input.spaceId, workSlug: input.workSlug });
+  const artifactRootKey = buildWorkArtifactRoot({ spaceId: input.spaceId, workSlug: input.workSlug });
+  const prefix = workContentPrefix(artifactRootKey);
   const budget = createByteBudget(MAX_WORK_SITE_BYTES);
   const uploaded = new Set<string>();
   // Indexed rather than appended: workers finish out of order, and the manifest
@@ -912,6 +1013,7 @@ async function processWorkPublishAsset(job: Job<WorkPublishAssetJobData>): Promi
           mimeType: "text/html",
           sizeBytes: written.sizeBytes,
           fileCount: written.fileCount,
+          download: written.download,
         },
       };
     }
@@ -929,7 +1031,7 @@ async function processWorkPublishAsset(job: Job<WorkPublishAssetJobData>): Promi
   }
   if (targetType === "directory") {
     const result = await readWorkDirectoryFiles(spaceId, targetRef);
-    const written = await writeWorkSiteAssets({ spaceId, workSlug: slug, files: result.files });
+    const written = await writeWorkSiteAssets({ spaceId, workSlug: slug, targetRef: result.path, files: result.files });
     return {
       ok: true,
       ...written,
@@ -938,6 +1040,7 @@ async function processWorkPublishAsset(job: Job<WorkPublishAssetJobData>): Promi
         mimeType: "text/html",
         sizeBytes: written.sizeBytes,
         fileCount: written.fileCount,
+        download: written.download,
       },
     };
   }

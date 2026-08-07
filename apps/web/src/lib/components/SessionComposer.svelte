@@ -29,13 +29,15 @@ import {
 	type ComposerImageAttachment,
 } from "$lib/composer-attachments";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
+import {
+	type ResourceMentionTextToken,
+	replaceCohubResourceUrls,
+	tokenizeResourceMentionText,
+} from "$lib/mentions/resource";
 import type { SpaceMentionSuggestion } from "$lib/mentions/space";
 import {
 	buildSpaceMentionMarkdown,
 	parseCohubSpaceUrls,
-	replaceCohubSpaceUrls,
-	type SpaceMentionTextToken,
-	tokenizeSpaceMentionText,
 } from "$lib/mentions/space";
 import {
 	getCohubLinkMentionKey,
@@ -53,6 +55,8 @@ import {
 	spaceMentionTriggerKey,
 	type TextCaret,
 } from "$lib/mentions/space-trigger";
+import { getCohubWorkLinkKey, parseCohubWorkUrls } from "$lib/mentions/work";
+import { resolveCohubWorkLinkMentionLabels } from "$lib/mentions/work-link-resolve";
 import { sdk } from "$lib/sdk";
 import { billingConversion } from "$lib/stores/billing-conversion.svelte";
 import { entriesFromFiles, type LocalUploadEntry } from "$lib/upload-entries";
@@ -142,6 +146,7 @@ let spaceMentionLocalController: AbortController | null = null;
 let spaceMentionRemoteController: AbortController | null = null;
 let spaceMentionDebounceTimer: number | null = null;
 let pastedSpaceResolveController: AbortController | null = null;
+let pastedWorkResolveController: AbortController | null = null;
 let spaceMentionTrigger = $state<SpaceMentionTrigger | null>(null);
 /** Dismissed trigger key; stays closed until the active @token changes. */
 let dismissedSpaceMentionKey: string | null = null;
@@ -328,13 +333,13 @@ const shouldPrepareComposerMentionMirror = $derived(
 	!isTextareaFocused &&
 		value.length <= COMPOSER_MENTION_MIRROR_TEXT_LIMIT &&
 		value.includes("@[") &&
-		value.includes("](cohub://spaces/"),
+		(value.includes("](cohub://spaces/") || value.includes("](cohub://works/")),
 );
-const composerMentionTokens = $derived.by<SpaceMentionTextToken[]>(() =>
-	shouldPrepareComposerMentionMirror ? tokenizeSpaceMentionText(value) : [],
+const composerMentionTokens = $derived.by<ResourceMentionTextToken[]>(() =>
+	shouldPrepareComposerMentionMirror ? tokenizeResourceMentionText(value) : [],
 );
 const composerHasRenderableMentions = $derived(
-	composerMentionTokens.some((token) => token.type === "spaceMention"),
+	composerMentionTokens.some((token) => token.type !== "text"),
 );
 const shouldRenderComposerMentionMirror = $derived(
 	composerHasRenderableMentions,
@@ -928,49 +933,85 @@ function focusComposer() {
 
 function handlePaste(event: ClipboardEvent) {
 	const clipboardText = event.clipboardData?.getData("text/plain") ?? "";
+	if (clipboardText) {
+		pastedSpaceResolveController?.abort();
+		pastedSpaceResolveController = null;
+		pastedWorkResolveController?.abort();
+		pastedWorkResolveController = null;
+	}
+
 	const pastedSpaceLinks = clipboardText
 		? parseCohubSpaceUrls(clipboardText)
 		: [];
-	if (pastedSpaceLinks.length > 0) {
+	const pastedWorkLinks = clipboardText
+		? parseCohubWorkUrls(clipboardText)
+		: [];
+	if (pastedSpaceLinks.length > 0 || pastedWorkLinks.length > 0) {
 		event.preventDefault();
-		const known = new Map<string, SpaceMentionSuggestion>();
-		for (const item of spaceMentionItems) known.set(item.spaceId, item);
-		const converted = replaceCohubSpaceUrls(clipboardText, (link) =>
-			link.sessionId ? null : known.get(link.spaceId)?.name,
+		const spaceLabels = new Map<string, string>();
+		const workLabels = new Map<string, string>();
+		const knownSpaces = new Map<string, SpaceMentionSuggestion>();
+		for (const item of spaceMentionItems) knownSpaces.set(item.spaceId, item);
+		for (const link of pastedSpaceLinks) {
+			const label = link.sessionId ? null : knownSpaces.get(link.spaceId)?.name;
+			if (label) spaceLabels.set(getCohubLinkMentionKey(link), label);
+		}
+
+		const renderSegment = () =>
+			replaceCohubResourceUrls(clipboardText, {
+				space: (link) => spaceLabels.get(getCohubLinkMentionKey(link)),
+				work: (link) => workLabels.get(getCohubWorkLinkKey(link)),
+			});
+		let renderedSegment = renderSegment();
+		const inserted = insertSnippet(renderedSegment);
+		const applyResolvedLabels = () => {
+			if (value.slice(inserted.start, inserted.end) !== renderedSegment) return;
+			const nextSegment = renderSegment();
+			if (nextSegment === renderedSegment) return;
+			value =
+				value.slice(0, inserted.start) +
+				nextSegment +
+				value.slice(inserted.end);
+			inserted.end = inserted.start + nextSegment.length;
+			renderedSegment = nextSegment;
+			scheduleResizeTextarea();
+			scheduleCaretSyncAndRefresh();
+		};
+
+		const unresolvedSpaces = pastedSpaceLinks.filter(
+			(link) => !spaceLabels.has(getCohubLinkMentionKey(link)),
 		);
-		const inserted = insertSnippet(converted);
-		const unresolved = pastedSpaceLinks.filter(
-			(link) => link.sessionId || !known.has(link.spaceId),
-		);
-		if (unresolved.length > 0) {
-			pastedSpaceResolveController?.abort();
-			pastedSpaceResolveController = new AbortController();
-			void resolveCohubLinkMentionLabels(unresolved, {
-				signal: pastedSpaceResolveController.signal,
+		if (unresolvedSpaces.length > 0) {
+			const controller = new AbortController();
+			pastedSpaceResolveController = controller;
+			void resolveCohubLinkMentionLabels(unresolvedSpaces, {
+				signal: controller.signal,
 			})
 				.then((labels) => {
-					if (labels.size === 0) return;
-					const currentSegment = value.slice(inserted.start, inserted.end);
-					const resolvedSegment = replaceCohubSpaceUrls(
-						clipboardText,
-						(link) => {
-							const resolved = labels.get(getCohubLinkMentionKey(link));
-							if (resolved) return resolved;
-							return link.sessionId ? null : known.get(link.spaceId)?.name;
-						},
-					);
-					if (currentSegment !== converted) return;
-					value =
-						value.slice(0, inserted.start) +
-						resolvedSegment +
-						value.slice(inserted.end);
-					inserted.end = inserted.start + resolvedSegment.length;
-					scheduleResizeTextarea();
-					scheduleCaretSyncAndRefresh();
+					if (controller.signal.aborted || labels.size === 0) return;
+					for (const [key, label] of labels) spaceLabels.set(key, label);
+					applyResolvedLabels();
 				})
 				.catch((error) => {
 					if (error?.name !== "AbortError")
 						console.warn("[space-mentions] pasted link resolve failed", error);
+				});
+		}
+
+		if (pastedWorkLinks.length > 0) {
+			const controller = new AbortController();
+			pastedWorkResolveController = controller;
+			void resolveCohubWorkLinkMentionLabels(pastedWorkLinks, {
+				signal: controller.signal,
+			})
+				.then((labels) => {
+					if (controller.signal.aborted || labels.size === 0) return;
+					for (const [key, label] of labels) workLabels.set(key, label);
+					applyResolvedLabels();
+				})
+				.catch((error) => {
+					if (error?.name !== "AbortError")
+						console.warn("[work-mentions] pasted link resolve failed", error);
 				});
 		}
 		return;
@@ -1031,6 +1072,7 @@ onMount(() => {
 		spaceMentionLocalController?.abort();
 		spaceMentionRemoteController?.abort();
 		pastedSpaceResolveController?.abort();
+		pastedWorkResolveController?.abort();
 		closeVoiceInput();
 		cancelScheduledResize();
 		cancelScheduledCaretSync();
@@ -1198,9 +1240,10 @@ $effect(() => {
 								aria-hidden="true"
 							>
 								{#each composerMentionTokens as token}
-									{#if token.type === 'spaceMention'}<span
+									{#if token.type !== 'text'}<span
 										class="composer-space-mention"
-										data-space-id={token.spaceId}
+										data-space-id={token.type === 'spaceMention' ? token.spaceId : undefined}
+										data-work-ref={token.type === 'workMention' ? `${token.username}/${token.spaceSlug}/${token.workSlug}` : undefined}
 									>@{token.label}</span>{:else}{token.text}{/if}
 								{/each}
 							</div>

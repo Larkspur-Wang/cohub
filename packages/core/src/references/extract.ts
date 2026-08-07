@@ -93,8 +93,14 @@ export const extractTurnReferences = (turn: TurnReferenceSource): ReferenceInput
   const mentionText = collectText(turn.userContent) || turn.userText || "";
   const seenMentions = new Map<string, ReferenceInput>();
   for (const mention of parseMentions(mentionText)) {
-    const targetType = mention.sessionId ? ("session" as const) : ("space" as const);
-    const targetId = mention.sessionId ?? mention.spaceId;
+    const targetType = mention.type === "work"
+      ? ("work" as const)
+      : mention.sessionId
+        ? ("session" as const)
+        : ("space" as const);
+    const targetId = mention.type === "work"
+      ? `${mention.username}/${mention.spaceSlug}/${mention.workSlug}`
+      : mention.sessionId ?? mention.spaceId;
     const key = `${targetType}:${targetId}`;
     const existing = seenMentions.get(key);
     if (existing) {
@@ -109,7 +115,11 @@ export const extractTurnReferences = (turn: TurnReferenceSource): ReferenceInput
       count: 1,
       meta: {
         label: mention.label,
-        ...(mention.sessionId ? { targetSpaceId: mention.spaceId } : {}),
+        ...(mention.type === "work"
+          ? { username: mention.username, spaceSlug: mention.spaceSlug, workSlug: mention.workSlug }
+          : mention.sessionId
+            ? { targetSpaceId: mention.spaceId }
+            : {}),
       },
     };
     seenMentions.set(key, reference);

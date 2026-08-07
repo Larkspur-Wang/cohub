@@ -312,6 +312,13 @@ const getWorkContent = (input: {
       boardVersion: Number(input.artifact.boardVersion),
     };
   }
+  const rawDownload = isRecord(input.artifact?.download) ? input.artifact.download : null;
+  const manifestKey = typeof rawDownload?.manifestKey === "string" ? rawDownload.manifestKey : null;
+  const manifestSha256 = typeof rawDownload?.manifestSha256 === "string" ? rawDownload.manifestSha256 : null;
+  const manifestUrl = manifestKey ? createWorkAssetPublicUrl(manifestKey) : null;
+  const download = manifestUrl && manifestSha256 && isAllowedWorkContentUrl(manifestUrl, "asset")
+    ? { manifestUrl, manifestSha256 }
+    : null;
   if (input.contentKind === "file" && input.artifact?.kind === "file") {
     return {
       kind: "file" as const,
@@ -322,6 +329,7 @@ const getWorkContent = (input: {
       mimeType: typeof input.artifact.mimeType === "string" ? input.artifact.mimeType : null,
       sizeBytes: Number(input.artifact.sizeBytes),
       sha256: String(input.artifact.sha256),
+      ...(download ? { download } : {}),
     };
   }
   return {
@@ -329,6 +337,7 @@ const getWorkContent = (input: {
     url,
     targetType: input.targetType as "file" | "directory",
     path: input.targetRef,
+    ...(download ? { download } : {}),
   };
 };
 

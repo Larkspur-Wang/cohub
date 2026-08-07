@@ -50,9 +50,9 @@ Type `/` to browse prompt templates and skills.
 
 ### Mentions
 
-Use `@space` mentions when the Agent should pull context from another Space you can access.
+Use `@space` mentions when the Agent should pull context from another Space you can access. Paste a public Work URL to create a Work mention that the Agent can resolve or download.
 
-Mentions are for deliberate cross-space context, not every message.
+Mentions are for deliberate context references, not every message.
 
 ## Working with turns
 

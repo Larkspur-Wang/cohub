@@ -3,6 +3,8 @@ import type { Command } from "commander";
 import { createClient } from "../client.js";
 import { error, handleHttp, json as outJson, jsonRequested, ok, table } from "../output.js";
 import { resolveSpace } from "../space.js";
+import { downloadWork } from "../work-download.js";
+import { getWorkByRef } from "../work-ref.js";
 import { registerWorkCommerce } from "./work-commerce.js";
 
 const WORK_STATUSES = ["published", "disabled"] as const;
@@ -171,16 +173,33 @@ export function registerWorks(program: Command): void {
     });
 
   worksCmd
-    .command("get <id>")
-    .description("Show work details")
+    .command("get <work>")
+    .description("Show work details by id, URL, mention URI, or username/space/work")
     .option("--json", "Output as JSON")
-    .action(async (id: string, opts: { json?: boolean }) => {
+    .action(async (work: string, opts: { json?: boolean }) => {
       const client = createClient();
       try {
-        const result = await client.works.get(id);
+        const result = await getWorkByRef(client, work);
         if (jsonRequested(opts)) return outJson(result);
         printWork(result.work);
         printWorkUrls(result);
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
+  worksCmd
+    .command("download <work>")
+    .description("Download a published file or directory Work")
+    .option("-o, --output <path>", "Output file or directory")
+    .option("--json", "Output as JSON")
+    .action(async (work: string, opts: { output?: string; json?: boolean }) => {
+      const client = createClient();
+      try {
+        const detail = await getWorkByRef(client, work);
+        const result = await downloadWork(detail, opts.output);
+        if (jsonRequested(opts)) return outJson(result);
+        ok(`Downloaded ${result.files} file${result.files === 1 ? "" : "s"} to ${result.output}`);
       } catch (e: unknown) {
         handleHttp(e);
       }

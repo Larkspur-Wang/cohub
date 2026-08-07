@@ -105,9 +105,10 @@ export function parseSpaceMentionUri(
 	const path = uri.slice(SPACE_URI_PREFIX.length).split("/");
 	const spaceId = safeDecode(path[0] ?? "").trim();
 	if (!spaceId) return null;
-	const sessionId =
-		path[1] === "sessions" ? safeDecode(path[2] ?? "").trim() : "";
-	return sessionId ? { spaceId, sessionId } : { spaceId };
+	if (path.length === 1) return { spaceId };
+	if (path.length !== 3 || path[1] !== "sessions") return null;
+	const sessionId = safeDecode(path[2] ?? "").trim();
+	return sessionId ? { spaceId, sessionId } : null;
 }
 
 export function extractSpaceMentionsFromText(text: string): SpaceMention[] {

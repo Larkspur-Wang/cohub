@@ -66,6 +66,9 @@ export const isConfiguredWorkAssetPublicUrl = (url: string) => {
 
 const workAssetPrefixFromObjectKey = (objectKey: string) => {
   const normalized = objectKey.replace(/^\/+/, "");
+  const contentMarker = "/content/";
+  const contentIndex = normalized.lastIndexOf(contentMarker);
+  if (contentIndex > 0) return normalized.slice(0, contentIndex + 1);
   const slash = normalized.lastIndexOf("/");
   if (slash <= 0) return null;
   return normalized.slice(0, slash + 1);

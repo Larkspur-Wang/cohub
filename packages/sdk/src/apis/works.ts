@@ -101,19 +101,28 @@ export type WorkVersionRecord = {
   createdAt: string | null;
 };
 
+export type WorkContentDownload = {
+  manifestUrl: string;
+  manifestSha256: string;
+};
+
 export type WorkContent =
   | { kind: "port"; url: string; targetType: "port"; port: string }
-  | { kind: "web"; url: string; targetType: "file" | "directory"; path: string }
-  | {
-      kind: "file";
-      url: string;
-      targetType: "file";
-      path: string;
-      name: string;
-      mimeType: string | null;
-      sizeBytes: number;
-      sha256: string;
-    }
+  | ((
+      | { kind: "web"; url: string; targetType: "file" | "directory"; path: string }
+      | {
+          kind: "file";
+          url: string;
+          targetType: "file";
+          path: string;
+          name: string;
+          mimeType: string | null;
+          sizeBytes: number;
+          sha256: string;
+        }
+    ) & {
+      download?: WorkContentDownload;
+    })
   | {
       kind: "board";
       url: string;
@@ -185,9 +194,15 @@ export class WorksApi {
     return this.transport.request<WorkResolveResponse>(`/api/works/${id}/public`);
   }
 
-  getBySlug(username: string, spaceSlug: string, workSlug: string) {
+  getBySlug(
+    username: string,
+    spaceSlug: string,
+    workSlug: string,
+    options?: { signal?: AbortSignal },
+  ) {
     return this.transport.request<WorkResolveResponse>(
       `/api/works/by-slug/${encodeURIComponent(username)}/${encodeURIComponent(spaceSlug)}/${encodeURIComponent(workSlug)}`,
+      options?.signal ? { signal: options.signal } : undefined,
     );
   }
 

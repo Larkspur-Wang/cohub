@@ -1621,7 +1621,8 @@ export type ReferenceResourceType =
   | "session"
   | "space"
   | "checkpoint"
-  | "file";
+  | "file"
+  | "work";
 
 /**
  * Resource types usable as a query `source`: they resolve to an owning space to

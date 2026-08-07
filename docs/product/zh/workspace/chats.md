@@ -50,9 +50,9 @@ Composer 是你驱动 Agent 的入口。
 
 ### Mentions
 
-当你希望 Agent 拉取另一个你可访问 Space 的上下文时，使用 `@space`。
+当你希望 Agent 拉取另一个你可访问 Space 的上下文时，使用 `@space`。粘贴公开 Work URL 可创建 Work mention，供 Agent 解析或下载。
 
-Mentions 适合有意的跨 Space 引用，不适合每条消息都用。
+Mentions 适合有意的上下文引用，不适合每条消息都用。
 
 ## 与 turns 协作
 

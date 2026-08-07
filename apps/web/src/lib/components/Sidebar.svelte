@@ -85,7 +85,7 @@ import {
 	type ResourceLabelMutationResult,
 	removeResourceFromLabel,
 } from "$lib/labels/resource-label-actions";
-import { formatSpaceMentionTextForDisplay } from "$lib/mentions/space";
+import { formatResourceMentionTextForDisplay } from "$lib/mentions/resource";
 import { sdk } from "$lib/sdk";
 import {
 	mergeSessionRecord,
@@ -2716,7 +2716,7 @@ function handleLabelRenameKeydown(event: KeyboardEvent, label: LabelListItem) {
 }
 
 function normalizeSessionDisplayText(value: string | null | undefined) {
-	return formatSpaceMentionTextForDisplay(value ?? "")
+	return formatResourceMentionTextForDisplay(value ?? "")
 		.replace(/\s+/g, " ")
 		.replace(/^[:\-\s]+/, "")
 		.trim();

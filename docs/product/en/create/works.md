@@ -98,9 +98,12 @@ Useful follow-ups:
 
 ```bash
 cohub -s <spaceId> works ls --json
-cohub works get <workId> --json
+cohub works get <workId|url|username/space/work> --json
+cohub works download <workId|url|username/space/work> --output <path>
 cohub works publish-version <workId>
 ```
+
+`works download` restores newly published file and directory artifacts directly from the CDN and verifies their checksums. HTML files with companion assets are restored as directory bundles. Board and port Works are not downloadable.
 
 ## Practical tips
 
