@@ -82,7 +82,7 @@ onMount(() => {
 		z-index: 30;
 		pointer-events: none;
 		overflow: hidden;
-		--lane-height: 38px;
+		--lane-height: 42px;
 	}
 
 	.danmaku-item {
@@ -110,7 +110,7 @@ onMount(() => {
 		-webkit-backdrop-filter: blur(10px);
 		box-shadow: 0 6px 18px
 			color-mix(in srgb, var(--overlay-scrim-strong) 10%, transparent);
-		font-size: 12px;
+		font-size: 14px;
 		line-height: 1.4;
 		color: var(--text-secondary);
 		white-space: nowrap;
@@ -198,11 +198,11 @@ onMount(() => {
 
 	@media (max-width: 640px) {
 		.danmaku-layer {
-			--lane-height: 34px;
+			--lane-height: 36px;
 		}
 		.danmaku-pill {
 			max-width: min(280px, 72vw);
-			font-size: 11px;
+			font-size: 12px;
 		}
 		.danmaku-name {
 			max-width: 80px;
