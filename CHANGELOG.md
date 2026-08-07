@@ -10,6 +10,7 @@ All notable changes to Cohub are documented in this file.
 - **Creator view analytics**: published Works now record views per version, hour, and source (Web, CLI, API) into an hourly rollup, exposed via `GET /api/works/:id/stats` and a new `works.getStats()` SDK method, with a Work detail panel showing total, 24h/7d windows, a 30-day trend, and source breakdown for space editors
 - **Redis-buffered view stats**: view recording is buffered in Redis and flushed in batches by a lock-protected system-worker job with atomic batch cuts and batched upserts, so counting views never blocks Work access and DB writes are amortized
 - **Structured auth failure logging**: access-token verification failures are logged with machine-readable reason codes (expired, signature, JWKS, claims), making auth debugging faster
+- **Work analytics CLI**: `cohub works stats` reports total, 24-hour, 7-day, and 30-day view counts with a per-source breakdown, resolving Works by ID, public URL, mention URI, or username/space/work slug.
 
 ### Bug Fixes
 
