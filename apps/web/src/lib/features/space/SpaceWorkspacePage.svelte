@@ -528,6 +528,7 @@ const openWorkPublish = (
 	workPublishTarget = { targetType, targetRef };
 };
 const inlineFileIsMarkdown = $derived(fileWorkspace.inlineFileIsMarkdown);
+const inlineFileIsCsv = $derived(fileWorkspace.inlineFileIsCsv);
 const inlineFileIsHtml = $derived(fileWorkspace.inlineFileIsHtml);
 const inlineFileHasRenderedPreview = $derived(
 	fileWorkspace.inlineFileHasRenderedPreview,
@@ -2529,6 +2530,7 @@ const spaceFileDomainProps = $derived.by<
 	inlineFileDiffLoading: fileWorkspace.inlineFileDiffLoading,
 	inlineFileDiffError: fileWorkspace.inlineFileDiffError,
 	inlineFileIsMarkdown,
+	inlineFileIsCsv,
 	inlineFileIsHtml,
 	inlineFileCopied,
 	inlineFileExt,

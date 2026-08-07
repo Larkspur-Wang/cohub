@@ -93,6 +93,7 @@ export type SpaceFileDomainProps = {
 	inlineFileDiffLoading: boolean;
 	inlineFileDiffError: string | null;
 	inlineFileIsMarkdown: boolean;
+	inlineFileIsCsv: boolean;
 	inlineFileIsHtml: boolean;
 	inlineFileCopied: boolean;
 	inlineFileExt: string;
@@ -236,6 +237,7 @@ let {
 	inlineFileDiffLoading,
 	inlineFileDiffError,
 	inlineFileIsMarkdown,
+	inlineFileIsCsv,
 	inlineFileIsHtml,
 	inlineFileCopied,
 	inlineFileExt,
@@ -426,6 +428,7 @@ function previewContentOut(node: Element) {
 		{inlineFileDiffLoading}
 		{inlineFileDiffError}
 		{inlineFileIsMarkdown}
+		{inlineFileIsCsv}
 		{inlineFileIsHtml}
 		{activeFsReadonly}
 		{canEditFiles}

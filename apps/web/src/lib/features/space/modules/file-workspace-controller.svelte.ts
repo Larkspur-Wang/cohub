@@ -1653,6 +1653,9 @@ export function createFileWorkspaceController(
 				filePreviewModel(getActiveInlineFile()?.response).kind === "markdown"
 			);
 		},
+		get inlineFileIsCsv() {
+			return filePreviewModel(getActiveInlineFile()?.response).kind === "csv";
+		},
 		get inlineFileIsHtml() {
 			return filePreviewModel(getActiveInlineFile()?.response).kind === "html";
 		},
