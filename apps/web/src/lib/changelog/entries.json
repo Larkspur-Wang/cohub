@@ -1,5 +1,19 @@
 [
 	{
+		"version": "2.14",
+		"date": "2026-08-07",
+		"tags": ["v2.14.0"],
+		"highlights": [
+			"**CSV table preview**: `.csv` and `text/csv` files now render as tables in the file preview with a sticky header, capped row truncation, and empty-cell handling, backed by a new dependency-free parser with delimiter auto-detection, quoted-field and CRLF support",
+			"**Creator view analytics**: published Works now record views per version, hour, and source (Web, CLI, API) into an hourly rollup, exposed via `GET /api/works/:id/stats` and a new `works.getStats()` SDK method, with a Work detail panel showing total, 24h/7d windows, a 30-day trend, and source breakdown for space editors",
+			"**Redis-buffered view stats**: view recording is buffered in Redis and flushed in batches by a lock-protected system-worker job with atomic batch cuts and batched upserts, so counting views never blocks Work access and DB writes are amortized",
+			"**Structured auth failure logging**: access-token verification failures are logged with machine-readable reason codes (expired, signature, JWKS, claims), making auth debugging faster"
+		],
+		"fixes": [
+			"**Stale preview save conflict recovery**: when a file save hits a 409 that turns out to be stale, the preview now re-fetches the fresh file and auto-recovers — or confirms the save already landed — instead of surfacing a false 'Changed elsewhere' error"
+		]
+	},
+	{
 		"version": "2.13",
 		"date": "2026-08-07",
 		"tags": ["v2.13.0", "v2.13.1", "v2.13.2"],

@@ -4,6 +4,17 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v2.14 — 2026-08-07
+
+- **CSV table preview**: `.csv` and `text/csv` files now render as tables in the file preview with a sticky header, capped row truncation, and empty-cell handling, backed by a new dependency-free parser with delimiter auto-detection, quoted-field and CRLF support
+- **Creator view analytics**: published Works now record views per version, hour, and source (Web, CLI, API) into an hourly rollup, exposed via `GET /api/works/:id/stats` and a new `works.getStats()` SDK method, with a Work detail panel showing total, 24h/7d windows, a 30-day trend, and source breakdown for space editors
+- **Redis-buffered view stats**: view recording is buffered in Redis and flushed in batches by a lock-protected system-worker job with atomic batch cuts and batched upserts, so counting views never blocks Work access and DB writes are amortized
+- **Structured auth failure logging**: access-token verification failures are logged with machine-readable reason codes (expired, signature, JWKS, claims), making auth debugging faster
+
+### Bug Fixes
+
+- **Stale preview save conflict recovery**: when a file save hits a 409 that turns out to be stale, the preview now re-fetches the fresh file and auto-recovers — or confirms the save already landed — instead of surfacing a false 'Changed elsewhere' error
+
 ## v2.13 — 2026-08-07
 
 - **Coordinated token refresh**: Access-token resolution is now single-flighted across concurrent requests and same-origin tabs — a Web Locks-backed coordinator with a shared session snapshot ensures a 401 storm triggers exactly one refresh exchange, waiters reuse the winning token, and duplicate sign-in redirects are deduplicated.
