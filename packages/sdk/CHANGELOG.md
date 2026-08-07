@@ -1,5 +1,11 @@
 # @neta-art/cohub
 
+## 5.2.0
+
+### Minor Changes
+
+- Add `WorksApi.getStats()` and typed Work view analytics responses for published Works.
+
 ## 5.1.1
 
 ### Patch Changes
