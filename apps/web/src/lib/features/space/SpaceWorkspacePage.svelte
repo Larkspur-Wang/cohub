@@ -287,6 +287,7 @@ const rightSidebarAvailable = $derived(
 	Boolean(space) && !spaceHasMinimalAccess,
 );
 const canEditFiles = $derived(hasAccessPermission("file.edit"));
+const canEditSpace = $derived(hasAccessPermission("space.edit"));
 const spaceOwnerUsername = $derived(
 	space?.ownerProfile?.username ??
 		(space?.userUuid === authStore.userUuid
@@ -2850,6 +2851,7 @@ const headerActions = {
         {space}
         {spaceLoadError}
         {spaceHasMinimalAccess}
+        {canEditSpace}
         {taskRealtimeEvent}
         ownerUsername={spaceOwnerUsername}
         {spaceSlug}

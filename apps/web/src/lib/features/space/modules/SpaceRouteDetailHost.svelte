@@ -40,6 +40,7 @@ type Props = {
 	space: SpaceRecord | null;
 	spaceLoadError: string;
 	spaceHasMinimalAccess: boolean;
+	canEditSpace: boolean;
 	taskRealtimeEvent: TaskRealtimeEvent | null;
 	ownerUsername: string | null;
 	spaceSlug: string | null;
@@ -52,6 +53,7 @@ let {
 	space,
 	spaceLoadError,
 	spaceHasMinimalAccess,
+	canEditSpace,
 	taskRealtimeEvent,
 	ownerUsername,
 	spaceSlug,
@@ -120,6 +122,7 @@ function handleTaskLoaded(run: TaskRunRecord | null) {
 		routeWorkId={route.workId}
 		{ownerUsername}
 		{spaceSlug}
+		{canEditSpace}
 		onDetailLoaded={handleWorkLoaded}
 	/>
 {:else if route.view === "task"}

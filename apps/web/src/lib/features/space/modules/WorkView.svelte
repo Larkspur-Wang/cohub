@@ -17,6 +17,7 @@ import {
 	type WorksChangedDetail,
 } from "$lib/features/work/work-realtime";
 import { formatDateTime } from "../space-utils";
+import WorkViewStats from "./WorkViewStats.svelte";
 import { createWorkDetailController } from "./work-detail-controller.svelte";
 import {
 	WORK_SCOPE_OPTIONS,
@@ -29,17 +30,25 @@ type Props = {
 	routeWorkId: string | null;
 	ownerUsername: string | null;
 	spaceSlug: string | null;
+	canEditSpace: boolean;
 	onDetailLoaded?: (work: WorkRecord | null) => void;
 };
 
-let { spaceId, routeWorkId, ownerUsername, spaceSlug, onDetailLoaded }: Props =
-	$props();
+let {
+	spaceId,
+	routeWorkId,
+	ownerUsername,
+	spaceSlug,
+	canEditSpace,
+	onDetailLoaded,
+}: Props = $props();
 
 const workDetailController = createWorkDetailController({
 	getSpaceId: () => spaceId,
 	getRouteWorkId: () => routeWorkId,
 	getOwnerUsername: () => ownerUsername,
 	getSpaceSlug: () => spaceSlug,
+	getCanViewStats: () => canEditSpace,
 	onDetailLoaded: (work) => onDetailLoaded?.(work),
 });
 
@@ -64,6 +73,9 @@ const workCanToggleHideCohubBar = $derived(
 	workDetailController.hideCohubBarAllowed ||
 		workDetailController.formHideCohubBar,
 );
+const workStats = $derived(workDetailController.stats);
+const workStatsLoading = $derived(workDetailController.statsLoading);
+const workStatsError = $derived(workDetailController.statsError);
 
 $effect(() => {
 	workDetailController.syncRoute();
@@ -153,6 +165,15 @@ onDestroy(() => {
           </button>
         </div>
       </header>
+
+      {#if canEditSpace && !workDetailController.editMode}
+        <WorkViewStats
+          stats={workStats}
+          loading={workStatsLoading}
+          error={workStatsError}
+          onRetry={() => void workDetailController.loadStats(workDetail.id)}
+        />
+      {/if}
 
       {#if workDetailController.editMode}
         <form onsubmit={workDetailController.submitUpdate} class="space-y-6">
