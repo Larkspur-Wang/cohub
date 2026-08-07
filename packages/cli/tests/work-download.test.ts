@@ -115,8 +115,6 @@ test("downloadWork restores directory artifacts without content verification", a
   const output = join(root, "launch");
   try {
     const result = await downloadWork(directoryDetail(sha256(encodedManifest)), output, fetcher);
-    assert.equal(result.verified, false);
-    assert.equal(result.unverifiedFiles, 2);
     assert.equal(result.files, 2);
     assert.equal(await readFile(join(output, "index.html"), "utf8"), index.toString());
     assert.equal(await readFile(join(output, "assets/app.js"), "utf8"), script.toString());
@@ -138,8 +136,6 @@ test("downloadWork restores a single file", async () => {
   try {
     const result = await downloadWork(fileDetail(sha256(encodedManifest)), output, fetcher);
     assert.equal(result.kind, "file");
-    assert.equal(result.verified, false);
-    assert.equal(result.unverifiedFiles, 1);
     assert.equal(await readFile(output, "utf8"), "result\n");
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -299,8 +295,6 @@ test("downloadWork accepts CDN-rewritten content of any type", async () => {
       ["https://cdn.test/meta/manifest.json", encodedManifest],
       ["https://cdn.test/content/index.html", rewritten],
     ])));
-    assert.equal(result.verified, false);
-    assert.equal(result.unverifiedFiles, 1);
     assert.equal(result.bytes, rewritten.byteLength);
     assert.equal(await readFile(join(output, "index.html"), "utf8"), rewritten.toString());
   } finally {

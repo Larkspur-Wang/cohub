@@ -17,8 +17,6 @@ type DownloadResult = {
   output: string;
   files: number;
   bytes: number;
-  verified: boolean;
-  unverifiedFiles: number;
 };
 
 function safeRelativePath(value: string, label: string) {
@@ -269,8 +267,6 @@ export async function downloadWork(
       output,
       files: files.length,
       bytes: downloadedBytes,
-      verified: false,
-      unverifiedFiles: files.length,
     };
   } catch (cause) {
     await rm(stage, { recursive: true, force: true }).catch(() => undefined);
