@@ -105,6 +105,7 @@ cohub -s <spaceId> spaces files diff
 cohub -s <spaceId> works publish demo --file dist/index.html
 cohub -s <spaceId> works publish site --dir dist
 cohub -s <spaceId> works ls --json
+cohub works stats <workId|url|username/space/work>
 ```
 
 Realtime rooms use a published Work's runtime identity. Use

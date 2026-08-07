@@ -276,6 +276,7 @@ cohub profile update --username <username>
 cohub spaces update <spaceId> --slug <space-slug>
 cohub -s <spaceId> works ls --json
 cohub works get <workId|url|username/space/work> --json
+cohub works stats <workId|url|username/space/work>
 cohub works download <workId|url|username/space/work> --output <path>
 cohub -s <spaceId> works publish demo --file dist/index.html
 cohub -s <spaceId> works publish site --dir dist
@@ -291,7 +292,7 @@ Resolve a published Work by public identity:
 cohub works resolve <workSlug> --owner <username> --space-slug <spaceSlug>
 ```
 
-Use `--json` for machine-readable output. `works get` and `works download` also accept `cohub://works/<username>/<space>/<work>` mention URIs. Download restores newly published file and directory artifacts directly from the CDN with checksum verification. HTML files with companion assets are restored as directory bundles; Board and port Works are not downloadable. The resolve command remains available for explicit slug-based lookup.
+Use `--json` for machine-readable output. `works get`, `works stats`, and `works download` also accept `cohub://works/<username>/<space>/<work>` mention URIs. `works stats` reports total, 24-hour, 7-day, and 30-day views with a source breakdown. Download restores newly published file and directory artifacts directly from the CDN with checksum verification. HTML files with companion assets are restored as directory bundles; Board and port Works are not downloadable. The resolve command remains available for explicit slug-based lookup.
 
 Realtime rooms use a published Work's runtime identity, so they are available
 through `client.work.realtime` in the SDK rather than as CLI commands.

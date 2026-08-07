@@ -196,6 +196,16 @@ For a focused commerce example, see:
 - `docs/examples/work-capability-lab/commerce-demo.md`
 - `docs/examples/work-capability-lab/commerce-demo.html`
 
+## View Statistics
+
+Work editors can inspect total, 24-hour, 7-day, and 30-day views with a source breakdown:
+
+```bash
+cohub works stats <workId|url|username/space/work>
+```
+
+Use `--json` to include the 30-day daily trend.
+
 ## Download Published Artifacts
 
 Newly published file and directory Works include an immutable artifact manifest. Download them by id, public URL, mention URI, or public slug reference:
@@ -208,7 +218,7 @@ The CLI reads the small manifest, streams files directly from the CDN with bound
 
 ## Publish Through the API or SDK
 
-The SDK exposes `works.create`, `works.update`, `works.publishVersion`, `works.delete`, `works.get`, `works.getBySlug`, and `works.listBySpace`.
+The SDK exposes `works.create`, `works.update`, `works.publishVersion`, `works.delete`, `works.get`, `works.getBySlug`, `works.getStats`, and `works.listBySpace`.
 
 `works.get(workId)` returns the Work record plus `publicUrl`, `content`, `owner`, and `space` when the Work can be publicly resolved.
 
@@ -274,6 +284,12 @@ List a Space's Works:
 
 ```js
 await sdk.works.listBySpace(spaceId);
+```
+
+Fetch a Work's view statistics:
+
+```js
+await sdk.works.getStats(workId);
 ```
 
 ## Verification

@@ -99,6 +99,7 @@ cohub -s <spaceId> works publish app --port 5173
 ```bash
 cohub -s <spaceId> works ls --json
 cohub works get <workId|url|username/space/work> --json
+cohub works stats <workId|url|username/space/work>
 cohub works download <workId|url|username/space/work> --output <path>
 cohub works publish-version <workId>
 ```
