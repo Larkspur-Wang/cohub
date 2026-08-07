@@ -7,6 +7,7 @@ import { pipeline } from "node:stream/promises";
 import type { WorkArtifactManifest, WorkArtifactManifestFile, WorkGetResponse } from "@neta-art/cohub";
 
 const MANIFEST_MAX_BYTES = 4 * 1024 * 1024;
+const MAX_CONTENT_FILE_BYTES = 1024 * 1024 * 1024;
 const DOWNLOAD_CONCURRENCY = 4;
 
 type DownloadResult = {
@@ -16,7 +17,8 @@ type DownloadResult = {
   output: string;
   files: number;
   bytes: number;
-  verified: true;
+  verified: boolean;
+  unverifiedFiles: number;
 };
 
 function safeRelativePath(value: string, label: string) {
@@ -124,15 +126,13 @@ async function downloadFile(url: string, output: string, expected: WorkArtifactM
   await mkdir(dirname(output), { recursive: true });
 
   let sizeBytes = 0;
-  const hash = createHash("sha256");
   const verifier = new Transform({
     transform(chunk: Buffer, _encoding: BufferEncoding, callback: TransformCallback) {
       sizeBytes += chunk.byteLength;
-      if (sizeBytes > expected.sizeBytes) {
-        callback(new Error(`Downloaded file verification failed: ${expected.outputPath}`));
+      if (sizeBytes > MAX_CONTENT_FILE_BYTES) {
+        callback(new Error(`Downloaded file is too large: ${expected.outputPath}`));
         return;
       }
-      hash.update(chunk);
       callback(null, chunk);
     },
   });
@@ -141,9 +141,7 @@ async function downloadFile(url: string, output: string, expected: WorkArtifactM
     verifier,
     createWriteStream(output, { flags: "wx" }),
   );
-  if (sizeBytes !== expected.sizeBytes || hash.digest("hex") !== expected.sha256) {
-    throw new Error(`Downloaded file verification failed: ${expected.outputPath}`);
-  }
+  return sizeBytes;
 }
 
 function outputExistsError(output: string) {
@@ -203,6 +201,7 @@ async function downloadFiles(input: {
   stage: string;
   fetcher: typeof fetch;
 }) {
+  const downloadedBytes = new Array<number>(input.files.length);
   let next = 0;
   let failed = false;
   let failure: unknown;
@@ -212,7 +211,7 @@ async function downloadFiles(input: {
       const file = input.files[index];
       if (!file) continue;
       try {
-        await downloadFile(
+        downloadedBytes[index] = await downloadFile(
           artifactUrl(input.contentUrl, file.artifactPath),
           join(input.stage, ...file.outputPath.split("/")),
           file,
@@ -226,6 +225,7 @@ async function downloadFiles(input: {
   });
   await Promise.all(workers);
   if (failed) throw failure;
+  return downloadedBytes.reduce((sum, size) => sum + size, 0);
 }
 
 export async function downloadWork(
@@ -254,7 +254,7 @@ export async function downloadWork(
 
   try {
     const files = hasDirectoryOutput ? manifest.files : [entry];
-    await downloadFiles({ files, contentUrl: content.url, stage, fetcher });
+    const downloadedBytes = await downloadFiles({ files, contentUrl: content.url, stage, fetcher });
     if (hasDirectoryOutput) {
       await installDirectoryNoReplace(stage, output);
     } else {
@@ -268,8 +268,9 @@ export async function downloadWork(
       kind: hasDirectoryOutput ? "directory" : "file",
       output,
       files: files.length,
-      bytes: files.reduce((sum, file) => sum + file.sizeBytes, 0),
-      verified: true,
+      bytes: downloadedBytes,
+      verified: false,
+      unverifiedFiles: files.length,
     };
   } catch (cause) {
     await rm(stage, { recursive: true, force: true }).catch(() => undefined);

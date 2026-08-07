@@ -89,7 +89,7 @@ function htmlDetail(manifestSha256: string): WorkGetResponse {
   } as WorkGetResponse;
 }
 
-test("downloadWork restores and verifies directory artifacts", async () => {
+test("downloadWork restores directory artifacts without content verification", async () => {
   const index = Buffer.from("<h1>Launch</h1>\n");
   const script = Buffer.from("console.log('ready');\n");
   const manifest: WorkArtifactManifest = {
@@ -115,7 +115,8 @@ test("downloadWork restores and verifies directory artifacts", async () => {
   const output = join(root, "launch");
   try {
     const result = await downloadWork(directoryDetail(sha256(encodedManifest)), output, fetcher);
-    assert.equal(result.verified, true);
+    assert.equal(result.verified, false);
+    assert.equal(result.unverifiedFiles, 2);
     assert.equal(result.files, 2);
     assert.equal(await readFile(join(output, "index.html"), "utf8"), index.toString());
     assert.equal(await readFile(join(output, "assets/app.js"), "utf8"), script.toString());
@@ -137,6 +138,8 @@ test("downloadWork restores a single file", async () => {
   try {
     const result = await downloadWork(fileDetail(sha256(encodedManifest)), output, fetcher);
     assert.equal(result.kind, "file");
+    assert.equal(result.verified, false);
+    assert.equal(result.unverifiedFiles, 1);
     assert.equal(await readFile(output, "utf8"), "result\n");
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -273,9 +276,9 @@ test("downloadWork rejects traversal paths before writing", async () => {
   }
 });
 
-test("downloadWork removes staged files after checksum failure", async () => {
-  const expected = Buffer.from("expected");
-  const received = Buffer.from("modified");
+test("downloadWork accepts CDN-rewritten content of any type", async () => {
+  const published = Buffer.from("<link href=\"https://fonts.googleapis.com\"><h1>Launch</h1>\n");
+  const rewritten = Buffer.from("<h1>Launch</h1>\n");
   const manifest: WorkArtifactManifest = {
     kind: "cohub.work.artifact-manifest",
     version: 1,
@@ -283,20 +286,51 @@ test("downloadWork removes staged files after checksum failure", async () => {
     targetRef: "dist",
     entrypoint: "index.html",
     fileCount: 1,
+    sizeBytes: published.byteLength,
+    files: [
+      { artifactPath: "index.html", outputPath: "index.html", mimeType: "text/html", sizeBytes: published.byteLength, sha256: sha256(published) },
+    ],
+  };
+  const encodedManifest = manifestBytes(manifest);
+  const root = await mkdtemp(join(tmpdir(), "cohub-work-download-"));
+  const output = join(root, "launch");
+  try {
+    const result = await downloadWork(directoryDetail(sha256(encodedManifest)), output, memoryFetch(new Map([
+      ["https://cdn.test/meta/manifest.json", encodedManifest],
+      ["https://cdn.test/content/index.html", rewritten],
+    ])));
+    assert.equal(result.verified, false);
+    assert.equal(result.unverifiedFiles, 1);
+    assert.equal(result.bytes, rewritten.byteLength);
+    assert.equal(await readFile(join(output, "index.html"), "utf8"), rewritten.toString());
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("downloadWork removes staged files after content download failure", async () => {
+  const expected = Buffer.from("console.log('expected');\n");
+  const manifest: WorkArtifactManifest = {
+    kind: "cohub.work.artifact-manifest",
+    version: 1,
+    targetType: "directory",
+    targetRef: "dist",
+    entrypoint: "script.js",
+    fileCount: 1,
     sizeBytes: expected.byteLength,
     files: [
-      { artifactPath: "index.html", outputPath: "index.html", mimeType: "text/html", sizeBytes: expected.byteLength, sha256: sha256(expected) },
+      { artifactPath: "script.js", outputPath: "script.js", mimeType: "text/javascript", sizeBytes: expected.byteLength, sha256: sha256(expected) },
     ],
   };
   const encodedManifest = manifestBytes(manifest);
   const root = await mkdtemp(join(tmpdir(), "cohub-work-download-"));
   try {
     await assert.rejects(
-      downloadWork(directoryDetail(sha256(encodedManifest)), join(root, "launch"), memoryFetch(new Map([
-        ["https://cdn.test/meta/manifest.json", encodedManifest],
-        ["https://cdn.test/content/index.html", received],
-      ]))),
-      /verification failed/,
+      downloadWork(directoryDetail(sha256(encodedManifest)), join(root, "launch"), async (input) => {
+        if (String(input) === "https://cdn.test/meta/manifest.json") return new Response(encodedManifest);
+        return new Response(null, { status: 502 });
+      }),
+      /Failed to download/,
     );
     assert.deepEqual(await readdir(root), []);
   } finally {
