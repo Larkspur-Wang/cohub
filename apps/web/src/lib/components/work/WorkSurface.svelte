@@ -119,6 +119,9 @@ const framePreconnectOrigin = $derived.by(() => {
 const frameSandbox = $derived(
 	`allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals${isBackground ? "" : " allow-pointer-lock"}`,
 );
+const framePermissions = $derived(
+	isBackground ? undefined : "clipboard-write; fullscreen; web-share",
+);
 const checkoutState = $derived(readWorkCheckoutState(page.url));
 
 // `work` and `isBackground` are constant for the lifetime of this surface
@@ -180,6 +183,7 @@ onMount(() => {
 			class="work-frame"
 			title={workTitle}
 			sandbox={frameSandbox}
+			allow={framePermissions}
 			src={iframeSrc}
 		></iframe>
 	{:else if !hasFrameSource}
