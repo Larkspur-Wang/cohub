@@ -2,16 +2,16 @@
 	{
 		"version": "2.13",
 		"date": "2026-08-07",
-		"tags": ["v2.13.0", "v2.13.1"],
+		"tags": ["v2.13.0", "v2.13.1", "v2.13.2"],
 		"highlights": [
-			"**CDN-tolerant Work downloads**: CLI Work downloads no longer fail when a CDN rewrites published content — files are no longer size- or checksum-compared against the manifest, a 1 GiB per-file safety cap still applies, and results now report when content verification was skipped while manifest integrity remains enforced.",
-			"**Precise Feishu thread routing**: The gateway binds messages to thread conversations only when an explicit thread ID is present, so replies without a thread stay in the chat conversation; root message IDs are preserved as message metadata for later correlation.",
-			"**Sanitized provider events**: Feishu provider events stored by the gateway are stripped of sensitive top-level fields (token, tenant_key) before persistence."
+			"**Coordinated token refresh**: Access-token resolution is now single-flighted across concurrent requests and same-origin tabs — a Web Locks-backed coordinator with a shared session snapshot ensures a 401 storm triggers exactly one refresh exchange, waiters reuse the winning token, and duplicate sign-in redirects are deduplicated.",
+			"**Stale-session guards in the SDK**: HttpTransport now stamps 401s with the auth session version, passes an UnauthorizedContext with matchesRejectedToken to onUnauthorized, and adds the getAuthSessionVersion client option plus a matchesUnauthorizedErrorToken export — letting clients prove a rejection is stale and preserve a newer session instead of signing out.",
+			"**More readable space danmaku**: Danmaku text and lane spacing are enlarged on desktop and mobile for clearer legibility of space activity.",
+			"**Simplified CLI Work downloads**: Work download results drop redundant content-verification status fields, reporting only the output path, file count, and bytes."
 		],
 		"fixes": [
-			"Fixed CLI Work downloads failing when CDN-transformed content mismatched the published file size or checksum.",
-			"Fixed Feishu replies without an explicit thread being misrouted into a thread conversation based on root message IDs.",
-			"Fixed Feishu provider events persisting credentials (token, tenant_key) in stored event data."
+			"Concurrent 401s could trigger parallel token refresh exchanges and multiple OAuth redirects, causing sign-in loops — now collapsed into a single refresh and redirect.",
+			"An outdated 401 could clear a session that had already been refreshed, logging users out mid-session — stale rejections are now ignored via session-generation guards."
 		]
 	},
 	{
