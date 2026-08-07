@@ -4,6 +4,21 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v2.12 — 2026-08-07
+
+- **Space creation alignment**: `cohub spaces create` now supports `--checkpoint` bootstrap, the SDK exposes typed bootstrap lifecycle metadata (`SpaceBootstrapMeta`) and requires a space `name`, and bootstrap sources are validated and sanitized end-to-end — Git credentials are stripped from repo URLs, bootstrap metadata, and task-run responses.
+- **Work launch parameters**: query-string and hash parameters on a Work URL are now forwarded to the embedded Work (reserved `cohub_*` params excluded), so deep links can drive state inside published Works.
+- **Embedded Work capabilities**: interactive Work frames now delegate low-risk, user-activated browser capabilities — pointer lock, clipboard write, fullscreen, and web share — so embedded Works behave like first-class web apps.
+- **Execution-scoped environment**: the agent now loads one immutable space-environment snapshot per execution instead of caching it at session load and sandbox attach, so env changes apply immediately and stale values never leak across runs.
+- **Explore removal**: the Explore feature is removed across the web app, API, SDK, and infra config — including the `client.explore` API and its types — reflected in the SDK v5 major version bump.
+
+### Bug Fixes
+
+- Fixed false file preview edit conflicts by comparing file versions at the integer-millisecond precision shared by all filesystem transports, so Node fractional mtimes no longer mismatch Go sandbox protocol values.
+- Fixed the CLI `tasks ls` command ignoring the global `--space` option.
+- Fixed voice input not closing when a message is sent, and guarded the composer against stale voice-client callbacks.
+- The CLI local sandbox now names the created space from the folder basename when no name is provided.
+
 ## v2.11 — 2026-08-06
 
 - **Realtime rooms**: Works can now create or join code-scoped rooms through `client.work.realtime` and exchange generic JSON events over the existing Gateway WebSocket — with member presence, room-scoped sequencing, publish ACKs, and short-lived admission tickets — so a published Work can run multiplayer state with no backend of its own.
