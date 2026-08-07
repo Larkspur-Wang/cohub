@@ -22,3 +22,4 @@ export * from "./system-jobs.js";
 export * from "./provenance.js";
 export * from "./public-identifiers.js";
 export * from "./work.js";
+export * from "./work-view-stats.js";

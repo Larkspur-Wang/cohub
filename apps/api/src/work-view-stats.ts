@@ -1,9 +1,14 @@
 import { and, asc, eq, gte, sql } from "drizzle-orm";
 import { workViewStatsHourly } from "@cohub/db";
+import {
+  encodeWorkViewStatsRedisField,
+  WORK_VIEW_STATS_ACTIVE_REDIS_KEY,
+  type WorkViewStatsSource,
+} from "@cohub/protocol";
 import type { RequestSource } from "@cohub/protocol/provenance";
 import { db } from "./db/index.js";
 
-export type WorkViewSource = "web" | "cli" | "api";
+export type WorkViewSource = WorkViewStatsSource;
 
 export type WorkViewStatsResponse = {
   summary: {
@@ -54,33 +59,36 @@ export function resolveWorkViewSource(source: RequestSource | null | undefined, 
   return fallback;
 }
 
+type WorkViewStatsRedisClient = {
+  readonly status: string;
+  hincrby(key: string, field: string, increment: number): Promise<number>;
+};
+
+let workViewStatsRedisPromise: Promise<WorkViewStatsRedisClient> | null = null;
+const resolveWorkViewStatsRedis = (): Promise<WorkViewStatsRedisClient> => {
+  workViewStatsRedisPromise ??= import("./redis.js")
+    .then((module) => module.redisBestEffortCommandClient);
+  return workViewStatsRedisPromise;
+};
+
 export async function recordWorkViewStatsHourly(input: {
   workId: string;
   workVersionId: string;
   source: WorkViewSource;
   viewedAt?: Date;
-}) {
+  redis?: WorkViewStatsRedisClient;
+}): Promise<boolean> {
   const now = input.viewedAt ?? new Date();
   const bucketStartAt = toUtcHourBucket(now);
-  await db.insert(workViewStatsHourly).values({
+  const redis = input.redis ?? await resolveWorkViewStatsRedis();
+  if (redis.status !== "ready") return false;
+  await redis.hincrby(WORK_VIEW_STATS_ACTIVE_REDIS_KEY, encodeWorkViewStatsRedisField({
     workId: input.workId,
     workVersionId: input.workVersionId,
-    bucketStartAt,
+    bucketStartAtMs: bucketStartAt.getTime(),
     source: input.source,
-    viewCount: 1,
-    updatedAt: now,
-  }).onConflictDoUpdate({
-    target: [
-      workViewStatsHourly.workId,
-      workViewStatsHourly.workVersionId,
-      workViewStatsHourly.bucketStartAt,
-      workViewStatsHourly.source,
-    ],
-    set: {
-      viewCount: sql`${workViewStatsHourly.viewCount} + 1`,
-      updatedAt: now,
-    },
-  });
+  }), 1);
+  return true;
 }
 
 export function aggregateWorkViewStats(input: {

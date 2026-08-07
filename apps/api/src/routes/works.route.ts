@@ -214,21 +214,24 @@ async function getWorkById(id: string) {
   return work ?? null;
 }
 
-async function recordResolvedWorkView(
+let lastWorkViewRecordWarningAt = 0;
+
+function recordResolvedWorkView(
   c: Context,
   work: typeof works.$inferSelect,
   fallbackSource: WorkViewSource,
 ) {
   if (work.status !== "published" || !work.currentVersionId) return;
-  try {
-    await recordWorkViewStatsHourly({
-      workId: work.id,
-      workVersionId: work.currentVersionId,
-      source: resolveWorkViewSource(getRequestSource(c), fallbackSource),
-    });
-  } catch (error) {
-    logger.warn("[works] failed to record view", { workId: work.id, error });
-  }
+  void recordWorkViewStatsHourly({
+    workId: work.id,
+    workVersionId: work.currentVersionId,
+    source: resolveWorkViewSource(getRequestSource(c), fallbackSource),
+  }).catch((error) => {
+    const now = Date.now();
+    if (now - lastWorkViewRecordWarningAt < 60_000) return;
+    lastWorkViewRecordWarningAt = now;
+    logger.warn("[works] failed to buffer view", { workId: work.id, error });
+  });
 }
 
 class WorkAssetPublishError extends Error {
@@ -400,10 +403,8 @@ router.get("/by-slug/:username/:spaceSlug/:workSlug", async (c) => {
   if (!row.owner.username || !row.space.slug) return c.json({ message: "work public identity is incomplete" }, 409);
   if (requiresSpaceWorkAccess(row.work) && !(await hasPermission(user, "space.view", { spaceId: row.space.id }))) return authzDenied(c);
 
-  const [content] = await Promise.all([
-    getPublishedWorkContent(row.work),
-    recordResolvedWorkView(c, row.work, "web"),
-  ]);
+  recordResolvedWorkView(c, row.work, "web");
+  const content = await getPublishedWorkContent(row.work);
 
   // Public works are anonymous-readable; space works depend on the caller.
   c.header(
@@ -491,10 +492,8 @@ router.get("/:id", async (c) => {
   if (!row.owner.username || !row.space.slug) return c.json({ message: "work public identity is incomplete" }, 409);
   const space = { id: row.space.id, slug: row.space.slug, name: row.space.name, userUuid: row.space.userUuid, publicProfile: getSpacePublicProfile(row.space) };
   const shouldRecordCliView = getRequestSource(c)?.via === "cli";
-  const [content] = await Promise.all([
-    getPublishedWorkContent(work),
-    shouldRecordCliView ? recordResolvedWorkView(c, work, "cli") : Promise.resolve(),
-  ]);
+  if (shouldRecordCliView) recordResolvedWorkView(c, work, "cli");
+  const content = await getPublishedWorkContent(work);
   return c.json({
     work: serializeWork(work),
     space,
