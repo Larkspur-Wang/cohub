@@ -2333,13 +2333,9 @@ onMount(() => {
 			workId: command.preview.workId,
 			method: command.request.method,
 			input: command.request.input,
+			commandId: context.commandId,
 		});
-		if (called.ok) {
-			return {
-				status: "applied",
-				...(called.result === undefined ? {} : { result: called.result }),
-			};
-		}
+		if (called.ok) return { status: "pending" };
 		return {
 			status:
 				called.code === "surface_not_supported" ||

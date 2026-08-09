@@ -33,16 +33,39 @@ function mountWork(embedder: string, self = "https://work.example") {
 	globalThis.document = { referrer: "" } as Document;
 
 	const surface = new WorkSurfaceApi();
-	const send = async (method: string, origin: string, source: unknown = parent) => {
+	const send = async (
+		method: string,
+		origin: string,
+		source: unknown = parent,
+		commandId = "command-1",
+	) => {
 		handler?.({
-			data: { protocol: "cohub.surface", version: 1, type: "request", requestId: "r1", method },
+			data: {
+				protocol: "cohub.surface",
+				version: 1,
+				type: "request",
+				requestId: "r1",
+				method,
+				commandId,
+			},
 			origin,
 			source,
 		} as MessageEvent);
 		await new Promise((resolve) => setTimeout(resolve, 0));
 	};
-	return { surface, posted, send };
+	return { surface, posted, parent, send };
 }
+
+test("a Work receives the originating command id as handler context", async () => {
+	const { surface, parent, send } = mountWork(COHUB);
+	let received: string | null = null;
+	surface.handle("open", (_input, context) => {
+		received = context.commandId;
+	});
+
+	await send("open", COHUB, parent, "command-1");
+	assert.equal(received, "command-1");
+});
 
 test("a Work can set and clear composer context for its trusted Cohub host", () => {
 	const { surface, posted } = mountWork(COHUB);
@@ -95,7 +118,7 @@ test("a Cohub host can call a method and gets a reply addressed to its origin", 
 	await send("ping", COHUB);
 	assert.deepEqual(posted.at(-1), {
 		origin: COHUB,
-		message: { protocol: "cohub.surface", version: 1, type: "response", requestId: "r1", ok: true, result: "pong" },
+		message: { protocol: "cohub.surface", version: 1, type: "response", requestId: "r1", ok: true },
 	});
 });
 
@@ -156,29 +179,6 @@ test("an unknown method and a throwing handler both report instead of hanging", 
 	await send("boom", COHUB);
 	assert.deepEqual(posted.at(-1)?.message.error, { code: "handler_failed", message: "nope" });
 });
-
-// Otherwise the host forwards nothing, or the later upload fails, and the caller
-// only ever sees a timeout for a method that actually ran.
-for (const [name, value, code] of [
-	["a cyclic object", (() => {
-		const cyclic: Record<string, unknown> = {};
-		cyclic.self = cyclic;
-		return cyclic;
-	})(), "result_not_serializable"],
-	["a function", () => "nope", "result_not_serializable"],
-	["an oversized string", "x".repeat(33 * 1024), "result_too_large"],
-] as const) {
-	test(`${name} returned by a handler is rejected as ${code}`, async () => {
-		const { surface, posted, send } = mountWork(COHUB);
-		surface.handle("give", () => value);
-
-		await send("give", COHUB);
-		const reply = posted.at(-1)?.message;
-		assert.equal(reply?.ok, false);
-		const error = reply?.error as { code: string } | undefined;
-		assert.equal(error?.code, code);
-	});
-}
 
 test("only explicit app origins are trusted, not the whole subdomain space", () => {
 	for (const origin of [COHUB, "https://dev.cohub.run"]) {

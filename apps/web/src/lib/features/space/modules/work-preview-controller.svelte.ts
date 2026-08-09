@@ -22,6 +22,7 @@ export type InlineWorkPreview = {
 export type WorkSurfaceInvoker = (input: {
 	method: string;
 	input?: unknown;
+	commandId: string;
 	readyTimeoutMs?: number;
 	requestTimeoutMs?: number;
 }) => Promise<
@@ -204,6 +205,7 @@ export function createWorkPreviewController(
 		workId: string;
 		method: string;
 		input?: unknown;
+		commandId: string;
 	}) {
 		if (!previews.some((item) => item.workId === input.workId)) {
 			return {
@@ -256,6 +258,7 @@ export function createWorkPreviewController(
 		return invoker({
 			method: input.method,
 			input: input.input,
+			commandId: input.commandId,
 			readyTimeoutMs: WORK_SURFACE_READY_TIMEOUT_MS,
 			requestTimeoutMs: WORK_SURFACE_REQUEST_TIMEOUT_MS,
 		});

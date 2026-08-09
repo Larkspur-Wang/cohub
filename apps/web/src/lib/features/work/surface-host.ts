@@ -10,7 +10,7 @@ import {
 } from "@cohub/protocol/work-surface";
 
 export type WorkSurfaceCallResult =
-	| { ok: true; result?: unknown }
+	| { ok: true }
 	| { ok: false; code: string; message: string };
 
 export type WorkSurfaceHostConfig = {
@@ -26,6 +26,7 @@ export type WorkSurfaceHost = {
 	call: (input: {
 		method: string;
 		input?: unknown;
+		commandId: string;
 		readyTimeoutMs?: number;
 		requestTimeoutMs?: number;
 	}) => Promise<WorkSurfaceCallResult>;
@@ -94,12 +95,7 @@ export function createWorkSurfaceHost(
 		pending.delete(response.requestId);
 		settle(
 			response.ok
-				? {
-						ok: true,
-						...(response.result === undefined
-							? {}
-							: { result: response.result }),
-					}
+				? { ok: true }
 				: {
 						ok: false,
 						code: response.error?.code ?? "surface_error",
@@ -127,6 +123,7 @@ export function createWorkSurfaceHost(
 	async function call(input: {
 		method: string;
 		input?: unknown;
+		commandId: string;
 		readyTimeoutMs?: number;
 		requestTimeoutMs?: number;
 	}): Promise<WorkSurfaceCallResult> {
@@ -189,6 +186,7 @@ export function createWorkSurfaceHost(
 						requestId,
 						method: input.method,
 						...(input.input === undefined ? {} : { input: input.input }),
+						commandId: input.commandId,
 					}),
 					origin,
 				);

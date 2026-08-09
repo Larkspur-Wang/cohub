@@ -11,8 +11,9 @@ import {
   type UiCommandStatus,
 } from "@cohub/protocol/ui-command";
 import { isRequestSourceClientId } from "@cohub/protocol/provenance";
-import { useAuth } from "../lib/middleware.js";
+import { getWorkSessionPrincipal, useAuth } from "../lib/middleware.js";
 import { getRequestSource } from "../lib/request-source.js";
+import { canWorkSessionSettleUiCommand } from "../ui-command-auth.js";
 import {
   createUiCommand,
   getUiCommand,
@@ -25,7 +26,8 @@ const router = new Hono();
 /**
  * Authorization rests on the authenticated user alone: the target derives from the
  * caller's identity, delivery is scoped to their own room, and the frontend acts
- * with their own credentials. Client ids only order that user's own tabs.
+ * with their own credentials. A Work session may only complete a command that
+ * opened that same Work. Client ids only order that user's own tabs.
  */
 
 /** Runs before `json()`, so an oversized body never reaches memory. */
@@ -121,10 +123,23 @@ router.post("/:commandId/result", limitBody, async (c) => {
     return c.json({ message: `result exceeds ${UI_COMMAND_PAYLOAD_MAX_BYTES} bytes` }, 413);
   }
 
+  let reportingClientId = getRequestSource(c)?.clientId ?? null;
+  const workSession = getWorkSessionPrincipal(c);
+  if (workSession) {
+    const command = await getUiCommand(commandId);
+    if (!canWorkSessionSettleUiCommand(command, {
+      actorUserId: user.uuid,
+      workId: workSession.workId,
+    })) {
+      return c.json({ message: "ui command not found" }, 404);
+    }
+    reportingClientId = command.targetClientId;
+  }
+
   const settled = await settleUiCommand({
     commandId,
     actorUserId: user.uuid,
-    reportingClientId: getRequestSource(c)?.clientId ?? null,
+    reportingClientId,
     status,
     result: body?.result,
     error,

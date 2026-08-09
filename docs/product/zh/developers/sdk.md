@@ -145,16 +145,19 @@ Work 可以向嵌入它的 Cohub 宿主暴露具名方法，Agent 便能通过
 `cohub ui preview <work> --call <method>` 调用正在运行的 Work。
 
 ```ts
-client.work.surface.handle("selection.get", () => currentSelection);
-client.work.surface.handle("board.focus", async ({ nodeId }) => {
-  await focusNode(nodeId);
-  return { focused: nodeId };
+client.work.surface.handle("image.open", async (input, { commandId }) => {
+  openImageStudio(input, commandId);
+});
+
+await client.ui.reportResult(commandId, {
+  status: "applied",
+  result: selectedImage,
+  error: null,
 });
 ```
 
-只有注册过的方法可以被调用。不提供 DOM 访问，也不提供脚本执行；每个方法的入参与返回结构
-完全由 Work 自己决定。Handler 可以返回任意可 JSON 序列化的值，调用方会打印该结果。无法序列化或超过 32KB 的返回值
-会以错误形式上报，而不是让调用方一直等到超时。
+只有注册过的方法可以被调用。不提供 DOM 访问，也不提供脚本执行。Surface 响应只确认指令已送达；
+Work 通过同一个 UI command 调用 `client.ui.reportResult()` 上报最终结果。
 
 调用语义是 at-least-once，因此建议让可调用方法可重复执行。
 

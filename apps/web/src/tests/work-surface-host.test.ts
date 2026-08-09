@@ -94,7 +94,25 @@ test("spoofed Work composer context is ignored", () => {
 	assert.deepEqual(composerChips, []);
 });
 
-test("a call resolves with the result the Work returned", async () => {
+test("a call waits for a newly mounted Work to announce readiness", async () => {
+	const { host, posted, ready, respond } = mountHost();
+	const pending = host.call({
+		method: "image.open",
+		commandId: "command-1",
+		readyTimeoutMs: 200,
+		requestTimeoutMs: 200,
+	});
+	await flush();
+	assert.equal(posted.length, 0, "the host must not post before surface.ready");
+
+	ready(["image.open"]);
+	await flush();
+	assert.equal(posted.at(-1)?.message.method, "image.open");
+	respond({ requestId: posted.at(-1)?.message.requestId, ok: true });
+	assert.deepEqual(await pending, { ok: true });
+});
+
+test("a call resolves when the Work acknowledges it", async () => {
 	const { host, posted, ready, respond } = mountHost();
 	ready(["selection.get"]);
 	assert.equal(host.ready, true);
@@ -103,17 +121,18 @@ test("a call resolves with the result the Work returned", async () => {
 	const pending = host.call({
 		method: "selection.get",
 		input: { scope: "active" },
+		commandId: "command-1",
 	});
 	await flush();
 	assert.equal(posted.at(-1)?.origin, ORIGIN);
 	assert.equal(posted.at(-1)?.message.method, "selection.get");
+	assert.equal(posted.at(-1)?.message.commandId, "command-1");
 
 	respond({
 		requestId: posted.at(-1)?.message.requestId,
 		ok: true,
-		result: { nodes: 2 },
 	});
-	assert.deepEqual(await pending, { ok: true, result: { nodes: 2 } });
+	assert.deepEqual(await pending, { ok: true });
 });
 
 test("messages from another origin or window cannot answer for the surface", async () => {
@@ -123,14 +142,14 @@ test("messages from another origin or window cannot answer for the surface", asy
 	assert.equal(ready(["ping"], contentWindow, "https://evil.example"), false);
 	assert.equal(ready(["ping"], {}), false);
 
-	const pending = host.call({ method: "ping", requestTimeoutMs: 40 });
+	const pending = host.call({
+		method: "ping",
+		commandId: "command-1",
+		requestTimeoutMs: 40,
+	});
 	await flush();
 	const requestId = posted.at(-1)?.message.requestId;
-	respond(
-		{ requestId, ok: true, result: "spoofed" },
-		contentWindow,
-		"https://evil.example",
-	);
+	respond({ requestId, ok: true }, contentWindow, "https://evil.example");
 	respond({ requestId, ok: true, result: "spoofed" }, {});
 
 	const result = await pending;
@@ -141,20 +160,24 @@ test("an unannounced method fails fast instead of hanging", async () => {
 	const { host, ready } = mountHost();
 	ready(["selection.get"]);
 
-	const result = await host.call({ method: "nope" });
+	const result = await host.call({ method: "nope", commandId: "command-1" });
 	assert.equal(result.ok === false && result.code, "method_not_found");
 });
 
 test("a Work that never registers methods reports not-ready", async () => {
 	const { host } = mountHost();
-	const result = await host.call({ method: "ping", readyTimeoutMs: 30 });
+	const result = await host.call({
+		method: "ping",
+		commandId: "command-1",
+		readyTimeoutMs: 30,
+	});
 	assert.equal(result.ok === false && result.code, "surface_not_ready");
 });
 
 test("an untrusted frame origin is never posted to", async () => {
 	const { host, posted } = mountHost({ frameOrigin: null });
 
-	const result = await host.call({ method: "ping" });
+	const result = await host.call({ method: "ping", commandId: "command-1" });
 	assert.equal(result.ok === false && result.code, "surface_unavailable");
 	assert.equal(posted.length, 0);
 });
@@ -170,6 +193,7 @@ for (const [name, announce] of [
 
 		const pending = host.call({
 			method: "ping",
+			commandId: "command-1",
 			readyTimeoutMs: 10_000,
 			requestTimeoutMs: 10_000,
 		});

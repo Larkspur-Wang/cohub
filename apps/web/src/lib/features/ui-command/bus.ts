@@ -1,22 +1,17 @@
-import type {
-	UiCommand,
-	UiCommandDispatchedPayload,
-	UiCommandStatus,
-} from "@neta-art/cohub";
+import type { UiCommand, UiCommandDispatchedPayload } from "@neta-art/cohub";
 import { getClientInstanceId } from "$lib/client-instance";
 
 const loadSdk = async () => (await import("$lib/sdk")).sdk;
 
-export type UiCommandOutcome = {
-	status: Extract<
-		UiCommandStatus,
-		"applied" | "ui_host_unavailable" | "rejected" | "unsupported"
-	>;
-	result?: unknown;
-	error?: { code: string; message: string };
-};
+export type UiCommandOutcome =
+	| { status: "pending" }
+	| {
+			status: "applied" | "ui_host_unavailable" | "rejected" | "unsupported";
+			error?: { code: string; message: string };
+	  };
 
 export type UiCommandContext = {
+	commandId: string;
 	source: UiCommandDispatchedPayload["source"];
 };
 
@@ -41,7 +36,15 @@ let host: UiCommandHost | null = null;
  * twice, and the outcome is kept so a failed upload can be re-reported. In memory
  * by design: delivery is at-least-once, so callable methods should be repeatable.
  */
-type HandledEntry = { outcome: UiCommandOutcome | null; reported: boolean };
+type TerminalUiCommandOutcome = Exclude<
+	UiCommandOutcome,
+	{ status: "pending" }
+>;
+type HandledEntry = {
+	outcome: TerminalUiCommandOutcome | null;
+	reported: boolean;
+	accepted: boolean;
+};
 const handled = new Map<string, HandledEntry>();
 
 const HANDLED_MAX = 200;
@@ -59,8 +62,8 @@ function evictBounded() {
 
 	for (const [id, entry] of handled) {
 		if (handled.size <= HANDLED_KEEP && unreported <= UNREPORTED_MAX) return;
-		if (!entry.outcome) continue;
-		if (!entry.reported) {
+		if (!entry.outcome && !entry.accepted) continue;
+		if (entry.outcome && !entry.reported) {
 			if (unreported <= UNREPORTED_MAX) continue;
 			unreported -= 1;
 		}
@@ -88,8 +91,7 @@ function isForThisClient(payload: UiCommandDispatchedPayload): boolean {
 export type UiCommandReporter = (
 	commandId: string,
 	body: {
-		status: UiCommandOutcome["status"];
-		result?: unknown;
+		status: TerminalUiCommandOutcome["status"];
 		error: { code: string; message: string } | null;
 	},
 ) => Promise<unknown>;
@@ -122,13 +124,12 @@ async function uploadResult(
 
 async function report(
 	commandId: string,
-	outcome: UiCommandOutcome,
+	outcome: TerminalUiCommandOutcome,
 ): Promise<boolean> {
 	for (let attempt = 1; attempt <= REPORT_ATTEMPTS; attempt += 1) {
 		try {
 			await uploadResult(commandId, {
 				status: outcome.status,
-				...(outcome.result === undefined ? {} : { result: outcome.result }),
 				error: outcome.error ?? null,
 			});
 			return true;
@@ -155,13 +156,20 @@ export async function handleUiCommand(
 		}
 		return;
 	}
-	const entry: HandledEntry = { outcome: null, reported: false };
+	const entry: HandledEntry = {
+		outcome: null,
+		reported: false,
+		accepted: false,
+	};
 	rememberBounded(payload.commandId, entry);
 
 	let outcome: UiCommandOutcome;
 	try {
 		outcome = host
-			? await host(payload.command, { source: payload.source })
+			? await host(payload.command, {
+					commandId: payload.commandId,
+					source: payload.source,
+				})
 			: HOST_UNAVAILABLE;
 	} catch (error) {
 		outcome = {
@@ -173,6 +181,11 @@ export async function handleUiCommand(
 		};
 	}
 
+	if (outcome.status === "pending") {
+		// The Work acknowledged delivery and will settle this command directly.
+		entry.accepted = true;
+		return;
+	}
 	entry.outcome = outcome;
 	entry.reported = await report(payload.commandId, outcome);
 }

@@ -8,7 +8,7 @@ export { WorksApi } from "./apis/works.js";
 export { UiCommandsApi } from "./apis/ui-commands.js";
 export type { CreateUiCommandInput, WaitForUiCommandOptions } from "./apis/ui-commands.js";
 export { WorkSurfaceApi } from "./work-surface.js";
-export type { WorkSurfaceHandler } from "./work-surface.js";
+export type { WorkSurfaceHandler, WorkSurfaceHandlerContext } from "./work-surface.js";
 export {
   formatWorkRef,
   isWorkId,

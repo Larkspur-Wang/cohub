@@ -1,3 +1,4 @@
+import { parseUiCommandId } from "./ui-command.js";
 
 export const WORK_SURFACE_PROTOCOL = "cohub.surface";
 export const WORK_SURFACE_VERSION = 1;
@@ -23,13 +24,14 @@ export type WorkSurfaceRequestMessage = SurfaceEnvelope & {
   requestId: string;
   method: string;
   input?: unknown;
+  /** The originating UI command that the Work will complete. */
+  commandId: string;
 };
 
 export type WorkSurfaceResponseMessage = SurfaceEnvelope & {
   type: "response";
   requestId: string;
   ok: boolean;
-  result?: unknown;
   error?: { code: string; message: string };
 };
 
@@ -92,7 +94,6 @@ export const parseWorkSurfaceResponse = (value: unknown): WorkSurfaceResponseMes
     type: "response",
     requestId: value.requestId,
     ok: value.ok === true,
-    ...(value.result === undefined ? {} : { result: value.result }),
     ...(error ? { error } : {}),
   };
 };
@@ -143,6 +144,8 @@ export const parseWorkSurfaceRequest = (value: unknown): WorkSurfaceRequestMessa
   if (!isSurfaceEnvelope(value) || value.type !== "request") return null;
   if (typeof value.requestId !== "string" || !value.requestId) return null;
   if (typeof value.method !== "string" || !value.method) return null;
+  const commandId = parseUiCommandId(value.commandId);
+  if (!commandId) return null;
   return {
     protocol: WORK_SURFACE_PROTOCOL,
     version: WORK_SURFACE_VERSION,
@@ -150,6 +153,7 @@ export const parseWorkSurfaceRequest = (value: unknown): WorkSurfaceRequestMessa
     requestId: value.requestId,
     method: value.method,
     ...(value.input === undefined ? {} : { input: value.input }),
+    commandId,
   };
 };
 

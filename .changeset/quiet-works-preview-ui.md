@@ -29,6 +29,5 @@ Agent and timeline.
 A Work answers surface calls and sends composer context only to an explicit list
 of Cohub app origins (or its own), never a `*.cohub.run` suffix match, so neither
 a third-party embedder nor a Work served from a Cohub content subdomain can invoke
-another Work's methods or alter the Cohub composer. A result that cannot be
-serialized or exceeds the payload cap is rejected with a reason instead of
-leaving the caller to time out.
+another Work's methods or alter the Cohub composer. Surface calls acknowledge
+delivery; the Work reports the final UI command result directly with the SDK.

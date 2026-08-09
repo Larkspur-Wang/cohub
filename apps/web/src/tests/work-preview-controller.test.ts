@@ -63,7 +63,11 @@ test("a call issued right after opening waits for the detail and the mounted sur
 	// The realistic agent path: show and call in one command, before the iframe exists.
 	const controller = createController({ delayMs: 20 });
 	controller.openWork({ workId: WORK_ID });
-	const pending = controller.callSurface({ workId: WORK_ID, method: "ping" });
+	const pending = controller.callSurface({
+		workId: WORK_ID,
+		method: "ping",
+		commandId: "command-1",
+	});
 
 	setTimeout(() => {
 		controller.registerSurface(WORK_ID, async ({ method }) => ({
@@ -99,6 +103,7 @@ for (const [name, options, code] of [
 		const result = await controller.callSurface({
 			workId: WORK_ID,
 			method: "ping",
+			commandId: "command-1",
 		});
 		assert.equal(result.ok === false && result.code, code);
 	});
@@ -140,6 +145,7 @@ test("a work that is not open, or was closed, cannot be called", async () => {
 	const before = await controller.callSurface({
 		workId: WORK_ID,
 		method: "ping",
+		commandId: "command-1",
 	});
 	assert.equal(before.ok === false && before.code, "preview_not_open");
 
@@ -152,6 +158,7 @@ test("a work that is not open, or was closed, cannot be called", async () => {
 	const after = await controller.callSurface({
 		workId: WORK_ID,
 		method: "ping",
+		commandId: "command-1",
 	});
 	assert.equal(after.ok === false && after.code, "preview_not_open");
 });

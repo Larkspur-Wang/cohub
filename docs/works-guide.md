@@ -218,10 +218,18 @@ cohub ui preview <work> --call selection.get
 cohub ui preview <work> --call board.focus --data '{"nodeId":"n1"}'
 ```
 
-Register callable methods inside the Work:
+Register a method that receives the UI command id and completes it later:
 
 ```ts
-client.work.surface.handle("selection.get", () => currentSelection);
+client.work.surface.handle("image.open", async (input, { commandId }) => {
+  openImageStudio(input, commandId);
+});
+
+await client.ui.reportResult(commandId, {
+  status: "applied",
+  result: selectedImage,
+  error: null,
+});
 ```
 
 Only registered methods are reachable, so a Work decides exactly what an Agent can

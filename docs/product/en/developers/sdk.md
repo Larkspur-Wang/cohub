@@ -146,18 +146,20 @@ A Work can expose named methods to the Cohub host embedding it, so an Agent can
 call into the running Work with `cohub ui preview <work> --call <method>`.
 
 ```ts
-client.work.surface.handle("selection.get", () => currentSelection);
-client.work.surface.handle("board.focus", async ({ nodeId }) => {
-  await focusNode(nodeId);
-  return { focused: nodeId };
+client.work.surface.handle("image.open", async (input, { commandId }) => {
+  openImageStudio(input, commandId);
+});
+
+await client.ui.reportResult(commandId, {
+  status: "applied",
+  result: selectedImage,
+  error: null,
 });
 ```
 
-Only registered methods are reachable. There is no DOM access and no script
-evaluation, and the argument and return shape of each method are entirely the
-Work's choice. Handlers may return any JSON-serializable value; the result is
-printed by the caller. A result that cannot be serialized, or that exceeds 32KB,
-is reported as an error rather than left to time out.
+Only registered methods are reachable. There is no DOM access or script
+execution. A Surface response only acknowledges delivery; the Work reports the
+final result through the same UI command with `client.ui.reportResult()`.
 
 Calls are delivered at-least-once, so prefer methods that are safe to repeat.
 

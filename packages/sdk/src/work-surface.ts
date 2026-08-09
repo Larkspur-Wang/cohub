@@ -8,9 +8,15 @@ import {
   parseWorkSurfaceRequest,
   type WorkComposerChip,
 } from "@cohub/protocol/work-surface";
-import { UI_COMMAND_PAYLOAD_MAX_BYTES } from "@cohub/protocol/ui-command";
+export type WorkSurfaceHandlerContext = {
+  /** The UI command this handler must complete. */
+  commandId: string;
+};
 
-export type WorkSurfaceHandler = (input: unknown) => unknown | Promise<unknown>;
+export type WorkSurfaceHandler = (
+  input: unknown,
+  context: WorkSurfaceHandlerContext,
+) => unknown | Promise<unknown>;
 
 /**
  * Explicit app origins, not a `*.cohub.run` suffix match: Works themselves are
@@ -36,39 +42,6 @@ const resolveEmbedderOrigin = (): string | null => {
   } catch {
     return null;
   }
-};
-
-/**
- * Results travel by postMessage and are then uploaded as JSON. A value that fails
- * either step would leave the caller waiting for a timeout, so reject it early.
- */
-const describeUnsendableResult = (
-  result: unknown,
-): { code: string; message: string } | null => {
-  if (result === undefined) return null;
-  let json: string;
-  try {
-    json = JSON.stringify(result) ?? "";
-  } catch {
-    return {
-      code: "result_not_serializable",
-      message: "This method returned a value that cannot be serialized as JSON.",
-    };
-  }
-  if (!json) {
-    return {
-      code: "result_not_serializable",
-      message: "This method returned a value that cannot be serialized as JSON.",
-    };
-  }
-  const bytes = new TextEncoder().encode(json).length;
-  if (bytes > UI_COMMAND_PAYLOAD_MAX_BYTES) {
-    return {
-      code: "result_too_large",
-      message: `This method returned ${bytes} bytes, over the ${UI_COMMAND_PAYLOAD_MAX_BYTES} byte limit.`,
-    };
-  }
-  return null;
 };
 
 export class WorkSurfaceApi {
@@ -154,11 +127,23 @@ export class WorkSurfaceApi {
     if (!this.isTrusted(event.origin)) return;
     const request = parseWorkSurfaceRequest(event.data);
     if (!request) return;
+    const commandId = request.commandId;
+    if (!commandId) return;
     this.trustedOrigin = event.origin;
-    void this.dispatch(request.requestId, request.method, request.input);
+    void this.dispatch(
+      request.requestId,
+      request.method,
+      request.input,
+      commandId,
+    );
   };
 
-  private async dispatch(requestId: string, method: string, input: unknown): Promise<void> {
+  private async dispatch(
+    requestId: string,
+    method: string,
+    input: unknown,
+    commandId: string,
+  ): Promise<void> {
     const handler = this.handlers.get(method);
     if (!handler) {
       this.post(
@@ -174,19 +159,8 @@ export class WorkSurfaceApi {
       return;
     }
     try {
-      const result = await handler(input);
-      const invalid = describeUnsendableResult(result);
-      if (invalid) {
-        this.post(buildWorkSurfaceResponse({ requestId, ok: false, error: invalid }));
-        return;
-      }
-      this.post(
-        buildWorkSurfaceResponse({
-          requestId,
-          ok: true,
-          ...(result === undefined ? {} : { result }),
-        }),
-      );
+      await handler(input, { commandId });
+      this.post(buildWorkSurfaceResponse({ requestId, ok: true }));
     } catch (error) {
       this.post(
         buildWorkSurfaceResponse({

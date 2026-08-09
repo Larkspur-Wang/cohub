@@ -311,13 +311,15 @@ cohub ui preview <work> --call report.build --input payload.json --json
 
 `ui preview` accepts the same Work references as `works get`. Showing a preview is
 idempotent: repeating it re-activates the same tab and refreshes any launch state
-carried by the reference. With `--call`, the command waits for the Work to
-announce readiness, invokes the method, and prints its result.
+carried by the reference. With `--call`, the command waits for the Work to announce readiness, invokes the method,
+and waits for the Work to complete the same UI command with `client.ui.reportResult()`.
 
 Work authors decide what is callable by registering handlers inside the Work:
 
 ```ts
-client.work.surface.handle("selection.get", () => currentSelection);
+client.work.surface.handle("image.open", async (input, { commandId }) => {
+  openImageStudio(input, commandId);
+});
 ```
 
 A Work answers only a Cohub app origin, so a third-party site that embeds it
