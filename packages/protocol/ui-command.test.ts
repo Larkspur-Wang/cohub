@@ -7,12 +7,17 @@ import {
   parseUiCommand,
   parseUiCommandError,
   parseUiCommandId,
+  UI_COMMAND_DEFAULT_TIMEOUT_MS,
   UI_COMMAND_ERROR_CODE_MAX_LENGTH,
   UI_COMMAND_ERROR_MESSAGE_MAX_LENGTH,
   UI_COMMAND_LABEL_MAX_LENGTH,
   UI_COMMAND_LAUNCH_MAX_LENGTH,
   UI_COMMAND_MAX_BYTES,
+  UI_COMMAND_MAX_TIMEOUT_MS,
   UI_COMMAND_PAYLOAD_MAX_BYTES,
+  UI_COMMAND_PENDING_TTL_SECONDS,
+  UI_COMMAND_SETTLEMENT_GRACE_SECONDS,
+  UI_COMMAND_TERMINAL_TTL_SECONDS,
 } from "./src/ui-command.js";
 
 const WORK_ID = "123e4567-e89b-42d3-a456-426614174000";
@@ -100,6 +105,17 @@ describe("parseUiCommand", () => {
 });
 
 describe("ui command helpers", () => {
+  it("keeps wait limits within the pending command lifetime", () => {
+    assert.equal(UI_COMMAND_DEFAULT_TIMEOUT_MS, 10 * 60 * 1_000);
+    assert.equal(UI_COMMAND_MAX_TIMEOUT_MS, 12 * 60 * 60 * 1_000);
+    assert.equal(UI_COMMAND_SETTLEMENT_GRACE_SECONDS, 10 * 60);
+    assert.equal(
+      UI_COMMAND_PENDING_TTL_SECONDS,
+      UI_COMMAND_MAX_TIMEOUT_MS / 1_000 + UI_COMMAND_SETTLEMENT_GRACE_SECONDS,
+    );
+    assert.equal(UI_COMMAND_TERMINAL_TTL_SECONDS, 30 * 60);
+  });
+
   it("treats every status but pending as terminal", () => {
     assert.equal(isTerminalUiCommandStatus("pending"), false);
     assert.equal(isTerminalUiCommandStatus("applied"), true);

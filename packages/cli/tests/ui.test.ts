@@ -38,6 +38,7 @@ test("ui preview exposes call, targeting, and retry options", () => {
     "--input",
     "--client",
     "--command-id",
+    "--no-wait",
     "--timeout-ms",
     "--json",
   ]) {
@@ -54,4 +55,6 @@ test("help states the routing limit and who decides what is callable", () => {
   const previewHelp = renderHelp(preview);
   assert.match(previewHelp, /idempotent/i);
   assert.match(previewHelp, /Work author/i);
+  assert.match(previewHelp, /default: 600000/);
+  assert.match(previewHelp, /max:\s+43200000/);
 });

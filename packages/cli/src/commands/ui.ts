@@ -1,6 +1,10 @@
 import { readFileSync } from "node:fs";
 import type { CohubHttpClient, UiCommandRecord, UiSurfaceRequest } from "@neta-art/cohub";
-import { parseWorkRef } from "@neta-art/cohub";
+import {
+  parseWorkRef,
+  UI_COMMAND_DEFAULT_TIMEOUT_MS,
+  UI_COMMAND_MAX_TIMEOUT_MS,
+} from "@neta-art/cohub";
 import type { Command } from "commander";
 import { createClient } from "../client.js";
 import { error, handleHttp, json as outJson, jsonRequested, ok } from "../output.js";
@@ -13,6 +17,7 @@ type PreviewOptions = {
   client?: string;
   commandId?: string;
   timeoutMs?: string;
+  noWait?: boolean;
   json?: boolean;
 };
 
@@ -37,12 +42,15 @@ function readCallInput(opts: PreviewOptions): unknown {
 }
 
 function parseTimeout(value: string | undefined): number {
-  if (!value) return 30_000;
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return error("Invalid timeout", "--timeout-ms must be a positive number of milliseconds.");
+  if (!value) return UI_COMMAND_DEFAULT_TIMEOUT_MS;
+  const parsed = Math.floor(Number(value));
+  if (!Number.isFinite(parsed) || parsed <= 0 || parsed > UI_COMMAND_MAX_TIMEOUT_MS) {
+    return error(
+      "Invalid timeout",
+      `--timeout-ms must be between 1 and ${UI_COMMAND_MAX_TIMEOUT_MS} milliseconds.`,
+    );
   }
-  return Math.floor(parsed);
+  return parsed;
 }
 
 async function resolveWorkTarget(client: CohubHttpClient, ref: string) {
@@ -56,6 +64,14 @@ async function resolveWorkTarget(client: CohubHttpClient, ref: string) {
       ...(parsed.hash ? { hash: parsed.hash } : {}),
     },
   };
+}
+
+function reportDispatch(record: UiCommandRecord): void {
+  if (record.status !== "pending") {
+    reportOutcome(record, Boolean(record.command.request));
+    return;
+  }
+  ok(`UI command dispatched (${record.commandId})`);
 }
 
 function reportOutcome(record: UiCommandRecord, called: boolean): void {
@@ -99,12 +115,19 @@ Examples:
     .option("-i, --input <file>", "JSON input file for --call; use - for stdin")
     .option("--client <clientId>", "Target a specific frontend instance of your account")
     .option("--command-id <id>", "Stable id so retries never dispatch twice")
-    .option("--timeout-ms <ms>", "How long to wait for the frontend", "30000")
+    .option("--no-wait", "Dispatch the command and exit without waiting for a result")
+    .option(
+      "--timeout-ms <ms>",
+      `How long to wait for the frontend (default: ${UI_COMMAND_DEFAULT_TIMEOUT_MS}; max: ${UI_COMMAND_MAX_TIMEOUT_MS})`,
+    )
     .option("--json", "Output as JSON")
     .action(async (work: string, opts: PreviewOptions) => {
       const callInput = opts.call ? readCallInput(opts) : undefined;
       if (!opts.call && (opts.data !== undefined || opts.input !== undefined)) {
         return error("Missing --call", "--data and --input only apply together with --call.");
+      }
+      if (opts.noWait && opts.timeoutMs !== undefined) {
+        return error("Conflicting wait options", "Use either --no-wait or --timeout-ms, not both.");
       }
       const timeoutMs = parseTimeout(opts.timeoutMs);
       const client = createClient();
@@ -114,25 +137,26 @@ Examples:
           ? { method: opts.call, ...(callInput === undefined ? {} : { input: callInput }) }
           : undefined;
 
-        const record = await client.ui.run(
-          {
-            command: {
-              type: "preview.show",
-              preview: {
-                kind: "work",
-                workId: target.workId,
-                label: target.label,
-                ...(target.launch.search || target.launch.hash ? { launch: target.launch } : {}),
-              },
-              ...(request ? { request } : {}),
+        const input = {
+          command: {
+            type: "preview.show" as const,
+            preview: {
+              kind: "work" as const,
+              workId: target.workId,
+              label: target.label,
+              ...(target.launch.search || target.launch.hash ? { launch: target.launch } : {}),
             },
-            ...(opts.client ? { targetClientId: opts.client } : {}),
-            ...(opts.commandId ? { commandId: opts.commandId } : {}),
+            ...(request ? { request } : {}),
           },
-          { timeoutMs },
-        );
+          ...(opts.client ? { targetClientId: opts.client } : {}),
+          ...(opts.commandId ? { commandId: opts.commandId } : {}),
+        };
+        const record = opts.noWait
+          ? (await client.ui.create(input)).command
+          : await client.ui.run(input, { timeoutMs });
 
         if (jsonRequested(opts)) return outJson(record);
+        if (opts.noWait) return reportDispatch(record);
         reportOutcome(record, Boolean(request));
       } catch (e: unknown) {
         if (e instanceof Error && e.name === "WorkRefParseError") return error(e.message);

@@ -18,7 +18,13 @@ export const UI_COMMAND_ID_MAX_LENGTH = 64;
 export const UI_COMMAND_ERROR_CODE_MAX_LENGTH = 64;
 export const UI_COMMAND_ERROR_MESSAGE_MAX_LENGTH = 2_000;
 
-export const UI_COMMAND_TTL_SECONDS = 5 * 60;
+export const UI_COMMAND_DEFAULT_TIMEOUT_MS = 10 * 60 * 1_000;
+export const UI_COMMAND_MAX_TIMEOUT_MS = 12 * 60 * 60 * 1_000;
+export const UI_COMMAND_SETTLEMENT_GRACE_SECONDS = 10 * 60;
+/** Keeps pending commands reportable for the full wait window plus settlement grace. */
+export const UI_COMMAND_PENDING_TTL_SECONDS =
+  UI_COMMAND_MAX_TIMEOUT_MS / 1_000 + UI_COMMAND_SETTLEMENT_GRACE_SECONDS;
+export const UI_COMMAND_TERMINAL_TTL_SECONDS = 30 * 60;
 
 export type UiCommandStatus =
   | "pending"

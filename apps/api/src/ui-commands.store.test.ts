@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  UI_COMMAND_PENDING_TTL_SECONDS,
+  UI_COMMAND_TERMINAL_TTL_SECONDS,
+} from "@cohub/protocol/ui-command";
+import {
   claimUiCommand,
   getUiCommandKey,
   settleUiCommandRecord,
@@ -28,6 +32,7 @@ const record = (overrides: Record<string, unknown> = {}) =>
 /** Reads inside `eval`, like Redis, so an interleaved write is observed the same. */
 function createFakeRedis(seed?: Record<string, unknown>) {
   const store = new Map<string, string>();
+  const appliedTtls: string[] = [];
   for (const [id, value] of Object.entries(seed ?? {})) {
     store.set(getUiCommandKey(id), JSON.stringify(value));
   }
@@ -44,6 +49,7 @@ function createFakeRedis(seed?: Record<string, unknown>) {
       if (rest.length === 2) {
         if (raw) return [0, raw];
         store.set(key, rest[0] ?? "");
+        appliedTtls.push(rest[1] ?? "");
         return [1, rest[0]];
       }
 
@@ -55,11 +61,12 @@ function createFakeRedis(seed?: Record<string, unknown>) {
       if (target && target !== reportingClientId) return [-2, ""];
       if (current.settledAt) return [0, raw];
       store.set(key, next);
+      appliedTtls.push(rest[3] ?? "");
       return [1, next];
     },
   };
 
-  return { client, store };
+  return { client, store, appliedTtls };
 }
 
 const settle = (
@@ -80,13 +87,25 @@ const settle = (
   });
 
 describe("claimUiCommand", () => {
-  it("claims an unused id, and a retry sees the winner instead of overwriting", async () => {
-    const { client } = createFakeRedis();
+  it("claims an unused id with the pending lifetime, and a retry sees the winner", async () => {
+    const { client, appliedTtls } = createFakeRedis();
     assert.equal((await claimUiCommand(client, record())).claimed, true);
 
     const retry = await claimUiCommand(client, record({ status: "applied" }));
     assert.equal(retry.claimed, false);
     assert.equal(retry.record.status, "pending", "the stored record wins");
+    assert.deepEqual(appliedTtls, [String(UI_COMMAND_PENDING_TTL_SECONDS)]);
+  });
+
+  it("uses the terminal lifetime when a command settles during creation", async () => {
+    const { client, appliedTtls } = createFakeRedis();
+    const terminal = record({
+      status: "no_active_client",
+      settledAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    assert.equal((await claimUiCommand(client, terminal)).claimed, true);
+    assert.deepEqual(appliedTtls, [String(UI_COMMAND_TERMINAL_TTL_SECONDS)]);
   });
 });
 
@@ -117,12 +136,13 @@ describe("a malformed store reply", () => {
 });
 
 describe("settleUiCommandRecord", () => {
-  it("lets the addressed frontend of the acting user settle", async () => {
-    const { client } = createFakeRedis({ "cmd-1": record() });
+  it("lets the addressed frontend settle and switches to the terminal lifetime", async () => {
+    const { client, appliedTtls } = createFakeRedis({ "cmd-1": record() });
     const outcome = await settle(client);
 
     assert.equal(outcome.ok, true);
     assert.equal(outcome.ok && outcome.record.status, "applied");
+    assert.deepEqual(appliedTtls, [String(UI_COMMAND_TERMINAL_TTL_SECONDS)]);
   });
 
   // A missing client id must not be a free pass, or any of the user's own API

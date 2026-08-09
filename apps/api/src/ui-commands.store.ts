@@ -6,7 +6,8 @@
 
 import {
   type UiCommandRecord,
-  UI_COMMAND_TTL_SECONDS,
+  UI_COMMAND_PENDING_TTL_SECONDS,
+  UI_COMMAND_TERMINAL_TTL_SECONDS,
 } from "@cohub/protocol/ui-command";
 
 export type UiCommandStoreClient = {
@@ -104,7 +105,7 @@ export async function claimUiCommand(
       1,
       getUiCommandKey(record.commandId),
       JSON.stringify(record),
-      String(UI_COMMAND_TTL_SECONDS),
+      String(record.settledAt ? UI_COMMAND_TERMINAL_TTL_SECONDS : UI_COMMAND_PENDING_TTL_SECONDS),
     ),
   );
   if (result.code === 1) return { claimed: true, record: result.record ?? record };
@@ -132,7 +133,7 @@ export async function settleUiCommandRecord(
       input.actorUserId,
       input.reportingClientId ?? "",
       JSON.stringify(input.next(current)),
-      String(UI_COMMAND_TTL_SECONDS),
+      String(UI_COMMAND_TERMINAL_TTL_SECONDS),
     ),
   );
 

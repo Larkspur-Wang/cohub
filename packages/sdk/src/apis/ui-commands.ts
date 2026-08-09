@@ -1,6 +1,8 @@
 import type { HttpTransport } from "../transport.js";
 import {
   isTerminalUiCommandStatus,
+  UI_COMMAND_DEFAULT_TIMEOUT_MS,
+  UI_COMMAND_MAX_TIMEOUT_MS,
   type UiCommand,
   type UiCommandError,
   type UiCommandRecord,
@@ -29,8 +31,17 @@ export type WaitForUiCommandOptions = {
   signal?: AbortSignal;
 };
 
-const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_POLL_INTERVAL_MS = 300;
+
+const resolveTimeoutMs = (timeoutMs: number | undefined): number => {
+  const value = timeoutMs ?? UI_COMMAND_DEFAULT_TIMEOUT_MS;
+  if (!Number.isFinite(value) || value <= 0 || value > UI_COMMAND_MAX_TIMEOUT_MS) {
+    throw new RangeError(
+      `timeoutMs must be between 1 and ${UI_COMMAND_MAX_TIMEOUT_MS} milliseconds`,
+    );
+  }
+  return value;
+};
 
 const sleep = (ms: number, signal?: AbortSignal) =>
   new Promise<void>((resolve, reject) => {
@@ -93,7 +104,7 @@ export class UiCommandsApi {
     commandId: string,
     options: WaitForUiCommandOptions = {},
   ): Promise<UiCommandRecord> {
-    const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    const timeoutMs = resolveTimeoutMs(options.timeoutMs);
     const pollIntervalMs = Math.max(50, options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS);
     const deadline = Date.now() + timeoutMs;
     let latest = (await this.get(commandId)).command;
