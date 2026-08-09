@@ -4,6 +4,18 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v2.15 — 2026-08-09
+
+- **Work preview tabs**: Published Works can now open as first-class, deep-linkable tabs beside the Space detail view, with public-content fallback, launch-state preservation, retry states, and shared preview-budget management.
+- **Agent-driven UI commands**: Added `cohub ui preview` and the SDK's `client.ui` surface to open a Work in the originating Cohub tab and invoke registered methods, with provenance routing, atomic Redis-backed command persistence, idempotent command IDs, detached execution, and waits up to 12 hours.
+- **Secure Work Surface RPC**: Introduced a typed, explicit-origin `postMessage` protocol for `client.work.surface.handle()` methods; calls acknowledge delivery first and complete asynchronously through `client.ui.reportResult()`, without DOM access or script evaluation.
+- **Composer context chips**: Works can attach, update, and clear compact plain-text context in the Cohub composer, keeping full selection details available to the user and the Agent while the Work is active.
+
+### Bug Fixes
+
+- **Work preview scrolling**: Prevented workspace drawer gestures from intercepting scroll input inside Work previews.
+- **Preview chrome**: Removed the duplicate Work preview header so previews use the shared workspace chrome consistently.
+
 ## v2.14 — 2026-08-07
 
 - **CSV table preview**: `.csv` and `text/csv` files now render as tables in the file preview with a sticky header, capped row truncation, and empty-cell handling, backed by a new dependency-free parser with delimiter auto-detection, quoted-field and CRLF support
