@@ -1,5 +1,5 @@
 <script lang="ts">
-import { ExternalLink, Loader2, RefreshCw, Rocket } from "lucide-svelte";
+import { ExternalLink, Loader2, RefreshCw } from "lucide-svelte";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import WorkSurface from "$lib/components/work/WorkSurface.svelte";
 import type { WorkSurfaceHost } from "$lib/features/work/surface-host";
@@ -87,26 +87,6 @@ const isDisabled = $derived(detail?.work.status === "disabled");
 		>
 			{#snippet context()}{@render WorkActions()}{/snippet}
 		</PreviewFloatChrome>
-	{:else}
-		<div class="flex h-11 shrink-0 items-center gap-2 border-b border-border-subtle bg-bg-surface px-3">
-			<div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border-subtle bg-bg-primary text-text-secondary">
-				<Rocket class="h-3.5 w-3.5" />
-			</div>
-			<div class="min-w-0 flex-1">
-				<div class="flex min-w-0 items-center gap-2">
-					<span class="truncate text-[13px] font-medium text-text-primary">{preview.label}</span>
-					{#if isDisabled}
-						<span class="shrink-0 rounded-full border border-border-subtle bg-bg-primary px-1.5 py-0.5 text-[10px] leading-none text-text-tertiary">
-							disabled
-						</span>
-					{/if}
-				</div>
-				{#if publicUrl}
-					<div class="truncate text-[11px] text-text-tertiary" title={publicUrl}>{publicUrl}</div>
-				{/if}
-			</div>
-			{@render WorkActions()}
-		</div>
 	{/if}
 
 	<div class="relative min-h-0 flex-1" data-drawer-swipe-ignore>

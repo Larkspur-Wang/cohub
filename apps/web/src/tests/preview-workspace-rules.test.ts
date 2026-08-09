@@ -131,6 +131,8 @@ test("preview kinds share one workspace pane", () => {
 	);
 	assert.match(portPreview, /data-drawer-swipe-ignore/);
 	assert.match(panels[3], /data-drawer-swipe-ignore/);
+	assert.doesNotMatch(panels[3], /<Rocket\b/);
+	assert.doesNotMatch(panels[3], /title=\{publicUrl\}/);
 	assert.match(sharedMobileChrome, /PanelRightOpen/);
 	assert.doesNotMatch(sharedMobileChrome, /FolderOpen/);
 });
