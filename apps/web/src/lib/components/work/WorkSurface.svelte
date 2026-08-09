@@ -8,6 +8,10 @@ import WorkBoardSurface from "$lib/components/work/WorkBoardSurface.svelte";
 import WorkFileSurface from "$lib/components/work/WorkFileSurface.svelte";
 import { readWorkCheckoutState } from "$lib/components/work/work-checkout-state";
 import { createWorkBridgeHost } from "$lib/features/work/bridge-host.svelte";
+import {
+	createWorkSurfaceHost,
+	type WorkSurfaceHost,
+} from "$lib/features/work/surface-host";
 import WorkAuthorizeDialog from "$lib/features/work/WorkAuthorizeDialog.svelte";
 import WorkPurchaseDialog from "$lib/features/work/WorkPurchaseDialog.svelte";
 import { parseNewChatBackgroundAction } from "$lib/new-chat-background-bridge";
@@ -15,7 +19,7 @@ import { emitSpaceConfigBackgroundAction } from "$lib/space-config";
 import { workDisplayTitle } from "$lib/work-page-meta";
 import { buildWorkIframeUrl, type WorkLaunchState } from "$lib/work-url";
 
-type WorkSurfaceMode = "page" | "background";
+type WorkSurfaceMode = "page" | "background" | "preview";
 
 type WorkSpace = {
 	id: string;
@@ -50,6 +54,11 @@ type Props = {
 	content?: WorkContent | null;
 	mode?: WorkSurfaceMode;
 	launchState?: WorkLaunchState | null;
+	/**
+	 * Receives the surface RPC host once mounted, so a parent can invoke methods
+	 * the Work registered. Only meaningful for embedded (web / port) Works.
+	 */
+	onSurfaceHost?: (host: WorkSurfaceHost | null) => void;
 };
 
 const {
@@ -59,12 +68,14 @@ const {
 	content = null,
 	mode = "page",
 	launchState = null,
+	onSurfaceHost = undefined,
 }: Props = $props();
 
 let frame: HTMLIFrameElement | null = $state(null);
 let bridgeReady = $state(false);
 
 const isBackground = $derived(mode === "background");
+const isPreview = $derived(mode === "preview");
 const spaceName = $derived(space?.name || space?.slug || "Space");
 const workTitle = $derived(workDisplayTitle(work.meta, work.slug));
 const publisherName = $derived(owner?.displayName ?? "Cohub");
@@ -116,6 +127,12 @@ const framePreconnectOrigin = $derived.by(() => {
 	if (!frameOrigin || frameOrigin === page.url.origin) return null;
 	return frameOrigin;
 });
+// A new document invalidates any announced methods.
+$effect(() => {
+	void iframeSrc;
+	surfaceHost?.reset();
+});
+
 const frameSandbox = $derived(
 	`allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals${isBackground ? "" : " allow-pointer-lock"}`,
 );
@@ -142,6 +159,16 @@ const host = untrack(() =>
 	}),
 );
 
+// Surface RPC is opt-in: only created when a parent wants to call into the Work.
+const surfaceHost = untrack(() =>
+	onSurfaceHost
+		? createWorkSurfaceHost({
+				getFrame: () => frame,
+				getFrameOrigin: () => frameOrigin,
+			})
+		: null,
+);
+
 async function onFrameMessage(event: MessageEvent) {
 	if (event.source !== frame?.contentWindow) return;
 	if (!frameOrigin || event.origin !== frameOrigin) return;
@@ -152,13 +179,19 @@ async function onFrameMessage(event: MessageEvent) {
 			return;
 		}
 	}
+	if (surfaceHost?.handleMessage(event)) return;
 	await host.handleMessage(event);
 }
 
 onMount(() => {
 	window.addEventListener("message", onFrameMessage);
 	bridgeReady = true;
-	return () => window.removeEventListener("message", onFrameMessage);
+	onSurfaceHost?.(surfaceHost);
+	return () => {
+		window.removeEventListener("message", onFrameMessage);
+		onSurfaceHost?.(null);
+		surfaceHost?.dispose();
+	};
 });
 </script>
 
@@ -168,7 +201,7 @@ onMount(() => {
 	{/if}
 </svelte:head>
 
-<div class={isBackground ? "work-surface background" : "work-surface page"}>
+<div class={isBackground ? "work-surface background" : isPreview ? "work-surface preview" : "work-surface page"}>
 	{#if boardContent}
 		<div class="work-native">
 			<WorkBoardSurface content={boardContent} />
@@ -257,9 +290,23 @@ onMount(() => {
 		min-height: 100vh;
 	}
 
-	.work-surface.background {
+	.work-surface.background,
+	.work-surface.preview {
 		width: 100%;
 		height: 100%;
+	}
+
+	/* Preview lives inside the workspace pane and owns no page chrome. */
+	.work-surface.preview {
+		display: flex;
+		min-height: 0;
+		flex-direction: column;
+	}
+
+	.work-surface.preview .work-frame,
+	.work-surface.preview .work-native {
+		flex: 1 1 auto;
+		min-height: 0;
 	}
 
 	.work-frame {

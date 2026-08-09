@@ -57,6 +57,7 @@ test("preview kinds share one workspace pane", () => {
 		"InlineFilePanel.svelte",
 		"BoardPreviewPanel.svelte",
 		"PortPreviewPanel.svelte",
+		"WorkPreviewPanel.svelte",
 	].map((file) => readFileSync(new URL(file, modules), "utf8"));
 	const portPreview = readFileSync(
 		new URL("../lib/components/PortPreview.svelte", import.meta.url),

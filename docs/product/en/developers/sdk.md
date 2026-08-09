@@ -140,6 +140,38 @@ them.
 See the [Work Runtime Guide](https://github.com/talesofai/cohub/blob/main/packages/sdk/docs/work-runtime-guide.md#realtime-rooms-workrealtime)
 for lifecycle, presence, membership, seat, and limit details.
 
+### Callable surface
+
+A Work can expose named methods to the Cohub host embedding it, so an Agent can
+call into the running Work with `cohub ui preview <work> --call <method>`.
+
+```ts
+client.work.surface.handle("selection.get", () => currentSelection);
+client.work.surface.handle("board.focus", async ({ nodeId }) => {
+  await focusNode(nodeId);
+  return { focused: nodeId };
+});
+```
+
+Only registered methods are reachable. There is no DOM access and no script
+evaluation, and the argument and return shape of each method are entirely the
+Work's choice. Handlers may return any JSON-serializable value; the result is
+printed by the caller. A result that cannot be serialized, or that exceeds 32KB,
+is reported as an error rather than left to time out.
+
+Calls are delivered at-least-once, so prefer methods that are safe to repeat.
+
+Because a published Work is publicly embeddable, calls are accepted only from an
+explicit list of Cohub app origins (or the Work's own origin), and replies go to
+that origin rather than being broadcast. A Work embedded by any other site
+registers its methods but never answers. The list is deliberately not a
+`*.cohub.run` suffix match, since Works themselves are served from a Cohub
+subdomain. Self-hosted deployments and local development widen it explicitly:
+
+```ts
+client.work.surface.allowHostOrigins(["https://cohub.internal"]);
+```
+
 ## Main client surfaces
 
 The client groups product APIs intentionally:
@@ -155,6 +187,7 @@ The client groups product APIs intentionally:
 | Channels | `client.channels` |
 | Billing / commerce | `client.billing`, `client.workCommerce` |
 | Work runtime | `client.context()`, `client.auth`, `client.work` |
+| Cohub UI commands | `client.ui` |
 
 Use only the surfaces you need. Start with Spaces, sessions, and Works.
 

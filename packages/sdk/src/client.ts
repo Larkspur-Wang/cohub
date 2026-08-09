@@ -11,6 +11,7 @@ import { SearchApi } from "./apis/search.js";
 import { ReferencesApi } from "./apis/references.js";
 import { SpaceClient, SpacesApi, type WebSocketConnectionState } from "./apis/spaces.js";
 import { TasksApi } from "./apis/tasks.js";
+import { UiCommandsApi } from "./apis/ui-commands.js";
 import { UserApi } from "./apis/user.js";
 import { UsersApi } from "./apis/users.js";
 import { WorksApi } from "./apis/works.js";
@@ -22,6 +23,7 @@ import { HttpTransport, type CohubClientOptions } from "./transport.js";
 import { ensureRealtimeConnected } from "./realtime.js";
 import { createWebsocketClient, type WebsocketEventPayload } from "./websocket.js";
 import { VoiceApi } from "./voice-input.js";
+import { WorkSurfaceApi } from "./work-surface.js";
 import { resolveApiBaseUrl, resolveWebsocketUrl } from "./environment.js";
 import {
   createSlugWorkIdResolver,
@@ -49,6 +51,7 @@ export class CohubClient {
   readonly references: ReferencesApi;
   readonly tasks: TasksApi;
   readonly cronJobs: CronJobsApi;
+  readonly ui: UiCommandsApi;
   readonly invite: PublicInviteApi;
   readonly referrals: ReferralsApi;
   readonly voice: VoiceApi;
@@ -119,6 +122,7 @@ export class CohubClient {
     this.references = new ReferencesApi(this.transport);
     this.tasks = new TasksApi(this.transport);
     this.cronJobs = new CronJobsApi(this.transport);
+    this.ui = new UiCommandsApi(this.transport);
     this.invite = new PublicInviteApi(this.transport);
     this.referrals = new ReferralsApi(this.transport);
     this.works = new WorksApi(this.transport);
@@ -140,6 +144,8 @@ export class CohubClient {
 
   readonly work = {
     realtime: null as unknown as WorkRealtimeApi,
+    /** Expose callable methods from inside a published Work. */
+    surface: new WorkSurfaceApi(),
     commerce: {
       resolveProducts: async (input: { productKeys: string[] }) => {
         const context = await this.workRuntime.context();

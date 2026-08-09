@@ -139,6 +139,34 @@ await room.leave();
 生命周期、presence、成员、席位与限制详见
 [Work Runtime Guide](https://github.com/talesofai/cohub/blob/main/packages/sdk/docs/work-runtime-guide.md#realtime-rooms-workrealtime)。
 
+### 可调用方法
+
+Work 可以向嵌入它的 Cohub 宿主暴露具名方法，Agent 便能通过
+`cohub ui preview <work> --call <method>` 调用正在运行的 Work。
+
+```ts
+client.work.surface.handle("selection.get", () => currentSelection);
+client.work.surface.handle("board.focus", async ({ nodeId }) => {
+  await focusNode(nodeId);
+  return { focused: nodeId };
+});
+```
+
+只有注册过的方法可以被调用。不提供 DOM 访问，也不提供脚本执行；每个方法的入参与返回结构
+完全由 Work 自己决定。Handler 可以返回任意可 JSON 序列化的值，调用方会打印该结果。无法序列化或超过 32KB 的返回值
+会以错误形式上报，而不是让调用方一直等到超时。
+
+调用语义是 at-least-once，因此建议让可调用方法可重复执行。
+
+由于已发布的 Work 可以被任意站点嵌入，调用只接受来自明确列出的 Cohub 应用 origin（或 Work
+自身 origin）的请求，回复也只发往该 origin，不做广播。被其他站点嵌入时，Work 仍会注册方法，
+但不会作出任何响应。该列表刻意不采用 `*.cohub.run` 后缀匹配——Work 本身就托管在 Cohub 子域
+上。自建部署与本地开发需显式放开：
+
+```ts
+client.work.surface.allowHostOrigins(["https://cohub.internal"]);
+```
+
 ## 主要 client 表面
 
 Client 按产品区域分组：
@@ -154,6 +182,7 @@ Client 按产品区域分组：
 | Channels | `client.channels` |
 | Billing / commerce | `client.billing`、`client.workCommerce` |
 | Work runtime | `client.context()`、`client.auth`、`client.work` |
+| Cohub 界面命令 | `client.ui` |
 
 只使用你需要的表面。从 Spaces、sessions 和 Works 开始。
 

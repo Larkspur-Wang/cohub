@@ -453,10 +453,14 @@ router.get("/:id/public", async (c) => {
   if (!row) return c.json({ message: "work not found" }, 404);
   if (!row.owner.username || !row.space.slug) return c.json({ message: "work public identity is incomplete" }, 409);
   const space = { id: row.space.id, slug: row.space.slug, name: row.space.name, userUuid: row.space.userUuid, publicProfile: getSpacePublicProfile(row.space) };
+  // Content matches what the by-slug page already serves for the same access
+  // model, so an in-workspace preview can render a Work reached by public url.
+  const content = await getPublishedWorkContent(work);
   return c.json({
     work: serializeWork(work),
     space,
     owner: { ...row.owner, username: row.owner.username },
+    content,
   });
 });
 

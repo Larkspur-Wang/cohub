@@ -45,6 +45,8 @@ type Props = {
 	ownerUsername: string | null;
 	spaceSlug: string | null;
 	onHeaderMeta: (meta: RouteDetailHeaderMeta) => void;
+	/** Show a Work in the workspace preview pane. */
+	onPreviewWork?: (work: WorkRecord) => void;
 };
 
 let {
@@ -58,6 +60,7 @@ let {
 	ownerUsername,
 	spaceSlug,
 	onHeaderMeta,
+	onPreviewWork,
 }: Props = $props();
 
 const spaceName = $derived(space?.name ?? space?.title ?? spaceId);
@@ -124,6 +127,7 @@ function handleTaskLoaded(run: TaskRunRecord | null) {
 		{spaceSlug}
 		{canEditSpace}
 		onDetailLoaded={handleWorkLoaded}
+		{onPreviewWork}
 	/>
 {:else if route.view === "task"}
 	<TaskRunView
