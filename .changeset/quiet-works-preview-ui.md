@@ -21,8 +21,14 @@ prompts, agent turns, and the Sandbox (`COHUB_SOURCE_CLIENT_ID`). Commands reach
 only the acting user's own frontend instance, and a Work exposes nothing beyond the
 methods it registers.
 
-A Work answers surface calls only from an explicit list of Cohub app origins (or
-its own), never a `*.cohub.run` suffix match, so neither a third-party embedder nor
-a Work served from a Cohub content subdomain can invoke another Work's methods. A
-result that cannot be serialized or exceeds the payload cap is rejected with a
-reason instead of leaving the caller to time out.
+A Work can also attach one custom context chip to the Cohub composer with
+`client.work.composer.setChip()`. The compact label opens a lightweight full-text
+preview, while the original content is preserved in the sent message for the
+Agent and timeline.
+
+A Work answers surface calls and sends composer context only to an explicit list
+of Cohub app origins (or its own), never a `*.cohub.run` suffix match, so neither
+a third-party embedder nor a Work served from a Cohub content subdomain can invoke
+another Work's methods or alter the Cohub composer. A result that cannot be
+serialized or exceeds the payload cap is rejected with a reason instead of
+leaving the caller to time out.

@@ -3,6 +3,7 @@ import type {
 	SpacePublicEndpoint,
 	SpacePublicEndpoints,
 } from "@cohub/protocol/ports";
+import type { WorkComposerChip } from "@cohub/protocol/work-surface";
 import type {
 	BoardOperation,
 	SpacePendingDiffFileResponse,
@@ -154,6 +155,7 @@ export type SpaceFileDomainProps = {
 	onCloseInlineWorkTab: (workId: string) => void;
 	onRetryInlineWork: (workId: string) => void;
 	onRegisterWorkSurface: (workId: string, host: WorkSurfaceHost | null) => void;
+	onWorkComposerChip: (workId: string, chip: WorkComposerChip | null) => void;
 	onBackInlineFile: () => void | Promise<void>;
 	onDownloadInlineFile: () => void | Promise<void>;
 	onRetryInlineFile?: () => void | Promise<void>;
@@ -300,6 +302,7 @@ let {
 	onCloseInlineWorkTab,
 	onRetryInlineWork,
 	onRegisterWorkSurface,
+	onWorkComposerChip,
 	onBackInlineFile,
 	onDownloadInlineFile,
 	onRetryInlineFile,
@@ -560,6 +563,7 @@ function previewContentOut(node: Element) {
 		onToggleImmersive={onTogglePreviewImmersiveMode}
 		onRetry={onRetryInlineWork}
 		onRegisterSurface={onRegisterWorkSurface}
+		onComposerChip={onWorkComposerChip}
 	/>
 {/if}
 			</div>

@@ -44,6 +44,46 @@ function mountWork(embedder: string, self = "https://work.example") {
 	return { surface, posted, send };
 }
 
+test("a Work can set and clear composer context for its trusted Cohub host", () => {
+	const { surface, posted } = mountWork(COHUB);
+	const chip = {
+		key: "selection",
+		label: "3 selected",
+		content: "Selected records:\n- customer_123",
+	};
+
+	surface.setComposerChip(chip);
+	assert.deepEqual(posted.at(-1), {
+		origin: COHUB,
+		message: {
+			protocol: "cohub.surface",
+			version: 1,
+			type: "composer.chip.set",
+			chip,
+		},
+	});
+
+	surface.clearComposerChip(chip.key);
+	assert.deepEqual(posted.at(-1), {
+		origin: COHUB,
+		message: {
+			protocol: "cohub.surface",
+			version: 1,
+			type: "composer.chip.clear",
+			key: chip.key,
+		},
+	});
+});
+
+test("invalid composer context is rejected before posting", () => {
+	const { surface, posted } = mountWork(COHUB);
+	assert.throws(
+		() => surface.setComposerChip({ key: "selection", label: "", content: "value" }),
+		/Invalid Work composer chip/,
+	);
+	assert.equal(posted.length, 0);
+});
+
 test("a Cohub host can call a method and gets a reply addressed to its origin", async () => {
 	const { surface, posted, send } = mountWork(COHUB);
 	surface.handle("ping", () => "pong");

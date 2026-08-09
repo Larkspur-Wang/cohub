@@ -10,6 +10,11 @@ const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 function mountHost(options: { frameOrigin?: string | null } = {}) {
 	const posted: Array<{ message: Record<string, unknown>; origin: string }> =
 		[];
+	const composerChips: Array<{
+		key: string;
+		label: string;
+		content: string;
+	} | null> = [];
 	const contentWindow = {
 		postMessage: (message: Record<string, unknown>, origin: string) =>
 			posted.push({ message, origin }),
@@ -18,6 +23,7 @@ function mountHost(options: { frameOrigin?: string | null } = {}) {
 		getFrame: () => ({ contentWindow }) as unknown as HTMLIFrameElement,
 		getFrameOrigin: () =>
 			options.frameOrigin === undefined ? ORIGIN : options.frameOrigin,
+		onComposerChip: (chip) => composerChips.push(chip),
 	});
 
 	const event = (
@@ -35,6 +41,7 @@ function mountHost(options: { frameOrigin?: string | null } = {}) {
 	return {
 		host,
 		posted,
+		composerChips,
 		contentWindow,
 		ready: (methods: string[], source?: unknown, origin?: string) =>
 			host.handleMessage(event("ready", { methods }, source, origin)),
@@ -43,8 +50,49 @@ function mountHost(options: { frameOrigin?: string | null } = {}) {
 			source?: unknown,
 			origin?: string,
 		) => host.handleMessage(event("response", payload, source, origin)),
+		setComposerChip: (
+			chip: { key: string; label: string; content: string },
+			source?: unknown,
+			origin?: string,
+		) =>
+			host.handleMessage(event("composer.chip.set", { chip }, source, origin)),
+		clearComposerChip: (key: string, source?: unknown, origin?: string) =>
+			host.handleMessage(event("composer.chip.clear", { key }, source, origin)),
 	};
 }
+
+test("trusted Work composer context updates, clears, and resets", () => {
+	const { host, composerChips, setComposerChip, clearComposerChip } =
+		mountHost();
+	const chip = {
+		key: "selection",
+		label: "3 selected",
+		content: "Selected records:\n- customer_123",
+	};
+
+	assert.equal(setComposerChip(chip), true);
+	assert.deepEqual(composerChips, [chip]);
+	assert.equal(clearComposerChip("other"), true);
+	assert.deepEqual(composerChips, [chip]);
+	assert.equal(clearComposerChip(chip.key), true);
+	assert.deepEqual(composerChips, [chip, null]);
+
+	setComposerChip(chip);
+	host.reset();
+	assert.deepEqual(composerChips, [chip, null, chip, null]);
+});
+
+test("spoofed Work composer context is ignored", () => {
+	const { composerChips, contentWindow, setComposerChip } = mountHost();
+	const chip = { key: "selection", label: "Selected", content: "customer_123" };
+
+	assert.equal(setComposerChip(chip, {}, ORIGIN), false);
+	assert.equal(
+		setComposerChip(chip, contentWindow, "https://evil.example"),
+		false,
+	);
+	assert.deepEqual(composerChips, []);
+});
 
 test("a call resolves with the result the Work returned", async () => {
 	const { host, posted, ready, respond } = mountHost();

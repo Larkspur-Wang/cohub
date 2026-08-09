@@ -7,6 +7,13 @@ const source = readFileSync(
 	"utf8",
 );
 
+test("composer context alone enables the Work Surface message host", () => {
+	assert.match(
+		source,
+		/onSurfaceHost \|\| onComposerChip\s*\? createWorkSurfaceHost/,
+	);
+});
+
 test("interactive Work frames delegate low-risk user-activated capabilities", () => {
 	assert.match(
 		source,

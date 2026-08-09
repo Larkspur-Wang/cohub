@@ -161,7 +161,29 @@ is reported as an error rather than left to time out.
 
 Calls are delivered at-least-once, so prefer methods that are safe to repeat.
 
-Because a published Work is publicly embeddable, calls are accepted only from an
+### Composer context
+
+A Work running in the workspace preview can attach one compact context chip to
+the Cohub composer. The label stays short while the full content is available to
+the user and sent with each message while attached:
+
+```ts
+client.work.composer.setChip({
+  key: "selection",
+  label: "3 selected",
+  content: "Selected records:\n- customer_123\n- customer_456\n- customer_789",
+});
+
+client.work.composer.clearChip("selection");
+```
+
+Calling `setChip()` again with the same key updates the existing chip. Cohub owns
+the chip's appearance and treats its content as plain text. Labels are limited to
+120 characters and content to 32KB. The chip is only attached while that Work is
+the active preview; closing or reloading the surface clears it.
+
+Because a published Work is publicly embeddable, surface calls and composer
+context are accepted only from an
 explicit list of Cohub app origins (or the Work's own origin), and replies go to
 that origin rather than being broadcast. A Work embedded by any other site
 registers its methods but never answers. The list is deliberately not a

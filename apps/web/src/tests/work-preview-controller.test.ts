@@ -42,6 +42,23 @@ test("opening a work loads its detail and adopts the published title as the tab 
 	assert.equal(controller.preview?.label, "launch");
 });
 
+test("Work composer context updates in place and is discarded with the preview", () => {
+	const controller = createController();
+	controller.openWork({ workId: WORK_ID });
+	const chip = {
+		key: "selection",
+		label: "3 selected",
+		content: "Selected records:\n- customer_123",
+	};
+
+	controller.setComposerChip(WORK_ID, chip);
+	assert.deepEqual(controller.preview?.composerChip, chip);
+	controller.setComposerChip(WORK_ID, { ...chip, label: "4 selected" });
+	assert.equal(controller.preview?.composerChip?.label, "4 selected");
+	controller.closeWork(WORK_ID);
+	assert.equal(controller.preview, null);
+});
+
 test("a call issued right after opening waits for the detail and the mounted surface", async () => {
 	// The realistic agent path: show and call in one command, before the iframe exists.
 	const controller = createController({ delayMs: 20 });

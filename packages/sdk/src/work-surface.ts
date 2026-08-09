@@ -1,7 +1,12 @@
 import {
+  buildWorkComposerChipClear,
+  buildWorkComposerChipSet,
   buildWorkSurfaceReady,
   buildWorkSurfaceResponse,
+  parseWorkComposerChipClear,
+  parseWorkComposerChipSet,
   parseWorkSurfaceRequest,
+  type WorkComposerChip,
 } from "@cohub/protocol/work-surface";
 import { UI_COMMAND_PAYLOAD_MAX_BYTES } from "@cohub/protocol/ui-command";
 
@@ -104,6 +109,18 @@ export class WorkSurfaceApi {
 
   get methods(): string[] {
     return [...this.handlers.keys()];
+  }
+
+  setComposerChip(chip: WorkComposerChip): void {
+    const message = parseWorkComposerChipSet(buildWorkComposerChipSet(chip));
+    if (!message) throw new Error("Invalid Work composer chip");
+    this.post(message);
+  }
+
+  clearComposerChip(key: string): void {
+    const message = parseWorkComposerChipClear(buildWorkComposerChipClear(key));
+    if (!message) throw new Error("Invalid Work composer chip key");
+    this.post(message);
   }
 
   announce(): void {

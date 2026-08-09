@@ -24,6 +24,7 @@ import { ensureRealtimeConnected } from "./realtime.js";
 import { createWebsocketClient, type WebsocketEventPayload } from "./websocket.js";
 import { VoiceApi } from "./voice-input.js";
 import { WorkSurfaceApi } from "./work-surface.js";
+import type { WorkComposerChip } from "@cohub/protocol/work-surface";
 import { resolveApiBaseUrl, resolveWebsocketUrl } from "./environment.js";
 import {
   createSlugWorkIdResolver,
@@ -146,6 +147,12 @@ export class CohubClient {
     realtime: null as unknown as WorkRealtimeApi,
     /** Expose callable methods from inside a published Work. */
     surface: new WorkSurfaceApi(),
+    composer: {
+      /** Attach or update context from this Work in the Cohub composer. */
+      setChip: (chip: WorkComposerChip) => this.work.surface.setComposerChip(chip),
+      /** Remove context previously attached by this Work. */
+      clearChip: (key: string) => this.work.surface.clearComposerChip(key),
+    },
     commerce: {
       resolveProducts: async (input: { productKeys: string[] }) => {
         const context = await this.workRuntime.context();

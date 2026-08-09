@@ -1,4 +1,5 @@
 <script lang="ts">
+import type { WorkComposerChip } from "@cohub/protocol/work-surface";
 import { ExternalLink, Loader2, RefreshCw } from "lucide-svelte";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import WorkSurface from "$lib/components/work/WorkSurface.svelte";
@@ -20,6 +21,7 @@ type Props = {
 	onClosePreviewTab: (kind: PreviewTab["kind"], key: string) => void;
 	onRetry: (workId: string) => void;
 	onRegisterSurface: (workId: string, host: WorkSurfaceHost | null) => void;
+	onComposerChip: (workId: string, chip: WorkComposerChip | null) => void;
 };
 
 const {
@@ -34,6 +36,7 @@ const {
 	onClosePreviewTab,
 	onRetry,
 	onRegisterSurface,
+	onComposerChip,
 }: Props = $props();
 
 const detail = $derived(preview.detail);
@@ -122,6 +125,7 @@ const isDisabled = $derived(detail?.work.status === "disabled");
 					content={detail.content}
 					{launchState}
 					onSurfaceHost={(host) => onRegisterSurface(preview.workId, host)}
+					onComposerChip={(chip) => onComposerChip(preview.workId, chip)}
 				/>
 			{/key}
 		{/if}

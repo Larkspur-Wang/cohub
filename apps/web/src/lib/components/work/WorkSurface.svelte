@@ -1,4 +1,5 @@
 <script lang="ts">
+import type { WorkComposerChip } from "@cohub/protocol/work-surface";
 import type { WorkContent, WorkRecord } from "@neta-art/cohub";
 import { onMount, untrack } from "svelte";
 import { page } from "$app/state";
@@ -59,6 +60,7 @@ type Props = {
 	 * the Work registered. Only meaningful for embedded (web / port) Works.
 	 */
 	onSurfaceHost?: (host: WorkSurfaceHost | null) => void;
+	onComposerChip?: (chip: WorkComposerChip | null) => void;
 };
 
 const {
@@ -69,6 +71,7 @@ const {
 	mode = "page",
 	launchState = null,
 	onSurfaceHost = undefined,
+	onComposerChip = undefined,
 }: Props = $props();
 
 let frame: HTMLIFrameElement | null = $state(null);
@@ -161,10 +164,11 @@ const host = untrack(() =>
 
 // Surface RPC is opt-in: only created when a parent wants to call into the Work.
 const surfaceHost = untrack(() =>
-	onSurfaceHost
+	onSurfaceHost || onComposerChip
 		? createWorkSurfaceHost({
 				getFrame: () => frame,
 				getFrameOrigin: () => frameOrigin,
+				onComposerChip,
 			})
 		: null,
 );

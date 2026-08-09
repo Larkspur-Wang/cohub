@@ -1,6 +1,7 @@
 import {
 	WORK_SURFACE_READY_TIMEOUT_MS,
 	WORK_SURFACE_REQUEST_TIMEOUT_MS,
+	type WorkComposerChip,
 } from "@cohub/protocol/work-surface";
 import type { WorkDetailResponse } from "@neta-art/cohub";
 import { workDisplayTitle } from "$lib/work-page-meta";
@@ -15,6 +16,7 @@ export type InlineWorkPreview = {
 	loading: boolean;
 	error: string | null;
 	launch: WorkPreviewLaunchState | null;
+	composerChip: WorkComposerChip | null;
 };
 
 export type WorkSurfaceInvoker = (input: {
@@ -132,6 +134,7 @@ export function createWorkPreviewController(
 				loading: true,
 				error: null,
 				launch: input.launch ?? null,
+				composerChip: null,
 			},
 		];
 		activeWorkId = input.workId;
@@ -168,6 +171,11 @@ export function createWorkPreviewController(
 	function retry(workId: string) {
 		if (!previews.some((item) => item.workId === workId)) return;
 		void loadDetail(workId);
+	}
+
+	function setComposerChip(workId: string, chip: WorkComposerChip | null) {
+		if (!previews.some((item) => item.workId === workId)) return;
+		patch(workId, { composerChip: chip });
 	}
 
 	function registerSurface(workId: string, invoker: WorkSurfaceInvoker) {
@@ -275,6 +283,7 @@ export function createWorkPreviewController(
 		closeAll,
 		retry,
 		registerSurface,
+		setComposerChip,
 		callSurface,
 		dispose,
 	};

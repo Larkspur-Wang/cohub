@@ -195,9 +195,16 @@ export {
   buildWorkSurfaceRequest,
   parseWorkSurfaceReady,
   parseWorkSurfaceResponse,
+  WORK_COMPOSER_CHIP_CONTENT_MAX_BYTES,
+  WORK_COMPOSER_CHIP_KEY_MAX_LENGTH,
+  WORK_COMPOSER_CHIP_LABEL_MAX_LENGTH,
   WORK_SURFACE_READY_TIMEOUT_MS,
   WORK_SURFACE_REQUEST_TIMEOUT_MS,
 } from "@cohub/protocol/work-surface";
-export type { WorkSurfaceReadyMessage, WorkSurfaceResponseMessage } from "@cohub/protocol/work-surface";
+export type {
+  WorkComposerChip,
+  WorkSurfaceReadyMessage,
+  WorkSurfaceResponseMessage,
+} from "@cohub/protocol/work-surface";
 export type { WorkCommerceCheckoutStatus, WorkCommerceCreditConsumeResponse, WorkCommerceCreditConsumeStatus, WorkCommerceEntitlement, WorkCommerceEntitlementsResponse, WorkCommerceOrder, WorkCommerceProductResolveResponse, WorkCommercePurchaseResponse } from "./apis/work-commerce.js";
 export type { WorkRuntimeCheckoutState, WorkRuntimeCheckoutStatus, WorkRuntimeContext } from "./work-runtime.js";

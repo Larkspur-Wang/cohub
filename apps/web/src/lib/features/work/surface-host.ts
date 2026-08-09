@@ -1,9 +1,12 @@
 import {
 	buildWorkSurfaceRequest,
+	parseWorkComposerChipClear,
+	parseWorkComposerChipSet,
 	parseWorkSurfaceReady,
 	parseWorkSurfaceResponse,
 	WORK_SURFACE_READY_TIMEOUT_MS,
 	WORK_SURFACE_REQUEST_TIMEOUT_MS,
+	type WorkComposerChip,
 } from "@cohub/protocol/work-surface";
 
 export type WorkSurfaceCallResult =
@@ -13,6 +16,7 @@ export type WorkSurfaceCallResult =
 export type WorkSurfaceHostConfig = {
 	getFrame: () => HTMLIFrameElement | null;
 	getFrameOrigin: () => string | null;
+	onComposerChip?: (chip: WorkComposerChip | null) => void;
 };
 
 export type WorkSurfaceHost = {
@@ -34,6 +38,7 @@ export function createWorkSurfaceHost(
 ): WorkSurfaceHost {
 	let ready = false;
 	let methods: string[] = [];
+	let composerChip: WorkComposerChip | null = null;
 	const pending = new Map<string, (result: WorkSurfaceCallResult) => void>();
 	let readyWaiters: Array<(becameReady: boolean) => void> = [];
 	let epoch = 0;
@@ -63,6 +68,22 @@ export function createWorkSurfaceHost(
 		const readyMessage = parseWorkSurfaceReady(event.data);
 		if (readyMessage) {
 			markReady(readyMessage.methods);
+			return true;
+		}
+
+		const chipSet = parseWorkComposerChipSet(event.data);
+		if (chipSet) {
+			composerChip = chipSet.chip;
+			config.onComposerChip?.(composerChip);
+			return true;
+		}
+
+		const chipClear = parseWorkComposerChipClear(event.data);
+		if (chipClear) {
+			if (composerChip?.key === chipClear.key) {
+				composerChip = null;
+				config.onComposerChip?.(null);
+			}
 			return true;
 		}
 
@@ -187,6 +208,10 @@ export function createWorkSurfaceHost(
 		epoch += 1;
 		ready = false;
 		methods = [];
+		if (composerChip) {
+			composerChip = null;
+			config.onComposerChip?.(null);
+		}
 		for (const settle of pending.values()) {
 			settle({
 				ok: false,

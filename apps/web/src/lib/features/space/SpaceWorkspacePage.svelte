@@ -1,6 +1,7 @@
 <script lang="ts">
 import type { SpaceFsChangedPayload } from "@cohub/protocol/fs";
 import type { ChannelEnvelope } from "@cohub/protocol/realtime";
+import type { WorkComposerChip } from "@cohub/protocol/work-surface";
 import type {
 	BoardOperation,
 	Permission,
@@ -649,8 +650,15 @@ $effect(() => {
 		});
 		return;
 	}
+	if (activePreviewKind === "work" && inlineWorkPreview?.composerChip) {
+		sessionChat.reportActiveSource({
+			kind: "work",
+			workId: inlineWorkPreview.workId,
+			...inlineWorkPreview.composerChip,
+		});
+		return;
+	}
 	if (activePreviewKind === "work") {
-		// A Work renders its own content; there is no workspace source to attach.
 		sessionChat.reportActiveSource(null);
 		return;
 	}
@@ -1935,6 +1943,9 @@ function retryInlineWork(workId: string) {
  * invoker pointing at a detached frame.
  */
 const workSurfaceDisposers = new Map<string, () => void>();
+function handleWorkComposerChip(workId: string, chip: WorkComposerChip | null) {
+	workPreview.setComposerChip(workId, chip);
+}
 function registerWorkSurface(workId: string, host: WorkSurfaceHost | null) {
 	workSurfaceDisposers.get(workId)?.();
 	workSurfaceDisposers.delete(workId);
@@ -2690,6 +2701,7 @@ const spaceFileDomainProps = $derived.by<
 	onCloseInlineWorkTab: closeInlineWorkTab,
 	onRetryInlineWork: retryInlineWork,
 	onRegisterWorkSurface: registerWorkSurface,
+	onWorkComposerChip: handleWorkComposerChip,
 	onActivateInlineFile: activateInlineFileTab,
 	onCloseInlineFileTab: closeInlineFileTab,
 	onBackInlineFile: goBackInlineFile,
