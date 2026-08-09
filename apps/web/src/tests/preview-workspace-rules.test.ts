@@ -130,6 +130,7 @@ test("preview kinds share one workspace pane", () => {
 		/class:cm-wrapper--drawer-swipe=\{allowDrawerSwipe\}/,
 	);
 	assert.match(portPreview, /data-drawer-swipe-ignore/);
+	assert.match(panels[3], /data-drawer-swipe-ignore/);
 	assert.match(sharedMobileChrome, /PanelRightOpen/);
 	assert.doesNotMatch(sharedMobileChrome, /FolderOpen/);
 });

@@ -109,7 +109,7 @@ const isDisabled = $derived(detail?.work.status === "disabled");
 		</div>
 	{/if}
 
-	<div class="relative min-h-0 flex-1">
+	<div class="relative min-h-0 flex-1" data-drawer-swipe-ignore>
 		{#if preview.error}
 			<div class="flex h-full items-center justify-center p-6">
 				<div class="max-w-sm text-center">
