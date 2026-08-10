@@ -1,5 +1,14 @@
 # @neta-art/cohub-cli
 
+## 3.8.2
+
+### Patch Changes
+
+- 7d42fe1: Relaunch the CLI after an automatic update so the current command runs with the newly installed version.
+- Updated dependencies [0a82a02]
+- Updated dependencies [0628b24]
+  - @neta-art/cohub@5.3.2
+
 ## 3.8.1
 
 ### Patch Changes
