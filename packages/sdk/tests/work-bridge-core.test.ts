@@ -237,7 +237,7 @@ test("background owner is auto-authorized without dialog", async () => {
 
 	try {
 		const config = makeConfig({
-			isBackground: true,
+			authorizationContext: { surface: "background" },
 			viewerUuid: "owner-uuid", // same as work.userUuid
 		});
 		const core = createWorkBridgeCore(config);
@@ -259,7 +259,7 @@ test("background owner is auto-authorized without dialog", async () => {
 	}
 });
 
-test("matching workspace preview owner is auto-authorized without dialog", async () => {
+test("preview owner is auto-authorized without dialog", async () => {
 	const originalFetch = globalThis.fetch;
 	globalThis.fetch = (() =>
 		Promise.resolve(
@@ -270,10 +270,7 @@ test("matching workspace preview owner is auto-authorized without dialog", async
 
 	try {
 		const config = makeConfig({
-			authorizationContext: {
-				surface: "preview",
-				workspaceSpaceId: "space_1",
-			},
+			authorizationContext: { surface: "preview" },
 			viewerUuid: "owner-uuid",
 		});
 		const core = createWorkBridgeCore(config);
@@ -293,27 +290,18 @@ test("matching workspace preview owner is auto-authorized without dialog", async
 	}
 });
 
-test("preview owner auto-authorization requires the same workspace and publisher", async () => {
+test("owner auto-authorization is limited to workspace surfaces", async () => {
 	const configs = [
 		makeConfig({
-			authorizationContext: {
-				surface: "preview",
-				workspaceSpaceId: "another-space",
-			},
-			viewerUuid: "owner-uuid",
-		}),
-		makeConfig({
-			authorizationContext: {
-				surface: "preview",
-				workspaceSpaceId: "space_1",
-			},
+			authorizationContext: { surface: "preview" },
 			viewerUuid: "another-viewer",
 		}),
 		makeConfig({
-			authorizationContext: {
-				surface: "page",
-				workspaceSpaceId: "space_1",
-			},
+			authorizationContext: { surface: "page" },
+			viewerUuid: "owner-uuid",
+		}),
+		makeConfig({
+			authorizationContext: { surface: "broker" },
 			viewerUuid: "owner-uuid",
 		}),
 	];

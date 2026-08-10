@@ -642,6 +642,10 @@ const selectedFilePath = $derived(
 		activeInlineBoardPath,
 	),
 );
+let newChatBackgroundWorkContext = $state<{
+	workId: string;
+	chip: WorkComposerChip;
+} | null>(null);
 
 $effect(() => {
 	if (activePreviewKind === "file" && inlineFile?.path) {
@@ -676,6 +680,18 @@ $effect(() => {
 			kind: "port",
 			port: inlinePortPreview.port,
 			url: inlinePortEndpoint?.url ?? inlinePortPreview.url,
+		});
+		return;
+	}
+	if (activePreviewKind) {
+		sessionChat.reportActiveSource(null);
+		return;
+	}
+	if (newChatBackgroundWorkContext) {
+		sessionChat.reportActiveSource({
+			kind: "work",
+			workId: newChatBackgroundWorkContext.workId,
+			...newChatBackgroundWorkContext.chip,
 		});
 		return;
 	}
@@ -1000,6 +1016,9 @@ const shouldShowNewChatProfile = $derived(
 			!shouldShowNewChatBackground,
 	),
 );
+$effect(() => {
+	if (!shouldShowNewChatBackground) newChatBackgroundWorkContext = null;
+});
 $effect(() => {
 	if (!shouldShowNewChatProfile || !space) return;
 	untrack(() => {
@@ -1954,6 +1973,18 @@ function retryInlineWork(workId: string) {
 const workSurfaceDisposers = new Map<string, () => void>();
 function handleWorkComposerChip(workId: string, chip: WorkComposerChip | null) {
 	workPreview.setComposerChip(workId, chip);
+}
+function handleNewChatBackgroundComposerChip(
+	workId: string,
+	chip: WorkComposerChip | null,
+) {
+	if (chip) {
+		newChatBackgroundWorkContext = { workId, chip };
+		return;
+	}
+	if (newChatBackgroundWorkContext?.workId === workId) {
+		newChatBackgroundWorkContext = null;
+	}
 }
 function registerWorkSurface(workId: string, host: WorkSurfaceHost | null) {
 	workSurfaceDisposers.get(workId)?.();
@@ -3009,6 +3040,7 @@ const headerActions = {
         {shouldShowNewChatBackground}
         {newChatBackground}
         newChatBackgroundSpaceId={spaceId}
+        onNewChatBackgroundComposerChip={handleNewChatBackgroundComposerChip}
         {shouldShowNewChatProfile}
         {newChatProfileExpanded}
         bind:newChatProfileViewportEl

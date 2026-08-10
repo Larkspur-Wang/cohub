@@ -13,11 +13,23 @@ const previewSource = readFileSync(
 	),
 	"utf8",
 );
-const fileDomainSource = readFileSync(
+const backgroundSource = readFileSync(
+	new URL("../lib/components/NewChatBackground.svelte", import.meta.url),
+	"utf8",
+);
+const workBackgroundSource = readFileSync(
+	new URL("../lib/components/NewChatWorkBackground.svelte", import.meta.url),
+	"utf8",
+);
+const sessionPanelSource = readFileSync(
 	new URL(
-		"../lib/features/space/modules/SpaceFileDomain.svelte",
+		"../lib/features/session-chat/SessionChatPanel.svelte",
 		import.meta.url,
 	),
+	"utf8",
+);
+const workspaceSource = readFileSync(
+	new URL("../lib/features/space/SpaceWorkspacePage.svelte", import.meta.url),
 	"utf8",
 );
 
@@ -28,27 +40,50 @@ test("composer context alone enables the Work Surface message host", () => {
 	);
 });
 
-test("interactive Work frames delegate low-risk user-activated capabilities", () => {
+test("all Work frames delegate low-risk user-activated capabilities", () => {
 	assert.match(
 		source,
-		/isBackground \? undefined : "clipboard-write; fullscreen; web-share"/,
+		/const framePermissions = "clipboard-write; fullscreen; web-share"/,
 	);
 	assert.match(source, /<iframe[\s\S]*?allow=\{framePermissions\}/);
+});
+
+test("background Work frames still exclude pointer lock", () => {
+	assert.match(
+		source,
+		/allow-modals\$\{isBackground \? "" : " allow-pointer-lock"\}/,
+	);
 });
 
 test("a reopened Work preview remounts its surface lifecycle", () => {
 	assert.match(previewSource, /\{#key preview\.mountKey\}/);
 });
 
-test("Work preview authorization receives the authoritative workspace Space", () => {
+test("Work authorization receives the mounted surface mode", () => {
+	assert.match(source, /authorizationContext: \{ surface: mode \}/);
+});
+
+test("New Chat Work composer context reaches the workspace coordinator", () => {
+	assert.match(workBackgroundSource, /onComposerChip=\{\(chip\) =>/);
+	assert.match(backgroundSource, /onComposerChip=\{onWorkComposerChip\}/);
 	assert.match(
-		fileDomainSource,
-		/<WorkPreviewPanel[\s\S]*?workspaceSpaceId=\{spaceId\}/,
+		sessionPanelSource,
+		/onWorkComposerChip=\{onNewChatBackgroundComposerChip\}/,
 	);
-	assert.match(previewSource, /<WorkSurface[\s\S]*?\{workspaceSpaceId\}/);
 	assert.match(
-		source,
-		/authorizationContext: \{ surface: mode, workspaceSpaceId \}/,
+		workspaceSource,
+		/onNewChatBackgroundComposerChip=\{handleNewChatBackgroundComposerChip\}/,
+	);
+});
+
+test("active previews take priority over background Work context", () => {
+	assert.match(
+		workspaceSource,
+		/if \(activePreviewKind\) \{[\s\S]{0,160}?reportActiveSource\(null\);[\s\S]{0,100}?if \(newChatBackgroundWorkContext\)/,
+	);
+	assert.match(
+		workspaceSource,
+		/if \(!shouldShowNewChatBackground\) newChatBackgroundWorkContext = null/,
 	);
 });
 

@@ -165,9 +165,9 @@ Calls are delivered at-least-once, so prefer methods that are safe to repeat.
 
 ### Composer context
 
-A Work running in the workspace preview can attach one compact context chip to
-the Cohub composer. The label stays short while the full content is available to
-the user and sent with each message while attached:
+A Work running in the workspace preview or as the New Chat background can attach
+one compact context chip to the Cohub composer. The label stays short while the
+full content is available to the user and sent with each message while attached:
 
 ```ts
 client.work.composer.setChip({
@@ -181,8 +181,12 @@ client.work.composer.clearChip("selection");
 
 Calling `setChip()` again with the same key updates the existing chip. Cohub owns
 the chip's appearance and treats its content as plain text. Labels are limited to
-120 characters and content to 32KB. The chip is only attached while that Work is
-the active preview; closing or reloading the surface clears it.
+120 characters and content to 32KB. A preview chip is attached while that Work is
+active. A background chip is attached while the New Chat background is visible
+and no preview is active. Closing or reloading either surface clears its chip.
+
+New Chat backgrounds expose composer context but are not callable through UI
+commands.
 
 Because a published Work is publicly embeddable, surface calls and composer
 context are accepted only from an

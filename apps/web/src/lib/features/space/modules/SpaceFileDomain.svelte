@@ -553,7 +553,6 @@ function previewContentOut(node: Element) {
 {#if activePreviewKind === "work" && inlineWorkPreview}
 	<WorkPreviewPanel
 		preview={inlineWorkPreview}
-		workspaceSpaceId={spaceId}
 		{previewTabs}
 		{treeVisible}
 		{onToggleTree}

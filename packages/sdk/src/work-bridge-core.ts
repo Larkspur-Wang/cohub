@@ -68,8 +68,6 @@ export type WorkBridgeGetViewerUuid = () => Promise<string | null>;
 export type WorkBridgeAuthorizationContext = {
 	/** The host surface handling this authorization request. */
 	surface: "page" | "preview" | "background" | "broker";
-	/** The authoritative Space mounted by the Cohub workspace host. */
-	workspaceSpaceId?: string | null;
 };
 
 /**
@@ -181,11 +179,9 @@ export function createWorkBridgeCore(
 	}
 
 	function allowsOwnerAutoAuthorization() {
-		if (authorizationContext.surface === "background") return true;
 		return (
-			authorizationContext.surface === "preview" &&
-			Boolean(authorizationContext.workspaceSpaceId) &&
-			authorizationContext.workspaceSpaceId === work.spaceId
+			authorizationContext.surface === "background" ||
+			authorizationContext.surface === "preview"
 		);
 	}
 

@@ -100,7 +100,7 @@ user.usage.read
 
 Direct Work permissions are granted by the publisher at publish time.
 
-Viewer-grant permissions normally require a separate viewer action. The Work calls authorization from inside the runtime, Cohub shows the viewer a consent dialog, and the Work receives a token only for scopes allowed by the publisher and approved by the viewer. Cohub silently authorizes the publisher's own Work in a same-Space workspace preview or background; other viewers, public pages, cross-Space previews, and external brokers still require consent.
+Viewer-grant permissions normally require a separate viewer action. The Work calls authorization from inside the runtime, Cohub shows the viewer a consent dialog, and the Work receives a token only for scopes allowed by the publisher and approved by the viewer. Cohub silently authorizes the publisher's own Work in a workspace preview or background; other viewers, public pages, and external brokers still require consent.
 
 The `user.*` scopes grant access to the viewer's account-level data across all their spaces. `user.space.list` lets the Work call `cohub.spaces.list()`. `user.session.list` lets the Work call `cohub.user.listSessions()`, which returns recent sessions the viewer can already view as themselves (membership / access policy) — not only sessions inside the Work's space. `user.usage.read` lets the Work call `cohub.user.getUsage()`. These scopes are not bound to the Work's own space, and they do not widen space-scoped Work permissions such as opening an arbitrary session outside the Work.
 

@@ -54,7 +54,6 @@ type Props = {
 	owner?: WorkOwner;
 	content?: WorkContent | null;
 	mode?: WorkSurfaceMode;
-	workspaceSpaceId?: string | null;
 	launchState?: WorkLaunchState | null;
 	/**
 	 * Receives the surface RPC host once mounted, so a parent can invoke methods
@@ -70,7 +69,6 @@ const {
 	owner = null,
 	content = null,
 	mode = "page",
-	workspaceSpaceId = null,
 	launchState = null,
 	onSurfaceHost = undefined,
 	onComposerChip = undefined,
@@ -141,18 +139,16 @@ $effect(() => {
 const frameSandbox = $derived(
 	`allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals${isBackground ? "" : " allow-pointer-lock"}`,
 );
-const framePermissions = $derived(
-	isBackground ? undefined : "clipboard-write; fullscreen; web-share",
-);
+const framePermissions = "clipboard-write; fullscreen; web-share";
 const checkoutState = $derived(readWorkCheckoutState(page.url));
 
-// `work`, `mode`, and `workspaceSpaceId` are constant for the lifetime of this
-// surface (a different work remounts the component), so capturing their initial
-// values is intentional. `reply`/`getCheckoutState` stay reactive via closures.
+// `work` and `mode` are constant for the lifetime of this surface (a different
+// work remounts the component), so capturing their initial values is intentional.
+// `reply`/`getCheckoutState` stay reactive via closures.
 const host = untrack(() =>
 	createWorkBridgeHost({
 		work,
-		authorizationContext: { surface: mode, workspaceSpaceId },
+		authorizationContext: { surface: mode },
 		reply: (requestId, payload) => {
 			if (!frameOrigin) return;
 			frame?.contentWindow?.postMessage(

@@ -2,4 +2,4 @@
 "@neta-art/cohub": patch
 ---
 
-Allow trusted hosts to silently authorize a publisher's own Work in same-Space previews while preserving consent for public, cross-Space, and external surfaces.
+Align publisher-owned preview and background authorization, and let New Chat Work backgrounds use low-risk browser capabilities and visible composer context.

@@ -1,4 +1,5 @@
 <script lang="ts">
+import type { WorkComposerChip } from "@cohub/protocol/work-surface";
 import { page } from "$app/state";
 import NewChatSpaceBackground from "$lib/components/NewChatSpaceBackground.svelte";
 import NewChatWorkBackground from "$lib/components/NewChatWorkBackground.svelte";
@@ -12,9 +13,10 @@ type Props = {
 	background: NewChatBackgroundConfig;
 	/** Current Space, used to serve space-local file backgrounds. */
 	spaceId?: string | null;
+	onWorkComposerChip?: (workId: string, chip: WorkComposerChip | null) => void;
 };
 
-const { background, spaceId = null }: Props = $props();
+const { background, spaceId = null, onWorkComposerChip }: Props = $props();
 
 const externalUrl = $derived(
 	background.source.kind === "url" ? background.source.url : null,
@@ -120,7 +122,7 @@ $effect(() => {
     <NewChatSpaceBackground spaceId={spaceId} path={spacePath} />
   {:else if workUrl}
     <svelte:boundary onerror={handleWorkBackgroundError}>
-      <NewChatWorkBackground workUrl={workUrl} />
+      <NewChatWorkBackground workUrl={workUrl} onComposerChip={onWorkComposerChip} />
       {#snippet failed()}
         <div class="new-chat-background-state">Work background is unavailable.</div>
       {/snippet}

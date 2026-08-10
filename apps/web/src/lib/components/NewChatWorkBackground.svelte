@@ -1,13 +1,15 @@
 <script lang="ts">
+import type { WorkComposerChip } from "@cohub/protocol/work-surface";
 import WorkSurface from "$lib/components/work/WorkSurface.svelte";
 import { sdk } from "$lib/sdk";
 import type { CohubWorkUrl } from "$lib/work-url";
 
 type Props = {
 	workUrl: CohubWorkUrl;
+	onComposerChip?: (workId: string, chip: WorkComposerChip | null) => void;
 };
 
-const { workUrl }: Props = $props();
+const { workUrl, onComposerChip }: Props = $props();
 
 let state = $state<
 	| { status: "loading" }
@@ -36,13 +38,15 @@ $effect(() => {
 </script>
 
 {#if state.status === "ready"}
+	{@const data = state.data}
 	<WorkSurface
 		mode="background"
-		work={state.data.work}
-		space={state.data.space}
-		owner={state.data.owner}
-		content={state.data.content ?? null}
+		work={data.work}
+		space={data.space}
+		owner={data.owner}
+		content={data.content ?? null}
 		launchState={workUrl}
+		onComposerChip={(chip) => onComposerChip?.(data.work.id, chip)}
 	/>
 {:else if state.status === "error"}
 	<div class="work-background-state">Work background is unavailable.</div>
