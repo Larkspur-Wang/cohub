@@ -41,6 +41,29 @@ const {
 
 const detail = $derived(preview.detail);
 const publicUrl = $derived(detail?.publicUrl ?? null);
+
+/**
+ * The Work id of the surface that last registered.
+ *
+ * The surface reports `null` from its unmount cleanup, and that cleanup runs
+ * while this panel is itself being destroyed: closing the last Work tab clears
+ * `preview` in the same update. Reading the prop there faults on a gone preview
+ * and aborts the teardown half-done, which is what left the next open with a
+ * blank stage. Keep the id in a plain local so unregistering never reaches back
+ * into reactive state. It is deliberately not cleared on unregister — a remount
+ * may mount the replacement before the outgoing surface reports, and the id is
+ * the same Work either way.
+ */
+let surfaceWorkId: string | null = null;
+
+function handleSurfaceHost(host: WorkSurfaceHost | null) {
+	if (host) surfaceWorkId = preview.workId;
+	if (surfaceWorkId) onRegisterSurface(surfaceWorkId, host);
+}
+
+function handleComposerChip(chip: WorkComposerChip | null) {
+	if (surfaceWorkId) onComposerChip(surfaceWorkId, chip);
+}
 const launchState = $derived({
 	search: preview.launch?.search ?? "",
 	hash: preview.launch?.hash ?? "",
@@ -124,8 +147,8 @@ const isDisabled = $derived(detail?.work.status === "disabled");
 					owner={detail.owner}
 					content={detail.content}
 					{launchState}
-					onSurfaceHost={(host) => onRegisterSurface(preview.workId, host)}
-					onComposerChip={(chip) => onComposerChip(preview.workId, chip)}
+					onSurfaceHost={handleSurfaceHost}
+					onComposerChip={handleComposerChip}
 				/>
 			{/key}
 		{/if}

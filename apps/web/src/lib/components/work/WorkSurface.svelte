@@ -193,8 +193,13 @@ onMount(() => {
 	onSurfaceHost?.(surfaceHost);
 	return () => {
 		window.removeEventListener("message", onFrameMessage);
-		onSurfaceHost?.(null);
-		surfaceHost?.dispose();
+		// Release own resources even if the consumer's unregister throws, so a
+		// faulty listener cannot leak this frame's bridge.
+		try {
+			onSurfaceHost?.(null);
+		} finally {
+			surfaceHost?.dispose();
+		}
 	};
 });
 </script>
