@@ -94,6 +94,7 @@ async function init() {
 	validatedOpenerOrigin = openerOrigin;
 	host = createWorkBridgeHost({
 		work: detail.work,
+		authorizationContext: { surface: "broker" },
 		reply: (requestId, payload) => {
 			window.opener?.postMessage(
 				{ requestId, ...payload },

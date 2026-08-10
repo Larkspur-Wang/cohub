@@ -11,6 +11,7 @@ import type { InlineWorkPreview } from "./work-preview-controller.svelte";
 
 type Props = {
 	preview: InlineWorkPreview;
+	workspaceSpaceId: string;
 	previewTabs: PreviewTab[];
 	immersive: boolean;
 	isMobile: boolean;
@@ -26,6 +27,7 @@ type Props = {
 
 const {
 	preview,
+	workspaceSpaceId,
 	previewTabs,
 	immersive,
 	isMobile,
@@ -142,6 +144,7 @@ const isDisabled = $derived(detail?.work.status === "disabled");
 			{#key preview.mountKey}
 				<WorkSurface
 					mode="preview"
+					{workspaceSpaceId}
 					work={detail.work}
 					space={detail.space}
 					owner={detail.owner}

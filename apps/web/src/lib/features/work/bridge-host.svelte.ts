@@ -1,6 +1,7 @@
 import {
 	createWorkBridgeCore,
 	type WorkAuthorizeRequest,
+	type WorkBridgeAuthorizationContext,
 	type WorkBridgeCoreWork,
 	type WorkPurchaseRequest,
 	type WorkRuntimeCheckoutState,
@@ -35,8 +36,7 @@ export type {
  */
 export type WorkBridgeHostConfig = {
 	work: WorkBridgeHostWork;
-	/** True when running as a background chat surface (owner auto-authorizes). */
-	isBackground?: boolean;
+	authorizationContext?: WorkBridgeAuthorizationContext;
 	/** Sends a reply payload back to the work runtime. */
 	reply: (requestId: string, payload: Record<string, unknown>) => void;
 	/** Reads the current checkout state (typically derived from the page URL). */
@@ -86,7 +86,7 @@ export function createWorkBridgeHost(
 
 	const core = createWorkBridgeCore({
 		work: config.work,
-		isBackground: config.isBackground,
+		authorizationContext: config.authorizationContext,
 		apiOrigin: PUBLIC_API_ORIGIN ?? "",
 		reply: config.reply,
 		getCheckoutState: config.getCheckoutState,

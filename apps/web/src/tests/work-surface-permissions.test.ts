@@ -13,6 +13,13 @@ const previewSource = readFileSync(
 	),
 	"utf8",
 );
+const fileDomainSource = readFileSync(
+	new URL(
+		"../lib/features/space/modules/SpaceFileDomain.svelte",
+		import.meta.url,
+	),
+	"utf8",
+);
 
 test("composer context alone enables the Work Surface message host", () => {
 	assert.match(
@@ -31,6 +38,18 @@ test("interactive Work frames delegate low-risk user-activated capabilities", ()
 
 test("a reopened Work preview remounts its surface lifecycle", () => {
 	assert.match(previewSource, /\{#key preview\.mountKey\}/);
+});
+
+test("Work preview authorization receives the authoritative workspace Space", () => {
+	assert.match(
+		fileDomainSource,
+		/<WorkPreviewPanel[\s\S]*?workspaceSpaceId=\{spaceId\}/,
+	);
+	assert.match(previewSource, /<WorkSurface[\s\S]*?\{workspaceSpaceId\}/);
+	assert.match(
+		source,
+		/authorizationContext: \{ surface: mode, workspaceSpaceId \}/,
+	);
 });
 
 test("unregistering a surface never reads the preview it is leaving", () => {

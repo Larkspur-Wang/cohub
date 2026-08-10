@@ -65,6 +65,13 @@ export type WorkBridgeGetAccessToken = (
  */
 export type WorkBridgeGetViewerUuid = () => Promise<string | null>;
 
+export type WorkBridgeAuthorizationContext = {
+	/** The host surface handling this authorization request. */
+	surface: "page" | "preview" | "background" | "broker";
+	/** The authoritative Space mounted by the Cohub workspace host. */
+	workspaceSpaceId?: string | null;
+};
+
 /**
  * Requests the host to start a sign-in flow, redirecting back to the given
  * path afterward. The core calls this when an API request fails due to missing
@@ -82,7 +89,9 @@ export type WorkBridgeRequestSignIn = (redirectPath: string) => Promise<void>;
  */
 export type WorkBridgeCoreConfig = {
 	work: WorkBridgeCoreWork;
-	/** True when running as a background chat surface (owner auto-authorizes). */
+	/** Trusted host context used to decide whether the publisher may authorize silently. */
+	authorizationContext?: WorkBridgeAuthorizationContext;
+	/** @deprecated Use authorizationContext with a background surface. */
 	isBackground?: boolean;
 	/** Base origin for Cohub API requests (e.g. "https://cohub.run"). */
 	apiOrigin: string;
@@ -140,7 +149,11 @@ export function createWorkBridgeCore(
 	const { work, reply, getCheckoutState, getAccessToken, getViewerUuid } =
 		config;
 	const apiOrigin = config.apiOrigin;
-	const isBackground = config.isBackground ?? false;
+	const authorizationContext =
+		config.authorizationContext ??
+		(config.isBackground
+			? { surface: "background" as const }
+			: { surface: "page" as const });
 	const onStateChange = config.onStateChange;
 
 	let workToken: string | null = null;
@@ -165,6 +178,15 @@ export function createWorkBridgeCore(
 	async function isCurrentViewerWorkOwner() {
 		const viewerUuid = await getViewerUuid();
 		return Boolean(viewerUuid && viewerUuid === work.userUuid);
+	}
+
+	function allowsOwnerAutoAuthorization() {
+		if (authorizationContext.surface === "background") return true;
+		return (
+			authorizationContext.surface === "preview" &&
+			Boolean(authorizationContext.workspaceSpaceId) &&
+			authorizationContext.workspaceSpaceId === work.spaceId
+		);
 	}
 
 	async function ensureBaseToken(forceRefresh = false) {
@@ -400,7 +422,10 @@ export function createWorkBridgeCore(
 					});
 					return;
 				}
-				if (isBackground && (await isCurrentViewerWorkOwner())) {
+				if (
+					allowsOwnerAutoAuthorization() &&
+					(await isCurrentViewerWorkOwner())
+				) {
 					const token = await authorize(scopes);
 					reply(data.requestId, {
 						type: "cohub.work.authorize.result",

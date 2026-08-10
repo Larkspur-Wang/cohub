@@ -54,6 +54,7 @@ type Props = {
 	owner?: WorkOwner;
 	content?: WorkContent | null;
 	mode?: WorkSurfaceMode;
+	workspaceSpaceId?: string | null;
 	launchState?: WorkLaunchState | null;
 	/**
 	 * Receives the surface RPC host once mounted, so a parent can invoke methods
@@ -69,6 +70,7 @@ const {
 	owner = null,
 	content = null,
 	mode = "page",
+	workspaceSpaceId = null,
 	launchState = null,
 	onSurfaceHost = undefined,
 	onComposerChip = undefined,
@@ -144,13 +146,13 @@ const framePermissions = $derived(
 );
 const checkoutState = $derived(readWorkCheckoutState(page.url));
 
-// `work` and `isBackground` are constant for the lifetime of this surface
-// (a different work remounts the component), so capturing their initial values
-// is intentional. `reply`/`getCheckoutState` stay reactive via their closures.
+// `work`, `mode`, and `workspaceSpaceId` are constant for the lifetime of this
+// surface (a different work remounts the component), so capturing their initial
+// values is intentional. `reply`/`getCheckoutState` stay reactive via closures.
 const host = untrack(() =>
 	createWorkBridgeHost({
 		work,
-		isBackground,
+		authorizationContext: { surface: mode, workspaceSpaceId },
 		reply: (requestId, payload) => {
 			if (!frameOrigin) return;
 			frame?.contentWindow?.postMessage(

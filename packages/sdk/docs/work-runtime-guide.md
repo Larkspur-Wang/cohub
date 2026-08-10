@@ -61,7 +61,7 @@ Four runtime-only APIs form the foundation; everything else is standard SDK:
 | API | What it does | Returns |
 |---|---|---|
 | `client.context()` | Asks the host for the Work's identity | `{ work, space, viewer?, permissions }` or `null` |
-| `client.auth.request({ scopes, reason })` | Shows the viewer a consent dialog; on approval, caches a token carrying those scopes | `true` / `false` |
+| `client.auth.request({ scopes, reason })` | Requests viewer authorization and caches a scoped token; Cohub may silently approve the publisher's own same-Space preview or background | `true` / `false` |
 | `client.work.commerce.*` | Entitlement checks, credit consumption, purchases | (see Commerce section) |
 | `client.work.realtime.*` | Temporary rooms, events, presence, and membership | (see Realtime rooms section) |
 

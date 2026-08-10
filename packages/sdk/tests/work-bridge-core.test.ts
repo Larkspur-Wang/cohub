@@ -259,6 +259,80 @@ test("background owner is auto-authorized without dialog", async () => {
 	}
 });
 
+test("matching workspace preview owner is auto-authorized without dialog", async () => {
+	const originalFetch = globalThis.fetch;
+	globalThis.fetch = (() =>
+		Promise.resolve(
+			new Response(JSON.stringify({ token: "preview-auth-token" }), {
+				status: 200,
+			}),
+		)) as typeof fetch;
+
+	try {
+		const config = makeConfig({
+			authorizationContext: {
+				surface: "preview",
+				workspaceSpaceId: "space_1",
+			},
+			viewerUuid: "owner-uuid",
+		});
+		const core = createWorkBridgeCore(config);
+
+		await core.handleMessage(
+			messageEvent({
+				type: "cohub.work.authorize",
+				requestId: "r1",
+				scopes: ["session.prompt.readonly"],
+			}),
+		);
+
+		assert.equal(config.replies[0]?.payload.token, "preview-auth-token");
+		assert.equal(core.getState().authOpen, false);
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
+test("preview owner auto-authorization requires the same workspace and publisher", async () => {
+	const configs = [
+		makeConfig({
+			authorizationContext: {
+				surface: "preview",
+				workspaceSpaceId: "another-space",
+			},
+			viewerUuid: "owner-uuid",
+		}),
+		makeConfig({
+			authorizationContext: {
+				surface: "preview",
+				workspaceSpaceId: "space_1",
+			},
+			viewerUuid: "another-viewer",
+		}),
+		makeConfig({
+			authorizationContext: {
+				surface: "page",
+				workspaceSpaceId: "space_1",
+			},
+			viewerUuid: "owner-uuid",
+		}),
+	];
+
+	for (const config of configs) {
+		const core = createWorkBridgeCore(config);
+		await core.handleMessage(
+			messageEvent({
+				type: "cohub.work.authorize",
+				requestId: "r1",
+				scopes: ["session.prompt.readonly"],
+			}),
+		);
+
+		assert.equal(config.replies.length, 0);
+		assert.equal(core.getState().authOpen, true);
+	}
+});
+
 test("confirmAuth calls authorize API and replies with token", async () => {
 	let authorizeBody: string | null = null;
 	const originalFetch = globalThis.fetch;
