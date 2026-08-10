@@ -6,16 +6,14 @@ All notable changes to Cohub are documented in this file.
 
 ## v2.15 — 2026-08-10
 
-- **Video balance preflight**: Video generation now requires at least $0.60 available balance before provider execution, with structured minimum-balance billing responses and fail-closed 503 handling when balance lookup is unavailable.
-- **Unified preview workspace**: Files, Boards, Ports, and Works now share one authoritative active-preview coordinator with most-recently-used fallback, deferred-close reconciliation, and context-safe URL synchronization.
-- **CLI self-update relaunch**: Automatic updates now restart commands with the newly installed version while preserving arguments, signals, and child exit codes.
-- **UI realtime events**: The protocol and SDK now accept `ui`-domain WebSocket envelopes, allowing dispatched UI commands to reach frontend event listeners.
+- **Work authorization surfaces**: Introduced explicit page, preview, background, and broker authorization contexts; publisher-owned Works can auto-authorize in workspace previews and New Chat backgrounds while public pages and external brokers retain consent flows.
+- **New Chat Work context**: Work backgrounds can now expose compact composer context chips to Session Chat.
+- **Browser capabilities**: New Chat Work frames now support clipboard, fullscreen, and web-share interactions while retaining the background pointer-lock restriction.
+- **Command provenance**: Background command execution now validates and carries source client and model metadata across the API, worker, agent, and completion notifications.
 
 ### Bug Fixes
 
-- **Username reconciliation**: Wrapped PostgreSQL and Logto conflicts plus transient failures now retry candidate allocation or preserve an existing profile instead of failing synchronization.
-- **Preview teardown**: Fixed blank Work stages, stale preview URLs, and leaked frame bridges during surface unmounts, deferred closes, and context switches.
-- **Mention link parsing**: Space and Work links with additional resource subpaths are no longer incorrectly converted into mentions.
+- **Composer context cleanup**: Active previews now take precedence over background Work context, and hidden New Chat backgrounds no longer leave stale source context attached to the composer.
 
 ## v2.14 — 2026-08-07
 
