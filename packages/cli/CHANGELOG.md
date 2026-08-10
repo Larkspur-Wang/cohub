@@ -1,5 +1,12 @@
 # @neta-art/cohub-cli
 
+## 3.8.1
+
+### Patch Changes
+
+- Updated dependencies [89e0b1c]
+  - @neta-art/cohub@5.3.1
+
 ## 3.8.0
 
 ### Minor Changes
