@@ -117,7 +117,6 @@ export function createWorkPreviewController(
 		launch?: WorkPreviewLaunchState | null;
 	}) {
 		const existing = previews.find((item) => item.workId === input.workId);
-		options.onOpenPanel?.();
 		if (existing) {
 			const launch = input.launch ?? null;
 			const launchChanged =
@@ -125,6 +124,7 @@ export function createWorkPreviewController(
 				(existing.launch?.hash ?? "") !== (launch?.hash ?? "");
 			if (launchChanged) patch(input.workId, { launch });
 			activeWorkId = input.workId;
+			options.onOpenPanel?.();
 			if (!existing.detail && !existing.loading) void loadDetail(input.workId);
 			return;
 		}
@@ -142,6 +142,7 @@ export function createWorkPreviewController(
 			},
 		];
 		activeWorkId = input.workId;
+		options.onOpenPanel?.();
 		void loadDetail(input.workId);
 	}
 
