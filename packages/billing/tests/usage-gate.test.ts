@@ -15,17 +15,17 @@ const gateWithBalance = (netUsd: number) => createBillingUsageGate({
   },
 });
 
-test("video generation requires at least $0.80", async () => {
-  const blocked = await gateWithBalance(0.79).evaluate(gateInput("generation.video"));
+test("video generation requires at least $0.60", async () => {
+  const blocked = await gateWithBalance(0.59).evaluate(gateInput("generation.video"));
   assert.equal(blocked.status, "blocked");
   if (blocked.status !== "blocked") return;
   assert.equal(blocked.balanceState, "positive");
-  assert.equal("minimumBalanceUsd" in blocked && blocked.minimumBalanceUsd, 0.8);
+  assert.equal("minimumBalanceUsd" in blocked && blocked.minimumBalanceUsd, 0.6);
   assert.equal(blocked.conversion.reason, "minimum_balance_not_met");
   assert.equal(blocked.conversion.title, "Insufficient balance");
-  assert.equal(blocked.conversion.message, "Video generation requires a balance of at least $0.80.");
+  assert.equal(blocked.conversion.message, "Video generation requires a balance of at least $0.60.");
 
-  const allowed = await gateWithBalance(0.8).evaluate(gateInput("generation.video"));
+  const allowed = await gateWithBalance(0.6).evaluate(gateInput("generation.video"));
   assert.equal(allowed.status, "allowed");
 });
 

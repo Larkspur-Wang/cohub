@@ -34,20 +34,20 @@ test("serializeBillingBlocked includes a minimum balance when required", () => {
 		reason: "minimum_balance_not_met",
 		source: "generation_task",
 		title: "Insufficient balance",
-		message: "Video generation requires a balance of at least $0.80.",
+		message: "Video generation requires a balance of at least $0.60.",
 	});
 	const decision = {
 		status: "blocked",
 		code: "billing_credit_limit_exceeded",
 		balanceState: "positive",
 		netUsd: 0.5,
-		minimumBalanceUsd: 0.8,
+		minimumBalanceUsd: 0.6,
 		conversion: minimumBalanceConversion,
 	} satisfies Extract<BillingAccessDecision, { status: "blocked" }>;
 	const body = serializeBillingBlocked(new BillingAccessBlockedError(decision));
 
 	assert.equal(body.message, "Insufficient balance for video generation.");
-	assert.equal(body.billing.minimumBalanceUsd, 0.8);
+	assert.equal(body.billing.minimumBalanceUsd, 0.6);
 	assert.equal(body.billing.hardNegativeLimitUsd, undefined);
 	assert.equal(body.billing.conversion, minimumBalanceConversion);
 });
