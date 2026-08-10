@@ -1930,6 +1930,7 @@ router.post("/:id/prompt", async (c) => {
         clientMessageId,
         content,
         source,
+        sourceClientId: getRequestSource(c)?.clientId ?? null,
         model: requestedModel,
         provider: requestedProvider,
         thinkingLevel: promptThinkingLevel ?? null,

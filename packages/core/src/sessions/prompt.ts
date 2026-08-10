@@ -2,6 +2,7 @@ import { BillingAccessBlockedError, type BillingAccessDecision, type BillingUsag
 import type { ContentBlock } from "@cohub/protocol/core";
 import type { GenerationPolicy } from "@cohub/protocol/generation";
 import type { SessionTurnIntent } from "@cohub/protocol/model";
+import { isRequestSourceClientId } from "@cohub/protocol/provenance";
 import { normalizeContentBlocks } from "../content/normalize.js";
 import type { PromptEnv } from "./prompt-env.js";
 
@@ -138,6 +139,7 @@ export type SubmitSessionPromptInput = {
   clientMessageId: string;
   content: ContentBlock[];
   source: PromptSource;
+  sourceClientId?: string | null;
   model?: string | null;
   provider?: string | null;
   /** Optional thinking level override for this turn. Omit to inherit session default. */
@@ -387,6 +389,10 @@ export const submitSessionPrompt = async (
   });
   const content = normalizeContentBlocks(expandedContent);
   const accessMode = input.accessMode ?? "full_access";
+  const sourceClientId = typeof input.sourceClientId === "string"
+    && isRequestSourceClientId(input.sourceClientId.trim())
+    ? input.sourceClientId.trim()
+    : null;
 
   const isDirectShellCommand = content.length === 1 && content[0]?.type === "shell_command";
   if (accessMode === "read_only" && isDirectShellCommand) {
@@ -412,6 +418,7 @@ export const submitSessionPrompt = async (
   }
   const baseMeta = {
     source: input.source,
+    ...(sourceClientId ? { sourceClientId } : {}),
     userId,
     clientMessageId,
     userMessageId,

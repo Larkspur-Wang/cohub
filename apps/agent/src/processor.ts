@@ -665,17 +665,9 @@ function resolveActorUserId(ownerMeta: Record<string, unknown>) {
   return typeof ownerMeta.userId === "string" && ownerMeta.userId.trim() ? ownerMeta.userId.trim() : null;
 }
 
-/**
- * Frontend instance that produced this turn, recorded by the API under
- * `meta.source`. Carried into tool execution so `cohub ui ...` inside the
- * sandbox reaches the same browser tab the user prompted from.
- */
 function resolveSourceClientId(ownerMeta: Record<string, unknown>) {
-  const source = ownerMeta.source && typeof ownerMeta.source === "object" && !Array.isArray(ownerMeta.source)
-    ? ownerMeta.source as Record<string, unknown>
-    : null;
-  const clientId = source?.clientId;
-  return typeof clientId === "string" && clientId.trim() ? clientId.trim() : null;
+  const sourceClientId = ownerMeta.sourceClientId;
+  return typeof sourceClientId === "string" && sourceClientId.trim() ? sourceClientId.trim() : null;
 }
 
 function resolvePromptAccessMode(ownerMeta: Record<string, unknown>): PromptAccessMode {
