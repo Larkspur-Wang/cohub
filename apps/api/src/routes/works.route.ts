@@ -6,6 +6,7 @@ import { publishWorkAssetInWorker, type WorkPublishAssetJobResult } from "../wor
 import type { Permission } from "@cohub/core/permissions";
 import { materializeHtmlPageMeta, mergeWorkPageMeta } from "@cohub/core/works";
 import { db } from "../db/index.js";
+import { isPostgresUniqueViolation } from "../db/postgres-error.js";
 import {
   authzDenied,
   getOptionalAuth,
@@ -100,9 +101,7 @@ async function ensureWorkPresentationAllowed(c: Context, input: { userId: string
 
 const isSubset = (requested: Permission[], allowed: string[]) => requested.every((scope) => allowed.includes(scope));
 
-const pgErrorCode = (error: unknown) => typeof error === "object" && error !== null && "code" in error ? String((error as { code?: unknown }).code) : null;
-const pgErrorConstraint = (error: unknown) => typeof error === "object" && error !== null && "constraint" in error ? String((error as { constraint?: unknown }).constraint) : null;
-const isWorkSlugConflict = (error: unknown) => pgErrorCode(error) === "23505" && pgErrorConstraint(error) === "v2_uq_works_space_slug";
+const isWorkSlugConflict = (error: unknown) => isPostgresUniqueViolation(error, "v2_uq_works_space_slug");
 const invalidWorkStatusResponse = (c: Context) => c.json({ message: "status must be one of: published, disabled" }, 400);
 const invalidWorkVisibilityResponse = (c: Context) => c.json({ message: "visibility must be one of: public, space" }, 400);
 const requiresSpaceWorkAccess = (work: Pick<typeof works.$inferSelect, "visibility">) => (work.visibility ?? "public") === "space";

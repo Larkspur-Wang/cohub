@@ -11,6 +11,7 @@ import {
 import { normalizeGenerationPolicy } from "@cohub/protocol/generation";
 import * as cronParser from "cron-parser";
 import { db } from "../../db/index.js";
+import { getPostgresErrorConstraint, isPostgresUniqueViolation } from "../../db/postgres-error.js";
 import {
   userChannels,
   spaceChannels,
@@ -332,11 +333,8 @@ const reservedSpaceSlugResponse = (c: Context) => c.json({
   message: "This Space slug is reserved.",
 }, 400);
 
-const uniqueViolationConstraint = (error: unknown): string | null => {
-  const record = error as { code?: string; constraint_name?: string; constraint?: string };
-  if (record?.code !== "23505") return null;
-  return record.constraint_name ?? record.constraint ?? null;
-};
+const uniqueViolationConstraint = (error: unknown): string | null =>
+  isPostgresUniqueViolation(error) ? getPostgresErrorConstraint(error) : null;
 
 type SpaceRow = typeof spaces.$inferSelect;
 

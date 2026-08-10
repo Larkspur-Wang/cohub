@@ -4,6 +4,7 @@ import { spaceMods, spaces } from "@cohub/db";
 import { modReference } from "@cohub/core/references";
 import { enqueueReferences } from "./reference-index-queue.js";
 import { db } from "./db/index.js";
+import { getPostgresErrorConstraint, isPostgresUniqueViolation } from "./db/postgres-error.js";
 import type { AuthUser } from "./lib/middleware.js";
 import { requireValidId } from "./lib/middleware.js";
 import { hasPermission } from "./permissions.js";
@@ -47,9 +48,8 @@ export function parseSpaceModMountSlug(value: string | null | undefined) {
 }
 
 export function getSpaceModUniqueViolationMessage(error: unknown): string | null {
-  const record = error as { code?: string; constraint_name?: string; constraint?: string };
-  if (record.code !== "23505") return null;
-  const constraint = record.constraint_name ?? record.constraint ?? "";
+  if (!isPostgresUniqueViolation(error)) return null;
+  const constraint = getPostgresErrorConstraint(error) ?? "";
   if (constraint.includes("space_mod")) return "mod space is already mounted";
   if (constraint.includes("mount_slug")) return "mountSlug is already used in this space";
   return "space mod already exists";

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   buildDefaultUsernameCandidates,
+  isRecoverableUsernameReconciliationError,
   normalizeUsername,
   resolveSyncedUsername,
   resolveTrustedLogtoUserId,
@@ -51,6 +52,32 @@ describe("usernameBaseFromEmail", () => {
   });
 });
 
+describe("isRecoverableUsernameReconciliationError", () => {
+  it("accepts conflicts and temporary Logto failures", () => {
+    assert.equal(isRecoverableUsernameReconciliationError(
+      new Error("Logto management request failed: 409 conflict"),
+    ), true);
+    assert.equal(isRecoverableUsernameReconciliationError(
+      new Error("Logto management request failed: 503 unavailable"),
+    ), true);
+    assert.equal(isRecoverableUsernameReconciliationError(
+      new TypeError("fetch failed"),
+    ), true);
+  });
+
+  it("rejects persistent and unrelated failures", () => {
+    assert.equal(isRecoverableUsernameReconciliationError(
+      new Error("Logto management request failed: 401 unauthorized"),
+    ), false);
+    assert.equal(isRecoverableUsernameReconciliationError(
+      { code: "ETIMEDOUT", message: "database query failed" },
+    ), false);
+    assert.equal(isRecoverableUsernameReconciliationError(
+      new SyntaxError("invalid Logto response"),
+    ), false);
+  });
+});
+
 describe("normalizeUsername", () => {
   it("keeps reserved historical values readable", () => {
     assert.equal(normalizeUsername(" Changelog "), "changelog");
@@ -96,6 +123,19 @@ describe("buildDefaultUsernameCandidates", () => {
       assert.match(candidate, /^[a-z][a-z0-9]*$/);
       assert.equal(normalizeUsername(candidate), candidate);
     }
+  });
+
+  it("prefers the conflicting username base during reconciliation", () => {
+    const candidates = buildDefaultUsernameCandidates({
+      email: "other@example.com",
+      preferredUsername: " Kinori ",
+      userUuid: "11111111-2222-4333-8444-555555555555",
+      randomSuffixCount: 2,
+    });
+
+    assert.equal(candidates[0], "kinori");
+    assert.ok(candidates.some((value) => /^kinori\d+$/.test(value)));
+    assert.ok(candidates.indexOf("kinori") < candidates.indexOf("other"));
   });
 
   it("skips reserved bare base but still uses suffixed forms", () => {

@@ -3,6 +3,7 @@ import { and, asc, count, desc, eq, inArray, isNull, lt, max, or, sql } from "dr
 import { checkpoints, labelAssignments, labels, spaceSessions } from "@cohub/db";
 import { listLabelsByRank, normalizeLabelName, parseLabelRef, parseLabelRefs, resolveLabelPaths, resolveOrCreateLabelPaths, slugifyLabelName } from "@cohub/core/labels";
 import { db } from "../../db/index.js";
+import { getPostgresErrorConstraint, isPostgresUniqueViolation } from "../../db/postgres-error.js";
 import { authzDenied, getOptionalAuth, requireValidId, useAuth } from "../../lib/middleware.js";
 import { filterSessionsByPermission, getSpaceMemberRole, hasPermission } from "../../permissions.js";
 import { dispatchLabelAssignmentsUpdated } from "../../realtime-events.js";
@@ -175,9 +176,8 @@ async function resolveExistingRefs(spaceId: string, labelRefs: unknown) {
 }
 
 function isUniqueLabelNameViolation(error: unknown) {
-  const record = error as { code?: string; constraint_name?: string; constraint?: string };
-  const constraint = record.constraint_name ?? record.constraint ?? "";
-  return record.code === "23505" && constraint.includes("labels_scope_parent_name");
+  const constraint = getPostgresErrorConstraint(error) ?? "";
+  return isPostgresUniqueViolation(error) && constraint.includes("labels_scope_parent_name");
 }
 
 async function validateResource(spaceId: string, resourceType: string, resourceRef: string) {

@@ -5,6 +5,7 @@ import { db } from "./db/index.js";
 import { userProfiles } from "@cohub/db";
 import { getLogtoUser, updateLogtoUserProfile } from "./logto-management.js";
 import { createLogger } from "@cohub/infra/logging";
+import { getPostgresErrorConstraint, isPostgresUniqueViolation } from "./db/postgres-error.js";
 import {
   parseUsername,
   validatePublicIdentifierAssignment,
@@ -119,15 +120,20 @@ function withRandomSuffix(base: string): string | null {
   return normalizeAssignableUsername(candidate);
 }
 
-/** Build a wide candidate set: bare email base (if allowed), then random suffixes, then uuid fallback. */
+/** Build preferred and email-based candidates, followed by stable uuid fallbacks. */
 export function buildDefaultUsernameCandidates(input: {
   email?: string | null;
+  preferredUsername?: string | null;
   userUuid: string;
   randomSuffixCount?: number;
 }): string[] {
   const candidates: string[] = [];
-  const base = usernameBaseFromEmail(input.email ?? null);
-  if (base) {
+  const bases = [
+    input.preferredUsername ? slugifyUsernameBase(input.preferredUsername) : null,
+    usernameBaseFromEmail(input.email ?? null),
+  ].filter((value, index, values): value is string => Boolean(value) && values.indexOf(value) === index);
+
+  for (const base of bases) {
     const bare = normalizeAssignableUsername(base);
     if (bare) candidates.push(bare);
     const suffixCount = input.randomSuffixCount ?? DEFAULT_USERNAME_SUFFIX_ATTEMPTS;
@@ -163,10 +169,24 @@ async function filterLocallyAvailableUsernames(input: {
   return input.candidates.filter((candidate) => !taken.has(candidate));
 }
 
-function isLogtoUsernameConflict(error: unknown): boolean {
+function getLogtoManagementErrorStatus(error: unknown): number | null {
   const message = error instanceof Error ? error.message : String(error);
-  // Management client encodes status in the message: "Logto management request failed: 422 ..."
-  return /Logto management request failed:\s*(409|422)\b/i.test(message);
+  const match = message.match(/Logto management(?: token)? request failed:\s*(\d{3})\b/i);
+  return match?.[1] ? Number(match[1]) : null;
+}
+
+function isLogtoUsernameConflict(error: unknown): boolean {
+  const status = getLogtoManagementErrorStatus(error);
+  return status === 409 || status === 422;
+}
+
+export function isRecoverableUsernameReconciliationError(error: unknown): boolean {
+  if (isLogtoUsernameConflict(error)) return true;
+  const status = getLogtoManagementErrorStatus(error);
+  if (status === 408 || status === 425 || status === 429 || (status !== null && status >= 500)) {
+    return true;
+  }
+  return error instanceof TypeError && /fetch failed/i.test(error.message);
 }
 
 export function normalizeUsername(value: string | null | undefined): string | null {
@@ -200,12 +220,6 @@ export function validateUsername(value: unknown) {
     };
   }
   return { username: normalized, error: null };
-}
-
-function getUniqueViolationConstraint(error: unknown) {
-  const record = error as { code?: string; constraint_name?: string; constraint?: string };
-  if (record.code !== "23505") return null;
-  return record.constraint_name ?? record.constraint ?? null;
 }
 
 export function normalizeUserProfile(input: {
@@ -307,8 +321,8 @@ async function upsertUserProfile(input: {
     if (!row) throw new Error("failed to upsert user profile");
     return toUserProfile(row);
   } catch (error) {
-    const constraint = getUniqueViolationConstraint(error);
-    if (constraint?.includes("username")) {
+    const constraint = getPostgresErrorConstraint(error);
+    if (isPostgresUniqueViolation(error) && constraint === "v2_uq_user_profiles_username") {
       throw new UsernameConflictError("username is already taken");
     }
     throw error;
@@ -390,6 +404,7 @@ async function assignDefaultUsernameViaLogto(input: {
   logtoUserId: string;
   fields: UserProfileFields;
   stored: UserProfile | null;
+  preferredUsername?: string | null;
 }): Promise<UserProfileFields> {
   if (input.fields.username) return input.fields;
 
@@ -427,6 +442,7 @@ async function assignDefaultUsernameViaLogto(input: {
     let candidates = await filterLocallyAvailableUsernames({
       candidates: buildDefaultUsernameCandidates({
         email,
+        preferredUsername: input.preferredUsername,
         userUuid: input.userUuid,
       }),
       userUuid: input.userUuid,
@@ -468,6 +484,57 @@ async function assignDefaultUsernameViaLogto(input: {
   throw lastError instanceof Error
     ? lastError
     : new UsernameConflictError("unable to allocate a default username");
+}
+
+async function persistSyncedUserProfile(input: {
+  userUuid: string;
+  logtoUserId: string;
+  fields: UserProfileFields;
+  stored: UserProfile | null;
+}): Promise<UserProfile> {
+  let fields = input.fields;
+
+  for (let attempt = 0; attempt <= DEFAULT_USERNAME_ALLOCATE_ROUNDS; attempt += 1) {
+    try {
+      return await upsertUserProfile({
+        userUuid: input.userUuid,
+        logtoUserId: input.logtoUserId,
+        fields,
+      });
+    } catch (error) {
+      if (!(error instanceof UsernameConflictError) || !fields.username) throw error;
+
+      if (attempt === DEFAULT_USERNAME_ALLOCATE_ROUNDS) {
+        if (input.stored) return input.stored;
+        return await upsertUserProfile({
+          userUuid: input.userUuid,
+          logtoUserId: input.logtoUserId,
+          fields: { ...fields, username: null },
+        });
+      }
+
+      const conflictingUsername = fields.username;
+      try {
+        fields = await assignDefaultUsernameViaLogto({
+          userUuid: input.userUuid,
+          logtoUserId: input.logtoUserId,
+          fields: { ...fields, username: null },
+          stored: null,
+          preferredUsername: conflictingUsername,
+        });
+      } catch (error) {
+        if (!isRecoverableUsernameReconciliationError(error)) throw error;
+        if (input.stored) return input.stored;
+        return await upsertUserProfile({
+          userUuid: input.userUuid,
+          logtoUserId: input.logtoUserId,
+          fields: { ...fields, username: null },
+        });
+      }
+    }
+  }
+
+  throw new Error("unreachable username reconciliation state");
 }
 
 export function resolveTrustedLogtoUserId(input: {
@@ -513,7 +580,7 @@ async function syncUserProfileFromLogto(input: {
     if (stored) return stored;
 
     // A verified user token established this binding even when Logto is temporarily unavailable.
-    return await upsertUserProfile({
+    return await persistSyncedUserProfile({
       userUuid: input.user.uuid,
       logtoUserId: input.logtoUserId,
       fields: mergeAuthEmailIntoFields(
@@ -523,6 +590,7 @@ async function syncUserProfileFromLogto(input: {
           source: sourceFromAuthUser(input.user),
         }),
       ),
+      stored: null,
     });
   }
 
@@ -554,10 +622,11 @@ async function syncUserProfileFromLogto(input: {
     }
   }
 
-  return await upsertUserProfile({
+  return await persistSyncedUserProfile({
     userUuid: input.user.uuid,
     logtoUserId: input.logtoUserId,
     fields,
+    stored,
   });
 }
 
