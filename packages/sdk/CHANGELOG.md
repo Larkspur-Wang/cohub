@@ -1,5 +1,11 @@
 # @neta-art/cohub
 
+## 5.3.3
+
+### Patch Changes
+
+- 9a0eeb1: Align publisher-owned preview and background authorization, and let New Chat Work backgrounds use low-risk browser capabilities and visible composer context.
+
 ## 5.3.2
 
 ### Patch Changes
