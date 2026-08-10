@@ -164,6 +164,8 @@ export async function processRunCommandJob(job: Job<AgentRunCommandJobData>): Pr
       actorUserId: data.userId ?? null,
       executionToken,
       executionScopes,
+      sourceClientId: data.sourceClientId ?? null,
+      model: data.model ?? null,
       generationPolicy: data.generationPolicy ?? null,
       spaceEnv,
       env: data.env ?? null,

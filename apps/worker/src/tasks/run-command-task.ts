@@ -16,6 +16,7 @@ import { config } from "../config.js";
 import { getPromptTemplateService } from "../prompt-templates.js";
 import { getSkillService } from "../skills.js";
 import { getSessionDomainServices } from "../session-services.js";
+import { parseRunCommandExecutionContext } from "./run-command-context.js";
 import { registerTask } from "./registry.js";
 
 const agentQueue = createAgentTurnsQueue<AgentRunCommandJobData, AgentRunCommandJobResult>(config.bullmqRedisUrl, "cohub-worker-run-command");
@@ -117,6 +118,7 @@ async function notifyRunCommandCompletion(input: {
   result: AgentRunCommandJobResult;
   notify: RunCommandNotify | null;
   origin: RunCommandOrigin | null;
+  sourceClientId: string | null;
 }) {
   if (!input.notify) return;
   const spaceId = input.payload.spaceId;
@@ -139,6 +141,7 @@ async function notifyRunCommandCompletion(input: {
       }),
     }],
     source: input.notify.source ?? BACKGROUND_BASH_TASK_SOURCE,
+    sourceClientId: input.sourceClientId,
     intent: "steer",
     context: {
       kind: "background_bash_task",
@@ -178,6 +181,7 @@ registerTask(RUN_COMMAND_TASK_TYPE, async (job) => {
   const cwd = typeof data.cwd === "string" && data.cwd.trim() ? data.cwd.trim() : "/workspace";
   const timeout = clampTimeout(data.timeout);
   const generationPolicy = parseGenerationPolicy(data.generationPolicy);
+  const { sourceClientId, model } = parseRunCommandExecutionContext(data);
   const promptEnv = parsePromptEnv(data.env);
   const executionScopes = normalizePermissionScopes(Array.isArray(data.executionScopes) ? data.executionScopes : []);
   const origin = parseOrigin(data.origin);
@@ -195,6 +199,8 @@ registerTask(RUN_COMMAND_TASK_TYPE, async (job) => {
     cwd,
     ...(timeout !== undefined ? { timeout } : {}),
     ...(userId ? { userId } : {}),
+    ...(sourceClientId ? { sourceClientId } : {}),
+    ...(model ? { model } : {}),
     ...(generationPolicy ? { generationPolicy } : {}),
     ...(promptEnv ? { env: promptEnv } : {}),
     ...(executionScopes.length > 0 ? { executionScopes } : {}),
@@ -220,7 +226,7 @@ registerTask(RUN_COMMAND_TASK_TYPE, async (job) => {
   try {
     const result = await agentJob.waitUntilFinished(queueEvents, ((timeout ?? RUN_COMMAND_TIMEOUT_SECONDS) + 60) * 1000) as AgentRunCommandJobResult;
     await mirrorAgentProgress(job, agentJob.id ?? `run-command-${taskRunId}`);
-    await notifyRunCommandCompletion({ payload, taskRunId, command, result, notify, origin });
+    await notifyRunCommandCompletion({ payload, taskRunId, command, result, notify, origin, sourceClientId });
     return result;
   } catch (error) {
     throw error instanceof Error ? error : new Error(String(error));

@@ -628,6 +628,8 @@ function createRemoteBashOperations(): BashOperations {
           command,
           cwd,
           ...(timeout !== undefined ? { timeout } : {}),
+          ...(ctx.sourceClientId ? { sourceClientId: ctx.sourceClientId } : {}),
+          ...(ctx.model ? { model: ctx.model } : {}),
           ...(ctx.generationPolicy ? { generationPolicy: ctx.generationPolicy } : {}),
           ...(ctx.env ? { env: ctx.env } : {}),
           ...(executionScopes.length ? { executionScopes } : {}),

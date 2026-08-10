@@ -40,6 +40,8 @@ export type AgentRunCommandJobData = {
   cwd: string;
   timeout?: number;
   userId?: string | null;
+  sourceClientId?: string | null;
+  model?: { provider: string; id: string } | null;
   generationPolicy?: GenerationPolicy | null;
   env?: Record<string, string> | null;
   executionScopes?: string[] | null;

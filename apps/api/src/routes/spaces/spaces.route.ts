@@ -1774,6 +1774,7 @@ router.post("/:id/commands", async (c) => {
   if (!command) return c.json({ message: "command is required" }, 400);
   if (command.length > MAX_COMMAND_LENGTH) return c.json({ message: `command is too long; max ${MAX_COMMAND_LENGTH} characters` }, 400);
   const cwd = "/workspace";
+  const sourceClientId = getRequestSource(c)?.clientId;
 
   const { taskRunId } = await enqueueTask({
     type: RUN_COMMAND_TASK_TYPE,
@@ -1783,6 +1784,7 @@ router.post("/:id/commands", async (c) => {
       command,
       cwd,
       source: "command_palette",
+      ...(sourceClientId ? { sourceClientId } : {}),
     },
   });
 
