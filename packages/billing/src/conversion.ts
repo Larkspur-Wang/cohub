@@ -3,6 +3,7 @@ export type BillingConversionLevel = "soft" | "hard";
 export type BillingConversionReason =
   | "negative_balance"
   | "negative_balance_limit_exceeded"
+  | "minimum_balance_not_met"
   | "feature_not_entitled";
 
 export type BillingConversionAudience = "free" | "paid" | "unknown";
@@ -32,6 +33,8 @@ export function createBillingConversionIntent(input: {
   source: string;
   audience?: BillingConversionAudience;
   preferredOfferKind?: BillingPreferredOfferKind;
+  title?: string;
+  message?: string;
 }): BillingConversionIntent {
   const isHard = input.level === "hard";
   return {
@@ -39,10 +42,10 @@ export function createBillingConversionIntent(input: {
     reason: input.reason,
     audience: input.audience ?? "unknown",
     preferredOfferKind: input.preferredOfferKind ?? "mixed",
-    title: isHard ? "Add credits to continue" : "Balance below zero",
-    message: isHard
+    title: input.title ?? (isHard ? "Add credits to continue" : "Balance below zero"),
+    message: input.message ?? (isHard
       ? "Your balance has passed the temporary usage limit. Add credits to resume AI requests."
-      : "Your work can continue for now. Add credits to avoid interruption.",
+      : "Your work can continue for now. Add credits to avoid interruption."),
     primaryAction: {
       label: isHard ? "Add credits" : "View options",
       action: "open_billing_conversion",

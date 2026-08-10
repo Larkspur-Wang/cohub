@@ -43,7 +43,7 @@ const loader = createGenerationDeclarationLoader({
 const billingUsageGate = createBillingUsageGate({
   operations: billingOperations,
   onEvaluationError: (error, gateInput) => {
-    console.warn("[BillingGate] fail-open after worker generation billing evaluation error", { error, gateInput });
+    console.warn("[BillingGate] worker generation billing evaluation failed", { error, gateInput });
   },
 });
 

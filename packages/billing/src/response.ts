@@ -14,6 +14,7 @@ export type BillingResponsePayload = {
   status?: "blocked" | "allowed_with_debt";
   netUsd?: number;
   hardNegativeLimitUsd?: number;
+  minimumBalanceUsd?: number;
 };
 
 /** Standard shape of a billing-gated error body (`code` + `message` + `billing`). */
@@ -31,7 +32,9 @@ export function serializeBillingBlocked(error: BillingAccessBlockedError): Billi
     billing: {
       status: error.decision.status,
       netUsd: error.decision.netUsd,
-      hardNegativeLimitUsd: error.decision.hardNegativeLimitUsd,
+      ...("minimumBalanceUsd" in error.decision
+        ? { minimumBalanceUsd: error.decision.minimumBalanceUsd }
+        : { hardNegativeLimitUsd: error.decision.hardNegativeLimitUsd }),
       conversion: error.decision.conversion,
     },
   };

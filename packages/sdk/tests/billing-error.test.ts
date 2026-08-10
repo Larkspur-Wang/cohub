@@ -25,11 +25,18 @@ test("extractBillingPayload reads standard blocked body", () => {
 	const body = {
 		code: BILLING_ACCESS_BLOCKED_ERROR_CODE,
 		message: "Add credits to continue.",
-		billing: { status: "blocked", netUsd: -3, hardNegativeLimitUsd: -1, conversion },
+		billing: {
+			status: "blocked",
+			netUsd: 0.5,
+			minimumBalanceUsd: 0.8,
+			conversion: { ...conversion, reason: "minimum_balance_not_met" },
+		},
 	};
 	const payload = extractBillingPayload(body);
 	assert.ok(payload);
 	assert.equal(payload.status, "blocked");
+	assert.equal(payload.minimumBalanceUsd, 0.8);
+	assert.equal(payload.conversion.reason, "minimum_balance_not_met");
 	assert.equal(payload.conversion.title, "Add credits to continue");
 });
 

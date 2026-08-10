@@ -13,4 +13,5 @@ export type BillingPayload = {
   status?: "blocked" | "allowed_with_debt";
   netUsd?: number;
   hardNegativeLimitUsd?: number;
+  minimumBalanceUsd?: number;
 };

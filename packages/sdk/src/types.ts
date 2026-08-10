@@ -457,6 +457,7 @@ export type BillingConversionIntent = {
   reason:
     | "negative_balance"
     | "negative_balance_limit_exceeded"
+    | "minimum_balance_not_met"
     | "feature_not_entitled";
   audience: "free" | "paid" | "unknown";
   preferredOfferKind: "plan" | "upgrade" | "addon" | "mixed";
@@ -478,6 +479,7 @@ export type BillingResponsePayload = {
   status?: "blocked" | "allowed_with_debt";
   netUsd?: number;
   hardNegativeLimitUsd?: number;
+  minimumBalanceUsd?: number;
 };
 
 export type BillingBalanceActivityKind =

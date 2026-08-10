@@ -4,6 +4,7 @@ import {
   contentTypesFromBlocks,
   createBillingUsageGate,
   generationUsageKind,
+  isBillingUsageGateUnavailableError,
   isGenerationModelDiscountFree,
   resolveGenerationUsageType,
   serializeBillingWarning,
@@ -33,7 +34,7 @@ const router = new Hono();
 const billingUsageGate = createBillingUsageGate({
   operations: billingOperations,
   onEvaluationError: (error, gateInput) => {
-    logger.warn("[BillingGate] fail-open after generation billing evaluation error", { error, gateInput });
+    logger.warn("[BillingGate] generation billing evaluation failed", { error, gateInput });
   },
 });
 
@@ -144,17 +145,23 @@ router.post("/", async (c) => {
       resolvedAt: resolvedDiscount.resolvedAt,
     });
   }
-  const billingDecision = isGenerationModelDiscountFree(resolvedDiscount)
-    ? { status: "allowed" as const, balanceState: "zero" as const, netUsd: 0 }
-    : await billingUsageGate.evaluate({
-        userId: user.uuid,
-        usageKind: generationUsageKind(usageType),
-        source: "generation_task",
-        model: request.model,
-        spaceId: request.spaceId,
-        sessionId,
-        turnId,
-      });
+  let billingDecision: Awaited<ReturnType<typeof billingUsageGate.evaluate>>;
+  try {
+    billingDecision = isGenerationModelDiscountFree(resolvedDiscount)
+      ? { status: "allowed", balanceState: "zero", netUsd: 0 }
+      : await billingUsageGate.evaluate({
+          userId: user.uuid,
+          usageKind: generationUsageKind(usageType),
+          source: "generation_task",
+          model: request.model,
+          spaceId: request.spaceId,
+          sessionId,
+          turnId,
+        });
+  } catch (error) {
+    if (!isBillingUsageGateUnavailableError(error)) throw error;
+    return generationError(c, 503, "generation_balance_unavailable", error.message);
+  }
   if (billingDecision.status === "blocked") {
     return billingBlockedResponse(c, new BillingAccessBlockedError(billingDecision));
   }
