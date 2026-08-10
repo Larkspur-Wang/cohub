@@ -35,6 +35,11 @@ import {
 	type ComposerFileAttachment,
 	type ComposerImageAttachment,
 } from "$lib/composer-attachments";
+import {
+	resolveAcceptedPromptGenerationTurnId,
+	resolveSessionPromptIntent,
+	resolveSteerGenerationTurnId,
+} from "$lib/features/session-chat/session-prompt-intent";
 import { createPromptTemplateController } from "$lib/features/space/modules/prompt-template-controller.svelte";
 import { createKeyedRouteRequestGuard } from "$lib/features/space/modules/route-request-guard";
 import { createSkillController } from "$lib/features/space/modules/skill-controller.svelte";
@@ -1410,7 +1415,10 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			}
 			startGenerationRequest(sessionId, {
 				spaceId,
-				turnId: result.turn.id,
+				turnId: resolveSteerGenerationTurnId({
+					queuedTurnId: result.turn.id,
+					delivery: result.steerDelivery,
+				}),
 			});
 		} catch (error) {
 			if (error instanceof HttpError && error.status === 409) {
@@ -3072,7 +3080,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 					userUuid: currentUser.uuid,
 					sequence: sequenceHint,
 					status: hasActiveTurn ? "queued" : "running",
-					intent: "followup",
+					intent: resolveSessionPromptIntent(hasActiveTurn),
 					userContent: content,
 					userText: text,
 					assistantContent: null,
@@ -3130,7 +3138,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 				clientMessageId,
 				generationPolicy: buildTurnGenerationPolicy(),
 				accessMode: "full_access",
-				intent: "followup",
+				intent: resolveSessionPromptIntent(hasActiveTurn),
 				schedule: { mode: "immediate" },
 			});
 			if (sendResult.mode !== "immediate") {
@@ -3164,6 +3172,16 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 					confirmedTurn: acceptedTurn,
 				});
 				upsertSessionRecord(acceptedSession);
+				const acceptedGenerationTurnId = resolveAcceptedPromptGenerationTurnId({
+					turnId: acceptedTurn.id,
+					meta: acceptedTurn.meta,
+				});
+				if (!hasActiveTurn || acceptedGenerationTurnId !== acceptedTurn.id) {
+					startGenerationRequest(sessionId, {
+						spaceId: opSpaceId,
+						turnId: acceptedGenerationTurnId,
+					});
+				}
 			}
 
 			const current = sessionId ? sessionStateById[sessionId] : null;
