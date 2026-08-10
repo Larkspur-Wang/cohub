@@ -20,7 +20,6 @@ import { registerSandbox } from "./commands/sandbox.js";
 import { registerTasks } from "./commands/tasks.js";
 import { registerUi } from "./commands/ui.js";
 import { registerWorks } from "./commands/works.js";
-import { ensureCliSelfUpdated } from "./self-update.js";
 
 const VERSION = (() => {
   try {
@@ -88,21 +87,9 @@ registerCronJobs(program);
 registerWorks(program);
 registerUi(program);
 
-const isVersionRequest = (argv: string[]) => argv.some((arg) => arg === "-v" || arg === "--version");
-
-try {
-  const argv = process.argv.slice(2);
-  if (await maybeHandleRunCommand(argv)) {
-    process.exit();
-  }
-  if (!isVersionRequest(argv)) {
-    await ensureCliSelfUpdated();
-  }
-} catch (error) {
-  const message = error instanceof Error ? error.message : String(error);
-  process.stderr.write(`cohub self-update failed: ${message}\n`);
-  process.stderr.write("run with --version to skip self-update\n");
-  process.exit(1);
+const argv = process.argv.slice(2);
+if (await maybeHandleRunCommand(argv)) {
+  process.exit();
 }
 
 program.parse();

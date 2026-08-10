@@ -10,6 +10,9 @@ const LOCK_STALE_MS = 5 * 60 * 1000;
 
 const STATE_PATH = join(homedir(), ".cache", "cohub-cli", "self-update.json");
 const LOCK_PATH = join(homedir(), ".cache", "cohub-cli", "self-update.lock");
+const PACKAGE_PATH = new URL("../package.json", import.meta.url);
+
+export type CliSelfUpdateResult = "current" | "updated" | "updated-by-peer";
 
 type UpdateState = {
   lastUpdatedAt?: string;
@@ -49,6 +52,20 @@ const writeState = () => {
   mkdirSync(dirname(STATE_PATH), { recursive: true });
   writeFileSync(STATE_PATH, `${JSON.stringify({ lastUpdatedAt: new Date().toISOString() }, null, 2)}\n`);
 };
+
+const readInstalledVersion = (): string | undefined => {
+  try {
+    const pkg = JSON.parse(readFileSync(PACKAGE_PATH, "utf-8")) as { version?: unknown };
+    return typeof pkg.version === "string" ? pkg.version : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+export function resolveSelfUpdateResult(beforeVersion: string | undefined, afterVersion: string | undefined, updatedByPeer: boolean): CliSelfUpdateResult {
+  if (beforeVersion !== undefined && beforeVersion === afterVersion) return "current";
+  return updatedByPeer ? "updated-by-peer" : "updated";
+}
 
 const isDue = () => {
   const state = readState();
@@ -132,10 +149,11 @@ const runNpmUpdate = (timeoutMs: number) => {
   });
 };
 
-export async function ensureCliSelfUpdated(): Promise<void> {
-  if (process.env.COHUB_CLI_AUTO_UPDATE === "0") return;
-  if (!isDue()) return;
+export async function ensureCliSelfUpdated(): Promise<CliSelfUpdateResult> {
+  if (process.env.COHUB_CLI_AUTO_UPDATE === "0") return "current";
+  if (!isDue()) return "current";
 
+  const beforeVersion = readInstalledVersion();
   const timeoutMs = getTimeoutMs();
   const locked = await acquireLock(timeoutMs);
   if (!locked) {
@@ -145,10 +163,13 @@ export async function ensureCliSelfUpdated(): Promise<void> {
   try {
     // Another process may have completed the update while this process was
     // waiting for the lock.
-    if (!isDue()) return;
+    if (!isDue()) {
+      return resolveSelfUpdateResult(beforeVersion, readInstalledVersion(), true);
+    }
 
     await runNpmUpdate(timeoutMs);
     writeState();
+    return resolveSelfUpdateResult(beforeVersion, readInstalledVersion(), false);
   } finally {
     releaseLock();
   }
