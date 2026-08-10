@@ -42,6 +42,19 @@ test("opening a work loads its detail and adopts the published title as the tab 
 	assert.equal(controller.preview?.label, "launch");
 });
 
+test("reopening a closed Work gets a fresh surface mount", () => {
+	const controller = createController();
+	controller.openWork({ workId: WORK_ID });
+	const firstMountKey = controller.preview?.mountKey;
+
+	controller.openWork({ workId: WORK_ID });
+	assert.equal(controller.preview?.mountKey, firstMountKey);
+
+	controller.closeWork(WORK_ID);
+	controller.openWork({ workId: WORK_ID });
+	assert.notEqual(controller.preview?.mountKey, firstMountKey);
+});
+
 test("Work composer context updates in place and is discarded with the preview", () => {
 	const controller = createController();
 	controller.openWork({ workId: WORK_ID });

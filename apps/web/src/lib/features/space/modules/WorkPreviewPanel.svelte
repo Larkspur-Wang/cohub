@@ -116,7 +116,7 @@ const isDisabled = $derived(detail?.work.status === "disabled");
 					: "This Work has no published content yet."}
 			</div>
 		{:else}
-			{#key preview.workId}
+			{#key preview.mountKey}
 				<WorkSurface
 					mode="preview"
 					work={detail.work}

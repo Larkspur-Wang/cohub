@@ -11,6 +11,7 @@ export type WorkPreviewLaunchState = { search?: string; hash?: string };
 
 export type InlineWorkPreview = {
 	workId: string;
+	mountKey: number;
 	label: string;
 	detail: WorkDetailResponse | null;
 	loading: boolean;
@@ -42,6 +43,7 @@ export function createWorkPreviewController(
 ) {
 	let previews = $state<InlineWorkPreview[]>([]);
 	let activeWorkId = $state<string | null>(null);
+	let nextMountKey = 0;
 	const requests = createRequestDedupe();
 	const invokers = new Map<string, WorkSurfaceInvoker>();
 	const detailSettled = new Map<string, Promise<void>>();
@@ -130,6 +132,7 @@ export function createWorkPreviewController(
 			...previews,
 			{
 				workId: input.workId,
+				mountKey: ++nextMountKey,
 				label: input.label?.trim() || "Work",
 				detail: null,
 				loading: true,
