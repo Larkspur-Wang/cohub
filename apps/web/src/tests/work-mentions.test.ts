@@ -93,6 +93,21 @@ test("replaceCohubWorkUrls converts only resolved works", () => {
 	);
 });
 
+test("Work links with additional subpaths stay intact", () => {
+	const links = [
+		"https://cohub.run/alice/studio/w/launch/download",
+		"/alice/studio/w/launch/settings",
+		"/alice/studio/w/launch/",
+	];
+	const text = links.join(" ");
+
+	assert.deepEqual(parseCohubWorkUrls(text), []);
+	assert.equal(
+		replaceCohubWorkUrls(text, () => "Launch"),
+		text,
+	);
+});
+
 test("parseWorkMentionUri rejects invalid public identities", () => {
 	assert.equal(
 		parseWorkMentionUri("cohub://works/alice/studio/bad.slug"),

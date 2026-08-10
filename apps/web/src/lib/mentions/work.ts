@@ -19,8 +19,11 @@ export type ParsedCohubWorkLink = {
 };
 
 const WORK_URI_PREFIX = "cohub://works/";
-const COHUB_WORK_LINK_PATTERN =
-	/(?:https?:\/\/(?:dev\.)?cohub\.run|https?:\/\/localhost(?::\d+)?)\/([a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?)\/([a-z0-9](?:[a-z0-9_-]{0,78}[a-z0-9])?)\/w\/([a-z0-9](?:[a-z0-9_-]{0,78}[a-z0-9])?)((?:[?#][^\s)\]]*)?)|(^|[\s([{<:,;!?，。！？、；：])\/([a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?)\/([a-z0-9](?:[a-z0-9_-]{0,78}[a-z0-9])?)\/w\/([a-z0-9](?:[a-z0-9_-]{0,78}[a-z0-9])?)((?:[?#][^\s)\]]*)?)/gi;
+const RESOURCE_PATH_END_PATTERN = "(?![a-z0-9_%/-]|\\.[a-z0-9])";
+const COHUB_WORK_LINK_PATTERN = new RegExp(
+	`(?:https?:\\/\\/(?:dev\\.)?cohub\\.run|https?:\\/\\/localhost(?::\\d+)?)\\/([a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?)\\/([a-z0-9](?:[a-z0-9_-]{0,78}[a-z0-9])?)\\/w\\/([a-z0-9](?:[a-z0-9_-]{0,78}[a-z0-9])?)((?:[?#][^\\s)\\]]*)?)${RESOURCE_PATH_END_PATTERN}|(^|[\\s([{<:,;!?，。！？、；：])\\/([a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?)\\/([a-z0-9](?:[a-z0-9_-]{0,78}[a-z0-9])?)\\/w\\/([a-z0-9](?:[a-z0-9_-]{0,78}[a-z0-9])?)((?:[?#][^\\s)\\]]*)?)${RESOURCE_PATH_END_PATTERN}`,
+	"gi",
+);
 
 function safeDecode(value: string) {
 	try {

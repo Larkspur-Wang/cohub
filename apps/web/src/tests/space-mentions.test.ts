@@ -115,6 +115,22 @@ test("replaceCohubSpaceUrls keeps asset URLs with embedded space path intact", (
 	);
 });
 
+test("Space links with additional subpaths stay intact", () => {
+	const links = [
+		`https://cohub.run/spaces/${spaceId}/files/image.png`,
+		`/spaces/${spaceId}/settings`,
+		`/spaces/${spaceId}/sessions/${sessionId}/checkpoints/latest`,
+		`/spaces/${spaceId}/`,
+	];
+	const text = links.join(" ");
+
+	assert.deepEqual(parseCohubSpaceUrls(text), []);
+	assert.equal(
+		replaceCohubSpaceUrls(text, () => "Core API"),
+		text,
+	);
+});
+
 test("extractSpaceMentionsFromText keeps one mention per resource", () => {
 	const uri = buildSpaceMentionUri(spaceId);
 	const sessionUri = buildSpaceMentionUri(spaceId, sessionId);

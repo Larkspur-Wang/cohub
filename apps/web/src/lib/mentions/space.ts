@@ -53,8 +53,9 @@ const SPACE_MENTION_PATTERN =
 const VALID_SPACE_MENTION_PREFIX_PATTERN = /[\s([{<:,;!?，。！？、；：]/;
 const ID_PATTERN =
 	"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
+const RESOURCE_PATH_END_PATTERN = "(?![a-zA-Z0-9_%/-]|\\.[a-zA-Z0-9])";
 const COHUB_SPACE_LINK_PATTERN = new RegExp(
-	`(?:https?:\\/\\/(?:dev\\.)?cohub\\.run|https?:\\/\\/localhost(?::\\d+)?)\\/spaces\\/(${ID_PATTERN})(?:\\/sessions\\/(${ID_PATTERN}))?(?:[/?#][^\\s)\\]]*)?|(^|[\\s([{<:,;!?，。！？、；：])\\/spaces\\/(${ID_PATTERN})(?:\\/sessions\\/(${ID_PATTERN}))?(?:[/?#][^\\s)\\]]*)?`,
+	`(?:https?:\\/\\/(?:dev\\.)?cohub\\.run|https?:\\/\\/localhost(?::\\d+)?)\\/spaces\\/(${ID_PATTERN})(?:\\/sessions\\/(${ID_PATTERN}))?(?:[?#][^\\s)\\]]*)?${RESOURCE_PATH_END_PATTERN}|(^|[\\s([{<:,;!?，。！？、；：])\\/spaces\\/(${ID_PATTERN})(?:\\/sessions\\/(${ID_PATTERN}))?(?:[?#][^\\s)\\]]*)?${RESOURCE_PATH_END_PATTERN}`,
 	"g",
 );
 
