@@ -6,14 +6,16 @@ All notable changes to Cohub are documented in this file.
 
 ## v2.15 — 2026-08-10
 
-- **Source-aware Work prompts**: Carry a validated originating client ID through API and turn metadata so agent-side `cohub ui` commands target the browser tab that initiated the prompt.
-- **Authentication observability**: Classify anonymous, authenticated, and rejected requests with privacy-safe OpenTelemetry attributes, fixed failure categories, and no captured bearer headers.
-- **Unauthorized trace context**: Expose sanitized request, trace, span, and W3C `traceparent` identifiers on SDK final-401 callbacks and `HttpError` instances for production debugging.
+- **Video balance preflight**: Video generation now requires at least $0.60 available balance before provider execution, with structured minimum-balance billing responses and fail-closed 503 handling when balance lookup is unavailable.
+- **Unified preview workspace**: Files, Boards, Ports, and Works now share one authoritative active-preview coordinator with most-recently-used fallback, deferred-close reconciliation, and context-safe URL synchronization.
+- **CLI self-update relaunch**: Automatic updates now restart commands with the newly installed version while preserving arguments, signals, and child exit codes.
+- **UI realtime events**: The protocol and SDK now accept `ui`-domain WebSocket envelopes, allowing dispatched UI commands to reach frontend event listeners.
 
 ### Bug Fixes
 
-- **Session-safe 401 recovery**: Recover sessions after empty token resolution while ignoring stale or credential-mismatched unauthorized responses, preventing a late 401 from clearing a newer session.
-- **Work preview remounting**: Reopen closed Work previews with a fresh surface mount so iframe lifecycle and interactive state are restored.
+- **Username reconciliation**: Wrapped PostgreSQL and Logto conflicts plus transient failures now retry candidate allocation or preserve an existing profile instead of failing synchronization.
+- **Preview teardown**: Fixed blank Work stages, stale preview URLs, and leaked frame bridges during surface unmounts, deferred closes, and context switches.
+- **Mention link parsing**: Space and Work links with additional resource subpaths are no longer incorrectly converted into mentions.
 
 ## v2.14 — 2026-08-07
 
