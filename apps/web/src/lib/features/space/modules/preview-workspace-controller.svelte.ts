@@ -96,17 +96,29 @@ function isDirtyFileTab(tab: FileTabLike) {
 }
 
 /**
- * Single active-tab coordinator over file/board/port domain controllers.
- * Owns: active kind, access order, budget, URL sync, open/activate/close.
+ * Single active-tab coordinator over file/board/port/work domain controllers.
+ * Owns: the active preview ref, access order, budget, URL sync, open/close.
  * Does not own: file drafts, board docs, port endpoints (domain controllers do).
+ *
+ * The active ref is canonical here, but it is only ever reported once the owning
+ * domain actually has that tab mounted as its active surface. That is what keeps
+ * an "active" kind from outliving its surface and painting an empty panel.
  */
 export function createPreviewWorkspaceController(
 	options: PreviewWorkspaceOptions,
 ) {
-	let activeKind = $state<PreviewTabKind | null>(null);
+	let activeRef = $state<WorkspacePreviewRef | null>(null);
+	/** Monotonic access order. A counter, not a clock: two tabs touched inside the
+	 * same millisecond must still compare, or the MRU fallback silently degrades
+	 * to whatever order the domains happen to report. */
 	let accessedAt = $state<Record<string, number>>({});
+	let accessCounter = 0;
 	let navigation = $state(createPreviewNavigationState());
 	const weightLimit = options.weightLimit ?? DEFAULT_WEIGHT_LIMIT;
+	/** Set while closes are already accounted for here — a close this controller
+	 * drives, or a context teardown. Domain "tab closed" reports are then ignored,
+	 * so tearing down an old context cannot write over the URL of the new one. */
+	let suppressCloseReports = false;
 
 	function beginNavigation(
 		ref: WorkspacePreviewRef | null,
@@ -121,48 +133,80 @@ export function createPreviewWorkspaceController(
 	}
 
 	function touch(kind: PreviewTabKind, key: string) {
-		accessedAt = { ...accessedAt, [tabId(kind, key)]: Date.now() };
+		accessCounter += 1;
+		accessedAt = { ...accessedAt, [tabId(kind, key)]: accessCounter };
+	}
+
+	/** Drop access order for a tab that no longer exists, so a long session does
+	 * not accumulate entries for closed previews. */
+	function forget(kind: PreviewTabKind, key: string) {
+		const id = tabId(kind, key);
+		if (!(id in accessedAt)) return;
+		const { [id]: _dropped, ...rest } = accessedAt;
+		accessedAt = rest;
+	}
+
+	function lastAccessed(ref: WorkspacePreviewRef) {
+		return accessedAt[tabId(ref.kind, ref.key)] ?? 0;
+	}
+
+	/** Whether a domain still holds this tab, active or not. */
+	function hasTab(kind: PreviewTabKind, key: string) {
+		if (kind === "file")
+			return options.getFileTabs().some((tab) => tab.path === key);
+		if (kind === "board")
+			return options.getBoardTabs().some((tab) => tab.path === key);
+		if (kind === "port")
+			return options.getPortTabs().some((tab) => tab.port === key);
+		return options.getWorkTabs().some((tab) => tab.workId === key);
+	}
+
+	/** Every domain's currently mounted surface, as preview refs. */
+	function mountedRefs(): WorkspacePreviewRef[] {
+		const refs: WorkspacePreviewRef[] = [];
+		const filePath = options.getActiveFilePath();
+		if (filePath) refs.push({ kind: "file", key: filePath });
+		const boardPath = options.getActiveBoardPath();
+		if (boardPath) refs.push({ kind: "board", key: boardPath });
+		const port = options.getActivePort();
+		if (port) refs.push({ kind: "port", key: port });
+		const workId = options.getActiveWorkId();
+		if (workId) refs.push({ kind: "work", key: workId });
+		return refs;
+	}
+
+	/**
+	 * The active ref, reconciled against what the domains actually have mounted.
+	 * When the committed ref is gone, the most recently used mounted surface wins
+	 * rather than a fixed kind order, so closing a tab reveals what the user saw
+	 * last.
+	 */
+	function resolveActiveRef(): WorkspacePreviewRef | null {
+		const mounted = mountedRefs();
+		if (mounted.length === 0) return null;
+		const committed = activeRef;
+		const exact =
+			committed && mounted.find((ref) => previewRefsEqual(ref, committed));
+		if (exact) return exact;
+		return mounted.reduce((best, ref) =>
+			lastAccessed(ref) > lastAccessed(best) ? ref : best,
+		);
 	}
 
 	function currentRef(): WorkspacePreviewRef | null {
-		if (activeKind === "file") {
-			const path = options.getActiveFilePath();
-			return path ? { kind: "file", key: path } : null;
-		}
-		if (activeKind === "board") {
-			const path = options.getActiveBoardPath();
-			return path ? { kind: "board", key: path } : null;
-		}
-		if (activeKind === "port") {
-			const port = options.getActivePort();
-			return port ? { kind: "port", key: port } : null;
-		}
-		if (activeKind === "work") {
-			const workId = options.getActiveWorkId();
-			return workId ? { kind: "work", key: workId } : null;
-		}
-		// Fallback if kind drifted but a surface is still open.
-		const filePath = options.getActiveFilePath();
-		if (filePath) return { kind: "file", key: filePath };
-		const boardPath = options.getActiveBoardPath();
-		if (boardPath) return { kind: "board", key: boardPath };
-		const port = options.getActivePort();
-		if (port) return { kind: "port", key: port };
-		const workId = options.getActiveWorkId();
-		if (workId) return { kind: "work", key: workId };
-		return null;
+		return resolveActiveRef();
 	}
 
-	function resolveKind(): PreviewTabKind | null {
-		if (activeKind === "port" && options.getActivePort()) return "port";
-		if (activeKind === "board" && options.getActiveBoardPath()) return "board";
-		if (activeKind === "file" && options.getActiveFilePath()) return "file";
-		if (activeKind === "work" && options.getActiveWorkId()) return "work";
-		if (options.getActiveFilePath()) return "file";
-		if (options.getActiveBoardPath()) return "board";
-		if (options.getActivePort()) return "port";
-		if (options.getActiveWorkId()) return "work";
-		return null;
+	/** Commit the active ref and mark it most recently used, in one step. */
+	function commitActive(ref: WorkspacePreviewRef) {
+		activeRef = ref;
+		touch(ref.kind, ref.key);
+	}
+
+	/** Re-derive the active ref after tabs changed underneath us. */
+	function reconcileActive() {
+		activeRef = resolveActiveRef();
+		return activeRef;
 	}
 
 	function enforceBudget() {
@@ -205,20 +249,41 @@ export function createPreviewWorkspaceController(
 		let closed = 0;
 		for (const tab of removable) {
 			if (total <= weightLimit) break;
-			if (tab.kind === "file") options.closeFile(tab.key, true);
-			else if (tab.kind === "board") options.closeBoard(tab.key);
-			else if (tab.kind === "port") options.closePort(tab.key);
-			else options.closeWork(tab.key);
+			closeInDomain(tab.kind, tab.key, true);
+			forget(tab.kind, tab.key);
 			total -= tab.weight;
 			closed += 1;
 		}
 		if (closed > 0) {
-			activeKind = resolveKind();
-			const ref = currentRef();
+			const ref = reconcileActive();
 			navigation = alignPreviewNavigation(navigation, ref);
 			options.syncUrl(ref, true);
 			options.onBudgetCleanup?.();
 		}
+	}
+
+	/** Run domain closes without letting their reports re-enter reconciliation. */
+	function withSuppressedCloseReports(run: () => void) {
+		const previous = suppressCloseReports;
+		suppressCloseReports = true;
+		try {
+			run();
+		} finally {
+			suppressCloseReports = previous;
+		}
+	}
+
+	function closeInDomain(
+		kind: PreviewTabKind,
+		key?: string | null,
+		skipConfirm = false,
+	) {
+		withSuppressedCloseReports(() => {
+			if (kind === "file") options.closeFile(key, skipConfirm);
+			else if (kind === "board") options.closeBoard(key);
+			else if (kind === "port") options.closePort(key);
+			else options.closeWork(key);
+		});
 	}
 
 	async function openFile(
@@ -237,8 +302,7 @@ export function createPreviewWorkspaceController(
 			ref,
 			opts.source ?? (syncUrl ? "user" : "route"),
 		);
-		activeKind = "file";
-		touch("file", path);
+		commitActive(ref);
 		// Domain open creates its loading tab synchronously. URL sync follows in
 		// the same task, while route reconciliation only observes route changes.
 		const pending = options.openFile(path, {
@@ -268,8 +332,7 @@ export function createPreviewWorkspaceController(
 			ref,
 			opts.source ?? (syncUrl ? "user" : "route"),
 		);
-		activeKind = "board";
-		touch("board", path);
+		commitActive(ref);
 		const pending = options.openBoard(path);
 		if (syncUrl) options.syncUrl(ref, hadPreview);
 		await pending;
@@ -294,8 +357,7 @@ export function createPreviewWorkspaceController(
 		const hadPreview = Boolean(currentRef());
 		const ref = { kind: "port" as const, key: port };
 		beginNavigation(ref, opts.source ?? (syncUrl ? "user" : "route"));
-		activeKind = "port";
-		touch("port", port);
+		commitActive(ref);
 		options.openPort(port, url, { autoOpened: opts.autoOpened });
 		if (syncUrl) options.syncUrl(ref, hadPreview);
 		enforceBudget();
@@ -322,8 +384,7 @@ export function createPreviewWorkspaceController(
 		const hadPreview = Boolean(currentRef());
 		const ref = { kind: "work" as const, key: input.workId };
 		beginNavigation(ref, opts.source ?? (syncUrl ? "user" : "route"));
-		activeKind = "work";
-		touch("work", input.workId);
+		commitActive(ref);
 		options.openWork(input);
 		if (syncUrl) options.syncUrl(ref, hadPreview);
 		enforceBudget();
@@ -336,8 +397,7 @@ export function createPreviewWorkspaceController(
 	function activate(kind: PreviewTabKind, key: string, syncUrl = true) {
 		const ref = { kind, key };
 		beginNavigation(ref, syncUrl ? "user" : "route");
-		activeKind = kind;
-		touch(kind, key);
+		commitActive(ref);
 		if (kind === "file") options.activateFile(key);
 		else if (kind === "board") options.activateBoard(key);
 		else if (kind === "port") options.activatePort(key);
@@ -350,13 +410,29 @@ export function createPreviewWorkspaceController(
 		key?: string | null,
 		skipConfirm = false,
 	) {
-		if (kind === "file") options.closeFile(key, skipConfirm);
-		else if (kind === "board") options.closeBoard(key);
-		else if (kind === "port") options.closePort(key);
-		else options.closeWork(key);
-		activeKind = resolveKind();
-		const ref = currentRef();
+		const current = currentRef();
+		const target = key ?? (current?.kind === kind ? current.key : null);
+		closeInDomain(kind, key, skipConfirm);
+		// A domain may defer the close (e.g. a file flushing its autosave). Only
+		// forget what actually went away; `tabClosed` finishes deferred ones.
+		if (target && !hasTab(kind, target)) forget(kind, target);
+		const ref = reconcileActive();
 		beginNavigation(ref, "user");
+		options.syncUrl(ref, true);
+	}
+
+	/**
+	 * A domain finished closing a tab on its own schedule — a deferred file close
+	 * waiting on autosave, or an external delete. Re-derive the active surface so
+	 * the URL and panel cannot keep pointing at a tab that no longer exists.
+	 */
+	function tabClosed(kind: PreviewTabKind, key: string) {
+		if (suppressCloseReports) return;
+		forget(kind, key);
+		const previous = activeRef;
+		const ref = reconcileActive();
+		if (previewRefsEqual(previous, ref)) return;
+		navigation = alignPreviewNavigation(navigation, ref);
 		options.syncUrl(ref, true);
 	}
 
@@ -371,19 +447,22 @@ export function createPreviewWorkspaceController(
 	) {
 		const syncUrl = opts.syncUrl ?? true;
 		beginNavigation(null, opts.source ?? (syncUrl ? "user" : "route"));
-		activeKind = null;
-		for (const tab of [...options.getFileTabs()]) {
-			options.closeFile(tab.path, true);
-		}
-		for (const tab of [...options.getBoardTabs()]) {
-			options.closeBoard(tab.path);
-		}
-		for (const tab of [...options.getPortTabs()]) {
-			options.closePort(tab.port);
-		}
-		for (const tab of [...options.getWorkTabs()]) {
-			options.closeWork(tab.workId);
-		}
+		activeRef = null;
+		accessedAt = {};
+		withSuppressedCloseReports(() => {
+			for (const tab of [...options.getFileTabs()]) {
+				options.closeFile(tab.path, true);
+			}
+			for (const tab of [...options.getBoardTabs()]) {
+				options.closeBoard(tab.path);
+			}
+			for (const tab of [...options.getPortTabs()]) {
+				options.closePort(tab.port);
+			}
+			for (const tab of [...options.getWorkTabs()]) {
+				options.closeWork(tab.workId);
+			}
+		});
 		if (syncUrl) options.syncUrl(null, true);
 	}
 
@@ -394,8 +473,7 @@ export function createPreviewWorkspaceController(
 			return null;
 		const ref = { kind: "file" as const, key: previous };
 		navigation = alignPreviewNavigation(navigation, ref);
-		activeKind = "file";
-		touch("file", previous);
+		commitActive(ref);
 		options.syncUrl(ref, true);
 		return previous;
 	}
@@ -413,8 +491,7 @@ export function createPreviewWorkspaceController(
 			// that produced it; only external route changes begin a new transition.
 			if (!previewRefsEqual(navigation.desiredRef, ref))
 				beginNavigation(ref, "route");
-			activeKind = ref.kind;
-			touch(ref.kind, ref.key);
+			commitActive(ref);
 			return { ok: true as const };
 		}
 		if (ref.kind === "file") {
@@ -439,9 +516,16 @@ export function createPreviewWorkspaceController(
 		return { ok: true as const };
 	}
 
-	function resetForContext() {
+	/**
+	 * Leave a Space / FS context. The caller's teardown runs with close reports
+	 * suppressed and never syncs the URL: the route this navigation is heading to
+	 * is already in the address bar, so a dying context must not write over it.
+	 */
+	function resetForContext(teardown?: () => void) {
 		beginNavigation(null, "restore");
-		activeKind = null;
+		activeRef = null;
+		accessedAt = {};
+		if (teardown) withSuppressedCloseReports(teardown);
 	}
 
 	function syncCurrent() {
@@ -452,10 +536,10 @@ export function createPreviewWorkspaceController(
 
 	return {
 		get activeKind() {
-			return resolveKind();
+			return resolveActiveRef()?.kind ?? null;
 		},
-		get activeKindState() {
-			return activeKind;
+		get activeRef() {
+			return resolveActiveRef();
 		},
 		get navigation() {
 			return navigation;
@@ -464,6 +548,7 @@ export function createPreviewWorkspaceController(
 		syncCurrent,
 		currentRef,
 		touch,
+		tabClosed,
 		openFile,
 		openBoard,
 		openPort,

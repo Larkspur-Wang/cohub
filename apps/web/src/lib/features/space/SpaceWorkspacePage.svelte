@@ -166,8 +166,8 @@ import { createWorkPreviewController } from "./modules/work-preview-controller.s
 import { createWorkspaceLayoutController } from "./modules/workspace-layout-controller.svelte";
 import {
 	encodePreviewParam,
-	parsePreviewParam,
 	readPreviewFromSearch,
+	resolveRoutePreview,
 	type WorkspacePreviewRef,
 	withCurrentPreview,
 	withPreviewParam,
@@ -210,11 +210,16 @@ const isNewSessionRoute = $derived(
 	routeView === "session" && routeSessionId === "new",
 );
 const routePreviewRef = $derived.by((): WorkspacePreviewRef | null => {
-	const shallowValue = page.state.workspacePreview;
-	if (shallowValue !== undefined) return parsePreviewParam(shallowValue);
-	const preview = readPreviewFromSearch(page.url.searchParams);
+	const searchParams =
+		typeof window === "undefined"
+			? page.url.searchParams
+			: new URLSearchParams(window.location.search);
+	const preview = resolveRoutePreview(
+		searchParams,
+		page.state.workspacePreview,
+	);
 	if (preview) return preview;
-	const legacyFile = page.url.searchParams.get("file");
+	const legacyFile = searchParams.get("file");
 	if (legacyFile) return { kind: "file", key: legacyFile };
 	// Legacy residual for old /files routes.
 	if (data.filePath) return { kind: "file", key: data.filePath };
@@ -378,6 +383,7 @@ const portPreview = createPortPreviewController({
 			if (!activePreviewKind) closePreviewFocusMode();
 		});
 	},
+	onPortClosed: (port) => previewWorkspace.tabClosed("port", port),
 	onBeforeOpenPort: () => {},
 });
 const workPreview = createWorkPreviewController({
@@ -391,6 +397,7 @@ const workPreview = createWorkPreviewController({
 			if (!activePreviewKind) closePreviewFocusMode();
 		});
 	},
+	onWorkClosed: (workId) => previewWorkspace.tabClosed("work", workId),
 });
 const inlineWorkPreview = $derived(workPreview.preview);
 const inlineWorkTabs = $derived(workPreview.previews);
@@ -471,6 +478,7 @@ const fileWorkspace = createFileWorkspaceController({
 		// page wrapper was skipped (e.g. route hydrate -> controller openFile).
 		if (uiState.filesColumnHidden) uiState.setFilesColumnHidden(false);
 	},
+	onInlineFileClosed: (path) => previewWorkspace.tabClosed("file", path),
 	onClosePreviewFocusMode: () => {
 		// Only leave focus/immersive when nothing is open in Files.
 		queueMicrotask(() => {
@@ -494,6 +502,7 @@ const boardPreview = createBoardPreviewController({
 			if (!activePreviewKind) closePreviewFocusMode();
 		});
 	},
+	onBoardClosed: (path) => previewWorkspace.tabClosed("board", path),
 	onBeforeOpenBoard: () => {},
 	onMarkSavePending: fileWorkspace.markFileSavePending,
 	onClearSavePendingSoon: fileWorkspace.clearFileSavePendingSoon,
@@ -2413,11 +2422,15 @@ function resetSpaceScopedState(currentSpaceId: string) {
 	newChatProfileBodyEl = null;
 	spaceRealtime.resetRecoveredConnection();
 	// Chat-owned UI (turn rail / route turn) is reset by sessionChat.enterSpace.
-	fileWorkspace.resetForSpace(currentSpaceId, { force: true });
-	boardPreview.closeBoard();
-	portPreview.setEndpoints({});
-	portPreview.closePort();
-	portPreview.closeReadyToast();
+	// Entering a Space is a context teardown: run it through the coordinator so the
+	// previews being discarded cannot write their URL over the incoming route.
+	previewWorkspace.resetForContext(() => {
+		fileWorkspace.resetForSpace(currentSpaceId, { force: true });
+		boardPreview.closeBoard();
+		portPreview.setEndpoints({});
+		portPreview.closePort();
+		portPreview.closeReadyToast();
+	});
 	taskRealtimeEvent = null;
 	taskRealtimeSeq = 0;
 	resourceActionMenuOpen = false;
@@ -2563,17 +2576,19 @@ $effect(() => {
 	if (preview?.kind === "port") void previewEndpoints[preview.key]?.url;
 	untrack(() => {
 		const contextKey = `${currentSpaceId}\0${sourceKey}`;
-		// 1) Space / FS source transition
+		// 1) Space / FS source transition. Tear down through the coordinator so the
+		// dying context cannot write its own URL over the route we are navigating to.
 		if (contextKey !== appliedPreviewContextKey) {
-			// beforeNavigate already confirmed discard when FS source changes.
-			fileWorkspace.switchSource(sourceKey, { force: true });
-			// Source change invalidates non-file previews; file tabs already cleared by switchSource.
-			for (const tab of [...boardPreview.boards])
-				boardPreview.closeBoard(tab.path);
-			for (const tab of [...portPreview.previews])
-				portPreview.closePort(tab.port);
-			workPreview.closeAll();
-			previewWorkspace.resetForContext();
+			previewWorkspace.resetForContext(() => {
+				// beforeNavigate already confirmed discard when FS source changes.
+				fileWorkspace.switchSource(sourceKey, { force: true });
+				// Source change invalidates non-file previews; file tabs already cleared by switchSource.
+				for (const tab of [...boardPreview.boards])
+					boardPreview.closeBoard(tab.path);
+				for (const tab of [...portPreview.previews])
+					portPreview.closePort(tab.port);
+				workPreview.closeAll();
+			});
 			appliedPreviewContextKey = contextKey;
 		}
 

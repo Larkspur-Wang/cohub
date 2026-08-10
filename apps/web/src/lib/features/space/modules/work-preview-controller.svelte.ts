@@ -34,6 +34,8 @@ type WorkPreviewControllerOptions = {
 	getSpaceId: () => string;
 	onOpenPanel?: () => void;
 	onClosePanel?: () => void;
+	/** A tab actually went away, so a coordinator can re-derive the active ref. */
+	onWorkClosed?: (workId: string) => void;
 	loadWork?: (workId: string) => Promise<WorkDetailResponse>;
 	loadPublicWork?: (workId: string) => Promise<WorkDetailResponse>;
 };
@@ -167,6 +169,7 @@ export function createWorkPreviewController(
 				null;
 		}
 		if (nextPreviews.length === 0) options.onClosePanel?.();
+		options.onWorkClosed?.(workId);
 	}
 
 	function closeAll() {

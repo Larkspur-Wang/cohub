@@ -7,6 +7,7 @@ import {
 	isValidWorkKey,
 	parsePreviewParam,
 	readPreviewFromSearch,
+	resolveRoutePreview,
 	withCurrentPreview,
 	withPreviewParam,
 	withSidebarMainPreview,
@@ -75,6 +76,18 @@ test("readPreviewFromSearch reads query", () => {
 		readPreviewFromSearch(new URLSearchParams("preview=board:board.board")),
 		{ kind: "board", key: "board.board" },
 	);
+});
+
+test("an explicit preview URL wins over stale shallow route state", () => {
+	const workId = "123e4567-e89b-42d3-a456-426614174000";
+	assert.deepEqual(resolveRoutePreview(`?preview=work:${workId}`, null), {
+		kind: "work",
+		key: workId,
+	});
+	assert.deepEqual(resolveRoutePreview("?turn=3", "file:readme.md"), {
+		kind: "file",
+		key: "readme.md",
+	});
 });
 
 test("legacy file ingress lands on new chat + file preview", () => {

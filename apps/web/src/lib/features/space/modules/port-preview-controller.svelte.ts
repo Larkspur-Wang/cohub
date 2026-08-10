@@ -27,6 +27,8 @@ type PortPreviewControllerOptions = {
 	getHasMinimalAccess: () => boolean;
 	onOpenPanel?: () => void;
 	onClosePanel?: () => void;
+	/** A tab actually went away, so a coordinator can re-derive the active ref. */
+	onPortClosed?: (port: string) => void;
 	onBeforeOpenPort?: () => void;
 };
 
@@ -127,12 +129,13 @@ export function createPortPreviewController(
 		optionsArg: { autoOpened?: boolean } = {},
 	) {
 		options.onBeforeOpenPort?.();
-		options.onOpenPanel?.();
 		const preview = { port, url, autoOpened: optionsArg.autoOpened ?? false };
 		previews = previews.some((item) => item.port === port)
 			? previews.map((item) => (item.port === port ? preview : item))
 			: [...previews, preview];
 		activePort = port;
+		// Open the panel only once this port is the committed active surface.
+		options.onOpenPanel?.();
 	}
 
 	function closePort(port = activePort) {
@@ -146,6 +149,7 @@ export function createPortPreviewController(
 				nextPreviews[0]?.port ??
 				null;
 		if (nextPreviews.length === 0) options.onClosePanel?.();
+		options.onPortClosed?.(port);
 	}
 
 	function activatePort(port: string) {

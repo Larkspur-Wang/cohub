@@ -55,6 +55,33 @@ test("reopening a closed Work gets a fresh surface mount", () => {
 	assert.notEqual(controller.preview?.mountKey, firstMountKey);
 });
 
+test("opening the panel happens after preview state is committed", () => {
+	const observedPanelState: Array<{
+		activeWorkId: string | null;
+		previewCount: number;
+	}> = [];
+	let controller: ReturnType<typeof createWorkPreviewController>;
+	controller = createWorkPreviewController({
+		getSpaceId: () => "space-1",
+		loadWork: async () => detailFor("web") as never,
+		onOpenPanel: () => {
+			observedPanelState.push({
+				activeWorkId: controller.activeWorkId,
+				previewCount: controller.previews.length,
+			});
+		},
+	});
+
+	controller.openWork({ workId: WORK_ID });
+	controller.closeWork(WORK_ID);
+	controller.openWork({ workId: WORK_ID });
+
+	assert.deepEqual(observedPanelState, [
+		{ activeWorkId: WORK_ID, previewCount: 1 },
+		{ activeWorkId: WORK_ID, previewCount: 1 },
+	]);
+});
+
 test("Work composer context updates in place and is discarded with the preview", () => {
 	const controller = createController();
 	controller.openWork({ workId: WORK_ID });

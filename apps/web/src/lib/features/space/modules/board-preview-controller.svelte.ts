@@ -62,6 +62,8 @@ type BoardPreviewControllerOptions = {
 	readFile: (path: string) => Promise<BoardFileResponse>;
 	onOpenPanel?: () => void;
 	onClosePanel?: () => void;
+	/** A tab actually went away (missing board, deleted path). */
+	onBoardClosed?: (path: string) => void;
 	onBeforeOpenBoard?: () => void;
 	onMarkSavePending?: (path: string) => void;
 	onClearSavePendingSoon?: (path: string) => void;
@@ -207,10 +209,7 @@ export function createBoardPreviewController(
 		const activate = input.activate ?? true;
 		const requestedLoading = input.showLoading ?? true;
 		const sourceKey = options.getSourceKey();
-		if (activate) {
-			options.onOpenPanel?.();
-			options.onBeforeOpenBoard?.();
-		}
+		if (activate) options.onBeforeOpenBoard?.();
 		const token = (requestTokenByPath[path] ?? 0) + 1;
 		requestTokenByPath = { ...requestTokenByPath, [path]: token };
 		if (activate) activeBoardPath = path;
@@ -234,6 +233,9 @@ export function createBoardPreviewController(
 				? boards.map((item) => (item.path === path ? loadingBoard : item))
 				: [...boards, loadingBoard];
 		}
+		// The panel opens only once this tab is the committed active surface, so it
+		// can never paint before there is something to render.
+		if (activate) options.onOpenPanel?.();
 		try {
 			const rawFile = await options.readFile(path);
 			if (!isCurrent(token, path, sourceKey)) return;
@@ -409,6 +411,7 @@ export function createBoardPreviewController(
 			activeBoardPath =
 				nextBoards[Math.max(0, index - 1)]?.path ?? nextBoards[0]?.path ?? null;
 		if (nextBoards.length === 0) options.onClosePanel?.();
+		options.onBoardClosed?.(path);
 	}
 
 	function closeBoardsAtPath(path: string, recursive = false) {

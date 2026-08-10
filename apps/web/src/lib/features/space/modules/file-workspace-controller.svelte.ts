@@ -97,6 +97,8 @@ type FileWorkspaceControllerOptions = {
 	) => void;
 	onCloseInlinePort: () => void;
 	onActivateFilePreview?: () => void;
+	/** A tab actually went away (deferred autosave close, external delete). */
+	onInlineFileClosed?: (path: string) => void;
 	onClosePreviewFocusMode: () => void;
 	onEnsurePreviewPanelFits: () => void;
 };
@@ -925,6 +927,8 @@ export function createFileWorkspaceController(
 			if (tab?.syncStatus === "error" || tab?.syncStatus === "conflict") {
 				if (!confirm(`Close ${path} with unsynced changes?`)) return;
 			} else {
+				// Never drop unsaved work: flush first, then close on the same path so
+				// the deferred close still reports itself to the coordinator.
 				void fileAutosave.flush(path).then(() => {
 					if (!isInlineFileDirty(path)) closeInlineFile(path, true);
 				});
@@ -942,6 +946,7 @@ export function createFileWorkspaceController(
 			activeInlineFilePath =
 				nextTabs[Math.max(0, index - 1)]?.path ?? nextTabs[0]?.path ?? null;
 		if (nextTabs.length === 0) options.onClosePreviewFocusMode();
+		options.onInlineFileClosed?.(path);
 	}
 
 	async function goBackInlineFile(): Promise<string | null> {

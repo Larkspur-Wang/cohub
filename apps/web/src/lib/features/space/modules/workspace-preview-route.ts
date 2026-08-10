@@ -42,15 +42,34 @@ export function parsePreviewParam(
 	return { kind, key };
 }
 
+function previewSearchParams(
+	search: string | URLSearchParams | null | undefined,
+): URLSearchParams | null {
+	if (!search) return null;
+	return typeof search === "string"
+		? new URLSearchParams(search.startsWith("?") ? search.slice(1) : search)
+		: search;
+}
+
 export function readPreviewFromSearch(
 	search: string | URLSearchParams | null | undefined,
 ): WorkspacePreviewRef | null {
-	if (!search) return null;
-	const params =
-		typeof search === "string"
-			? new URLSearchParams(search.startsWith("?") ? search.slice(1) : search)
-			: search;
-	return parsePreviewParam(params.get(PREVIEW_QUERY_KEY));
+	const params = previewSearchParams(search);
+	return parsePreviewParam(params?.get(PREVIEW_QUERY_KEY));
+}
+
+/**
+ * Resolve shallow navigation state without letting an older state entry mask an
+ * explicit preview in the browser URL.
+ */
+export function resolveRoutePreview(
+	search: string | URLSearchParams | null | undefined,
+	shallowValue: string | null | undefined,
+): WorkspacePreviewRef | null {
+	const params = previewSearchParams(search);
+	if (params?.has(PREVIEW_QUERY_KEY))
+		return parsePreviewParam(params.get(PREVIEW_QUERY_KEY));
+	return parsePreviewParam(shallowValue);
 }
 
 export function withPreviewParam(
