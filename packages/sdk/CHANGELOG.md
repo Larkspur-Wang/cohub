@@ -1,5 +1,12 @@
 # @neta-art/cohub
 
+## 5.3.2
+
+### Patch Changes
+
+- 0a82a02: Expose the minimum required balance when video generation is blocked for insufficient credits.
+- 0628b24: Accept UI-domain realtime envelopes in the WebSocket SDK so dispatched UI commands reach frontend listeners.
+
 ## 5.3.1
 
 ### Patch Changes
