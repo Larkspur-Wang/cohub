@@ -1,6 +1,7 @@
 import {
   getRealtimeSpaceRoom,
   getSessionTurnPatchStreamKey,
+  isRealtimeDomain,
   WS_BOARD_AWARENESS_CAPABILITY,
   WS_COMPACT_STREAM_CAPABILITY,
   WS_ROOM_SUBSCRIPTION_CAPABILITY,
@@ -154,7 +155,7 @@ const isRealtimeEnvelope = (value: unknown): value is ChannelEnvelope => {
   if (!isRecord(value)) return false;
   if (typeof value.id !== "string") return false;
   if (typeof value.timestamp !== "number") return false;
-  if (value.domain !== "system" && value.domain !== "session" && value.domain !== "space" && value.domain !== "label" && value.domain !== "room") return false;
+  if (!isRealtimeDomain(value.domain)) return false;
   if (typeof value.type !== "string") return false;
   if (!isRecord(value.payload)) return false;
   return true;

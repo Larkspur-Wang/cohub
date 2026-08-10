@@ -23,6 +23,12 @@ export const REALTIME_OUTBOUND_CHANNEL = "pubsub:realtime:outbound";
 export const AGENT_REALTIME_PATCH_CHANNEL = "pubsub:realtime:agent_patches";
 export const REALTIME_ROOM_KEY_PREFIX = "cohub:realtime-room:v1";
 
+export const REALTIME_DOMAINS = ["system", "session", "space", "label", "room", "ui"] as const;
+export type RealtimeDomain = (typeof REALTIME_DOMAINS)[number];
+
+export const isRealtimeDomain = (value: unknown): value is RealtimeDomain =>
+  typeof value === "string" && REALTIME_DOMAINS.some((domain) => domain === value);
+
 /** Accepted room event names. Shared so a client can reject one before sending. */
 export const REALTIME_ROOM_EVENT_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
 /** Maximum encoded size of a room event payload. */
@@ -85,7 +91,7 @@ export type WsClientEvent =
 export type RealtimeEnvelope = {
   id: string;
   timestamp: number;
-  domain: "system" | "session" | "space" | "label" | "room" | "ui";
+  domain: RealtimeDomain;
   type: string;
   requestId?: string | null;
   spaceId?: string | null;
@@ -97,7 +103,6 @@ export type RealtimeEnvelope = {
 
 export type ChannelEnvelope = RealtimeEnvelope;
 export type RealtimeEnvelopeBase = RealtimeEnvelope;
-export type RealtimeDomain = RealtimeEnvelopeBase["domain"];
 
 export type RealtimeRoomDescriptor = {
   id: string;

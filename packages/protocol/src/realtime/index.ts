@@ -13,6 +13,7 @@ export {
 } from "./board-awareness.js";
 export {
   AGENT_REALTIME_PATCH_CHANNEL,
+  REALTIME_DOMAINS,
   REALTIME_OUTBOUND_CHANNEL,
   REALTIME_ROOM_EVENT_NAME_PATTERN,
   REALTIME_ROOM_MAX_PAYLOAD_BYTES,
@@ -32,6 +33,7 @@ export {
   getRealtimeRoomRateKey,
   getRealtimeRoomSequenceKey,
   getSessionTurnPatchStreamKey,
+  isRealtimeDomain,
   normalizeRealtimeRooms,
   parseRealtimeRoom,
 } from "./types.js";
