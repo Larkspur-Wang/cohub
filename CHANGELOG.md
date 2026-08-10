@@ -4,17 +4,16 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
-## v2.15 — 2026-08-09
+## v2.15 — 2026-08-10
 
-- **Work preview tabs**: Published Works can now open as first-class, deep-linkable tabs beside the Space detail view, with public-content fallback, launch-state preservation, retry states, and shared preview-budget management.
-- **Agent-driven UI commands**: Added `cohub ui preview` and the SDK's `client.ui` surface to open a Work in the originating Cohub tab and invoke registered methods, with provenance routing, atomic Redis-backed command persistence, idempotent command IDs, detached execution, and waits up to 12 hours.
-- **Secure Work Surface RPC**: Introduced a typed, explicit-origin `postMessage` protocol for `client.work.surface.handle()` methods; calls acknowledge delivery first and complete asynchronously through `client.ui.reportResult()`, without DOM access or script evaluation.
-- **Composer context chips**: Works can attach, update, and clear compact plain-text context in the Cohub composer, keeping full selection details available to the user and the Agent while the Work is active.
+- **Source-aware Work prompts**: Carry a validated originating client ID through API and turn metadata so agent-side `cohub ui` commands target the browser tab that initiated the prompt.
+- **Authentication observability**: Classify anonymous, authenticated, and rejected requests with privacy-safe OpenTelemetry attributes, fixed failure categories, and no captured bearer headers.
+- **Unauthorized trace context**: Expose sanitized request, trace, span, and W3C `traceparent` identifiers on SDK final-401 callbacks and `HttpError` instances for production debugging.
 
 ### Bug Fixes
 
-- **Work preview scrolling**: Prevented workspace drawer gestures from intercepting scroll input inside Work previews.
-- **Preview chrome**: Removed the duplicate Work preview header so previews use the shared workspace chrome consistently.
+- **Session-safe 401 recovery**: Recover sessions after empty token resolution while ignoring stale or credential-mismatched unauthorized responses, preventing a late 401 from clearing a newer session.
+- **Work preview remounting**: Reopen closed Work previews with a fresh surface mount so iframe lifecycle and interactive state are restored.
 
 ## v2.14 — 2026-08-07
 
