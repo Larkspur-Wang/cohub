@@ -1,5 +1,7 @@
 # Cohub
 
+[Homepage](https://cohub.run/) | [Neta Studio](https://neta.art/)
+
 *Your own space to create, play, and build with people and agents.*
 
 We burn 100 billion tokens per week inside our company within Cohub Spaces.
