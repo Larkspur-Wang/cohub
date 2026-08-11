@@ -11,6 +11,10 @@
 
 ---
 
+<p align="center">
+  <img src="assets/screenshot.webp" alt="Cohub Space — multi-person and agent collaboration" width="800" />
+</p>
+
 We burn 100 billion tokens per week inside our company within Cohub Spaces.
 
 **A living space where people and agents create, play, and build together.**

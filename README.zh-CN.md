@@ -11,6 +11,10 @@
 
 ---
 
+<p align="center">
+  <img src="assets/screenshot.webp" alt="Cohub Space — 多人与 Agent 协作" width="800" />
+</p>
+
 我们公司每周在 Cohub Spaces 里消耗 1000 亿 token。
 
 **人和 Agent 共同创作、玩耍、构建的 living space。**
