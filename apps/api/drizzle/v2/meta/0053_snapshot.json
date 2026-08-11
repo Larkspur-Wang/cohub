@@ -1,5 +1,5 @@
 {
-  "id": "571ee85a-1566-4dd4-a47e-f6587a6645eb",
+  "id": "6620d5bc-8948-4be0-85c7-eae396ec2fc4",
   "prevId": "821fe9bc-8445-4940-a846-5d7121275162",
   "version": "7",
   "dialect": "postgresql",
@@ -607,22 +607,7 @@
           "with": {}
         }
       },
-      "foreignKeys": {
-        "board_connections_board_id_boards_id_fk": {
-          "name": "board_connections_board_id_boards_id_fk",
-          "tableFrom": "board_connections",
-          "tableTo": "boards",
-          "schemaTo": "v2",
-          "columnsFrom": [
-            "board_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},

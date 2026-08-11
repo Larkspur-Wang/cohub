@@ -78,8 +78,6 @@ export const BoardTargetSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("camera") }),
 ]);
 
-export { BoardConnectionPatchSchema, BoardConnectionSchema };
-
 export const BoardAssetRefSchema = z.object({
   type: z.enum(["space-file", "extension"]),
   ref: z.string().min(1).max(4096),

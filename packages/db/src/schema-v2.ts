@@ -444,7 +444,7 @@ export const boardNodes = v2.table(
 export const boardConnections = v2.table(
   "board_connections",
   {
-    boardId: uuid("board_id").notNull().references(() => boards.id, { onDelete: "cascade" }),
+    boardId: uuid("board_id").notNull(),
     connectionId: text("connection_id").notNull(),
     sourceNodeId: text("source_node_id").notNull(),
     targetNodeId: text("target_node_id").notNull(),

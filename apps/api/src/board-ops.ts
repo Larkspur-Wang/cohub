@@ -2,16 +2,11 @@ import {
   BOARD_BUILTIN_CLIP_KINDS,
   BOARD_BUILTIN_EFFECT_KINDS,
   BoardClipSchema,
-  BoardConnectionPatchSchema,
-  BoardConnectionSchema,
   BoardEffectSchema,
   BoardPlaybackPolicySchema,
   BoardSequenceSchema,
   DEFAULT_BOARD_RENDER_LIMITS,
-  connectionNodeIds,
   type BoardClip,
-  type BoardConnection,
-  type BoardConnectionPatch,
   type BoardDiagnostic,
   type BoardEffect,
   type BoardNodeInput,
@@ -20,6 +15,13 @@ import {
   type BoardTransaction,
   type BoardValidationResult,
 } from "@cohub/protocol";
+import {
+  BoardConnectionPatchSchema,
+  BoardConnectionSchema,
+  connectionNodeIds,
+  type BoardConnection,
+  type BoardConnectionPatch,
+} from "@cohub/protocol/board-connection";
 
 export class BoardServiceError extends Error {
   constructor(

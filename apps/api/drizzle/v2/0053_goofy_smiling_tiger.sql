@@ -17,7 +17,6 @@ CREATE TABLE "v2"."board_connections" (
 	"deleted_at" timestamp with time zone
 );
 --> statement-breakpoint
-ALTER TABLE "v2"."board_connections" ADD CONSTRAINT "board_connections_board_id_boards_id_fk" FOREIGN KEY ("board_id") REFERENCES "v2"."boards"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE UNIQUE INDEX "v2_uq_board_connections_board_connection" ON "v2"."board_connections" USING btree ("board_id","connection_id");--> statement-breakpoint
 CREATE INDEX "v2_idx_board_connections_board_id" ON "v2"."board_connections" USING btree ("board_id");--> statement-breakpoint
 CREATE INDEX "v2_idx_board_connections_source" ON "v2"."board_connections" USING btree ("board_id","source_node_id");--> statement-breakpoint
