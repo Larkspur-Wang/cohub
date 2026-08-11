@@ -693,15 +693,18 @@ $effect(() => {
 	{:else if inlineFile}
 		{#await codeEditorModulePromise then editorModule}
 			{@const LazyCodeEditor = editorModule.default}
-			{@const editorPath = inlineFile.path}
+			{@const editorPath = inlineFile?.path}
 			<LazyCodeEditor
-				value={inlineFile.draft}
+				value={inlineFile?.draft ?? ""}
 				language={inlineFileExt}
 				allowDrawerSwipe={isMobile}
-				initialPosition={inlineFile.position}
-				onInput={(v) => onUpdateInlineFileDraft(editorPath, v)}
-				onVisibleLinesChange={(range) =>
-					onVisibleLinesChange?.(editorPath, range)}
+				initialPosition={inlineFile?.position ?? null}
+				onInput={(v) => {
+					if (editorPath) onUpdateInlineFileDraft(editorPath, v);
+				}}
+				onVisibleLinesChange={(range) => {
+					if (editorPath) onVisibleLinesChange?.(editorPath, range);
+				}}
 				readonly={!canEditFiles || activeFsReadonly}
 			/>
 		{:catch}
