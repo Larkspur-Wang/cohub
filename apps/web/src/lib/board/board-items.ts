@@ -1,5 +1,4 @@
 import type {
-	BoardArrowItem,
 	BoardFileItem,
 	BoardFileSnapshot,
 	BoardFrame,

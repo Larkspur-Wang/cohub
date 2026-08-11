@@ -3,7 +3,6 @@ import type { BoardFileSnapshot, DrawPoint } from "@neta-art/cohub/board";
 import {
 	angleFromCenter,
 	clampZoom,
-	connectionBounds,
 	connectionHitTest,
 	createBoardConnection,
 	createConnectionIndex,
@@ -34,7 +33,6 @@ import {
 	translateArrow,
 	type WorldPoint,
 	worldPoint,
-	worldToAnchor,
 	zoomAround,
 } from "@neta-art/cohub/board";
 import { untrack } from "svelte";
@@ -94,7 +92,6 @@ import type {
 	BoardArrowItem,
 	BoardConnection,
 	BoardConnectionAnchor,
-	BoardConnectionDirection,
 	BoardDocument,
 	BoardFrame,
 	BoardItem,
@@ -1513,7 +1510,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		// exact test (rotated boxes, geo outlines, strokes, arrow curves) and take
 		// the first match.
 		ensureSpatial();
-		const lookup = frameLookup();
 		for (const id of spatial.idsAtPoint(point)) {
 			const item = itemsById.get(id);
 			if (!item) continue;
