@@ -1,7 +1,5 @@
 # Cohub
 
-*Your own living space to create, play, and build with people and agents.*
-
 <p align="center">
   <a href="https://cohub.run/">Homepage</a> · <a href="https://neta.art/">Neta Studio</a> · <a href="#quick-start">quick start</a> · <a href="#docs">docs</a> · <a href="README.zh-CN.md">简体中文</a>
 </p>
@@ -15,7 +13,7 @@
 
 We burn 100 billion tokens per week inside our company within Cohub Spaces.
 
-**Cohub is a shared creative space for people and agents to create, save, share, and build from real context.**
+**Your own living space to create, play, and build with people and agents.**
 
 - **Fun to start** — Open a Space and play with ideas, prompts, files, and agents.
 - **Build together** — People and agents in one context. Co-create, save, and share.
@@ -49,6 +47,8 @@ Product docs: [cohub.run/docs](https://cohub.run/docs) · [中文](https://cohub
 Source of truth: `docs/product/en/` · `docs/product/zh/`
 
 Engineering notes: [self-hosting](docs/self-hosting.md) · [agent-sandbox-runtime](docs/agent-sandbox-runtime.md) · [works-guide](docs/works-guide.md) · [generations](docs/generations.md) · [space-hooks](docs/space-hooks.md)
+
+Changelog: [CHANGELOG.md](CHANGELOG.md)
 
 ## Development
 

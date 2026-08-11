@@ -1,7 +1,5 @@
 # Cohub
 
-*属于你的 living space，和人、和 Agent 一起创作、玩耍、构建。*
-
 <p align="center">
   <a href="https://cohub.run/">Homepage</a> · <a href="https://neta.art/">Neta Studio</a> · <a href="#quick-start">快速开始</a> · <a href="#docs">文档</a> · <a href="README.md">English</a>
 </p>
@@ -15,7 +13,7 @@
 
 我们公司每周在 Cohub Spaces 里消耗 1000 亿 token。
 
-**Cohub 是一个让人和 Agent 一起创作、保存、分享，并基于真实上下文继续构建的共享创作空间。**
+**属于你的 living space，和人、和 Agent 一起创作、玩耍、构建。**
 
 - **Fun to start** — 打开一个 Space，马上开始玩想法、提示词、文件和 Agent。
 - **Build together** — 人和 Agent 在同一份上下文里。共创、保存、分享。
@@ -49,6 +47,8 @@ cohub auth login
 内容源：`docs/product/zh/` · `docs/product/en/`
 
 工程文档：[self-hosting](docs/self-hosting.md) · [agent-sandbox-runtime](docs/agent-sandbox-runtime.md) · [works-guide](docs/works-guide.md) · [generations](docs/generations.md) · [space-hooks](docs/space-hooks.md)
+
+Changelog：[CHANGELOG.md](CHANGELOG.md)
 
 ## Development
 
