@@ -346,3 +346,89 @@ test("serialized output carries a connections field even when empty", () => {
 	const wire = JSON.parse(serializeBoardDocument(doc(pair())));
 	assert.deepEqual(wire.connections, []);
 });
+
+/**
+ * Undo/redo replays operations through applyBoardOps and writes the result back.
+ * These cover the whole cycle for a step that spans both halves of the document,
+ * which is what deleting a connected node produces.
+ */
+
+test("undo of a connected-node delete restores the node and the relation together", () => {
+	const original = conn({ label: "blocks" });
+	const before = doc(pair(), [original]);
+	// What the editor does: drop the node and every relation touching it.
+	const after = doc([textItem("b", "b", 400)]);
+	const ops = diffBoardDocuments(before, after);
+
+	const undone = applyBoardOps(after, invertBoardOps(ops));
+	assert.deepEqual(
+		undone.items.map((item) => item.id).sort(),
+		["a", "b"],
+		"both nodes should come back",
+	);
+	assert.deepEqual(
+		undone.connections,
+		[original],
+		"the relation must come back in the same step, not be lost",
+	);
+});
+
+test("redo of a connected-node delete removes both halves again", () => {
+	const before = doc(pair(), [conn()]);
+	const after = doc([textItem("b", "b", 400)]);
+	const ops = diffBoardDocuments(before, after);
+	const undone = applyBoardOps(after, invertBoardOps(ops));
+	const redone = applyBoardOps(undone, ops);
+	assert.deepEqual(
+		redone.items.map((item) => item.id),
+		["b"],
+	);
+	assert.deepEqual(redone.connections, []);
+});
+
+test("undo/redo of a relation-only delete leaves the nodes untouched", () => {
+	// Deleting an edge must not disturb the nodes it happened to join.
+	const original = conn();
+	const before = doc(pair(), [original]);
+	const after = doc(pair());
+	const ops = diffBoardDocuments(before, after);
+
+	const undone = applyBoardOps(after, invertBoardOps(ops));
+	assert.equal(undone.items.length, 2);
+	assert.deepEqual(undone.connections, [original]);
+
+	const redone = applyBoardOps(undone, ops);
+	assert.equal(redone.items.length, 2);
+	assert.deepEqual(redone.connections, []);
+});
+
+test("a relation created then undone does not linger", () => {
+	const before = doc(pair());
+	const after = doc(pair(), [conn()]);
+	const ops = diffBoardDocuments(before, after);
+	const undone = applyBoardOps(after, invertBoardOps(ops));
+	assert.deepEqual(undone.connections, []);
+	// And redo brings it back.
+	assert.equal(applyBoardOps(undone, ops).connections.length, 1);
+});
+
+test("undo of a relation edit restores every changed field at once", () => {
+	// One user action changes several fields; undo has to be one step, not one per
+	// field.
+	const original = conn({
+		direction: "forward",
+		label: "",
+		relation: "related",
+	});
+	const edited = conn({
+		direction: "both",
+		label: "depends on",
+		relation: "depends-on",
+	});
+	const ops = diffBoardDocuments(
+		doc(pair(), [original]),
+		doc(pair(), [edited]),
+	);
+	const undone = applyBoardOps(doc(pair(), [edited]), invertBoardOps(ops));
+	assert.deepEqual(undone.connections, [original]);
+});

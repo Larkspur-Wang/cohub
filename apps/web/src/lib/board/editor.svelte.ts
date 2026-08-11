@@ -694,7 +694,10 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		undoStack = undoStack.slice(0, -1);
 		redoStack = [...redoStack, ops];
 		const next = applyBoardOps(document, invertBoardOps(ops));
-		setItems(next.items);
+		// Both halves, atomically: a step can span nodes and relations (deleting a
+		// connected node is one step), and writing only the items would silently drop
+		// the relation half of the undo.
+		setContent(next.items, next.connections);
 		undoBaseline = document;
 		requestCommit();
 	}
@@ -705,7 +708,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		redoStack = redoStack.slice(0, -1);
 		undoStack = [...undoStack, ops];
 		const next = applyBoardOps(document, ops);
-		setItems(next.items);
+		setContent(next.items, next.connections);
 		undoBaseline = document;
 		requestCommit();
 	}
