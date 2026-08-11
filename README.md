@@ -13,10 +13,10 @@
 
 We burn 100 billion tokens per week inside our company within Cohub Spaces.
 
-**Your own living space to create, play, and build with people and agents.**
+**A living space where people and agents create, play, and build together.**
 
 - **Fun to start** — Open a Space and play with ideas, prompts, files, and agents.
-- **Build together** — People and agents in one context. Co-create, save, and share.
+- **Build together** — People and agents in one Space. Create together, save, and share.
 - **Open everywhere** — Web, mobile, CLI, Discord, WeChat. The Space follows you.
 - **Powerful for real work** — Games, apps, media, automations, custom homes — from playful to production.
 - **Never start blank** — Fork a checkpoint into a new Space, or reference any Space with `@space` as context.

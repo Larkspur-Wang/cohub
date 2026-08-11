@@ -13,10 +13,10 @@
 
 我们公司每周在 Cohub Spaces 里消耗 1000 亿 token。
 
-**属于你的 living space，和人、和 Agent 一起创作、玩耍、构建。**
+**人和 Agent 共同创作、玩耍、构建的 living space。**
 
 - **Fun to start** — 打开一个 Space，马上开始玩想法、提示词、文件和 Agent。
-- **Build together** — 人和 Agent 在同一份上下文里。共创、保存、分享。
+- **Build together** — 人和 Agent 在同一个 Space 里。共同创作、保存、分享。
 - **Open everywhere** — Web、移动端、CLI、Discord、WeChat，Space 会跟着你走。
 - **Powerful for real work** — 游戏、应用、媒体、自动化、自定义主页——从随手玩到正式产出。
 - **Never start blank** — 从一个 Checkpoint fork 出新的 Space，或在 session 里用 `@space` 引用任意 Space 作为上下文。
