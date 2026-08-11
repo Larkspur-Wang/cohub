@@ -23,6 +23,12 @@ We burn 100 billion tokens per week inside our company within Cohub Spaces.
 - **Powerful for real work** — Games, apps, media, automations, custom homes — from playful to production.
 - **Never start blank** — Fork a checkpoint into a new Space, or reference any Space with `@space` as context.
 
+## Built in the open
+
+Cohub is developed inside Cohub. The core dev workflow — specs, agent runs, reviews, and shipping — happens in a public Space. Watch how the product is built, by the product.
+
+→ [cohub.run/tzwm/cohub](https://cohub.run/tzwm/cohub)
+
 ## Quick start
 
 **Web** — open [cohub.run](https://cohub.run) and sign in.

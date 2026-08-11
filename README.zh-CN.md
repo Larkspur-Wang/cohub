@@ -23,6 +23,12 @@
 - **Powerful for real work** — 游戏、应用、媒体、自动化、自定义主页——从随手玩到正式产出。
 - **Never start blank** — 从一个 Checkpoint fork 出新的 Space，或在 session 里用 `@space` 引用任意 Space 作为上下文。
 
+## Built in the open
+
+Cohub 用 Cohub 开发。核心开发流程——需求、Agent 运行、Review、发布——都在一个公开的 Space 里进行。围观产品是如何用产品构建的。
+
+→ [cohub.run/tzwm/cohub](https://cohub.run/tzwm/cohub)
+
 ## Quick start
 
 **Web** — 打开 [cohub.run](https://cohub.run) 并登录。
