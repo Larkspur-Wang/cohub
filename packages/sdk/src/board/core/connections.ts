@@ -128,6 +128,25 @@ export function autoConnectionSide(from: BoardFrame, to: BoardFrame): BoardConne
 	return dy >= 0 ? "bottom" : "top";
 }
 
+/**
+ * World point of an anchor on a frame, ignoring the gap and the facing node.
+ *
+ * For a live drag the other end is the pointer, not a node, so `auto` has no
+ * frame to face: it resolves to the node's centre, which is the only honest
+ * answer while the relation has nowhere to point yet.
+ */
+export function anchorPointOnFrame(
+	anchor: BoardConnectionAnchor,
+	frame: BoardFrame,
+): WorldPoint {
+	if (anchor.kind === "fixed") return anchorToWorld(frame, anchor.nx, anchor.ny);
+	if (anchor.kind === "side") {
+		const point = sideAnchorPoint(anchor.side, anchor.offset);
+		return anchorToWorld(frame, point.nx, point.ny);
+	}
+	return anchorToWorld(frame, 0.5, 0.5);
+}
+
 /** Resolve one endpoint of a connection against its node frame. */
 function resolveEndpoint(
 	anchor: BoardConnectionAnchor,

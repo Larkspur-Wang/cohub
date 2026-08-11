@@ -515,6 +515,9 @@ function syncStage() {
 					? editor.interaction.current
 					: null,
 			arrowEndpoints,
+			ports: editor.connectionPorts,
+			hoveredPort: editor.hoveredConnectionPort,
+			connectionDraft: editor.connectionDraft,
 		},
 		palette,
 	);

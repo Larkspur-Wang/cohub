@@ -25,7 +25,6 @@ const connection = $derived.by(() => {
 	if (
 		editor.selection.length !== 1 ||
 		(editor.tool !== "select" &&
-			editor.tool !== "connect" &&
 			!(editor.tool === "hand" && canTapSelectWithHand(editor.pointerType))) ||
 		editor.interaction.type === "brushing" ||
 		editor.interaction.type === "draggingConnectionEnd" ||

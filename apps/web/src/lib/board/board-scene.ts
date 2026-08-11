@@ -194,6 +194,24 @@ export type SceneOverlayInput = {
 	rotationPointer: WorldPoint | null;
 	/** World-space arrow endpoint handles to draw as circles. */
 	arrowEndpoints?: Array<{ x: number; y: number }>;
+	/**
+	 * Connection ports to draw for the hovered or selected node, already resolved
+	 * to world space by the editor (it owns the zoom-normalised offsets).
+	 */
+	ports?: ReadonlyArray<{ x: number; y: number; radius: number }>;
+	/** The port under the pointer, drawn larger so the target is unambiguous. */
+	hoveredPort?: { x: number; y: number } | null;
+	/**
+	 * A relation being dragged: anchor to live pointer, plus the node it would
+	 * attach to. Drawn before the selection chrome so it reads as the active
+	 * gesture rather than as part of the selection.
+	 */
+	connectionDraft?: {
+		from: { x: number; y: number };
+		to: { x: number; y: number };
+		size: number;
+		targetFrame: BoardFrame | null;
+	} | null;
 };
 
 const EMPTY_CONNECTIONS: readonly BoardConnection[] = [];
@@ -559,6 +577,9 @@ export function createBoardScene(options: {
 			hoveredControl,
 			rotationPointer,
 			arrowEndpoints,
+			ports,
+			hoveredPort,
+			connectionDraft,
 		} = input;
 		const inv = 1 / zoom;
 		const brand = palette.brand;
@@ -570,6 +591,51 @@ export function createBoardScene(options: {
 			overlay
 				.rect(marquee.x, marquee.y, marquee.width, marquee.height)
 				.stroke({ color: brand, width: inv, alpha: 0.7 });
+		}
+
+		// The relation being dragged, and the node it would land on. Both are drawn
+		// before the early return below, because a drag can start from a hovered node
+		// that was never selected — there is no selection transform to gate on.
+		if (connectionDraft) {
+			const { from, to, size, targetFrame } = connectionDraft;
+			if (targetFrame) {
+				overlay
+					.rect(
+						targetFrame.x,
+						targetFrame.y,
+						targetFrame.width,
+						targetFrame.height,
+					)
+					.stroke({ color: brand, width: 2 * inv, alpha: 0.9 });
+			}
+			overlay
+				.moveTo(from.x, from.y)
+				.lineTo(to.x, to.y)
+				.stroke({
+					color: brand,
+					width: Math.max(size, 1.5) * inv,
+					alpha: 0.85,
+					cap: "round",
+				});
+			// A dot at the loose end reads as "this is where it will attach",
+			// which a bare line end does not.
+			overlay.circle(to.x, to.y, 3.5 * inv).fill({ color: brand, alpha: 0.95 });
+		}
+
+		// Ports are the only affordance for creating a relation, so they are drawn
+		// whenever the editor says they are live — hover or selection, either tool.
+		if (ports && ports.length > 0) {
+			for (const port of ports) {
+				const hovered =
+					hoveredPort &&
+					Math.abs(hoveredPort.x - port.x) < 0.001 &&
+					Math.abs(hoveredPort.y - port.y) < 0.001;
+				const r = (hovered ? port.radius * 1.5 : port.radius) * inv;
+				overlay
+					.circle(port.x, port.y, r)
+					.fill({ color: palette.surface, alpha: 1 })
+					.stroke({ color: brand, width: 1.5 * inv, alpha: hovered ? 1 : 0.8 });
+			}
 		}
 
 		if (!transform || selection.length === 0) return;

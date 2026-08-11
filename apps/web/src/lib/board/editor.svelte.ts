@@ -1,6 +1,7 @@
 import type { BoardOperation } from "@neta-art/cohub";
 import type { BoardFileSnapshot, DrawPoint } from "@neta-art/cohub/board";
 import {
+	anchorPointOnFrame,
 	angleFromCenter,
 	clampZoom,
 	connectionHitTest,
@@ -72,6 +73,7 @@ import {
 	parseClipboard,
 } from "$lib/board/core/clipboard";
 import {
+	CONNECTION_PORT_RADIUS,
 	type ConnectionPort,
 	connectionPorts,
 	connectionPortAt as portAt,
@@ -807,8 +809,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
 			case "arrow":
 			case "frame":
 				return value;
-			case "connect":
-				return "connection";
 			default:
 				return null;
 		}
@@ -1787,7 +1787,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 	 */
 	function portNodeId(): string | null {
 		if (options.readonly) return null;
-		if (tool !== "select" && tool !== "connect") return null;
+		if (tool !== "select") return null;
 		if (
 			interaction.type !== "idle" &&
 			interaction.type !== "creatingConnection"
@@ -1990,33 +1990,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
 				current: event.world,
 				color: style.color,
 				size: style.size,
-			};
-			return;
-		}
-		if (tool === "connect") {
-			// The Connect tool starts a relation from whatever connectable node is
-			// under the pointer, so a drag anywhere on the node works - no need to
-			// find a port first.
-			const source = topItemAt(event.world);
-			if (source && shapeCapabilities(source).canConnect && !isLocked(source)) {
-				selection = [source.id];
-				interaction = {
-					type: "creatingConnection",
-					sourceNodeId: source.id,
-					sourceAnchor: { kind: "auto" },
-					current: event.world,
-					targetNodeId: null,
-				};
-				return;
-			}
-			// Nothing to connect from: fall through to a marquee rather than
-			// swallowing the gesture.
-			interaction = {
-				type: "brushing",
-				start: event.world,
-				current: event.world,
-				additive,
-				baseSelection: selection,
 			};
 			return;
 		}
@@ -2555,7 +2528,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
 				// Select the new relation so its inspector is immediately available.
 				if (created) selection = [created];
 			}
-			if (tool === "connect" && !isContinuousBoardTool(tool)) tool = "select";
 		} else if (gesture.type === "draggingConnectionEnd") {
 			const fixedEnd =
 				gesture.which === "source"
@@ -2803,6 +2775,71 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		 * Only computed when the selection is clear or a connection is already
 		 * selected, so a node-hover never cross-fires with a connection-hover.
 		 */
+		/**
+		 * Connection ports to draw, in world space with their draw radius.
+		 *
+		 * Ports are the only way to start a relation, so this is what makes the
+		 * feature reachable at all. The editor resolves them (it owns the
+		 * zoom-normalised offsets) and the renderer just draws circles.
+		 */
+		get connectionPorts(): Array<{ x: number; y: number; radius: number }> {
+			return visiblePorts().map((port) => ({
+				x: port.point.x,
+				y: port.point.y,
+				radius: CONNECTION_PORT_RADIUS,
+			}));
+		},
+		/** The port under the pointer, so the renderer can enlarge it. */
+		get hoveredConnectionPort(): { x: number; y: number } | null {
+			if (!hoverPoint) return null;
+			const port = connectionPortAt(hoverPoint, hoverPointerType);
+			return port ? { x: port.point.x, y: port.point.y } : null;
+		},
+		/**
+		 * The relation currently being dragged, shaped for the overlay.
+		 *
+		 * Covers both creating a new relation and re-pointing an existing one, since
+		 * the visual is the same: a line from a fixed anchor to the live pointer,
+		 * plus a highlight on the node it would attach to.
+		 */
+		get connectionDraft() {
+			if (interaction.type === "creatingConnection") {
+				const source = itemById(interaction.sourceNodeId);
+				if (!source) return null;
+				const from = anchorPointOnFrame(interaction.sourceAnchor, source.frame);
+				const target = interaction.targetNodeId
+					? itemById(interaction.targetNodeId)
+					: null;
+				return {
+					from: { x: from.x, y: from.y },
+					to: { x: interaction.current.x, y: interaction.current.y },
+					size: toolStyles.connection.size,
+					targetFrame: target ? target.frame : null,
+				};
+			}
+			if (interaction.type === "draggingConnectionEnd") {
+				const connection = connectionById(interaction.connectionId);
+				if (!connection) return null;
+				// The end being dragged moves; the other stays put.
+				const fixedEndpoint =
+					interaction.which === "source"
+						? connection.target
+						: connection.source;
+				const fixedNode = itemById(fixedEndpoint.nodeId);
+				if (!fixedNode) return null;
+				const from = anchorPointOnFrame(fixedEndpoint.anchor, fixedNode.frame);
+				const target = interaction.targetNodeId
+					? itemById(interaction.targetNodeId)
+					: null;
+				return {
+					from: { x: from.x, y: from.y },
+					to: { x: interaction.current.x, y: interaction.current.y },
+					size: connection.style.size,
+					targetFrame: target ? target.frame : null,
+				};
+			}
+			return null;
+		},
 		get hoveredConnectionId(): string | null {
 			if (hoverPointerType === "touch") return null;
 			if (hoverId) return null;
@@ -2852,7 +2889,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		},
 		get activeStrokeSize() {
 			if (tool === "arrow") return toolStyles.arrow.size;
-			if (tool === "connect") return toolStyles.connection.size;
 			return toolStyles.draw.size;
 		},
 		get spaceHeld() {
@@ -2869,7 +2905,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 				return;
 			}
 			tool = value;
-			if (value === "draw" || value === "arrow" || value === "connect") {
+			if (value === "draw" || value === "arrow") {
 				selection = [];
 				editingId = null;
 			}
@@ -2896,7 +2932,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
 			const size = clampBoardStrokeSize(value);
 			if (tool === "arrow") toolStyles.arrow.size = size;
 			else if (tool === "draw") toolStyles.draw.size = size;
-			else if (tool === "connect") toolStyles.connection.size = size;
 			else return;
 			writeBoardToolStyles(toolStyles);
 		},
