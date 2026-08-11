@@ -96,8 +96,8 @@ function previewForItem(item: BoardItem): BoardAwarenessNodePreview {
 		...(item.type === "arrow"
 			? {
 					arrow: {
-						start: item.start,
-						end: item.end,
+						start: { ...item.start },
+						end: { ...item.end },
 						bend: item.bend,
 					},
 				}
@@ -117,6 +117,11 @@ function interactionNodeIds(interaction: BoardInteraction): string[] {
 		case "creatingArrow":
 		case "creatingBox":
 			return [interaction.id];
+		// Connection gestures create no node, so they contribute no node ids; their
+		// liveness is carried by the gesture itself.
+		case "creatingConnection":
+		case "draggingConnectionEnd":
+			return [];
 		default:
 			return [];
 	}
@@ -465,12 +470,17 @@ export function createBoardAwarenessController(options: ControllerOptions) {
 		for (const peer of peers.values()) {
 			if (!peer.gesture || peer.gestureEndedAt == null) continue;
 			const gesture = peer.gesture;
+			// A connection gesture is settled by the relation appearing, which the
+			// item list cannot show, so it is retired on its end signal alone rather
+			// than being held open waiting for a node that will never arrive.
 			const applied =
 				gesture.kind === "transform"
 					? gesture.nodes.every((preview) =>
 							previewMatchesItem(preview, itemsById.get(preview.nodeId)),
 						)
-					: itemsById.has(gesture.nodeId);
+					: gesture.kind === "connection"
+						? true
+						: itemsById.has(gesture.nodeId);
 			if (!applied) continue;
 			peer.gesture = null;
 			peer.gestureEndedAt = null;

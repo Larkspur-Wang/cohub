@@ -1,5 +1,11 @@
 import type { SpacePublicEndpoints } from "@cohub/protocol/ports";
 import {
+  createBoardConnection,
+  type BoardConnection,
+  type BoardConnectionDirection,
+  type BoardConnectionRecord,
+} from "@cohub/protocol/board-connection";
+import {
   getRealtimeBoardRoom,
   getRealtimeSpaceRoom,
   type BoardAwarenessUpdatedEvent as ProtocolBoardAwarenessUpdatedEvent,
@@ -133,6 +139,19 @@ export class BoardTransactionError extends Error {
 }
 
 export type BoardTransactionInput = Omit<BoardTransaction, "boardId">;
+
+/**
+ * Identifier for a client-authored Board entity (connection id, transaction id).
+ *
+ * `crypto.randomUUID` is used where available and falls back to a random string
+ * otherwise, so the SDK works in a plain browser, a worker and Node without
+ * pulling in a polyfill.
+ */
+function randomBoardId(): string {
+  const cryptoRef = globalThis.crypto;
+  if (cryptoRef && typeof cryptoRef.randomUUID === "function") return cryptoRef.randomUUID();
+  return `c-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
 export type BoardTransactionAppliedEvent = ProtocolBoardTransactionAppliedEvent;
 export type BoardAwarenessUpdatedEvent = ProtocolBoardAwarenessUpdatedEvent;
 export type BoardPlaybackChangedEvent = ProtocolBoardPlaybackChangedEvent;
@@ -1571,6 +1590,105 @@ export class BoardClient {
 
   playback(command: BoardPlaybackCommand) {
     return this.boards.playback(this.id, command);
+  }
+
+  /**
+   * Read the Board's relations.
+   *
+   * A dedicated read rather than a filter over `inspect()`: a caller that wants
+   * the graph should not have to fetch every node's geometry to get it.
+   */
+  async connections(customFetch?: Fetch): Promise<BoardConnectionRecord[]> {
+    const bootstrap = await this.boards.inspect(this.id, { include: ["connections"] }, customFetch);
+    return bootstrap.connections;
+  }
+
+  /**
+   * Connections touching a node, in either direction.
+   *
+   * Filtered client-side from the Board's relation set, which is a single read and
+   * bounded by the Board rather than by the node's degree.
+   */
+  async connectionsForNode(nodeId: string, customFetch?: Fetch): Promise<BoardConnectionRecord[]> {
+    const connections = await this.connections(customFetch);
+    return connections.filter(
+      (connection) => connection.source.nodeId === nodeId || connection.target.nodeId === nodeId,
+    );
+  }
+
+  /**
+   * Connect two nodes.
+   *
+   * Wraps the transaction so the common case is one call: the caller supplies the
+   * two nodes and, optionally, the relation. `baseVersion` still has to be the
+   * version the caller last read, because a relation is only meaningful against
+   * the node set it was authored on.
+   */
+  connect(input: {
+    baseVersion: number;
+    sourceNodeId: string;
+    targetNodeId: string;
+    id?: string;
+    relation?: string;
+    direction?: BoardConnectionDirection;
+    label?: string;
+    txId?: string;
+  }) {
+    const connection = createBoardConnection({
+      id: input.id ?? randomBoardId(),
+      sourceNodeId: input.sourceNodeId,
+      targetNodeId: input.targetNodeId,
+      ...(input.relation === undefined ? {} : { relation: input.relation }),
+      ...(input.direction === undefined ? {} : { direction: input.direction }),
+      ...(input.label === undefined ? {} : { label: input.label }),
+    });
+    return this.apply({
+      txId: input.txId ?? randomBoardId(),
+      baseVersion: input.baseVersion,
+      operations: [{ type: "connection.create", payload: { connection } }],
+    });
+  }
+
+  /** Remove a connection. The nodes it joined are untouched. */
+  disconnect(input: { baseVersion: number; connectionId: string; txId?: string }) {
+    return this.apply({
+      txId: input.txId ?? randomBoardId(),
+      baseVersion: input.baseVersion,
+      operations: [
+        { type: "connection.delete", payload: { connectionId: input.connectionId } },
+      ],
+    });
+  }
+
+  /**
+   * Delete a node together with every relation that names it.
+   *
+   * The server refuses to orphan a relation, so the cascade is explicit and lands
+   * in one transaction: one undo step restores the node and its edges together.
+   * `connections` is the relation set the caller already read, so this stays a
+   * single round-trip.
+   */
+  deleteNodeWithConnections(input: {
+    baseVersion: number;
+    nodeId: string;
+    connections: readonly BoardConnection[];
+    txId?: string;
+  }) {
+    const incident = input.connections.filter(
+      (connection) =>
+        connection.source.nodeId === input.nodeId || connection.target.nodeId === input.nodeId,
+    );
+    return this.apply({
+      txId: input.txId ?? randomBoardId(),
+      baseVersion: input.baseVersion,
+      operations: [
+        ...incident.map((connection) => ({
+          type: "connection.delete" as const,
+          payload: { connectionId: connection.id, reason: "node-cascade" as const },
+        })),
+        { type: "node.delete", payload: { nodeId: input.nodeId } },
+      ],
+    });
   }
 
   play(command: Omit<Extract<BoardPlaybackCommand, { type: "play" }>, "shared"> & { shared?: true }) {

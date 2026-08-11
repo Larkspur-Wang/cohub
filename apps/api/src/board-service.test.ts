@@ -216,6 +216,7 @@ test("validates Board playback metadata and its final sequence reference", () =>
     boardVersion: 0,
     metadata: {},
     nodeIds: [],
+    connections: [],
     effects: [],
     sequences: [],
   };
@@ -332,6 +333,7 @@ test("contextual validation simulates operation order and references", () => {
   const validation = contextualValidation(transaction, {
     boardVersion: 3,
     nodeIds: [],
+    connections: [],
     effects: [],
     sequences: [],
   });
@@ -427,6 +429,7 @@ test("an effect may target a node created earlier in the same transaction", () =
   const validation = contextualValidation(transaction, {
     boardVersion: 0,
     nodeIds: [],
+    connections: [],
     effects: [],
     sequences: [],
   });
@@ -446,6 +449,7 @@ test("a node becomes deletable once the effect referencing it is deleted", () =>
   const validation = contextualValidation(transaction, {
     boardVersion: 0,
     nodeIds: ["pinned"],
+    connections: [],
     effects: [effectInput("fx", "pinned")],
     sequences: [],
   });
@@ -464,6 +468,7 @@ test("a node becomes deletable once the effect referencing it is deleted", () =>
     errorsOf(contextualValidation(reversed, {
       boardVersion: 0,
       nodeIds: ["pinned"],
+      connections: [],
       effects: [effectInput("fx", "pinned")],
       sequences: [],
     })),
@@ -499,4 +504,85 @@ test("a node write chunk cannot exceed Postgres's bind parameter limit", () => {
     NODE_WRITE_CHUNK * PARAMS_PER_ROW < POSTGRES_MAX_BIND_PARAMS,
     `${NODE_WRITE_CHUNK} rows per statement is too many`,
   );
+});
+
+/**
+ * The client emits operations in one order and the server validates in that same
+ * order, so the two have to agree about referential rules. These pin the agreement
+ * directly against the validator rather than trusting the client's own tests.
+ */
+
+const connectionInput = (id: string, source: string, target: string) => ({
+  id,
+  source: { nodeId: source, anchor: { kind: "auto" as const } },
+  target: { nodeId: target, anchor: { kind: "auto" as const } },
+  relation: "related",
+  direction: "forward" as const,
+  label: "",
+  routing: { kind: "straight" as const, bend: 0, waypoints: [] },
+  style: { color: "neutral", size: 2, line: "solid" as const },
+  metadata: {},
+});
+
+test("deleting a connected node is accepted when the relation is removed first", () => {
+  const transaction = normalizeBoardTransaction({
+    txId: "tx-conn-order-1",
+    boardId,
+    baseVersion: 0,
+    operations: [
+      { type: "connection.delete", payload: { connectionId: "c1" } },
+      { type: "node.delete", payload: { nodeId: "a" } },
+    ],
+  });
+  const validation = contextualValidation(transaction, {
+    boardVersion: 0,
+    nodeIds: ["a", "b"],
+    connections: [connectionInput("c1", "a", "b")],
+    effects: [],
+    sequences: [],
+  });
+  assert.deepEqual(errorsOf(validation), []);
+});
+
+test("deleting a connected node is refused when the relation is left behind", () => {
+  // This is the failure the client ordering bug produced: node first, relation
+  // second. Keeping the assertion here means a client regression is caught by a
+  // named error rather than by a mysterious rejected save.
+  const transaction = normalizeBoardTransaction({
+    txId: "tx-conn-order-2",
+    boardId,
+    baseVersion: 0,
+    operations: [
+      { type: "node.delete", payload: { nodeId: "a" } },
+      { type: "connection.delete", payload: { connectionId: "c1" } },
+    ],
+  });
+  const validation = contextualValidation(transaction, {
+    boardVersion: 0,
+    nodeIds: ["a", "b"],
+    connections: [connectionInput("c1", "a", "b")],
+    effects: [],
+    sequences: [],
+  });
+  assert.deepEqual(errorsOf(validation), ["NODE_REFERENCED"]);
+});
+
+test("a relation may name a node created earlier in the same transaction", () => {
+  const transaction = normalizeBoardTransaction({
+    txId: "tx-conn-order-3",
+    boardId,
+    baseVersion: 0,
+    operations: [
+      { type: "node.create", payload: { node: nodeInput("fresh") } },
+      { type: "connection.create", payload: { connection: connectionInput("c9", "fresh", "b") } },
+    ],
+  });
+  const validation = contextualValidation(transaction, {
+    boardVersion: 0,
+    nodeIds: ["b"],
+    connections: [],
+    effects: [],
+    sequences: [],
+  });
+  assert.deepEqual(errorsOf(validation), []);
 });

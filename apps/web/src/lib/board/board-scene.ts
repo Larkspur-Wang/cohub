@@ -1,4 +1,9 @@
-import type { BoardFrame, BoardItem } from "@neta-art/cohub/board";
+import type {
+	BoardConnection,
+	BoardFrame,
+	BoardItem,
+	ResolvedConnection,
+} from "@neta-art/cohub/board";
 import {
 	CORNER_RESIZE_HANDLES,
 	frameCorners,
@@ -16,6 +21,7 @@ import type {
 	BoardRenderPalette,
 	getBoardCardRenderer,
 } from "@neta-art/cohub/board/render";
+import { createConnectionLayer } from "@neta-art/cohub/board/render";
 import type { Container, Graphics } from "pixi.js";
 import type {
 	BoardSelectionTransform,
@@ -52,6 +58,14 @@ const FAR_LAYER_EXIT = 350;
  * middle band so the far layer and the overlay can never be reordered into it.
  */
 const Z_FAR_LAYER = -1;
+/**
+ * Connections sit above the far layer but below every card.
+ *
+ * Relations are context for the nodes they join, so a line must never cover the
+ * content it describes. One band for all of them also means the whole relation set
+ * is a single batched draw regardless of how many there are.
+ */
+const Z_CONNECTIONS = -0.5;
 const Z_OVERLAY = Number.MAX_SAFE_INTEGER;
 
 /**
@@ -126,6 +140,14 @@ function frameEdgePoints(
 
 export type SceneSyncInput = {
 	items: BoardItem[];
+	/** Relations to draw. Resolved against the live item frames each sync. */
+	connections?: readonly BoardConnection[];
+	/** Connection ids the overlay is previewing, so they are not drawn twice. */
+	connectionSkipIds?: ReadonlySet<string>;
+	/** Selected connection ids, drawn in their selected state. */
+	selectedConnectionIds?: ReadonlySet<string>;
+	/** Connection under the pointer, if any. */
+	hoveredConnectionId?: string | null;
 	context: BoardRenderContext;
 	/**
 	 * O(1) item lookup by id. The appearance pass walks the visible set and
@@ -174,6 +196,8 @@ export type SceneOverlayInput = {
 	arrowEndpoints?: Array<{ x: number; y: number }>;
 };
 
+const EMPTY_CONNECTIONS: readonly BoardConnection[] = [];
+
 export type BoardSceneNode = {
 	item: BoardItem;
 	container: Container;
@@ -182,6 +206,8 @@ export type BoardSceneNode = {
 export type BoardScene = {
 	sync: (input: SceneSyncInput) => void;
 	getNode: (nodeId: string) => BoardSceneNode | null;
+	/** Resolved geometry of a drawn connection, for overlays and hit testing. */
+	resolvedConnection: (connectionId: string) => ResolvedConnection | null;
 	drawOverlay: (input: SceneOverlayInput, palette: BoardRenderPalette) => void;
 	destroy: (context: BoardRenderContext) => void;
 };
@@ -220,6 +246,12 @@ export function createBoardScene(options: {
 	getRenderer: typeof getBoardCardRenderer;
 }): BoardScene {
 	const { world, farLayer, overlay, getRenderer } = options;
+	// One layer for every relation on the board: connections batch perfectly, so a
+	// container per relation would trade a handful of draw calls for thousands.
+	const connectionLayer = createConnectionLayer({
+		parent: world,
+		zIndex: Z_CONNECTIONS,
+	});
 	// Ordering is by zIndex (see the Z_* bands); the layers that must stay at the
 	// extremes are pinned once here rather than re-indexed every frame.
 	world.sortableChildren = true;
@@ -227,6 +259,8 @@ export function createBoardScene(options: {
 	overlay.zIndex = Z_OVERLAY;
 	/** Materialised (currently visible) cards, keyed by item id. */
 	const cards = new Map<string, CardEntry>();
+	/** True while the connection layer holds geometry, so it is cleared once. */
+	let connectionsDrawn = false;
 	/** Recycled containers by renderer id, ready to be re-adopted. */
 	const pools = new Map<string, Container[]>();
 	// Texture reference ownership: cardId → texture key currently held. The scene
@@ -354,6 +388,29 @@ export function createBoardScene(options: {
 			geometryVersion,
 			gestureActive,
 		} = input;
+
+		// Connections are redrawn every sync rather than diffed: their geometry is
+		// derived from node frames, so any drag invalidates them anyway, and the whole
+		// set is one batched Graphics. Resolution skips relations whose endpoints are
+		// off-screen because `getItem` returns null for them.
+		const connections = input.connections ?? EMPTY_CONNECTIONS;
+		if (connections.length > 0 || connectionsDrawn) {
+			connectionLayer.sync({
+				connections,
+				getFrame: (id) => getItem(id)?.frame,
+				colors: context.colors,
+				colorScheme: context.colorScheme,
+				zoom: context.zoom,
+				...(input.selectedConnectionIds
+					? { selectedIds: input.selectedConnectionIds }
+					: {}),
+				hoveredId: input.hoveredConnectionId ?? null,
+				...(input.connectionSkipIds
+					? { skipIds: input.connectionSkipIds }
+					: {}),
+			});
+			connectionsDrawn = connections.length > 0;
+		}
 
 		// Decide the LOD for this frame. Hysteresis around the threshold keeps a
 		// board hovering near the limit from flipping modes every frame.
@@ -590,6 +647,8 @@ export function createBoardScene(options: {
 		for (const key of heldKeys.values()) context.releaseTexture(key);
 		heldKeys.clear();
 		orderById = new Map();
+		connectionLayer.destroy();
+		connectionsDrawn = false;
 		farLayer.clear();
 		farSig = null;
 		farActive = false;
@@ -602,6 +661,7 @@ export function createBoardScene(options: {
 			const entry = cards.get(nodeId);
 			return entry ? { item: entry.item, container: entry.container } : null;
 		},
+		resolvedConnection: connectionLayer.resolved,
 		drawOverlay,
 		destroy,
 	};

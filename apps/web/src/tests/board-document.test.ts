@@ -1,15 +1,25 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { BoardDocument, BoardItem } from "@neta-art/cohub/board";
+import type {
+	BoardConnection,
+	BoardDocument,
+	BoardItem,
+} from "@neta-art/cohub/board";
+import { createBoardConnection } from "@neta-art/cohub/board";
 import {
 	applyBoardOps,
 	diffBoardDocuments,
 	invertBoardOps,
+	parseBoardDocument,
 	rebaseOnRemote,
 	reconcileExternal,
+	serializeBoardDocument,
 } from "../lib/board/board-document.ts";
 
-function doc(items: BoardItem[]): BoardDocument {
+function doc(
+	items: BoardItem[],
+	connections: BoardConnection[] = [],
+): BoardDocument {
 	return {
 		kind: "cohub.board",
 		version: 1,
@@ -21,8 +31,17 @@ function doc(items: BoardItem[]): BoardDocument {
 		},
 		viewport: { x: 0, y: 0, zoom: 1 },
 		items,
+		connections,
 	};
 }
+
+const conn = (patch: Partial<BoardConnection> = {}): BoardConnection => ({
+	...createBoardConnection({ id: "c1", sourceNodeId: "a", targetNodeId: "b" }),
+	...patch,
+});
+
+/** Two nodes, so a relation between them is always legal. */
+const pair = () => [textItem("a", "a"), textItem("b", "b", 400)];
 
 function textItem(id: string, text: string, x = 0): BoardItem {
 	return {
@@ -173,4 +192,157 @@ test("reconcileExternal on a document switch drops the old document's local chan
 	assert.equal(texts(merged).has("draft"), false);
 	assert.equal(texts(merged).has("a"), false);
 	assert.deepEqual([...texts(merged).keys()], ["b"]);
+});
+
+/**
+ * Connections are pure references with no geometry, so these focus on the one
+ * thing that can silently break: whether a relation edit actually becomes an
+ * operation. A change that never reaches the diff would look correct on screen
+ * and be lost on reload.
+ */
+
+test("creating a relation emits connection.create after the node ops", () => {
+	const before = doc(pair());
+	const after = doc(pair(), [conn()]);
+	const ops = diffBoardDocuments(before, after);
+	assert.equal(ops.length, 1);
+	assert.equal(ops[0]?.type, "connection.create");
+});
+
+test("a new relation is ordered after the nodes it names", () => {
+	// The server validates in operation order, so a relation must never precede
+	// the creation of its endpoints.
+	const ops = diffBoardDocuments(doc([]), doc(pair(), [conn()]));
+	const types = ops.map((op) => op.type);
+	assert.deepEqual(types, ["node.create", "node.create", "connection.create"]);
+});
+
+test("deleting a connected node removes the relation first", () => {
+	// Mirror of the rule above: the server rejects a node.delete while a relation
+	// still names that node, so the connection.delete has to come first. Emitting
+	// them in the other order made every delete of a connected node fail.
+	const types = diffBoardDocuments(
+		doc(pair(), [conn()]),
+		doc([textItem("b", "b", 400)]),
+	).map((op) => op.type);
+	// Order is what matters, not the exact op list: removing a node can also re-key
+	// its surviving siblings, which is unrelated to the referential rule.
+	assert.ok(
+		types.indexOf("connection.delete") < types.indexOf("node.delete"),
+		`connection.delete must precede node.delete, got ${types.join(" -> ")}`,
+	);
+});
+
+test("deleting a node and all its relations stays a single ordered edit", () => {
+	const many = [
+		conn({ id: "c1" }),
+		conn({ id: "c2", target: { nodeId: "c", anchor: { kind: "auto" } } }),
+	];
+	const before = doc([...pair(), textItem("c", "c", 800)], many);
+	const after = doc([textItem("b", "b", 400), textItem("c", "c", 800)]);
+	const types = diffBoardDocuments(before, after).map((op) => op.type);
+	// Both relations must be gone before the node they share is removed.
+	const lastConnectionDelete = types.lastIndexOf("connection.delete");
+	assert.equal(types.filter((t) => t === "connection.delete").length, 2);
+	assert.ok(
+		lastConnectionDelete < types.indexOf("node.delete"),
+		`all connection deletes must precede node.delete, got ${types.join(" -> ")}`,
+	);
+});
+
+test("changing direction emits a connection.patch carrying just that field", () => {
+	const before = doc(pair(), [conn({ direction: "forward" })]);
+	const after = doc(pair(), [conn({ direction: "none" })]);
+	const ops = diffBoardDocuments(before, after);
+	assert.equal(ops.length, 1);
+	const op = ops[0];
+	assert.equal(op?.type, "connection.patch");
+	if (op?.type === "connection.patch") {
+		assert.equal(op.payload.connectionId, "c1");
+		assert.deepEqual(op.payload.patch, { direction: "none" });
+	}
+});
+
+test("an untouched relation produces no operation", () => {
+	const shared = conn();
+	const ops = diffBoardDocuments(doc(pair(), [shared]), doc(pair(), [shared]));
+	assert.deepEqual(ops, []);
+});
+
+test("deleting a relation emits connection.delete with a restorable inverse", () => {
+	const original = conn({ label: "depends on" });
+	const ops = diffBoardDocuments(doc(pair(), [original]), doc(pair()));
+	assert.equal(ops.length, 1);
+	const op = ops[0];
+	assert.equal(op?.type, "connection.delete");
+	// Undo must restore the whole relation, so the inverse carries the record.
+	assert.deepEqual(op?.inverse?.connection, original);
+});
+
+test("applyBoardOps round-trips a direction change", () => {
+	const before = doc(pair(), [conn({ direction: "forward" })]);
+	const after = doc(pair(), [conn({ direction: "both" })]);
+	const applied = applyBoardOps(before, diffBoardDocuments(before, after));
+	assert.equal(applied.connections[0]?.direction, "both");
+});
+
+test("undoing a direction change restores the previous direction", () => {
+	const before = doc(pair(), [conn({ direction: "forward" })]);
+	const after = doc(pair(), [conn({ direction: "none" })]);
+	const ops = diffBoardDocuments(before, after);
+	const undone = applyBoardOps(after, invertBoardOps(ops));
+	assert.equal(undone.connections[0]?.direction, "forward");
+});
+
+test("undoing a relation delete brings the relation back intact", () => {
+	const original = conn({ label: "blocks", direction: "backward" });
+	const before = doc(pair(), [original]);
+	const ops = diffBoardDocuments(before, doc(pair()));
+	const undone = applyBoardOps(doc(pair()), invertBoardOps(ops));
+	assert.deepEqual(undone.connections, [original]);
+});
+
+test("a relation whose node is gone is dropped rather than kept dangling", () => {
+	// Concurrent edits can produce this: the relation is local, the node deletion
+	// is remote. The merged document must stay internally valid.
+	const merged = applyBoardOps(doc([textItem("a", "a")], [conn()]), []);
+	assert.deepEqual(merged.connections, []);
+});
+
+test("rebase keeps a local relation across a remote node edit", () => {
+	const baseline = doc(pair());
+	const local = doc(pair(), [conn()]);
+	const remote = doc([textItem("a", "edited"), textItem("b", "b", 400)]);
+	const { merged, hadLocalChanges } = rebaseOnRemote(baseline, local, remote);
+	assert.equal(hadLocalChanges, true);
+	assert.equal(merged.connections.length, 1);
+	// The remote node edit survives too.
+	assert.equal(texts(merged).get("a"), "edited");
+});
+
+test("rebase drops a local relation whose endpoint the remote deleted", () => {
+	const baseline = doc(pair());
+	const local = doc(pair(), [conn()]);
+	const remote = doc([textItem("a", "a")]);
+	const { merged } = rebaseOnRemote(baseline, local, remote);
+	assert.deepEqual(merged.connections, []);
+});
+
+test("serialization round-trips relations", () => {
+	// A manifest that drops connections would erase the graph on every save/load,
+	// with no error to notice it by.
+	const original = doc(pair(), [conn({ label: "depends on" })]);
+	const result = parseBoardDocument(serializeBoardDocument(original));
+	assert.ok(result.ok, "expected the manifest to parse");
+	if (!result.ok) return;
+	const { connections } = result.document;
+	assert.equal(connections.length, 1);
+	assert.equal(connections[0]?.label, "depends on");
+	assert.equal(connections[0]?.source.nodeId, "a");
+	assert.equal(connections[0]?.target.nodeId, "b");
+});
+
+test("serialized output carries a connections field even when empty", () => {
+	const wire = JSON.parse(serializeBoardDocument(doc(pair())));
+	assert.deepEqual(wire.connections, []);
 });

@@ -23,6 +23,12 @@ const { editor }: { editor: BoardEditor } = $props();
 
 const visible = $derived(
 	editor.selection.length > 0 &&
+		/**
+		 * A connection has no frame, so `editor.bounds` is null when only a relation
+		 * is selected. `BoardConnectionToolbar` handles that case; this toolbar only
+		 * deals with nodes.
+		 */
+		editor.selection.some((id) => editor.itemById(id) !== null) &&
 		// Direct-pointer Hand taps can safely select without enabling canvas edits.
 		(editor.tool === "select" ||
 			(editor.tool === "hand" && canTapSelectWithHand(editor.pointerType))) &&

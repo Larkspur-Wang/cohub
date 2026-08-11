@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { createBoardConnection } from "@cohub/protocol/board-connection";
 import type { BoardDocument, BoardItem } from "@cohub/protocol/board-document";
 import {
   BOARD_EXPORT_DEFAULT_PADDING,
@@ -210,32 +211,45 @@ test("a requested scale that fits is preserved exactly", () => {
   assert.equal(plan.height, 300);
 });
 
-test("arrow bounds resolve through bindings so bound arrows are not clipped", () => {
-  const document = doc([
-    box("a", 0, 0),
-    box("b", 400, 300),
-    {
-      id: "arrow",
-      type: "arrow",
-      start: { kind: "binding", target: "a", nx: 0.5, ny: 0.5, precise: true },
-      end: { kind: "binding", target: "b", nx: 0.5, ny: 0.5, precise: true },
-      bend: 0,
-      color: "brand",
-      size: 2,
-      arrowStart: false,
-      arrowEnd: true,
-      label: "",
-      frame: frame(0, 0, 1, 1),
-    } as BoardItem,
-  ]);
+test("a connection's span is included so a relation is never clipped", () => {
+  // A connection has no frame of its own; its extent comes from the nodes it
+  // joins. Exporting just the two nodes must still leave room for the line
+  // between them, or the relation would be cut off at the edge of the image.
+  const document = doc([box("a", 0, 0), box("b", 400, 300)]);
+  const withConnection = {
+    ...document,
+    connections: [
+      createBoardConnection({ id: "c1", sourceNodeId: "a", targetNodeId: "b" }),
+    ],
+  } as BoardDocument;
   const plan = planBoardExport({
-    document,
-    region: { kind: "items", ids: ["arrow"] },
+    document: withConnection,
+    region: { kind: "items", ids: ["a", "b"] },
     padding: 0,
     scale: 1,
   });
   assert.ok(plan);
-  // The arrow's own frame is 1×1; resolved through its bindings it spans both boxes.
-  assert.ok(plan.world.width > 300, `expected a resolved span, got ${plan.world.width}`);
-  assert.ok(plan.world.height > 200, `expected a resolved span, got ${plan.world.height}`);
+  assert.equal(plan.connections.length, 1);
+  assert.ok(plan.world.width >= 400, `expected a resolved span, got ${plan.world.width}`);
+  assert.ok(plan.world.height >= 300, `expected a resolved span, got ${plan.world.height}`);
+});
+
+test("a connection to an excluded node is left out of the plan", () => {
+  // Half a relation is worse than none: it would draw a line into empty space,
+  // which reads as a rendering defect rather than as a clipped edge.
+  const document = doc([box("a", 0, 0), box("b", 400, 300)]);
+  const withConnection = {
+    ...document,
+    connections: [
+      createBoardConnection({ id: "c1", sourceNodeId: "a", targetNodeId: "b" }),
+    ],
+  } as BoardDocument;
+  const plan = planBoardExport({
+    document: withConnection,
+    region: { kind: "items", ids: ["a"] },
+    padding: 0,
+    scale: 1,
+  });
+  assert.ok(plan);
+  assert.deepEqual(plan.connections, []);
 });

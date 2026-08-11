@@ -1,5 +1,8 @@
 import { z } from "zod";
-import { BOARD_ARROW_STROKE_SIZE } from "../board-constants.js";
+import {
+	BOARD_ARROW_STROKE_SIZE,
+	BOARD_CONNECTION_STROKE_SIZE,
+} from "../board-constants.js";
 
 const idSchema = z.string().min(1).max(160);
 const finiteSchema = z.number().finite();
@@ -21,28 +24,14 @@ export const BoardAwarenessFrameSchema = z.object({
 	rotation: finiteSchema,
 });
 
-const arrowEndpointSchema = z.union([
-	z.object({
-		kind: z.literal("point"),
-		x: finiteSchema,
-		y: finiteSchema,
-	}),
-	z.object({
-		kind: z.literal("binding"),
-		target: idSchema,
-		nx: finiteSchema,
-		ny: finiteSchema,
-		precise: z.boolean(),
-	}),
-]);
-
 export const BoardAwarenessNodePreviewSchema = z.object({
 	nodeId: idSchema,
 	frame: BoardAwarenessFrameSchema,
+	/** Live endpoints of a free arrow being dragged. */
 	arrow: z
 		.object({
-			start: arrowEndpointSchema,
-			end: arrowEndpointSchema,
+			start: BoardAwarenessPointSchema,
+			end: BoardAwarenessPointSchema,
 			bend: finiteSchema,
 		})
 		.optional(),
@@ -100,10 +89,28 @@ export const BoardAwarenessGestureSchema = z.discriminatedUnion("kind", [
 		color: z.string().min(1).max(64),
 		geo: z.string().min(1).max(40),
 	}),
+	/**
+	 * A relation being drawn.
+	 *
+	 * Carries the anchor node and the live pointer rather than a partial
+	 * connection: until the gesture lands on a target there is no relation to
+	 * describe, and sending a half-built one would put an invalid connection on the
+	 * wire. `targetNodeId` is set once the pointer is over a candidate, which is
+	 * what lets peers see the same snap the author sees.
+	 */
+	z.object({
+		kind: z.literal("connection"),
+		id: idSchema,
+		sourceNodeId: idSchema,
+		targetNodeId: idSchema.nullable(),
+		current: BoardAwarenessPointSchema,
+		color: z.string().min(1).max(64),
+		size: finiteSchema.positive().max(256).default(BOARD_CONNECTION_STROKE_SIZE),
+	}),
 	z.object({
 		kind: z.literal("transform"),
 		id: idSchema,
-		mode: z.enum(["translate", "resize", "rotate", "arrow"]),
+		mode: z.enum(["translate", "resize", "rotate", "arrow", "connection"]),
 		nodes: z.array(BoardAwarenessNodePreviewSchema).max(64),
 		bounds: BoardAwarenessFrameSchema.nullable(),
 	}),

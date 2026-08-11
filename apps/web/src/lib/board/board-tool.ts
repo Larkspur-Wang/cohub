@@ -5,6 +5,7 @@ export type BoardToolId =
 	| "geo"
 	| "draw"
 	| "arrow"
+	| "connect"
 	| "frame";
 
 export const BOARD_HAND_TAP_SLOP = 8;

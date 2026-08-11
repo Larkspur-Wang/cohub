@@ -427,6 +427,54 @@ export const boardNodes = v2.table(
   }),
 );
 
+/**
+ * Node relations on a Board.
+ *
+ * A separate table rather than a node row because a connection has no geometry of
+ * its own: it names two nodes and is resolved against their live frames on read.
+ * Storing it as a node would mean persisting a bounding box that is wrong the
+ * moment either endpoint moves.
+ *
+ * `source_node_id` / `target_node_id` are plain columns instead of foreign keys to
+ * `board_nodes` because nodes are soft-deleted: a database-level cascade would
+ * either fire on a soft delete (losing relations that undo must restore) or not at
+ * all. Referential integrity is enforced in the transaction validator, which is
+ * the only place that sees a whole edit in order.
+ */
+export const boardConnections = v2.table(
+  "board_connections",
+  {
+    boardId: uuid("board_id").notNull().references(() => boards.id, { onDelete: "cascade" }),
+    connectionId: text("connection_id").notNull(),
+    sourceNodeId: text("source_node_id").notNull(),
+    targetNodeId: text("target_node_id").notNull(),
+    /** Relation kind slug, e.g. "related", "depends-on". */
+    relation: varchar("relation", { length: 64 }).notNull().default("related"),
+    /** Semantic direction: none | forward | backward | both. */
+    direction: varchar("direction", { length: 16 }).notNull().default("forward"),
+    label: text("label").notNull().default(""),
+    sourceAnchor: jsonb("source_anchor").$type<Record<string, unknown>>().notNull().default({ kind: "auto" }),
+    targetAnchor: jsonb("target_anchor").$type<Record<string, unknown>>().notNull().default({ kind: "auto" }),
+    routing: jsonb("routing").$type<Record<string, unknown>>().notNull().default({}),
+    style: jsonb("style").$type<Record<string, unknown>>().notNull().default({}),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+    revision: integer("revision").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (table) => ({
+    primary: uniqueIndex("v2_uq_board_connections_board_connection").on(table.boardId, table.connectionId),
+    boardIdx: index("v2_idx_board_connections_board_id").on(table.boardId),
+    // Incident-edge lookups in both directions: "what connects from/to this node".
+    // Both are needed because a connection is found by either endpoint, and a
+    // single composite index cannot serve a lookup on its second column.
+    sourceIdx: index("v2_idx_board_connections_source").on(table.boardId, table.sourceNodeId),
+    targetIdx: index("v2_idx_board_connections_target").on(table.boardId, table.targetNodeId),
+    relationIdx: index("v2_idx_board_connections_relation").on(table.boardId, table.relation),
+  }),
+);
+
 export const boardEffects = v2.table(
   "board_effects",
   {

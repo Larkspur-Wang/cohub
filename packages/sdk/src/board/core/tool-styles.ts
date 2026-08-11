@@ -1,5 +1,6 @@
 import {
 	BOARD_ARROW_STROKE_SIZE,
+	BOARD_CONNECTION_STROKE_SIZE,
 	BOARD_DRAW_STROKE_SIZE,
 } from "@cohub/protocol/board-constants";
 import {
@@ -8,14 +9,21 @@ import {
 } from "./palette.js";
 import { type GeoKind, isGeoKind } from "./shape-types.js";
 
-export const BOARD_STROKE_MIN_SIZE = 1;
-export const BOARD_STROKE_MAX_SIZE = 64;
+// The stroke range and its clamp live in the protocol, where the persisted
+// schemas use them. Re-exported here so tool code keeps a single import site.
+export {
+	BOARD_STROKE_MAX_SIZE,
+	BOARD_STROKE_MIN_SIZE,
+	clampBoardStrokeSize,
+} from "@cohub/protocol/board-constants";
+import { clampBoardStrokeSize } from "@cohub/protocol/board-constants";
 
 export type BoardToolStyleMap = {
 	text: { color: BoardColorId };
 	geo: { color: BoardColorId; geo: GeoKind };
 	draw: { color: BoardColorId; size: number };
 	arrow: { color: BoardColorId; size: number };
+	connection: { color: BoardColorId; size: number };
 	frame: { color: BoardColorId };
 };
 
@@ -29,18 +37,14 @@ export const DEFAULT_BOARD_TOOL_STYLES = {
 	geo: { color: "brand", geo: "rectangle" },
 	draw: { color: "brand", size: BOARD_DRAW_STROKE_SIZE },
 	arrow: { color: "brand", size: BOARD_ARROW_STROKE_SIZE },
+	// Relations default to a quieter neutral: on a board with many connections a
+	// brand-colored web would dominate the nodes it is describing.
+	connection: { color: "neutral", size: BOARD_CONNECTION_STROKE_SIZE },
 	frame: { color: "neutral" },
 } as const satisfies BoardToolStyleMap;
 
 function finiteOr(value: unknown, fallback: number): number {
 	return typeof value === "number" && Number.isFinite(value) ? value : fallback;
-}
-
-export function clampBoardStrokeSize(size: number): number {
-	return Math.min(
-		BOARD_STROKE_MAX_SIZE,
-		Math.max(BOARD_STROKE_MIN_SIZE, size),
-	);
 }
 
 /** Return a mutable, validated style map for an editor or another Board client. */
@@ -52,6 +56,9 @@ export function createBoardToolStyles(
 	);
 	const arrowSize = clampBoardStrokeSize(
 		finiteOr(patch.arrow?.size, DEFAULT_BOARD_TOOL_STYLES.arrow.size),
+	);
+	const connectionSize = clampBoardStrokeSize(
+		finiteOr(patch.connection?.size, DEFAULT_BOARD_TOOL_STYLES.connection.size),
 	);
 	return {
 		text: {
@@ -78,6 +85,12 @@ export function createBoardToolStyles(
 				? patch.arrow.color
 				: DEFAULT_BOARD_TOOL_STYLES.arrow.color,
 			size: arrowSize,
+		},
+		connection: {
+			color: isBoardColorId(patch.connection?.color)
+				? patch.connection.color
+				: DEFAULT_BOARD_TOOL_STYLES.connection.color,
+			size: connectionSize,
 		},
 		frame: {
 			color: isBoardColorId(patch.frame?.color)

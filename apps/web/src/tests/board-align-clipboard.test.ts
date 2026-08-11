@@ -79,7 +79,7 @@ test("clipboard round-trip remaps ids and offsets", () => {
 	const parsed = parseClipboard(payload);
 	assert.ok(parsed);
 	if (!parsed) return;
-	const items = materializeClipboard(parsed, { x: 100, y: 100 });
+	const { items } = materializeClipboard(parsed, { x: 100, y: 100 });
 	assert.equal(items.length, 2);
 	assert.notEqual(items[0]?.id, a.id);
 	assert.equal(items[0]?.frame.x, 100); // relative 0 + 100

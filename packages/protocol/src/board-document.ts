@@ -6,6 +6,7 @@ import {
   BOARD_TEXT_MAX_FONT_SIZE,
   BOARD_TEXT_MIN_FONT_SIZE,
 } from "./board-constants.js";
+import { BoardConnectionSchema } from "./board-connection.js";
 import { BOARD_DOCUMENT_KIND, BOARD_EXTENSION } from "./board.js";
 
 export { BOARD_DOCUMENT_KIND, BOARD_EXTENSION };
@@ -115,6 +116,12 @@ export const DrawPointSchema = z.object({
 	p: z.number().finite().min(0).max(1).default(0.5),
 });
 
+/** A world-space point. */
+export const BoardPointSchema = z.object({
+	x: z.number().finite(),
+	y: z.number().finite(),
+});
+
 export const BoardDrawItemSchema = BoardItemBaseSchema.extend({
 	type: z.literal("draw"),
 	points: z.array(DrawPointSchema).default([]),
@@ -122,27 +129,20 @@ export const BoardDrawItemSchema = BoardItemBaseSchema.extend({
 	size: z.number().finite().positive().default(BOARD_DRAW_STROKE_SIZE),
 });
 
-/** An arrow endpoint: a free point or a binding to another shape. */
-export const ArrowEndpointSchema = z.union([
-	z.object({
-		kind: z.literal("point"),
-		x: z.number().finite(),
-		y: z.number().finite(),
-	}),
-	z.object({
-		kind: z.literal("binding"),
-		target: z.string().min(1),
-		nx: z.number().finite().default(0.5),
-		ny: z.number().finite().default(0.5),
-		precise: z.boolean().default(true),
-	}),
-]);
-
+/**
+ * A free arrow — a standalone annotation stroke between two world points.
+ *
+ * Arrows do not relate nodes. A relation between two nodes is a
+ * `BoardConnection`, which is stored separately and resolves its geometry from
+ * the live node frames. Keeping the two apart is what lets an arrow be a plain
+ * shape (its own frame, freely movable) while a connection stays purely
+ * semantic — neither has to pretend to be the other.
+ */
 export const BoardArrowItemSchema = BoardItemBaseSchema.extend({
 	type: z.literal("arrow"),
-	start: ArrowEndpointSchema,
-	end: ArrowEndpointSchema,
-	bend: z.number().finite().default(0),
+	start: BoardPointSchema,
+	end: BoardPointSchema,
+	bend: z.number().finite().min(-0.85).max(0.85).default(0),
 	color: z.string().min(1).default("brand"),
 	size: z.number().finite().positive().default(BOARD_ARROW_STROKE_SIZE),
 	arrowStart: z.boolean().default(false),
@@ -345,6 +345,17 @@ export const BoardDocumentSchema = z.object({
 	}),
 	viewport: BoardViewportSchema,
 	items: z.array(BoardItemSchema),
+	/**
+	 * Node relations. Separate from `items` because a connection has no frame of
+	 * its own — its geometry is derived from the nodes it joins, so it is a
+	 * relation over the item set rather than a member of it.
+	 *
+	 * Connections referencing a missing node are dropped on parse: a relation to
+	 * nothing is not a relation, and keeping one would let an invisible dangling
+	 * edge accumulate silently. Callers that need to know write through the
+	 * transaction API, which reports the reference error instead.
+	 */
+	connections: z.array(BoardConnectionSchema).default([]),
 });
 
 export type BoardFrame = z.infer<typeof BoardFrameSchema>;
@@ -356,8 +367,8 @@ export type BoardMediaSnapshot = z.infer<typeof BoardMediaSnapshotSchema>;
 export type BoardTextItem = z.infer<typeof BoardTextItemSchema>;
 export type BoardGeoItem = z.infer<typeof BoardGeoItemSchema>;
 export type DrawPoint = z.infer<typeof DrawPointSchema>;
+export type BoardPoint = z.infer<typeof BoardPointSchema>;
 export type BoardDrawItem = z.infer<typeof BoardDrawItemSchema>;
-export type ArrowEndpoint = z.infer<typeof ArrowEndpointSchema>;
 export type BoardArrowItem = z.infer<typeof BoardArrowItemSchema>;
 export type BoardFrameItem = z.infer<typeof BoardFrameItemSchema>;
 export type BoardImageItem = z.infer<typeof BoardImageItemSchema>;
@@ -377,6 +388,37 @@ export type BoardKnownItem =
 /** Any item, including forward-compatible unknown types. */
 export type BoardItem = BoardKnownItem | BoardUnknownItem;
 export type BoardDocument = z.infer<typeof BoardDocumentSchema>;
+
+/**
+ * Parse a board document and drop connections whose endpoints are missing.
+ *
+ * The schema alone cannot express "every endpoint must name an existing item",
+ * so referential integrity is enforced here, at the single place a document
+ * enters the system. A dangling connection is dropped rather than repaired:
+ * there is no correct node to invent, and keeping it would render nothing while
+ * still counting as data.
+ *
+ * Item parsing stays lenient (see parseBoardItemLoose) — nodes carry content and
+ * are never discarded — while connections are pure references and are only
+ * meaningful with both ends present.
+ */
+export function parseBoardDocument(input: unknown): BoardDocument {
+	const document = BoardDocumentSchema.parse(input);
+	return withResolvedConnections(document);
+}
+
+/** Keep only the connections whose endpoints both exist in `items`. */
+export function withResolvedConnections(document: BoardDocument): BoardDocument {
+	if (document.connections.length === 0) return document;
+	const ids = new Set(document.items.map((item) => item.id));
+	const connections = document.connections.filter(
+		(connection) =>
+			ids.has(connection.source.nodeId) && ids.has(connection.target.nodeId),
+	);
+	return connections.length === document.connections.length
+		? document
+		: { ...document, connections };
+}
 
 export function isUnknownItem(item: BoardItem): item is BoardUnknownItem {
 	return item.type === UNKNOWN_BOARD_ITEM_TYPE;

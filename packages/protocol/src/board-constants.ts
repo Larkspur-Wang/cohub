@@ -67,6 +67,22 @@ export const BOARD_TEXT_MIN_FONT_SIZE = 2;
 export const BOARD_TEXT_MAX_FONT_SIZE = 512;
 export const BOARD_DRAW_STROKE_SIZE = 4;
 export const BOARD_ARROW_STROKE_SIZE = 2.5;
+export const BOARD_CONNECTION_STROKE_SIZE = 2.5;
+
+/**
+ * Stroke width bounds, shared by every stroked board entity.
+ *
+ * Defined here (not beside the editor) because the persisted schemas clamp with
+ * them: a single range is what keeps a width authored by the editor, an agent or
+ * the CLI from being silently re-clamped to something else on read.
+ */
+export const BOARD_STROKE_MIN_SIZE = 1;
+export const BOARD_STROKE_MAX_SIZE = 64;
+
+export function clampBoardStrokeSize(size: number): number {
+  if (!Number.isFinite(size)) return BOARD_CONNECTION_STROKE_SIZE;
+  return Math.min(BOARD_STROKE_MAX_SIZE, Math.max(BOARD_STROKE_MIN_SIZE, size));
+}
 
 /**
  * Font stacks used by every board renderer.

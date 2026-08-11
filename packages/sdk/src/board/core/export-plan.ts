@@ -9,11 +9,17 @@
 
 import {
   type BoardDocument,
-  BoardDocumentSchema,
   type BoardItem,
+  parseBoardDocument,
 } from "@cohub/protocol/board-document";
+import type { BoardConnection } from "@cohub/protocol/board-connection";
 import { itemBounds, type Rect, rectsIntersect, unionRects } from "../geometry.js";
-import { arrowBounds, type FrameLookup } from "./bindings.js";
+import { arrowBounds } from "./arrow-geometry.js";
+import {
+  connectionBounds,
+  type FrameLookup,
+  resolveConnection,
+} from "./connections.js";
 
 /** What part of the board to capture. */
 export type BoardExportRegion =
@@ -49,6 +55,14 @@ export type BoardExportPlan = {
   height: number;
   /** Items to draw, in document order. */
   items: BoardItem[];
+  /**
+   * Connections to draw.
+   *
+   * A relation is only included when both of its nodes are in `items`: half a
+   * connection would render as a line into empty space, which reads as a defect
+   * rather than as a clipped edge.
+   */
+  connections: BoardConnection[];
   /** True when `scale` had to be reduced to fit the size budget. */
   clamped: boolean;
 };
@@ -63,7 +77,7 @@ export type BoardExportPlan = {
  * error instead of a render-time crash.
  */
 export function normalizeBoardDocument(document: BoardDocument): BoardDocument {
-  return BoardDocumentSchema.parse(document);
+  return parseBoardDocument(document);
 }
 
 /**
@@ -86,52 +100,97 @@ export function boardFrameLookup(document: BoardDocument): FrameLookup {
   return (id) => frames.get(id);
 }
 
-/** Bounds of a single item, resolving arrow endpoints through their bindings. */
-export function exportItemBounds(item: BoardItem, getFrame: FrameLookup): Rect {
-  if (item.type === "arrow") return arrowBounds(item, getFrame) ?? itemBounds(item.frame);
+/** Bounds of a single item. Arrows resolve through their own curve geometry. */
+export function exportItemBounds(item: BoardItem, _getFrame?: FrameLookup): Rect {
+  if (item.type === "arrow") return arrowBounds(item);
   return itemBounds(item.frame);
+}
+
+/** Bounds of a connection, resolved against the document's node frames. */
+export function exportConnectionBounds(
+  connection: BoardConnection,
+  getFrame: FrameLookup,
+): Rect | null {
+  const resolved = resolveConnection(connection, getFrame);
+  return resolved ? connectionBounds(resolved, connection.style.size) : null;
+}
+
+/** Connections whose endpoints are both inside the given item set. */
+function connectionsWithin(
+  document: BoardDocument,
+  items: BoardItem[],
+): BoardConnection[] {
+  if (document.connections.length === 0) return [];
+  const present = new Set(items.map((item) => item.id));
+  return document.connections.filter(
+    (connection) =>
+      present.has(connection.source.nodeId) && present.has(connection.target.nodeId),
+  );
 }
 
 function resolveRegion(
   document: BoardDocument,
   region: BoardExportRegion,
   getFrame: FrameLookup,
-): { items: BoardItem[]; rect: Rect | null; padding: number | null } {
+): { items: BoardItem[]; connections: BoardConnection[]; rect: Rect | null; padding: number | null } {
   switch (region.kind) {
-    case "all":
+    case "all": {
+      const connections = document.connections;
       return {
         items: document.items,
-        rect: unionRects(document.items.map((item) => exportItemBounds(item, getFrame))),
+        connections,
+        rect: unionRects([
+          ...document.items.map((item) => exportItemBounds(item)),
+          ...connectionBoundsList(connections, getFrame),
+        ]),
         padding: null,
       };
+    }
     case "items": {
       const wanted = new Set(region.ids);
       const items = document.items.filter((item) => wanted.has(item.id));
+      const connections = connectionsWithin(document, items);
       return {
         items,
-        rect: unionRects(items.map((item) => exportItemBounds(item, getFrame))),
+        connections,
+        rect: unionRects([
+          ...items.map((item) => exportItemBounds(item)),
+          ...connectionBoundsList(connections, getFrame),
+        ]),
         padding: null,
       };
     }
     case "frame": {
       const frame = document.items.find((item) => item.id === region.id);
-      if (!frame) return { items: [], rect: null, padding: null };
+      if (!frame) return { items: [], connections: [], rect: null, padding: null };
       const rect = itemBounds(frame.frame);
       // The frame's own dashed outline and label are editor scaffolding, not
       // content — a framed export should look like a page, not a screenshot.
       const items = document.items.filter(
-        (item) => item.id !== region.id && rectsIntersect(exportItemBounds(item, getFrame), rect),
+        (item) => item.id !== region.id && rectsIntersect(exportItemBounds(item), rect),
       );
-      return { items, rect, padding: 0 };
+      return { items, connections: connectionsWithin(document, items), rect, padding: 0 };
     }
     case "rect": {
       const rect = region.rect;
       const items = document.items.filter((item) =>
-        rectsIntersect(exportItemBounds(item, getFrame), rect),
+        rectsIntersect(exportItemBounds(item), rect),
       );
-      return { items, rect, padding: 0 };
+      return { items, connections: connectionsWithin(document, items), rect, padding: 0 };
     }
   }
+}
+
+function connectionBoundsList(
+  connections: readonly BoardConnection[],
+  getFrame: FrameLookup,
+): Rect[] {
+  const rects: Rect[] = [];
+  for (const connection of connections) {
+    const bounds = exportConnectionBounds(connection, getFrame);
+    if (bounds) rects.push(bounds);
+  }
+  return rects;
 }
 
 /**
@@ -158,12 +217,16 @@ function clampScale(
  */
 export function planBoardExport(input: BoardExportPlanInput): BoardExportPlan | null {
   const {
-    document,
     region,
     scale: requestedScale = BOARD_EXPORT_DEFAULT_SCALE,
     maxEdge = BOARD_EXPORT_MAX_EDGE,
     maxPixels = BOARD_EXPORT_MAX_PIXELS,
   } = input;
+  // Planning reads optional groups (connections, per-shape defaults), so the
+  // document is normalised first. That makes a hand-built or partial document a
+  // supported input for every entry point rather than a source of shape-dependent
+  // crashes deep in the region resolver.
+  const document = normalizeBoardDocument(input.document);
   const getFrame = boardFrameLookup(document);
   const resolved = resolveRegion(document, region, getFrame);
   if (!resolved.rect) return null;
@@ -189,6 +252,7 @@ export function planBoardExport(input: BoardExportPlanInput): BoardExportPlan | 
     width: Math.max(1, Math.floor(world.width * scale)),
     height: Math.max(1, Math.floor(world.height * scale)),
     items: resolved.items,
+    connections: resolved.connections,
     clamped: scale < safeRequest - 1e-6,
   };
 }

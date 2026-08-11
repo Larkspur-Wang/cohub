@@ -11,6 +11,7 @@ import { defaultBoardTool } from "$lib/board/board-tool";
 import { createBoardEditor } from "$lib/board/editor.svelte";
 import type { BoardRuntimeProps } from "$lib/board/runtime/board-runtime";
 import BoardCollaboratorOverlay from "$lib/components/board/BoardCollaboratorOverlay.svelte";
+import BoardConnectionToolbar from "$lib/components/board/BoardConnectionToolbar.svelte";
 import BoardContextMenu from "$lib/components/board/BoardContextMenu.svelte";
 import BoardEmptyState from "$lib/components/board/BoardEmptyState.svelte";
 import BoardExportDialog from "$lib/components/board/BoardExportDialog.svelte";
@@ -546,6 +547,7 @@ onDestroy(() => {
 		<BoardVideoPlayer {editor} assetSource={resolvedAssetSource} {active} />
 		{#if !readonly}
 			<BoardSelectionToolbar {editor} />
+			<BoardConnectionToolbar {editor} />
 			<BoardFloatingToolbar {editor} {immersive} />
 		{/if}
 		<BoardZoomMenu {editor} {immersive} />

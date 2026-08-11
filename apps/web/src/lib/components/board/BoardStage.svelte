@@ -7,7 +7,7 @@ import {
 	pickBoardColor,
 	pointToWorld,
 	resolveArrow,
-	resolveEndpoint,
+	resolveConnection,
 	type ScreenPoint,
 	screenPoint,
 	screenToWorld,
@@ -481,6 +481,9 @@ function syncStage() {
 	animationRuntime?.prepareSceneSync();
 	scene.sync({
 		items: editor.items,
+		connections: editor.connections,
+		selectedConnectionIds: new Set(editor.selection),
+		hoveredConnectionId: editor.hoveredConnectionId,
 		context,
 		getItem: getDisplayItem,
 		visibleIds,
@@ -495,10 +498,8 @@ function syncStage() {
 	const single = editor.selection.length === 1 ? editor.selectedItems[0] : null;
 	let arrowEndpoints: Array<{ x: number; y: number }> | undefined;
 	if (single?.type === "arrow" && !single.locked) {
-		const lookup = (id: string) => editor.itemById(id)?.frame;
-		const resolved = resolveArrow(single, lookup);
-		if (resolved)
-			arrowEndpoints = [resolved.start, resolved.control, resolved.end];
+		const resolved = resolveArrow(single);
+		arrowEndpoints = [resolved.start, resolved.control, resolved.end];
 	}
 	scene.drawOverlay(
 		{
@@ -607,7 +608,39 @@ function drawRemoteAwareness(colors: BoardShapeColors, mode: "dark" | "light") {
 				.stroke({ color: color.stroke, width: 1.5 * inv, alpha: 0.82 });
 			continue;
 		}
-		if (gesture.bounds) {
+		if (gesture.kind === "connection") {
+			// A peer's in-progress relation: anchor node to live pointer. Drawn dashed
+			// so it reads as provisional rather than as a committed edge.
+			const source = editor.itemById(gesture.sourceNodeId);
+			if (!source) continue;
+			const color = pickBoardColor(colors, gesture.color, mode);
+			const from = {
+				x: source.frame.x + source.frame.width / 2,
+				y: source.frame.y + source.frame.height / 2,
+			};
+			overlay
+				.moveTo(from.x, from.y)
+				.lineTo(gesture.current.x, gesture.current.y)
+				.stroke({
+					color: color.stroke,
+					width: Math.max(gesture.size, 1) * inv,
+					alpha: 0.8,
+				});
+			const target = gesture.targetNodeId
+				? editor.itemById(gesture.targetNodeId)
+				: null;
+			if (target)
+				overlay
+					.rect(
+						target.frame.x,
+						target.frame.y,
+						target.frame.width,
+						target.frame.height,
+					)
+					.stroke({ color: collaboration, width: 2 * inv, alpha: 0.9 });
+			continue;
+		}
+		if (gesture.kind === "transform" && gesture.bounds) {
 			overlay
 				.rect(
 					gesture.bounds.x,

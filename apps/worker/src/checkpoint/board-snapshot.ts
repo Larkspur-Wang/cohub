@@ -1,6 +1,7 @@
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import {
   boardClips,
+  boardConnections,
   boardEffects,
   boardNodes,
   boardSequences,
@@ -16,6 +17,7 @@ import {
   type BoardSnapshot,
   type BoardTarget,
 } from "@cohub/protocol";
+import { boardConnectionFromRow } from "@cohub/core/board";
 import { db } from "../db.js";
 
 function dateString(value: Date | null | undefined): string | null {
@@ -91,10 +93,13 @@ export async function captureBoardSnapshots(input: {
     const snapshots: BoardSnapshot[] = [];
 
     for (const board of sourceBoards) {
-      const [nodes, effects, sequences, clips] = await Promise.all([
+      const [nodes, connections, effects, sequences, clips] = await Promise.all([
         tx.select().from(boardNodes)
           .where(and(eq(boardNodes.boardId, board.id), isNull(boardNodes.deletedAt)))
           .orderBy(boardNodes.orderKey),
+        tx.select().from(boardConnections)
+          .where(and(eq(boardConnections.boardId, board.id), isNull(boardConnections.deletedAt)))
+          .orderBy(boardConnections.connectionId),
         tx.select().from(boardEffects).where(eq(boardEffects.boardId, board.id)),
         tx.select().from(boardSequences).where(eq(boardSequences.boardId, board.id)),
         tx.select().from(boardClips)
@@ -119,6 +124,7 @@ export async function captureBoardSnapshots(input: {
           createdAt: dateString(node.createdAt),
           updatedAt: dateString(node.updatedAt),
         })),
+        connections: connections.map(boardConnectionFromRow),
         effects: effects.map(effectFromRow),
         sequences: sequences.map(sequenceFromRow),
         clips: clips.map(clipFromRow),

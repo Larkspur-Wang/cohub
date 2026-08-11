@@ -275,33 +275,30 @@ export function createDrawBoardItem(
 }
 
 /**
- * Create an arrow between two world points. `startBinding`/`endBinding` upgrade
- * an endpoint to a binding when the arrow was drawn from/onto a shape.
+ * Create a free arrow between two world points.
+ *
+ * An arrow is an annotation stroke, not a relation: to relate two nodes, create a
+ * connection instead (see the editor's `connectNodes`).
  */
 export function createArrowBoardItem(
 	start: { x: number; y: number },
 	end: { x: number; y: number },
 	color: string,
-	startBinding?: BoardArrowItem["start"],
-	endBinding?: BoardArrowItem["end"],
 	id = createBoardItemId(),
 	size: number = DEFAULT_BOARD_TOOL_STYLES.arrow.size,
 ): BoardItem {
-	const startX = startBinding ?? { kind: "point", x: start.x, y: start.y };
-	const endX = endBinding ?? { kind: "point", x: end.x, y: end.y };
-	const frame = arrowFrameFromPoints(start, end);
 	return {
 		id,
 		type: "arrow",
-		start: startX,
-		end: endX,
+		start: { x: start.x, y: start.y },
+		end: { x: end.x, y: end.y },
 		bend: 0,
 		color,
 		size,
 		arrowStart: false,
 		arrowEnd: true,
 		label: "",
-		frame,
+		frame: arrowFrameFromPoints(start, end),
 	};
 }
 
@@ -357,25 +354,15 @@ export function duplicateBoardItem(
 		x: item.frame.x + offset,
 		y: item.frame.y + offset,
 	};
-	// An arrow's geometry lives in its endpoints, so offset its free endpoints
-	// too (bindings stay attached); the editor recomputes an exact frame afterwards.
+	// An arrow's geometry lives in its endpoints, so those move with the copy; the
+	// editor recomputes an exact frame afterwards.
 	if (item.type === "arrow") {
-		const move = (
-			endpoint: BoardArrowItem["start"],
-		): BoardArrowItem["start"] =>
-			endpoint.kind === "point"
-				? {
-						kind: "point",
-						x: endpoint.x + offset,
-						y: endpoint.y + offset,
-					}
-				: endpoint;
 		return {
 			...structuredClone(item),
 			id: createBoardItemId(),
 			locked: false,
-			start: move(item.start),
-			end: move(item.end),
+			start: { x: item.start.x + offset, y: item.start.y + offset },
+			end: { x: item.end.x + offset, y: item.end.y + offset },
 			frame,
 		};
 	}

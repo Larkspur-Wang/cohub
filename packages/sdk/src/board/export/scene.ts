@@ -9,6 +9,7 @@
  */
 
 import type { BoardDocument, BoardItem } from "@cohub/protocol/board-document";
+import type { BoardConnection } from "@cohub/protocol/board-connection";
 import { Container, Graphics, type Texture } from "pixi.js";
 import type { BoardShapeColors } from "../core/palette.js";
 import { buildFallbackShapeColors } from "../core/palette.js";
@@ -16,6 +17,7 @@ import { imageAssetKey } from "../image-key.js";
 import {
   type BoardRenderContext,
   type BoardRenderPalette,
+  createConnectionLayer,
   defaultBoardPalette,
   getBoardCardRenderer,
 } from "../render/index.js";
@@ -25,6 +27,8 @@ export type BoardExportSceneInput = {
   document: BoardDocument;
   /** Items to draw, in document (z) order. */
   items: BoardItem[];
+  /** Connections to draw. Rendered beneath the cards, as in the editor. */
+  connections?: readonly BoardConnection[];
   /** World rect being captured; content is translated so it starts at 0,0. */
   world: Rect;
   /** Output pixels per world unit. Drives text rasterisation resolution. */
@@ -105,6 +109,23 @@ export function createBoardExportScene(input: BoardExportSceneInput): BoardExpor
   const world = new Container({ isRenderGroup: true, label: "board-export-world" });
   world.scale.set(input.scale);
   world.position.set(-input.world.x * input.scale, -input.world.y * input.scale);
+
+  // Connections first, so relations sit beneath the nodes they join - the same
+  // stacking the editor uses, which is what keeps an export faithful to it.
+  const connections = input.connections ?? input.document.connections;
+  let connectionLayer: ReturnType<typeof createConnectionLayer> | null = null;
+  if (connections.length > 0) {
+    const frames = new Map(input.document.items.map((item) => [item.id, item.frame]));
+    connectionLayer = createConnectionLayer({ parent: world });
+    connectionLayer.sync({
+      connections,
+      getFrame: (id) => frames.get(id),
+      colors: context.colors,
+      colorScheme: input.colorScheme,
+      zoom: input.scale,
+    });
+  }
+
   for (const item of input.items) {
     const renderer = getBoardCardRenderer(item, context);
     world.addChild(renderer.create(item, context));
@@ -114,6 +135,9 @@ export function createBoardExportScene(input: BoardExportSceneInput): BoardExpor
   return {
     root,
     missingImageKeys: [...missing],
-    destroy: () => root.destroy({ children: true }),
+    destroy: () => {
+      connectionLayer?.destroy();
+      root.destroy({ children: true });
+    },
   };
 }

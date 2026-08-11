@@ -1,13 +1,12 @@
 import type { BoardOperation } from "@neta-art/cohub";
-import type {
-	ArrowEndpoint,
-	BoardFileSnapshot,
-	DrawPoint,
-} from "@neta-art/cohub/board";
+import type { BoardFileSnapshot, DrawPoint } from "@neta-art/cohub/board";
 import {
 	angleFromCenter,
-	bindEndpointAt,
 	clampZoom,
+	connectionBounds,
+	connectionHitTest,
+	createBoardConnection,
+	createConnectionIndex,
 	type FrameLookup,
 	fitToContent,
 	HANDLE_HIT_RADIUS,
@@ -23,7 +22,7 @@ import {
 	rectsIntersect,
 	resizeFrame,
 	resizeFrameToSize,
-	resolveEndpoint,
+	resolveConnection,
 	rotateFrames,
 	type ScreenPoint,
 	scaleFrames,
@@ -35,6 +34,7 @@ import {
 	translateArrow,
 	type WorldPoint,
 	worldPoint,
+	worldToAnchor,
 	zoomAround,
 } from "@neta-art/cohub/board";
 import { untrack } from "svelte";
@@ -74,6 +74,12 @@ import {
 	parseClipboard,
 } from "$lib/board/core/clipboard";
 import {
+	type ConnectionPort,
+	connectionPorts,
+	connectionPortAt as portAt,
+	portHitRadius,
+} from "$lib/board/core/connection-ports";
+import {
 	resolveSelectionTransform,
 	selectionTransformControlAt,
 } from "$lib/board/core/selection-transform";
@@ -86,6 +92,9 @@ import { computeSnap, type SnapGuide } from "$lib/board/core/snapping";
 import "$lib/board/core/shapes";
 import type {
 	BoardArrowItem,
+	BoardConnection,
+	BoardConnectionAnchor,
+	BoardConnectionDirection,
 	BoardDocument,
 	BoardFrame,
 	BoardItem,
@@ -130,6 +139,7 @@ type SyncedContent = {
 	version: BoardDocument["version"];
 	appearance: BoardDocument["appearance"];
 	items: BoardItem[];
+	connections: BoardConnection[];
 };
 
 export type BoardInteraction =
@@ -146,7 +156,7 @@ export type BoardInteraction =
 			type: "translating";
 			start: WorldPoint;
 			origin: Map<string, BoardFrame>;
-			/** Origin arrow items, so free endpoints translate from their gesture-start
+			/** Origin arrow items, so endpoints translate from their gesture-start
 			 * positions (an arrow's geometry lives in its endpoints, not its frame). */
 			arrowOrigin: Map<string, BoardArrowItem>;
 			moved: boolean;
@@ -193,8 +203,32 @@ export type BoardInteraction =
 			current: WorldPoint;
 			color: string;
 			size: number;
-			/** Binding captured at the start point, if it landed on a shape. */
-			startBinding: ArrowEndpoint | null;
+	  }
+	/**
+	 * Dragging a new relation out of a node's connection port.
+	 *
+	 * Nothing is written until the gesture lands on a valid target, so an abandoned
+	 * drag leaves no trace — the same rule the text draft follows.
+	 */
+	| {
+			type: "creatingConnection";
+			sourceNodeId: string;
+			/** Port the drag started from, kept as the source anchor. */
+			sourceAnchor: BoardConnectionAnchor;
+			current: WorldPoint;
+			/** Candidate under the pointer, or null while over empty space. */
+			targetNodeId: string | null;
+	  }
+	/** Re-pointing one end of an existing relation onto another node. */
+	| {
+			type: "draggingConnectionEnd";
+			connectionId: string;
+			which: "source" | "target";
+			/** The relation as it was when the drag began, for a clean cancel. */
+			origin: BoardConnection;
+			current: WorldPoint;
+			targetNodeId: string | null;
+			moved: boolean;
 	  }
 	| {
 			type: "creatingBox";
@@ -279,6 +313,7 @@ function toContent(document: BoardDocument): SyncedContent {
 		version: document.version,
 		appearance: document.appearance,
 		items: document.items,
+		connections: document.connections,
 	};
 }
 
@@ -381,6 +416,38 @@ export function createBoardEditor(options: BoardEditorOptions) {
 	/** Lazily rebuilt only after item membership or references can change. */
 	let mediaIdsByPath: Map<string, Set<string>> | null = null;
 	const emptyMediaIds: ReadonlySet<string> = new Set();
+
+	/**
+	 * Connection index, rebuilt only when the relation set changes.
+	 *
+	 * Moving a node must cost that node's degree, not a scan of every relation on
+	 * the board — which is the difference between a drag that stays smooth on a
+	 * densely connected board and one that does not.
+	 */
+	let connectionIndex = createConnectionIndex(synced.connections);
+	let indexedConnections: BoardConnection[] = synced.connections;
+
+	function ensureConnectionIndex() {
+		if (indexedConnections === synced.connections) return;
+		connectionIndex = createConnectionIndex(synced.connections);
+		indexedConnections = synced.connections;
+	}
+
+	/** Connections touching any of the given nodes. */
+	function connectionsForNodes(nodeIds: Iterable<string>): BoardConnection[] {
+		ensureConnectionIndex();
+		const seen = new Set<string>();
+		const result: BoardConnection[] = [];
+		for (const nodeId of nodeIds) {
+			for (const connectionId of connectionIndex.byNode(nodeId)) {
+				if (seen.has(connectionId)) continue;
+				seen.add(connectionId);
+				const connection = connectionIndex.get(connectionId);
+				if (connection) result.push(connection);
+			}
+		}
+		return result;
+	}
 
 	function mediaIdsForPath(path: string): ReadonlySet<string> {
 		if (!mediaIdsByPath) {
@@ -530,6 +597,33 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		}
 		// Membership changes and targeted geometry patches both move world bounds.
 		if (structural || dirtyIds) bumpGeometry();
+		localRev += 1;
+	}
+
+	/**
+	 * Replace the relation set.
+	 *
+	 * Structural by definition: a connection has no geometry to patch — adding or
+	 * removing one changes what is drawn, while everything about *where* it is drawn
+	 * comes from the nodes. So this bumps structure and never takes a dirty set.
+	 */
+	function setConnections(next: BoardConnection[]) {
+		synced = { ...synced, connections: next };
+		bumpStructure();
+		bumpGeometry();
+		localRev += 1;
+	}
+
+	/** Replace items and connections together, as one atomic change. */
+	function setContent(
+		nextItems: BoardItem[],
+		nextConnections: BoardConnection[],
+	) {
+		synced = { ...synced, items: nextItems, connections: nextConnections };
+		mediaIdsByPath = null;
+		bumpSpatial();
+		bumpStructure();
+		bumpGeometry();
 		localRev += 1;
 	}
 
@@ -702,6 +796,12 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		if (!isContinuousBoardTool(tool)) tool = "select";
 	}
 
+	/**
+	 * The style bucket a tool draws from.
+	 *
+	 * The Connect tool maps to the `connection` bucket: tool ids name the gesture,
+	 * style keys name the thing produced, and those differ here.
+	 */
 	function styledToolId(value = tool): BoardStyledToolId | null {
 		switch (value) {
 			case "text":
@@ -710,6 +810,8 @@ export function createBoardEditor(options: BoardEditorOptions) {
 			case "arrow":
 			case "frame":
 				return value;
+			case "connect":
+				return "connection";
 			default:
 				return null;
 		}
@@ -839,21 +941,9 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		end: WorldPoint,
 		color: string,
 		size: number,
-		startBinding: ArrowEndpoint | null,
-		endBinding: ArrowEndpoint | null,
 	) {
 		if (Math.hypot(end.x - start.x, end.y - start.y) < 2) return;
-		addItemAt(
-			createArrowBoardItem(
-				start,
-				end,
-				color,
-				startBinding ?? undefined,
-				endBinding ?? undefined,
-				id,
-				size,
-			),
-		);
+		addItemAt(createArrowBoardItem(start, end, color, id, size));
 	}
 
 	/**
@@ -902,29 +992,50 @@ export function createBoardEditor(options: BoardEditorOptions) {
 	}
 
 	/**
-	 * Ids of unlocked arrows bound to any of the given shapes (for cascade
-	 * delete). Locked arrows are never auto-deleted — the lock is absolute.
+	 * Remove nodes together with every relation that names them.
+	 *
+	 * A relation to a deleted node is not a relation, and the server refuses to
+	 * store one, so the cascade is explicit and lands in the same change: one undo
+	 * step brings back both the nodes and their relations.
 	 */
-	function boundArrowIds(ids: Set<string>): Set<string> {
-		const arrows = new Set<string>();
-		for (const item of synced.items) {
-			if (item.type !== "arrow" || isLocked(item)) continue;
-			if (
-				(item.start.kind === "binding" && ids.has(item.start.target)) ||
-				(item.end.kind === "binding" && ids.has(item.end.target))
-			)
-				arrows.add(item.id);
+	function removeNodes(ids: Set<string>) {
+		const remainingConnections =
+			synced.connections.length > 0
+				? synced.connections.filter(
+						(connection) =>
+							!ids.has(connection.source.nodeId) &&
+							!ids.has(connection.target.nodeId),
+					)
+				: synced.connections;
+		if (remainingConnections.length === synced.connections.length) {
+			setItems(removeBoardItems(synced.items, ids));
+			return;
 		}
-		return arrows;
+		setContent(removeBoardItems(synced.items, ids), remainingConnections);
 	}
 
 	function deleteSelection() {
+		// A selected relation is deleted on its own terms: removing an edge must not
+		// take the nodes it happened to join with it.
+		const connectionIds = selection.filter((id) => connectionById(id));
 		const movable = unlockedIds(selection);
-		if (movable.length === 0) return;
+		if (movable.length === 0 && connectionIds.length === 0) return;
 		const ids = new Set(movable);
-		for (const arrowId of boundArrowIds(ids)) ids.add(arrowId);
-		setItems(removeBoardItems(synced.items, ids));
-		selection = selection.filter((id) => !ids.has(id));
+		if (connectionIds.length > 0) {
+			const dropped = new Set(connectionIds);
+			setContent(
+				removeBoardItems(synced.items, ids),
+				synced.connections.filter(
+					(connection) =>
+						!dropped.has(connection.id) &&
+						!ids.has(connection.source.nodeId) &&
+						!ids.has(connection.target.nodeId),
+				),
+			);
+		} else {
+			removeNodes(ids);
+		}
+		selection = [];
 		editingId = null;
 		commitAction();
 	}
@@ -933,24 +1044,29 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		const target = itemById(id);
 		if (!target || isLocked(target)) return;
 		const ids = new Set([id]);
-		for (const arrowId of boundArrowIds(ids)) ids.add(arrowId);
-		setItems(removeBoardItems(synced.items, ids));
+		removeNodes(ids);
 		selection = selection.filter((selectedId) => !ids.has(selectedId));
 		if (editingId && ids.has(editingId)) editingId = null;
 		commitAction();
 	}
 
+	/**
+	 * Clone items and the relations *between* them.
+	 *
+	 * Relations are duplicated only when both endpoints are part of the copy: a
+	 * clone pointing back at the original would be a relation the user never drew.
+	 * Returned separately from the items because connections are not items \u2014 the
+	 * caller commits both together.
+	 */
 	function materializeDuplicates(
 		sourceIds: string[],
 		/** 0 for Alt-drag (drag provides the offset); default displaces the copy. */
 		offset?: number,
-	): BoardItem[] {
+	): { items: BoardItem[]; connections: BoardConnection[] } {
 		const sourceSet = new Set(sourceIds);
 		const sources = synced.items.filter((item) => sourceSet.has(item.id));
-		if (sources.length === 0) return [];
+		if (sources.length === 0) return { items: [], connections: [] };
 
-		// Pair each source with its copy so arrow bindings can remapped when the
-		// target is also being duplicated (same behaviour as clipboard paste).
 		const pairs = sources.map((item) => ({
 			source: item,
 			copy:
@@ -962,41 +1078,32 @@ export function createBoardEditor(options: BoardEditorOptions) {
 			pairs.map(({ source, copy }) => [source.id, copy.id] as const),
 		);
 
-		const remapEndpoint = (
-			endpoint: BoardArrowItem["start"],
-		): BoardArrowItem["start"] => {
-			if (endpoint.kind !== "binding") return endpoint;
-			const mapped = idMap.get(endpoint.target);
-			return mapped ? { ...endpoint, target: mapped } : endpoint;
-		};
-
-		const lookup = frameLookup();
-		// Bindings remapped onto clones must resolve against the clone frames.
-		const cloneFrames = new Map(
-			pairs.map(({ copy }) => [copy.id, copy.frame] as const),
-		);
-		const resolveFrame = (id: string) => cloneFrames.get(id) ?? lookup(id);
-
-		return pairs.map(({ copy }) => {
-			if (copy.type !== "arrow") return copy;
-			const remapped: BoardArrowItem = {
-				...copy,
-				start: remapEndpoint(copy.start),
-				end: remapEndpoint(copy.end),
-			};
-			const nextBounds = arrowBoundsFor(remapped, resolveFrame);
-			return nextBounds
-				? { ...remapped, frame: { ...nextBounds, rotation: 0 } }
-				: remapped;
+		const connections = synced.connections.flatMap((connection) => {
+			const source = idMap.get(connection.source.nodeId);
+			const target = idMap.get(connection.target.nodeId);
+			if (!source || !target) return [];
+			return [
+				{
+					...connection,
+					id: createBoardItemId(),
+					source: { ...connection.source, nodeId: source },
+					target: { ...connection.target, nodeId: target },
+				},
+			];
 		});
+
+		return { items: pairs.map(({ copy }) => copy), connections };
 	}
 
 	function duplicateSelection() {
 		if (selection.length === 0) return;
-		const fixed = materializeDuplicates(selection);
-		if (fixed.length === 0) return;
-		setItems([...synced.items, ...fixed]);
-		selection = fixed.map((copy) => copy.id);
+		const copies = materializeDuplicates(selection);
+		if (copies.items.length === 0) return;
+		setContent(
+			[...synced.items, ...copies.items],
+			[...synced.connections, ...copies.connections],
+		);
+		selection = copies.items.map((copy) => copy.id);
 		commitAction();
 	}
 
@@ -1015,7 +1122,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
 			});
 		}
 		setItems(patchItemFrames(synced.items, frames), false, ids);
-		refreshBoundArrowFrames(ids);
 		commitAction();
 	}
 
@@ -1026,7 +1132,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		const patches = alignFrames(frames, mode);
 		if (patches.size === 0) return;
 		setItems(patchItemFrames(synced.items, patches), false, patches.keys());
-		refreshBoundArrowFrames(new Set(patches.keys()));
 		bumpStructure();
 		commitAction();
 	}
@@ -1038,7 +1143,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		const patches = distributeFrames(frames, axis);
 		if (patches.size === 0) return;
 		setItems(patchItemFrames(synced.items, patches), false, patches.keys());
-		refreshBoundArrowFrames(new Set(patches.keys()));
 		bumpStructure();
 		commitAction();
 	}
@@ -1091,35 +1195,13 @@ export function createBoardEditor(options: BoardEditorOptions) {
 					x: parsed.origin.x + defaultPasteOffset(pasteCount).x,
 					y: parsed.origin.y + defaultPasteOffset(pasteCount).y,
 				};
-		const items = materializeClipboard(parsed, offset);
-		if (items.length === 0) return;
-		// Drop bindings whose targets aren't on the board and aren't in the paste.
-		const known = new Set([
-			...synced.items.map((item) => item.id),
-			...items.map((item) => item.id),
-		]);
-		const fixed = items.map((item) => {
-			if (item.type !== "arrow") return item;
-			const start =
-				item.start.kind === "binding" && !known.has(item.start.target)
-					? ({
-							kind: "point",
-							x: item.frame.x,
-							y: item.frame.y + item.frame.height / 2,
-						} as const)
-					: item.start;
-			const end =
-				item.end.kind === "binding" && !known.has(item.end.target)
-					? ({
-							kind: "point",
-							x: item.frame.x + item.frame.width,
-							y: item.frame.y + item.frame.height / 2,
-						} as const)
-					: item.end;
-			return { ...item, start, end };
-		});
-		setItems([...synced.items, ...fixed]);
-		selection = fixed.map((item) => item.id);
+		const pasted = materializeClipboard(parsed, offset);
+		if (pasted.items.length === 0) return;
+		setContent(
+			[...synced.items, ...pasted.items],
+			[...synced.connections, ...pasted.connections],
+		);
+		selection = pasted.items.map((item) => item.id);
 		commitAction();
 	}
 
@@ -1399,7 +1481,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
 			false,
 			[id],
 		);
-		refreshBoundArrowFrames(new Set([id]));
 	}
 
 	function updateText(id: string, text: string) {
@@ -1438,7 +1519,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 			if (!item) continue;
 			const hit =
 				item.type === "arrow"
-					? arrowHitTest(item, lookup, point)
+					? arrowHitTest(item, point)
 					: shapeHitTest(item, point);
 			if (hit) return item;
 		}
@@ -1477,9 +1558,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		const item = selectedItems[0];
 		if (item?.type !== "arrow") return null;
 		if (isLocked(item)) return null;
-		const lookup = frameLookup();
-		const resolved = resolveArrowFor(item, lookup);
-		if (!resolved) return null;
+		const resolved = resolveArrowFor(item);
 		const radius = (HANDLE_HIT_RADIUS + 2) / camera.zoom;
 		const distStart = Math.hypot(
 			resolved.start.x - point.x,
@@ -1499,17 +1578,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		if (distEnd <= radius && distEnd <= distMid) return "end";
 		if (distMid <= radius) return "mid";
 		return null;
-	}
-
-	/** Bind-candidate under a point, excluding the arrow being edited. */
-	function bindTargetAt(
-		point: WorldPoint,
-		excludeId?: string,
-	): { id: string; frame: BoardFrame } | null {
-		const item = topItemAt(point);
-		if (!item || item.id === excludeId) return null;
-		if (!shapeCapabilities(item).canBind) return null;
-		return { id: item.id, frame: item.frame };
 	}
 
 	/**
@@ -1590,70 +1658,227 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		return grid?.visible === true ? (grid.size ?? 0) : 0;
 	}
 
-	/**
-	 * Recompute the bounding frames of arrows bound to any of the given shapes.
-	 * Arrow endpoints resolve live in the renderer, but the persisted frame (used
-	 * for culling and hit testing) must be refreshed when a bound target moves or
-	 * resizes, or the arrow would be culled/tested against a stale box.
-	 */
-	function refreshBoundArrowFrames(changedIds: Set<string>) {
-		if (changedIds.size === 0) return;
-		const lookup = frameLookup();
-		const patches = new Map<string, BoardFrame>();
-		for (const item of synced.items) {
-			if (item.type !== "arrow") continue;
-			const start = item.start;
-			const end = item.end;
-			const affected =
-				(start.kind === "binding" && changedIds.has(start.target)) ||
-				(end.kind === "binding" && changedIds.has(end.target));
-			if (!affected) continue;
-			const nextBounds = arrowBoundsFor(item, lookup);
-			if (nextBounds) patches.set(item.id, { ...nextBounds, rotation: 0 });
-		}
-		if (patches.size > 0)
-			setItems(patchItemFrames(synced.items, patches), false, patches.keys());
-	}
-
-	/** Patch arrow bend and recompute its frame from live geometry. */
+	/** Patch arrow bend, keeping its frame consistent with the new curve. */
 	function applyArrowBend(arrowId: string, bend: number) {
-		const lookup = frameLookup();
 		setItems(
 			synced.items.map((item) => {
 				if (item.id !== arrowId || item.type !== "arrow") return item;
 				const next: BoardArrowItem = { ...item, bend };
-				const nextBounds = arrowBoundsFor(next, lookup);
-				return nextBounds
-					? { ...next, frame: { ...nextBounds, rotation: 0 } }
-					: next;
+				return { ...next, frame: { ...arrowBoundsFor(next), rotation: 0 } };
 			}),
 			false,
 			[arrowId],
 		);
 	}
 
-	/** Patch one arrow endpoint and recompute its frame from live geometry. */
+	/** Patch one arrow endpoint, keeping its frame consistent. */
 	function applyArrowEndpoint(
 		arrowId: string,
 		which: "start" | "end",
-		endpoint: ArrowEndpoint,
+		point: WorldPoint,
 	) {
-		const lookup = frameLookup();
 		setItems(
 			synced.items.map((item) => {
 				if (item.id !== arrowId || item.type !== "arrow") return item;
 				const next: BoardArrowItem = {
 					...item,
-					[which]: endpoint,
+					[which]: { x: point.x, y: point.y },
 				};
-				const nextBounds = arrowBoundsFor(next, lookup);
-				return nextBounds
-					? { ...next, frame: { ...nextBounds, rotation: 0 } }
-					: next;
+				return { ...next, frame: { ...arrowBoundsFor(next), rotation: 0 } };
 			}),
 			false,
 			[arrowId],
 		);
+	}
+
+	// ─── Connections ────────────────────────────────────────────────
+
+	/** A connection by id, or null. */
+	function connectionById(id: string): BoardConnection | null {
+		ensureConnectionIndex();
+		return connectionIndex.get(id) ?? null;
+	}
+
+	/** Resolve a connection's world geometry against the live node frames. */
+	function resolveConnectionGeometry(connection: BoardConnection) {
+		return resolveConnection(connection, frameLookup());
+	}
+
+	/**
+	 * The topmost connection under a point, or null.
+	 *
+	 * Connections are tested against their resolved path rather than a bounding
+	 * box, so clicking inside the wide empty area spanned by a long diagonal
+	 * relation does not select it.
+	 */
+	function connectionAt(point: WorldPoint): BoardConnection | null {
+		ensureConnectionIndex();
+		const lookup = frameLookup();
+		// Later connections sit above earlier ones, matching document order.
+		for (let index = synced.connections.length - 1; index >= 0; index -= 1) {
+			const connection = synced.connections[index];
+			if (!connection) continue;
+			const resolved = resolveConnection(connection, lookup);
+			if (!resolved) continue;
+			if (connectionHitTest(resolved, point, connection.style.size))
+				return connection;
+		}
+		return null;
+	}
+
+	/** Create a relation between two nodes. Returns its id, or null if refused. */
+	function connectNodes(input: {
+		sourceNodeId: string;
+		targetNodeId: string;
+		sourceAnchor?: BoardConnectionAnchor;
+		targetAnchor?: BoardConnectionAnchor;
+	}): string | null {
+		if (options.readonly) return null;
+		const source = itemById(input.sourceNodeId);
+		const target = itemById(input.targetNodeId);
+		if (!source || !target) return null;
+		if (!shapeCapabilities(source).canConnect) return null;
+		if (!shapeCapabilities(target).canConnect) return null;
+		// Re-drawing an existing relation is a no-op rather than a duplicate edge:
+		// the second one would be invisible underneath the first.
+		const existing = synced.connections.find(
+			(connection) =>
+				connection.source.nodeId === input.sourceNodeId &&
+				connection.target.nodeId === input.targetNodeId,
+		);
+		if (existing) return existing.id;
+		const connection = createBoardConnection({
+			id: createBoardItemId(),
+			sourceNodeId: input.sourceNodeId,
+			targetNodeId: input.targetNodeId,
+			...(input.sourceAnchor ? { sourceAnchor: input.sourceAnchor } : {}),
+			...(input.targetAnchor ? { targetAnchor: input.targetAnchor } : {}),
+			style: {
+				color: toolStyles.connection.color,
+				size: toolStyles.connection.size,
+			},
+		});
+		setConnections([...synced.connections, connection]);
+		commitAction();
+		return connection.id;
+	}
+
+	/** Patch a relation (direction, label, style, routing, endpoints). */
+	function updateConnection(
+		connectionId: string,
+		patch: Partial<Omit<BoardConnection, "id">>,
+		commit = true,
+	) {
+		if (options.readonly) return;
+		let changed = false;
+		const next = synced.connections.map((connection) => {
+			if (connection.id !== connectionId) return connection;
+			changed = true;
+			return { ...connection, ...patch };
+		});
+		if (!changed) return;
+		setConnections(next);
+		if (commit) commitAction();
+	}
+
+	/**
+	 * Nodes that should show connection ports.
+	 *
+	 * Ports appear for a single selected node, and on hover for a fine pointer.
+	 * Restricting to one node keeps the canvas quiet: showing four ports per node
+	 * across a multi-selection would add more chrome than affordance. Touch gets
+	 * ports on selection only, since there is no hover to reveal them.
+	 */
+	function portNodeId(): string | null {
+		if (options.readonly) return null;
+		if (tool !== "select" && tool !== "connect") return null;
+		if (
+			interaction.type !== "idle" &&
+			interaction.type !== "creatingConnection"
+		)
+			return null;
+		if (editingId) return null;
+		// Hover only reveals ports for a pointer that can hover at all; touch and pen
+		// rely on selection, so ports never appear under a finger that is just panning.
+		const hoverReveals = !canTapSelectWithHand(hoverPointerType);
+		const candidateId =
+			selection.length === 1 ? selection[0] : hoverReveals ? hoverId : null;
+		if (!candidateId) return null;
+		const item = itemById(candidateId);
+		if (!item || isLocked(item)) return null;
+		return shapeCapabilities(item).canConnect ? item.id : null;
+	}
+
+	/** Ports currently shown, for the overlay and for hit testing. */
+	function visiblePorts(): Array<ConnectionPort & { nodeId: string }> {
+		const nodeId = portNodeId();
+		if (!nodeId) return [];
+		const item = itemById(nodeId);
+		if (!item) return [];
+		return connectionPorts(item.frame, camera.zoom).map((port) => ({
+			...port,
+			nodeId,
+		}));
+	}
+
+	/** The port under a point, or null. */
+	function connectionPortAt(
+		point: WorldPoint,
+		pointerType: string,
+	): (ConnectionPort & { nodeId: string }) | null {
+		const nodeId = portNodeId();
+		if (!nodeId) return null;
+		const item = itemById(nodeId);
+		if (!item) return null;
+		const port = portAt(item.frame, point, camera.zoom, pointerType);
+		return port ? { ...port, nodeId } : null;
+	}
+
+	/** Endpoint handles of the selected relation, for re-pointing it. */
+	function connectionEndpointAt(
+		point: WorldPoint,
+		pointerType: string,
+	): { connection: BoardConnection; which: "source" | "target" } | null {
+		if (options.readonly || selection.length !== 1) return null;
+		const connection = connectionById(selection[0] ?? "");
+		if (!connection) return null;
+		const resolved = resolveConnectionGeometry(connection);
+		if (!resolved) return null;
+		const radius = portHitRadius(pointerType) / Math.max(camera.zoom, 0.0001);
+		const toSource = Math.hypot(
+			resolved.source.point.x - point.x,
+			resolved.source.point.y - point.y,
+		);
+		const toTarget = Math.hypot(
+			resolved.target.point.x - point.x,
+			resolved.target.point.y - point.y,
+		);
+		if (toSource <= radius && toSource <= toTarget)
+			return { connection, which: "source" };
+		if (toTarget <= radius) return { connection, which: "target" };
+		return null;
+	}
+
+	/** A connectable node under a point, excluding one id. */
+	function connectTargetAt(
+		point: WorldPoint,
+		excludeId?: string,
+	): string | null {
+		const item = topItemAt(point);
+		if (!item || item.id === excludeId) return null;
+		if (isLocked(item)) return null;
+		return shapeCapabilities(item).canConnect ? item.id : null;
+	}
+
+	function deleteConnection(connectionId: string) {
+		if (options.readonly) return;
+		const next = synced.connections.filter(
+			(connection) => connection.id !== connectionId,
+		);
+		if (next.length === synced.connections.length) return;
+		setConnections(next);
+		selection = selection.filter((id) => id !== connectionId);
+		commitAction();
 	}
 
 	// ─── Pointer interaction state machine ─────────────────────────
@@ -1762,11 +1987,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		}
 		if (tool === "arrow") {
 			const style = toolStyles.arrow;
-			const target = topItemAt(event.world);
-			const startBinding =
-				target && shapeCapabilities(target).canBind
-					? bindEndpointAt(event.world, { id: target.id, frame: target.frame })
-					: null;
 			interaction = {
 				type: "creatingArrow",
 				id: createBoardItemId(),
@@ -1774,7 +1994,33 @@ export function createBoardEditor(options: BoardEditorOptions) {
 				current: event.world,
 				color: style.color,
 				size: style.size,
-				startBinding,
+			};
+			return;
+		}
+		if (tool === "connect") {
+			// The Connect tool starts a relation from whatever connectable node is
+			// under the pointer, so a drag anywhere on the node works - no need to
+			// find a port first.
+			const source = topItemAt(event.world);
+			if (source && shapeCapabilities(source).canConnect && !isLocked(source)) {
+				selection = [source.id];
+				interaction = {
+					type: "creatingConnection",
+					sourceNodeId: source.id,
+					sourceAnchor: { kind: "auto" },
+					current: event.world,
+					targetNodeId: null,
+				};
+				return;
+			}
+			// Nothing to connect from: fall through to a marquee rather than
+			// swallowing the gesture.
+			interaction = {
+				type: "brushing",
+				start: event.world,
+				current: event.world,
+				additive,
+				baseSelection: selection,
 			};
 			return;
 		}
@@ -1794,6 +2040,36 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		}
 		if (tool === "text") {
 			beginTextDraft(event.world);
+			return;
+		}
+
+		// A connection port beats every box control: it sits outside the node, so a
+		// press there can only mean "start a relation".
+		const port = connectionPortAt(event.world, event.pointerType);
+		if (port) {
+			interaction = {
+				type: "creatingConnection",
+				sourceNodeId: port.nodeId,
+				sourceAnchor: { kind: "side", side: port.side, offset: 0.5 },
+				current: event.world,
+				targetNodeId: null,
+			};
+			return;
+		}
+
+		// Endpoint handles of the selected relation, so an existing edge can be
+		// re-pointed without deleting it.
+		const endpointHandle = connectionEndpointAt(event.world, event.pointerType);
+		if (endpointHandle) {
+			interaction = {
+				type: "draggingConnectionEnd",
+				connectionId: endpointHandle.connection.id,
+				which: endpointHandle.which,
+				origin: endpointHandle.connection,
+				current: event.world,
+				targetNodeId: null,
+				moved: false,
+			};
 			return;
 		}
 
@@ -1852,6 +2128,20 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		}
 
 		const item = topItemAt(event.world);
+		if (!item) {
+			// Nodes win over relations: a connection is only selectable where no node
+			// covers it, so a line crossing a card never steals that card's click.
+			const connection = connectionAt(event.world);
+			if (connection) {
+				selection = additive
+					? selection.includes(connection.id)
+						? selection.filter((id) => id !== connection.id)
+						: [...selection, connection.id]
+					: [connection.id];
+				interaction = { type: "idle" };
+				return;
+			}
+		}
 		if (item) {
 			if (additive) {
 				selection = selection.includes(item.id)
@@ -1948,9 +2238,12 @@ export function createBoardEditor(options: BoardEditorOptions) {
 						[...interaction.origin.keys()],
 						0,
 					);
-					if (clones.length > 0) {
-						setItems([...synced.items, ...clones]);
-						selection = clones.map((copy) => copy.id);
+					if (clones.items.length > 0) {
+						setContent(
+							[...synced.items, ...clones.items],
+							[...synced.connections, ...clones.connections],
+						);
+						selection = clones.items.map((copy) => copy.id);
 						interaction = {
 							...interaction,
 							origin: framesFor(selection),
@@ -1970,14 +2263,13 @@ export function createBoardEditor(options: BoardEditorOptions) {
 				if (Math.abs(dx) >= Math.abs(dy)) dy = 0;
 				else dx = 0;
 			}
-			const lookup = frameLookup();
 			const preview = new Map<string, BoardFrame>();
 			for (const [id, frame] of interaction.origin) {
 				const arrow = interaction.arrowOrigin.get(id);
 				preview.set(
 					id,
 					arrow
-						? translateArrow(arrow, dx, dy, lookup).frame
+						? translateArrow(arrow, dx, dy).frame
 						: { ...frame, x: frame.x + dx, y: frame.y + dy },
 				);
 			}
@@ -1998,7 +2290,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 			const frames = new Map<string, BoardFrame>();
 			for (const [id, frame] of interaction.origin) {
 				const arrow = interaction.arrowOrigin.get(id);
-				if (arrow) arrowPatches.set(id, translateArrow(arrow, tx, ty, lookup));
+				if (arrow) arrowPatches.set(id, translateArrow(arrow, tx, ty));
 				else frames.set(id, { ...frame, x: frame.x + tx, y: frame.y + ty });
 			}
 			const dirty = [...interaction.origin.keys()];
@@ -2012,7 +2304,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
 				false,
 				dirty,
 			);
-			refreshBoundArrowFrames(new Set(dirty));
 			return;
 		}
 
@@ -2060,7 +2351,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
 				false,
 				frames.keys(),
 			);
-			refreshBoundArrowFrames(new Set(interaction.origin.keys()));
 			return;
 		}
 
@@ -2085,7 +2375,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
 				index += 1;
 			}
 			setItems(patchItemFrames(synced.items, frames), false, frames.keys());
-			refreshBoundArrowFrames(new Set(interaction.origin.keys()));
 			return;
 		}
 
@@ -2094,13 +2383,10 @@ export function createBoardEditor(options: BoardEditorOptions) {
 			const arrowId = interaction.arrowId;
 			const which = interaction.which;
 
-			// Mid handle bends the quadratic control point.
 			if (which === "mid") {
 				const origin = interaction.origin;
-				const lookup = frameLookup();
-				const start = resolveEndpoint(origin.start, lookup);
-				const end = resolveEndpoint(origin.end, lookup);
-				if (!start || !end) return;
+				const start = origin.start;
+				const end = origin.end;
 				const dx = end.x - start.x;
 				const dy = end.y - start.y;
 				const length = Math.hypot(dx, dy) || 1;
@@ -2117,11 +2403,9 @@ export function createBoardEditor(options: BoardEditorOptions) {
 				return;
 			}
 
-			const target = bindTargetAt(event.world, arrowId);
-			const endpoint = bindEndpointAt(event.world, target);
-			// Optional snap of free endpoints to nearby shape edges.
+			// Snap the free endpoint to nearby shape edges.
 			let point = event.world;
-			if (endpoint.kind === "point" && !event.metaKey && !event.ctrlKey) {
+			if (!event.metaKey && !event.ctrlKey) {
 				const snap = computeSnap(
 					{ x: point.x, y: point.y, width: 0, height: 0 },
 					synced.items
@@ -2136,20 +2420,10 @@ export function createBoardEditor(options: BoardEditorOptions) {
 				);
 				point = worldPoint(point.x + snap.dx, point.y + snap.dy);
 				snapGuides = snap.guides;
-				if (!target) {
-					const snappedTarget = bindTargetAt(point, arrowId);
-					const snapped = bindEndpointAt(point, snappedTarget);
-					applyArrowEndpoint(arrowId, which, snapped);
-					return;
-				}
 			} else {
 				snapGuides = [];
 			}
-			applyArrowEndpoint(
-				arrowId,
-				which,
-				target ? endpoint : { kind: "point", x: point.x, y: point.y },
-			);
+			applyArrowEndpoint(arrowId, which, point);
 			return;
 		}
 
@@ -2178,6 +2452,31 @@ export function createBoardEditor(options: BoardEditorOptions) {
 
 		if (interaction.type === "creatingArrow") {
 			interaction = { ...interaction, current: event.world };
+			return;
+		}
+
+		if (interaction.type === "creatingConnection") {
+			// The candidate is resolved every frame so the highlight tracks the pointer
+			// exactly; nothing is written until the gesture ends.
+			interaction = {
+				...interaction,
+				current: event.world,
+				targetNodeId: connectTargetAt(event.world, interaction.sourceNodeId),
+			};
+			return;
+		}
+
+		if (interaction.type === "draggingConnectionEnd") {
+			const fixedEnd =
+				interaction.which === "source"
+					? interaction.origin.target.nodeId
+					: interaction.origin.source.nodeId;
+			interaction = {
+				...interaction,
+				current: event.world,
+				targetNodeId: connectTargetAt(event.world, fixedEnd),
+				moved: true,
+			};
 			return;
 		}
 
@@ -2215,17 +2514,14 @@ export function createBoardEditor(options: BoardEditorOptions) {
 			const targetId = gesture.tapSelection.targetId;
 			selection = targetId && itemById(targetId) ? [targetId] : [];
 		} else if (gesture.type === "translating" && gesture.moved) {
-			refreshBoundArrowFrames(new Set(selection));
 			bumpStructure();
 			commitAction();
 		} else if (gesture.type === "resizing" && gesture.moved) {
 			finalizeContentResize(gesture);
-			refreshBoundArrowFrames(new Set(selection));
 			bumpStructure();
 			commitAction();
 		} else if (gesture.type === "rotating" && gesture.moved) {
 			normalizeRotations();
-			refreshBoundArrowFrames(new Set(selection));
 			bumpStructure();
 			commitAction();
 		} else if (gesture.type === "draggingArrowHandle" && gesture.moved) {
@@ -2240,23 +2536,49 @@ export function createBoardEditor(options: BoardEditorOptions) {
 			const finished = appendDrawSample(gesture, event);
 			commitDraw(finished.id, finished.points, finished.color, finished.size);
 		} else if (gesture.type === "creatingArrow") {
-			const target = topItemAt(gesture.current);
-			const endBinding =
-				target && shapeCapabilities(target).canBind
-					? bindEndpointAt(gesture.current, {
-							id: target.id,
-							frame: target.frame,
-						})
-					: null;
 			commitArrow(
 				gesture.id,
 				gesture.start,
 				gesture.current,
 				gesture.color,
 				gesture.size,
-				gesture.startBinding,
-				endBinding,
 			);
+		} else if (gesture.type === "creatingConnection") {
+			// A drag that ended on nothing creates nothing. There is no sensible
+			// half-relation to store, and inventing a node here would be a surprise.
+			const targetNodeId = event.cancelled
+				? null
+				: (gesture.targetNodeId ??
+					connectTargetAt(gesture.current, gesture.sourceNodeId));
+			if (targetNodeId) {
+				const created = connectNodes({
+					sourceNodeId: gesture.sourceNodeId,
+					targetNodeId,
+					sourceAnchor: gesture.sourceAnchor,
+				});
+				// Select the new relation so its inspector is immediately available.
+				if (created) selection = [created];
+			}
+			if (tool === "connect" && !isContinuousBoardTool(tool)) tool = "select";
+		} else if (gesture.type === "draggingConnectionEnd") {
+			const fixedEnd =
+				gesture.which === "source"
+					? gesture.origin.target.nodeId
+					: gesture.origin.source.nodeId;
+			const targetNodeId = event.cancelled
+				? null
+				: (gesture.targetNodeId ?? connectTargetAt(gesture.current, fixedEnd));
+			// Dropping on empty space leaves the relation exactly as it was: an edge
+			// with one end nowhere is not a state the model can hold.
+			if (targetNodeId) {
+				const endpoint = gesture.which === "source" ? "source" : "target";
+				const current = gesture.origin[endpoint];
+				if (current.nodeId !== targetNodeId) {
+					updateConnection(gesture.connectionId, {
+						[endpoint]: { nodeId: targetNodeId, anchor: { kind: "auto" } },
+					} as Partial<Omit<BoardConnection, "id">>);
+				}
+			}
 		} else if (gesture.type === "creatingBox") {
 			commitBoxCreate(gesture);
 		}
@@ -2433,6 +2755,19 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		get items() {
 			return items;
 		},
+		get connections() {
+			return synced.connections;
+		},
+		/**
+		 * The single selected relation, or null.
+		 *
+		 * Selection holds ids of both nodes and connections, so consumers ask for the
+		 * one they can act on rather than filtering the mixed list themselves.
+		 */
+		get selectedConnection() {
+			if (selection.length !== 1) return null;
+			return connectionById(selection[0] ?? "");
+		},
 		get camera() {
 			return camera;
 		},
@@ -2465,6 +2800,18 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		},
 		get hoverId() {
 			return hoverId;
+		},
+		/**
+		 * The connection under the pointer, for hit-test feedback.
+		 *
+		 * Only computed when the selection is clear or a connection is already
+		 * selected, so a node-hover never cross-fires with a connection-hover.
+		 */
+		get hoveredConnectionId(): string | null {
+			if (hoverPointerType === "touch") return null;
+			if (hoverId) return null;
+			const c = connectionAt(hoverPoint ?? worldPoint(-1e9, -1e9));
+			return c?.id ?? null;
 		},
 		get editingId() {
 			return editingId;
@@ -2508,7 +2855,9 @@ export function createBoardEditor(options: BoardEditorOptions) {
 			return toolStyles.geo.geo;
 		},
 		get activeStrokeSize() {
-			return tool === "arrow" ? toolStyles.arrow.size : toolStyles.draw.size;
+			if (tool === "arrow") return toolStyles.arrow.size;
+			if (tool === "connect") return toolStyles.connection.size;
+			return toolStyles.draw.size;
 		},
 		get spaceHeld() {
 			return spaceHeld;
@@ -2519,16 +2868,12 @@ export function createBoardEditor(options: BoardEditorOptions) {
 			);
 		},
 		set tool(value: BoardToolId) {
-			// A view-only editor still pans and selects, so navigation tools are kept
-			// and every creation tool collapses to Hand rather than being half-usable.
 			if (options.readonly && value !== "hand" && value !== "select") {
 				tool = "hand";
 				return;
 			}
 			tool = value;
-			// Entering a freehand tool should clear sticky selection chrome
-			// so the next stroke isn't fighting handles (tldraw does the same).
-			if (value === "draw" || value === "arrow") {
+			if (value === "draw" || value === "arrow" || value === "connect") {
 				selection = [];
 				editingId = null;
 			}
@@ -2555,12 +2900,21 @@ export function createBoardEditor(options: BoardEditorOptions) {
 			const size = clampBoardStrokeSize(value);
 			if (tool === "arrow") toolStyles.arrow.size = size;
 			else if (tool === "draw") toolStyles.draw.size = size;
+			else if (tool === "connect") toolStyles.connection.size = size;
 			else return;
 			writeBoardToolStyles(toolStyles);
 		},
 		set spaceHeld(value: boolean) {
 			spaceHeld = value;
 		},
+		connectNodes,
+		updateConnection,
+		deleteConnection,
+		connectionById,
+		connectionAt,
+		connectionsForNodes,
+		visiblePorts,
+		resolveConnectionGeometry,
 		zoomIn,
 		zoomOut,
 		resetZoom,

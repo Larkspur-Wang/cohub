@@ -1,6 +1,7 @@
 import { and, eq, gt, inArray, isNull, lt, sql } from "drizzle-orm";
 import {
   boardClips,
+  boardConnections,
   boardEffects,
   boardNodes,
   boardOperations,
@@ -28,6 +29,15 @@ import {
   BOARD_BUILTIN_CAPABILITIES,
   DEFAULT_BOARD_RENDER_LIMITS,
 } from "@cohub/protocol";
+import {
+  boardConnectionFromRow as connectionFromRow,
+  boardConnectionValues as connectionValues,
+} from "@cohub/core/board";
+import {
+  collectTouchedConnectionIds,
+  type ExistingConnectionRow,
+  planConnectionWrites,
+} from "./board-connection-plan.js";
 import {
   collectTouchedNodeIds,
   type ExistingNodeRow,
@@ -146,13 +156,30 @@ export async function inspectBoard(
         gt(sql<number>`${boardNodes.y} + ${boardNodes.height}`, viewport.y),
       )
     : and(eq(boardNodes.boardId, boardId), isNull(boardNodes.deletedAt));
-  const [nodes, effects, sequences, clips, playback] = await Promise.all([
+  const [nodes, connections, effects, sequences, clips, playback] = await Promise.all([
     wants("nodes") ? db.select().from(boardNodes).where(nodeWhere).orderBy(boardNodes.orderKey) : Promise.resolve([]),
+    wants("connections")
+      ? db.select().from(boardConnections)
+        .where(and(eq(boardConnections.boardId, boardId), isNull(boardConnections.deletedAt)))
+        .orderBy(boardConnections.connectionId)
+      : Promise.resolve([]),
     wants("effects") ? db.select().from(boardEffects).where(eq(boardEffects.boardId, boardId)) : Promise.resolve([]),
     wants("sequences") ? db.select().from(boardSequences).where(eq(boardSequences.boardId, boardId)) : Promise.resolve([]),
     wants("clips") ? db.select().from(boardClips).where(eq(boardClips.boardId, boardId)).orderBy(boardClips.sequenceId, boardClips.start) : Promise.resolve([]),
     wants("playback") ? db.select().from(boardPlaybackStates).where(eq(boardPlaybackStates.boardId, boardId)).limit(1) : Promise.resolve([]),
   ]);
+  // A viewport read culls nodes, so connections are narrowed to the ones whose
+  // endpoints are both present. Returning an edge to a node the caller was not
+  // given would make the response internally inconsistent - the reader could not
+  // tell a clipped endpoint from a deleted one.
+  const visibleConnections = viewport && wants("nodes")
+    ? (() => {
+        const present = new Set(nodes.map((node) => node.nodeId));
+        return connections.filter(
+          (row) => present.has(row.sourceNodeId) && present.has(row.targetNodeId),
+        );
+      })()
+    : connections;
   return {
     board: {
       id: board.id,
@@ -168,6 +195,7 @@ export async function inspectBoard(
       createdAt: dateString(node.createdAt),
       updatedAt: dateString(node.updatedAt),
     })),
+    connections: visibleConnections.map(connectionFromRow),
     effects: effects.map(effectFromRow),
     sequences: sequences.map(sequenceFromRow),
     clips: clips.map(clipFromRow),
@@ -185,6 +213,7 @@ function createValidationContext(input: {
   boardVersion: number;
   metadata: Record<string, unknown>;
   nodes: Array<{ nodeId: string }>;
+  connections: Array<typeof boardConnections.$inferSelect>;
   effects: Array<typeof boardEffects.$inferSelect>;
   sequences: Array<typeof boardSequences.$inferSelect>;
   clips: Array<typeof boardClips.$inferSelect>;
@@ -199,6 +228,7 @@ function createValidationContext(input: {
     boardVersion: input.boardVersion,
     metadata: input.metadata,
     nodeIds: input.nodes.map((node) => node.nodeId),
+    connections: input.connections.map(connectionFromRow),
     effects: input.effects.map(effectFromRow),
     sequences: input.sequences.map((sequence) => ({
       id: sequence.id,
@@ -215,8 +245,9 @@ export async function validateBoardTransaction(input: {
   const [board] = await db.select({ id: boards.id, version: boards.version, metadata: boards.metadata }).from(boards)
     .where(and(eq(boards.id, transaction.boardId), eq(boards.spaceId, input.spaceId))).limit(1);
   if (!board) throw new BoardServiceError(404, "board not found", "BOARD_NOT_FOUND");
-  const [nodes, effects, sequences, clips] = await Promise.all([
+  const [nodes, connections, effects, sequences, clips] = await Promise.all([
     db.select({ nodeId: boardNodes.nodeId }).from(boardNodes).where(and(eq(boardNodes.boardId, board.id), isNull(boardNodes.deletedAt))),
+    db.select().from(boardConnections).where(and(eq(boardConnections.boardId, board.id), isNull(boardConnections.deletedAt))),
     db.select().from(boardEffects).where(eq(boardEffects.boardId, board.id)),
     db.select().from(boardSequences).where(eq(boardSequences.boardId, board.id)),
     db.select().from(boardClips).where(eq(boardClips.boardId, board.id)),
@@ -225,6 +256,7 @@ export async function validateBoardTransaction(input: {
     boardVersion: board.version,
     metadata: board.metadata,
     nodes,
+    connections,
     effects,
     sequences,
     clips,
@@ -296,8 +328,9 @@ export async function applyBoardTransaction(input: {
       .where(and(eq(boardTransactions.boardId, transaction.boardId), eq(boardTransactions.txId, transaction.txId))).limit(1);
     if (existing) return { idempotent: true, version: existing.resultVersion, playback: null };
 
-    const [validationNodes, validationEffects, validationSequences, validationClips] = await Promise.all([
+    const [validationNodes, validationConnections, validationEffects, validationSequences, validationClips] = await Promise.all([
       tx.select({ nodeId: boardNodes.nodeId }).from(boardNodes).where(and(eq(boardNodes.boardId, board.id), isNull(boardNodes.deletedAt))),
+      tx.select().from(boardConnections).where(and(eq(boardConnections.boardId, board.id), isNull(boardConnections.deletedAt))),
       tx.select().from(boardEffects).where(eq(boardEffects.boardId, board.id)),
       tx.select().from(boardSequences).where(eq(boardSequences.boardId, board.id)),
       tx.select().from(boardClips).where(eq(boardClips.boardId, board.id)),
@@ -306,6 +339,7 @@ export async function applyBoardTransaction(input: {
       boardVersion: board.version,
       metadata: board.metadata,
       nodes: validationNodes,
+      connections: validationConnections,
       effects: validationEffects,
       sequences: validationSequences,
       clips: validationClips,
@@ -340,9 +374,39 @@ export async function applyBoardTransaction(input: {
     }
     const nodePlan = planNodeWrites(transaction.operations, { existing: existingNodes });
 
+    // Connections are planned the same way and for the same reason: relations are
+    // edited in bulk (delete a selection, connect a fan-out), so their cost must
+    // track round-trips rather than operation count.
+    const touchedConnectionIds = collectTouchedConnectionIds(transaction.operations);
+    const connectionRows = touchedConnectionIds.length
+      ? await tx.select().from(boardConnections)
+        .where(and(
+          eq(boardConnections.boardId, transaction.boardId),
+          inArray(boardConnections.connectionId, touchedConnectionIds),
+        ))
+      : [];
+    const existingConnections = new Map<string, ExistingConnectionRow>();
+    for (const row of connectionRows) {
+      const { boardId: _boardId, revision: _revision, createdAt: _createdAt, updatedAt: _updatedAt, ...rest } =
+        connectionFromRow(row);
+      existingConnections.set(row.connectionId, {
+        ...rest,
+        deleted: row.deletedAt !== null,
+      });
+    }
+    const connectionPlan = planConnectionWrites(transaction.operations, {
+      existing: existingConnections,
+    });
+    const connectionRevisions = new Map(
+      connectionRows.map((row) => [row.connectionId, row.revision]),
+    );
+    const connectionCreatedAt = new Map(
+      connectionRows.map((row) => [row.connectionId, row.createdAt]),
+    );
+
     for (const [opIndex, operation] of transaction.operations.entries()) {
       // Planned above; splice its journal entry back into the operation order.
-      const plannedEntry = nodePlan.journal.get(opIndex);
+      const plannedEntry = nodePlan.journal.get(opIndex) ?? connectionPlan.journal.get(opIndex);
       if (plannedEntry) {
         operationRows.push(plannedEntry);
         continue;
@@ -470,6 +534,42 @@ export async function applyBoardTransaction(input: {
               style: sql`excluded.style`,
               data: sql`excluded.data`,
               version: sql`excluded.version`,
+              updatedAt: sql`excluded.updated_at`,
+              deletedAt: sql`excluded.deleted_at`,
+            },
+          });
+      }
+    }
+
+    // Flush planned connection writes. Same shape as the node flush: one upsert
+    // per touched row carrying its final state, so create / patch / revive /
+    // soft-delete all collapse into a single statement.
+    if (connectionPlan.writes.length) {
+      for (let offset = 0; offset < connectionPlan.writes.length; offset += NODE_WRITE_CHUNK) {
+        const chunk = connectionPlan.writes.slice(offset, offset + NODE_WRITE_CHUNK);
+        await tx.insert(boardConnections)
+          .values(chunk.map((write) => ({
+            ...connectionValues(transaction.boardId, write.fields),
+            revision: (connectionRevisions.get(write.connectionId) ?? -1) + 1,
+            createdAt: connectionCreatedAt.get(write.connectionId) ?? now,
+            updatedAt: now,
+            deletedAt: write.deleted ? now : null,
+          })))
+          .onConflictDoUpdate({
+            target: [boardConnections.boardId, boardConnections.connectionId],
+            // createdAt is deliberately absent: an existing row keeps its original.
+            set: {
+              sourceNodeId: sql`excluded.source_node_id`,
+              targetNodeId: sql`excluded.target_node_id`,
+              relation: sql`excluded.relation`,
+              direction: sql`excluded.direction`,
+              label: sql`excluded.label`,
+              sourceAnchor: sql`excluded.source_anchor`,
+              targetAnchor: sql`excluded.target_anchor`,
+              routing: sql`excluded.routing`,
+              style: sql`excluded.style`,
+              metadata: sql`excluded.metadata`,
+              revision: sql`excluded.revision`,
               updatedAt: sql`excluded.updated_at`,
               deletedAt: sql`excluded.deleted_at`,
             },

@@ -8,7 +8,8 @@
 
 import { BOARD_CLIPBOARD_KIND, BOARD_CLIPBOARD_MIME } from "@cohub/protocol";
 import {
-	type ArrowEndpoint,
+	type BoardConnection,
+	BoardConnectionSchema,
 	type BoardItem,
 	isUnknownItem,
 	KNOWN_BOARD_ITEM_TYPES,
@@ -33,21 +34,37 @@ export type BoardClipboardPayload = {
 	kind: typeof BOARD_CLIPBOARD_KIND;
 	version: typeof BOARD_CLIPBOARD_VERSION;
 	items: BoardItem[];
+	/**
+	 * Relations *between the copied nodes*.
+	 *
+	 * Carried so copying a connected group reproduces its structure, not just its
+	 * shapes. Relations to nodes outside the selection are deliberately excluded:
+	 * a pasted copy pointing back at the original would be a relation the user
+	 * never drew.
+	 */
+	connections: BoardConnection[];
 	origin: { x: number; y: number };
 };
 
 export function encodeClipboard(
 	items: BoardItem[],
+	connections: readonly BoardConnection[] = [],
 ): BoardClipboardPayload | null {
 	if (items.length === 0) return null;
 	if (items.length > MAX_CLIPBOARD_ITEMS) return null;
 	const bounds = selectionBounds(items.map((item) => item.frame));
 	if (!bounds) return null;
 	const origin = { x: bounds.x, y: bounds.y };
+	const copied = new Set(items.map((item) => item.id));
 	return {
 		kind: BOARD_CLIPBOARD_KIND,
 		version: BOARD_CLIPBOARD_VERSION,
 		items: items.map((item) => shiftItem(item, -origin.x, -origin.y)),
+		connections: connections.filter(
+			(connection) =>
+				copied.has(connection.source.nodeId) &&
+				copied.has(connection.target.nodeId),
+		),
 		origin,
 	};
 }
@@ -112,38 +129,72 @@ export function parseClipboard(raw: unknown): BoardClipboardPayload | null {
 	}
 	if (items.length === 0) return null;
 
+	// Connections are optional on the wire but strictly validated when present: a
+	// relation is pure reference, so one that fails its schema or names a node
+	// outside the payload is dropped rather than pasted as a dangling edge.
+	const connections: BoardConnection[] = [];
+	if (record.connections !== undefined) {
+		if (!Array.isArray(record.connections)) return null;
+		if (record.connections.length > MAX_CLIPBOARD_ITEMS) return null;
+		const ids = new Set(items.map((item) => item.id));
+		const seenConnectionIds = new Set<string>();
+		for (const entry of record.connections) {
+			const parsed = BoardConnectionSchema.safeParse(entry);
+			if (!parsed.success) return null;
+			const connection = parsed.data;
+			if (seenConnectionIds.has(connection.id)) return null;
+			seenConnectionIds.add(connection.id);
+			if (
+				!ids.has(connection.source.nodeId) ||
+				!ids.has(connection.target.nodeId)
+			)
+				continue;
+			connections.push(connection);
+		}
+	}
+
 	return {
 		kind: BOARD_CLIPBOARD_KIND,
 		version: BOARD_CLIPBOARD_VERSION,
 		items,
+		connections,
 		origin: { x: ox, y: oy },
 	};
 }
 
 /**
- * Materialise clipboard items: fresh ids, world offset, bindings remapped when
- * the target is also being pasted.
+ * Materialise clipboard content: fresh ids, world offset, and relations rewired
+ * onto the new nodes.
+ *
+ * Both items and connections get new identities, and every endpoint is remapped
+ * through the same id map, so a pasted group is structurally identical to the
+ * original while sharing nothing with it.
  */
 export function materializeClipboard(
 	payload: BoardClipboardPayload,
 	at: { x: number; y: number },
-): BoardItem[] {
+): { items: BoardItem[]; connections: BoardConnection[] } {
 	const idMap = new Map<string, string>();
 	for (const item of payload.items) idMap.set(item.id, createBoardItemId());
-	return payload.items.map((item) => {
+	const items = payload.items.map((item) => {
 		const nextId = idMap.get(item.id) ?? createBoardItemId();
 		const shifted = shiftItem(item, at.x, at.y);
-		if (shifted.type === "arrow") {
-			return {
-				...shifted,
-				id: nextId,
-				locked: false,
-				start: remapEndpoint(shifted.start, idMap),
-				end: remapEndpoint(shifted.end, idMap),
-			};
-		}
 		return { ...shifted, id: nextId, locked: false };
 	});
+	const connections = (payload.connections ?? []).flatMap((connection) => {
+		const source = idMap.get(connection.source.nodeId);
+		const target = idMap.get(connection.target.nodeId);
+		if (!source || !target) return [];
+		return [
+			{
+				...connection,
+				id: createBoardItemId(),
+				source: { ...connection.source, nodeId: source },
+				target: { ...connection.target, nodeId: target },
+			},
+		];
+	});
+	return { items, connections };
 }
 
 export function defaultPasteOffset(count = 1) {
@@ -156,29 +207,9 @@ function shiftItem(item: BoardItem, dx: number, dy: number): BoardItem {
 		return {
 			...item,
 			frame,
-			start: shiftEndpoint(item.start, dx, dy),
-			end: shiftEndpoint(item.end, dx, dy),
+			start: { x: item.start.x + dx, y: item.start.y + dy },
+			end: { x: item.end.x + dx, y: item.end.y + dy },
 		};
 	}
 	return { ...item, frame };
-}
-
-function shiftEndpoint(
-	endpoint: ArrowEndpoint,
-	dx: number,
-	dy: number,
-): ArrowEndpoint {
-	if (endpoint.kind === "point")
-		return { kind: "point", x: endpoint.x + dx, y: endpoint.y + dy };
-	return endpoint;
-}
-
-function remapEndpoint(
-	endpoint: ArrowEndpoint,
-	idMap: Map<string, string>,
-): ArrowEndpoint {
-	if (endpoint.kind === "point") return endpoint;
-	const mapped = idMap.get(endpoint.target);
-	if (!mapped) return endpoint;
-	return { ...endpoint, target: mapped };
 }

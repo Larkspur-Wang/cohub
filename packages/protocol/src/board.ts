@@ -3,6 +3,13 @@ import type {
   BoardCapability,
   BoardRenderCost,
 } from "./board-constants.js";
+import {
+  BoardConnectionPatchSchema,
+  BoardConnectionSchema,
+  type BoardConnectionInput,
+  type BoardConnectionPatch,
+  type BoardConnectionRecord,
+} from "./board-connection.js";
 
 export {
   BOARD_BUILTIN_CAPABILITIES,
@@ -70,6 +77,8 @@ export const BoardTargetSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("board") }),
   z.object({ type: z.literal("camera") }),
 ]);
+
+export { BoardConnectionPatchSchema, BoardConnectionSchema };
 
 export const BoardAssetRefSchema = z.object({
   type: z.enum(["space-file", "extension"]),
@@ -191,7 +200,7 @@ export const BoardNodeInputSchema = z.object({
   data: jsonObjectSchema,
 });
 
-export const BOARD_DELETE_REASONS = ["user-delete", "orphan-cleanup", "layout-replace", "placeholder-cascade"] as const;
+export const BOARD_DELETE_REASONS = ["user-delete", "orphan-cleanup", "layout-replace", "placeholder-cascade", "node-cascade"] as const;
 export type BoardDeleteReason = (typeof BOARD_DELETE_REASONS)[number] | (string & {});
 
 type BoardOperationBase = {
@@ -204,6 +213,9 @@ export type BoardOperation =
   | (BoardOperationBase & { type: "node.create"; payload: { node: BoardNodeInput } })
   | (BoardOperationBase & { type: "node.patch"; payload: { nodeId: string; patch: Partial<BoardNodeInput> } })
   | (BoardOperationBase & { type: "node.delete"; payload: { nodeId: string; reason?: BoardDeleteReason } })
+  | (BoardOperationBase & { type: "connection.create"; payload: { connection: BoardConnectionInput } })
+  | (BoardOperationBase & { type: "connection.patch"; payload: { connectionId: string; patch: BoardConnectionPatch } })
+  | (BoardOperationBase & { type: "connection.delete"; payload: { connectionId: string; reason?: BoardDeleteReason } })
   | (BoardOperationBase & { type: "effect.upsert"; payload: { effect: Omit<BoardEffect, "boardId" | "revision"> } })
   | (BoardOperationBase & { type: "effect.delete"; payload: { effectId: string } })
   | (BoardOperationBase & { type: "sequence.upsert"; payload: { sequence: Omit<BoardSequence, "boardId" | "revision">; clips: Array<Omit<BoardClip, "sequenceId">> } })
@@ -221,6 +233,7 @@ export type BoardTransaction = {
 export type BoardBootstrap = {
   board: BoardRecord;
   nodes: BoardNodeRecord[];
+  connections: BoardConnectionRecord[];
   effects: BoardEffect[];
   sequences: BoardSequence[];
   clips: BoardClip[];
@@ -241,6 +254,7 @@ export const BoardCreateInputSchema = z.object({
   title: z.string().min(1).max(255).optional(),
   metadata: jsonObjectSchema.optional(),
   nodes: z.array(BoardNodeInputSchema).max(50_000).optional(),
+  connections: z.array(BoardConnectionSchema).max(50_000).optional(),
   effects: z.array(BoardEffectSchema.omit({ boardId: true, revision: true })).optional(),
   sequences: z.array(z.object({
     sequence: BoardSequenceSchema.omit({ boardId: true, revision: true }),
@@ -251,7 +265,7 @@ export const BoardCreateInputSchema = z.object({
 export type BoardCreateInput = z.infer<typeof BoardCreateInputSchema>;
 
 export const BoardInspectInputSchema = z.object({
-  include: z.array(z.enum(["nodes", "effects", "sequences", "clips", "playback"])).optional(),
+  include: z.array(z.enum(["nodes", "connections", "effects", "sequences", "clips", "playback"])).optional(),
   viewport: z.object({
     x: finiteSchema,
     y: finiteSchema,

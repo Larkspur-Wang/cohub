@@ -4,6 +4,7 @@ import { and, eq } from "drizzle-orm";
 import {
   boardCheckpoints,
   boardClips,
+  boardConnections,
   boardEffects,
   boardNodes,
   boardSequences,
@@ -115,6 +116,51 @@ export async function restoreBoardCheckpointSnapshots(input: {
           createdAt: now,
           updatedAt: now,
         })));
+
+        // Connections are restored after nodes so the relation set is only ever
+        // written alongside the nodes it references. Endpoints missing from the
+        // snapshot are dropped rather than restored dangling: the snapshot is the
+        // authority for what existed, and an edge to an absent node did not.
+        const restoredNodeIds = new Set(nodes.map((node) => String(node.nodeId)));
+        const connections = records(snapshot.connections).filter((connection) => {
+          const source = connection.source as { nodeId?: unknown } | undefined;
+          const target = connection.target as { nodeId?: unknown } | undefined;
+          return (
+            typeof source?.nodeId === "string" &&
+            typeof target?.nodeId === "string" &&
+            restoredNodeIds.has(source.nodeId) &&
+            restoredNodeIds.has(target.nodeId)
+          );
+        });
+        if (connections.length) await tx.insert(boardConnections).values(connections.map((connection) => {
+          const source = connection.source as { nodeId: string; anchor?: unknown };
+          const target = connection.target as { nodeId: string; anchor?: unknown };
+          const anchor = (value: unknown) =>
+            value && typeof value === "object" && !Array.isArray(value)
+              ? value as Record<string, unknown>
+              : { kind: "auto" };
+          const group = (value: unknown) =>
+            value && typeof value === "object" && !Array.isArray(value)
+              ? value as Record<string, unknown>
+              : {};
+          return {
+            boardId,
+            connectionId: String(connection.id),
+            sourceNodeId: source.nodeId,
+            targetNodeId: target.nodeId,
+            relation: typeof connection.relation === "string" ? connection.relation : "related",
+            direction: typeof connection.direction === "string" ? connection.direction : "forward",
+            label: typeof connection.label === "string" ? connection.label : "",
+            sourceAnchor: anchor(source.anchor),
+            targetAnchor: anchor(target.anchor),
+            routing: group(connection.routing),
+            style: group(connection.style),
+            metadata: group(connection.metadata),
+            revision: Number(connection.revision ?? 0),
+            createdAt: now,
+            updatedAt: now,
+          };
+        }));
 
         const effects = records(snapshot.effects);
         if (effects.length) await tx.insert(boardEffects).values(effects.map((effect) => {

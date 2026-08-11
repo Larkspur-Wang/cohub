@@ -46,8 +46,8 @@ function arrow(): BoardItem {
 	return {
 		id: "arrow",
 		type: "arrow",
-		start: { kind: "point", x: 0, y: 0 },
-		end: { kind: "point", x: 100, y: 100 },
+		start: { x: 0, y: 0 },
+		end: { x: 100, y: 100 },
 		bend: 0,
 		color: "brand",
 		size: 2,

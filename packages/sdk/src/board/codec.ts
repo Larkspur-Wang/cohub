@@ -21,11 +21,11 @@ import type {
 import {
   BOARD_DOCUMENT_KIND,
   BoardAppearanceSchema,
-  BoardDocumentSchema,
   BoardFileSnapshotSchema,
+  parseBoardDocument,
   UNKNOWN_BOARD_ITEM_TYPE,
 } from "@cohub/protocol/board-document";
-import type { BoardNodeInput, BoardNodeRecord, BoardRecord } from "@cohub/protocol";
+import type { BoardConnectionRecord, BoardNodeInput, BoardNodeRecord, BoardRecord } from "@cohub/protocol";
 import { clampBoardTextFontSize, TEXT_FONT_SIZE } from "./core/text-metrics.js";
 
 /**
@@ -120,6 +120,14 @@ function spaceFilePathFromNode(node: BoardNodeRecord): string | null {
 	return null;
 }
 
+/** Read a stored world point, defaulting to the origin when absent. */
+function pointFromData(value: unknown): BoardArrowItem["start"] {
+	if (isRecord(value) && typeof value.x === "number" && typeof value.y === "number") {
+		return { x: value.x, y: value.y };
+	}
+	return { x: 0, y: 0 };
+}
+
 function boardNodeToItemValue(node: BoardNodeRecord): BoardItem {
 	const frame = frameFromNode(node);
 	const style = styleFromNode(node);
@@ -169,16 +177,8 @@ function boardNodeToItemValue(node: BoardNodeRecord): BoardItem {
 			return {
 				id: node.nodeId,
 				type: "arrow",
-				start: (data.start ?? {
-					kind: "point",
-					x: 0,
-					y: 0,
-				}) as BoardArrowItem["start"],
-				end: (data.end ?? {
-					kind: "point",
-					x: 0,
-					y: 0,
-				}) as BoardArrowItem["end"],
+				start: pointFromData(data.start),
+				end: pointFromData(data.end),
 				bend: typeof data.bend === "number" ? data.bend : 0,
 				color: typeof data.color === "string" ? data.color : "brand",
 				size: typeof data.size === "number" ? data.size : 2.5,
@@ -289,16 +289,24 @@ export function boardNodeToItem(node: BoardNodeRecord): BoardItem {
 export function boardBootstrapToDocument(input: {
 	board: BoardRecord;
 	nodes: BoardNodeRecord[];
+	connections?: BoardConnectionRecord[];
 }): BoardDocument {
 	const appearance = BoardAppearanceSchema.safeParse(
 		input.board.metadata.appearance,
 	);
-	const document = BoardDocumentSchema.parse({
+	// Server-owned fields are dropped: a document carries the connection's meaning,
+	// while `revision` and timestamps belong to the row that stores it.
+	const connections = (input.connections ?? []).map(
+		({ boardId: _boardId, revision: _revision, createdAt: _createdAt, updatedAt: _updatedAt, ...connection }) =>
+			connection,
+	);
+	const document = parseBoardDocument({
 		kind: BOARD_DOCUMENT_KIND,
 		version: 1,
 		appearance: appearance.success ? appearance.data : DEFAULT_BOARD_APPEARANCE,
 		viewport: { x: 0, y: 0, zoom: 1 },
 		items: input.nodes.map(boardNodeToItem),
+		connections,
 	});
 	const sources = new Map(
 		input.nodes.map((node) => [node.nodeId, nodeInputFromRecord(node)]),

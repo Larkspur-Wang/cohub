@@ -18,6 +18,7 @@ import {
   inspectBoard,
   normalizeBoardOperation,
   normalizeBoardTransaction,
+  normalizeConnections,
   normalizeNodes,
   NODE_WRITE_CHUNK,
   validateBoardTransaction,
@@ -113,10 +114,15 @@ router.post("/", async (c) => {
   let operations: BoardOperation[];
   try {
     nodes = normalizeNodes(body.nodes ?? []);
+    // Connections are applied as operations rather than inserted alongside the
+    // nodes, so they go through the same referential validation as any later edit:
+    // a create cannot smuggle in an edge to a node it did not also create.
+    const connections = normalizeConnections(body.connections ?? []);
     operations = [
       ...(body.metadata
         ? [{ type: "board.patch", payload: { patch: { metadata: body.metadata } } } satisfies BoardOperation]
         : []),
+      ...connections.map((connection): BoardOperation => ({ type: "connection.create", payload: { connection } })),
       ...(body.effects ?? []).map((effect): BoardOperation => ({ type: "effect.upsert", payload: { effect } })),
       ...(body.sequences ?? []).map(({ sequence, clips }): BoardOperation => ({ type: "sequence.upsert", payload: { sequence, clips } })),
     ].map(normalizeBoardOperation);

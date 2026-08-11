@@ -8,6 +8,7 @@
  * identical to what the editor draws.
  */
 
+export * from "./connection-layer.js";
 export * from "./palette.js";
 export * from "./renderers/board-renderer-registry.js";
 export * from "./text-measurement.js";

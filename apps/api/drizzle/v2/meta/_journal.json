@@ -372,6 +372,13 @@
       "when": 1786096889110,
       "tag": "0052_work_view_stats_hourly",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1786407389276,
+      "tag": "0053_big_scalphunter",
+      "breakpoints": true
     }
   ]
 }

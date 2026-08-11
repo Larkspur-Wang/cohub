@@ -18,7 +18,6 @@ import {
 	degToRad,
 	distanceToArrow,
 	distanceToStroke,
-	type FrameLookup,
 	FULL_CAPABILITIES,
 	frameContainsPoint,
 	rectCenter,
@@ -130,7 +129,7 @@ const drawDefinition: ShapeDefinition = {
 		canResize: true,
 		aspectLocked: true,
 		canEdit: false,
-		canBind: false,
+		canConnect: false,
 	},
 	getBounds: (item) =>
 		item.type === "draw"
@@ -174,7 +173,7 @@ const arrowDefinition: ShapeDefinition = {
 		canResize: false,
 		canRotate: false,
 		canEdit: false,
-		canBind: false,
+		canConnect: false,
 		canSnap: false,
 	},
 	// Coarse frame fallback; the editor uses the precise arrowHitTest (curve
@@ -194,28 +193,24 @@ const frameDefinition: ShapeDefinition = {
 		...FULL_CAPABILITIES,
 		canEdit: true,
 		canRotate: false,
-		canBind: false,
+		canConnect: false,
 	},
 };
 
-/** Precise arrow hit test given a frame lookup (used by the editor). */
-export function arrowHitTest(
-	item: BoardArrowItem,
-	getFrame: FrameLookup,
-	point: WorldPoint,
-): boolean {
+/** Precise arrow hit test against its own curve. */
+export function arrowHitTest(item: BoardArrowItem, point: WorldPoint): boolean {
 	const threshold = Math.max(8, item.size * 2);
-	return distanceToArrow(item, getFrame, point) <= threshold;
+	return distanceToArrow(item, point) <= threshold;
 }
 
-/** Arrow bounds given a frame lookup (used by the editor for culling). */
-export function arrowBoundsFor(item: BoardArrowItem, getFrame: FrameLookup) {
-	return arrowBounds(item, getFrame);
+/** Arrow bounds (used by the editor for culling). */
+export function arrowBoundsFor(item: BoardArrowItem) {
+	return arrowBounds(item);
 }
 
-/** Resolved arrow geometry for rendering/overlay (null if a binding is gone). */
-export function resolveArrowFor(item: BoardArrowItem, getFrame: FrameLookup) {
-	return resolveArrow(item, getFrame);
+/** Resolved arrow geometry for rendering and the selection overlay. */
+export function resolveArrowFor(item: BoardArrowItem) {
+	return resolveArrow(item);
 }
 
 let registered = false;

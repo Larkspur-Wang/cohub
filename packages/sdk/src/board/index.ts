@@ -9,9 +9,11 @@
  */
 
 export * from "./animation.js";
+export * from "@cohub/protocol/board-connection";
 export * from "@cohub/protocol/board-document";
 export * from "./codec.js";
-export * from "./core/bindings.js";
+export * from "./core/arrow-geometry.js";
+export * from "./core/connections.js";
 export * from "./core/draw-geometry.js";
 export * from "./core/export-assets.js";
 export * from "./core/export-plan.js";

@@ -5,7 +5,7 @@ import {
 	textResolutionForZoom,
 } from "../text-resolution.js";
 import type { BoardArrowItem } from "@cohub/protocol/board-document";
-import { resolveArrow, sampleQuadratic } from "../../core/bindings.js";
+import { resolveArrow, sampleArrow } from "../../core/arrow-geometry.js";
 import { pickBoardColor } from "../../core/palette.js";
 import type {
 	BoardCardRenderer,
@@ -23,17 +23,6 @@ type ArrowParts = {
 };
 
 const partsByContainer = new WeakMap<Container, ArrowParts>();
-
-/**
- * Frame lookup for resolving bindings.
- *
- * Routed through the context's id index rather than scanning the document: an
- * arrow re-resolves its endpoints on every sync, and a per-arrow O(items) scan
- * would make a board with many arrows quadratic per frame.
- */
-function frameLookup(context: BoardRenderContext) {
-	return (id: string) => context.getItem(id)?.frame;
-}
 
 /** Open chevron arrowhead — clearly directional, not a tiny filled nub. */
 function drawArrowhead(
@@ -82,79 +71,74 @@ function sync(
 	const color = pickBoardColor(context.colors, item.color, context.colorScheme);
 	syncTextResolution(parts.label, parts, context.zoom);
 
-	const getFrame = frameLookup(context);
-	const resolved = resolveArrow(item, getFrame);
+	const resolved = resolveArrow(item);
 
-	// Signature includes the resolved endpoints so the line tracks bound targets.
-	const lineSig = resolved
-		? [
-				resolved.start.x,
-				resolved.start.y,
-				resolved.end.x,
-				resolved.end.y,
-				resolved.control.x,
-				resolved.control.y,
-				selected,
-				hovered,
-				color.stroke,
-				item.size,
-				item.arrowStart,
-				item.arrowEnd,
-			].join("|")
-		: `empty|${item.id}`;
+	// Signature includes the resolved endpoints so the line tracks its geometry.
+	const lineSig = [
+		resolved.start.x,
+		resolved.start.y,
+		resolved.end.x,
+		resolved.end.y,
+		resolved.control.x,
+		resolved.control.y,
+		selected,
+		hovered,
+		color.stroke,
+		item.size,
+		item.arrowStart,
+		item.arrowEnd,
+	].join("|");
 	if (lineSig !== parts.lineSig) {
 		parts.lineSig = lineSig;
 		parts.line.clear();
-		if (resolved) {
-			const strokeColor = color.stroke;
-			const width = selected ? item.size + 1 : item.size;
-			const samples = sampleQuadratic(resolved, 24);
-			const head = samples[0];
-			const tail = samples[samples.length - 1];
-			if (head && tail) {
-				parts.line.moveTo(head.x, head.y);
-				for (let i = 1; i < samples.length; i += 1) {
-					const point = samples[i];
-					if (point) parts.line.lineTo(point.x, point.y);
-				}
-				parts.line.stroke({
-					color: strokeColor,
-					width,
-					alpha: selected || hovered ? 1 : 0.92,
-					cap: "round",
-					join: "round",
-				});
+		const strokeColor = color.stroke;
+		const width = selected ? item.size + 1 : item.size;
+		const samples = sampleArrow(resolved, 24);
+		const head = samples[0];
+		const tail = samples[samples.length - 1];
+		if (head && tail) {
+			parts.line.moveTo(head.x, head.y);
+			for (let i = 1; i < samples.length; i += 1) {
+				const point = samples[i];
+				if (point) parts.line.lineTo(point.x, point.y);
+			}
+			parts.line.stroke({
+				color: strokeColor,
+				width,
+				alpha: selected || hovered ? 1 : 0.92,
+				cap: "round",
+				join: "round",
+			});
 
-				// Head scales with stroke and arrow length so short arrows stay legible.
-				const span = Math.hypot(tail.x - head.x, tail.y - head.y);
-				const headSize = Math.min(
-					Math.max(14, item.size * 5.5),
-					Math.max(10, span * 0.28),
-				);
-				if (item.arrowEnd) {
-					const prev = samples[samples.length - 2];
-					if (prev)
-						drawArrowhead(
-							parts.line,
-							tail,
-							Math.atan2(tail.y - prev.y, tail.x - prev.x),
-							headSize,
-							strokeColor,
-							width,
-						);
-				}
-				if (item.arrowStart) {
-					const next = samples[1];
-					if (next)
-						drawArrowhead(
-							parts.line,
-							head,
-							Math.atan2(head.y - next.y, head.x - next.x),
-							headSize,
-							strokeColor,
-							width,
-						);
-				}
+			// Head scales with stroke and arrow length so short arrows stay legible.
+			const span = Math.hypot(tail.x - head.x, tail.y - head.y);
+			const headSize = Math.min(
+				Math.max(14, item.size * 5.5),
+				Math.max(10, span * 0.28),
+			);
+			if (item.arrowEnd) {
+				const prev = samples[samples.length - 2];
+				if (prev)
+					drawArrowhead(
+						parts.line,
+						tail,
+						Math.atan2(tail.y - prev.y, tail.x - prev.x),
+						headSize,
+						strokeColor,
+						width,
+					);
+			}
+			if (item.arrowStart) {
+				const next = samples[1];
+				if (next)
+					drawArrowhead(
+						parts.line,
+						head,
+						Math.atan2(head.y - next.y, head.x - next.x),
+						headSize,
+						strokeColor,
+						width,
+					);
 			}
 		}
 	}
@@ -165,8 +149,8 @@ function sync(
 		parts.label.text = item.label;
 		parts.label.style.fill = color.label;
 	}
-	parts.label.visible = Boolean(resolved && item.label.length > 0);
-	if (resolved) parts.label.position.copyFrom(resolved.control);
+	parts.label.visible = item.label.length > 0;
+	parts.label.position.copyFrom(resolved.control);
 }
 
 export const arrowCardRenderer: BoardCardRenderer = {
@@ -208,10 +192,9 @@ export const arrowCardRenderer: BoardCardRenderer = {
 	// order; as a live container it would be drawn above every plate.
 	renderFar: (graphics, item, context) => {
 		if (item.type !== "arrow") return;
-		const resolved = resolveArrow(item, frameLookup(context));
-		if (!resolved) return;
+		const resolved = resolveArrow(item);
 		const color = pickBoardColor(context.colors, item.color, context.colorScheme);
-		drawFarStroke(graphics, sampleQuadratic(resolved, 12), {
+		drawFarStroke(graphics, sampleArrow(resolved, 12), {
 			color: color.stroke,
 			width: item.size,
 			alpha: 0.85,

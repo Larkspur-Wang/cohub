@@ -70,7 +70,7 @@ export const unknownShapeDefinition: ShapeDefinition = {
 		aspectLocked: false,
 		canRotate: true,
 		canEdit: false,
-		canBind: true,
+		canConnect: true,
 		canSnap: true,
 		canLock: true,
 	},

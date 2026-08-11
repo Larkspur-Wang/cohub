@@ -8,6 +8,10 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./board": {
+      "types": "./dist/board/rows.d.ts",
+      "default": "./dist/board/rows.js"
+    },
     "./permissions": {
       "types": "./dist/permissions/index.d.ts",
       "default": "./dist/permissions/index.js"

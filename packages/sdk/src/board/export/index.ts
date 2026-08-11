@@ -106,6 +106,7 @@ export function renderBoardExport(
   const scene = createBoardExportScene({
     document,
     items: plan.items,
+    connections: plan.connections,
     world: plan.world,
     scale: plan.scale,
     colorScheme,

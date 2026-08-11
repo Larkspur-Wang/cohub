@@ -6,7 +6,6 @@ import {
 	arrowBounds,
 	BoardDocumentSchema,
 	BoardItemSchema,
-	bindEndpointAt,
 	buildStrokeOutline,
 	computeDrawBounds,
 	distanceToArrow,
@@ -443,8 +442,8 @@ test("resolveArrow computes a straight control point when bend is 0", () => {
 		id: "a1",
 		type: "arrow",
 		frame,
-		start: { kind: "point", x: 0, y: 0 },
-		end: { kind: "point", x: 100, y: 0 },
+		start: { x: 0, y: 0 },
+		end: { x: 100, y: 0 },
 		bend: 0,
 		color: "brand",
 		size: 3,
@@ -452,41 +451,9 @@ test("resolveArrow computes a straight control point when bend is 0", () => {
 		arrowEnd: true,
 		label: "",
 	};
-	const resolved = resolveArrow(arrow, () => undefined);
-	assert.ok(resolved);
-	assert.equal(resolved?.control.x, 50);
-	assert.equal(resolved?.control.y, 0);
-});
-
-test("a bound arrow tracks its target when the target moves", () => {
-	const targetFrame: BoardFrame = {
-		x: 0,
-		y: 0,
-		width: 100,
-		height: 100,
-		rotation: 0,
-	};
-	const arrow: BoardArrowItem = {
-		id: "a1",
-		type: "arrow",
-		frame,
-		start: { kind: "binding", target: "box", nx: 1, ny: 0.5, precise: true },
-		end: { kind: "point", x: 300, y: 50 },
-		bend: 0,
-		color: "brand",
-		size: 3,
-		arrowStart: false,
-		arrowEnd: true,
-		label: "",
-	};
-	const before = resolveArrow(arrow, (id) =>
-		id === "box" ? targetFrame : undefined,
-	);
-	assert.equal(before?.start.x, 100);
-	// Move the target +200 in x; the bound endpoint follows.
-	const moved = { ...targetFrame, x: 200 };
-	const after = resolveArrow(arrow, (id) => (id === "box" ? moved : undefined));
-	assert.equal(after?.start.x, 300);
+	const resolved = resolveArrow(arrow);
+	assert.equal(resolved.control.x, 50);
+	assert.equal(resolved.control.y, 0);
 });
 
 test("arrowBounds returns a finite box (regression: maxY init)", () => {
@@ -494,8 +461,8 @@ test("arrowBounds returns a finite box (regression: maxY init)", () => {
 		id: "a1",
 		type: "arrow",
 		frame,
-		start: { kind: "point", x: 0, y: 0 },
-		end: { kind: "point", x: 100, y: 40 },
+		start: { x: 0, y: 0 },
+		end: { x: 100, y: 40 },
 		bend: 0,
 		color: "brand",
 		size: 3,
@@ -503,11 +470,10 @@ test("arrowBounds returns a finite box (regression: maxY init)", () => {
 		arrowEnd: true,
 		label: "",
 	};
-	const bounds = arrowBounds(arrow, () => undefined);
-	assert.ok(bounds);
-	assert.ok(Number.isFinite(bounds?.width));
-	assert.ok(Number.isFinite(bounds?.height));
-	assert.ok(bounds?.height >= 40);
+	const bounds = arrowBounds(arrow);
+	assert.ok(Number.isFinite(bounds.width));
+	assert.ok(Number.isFinite(bounds.height));
+	assert.ok(bounds.height >= 40);
 });
 
 test("distanceToArrow is small near the line", () => {
@@ -515,8 +481,8 @@ test("distanceToArrow is small near the line", () => {
 		id: "a1",
 		type: "arrow",
 		frame,
-		start: { kind: "point", x: 0, y: 0 },
-		end: { kind: "point", x: 100, y: 0 },
+		start: { x: 0, y: 0 },
+		end: { x: 100, y: 0 },
 		bend: 0,
 		color: "brand",
 		size: 3,
@@ -524,21 +490,9 @@ test("distanceToArrow is small near the line", () => {
 		arrowEnd: true,
 		label: "",
 	};
-	assert.ok(distanceToArrow(arrow, () => undefined, worldPoint(50, 2)) < 5);
-	assert.ok(distanceToArrow(arrow, () => undefined, worldPoint(50, 80)) > 50);
+	assert.ok(distanceToArrow(arrow, worldPoint(50, 2)) < 5);
+	assert.ok(distanceToArrow(arrow, worldPoint(50, 80)) > 50);
 });
-
-test("bindEndpointAt binds when a target is present, else stays free", () => {
-	const bound = bindEndpointAt(worldPoint(50, 50), {
-		id: "box",
-		frame: { x: 0, y: 0, width: 100, height: 100, rotation: 0 },
-	});
-	assert.equal(bound.kind, "binding");
-	const free = bindEndpointAt(worldPoint(50, 50), null);
-	assert.equal(free.kind, "point");
-});
-
-// ─── Snapping ───────────────────────────────────────────────────────
 
 test("computeSnap snaps a near-aligned edge and emits a guide", () => {
 	const moving = { x: 102, y: 0, width: 50, height: 50 };
@@ -813,8 +767,8 @@ test("createArrowBoardItem builds a frame spanning both endpoints", () => {
 	const item = createArrowBoardItem({ x: 0, y: 0 }, { x: 100, y: 50 }, "brand");
 	assert.equal(item.type, "arrow");
 	if (item.type === "arrow") {
-		assert.equal(item.start.kind, "point");
-		assert.equal(item.end.kind, "point");
+		assert.deepEqual(item.start, { x: 0, y: 0 });
+		assert.deepEqual(item.end, { x: 100, y: 50 });
 		assert.ok(item.frame.width >= 100);
 		assert.ok(item.frame.height >= 50);
 		assert.equal(item.arrowEnd, true);
@@ -822,30 +776,13 @@ test("createArrowBoardItem builds a frame spanning both endpoints", () => {
 	}
 });
 
-test("createArrowBoardItem honours provided bindings", () => {
-	const binding = {
-		kind: "binding" as const,
-		target: "box",
-		nx: 0.5,
-		ny: 0.5,
-		precise: true,
-	};
-	const item = createArrowBoardItem(
-		{ x: 0, y: 0 },
-		{ x: 100, y: 0 },
-		"brand",
-		binding,
-	);
-	if (item.type === "arrow") assert.equal(item.start.kind, "binding");
-});
-
-test("translateArrow moves free endpoints but keeps bindings anchored", () => {
+test("translateArrow moves both endpoints and refreshes the frame", () => {
 	const arrow: BoardArrowItem = {
 		id: "a1",
 		type: "arrow",
 		frame,
-		start: { kind: "point", x: 0, y: 0 },
-		end: { kind: "binding", target: "box", nx: 0.5, ny: 0.5, precise: true },
+		start: { x: 0, y: 0 },
+		end: { x: 100, y: 0 },
 		bend: 0,
 		color: "brand",
 		size: 3,
@@ -853,26 +790,21 @@ test("translateArrow moves free endpoints but keeps bindings anchored", () => {
 		arrowEnd: true,
 		label: "",
 	};
-	const moved = translateArrow(arrow, 100, 50, () => undefined);
-	// Free start moved by the delta…
-	assert.equal(moved.start.kind, "point");
-	if (moved.start.kind === "point") {
-		assert.equal(moved.start.x, 100);
-		assert.equal(moved.start.y, 50);
-	}
-	// …bound end is unchanged (still anchored to its target).
-	assert.equal(moved.end.kind, "binding");
-	if (moved.end.kind === "binding") assert.equal(moved.end.target, "box");
+	const moved = translateArrow(arrow, 100, 50);
+	assert.deepEqual(moved.start, { x: 100, y: 50 });
+	assert.deepEqual(moved.end, { x: 200, y: 50 });
+	// The frame follows the geometry, so culling and hit testing stay correct.
+	assert.ok(moved.frame.x <= 100);
+	assert.ok(moved.frame.y <= 50);
 });
 
-test("duplicating an arrow offsets its free endpoints (no overlap)", () => {
+test("duplicating an arrow offsets its endpoints (no overlap)", () => {
 	const arrow = createArrowBoardItem({ x: 0, y: 0 }, { x: 100, y: 0 }, "brand");
 	const copy = duplicateBoardItem(arrow);
 	assert.notEqual(copy.id, arrow.id);
 	if (copy.type === "arrow" && arrow.type === "arrow") {
-		assert.ok(copy.start.kind === "point" && arrow.start.kind === "point");
-		if (copy.start.kind === "point" && arrow.start.kind === "point")
-			assert.ok(copy.start.x > arrow.start.x);
+		assert.ok(copy.start.x > arrow.start.x);
+		assert.ok(copy.end.x > arrow.end.x);
 	}
 });
 

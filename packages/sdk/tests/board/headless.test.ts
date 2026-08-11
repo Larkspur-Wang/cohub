@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
+import { createBoardConnection } from "@cohub/protocol/board-connection";
 import type { BoardDocument, BoardItem } from "@cohub/protocol/board-document";
 import {
   type BoardHeadlessRenderer,
@@ -64,8 +65,8 @@ const items: BoardItem[] = [
   {
     id: "a1",
     type: "arrow",
-    start: { kind: "binding", target: "g0", nx: 1, ny: 0.5, precise: true },
-    end: { kind: "binding", target: "g1", nx: 0, ny: 0.5, precise: true },
+    start: { x: 150, y: 90 },
+    end: { x: 320, y: 150 },
     bend: 0.2,
     color: "violet",
     size: 3,
@@ -87,6 +88,11 @@ const document: BoardDocument = {
   },
   viewport: { x: 0, y: 0, zoom: 1 },
   items,
+  // A relation between two of the nodes, so the export path covers connection
+  // drawing rather than only shapes.
+  connections: [
+    createBoardConnection({ id: "c1", sourceNodeId: "g0", targetNodeId: "g1", label: "to" }),
+  ],
 } as BoardDocument;
 
 /** PNG magic number, so "did it encode" is checked rather than assumed. */

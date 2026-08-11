@@ -68,8 +68,14 @@ export type ShapeCapabilities = {
 	canRotate: boolean;
 	/** Supports double-click inline editing. */
 	canEdit: boolean;
-	/** Can be a binding target for arrows. */
-	canBind: boolean;
+	/**
+	 * Can be an endpoint of a connection.
+	 *
+	 * False for shapes that are themselves annotation strokes (draw, arrow): a
+	 * relation between two scribbles has no meaning the model could express, and
+	 * allowing it would produce edges no reader could interpret.
+	 */
+	canConnect: boolean;
 	/** Participates in snapping as a target. */
 	canSnap: boolean;
 	/** Can be locked against accidental edits. */
@@ -95,7 +101,7 @@ export const FULL_CAPABILITIES: ShapeCapabilities = {
 	aspectLocked: false,
 	canRotate: true,
 	canEdit: false,
-	canBind: true,
+	canConnect: true,
 	canSnap: true,
 	canLock: true,
 };

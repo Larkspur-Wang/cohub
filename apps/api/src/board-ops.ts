@@ -2,11 +2,16 @@ import {
   BOARD_BUILTIN_CLIP_KINDS,
   BOARD_BUILTIN_EFFECT_KINDS,
   BoardClipSchema,
+  BoardConnectionPatchSchema,
+  BoardConnectionSchema,
   BoardEffectSchema,
   BoardPlaybackPolicySchema,
   BoardSequenceSchema,
   DEFAULT_BOARD_RENDER_LIMITS,
+  connectionNodeIds,
   type BoardClip,
+  type BoardConnection,
+  type BoardConnectionPatch,
   type BoardDiagnostic,
   type BoardEffect,
   type BoardNodeInput,
@@ -41,6 +46,14 @@ export class BoardServiceError extends Error {
  * about cost, whereas bytes bound both the request and the work it implies.
  */
 export const MAX_BOARD_NODES = 50_000;
+/**
+ * Ceiling on connections in a board.
+ *
+ * Equal to the node cap for the same reason it bounds operations: a fully
+ * connected selection is a legitimate edit, and a lower relation cap would create
+ * a board a user can draw but not save.
+ */
+export const MAX_BOARD_CONNECTIONS = 50_000;
 export const MAX_BOARD_OPERATIONS = 50_000;
 export const MAX_NODE_ID_LENGTH = 160;
 export const MAX_NODE_TYPE_LENGTH = 40;
@@ -197,6 +210,54 @@ export function normalizeNodes(input: BoardNodeInput[]): BoardNodeInput[] {
 
 export type NormalizedNodePatch = Partial<Omit<BoardNodeInput, "nodeId">>;
 
+/**
+ * Validate a connection through its schema.
+ *
+ * The schema is the single definition of a connection's shape, so this only adds
+ * what a schema cannot express: the free-form metadata is screened for embedded
+ * shader source, exactly as node and effect payloads are.
+ */
+export function normalizeConnection(input: unknown): BoardConnection {
+  const parsed = BoardConnectionSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new BoardServiceError(400, parsed.error.issues[0]?.message ?? "invalid board connection");
+  }
+  const connection = parsed.data;
+  cleanRecord(connection.metadata, "connection.metadata");
+  return connection;
+}
+
+export function normalizeConnections(input: unknown): BoardConnection[] {
+  if (!Array.isArray(input)) throw new BoardServiceError(400, "connections must be an array");
+  if (input.length > MAX_BOARD_CONNECTIONS) throw new BoardServiceError(413, "too many board connections");
+  if (jsonBytes(input) > MAX_NODES_BYTES) throw new BoardServiceError(413, "board connections are too large");
+  const connections = input.map(normalizeConnection);
+  const ids = new Set<string>();
+  for (const connection of connections) {
+    if (ids.has(connection.id)) throw new BoardServiceError(400, `duplicate connectionId: ${connection.id}`);
+    ids.add(connection.id);
+  }
+  return connections;
+}
+
+function normalizeConnectionPatch(input: unknown): BoardConnectionPatch {
+  if (!isRecord(input)) throw new BoardServiceError(400, "connection.patch requires patch");
+  const parsed = BoardConnectionPatchSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new BoardServiceError(400, parsed.error.issues[0]?.message ?? "invalid connection patch");
+  }
+  // A partial schema silently accepts unknown keys; rejecting them keeps a typo
+  // from being stored as a no-op the author believes took effect.
+  for (const key of Object.keys(input)) {
+    if (!(key in parsed.data) && key !== "id") {
+      throw new BoardServiceError(400, `unsupported connection patch field: ${key}`);
+    }
+  }
+  if (Object.keys(parsed.data).length === 0) throw new BoardServiceError(400, "connection.patch is empty");
+  if (parsed.data.metadata) cleanRecord(parsed.data.metadata, "connection.metadata");
+  return parsed.data;
+}
+
 function normalizeNodePatch(input: unknown): NormalizedNodePatch {
   if (!isRecord(input)) throw new BoardServiceError(400, "node.patch requires patch");
   const sentinel: BoardNodeInput = {
@@ -342,6 +403,31 @@ export function normalizeBoardOperation(operation: BoardOperation): BoardOperati
       const reason = optionalString(operation.payload.reason, "reason", 80) ?? undefined;
       return { ...base, type: "node.delete", payload: { nodeId, ...(reason ? { reason } : {}) } };
     }
+    case "connection.create":
+      return {
+        ...base,
+        type: "connection.create",
+        payload: { connection: normalizeConnection(operation.payload.connection) },
+      };
+    case "connection.patch": {
+      const connectionId = optionalString(operation.payload.connectionId, "connectionId", MAX_NODE_ID_LENGTH);
+      if (!connectionId) throw new BoardServiceError(400, "connection.patch requires connectionId");
+      return {
+        ...base,
+        type: "connection.patch",
+        payload: { connectionId, patch: normalizeConnectionPatch(operation.payload.patch) },
+      };
+    }
+    case "connection.delete": {
+      const connectionId = optionalString(operation.payload.connectionId, "connectionId", MAX_NODE_ID_LENGTH);
+      if (!connectionId) throw new BoardServiceError(400, "connection.delete requires connectionId");
+      const reason = optionalString(operation.payload.reason, "reason", 80) ?? undefined;
+      return {
+        ...base,
+        type: "connection.delete",
+        payload: { connectionId, ...(reason ? { reason } : {}) },
+      };
+    }
     case "effect.upsert":
       return { ...base, type: "effect.upsert", payload: { effect: parseEffect(operation.payload.effect) } };
     case "effect.delete": {
@@ -440,6 +526,8 @@ function sequencePeakCost(clips: Array<Omit<BoardClip, "sequenceId">>): BoardRen
 export type BoardValidationContext = {
   boardVersion: number;
   nodeIds: Iterable<string>;
+  /** Existing connections, so deletes and patches can be checked in order. */
+  connections: Iterable<Pick<BoardConnection, "id" | "source" | "target">>;
   effects: Iterable<Pick<BoardEffect, "id" | "target">>;
   sequences: Iterable<{ id: string; clips: BoardClip[] }>;
   metadata?: Record<string, unknown>;
@@ -498,6 +586,9 @@ export function contextualValidation(
   const result = structuralValidation(transaction);
   const diagnostics = [...result.diagnostics];
   const nodeIds = new Set(context.nodeIds);
+  const connections = new Map(
+    [...context.connections].map((connection) => [connection.id, connection]),
+  );
   const effects = new Map([...context.effects].map((effect) => [effect.id, effect.target]));
   const sequences = new Map([...context.sequences].map((sequence) => [sequence.id, sequence.clips]));
   let boardMetadata = context.metadata ?? {};
@@ -542,7 +633,63 @@ export function contextualValidation(
       if ([...sequences.values()].flat().some((clip) => clip.target.type === "node" && clip.target.nodeId === operation.payload.nodeId)) {
         error("NODE_REFERENCED", "delete node clips before deleting the node", `${path}.payload.nodeId`);
       }
+      // A relation to a deleted node is not a relation, so the edit must say what
+      // happens to it. Requiring it in the same transaction is what keeps delete
+      // atomic and undo exact: one step removes node and edges, one step restores
+      // both. An implicit cascade here would delete rows the inverse never sees.
+      const incident = [...connections.values()].filter(
+        (connection) =>
+          connection.source.nodeId === operation.payload.nodeId ||
+          connection.target.nodeId === operation.payload.nodeId,
+      );
+      if (incident.length > 0) {
+        error(
+          "NODE_REFERENCED",
+          `delete or repoint the node's connections in the same transaction: ${incident
+            .map((connection) => connection.id)
+            .join(", ")}`,
+          `${path}.payload.nodeId`,
+        );
+      }
       nodeIds.delete(operation.payload.nodeId);
+      continue;
+    }
+    if (operation.type === "connection.create") {
+      const { connection } = operation.payload;
+      if (connections.has(connection.id)) {
+        error("CONNECTION_EXISTS", `connection already exists: ${connection.id}`, `${path}.payload.connection.id`);
+      }
+      for (const nodeId of connectionNodeIds(connection)) {
+        if (!nodeIds.has(nodeId)) {
+          error("INVALID_REFERENCE", `connection endpoint does not exist: ${nodeId}`, `${path}.payload.connection`);
+        }
+      }
+      connections.set(connection.id, connection);
+      continue;
+    }
+    if (operation.type === "connection.patch") {
+      const current = connections.get(operation.payload.connectionId);
+      if (!current) {
+        error("CONNECTION_NOT_FOUND", `connection does not exist: ${operation.payload.connectionId}`, `${path}.payload.connectionId`);
+        continue;
+      }
+      const next = {
+        ...current,
+        ...operation.payload.patch,
+      } as Pick<BoardConnection, "id" | "source" | "target">;
+      for (const nodeId of connectionNodeIds(next as BoardConnection)) {
+        if (!nodeIds.has(nodeId)) {
+          error("INVALID_REFERENCE", `connection endpoint does not exist: ${nodeId}`, `${path}.payload.patch`);
+        }
+      }
+      connections.set(current.id, next);
+      continue;
+    }
+    if (operation.type === "connection.delete") {
+      if (!connections.has(operation.payload.connectionId)) {
+        error("CONNECTION_NOT_FOUND", `connection does not exist: ${operation.payload.connectionId}`, `${path}.payload.connectionId`);
+      }
+      connections.delete(operation.payload.connectionId);
       continue;
     }
     if (operation.type === "effect.upsert") {
