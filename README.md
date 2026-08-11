@@ -61,7 +61,7 @@ Quality checks: `pnpm lint` · `pnpm typecheck` · `pnpm build`
 
 ## Thanks
 
-Cohub's agent runtime is built on [pi](https://github.com/earendil-works/pi) by earendil-works — thank you for the foundation.
+Cohub's agent runtime is built on [pi](https://github.com/earendil-works/pi) — thank you for the foundation.
 
 ## License
 

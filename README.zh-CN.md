@@ -61,7 +61,7 @@ pnpm dev
 
 ## Thanks
 
-Cohub 的 Agent Runtime 基于 [pi](https://github.com/earendil-works/pi) 构建，感谢 earendil-works 提供的基石。
+Cohub 的 Agent Runtime 基于 [pi](https://github.com/earendil-works/pi) 构建，感谢它提供的基石。
 
 ## License
 
