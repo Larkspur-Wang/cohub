@@ -1,6 +1,8 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
+    "incremental": true,
+    "tsBuildInfoFile": "../../node_modules/.cache/tsbuildinfo/sandbox-controller.tsbuildinfo",
     "rootDir": "../..",
     "noEmit": true,
     "types": ["node"],

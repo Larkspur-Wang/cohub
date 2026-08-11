@@ -9,7 +9,7 @@
 		"lint": "biome lint .",
 		"lint:fix": "biome lint --write .",
 		"test": "node ../../scripts/test/run.mjs --native-types --import ./scripts/register-alias.mjs 'src/tests/**/*.test.ts'",
-		"typecheck": "svelte-kit sync && svelte-check --tsgo --tsconfig ./tsconfig.json",
+		"typecheck": "node ../../scripts/typecheck-web.mjs",
 		"preview": "pnpm build && wrangler dev",
 		"preview:prod": "pnpm build && wrangler dev --config wrangler.prod.toml",
 		"deploy": "wrangler deploy",
