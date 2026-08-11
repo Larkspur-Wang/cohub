@@ -56,6 +56,12 @@ export type AppConfig = {
   checkpointAssetOssSecretAccessKey?: string;
   /** Router status probe API base URL, used to derive per-model availability. */
   routerStatusUrl: string;
+  /** Public domains for sandbox port hostnames; the first is the primary. */
+  sandboxPublicDomains: string[];
+  /** Host suffixes accepted for Work content port URLs (security boundary). */
+  allowedWorkContentHostSuffixes: string[];
+  /** Author email for checkpoint git commits. */
+  checkpointGitAuthorEmail: string;
 };
 
 export type SandboxToleration = {
@@ -82,6 +88,25 @@ const parseCommaList = (value: string | undefined) => {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+};
+
+const parseDomainList = (value: string | undefined, fallback: string[]) => {
+  const parsed = parseCommaList(value).map((entry) =>
+    entry.replace(/^https?:\/\//, "").replace(/\/+$/, "").toLowerCase(),
+  );
+  return parsed.length > 0 ? parsed : fallback;
+};
+
+/**
+ * Match a hostname against a suffix list ("cohub.run" or ".cohub.run" both accepted).
+ * Exact match covers the bare domain; endsWith covers its subdomains.
+ */
+export const isHostAllowedBySuffix = (hostname: string, suffixes: readonly string[]): boolean => {
+  const host = hostname.toLowerCase();
+  return suffixes.some((suffix) => {
+    const dotSuffix = suffix.startsWith(".") ? suffix : `.${suffix}`;
+    return host === dotSuffix.slice(1) || host.endsWith(dotSuffix);
+  });
 };
 
 const parseSandboxNodeSelector = (value: string | undefined) => {
@@ -184,6 +209,15 @@ export const config: AppConfig = {
   checkpointAssetOssAccessKeyId: process.env.CHECKPOINT_ASSET_OSS_ACCESS_KEY_ID ?? process.env.TURN_OBJECT_S3_ACCESS_KEY_ID,
   checkpointAssetOssSecretAccessKey: process.env.CHECKPOINT_ASSET_OSS_SECRET_ACCESS_KEY ?? process.env.TURN_OBJECT_S3_SECRET_ACCESS_KEY,
   routerStatusUrl: (process.env.ROUTER_STATUS_URL ?? "https://router-status.neta.art/api/v1/status").trim(),
+  sandboxPublicDomains: parseDomainList(
+    process.env.SANDBOX_PUBLIC_DOMAINS ?? process.env.SANDBOX_PUBLIC_DOMAIN,
+    ["cohub.run"],
+  ),
+  allowedWorkContentHostSuffixes: parseDomainList(
+    process.env.WORK_CONTENT_HOST_SUFFIXES,
+    [".cohub.run", ".cohub.live"],
+  ),
+  checkpointGitAuthorEmail: process.env.CHECKPOINT_GIT_AUTHOR_EMAIL?.trim() || "noreply@cohub.run",
 };
 
 export const sessionsNamespace = getSessionsNamespace(config.env);

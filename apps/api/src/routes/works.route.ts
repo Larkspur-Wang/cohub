@@ -21,6 +21,7 @@ import { createWorkSessionToken, WORK_SESSION_TTL_SECONDS } from "../work-sessio
 import { getSandboxPublicEndpoints } from "../sandbox-public-network.js";
 import type { WorkArtifactDescriptor, WorkContentKind } from "@cohub/protocol";
 import { SANDBOX_PUBLIC_PORTS } from "@cohub/protocol/ports";
+import { config, isHostAllowedBySuffix } from "../config.js";
 import type { RealtimeWorkRecord, RealtimeWorkVersionRecord } from "@cohub/protocol/realtime";
 import { createLogger } from "@cohub/infra/logging";
 import { billingOperations, COHUB_BILLING_FEATURES } from "@cohub/billing";
@@ -169,7 +170,7 @@ const isAllowedWorkContentUrl = (url: string, kind: "asset" | "port") => {
     const parsed = new URL(url);
     if (parsed.protocol !== "https:") return false;
     if (kind === "asset") return isConfiguredWorkAssetPublicUrl(url);
-    return parsed.hostname === "cohub.run" || parsed.hostname.endsWith(".cohub.run");
+    return isHostAllowedBySuffix(parsed.hostname, config.allowedWorkContentHostSuffixes);
   } catch {
     return false;
   }

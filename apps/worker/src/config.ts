@@ -36,6 +36,8 @@ export interface WorkerConfig {
   talesofaiBillingBusinessKey?: string;
   talesofaiBillingAdminApiKey?: string;
   env: "dev" | "prod";
+  /** Author email for checkpoint git commits. */
+  checkpointGitAuthorEmail: string;
 }
 
 const env = (process.env.ENV === "prod" ? "prod" : "dev") as "dev" | "prod";
@@ -90,6 +92,7 @@ export const config: WorkerConfig = {
   talesofaiBillingBusinessKey: process.env.TALESOFAI_BILLING_BUSINESS_KEY,
   talesofaiBillingAdminApiKey: process.env.TALESOFAI_BILLING_ADMIN_API_KEY,
   env,
+  checkpointGitAuthorEmail: process.env.CHECKPOINT_GIT_AUTHOR_EMAIL?.trim() || "noreply@cohub.run",
 };
 
 export const assertRequiredConfig = () => {

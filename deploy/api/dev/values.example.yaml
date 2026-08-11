@@ -68,6 +68,12 @@ CHAT_ATTACHMENT_PUBLIC_BASE_URL: "https://uploads.example.com"
 SPACE_UPLOAD_S3_BUCKET: "cohub-space-uploads"
 WORK_ASSET_CDN_BASE_URL: "https://works.example.com"
 CONFIGS_SUBPATH: "configs/dev"
+# 沙箱公网端口域名列表（逗号分隔，第一个为主域名；不配默认 cohub.run）
+SANDBOX_PUBLIC_DOMAINS: "cohub.run,cohub.live"
+# Work 内容端口 URL 允许的域名后缀（安全边界，不配默认 .cohub.run,.cohub.live）
+WORK_CONTENT_HOST_SUFFIXES: ".cohub.run,.cohub.live"
+# checkpoint git 提交作者邮箱（不配默认 noreply@cohub.run）
+CHECKPOINT_GIT_AUTHOR_EMAIL: "noreply@cohub.live"
 
 # ========== 路由配置 ==========
 ROUTE_ENABLED: "true"

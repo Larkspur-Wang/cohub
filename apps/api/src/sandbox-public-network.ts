@@ -15,7 +15,6 @@ export { getSandboxPublicRouteName, getSandboxPublicServiceName } from "@cohub/s
 type SandboxPublicPort = (typeof SANDBOX_PUBLIC_PORTS)[number];
 const GATEWAY_NAMESPACE = "kube-system";
 const GATEWAY_NAME = "traefik-gateway";
-const SANDBOX_PUBLIC_DOMAIN = "cohub.run";
 
 type HttpRouteObject = {
   apiVersion: `${typeof SANDBOX_PUBLIC_NETWORK_HTTP_ROUTE_GROUP}/${typeof SANDBOX_PUBLIC_NETWORK_HTTP_ROUTE_VERSION}`;
@@ -44,9 +43,13 @@ const getK8sStatusCode = (error: unknown) => {
     ?? null;
 };
 
-export const getSandboxPublicHostname = (spaceId: string, port: SandboxPublicPort) => {
+export const getSandboxPublicHostname = (
+  spaceId: string,
+  port: SandboxPublicPort,
+  domain = config.sandboxPublicDomains[0],
+) => {
   const prefix = config.env === "prod" ? "s" : "d";
-  return `${prefix}-${spaceId}-${port}.${SANDBOX_PUBLIC_DOMAIN}`;
+  return `${prefix}-${spaceId}-${port}.${domain}`;
 };
 
 export const getSandboxPublicEndpoints = (spaceId: string) => {
@@ -138,7 +141,9 @@ const buildSandboxPublicRoute = (spaceId: string, port: SandboxPublicPort): Http
       name: GATEWAY_NAME,
       namespace: GATEWAY_NAMESPACE,
     }],
-    hostnames: [getSandboxPublicHostname(spaceId, port)],
+    hostnames: config.sandboxPublicDomains.map((domain) =>
+      getSandboxPublicHostname(spaceId, port, domain),
+    ),
     rules: [{
       matches: [{
         path: {

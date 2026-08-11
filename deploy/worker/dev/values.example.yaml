@@ -46,6 +46,8 @@ CHECKPOINT_CACHE_SUBPATH: "workspaces/dev/checkpoints"
 PLATFORM_CONFIG_ROOT: "/configs"
 PLATFORM_SPACE_ID: "f371b93a-4710-4d48-81d2-cde277cbcf89"
 CONFIGS_SUBPATH: "configs/dev"
+# checkpoint git 提交作者邮箱（不配默认 noreply@cohub.run）
+CHECKPOINT_GIT_AUTHOR_EMAIL: "noreply@cohub.live"
 ENV: "dev"
 LOG_LEVEL: "debug"
 
