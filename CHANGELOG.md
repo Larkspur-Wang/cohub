@@ -4,6 +4,20 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v2.16 — 2026-08-11
+
+- **Board connections**: Added first-class node-to-node relations with a dedicated protocol and database model, Connect-tool gestures, auto or pinned anchors, routing, direction, labels, clipboard and duplicate support, realtime awareness, exports, checkpoints, and SDK queries and mutations.
+- **Live board geometry**: Split semantic relations from standalone arrows and resolve connection paths from current node frames through a shared SDK geometry layer, with batched rendering and selection and hit-testing support for dense boards.
+- **Stable workspace syncing**: Preserved CodeMirror selections and scroll positions during external file refreshes, ignored acknowledged save echoes, retried files still being prepared, and protected dirty drafts from remote overwrites.
+- **Instant new-chat adoption**: Adopted the accepted first turn immediately, merged and deduplicated realtime events, cached the turn locally, and removed the loading placeholder when content was already available.
+- **Configurable public domains**: Added multi-domain sandbox hostnames and Work content allowlists through environment configuration, with deployment manifests wired end to end for the cohub.live migration.
+
+### Bug Fixes
+
+- **Billing usage classification**: Counted `minimax.h3VideoGenerations` as video usage.
+- **Production Work links**: Corrected the commerce URL fallback to use `cohub.run` in production instead of `dev.cohub.run`.
+- **Board migration deployment**: Fixed board connection migrations by removing the incompatible foreign key constraint used with soft-deleted node relationships.
+
 ## v2.15 — 2026-08-10
 
 - **Work authorization surfaces**: Introduced explicit page, preview, background, and broker authorization contexts; publisher-owned Works can auto-authorize in workspace previews and New Chat backgrounds while public pages and external brokers retain consent flows.
