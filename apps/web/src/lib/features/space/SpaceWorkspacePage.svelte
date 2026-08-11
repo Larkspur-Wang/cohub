@@ -119,6 +119,7 @@ import type { WorkspaceFileLinkTarget } from "$lib/workspace-file-links";
 import { resolveWorkspaceSpaceId } from "$lib/workspace-route";
 import { createBoardPreviewController } from "./modules/board-preview-controller.svelte";
 import { createFileWorkspaceController } from "./modules/file-workspace-controller.svelte";
+import { classifyInlineFileFsChange } from "./modules/file-workspace-utils";
 import {
 	FLOAT_CHAT_EDGE_GAP,
 	FLOAT_PANEL_GAP,
@@ -1440,6 +1441,7 @@ function scheduleSpaceFsRefresh(input: {
 	for (const change of eventPayload.changes ?? []) {
 		if (change.kind === "rename" && change.oldPath && change.path) {
 			boardPreview.renamePath(change.oldPath, change.path);
+			fileWorkspace.renamePath(change.oldPath, change.path);
 		} else if (change.kind === "delete" && change.path) {
 			boardPreview.closeBoardsAtPath(change.path, change.nodeType === "dir");
 		}
@@ -1457,11 +1459,17 @@ function scheduleSpaceFsRefresh(input: {
 			change.kind,
 			eventPayload.mutationId,
 		);
-		for (const tab of inlineFileTabs) {
+		for (const tab of fileWorkspace.inlineFileTabs) {
 			if (change.path !== tab.path && change.oldPath !== tab.path) continue;
-			if (isOwnPendingChange) continue;
-			if (change.kind === "delete") fileWorkspace.closeInlineFileTab(tab.path);
-			else if (!fileWorkspace.isInlineFileDirty(tab.path) && change.path)
+			const disposition = classifyInlineFileFsChange({
+				change,
+				current: tab.response,
+				dirty: fileWorkspace.isInlineFileDirty(tab.path),
+				ownMutation: isOwnPendingChange,
+			});
+			if (disposition === "acknowledged") continue;
+			if (disposition === "deleted") fileWorkspace.closeInlineFileTab(tab.path);
+			else if (disposition === "refresh" && change.path)
 				batch.inlineFilePaths.add(change.path);
 			else fileWorkspace.markInlineFileExternalChange(tab.path);
 		}
@@ -1488,17 +1496,13 @@ async function refreshVisibleFsDirs(batch: SpaceFsRefreshBatch) {
 async function refreshSpaceFsBatch(batch: SpaceFsRefreshBatch) {
 	if (!isCurrentSpaceFsRefresh(batch)) return;
 	if (batch.resync) {
-		const inlineReloads = inlineFileTabs
+		const inlineRefreshes = inlineFileTabs
 			.filter((tab) => !fileWorkspace.isInlineFileDirty(tab.path))
-			.map((tab) =>
-				fileWorkspace
-					.openInlineFile(tab.path, { activate: false, forceReload: true })
-					.catch(() => undefined),
-			);
+			.map((tab) => fileWorkspace.refreshInlineFile(tab.path));
 		await Promise.all([
 			loadFileTree(true),
 			boardPreview.reconcileOpenBoards(),
-			...inlineReloads,
+			...inlineRefreshes,
 		]);
 		return;
 	}
@@ -1506,17 +1510,13 @@ async function refreshSpaceFsBatch(batch: SpaceFsRefreshBatch) {
 	const boardRefreshes = [...batch.boardManifestPaths].map((path) =>
 		boardPreview.refreshBoardManifest(path),
 	);
-	const inlineReloads = [...batch.inlineFilePaths]
+	const inlineRefreshes = [...batch.inlineFilePaths]
 		.filter((path) => !fileWorkspace.isInlineFileDirty(path))
-		.map((path) =>
-			fileWorkspace
-				.openInlineFile(path, { activate: false, forceReload: true })
-				.catch(() => undefined),
-		);
+		.map((path) => fileWorkspace.refreshInlineFile(path));
 	await Promise.all([
 		refreshVisibleFsDirs(batch),
 		...boardRefreshes,
-		...inlineReloads,
+		...inlineRefreshes,
 	]);
 }
 

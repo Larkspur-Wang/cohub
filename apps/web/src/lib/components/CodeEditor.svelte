@@ -15,7 +15,13 @@ import {
 	syntaxHighlighting,
 } from "@codemirror/language";
 import { highlightSelectionMatches, searchKeymap } from "@codemirror/search";
-import { Compartment, EditorState, type Extension } from "@codemirror/state";
+import {
+	Annotation,
+	Compartment,
+	EditorState,
+	type Extension,
+	Transaction,
+} from "@codemirror/state";
 import {
 	crosshairCursor,
 	drawSelection,
@@ -402,6 +408,7 @@ $effect(() => {
 // Sync external value changes into the editor (but not while typing)
 let syncing = $state(false);
 let lastExternal = $state("");
+const externalSync = Annotation.define<boolean>();
 
 $effect(() => {
 	const v = value;
@@ -409,9 +416,19 @@ $effect(() => {
 	lastExternal = v;
 	const current = view.state.doc.toString();
 	if (v !== current) {
+		const anchor = Math.min(view.state.selection.main.anchor, v.length);
+		const head = Math.min(view.state.selection.main.head, v.length);
+		const scrollTop = view.scrollDOM.scrollTop;
+		const scrollLeft = view.scrollDOM.scrollLeft;
 		view.dispatch({
 			changes: { from: 0, to: current.length, insert: v },
-			selection: { anchor: 0 },
+			selection: { anchor, head },
+			annotations: [externalSync.of(true), Transaction.addToHistory.of(false)],
+		});
+		requestAnimationFrame(() => {
+			if (!view) return;
+			view.scrollDOM.scrollTop = scrollTop;
+			view.scrollDOM.scrollLeft = scrollLeft;
 		});
 	}
 });
@@ -459,7 +476,10 @@ onMount(() => {
 				]),
 				EditorView.lineWrapping,
 				EditorView.updateListener.of((update) => {
-					if (update.docChanged) {
+					const programmatic = update.transactions.some((transaction) =>
+						transaction.annotation(externalSync),
+					);
+					if (update.docChanged && !programmatic) {
 						syncing = false;
 						lastExternal = update.state.doc.toString();
 						onInput?.(lastExternal);

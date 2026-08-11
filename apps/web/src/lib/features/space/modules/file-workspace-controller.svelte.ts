@@ -39,6 +39,7 @@ import {
 	buildFsEntry,
 	classifySaveConflict,
 	getParentDirPath,
+	hasSameFileVersion,
 	makeFsNodes,
 	replaceNodeChildren,
 	resolveFsMoveDestination,
@@ -136,6 +137,11 @@ export function createFileWorkspaceController(
 	const pendingSaveMutationIds = new Map<string, string>();
 	const ownFileMutationIds = new Set<string>();
 	const fileSaveRetryAttempts = new Map<string, number>();
+	const inlineFileRefreshTokens = new Map<string, number>();
+	const inlineFileRefreshTimers = new Map<
+		string,
+		ReturnType<typeof setTimeout>
+	>();
 	const pendingDraftPersistTimers = new Map<
 		string,
 		ReturnType<typeof setTimeout>
@@ -423,6 +429,7 @@ export function createFileWorkspaceController(
 			forcedOverwritePaths.delete(tab.path);
 		}
 		inlineFileTabs = [];
+		clearInlineFileRefreshes();
 		activeInlineFilePath = null;
 		clearFileDiff();
 	}
@@ -498,6 +505,7 @@ export function createFileWorkspaceController(
 		for (const timer of pendingSaveTimers.values()) clearTimeout(timer);
 		pendingSaveTimers.clear();
 		pendingSaveMutationIds.clear();
+		clearInlineFileRefreshes();
 		pendingFileSavePaths = new Set();
 		return true;
 	}
@@ -516,6 +524,139 @@ export function createFileWorkspaceController(
 		const activeTab = getActiveInlineFile();
 		if (activeTab?.path === targetPath && activeTab.viewMode === "diff") {
 			void ensureInlineFileDiff(true);
+		}
+	}
+
+	function cancelInlineFileRefresh(path: string) {
+		const timer = inlineFileRefreshTimers.get(path);
+		if (timer) clearTimeout(timer);
+		inlineFileRefreshTimers.delete(path);
+		inlineFileRefreshTokens.delete(path);
+	}
+
+	function clearInlineFileRefreshes() {
+		for (const timer of inlineFileRefreshTimers.values()) clearTimeout(timer);
+		inlineFileRefreshTimers.clear();
+		inlineFileRefreshTokens.clear();
+	}
+
+	function scheduleInlineFileRefresh(
+		path: string,
+		retryAfterMs: number,
+		prepareAttempt: number,
+	) {
+		const existing = inlineFileRefreshTimers.get(path);
+		if (existing) clearTimeout(existing);
+		inlineFileRefreshTimers.set(
+			path,
+			setTimeout(
+				() => {
+					inlineFileRefreshTimers.delete(path);
+					void refreshInlineFile(path, prepareAttempt);
+				},
+				Math.max(500, Math.min(retryAfterMs, 10_000)),
+			),
+		);
+	}
+
+	async function refreshInlineFile(path: string, prepareAttempt = 0) {
+		const scheduled = inlineFileRefreshTimers.get(path);
+		if (scheduled) clearTimeout(scheduled);
+		inlineFileRefreshTimers.delete(path);
+		const initial = inlineFileTabs.find((tab) => tab.path === path);
+		if (!initial?.response) return;
+		if (isInlineFileDirty(path)) {
+			markInlineFileExternalChange(path);
+			return;
+		}
+
+		const context = getWorkspaceContext();
+		const sourceKey = options.getActiveFsSourceKey();
+		const requestToken = initial.requestToken;
+		const baseline = initial.response;
+		const refreshToken = (inlineFileRefreshTokens.get(path) ?? 0) + 1;
+		inlineFileRefreshTokens.set(path, refreshToken);
+
+		try {
+			const rawFile = await readActiveFsFile(path);
+			const current = inlineFileTabs.find((tab) => tab.path === path);
+			if (
+				!current?.response ||
+				current.requestToken !== requestToken ||
+				inlineFileRefreshTokens.get(path) !== refreshToken ||
+				!isCurrentWorkspaceContext(context) ||
+				options.getActiveFsSourceKey() !== sourceKey
+			)
+				return;
+			if (isInlineFileDirty(path)) {
+				markInlineFileExternalChange(path);
+				return;
+			}
+			if (!("content" in rawFile)) {
+				const retrying = prepareAttempt < 4;
+				setInlineFileTab(path, (tab) => ({
+					...tab,
+					error: retrying
+						? "File is being prepared. Retrying..."
+						: "File is still being prepared. Retry to refresh.",
+				}));
+				if (retrying)
+					scheduleInlineFileRefresh(
+						path,
+						rawFile.retryAfterMs,
+						prepareAttempt + 1,
+					);
+				return;
+			}
+
+			const { file, error } = await tryResolveTextFileResponse(rawFile);
+			const latest = inlineFileTabs.find((tab) => tab.path === path);
+			if (
+				!latest?.response ||
+				latest.requestToken !== requestToken ||
+				inlineFileRefreshTokens.get(path) !== refreshToken ||
+				!isCurrentWorkspaceContext(context) ||
+				options.getActiveFsSourceKey() !== sourceKey
+			)
+				return;
+			if (isInlineFileDirty(path)) {
+				markInlineFileExternalChange(path);
+				return;
+			}
+			if (
+				!hasSameFileVersion(latest.response, baseline) &&
+				!hasSameFileVersion(latest.response, file)
+			)
+				return;
+			if (error) {
+				setInlineFileTab(path, (tab) => ({ ...tab, error }));
+				return;
+			}
+			setInlineFileTab(path, (tab) => ({
+				...tab,
+				response: file,
+				draft: isTextFileResponse(file) ? file.content : "",
+				saving: false,
+				syncStatus: "idle",
+				saveError: null,
+				error: null,
+				tooLarge: false,
+			}));
+			invalidateFileDiff(path);
+		} catch (error) {
+			if (
+				inlineFileRefreshTokens.get(path) !== refreshToken ||
+				!isCurrentWorkspaceContext(context)
+			)
+				return;
+			setInlineFileTab(path, (tab) => ({
+				...tab,
+				error:
+					error instanceof Error ? error.message : "Failed to refresh file",
+			}));
+		} finally {
+			if (inlineFileRefreshTokens.get(path) === refreshToken)
+				inlineFileRefreshTokens.delete(path);
 		}
 	}
 
@@ -937,6 +1078,7 @@ export function createFileWorkspaceController(
 		}
 		if (dirty) void persistPendingDraft(path);
 		fileAutosave.cancel(path);
+		cancelInlineFileRefresh(path);
 		inlineFileRequestToken += 1;
 		const closingActive = activeInlineFilePath === path;
 		const index = inlineFileTabs.findIndex((item) => item.path === path);
@@ -1630,6 +1772,7 @@ export function createFileWorkspaceController(
 		for (const timer of pendingSaveTimers.values()) clearTimeout(timer);
 		pendingSaveTimers.clear();
 		pendingSaveMutationIds.clear();
+		clearInlineFileRefreshes();
 	}
 
 	function renameOpenPaths(fromPath: string, toPath: string) {
@@ -1637,6 +1780,7 @@ export function createFileWorkspaceController(
 			const nextPath = rewriteFsPathPrefix(tab.path, fromPath, toPath);
 			if (!nextPath) continue;
 			fileAutosave.cancel(tab.path);
+			cancelInlineFileRefresh(tab.path);
 			void clearPendingDraft(tab.path);
 		}
 		inlineFileTabs = inlineFileTabs.map((tab) => {
@@ -1667,9 +1811,16 @@ export function createFileWorkspaceController(
 		}
 	}
 
-	/** @deprecated Prefer renameOpenPaths; kept for external callers. */
 	function renamePath(fromPath: string, toPath: string) {
+		const dirtyTargets = inlineFileTabs.flatMap((tab) => {
+			const nextPath = rewriteFsPathPrefix(tab.path, fromPath, toPath);
+			return nextPath && isInlineFileDirty(tab.path) ? [nextPath] : [];
+		});
 		renameOpenPaths(fromPath, toPath);
+		for (const path of dirtyTargets) {
+			markInlineFileExternalChange(path);
+			void persistPendingDraft(path);
+		}
 	}
 
 	return {
@@ -1851,6 +2002,7 @@ export function createFileWorkspaceController(
 		switchSource,
 		resetForSpace,
 		markInlineFileExternalChange,
+		refreshInlineFile,
 		isInlineFileDirty,
 		hasDirtyInlineFiles,
 		loadFileTree,

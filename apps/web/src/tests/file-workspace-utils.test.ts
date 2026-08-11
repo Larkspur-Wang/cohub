@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { describe, it, test } from "node:test";
 import type { SpaceFsFileResponse } from "@neta-art/cohub";
 import {
+	classifyInlineFileFsChange,
 	classifySaveConflict,
+	hasSameFileVersion,
 	isPdfFile,
 	isPdfPath,
 } from "../lib/features/space/modules/file-workspace-utils.ts";
@@ -49,6 +51,126 @@ function textFile(
 		...overrides,
 	};
 }
+
+test("classifyInlineFileFsChange ignores confirmed save echoes", () => {
+	const current = textFile({ size: 18, mtimeMs: 1_700_000_000_000.75 });
+	assert.equal(
+		classifyInlineFileFsChange({
+			change: {
+				path: current.path,
+				kind: "modify",
+				nodeType: "file",
+				size: current.size,
+				mtimeMs: 1_700_000_000_000,
+			},
+			current,
+			dirty: false,
+			ownMutation: false,
+		}),
+		"acknowledged",
+	);
+	assert.equal(
+		classifyInlineFileFsChange({
+			change: { path: current.path, kind: "modify", nodeType: "file" },
+			current,
+			dirty: false,
+			ownMutation: true,
+		}),
+		"acknowledged",
+	);
+});
+
+test("classifyInlineFileFsChange separates refreshes, conflicts, and deletes", () => {
+	const current = textFile({ size: 12, mtimeMs: 100 });
+	const remoteChange = {
+		path: current.path,
+		kind: "modify" as const,
+		nodeType: "file" as const,
+		size: 20,
+		mtimeMs: 200,
+	};
+	assert.equal(
+		classifyInlineFileFsChange({
+			change: remoteChange,
+			current,
+			dirty: false,
+			ownMutation: false,
+		}),
+		"refresh",
+	);
+	assert.equal(
+		classifyInlineFileFsChange({
+			change: remoteChange,
+			current,
+			dirty: true,
+			ownMutation: false,
+		}),
+		"conflict",
+	);
+	assert.equal(
+		classifyInlineFileFsChange({
+			change: { path: current.path, kind: "delete", nodeType: "file" },
+			current,
+			dirty: true,
+			ownMutation: false,
+		}),
+		"deleted",
+	);
+	assert.equal(
+		classifyInlineFileFsChange({
+			change: { path: current.path, kind: "modify", nodeType: "file" },
+			current,
+			dirty: false,
+			ownMutation: false,
+		}),
+		"refresh",
+	);
+	assert.equal(
+		classifyInlineFileFsChange({
+			change: {
+				path: "renamed.md",
+				oldPath: current.path,
+				kind: "rename",
+				nodeType: "file",
+			},
+			current,
+			dirty: false,
+			ownMutation: false,
+		}),
+		"refresh",
+	);
+	assert.equal(
+		classifyInlineFileFsChange({
+			change: {
+				path: "renamed.md",
+				oldPath: current.path,
+				kind: "rename",
+				nodeType: "file",
+			},
+			current,
+			dirty: true,
+			ownMutation: false,
+		}),
+		"conflict",
+	);
+});
+
+test("hasSameFileVersion uses transport-safe millisecond precision", () => {
+	assert.equal(
+		hasSameFileVersion(
+			{ size: 12, mtimeMs: 1_700_000_000_000.75 },
+			{ size: 12, mtimeMs: 1_700_000_000_000 },
+		),
+		true,
+	);
+	assert.equal(
+		hasSameFileVersion(
+			{ size: 12, mtimeMs: 1_700_000_000_000 },
+			{ size: 13, mtimeMs: 1_700_000_000_000 },
+		),
+		false,
+	);
+});
 
 test("classifySaveConflict distinguishes idempotency, retry, and divergence", () => {
 	assert.equal(

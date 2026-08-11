@@ -1,3 +1,4 @@
+import type { SpaceFsChangedPayload } from "@cohub/protocol/fs";
 import type { SpaceFsEntry, SpaceFsFileResponse } from "@neta-art/cohub";
 import { isTextFileResponse, normalizeMime } from "$lib/space-file-text";
 import type { SpaceFsNode } from "$lib/space-fs";
@@ -200,4 +201,53 @@ export function classifySaveConflict(
 	if (fresh.content === attemptedContent) return "already-saved";
 	if (fresh.content === baseContent) return "retry";
 	return "conflict";
+}
+
+export type InlineFileFsChangeDisposition =
+	| "acknowledged"
+	| "refresh"
+	| "conflict"
+	| "deleted";
+
+type InlineFileFsChange = SpaceFsChangedPayload["changes"][number];
+
+export function hasSameFileVersion(
+	left:
+		| Pick<SpaceFsFileResponse, "mtimeMs" | "size">
+		| { mtimeMs?: number; size?: number }
+		| null
+		| undefined,
+	right:
+		| Pick<SpaceFsFileResponse, "mtimeMs" | "size">
+		| { mtimeMs?: number; size?: number }
+		| null
+		| undefined,
+) {
+	return Boolean(
+		left &&
+			right &&
+			left.size !== undefined &&
+			right.size !== undefined &&
+			left.size === right.size &&
+			left.mtimeMs !== undefined &&
+			right.mtimeMs !== undefined &&
+			Math.trunc(left.mtimeMs) === Math.trunc(right.mtimeMs),
+	);
+}
+
+/** Decide whether an open file needs reconciliation without reading it first. */
+export function classifyInlineFileFsChange(input: {
+	change: InlineFileFsChange;
+	current: SpaceFsFileResponse | null;
+	dirty: boolean;
+	ownMutation: boolean;
+}): InlineFileFsChangeDisposition {
+	if (input.ownMutation) return "acknowledged";
+	if (input.change.kind === "delete") return "deleted";
+	if (
+		(input.change.kind === "create" || input.change.kind === "modify") &&
+		hasSameFileVersion(input.current, input.change)
+	)
+		return "acknowledged";
+	return input.dirty ? "conflict" : "refresh";
 }
