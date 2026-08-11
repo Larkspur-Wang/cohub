@@ -15,7 +15,7 @@ import { createClient, createRealtimeClient } from "../client.js";
 import { error, handleHttp, json as outJson, jsonRequested, ok, table } from "../output.js";
 import { resolveSpace } from "../space.js";
 
-const INSPECT_SECTIONS = ["nodes", "effects", "sequences", "clips", "playback"] as const;
+const INSPECT_SECTIONS = ["nodes", "connections", "effects", "sequences", "clips", "playback"] as const;
 type InspectSection = (typeof INSPECT_SECTIONS)[number];
 type JsonOptions = { json?: boolean };
 type InputOptions = JsonOptions & { input: string; txId?: string; baseVersion?: string };
@@ -110,6 +110,7 @@ function showBoard(result: BoardBootstrap): void {
       title: result.board.title,
       version: result.board.version,
       nodes: result.nodes.length,
+      connections: result.connections.length,
       effects: result.effects.length,
       sequences: result.sequences.length,
       clips: result.clips.length,
@@ -119,6 +120,7 @@ function showBoard(result: BoardBootstrap): void {
     { key: "title", label: "Title" },
     { key: "version", label: "Version" },
     { key: "nodes", label: "Nodes" },
+    { key: "connections", label: "Connections" },
     { key: "effects", label: "Effects" },
     { key: "sequences", label: "Sequences" },
     { key: "clips", label: "Clips" },
@@ -336,7 +338,7 @@ export function registerBoards(program: Command): Command {
   withJson(boards.command("inspect <board-id>")
     .alias("get")
     .description("Inspect a Board")
-    .option("--include <sections>", "Comma-separated nodes,effects,sequences,clips,playback")
+    .option("--include <sections>", "Comma-separated nodes,connections,effects,sequences,clips,playback")
     .option("--viewport <rect>", "Viewport as x,y,width,height"))
     .action(async (boardId: string, options: JsonOptions & { include?: string; viewport?: string }) => {
       try {

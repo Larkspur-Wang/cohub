@@ -47,6 +47,9 @@ test("Board JSON and inspect inputs are parsed without rewriting payload data", 
     nodes: [{ type: "custom.node", data: { raw: true } }],
   });
   assert.deepEqual(parseInspectSections("nodes, clips,nodes"), ["nodes", "clips"]);
+  // `connections` is a real section server-side; the CLI validates against its own
+  // list, so it has to stay in step or a legal request is rejected before it is sent.
+  assert.deepEqual(parseInspectSections("connections"), ["connections"]);
   assert.deepEqual(parseViewport("-10,20,1280,720"), {
     x: -10,
     y: 20,
