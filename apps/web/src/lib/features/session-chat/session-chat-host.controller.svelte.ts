@@ -133,6 +133,7 @@ import {
 } from "./session-task-controller.svelte";
 import { createSessionTurnLoadingController } from "./session-turn-loading-controller.svelte";
 import {
+	adoptPromptSessionState,
 	extractBackgroundBashResultPreview,
 	formatBackgroundBashSubtitle,
 	getTurnClientMessageId,
@@ -2808,9 +2809,10 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 
 	function adoptPromptSession(input: {
 		session: SessionRecord;
+		turn: SessionTurnRecord;
 		model: SelectedModel | null;
 	}) {
-		const { session, model } = input;
+		const { session, turn, model } = input;
 		const nextSessions = sortSessionsByRecentActivity([
 			session,
 			...spaceSessions.filter((item) => item.id !== session.id),
@@ -2823,24 +2825,11 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		// Merge with any state already populated by realtime while prompt was in flight.
 		// Never clobber turns with [] if WS already delivered session.turn.* events.
 		const existing = sessionStateById[session.id];
-		const targetSessionState: SessionViewState = existing
-			? {
-					...existing,
-					session,
-					error: null,
-				}
-			: {
-					session,
-					turns: [],
-					loading: false,
-					loaded: true,
-					error: null,
-					hasMore: false,
-					hasMoreNewer: false,
-					loadingOlder: false,
-					loadingNewer: false,
-					oldestCursor: undefined,
-				};
+		const targetSessionState = adoptPromptSessionState({
+			existing,
+			session,
+			turn,
+		});
 		workspace.sessionStateById = {
 			...sessionStateById,
 			[session.id]: targetSessionState,
@@ -3144,10 +3133,17 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			const acceptedTurn = sendResult.turn;
 			const acceptedSession = sendResult.session;
 			if (!acceptedSession) throw new Error("Prompt response missing session");
+			const acceptedTurnWithProfile = {
+				...acceptedTurn,
+				userUuid: acceptedTurn.userUuid ?? currentUser.uuid,
+				authorProfile:
+					acceptedTurn.authorProfile ?? currentUser.profile ?? null,
+			};
 
 			if (isNewChat) {
 				targetSessionState = adoptPromptSession({
 					session: acceptedSession,
+					turn: acceptedTurnWithProfile,
 					model,
 				});
 				sessionId = acceptedSession.id;
@@ -3167,13 +3163,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			}
 
 			const current = sessionId ? sessionStateById[sessionId] : null;
-			if (sessionId && current) {
-				const acceptedTurnWithProfile = {
-					...acceptedTurn,
-					userUuid: acceptedTurn.userUuid ?? currentUser.uuid,
-					authorProfile:
-						acceptedTurn.authorProfile ?? currentUser.profile ?? null,
-				};
+			if (!isNewChat && sessionId && current) {
 				workspace.sessionStateById = {
 					...sessionStateById,
 					[sessionId]: {
@@ -3186,6 +3176,18 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 						),
 					},
 				};
+			}
+			if (isNewChat && sessionId) {
+				void sessionTurnsRepo
+					.mergeTurns(opSpaceId, sessionId, [acceptedTurnWithProfile], {
+						session: acceptedSession,
+						hasMoreOlder: false,
+						hasMoreNewer: false,
+						source: "network",
+					})
+					.catch((error) =>
+						console.warn("[NewChat] failed to cache accepted turn", error),
+					);
 			}
 			// The accepted turn now owns the explicit request state. Clear the local
 			// override only after merging it to avoid briefly showing the older level.

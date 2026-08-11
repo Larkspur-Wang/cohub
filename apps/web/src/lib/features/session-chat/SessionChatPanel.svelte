@@ -253,7 +253,7 @@ async function handleDraftDrop(event: DragEvent) {
 			</button>
 		{/if}
 	</div>
-{:else if activeSessionState.loading && !activeSessionState.loaded && host.activeSessionInitialLoadingVisible}
+{:else if activeSessionState.loading && !activeSessionState.loaded && activeSessionState.turns.length === 0 && host.activeSessionInitialLoadingVisible}
 	<CenteredLoading label="Loading turns…" />
 {:else}
 	{#if activeSessionState.error}

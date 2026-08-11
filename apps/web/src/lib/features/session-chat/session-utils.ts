@@ -1,6 +1,7 @@
 import type { SessionTurnRecord } from "@cohub/protocol/model";
 import type { SessionRecord, TaskRunRecord } from "@neta-art/cohub";
 import { mergeTurnsById } from "$lib/stores/turn-cache";
+import type { SessionViewState } from "./session-workspace-controller.svelte";
 
 export {
 	areSessionTurnRecordsEqual,
@@ -121,6 +122,29 @@ export function reconcileOptimisticTurn(
 			? mergeTurnsById([], nextTurns, { preferIncoming: true })
 			: turns,
 		remapped,
+	};
+}
+
+export function adoptPromptSessionState(input: {
+	existing?: SessionViewState;
+	session: SessionRecord;
+	turn: SessionTurnRecord;
+}): SessionViewState {
+	return {
+		session: input.session,
+		turns: normalizeTurnDuplicates(
+			mergeTurnsById(input.existing?.turns ?? [], [input.turn], {
+				preferIncoming: true,
+			}),
+		),
+		loading: false,
+		loaded: true,
+		error: null,
+		hasMore: false,
+		hasMoreNewer: false,
+		loadingOlder: false,
+		loadingNewer: false,
+		oldestCursor: undefined,
 	};
 }
 
