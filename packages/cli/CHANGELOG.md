@@ -1,5 +1,16 @@
 # @neta-art/cohub-cli
 
+## 3.9.0
+
+### Minor Changes
+
+- **`boards inspect` connections**: `--include connections` is now accepted by the CLI (its local section list previously rejected the request), and the human-readable output reports a Connections count alongside the other structural stats.
+
+### Patch Changes
+
+- Updated dependencies
+  - @neta-art/cohub@5.4.1
+
 ## 3.8.4
 
 ### Patch Changes

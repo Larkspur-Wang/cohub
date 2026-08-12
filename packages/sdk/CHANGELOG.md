@@ -1,5 +1,11 @@
 # @neta-art/cohub
 
+## 5.4.1
+
+### Patch Changes
+
+- **Board connections from ports**: node ports are now drawn and reachable, so relations can be started by dragging from a port — no separate Connect tool needed. Ports enlarge under the pointer and the drag preview shows the loose end plus a highlight on the attach target. Adds `anchorPointOnFrame` for pointer-driven geometry resolution.
+
 ## 5.4.0
 
 ### Minor Changes
