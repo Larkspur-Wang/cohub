@@ -4,6 +4,19 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v2.17 — 2026-08-12
+
+- **Port-based board connections**: Create relations directly from visible node ports in Select mode, with zoom-normalized touch hit areas, hover feedback, live drag previews, and target highlighting.
+- **Safe Markdown HTML**: Completed Markdown now supports a sanitized README-style HTML subset, including aligned paragraphs, linked images, and local or remote media, while streaming output keeps incomplete source HTML escaped.
+- **Board inspection CLI**: `boards inspect` now accepts `--include connections` and reports connection counts in human-readable output.
+- **Incremental TypeScript validation**: Workspace checks reuse per-project caches, while staged validation scopes work to affected workspaces and their dependents for faster developer feedback.
+
+### Bug Fixes
+
+- **Board undo/redo**: Fixed operation replay affecting both nodes and relations so deleting a connected node can be undone and redone without losing its connection.
+- **Session JSONL parsing**: Fixed valid U+2028/U+2029 content being split as records and corrected trailing-newline detection across chunked reads; append, rewrite, and branch output now remains valid.
+- **Inline file editing**: Fixed delayed editor callbacks from writing drafts or visible-line state after the selected inline file was cleared.
+
 ## v2.16 — 2026-08-11
 
 - **Board connections**: Added first-class node-to-node relations with a dedicated protocol and database model, Connect-tool gestures, auto or pinned anchors, routing, direction, labels, clipboard and duplicate support, realtime awareness, exports, checkpoints, and SDK queries and mutations.
