@@ -2,17 +2,14 @@
 	{
 		"version": "2.17",
 		"date": "2026-08-12",
-		"tags": ["v2.17.0"],
+		"tags": ["v2.17.0", "v2.17.1"],
 		"highlights": [
-			"**Port-based board connections**: Create relations directly from visible node ports in Select mode, with zoom-normalized touch hit areas, hover feedback, live drag previews, and target highlighting.",
-			"**Safe Markdown HTML**: Completed Markdown now supports a sanitized README-style HTML subset, including aligned paragraphs, linked images, and local or remote media, while streaming output keeps incomplete source HTML escaped.",
-			"**Board inspection CLI**: `boards inspect` now accepts `--include connections` and reports connection counts in human-readable output.",
-			"**Incremental TypeScript validation**: Workspace checks reuse per-project caches, while staged validation scopes work to affected workspaces and their dependents for faster developer feedback."
+			"**Immutable avatar assets**: Profile and space avatars now use unique owner-scoped object keys, stable public URLs, and long-lived immutable cache headers, so replacing an avatar cannot invalidate or overwrite previously served images.",
+			"**Format-preserving avatar uploads**: Web and CLI workflows accept JPEG, PNG, GIF, and WebP avatars up to 4 MiB, with orientation-aware normalization and fallback handling when image processing fails.",
+			"**Unified presigned PUT uploads**: The SDK now negotiates presigned PUT uploads for avatars and chat attachments, aligning public-asset uploads with direct object-storage writes."
 		],
 		"fixes": [
-			"**Board undo/redo**: Fixed operation replay affecting both nodes and relations so deleting a connected node can be undone and redone without losing its connection.",
-			"**Session JSONL parsing**: Fixed valid U+2028/U+2029 content being split as records and corrected trailing-newline detection across chunked reads; append, rewrite, and branch output now remains valid.",
-			"**Inline file editing**: Fixed delayed editor callbacks from writing drafts or visible-line state after the selected inline file was cleared."
+			"**Avatar replacement reliability**: Removed cache-buster-dependent avatar URLs and fixed upload handling that could leave clients serving stale or broken images after profile or space avatar changes."
 		]
 	},
 	{
