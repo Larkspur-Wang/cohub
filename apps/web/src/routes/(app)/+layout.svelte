@@ -49,6 +49,8 @@ import {
 } from "$lib/stores/ui.svelte";
 import { resolveWorkspaceSpaceId } from "$lib/workspace-route";
 
+const VCONSOLE_DISABLED_STORAGE_KEY = "cohub:vconsole-disabled";
+
 const { children } = $props();
 
 // Mobile IM-style push: Chats list ↔ session detail.
@@ -89,6 +91,7 @@ let velocityX = $state(0);
 let isDragging = $state(false);
 let leftSidebarResizeCleanup: (() => void) | null = null;
 let vConsole: InstanceType<typeof import("vconsole").default> | null = null;
+let vConsoleRequestId = 0;
 /**
  * Sidebar content mode lags collapse so the expanded tree can clip away
  * with the width tween instead of hard-swapping to the icon rail first.
@@ -120,6 +123,10 @@ function isEditableShortcutTarget(target: EventTarget | null) {
 }
 
 function shouldEnableVConsole() {
+	if (localStorage.getItem(VCONSOLE_DISABLED_STORAGE_KEY) === "true") {
+		return false;
+	}
+
 	if (import.meta.env.DEV) return true;
 
 	const hostname = window.location.hostname;
@@ -130,6 +137,27 @@ function shouldEnableVConsole() {
 		hostname.startsWith("dev-") ||
 		hostname.includes("-dev.")
 	);
+}
+
+async function enableVConsole() {
+	localStorage.removeItem(VCONSOLE_DISABLED_STORAGE_KEY);
+	if (vConsole) return;
+
+	const requestId = ++vConsoleRequestId;
+	const { default: VConsole } = await import("vconsole");
+	const instance = new VConsole({ theme: "dark" });
+	if (requestId !== vConsoleRequestId) {
+		instance.destroy();
+		return;
+	}
+	vConsole = instance;
+}
+
+function disableVConsole() {
+	localStorage.setItem(VCONSOLE_DISABLED_STORAGE_KEY, "true");
+	vConsoleRequestId += 1;
+	vConsole?.destroy();
+	vConsole = null;
 }
 
 const isDrawerVisible = $derived(
@@ -514,17 +542,11 @@ $effect(() => {
 });
 
 onMount(() => {
-	let disposed = false;
+	window.cohubDisableVConsole = disableVConsole;
+	window.cohubEnableVConsole = enableVConsole;
 
 	if (shouldEnableVConsole()) {
-		void import("vconsole").then(({ default: VConsole }) => {
-			const instance = new VConsole({ theme: "dark" });
-			if (disposed) {
-				instance.destroy();
-				return;
-			}
-			vConsole = instance;
-		});
+		void enableVConsole();
 	}
 
 	let stopUiCommands: (() => void) | null = null;
@@ -548,9 +570,11 @@ onMount(() => {
 	}
 
 	return () => {
-		disposed = true;
+		delete window.cohubDisableVConsole;
+		delete window.cohubEnableVConsole;
 		stopUiCommands?.();
 		turnNotifications.stop();
+		vConsoleRequestId += 1;
 		vConsole?.destroy();
 		vConsole = null;
 		leftSidebarResizeCleanup?.();
