@@ -388,7 +388,6 @@ registerTask(GENERATION_TASK_TYPE, async (job: Job, context) => {
       models: [declaration],
       includeBuiltinModels: false,
       apiKey: getNetaRouterApiKey(),
-      baseUrl: config.netaRouterBaseUrl,
     }).generateResult({
       model: data.model,
       content: data.content,
