@@ -1,24 +1,24 @@
 <script lang="ts">
-import { ArrowRight } from "lucide-svelte";
+import { ArrowRight, Star } from "lucide-svelte";
 import { onMount } from "svelte";
 import { browser } from "$app/environment";
 import { goto } from "$app/navigation";
 import { page } from "$app/state";
 import { resolveAppEntryRoute } from "$lib/app-entry";
 import { hasLocalSessionHint, signInWithRedirectPath } from "$lib/auth";
-import LandingConcepts from "$lib/components/landing/LandingConcepts.svelte";
-import LandingDifferentials from "$lib/components/landing/LandingDifferentials.svelte";
-import LandingHowItWorks from "$lib/components/landing/LandingHowItWorks.svelte";
-import LandingIdeaArt from "$lib/components/landing/LandingIdeaArt.svelte";
-import LandingSpaceDemo from "$lib/components/landing/LandingSpaceDemo.svelte";
+import LandingMedia from "$lib/components/landing/LandingMedia.svelte";
+import LandingProof from "$lib/components/landing/LandingProof.svelte";
+import LandingSandboxSpec from "$lib/components/landing/LandingSandboxSpec.svelte";
+import LandingSection from "$lib/components/landing/LandingSection.svelte";
 import PublicHeader from "$lib/components/PublicHeader.svelte";
 import { canonicalUrl as buildCanonical } from "$lib/seo";
 import { authStore } from "$lib/stores/auth.svelte";
 import { getResolvedTheme } from "$lib/theme.svelte";
 
-// Home marketing is always dark (app.html also forces it for first paint).
+// Marketing home renders light regardless of the visitor's app theme, so every
+// product capture can be shot once. app.html sets this before first paint too.
 if (browser) {
-	document.documentElement.setAttribute("data-theme", "dark");
+	document.documentElement.setAttribute("data-theme", "light");
 }
 
 /**
@@ -70,8 +70,7 @@ async function handlePrimaryCta() {
 }
 
 onMount(() => {
-	// Keep dark while on home; restore visitor theme when leaving.
-	document.documentElement.setAttribute("data-theme", "dark");
+	document.documentElement.setAttribute("data-theme", "light");
 
 	void (async () => {
 		const maybeSession = redirecting || hasLocalSessionHint();
@@ -107,95 +106,53 @@ onMount(() => {
 	})();
 
 	return () => {
+		// Restore the visitor's own theme when leaving marketing.
 		document.documentElement.setAttribute("data-theme", getResolvedTheme());
 	};
 });
 
-/**
- * Reveal-on-scroll action. Adds `.in-view` when the element first enters the
- * viewport, then unobserves. Honors reduced-motion by revealing immediately.
- */
-function reveal(node: HTMLElement) {
-	if (!browser) return;
-	const prefersReduced = window.matchMedia(
-		"(prefers-reduced-motion: reduce)",
-	).matches;
-	if (prefersReduced || typeof IntersectionObserver === "undefined") {
-		node.classList.add("in-view");
-		return;
-	}
-	const observer = new IntersectionObserver(
-		(entries) => {
-			for (const entry of entries) {
-				if (entry.isIntersecting) {
-					entry.target.classList.add("in-view");
-					observer.unobserve(entry.target);
-				}
-			}
-		},
-		{ threshold: 0.16, rootMargin: "0px 0px -8% 0px" },
-	);
-	observer.observe(node);
-	return { destroy: () => observer.disconnect() };
-}
-
-// Static marketing content — no dynamic data.
-const mediums = ["Text", "Images", "Video", "Music", "Code & apps"];
-
-const ideas = [
+const surfaces = [
 	{
-		num: "01",
-		title: "Fun to start",
-		body: "Open a Space and play with ideas, prompts, files, and agents. No setup — just start typing and watch things take shape.",
-		kind: "spark" as const,
+		src: undefined,
+		label: "Mobile — a Space on a phone",
+		alt: "Cohub running on a phone",
+		ratio: "9 / 16",
 	},
 	{
-		num: "02",
-		title: "Build together",
-		body: "People and agents share one context. Same chat, files, and tool calls — co-create, save a Checkpoint, keep the thread.",
-		kind: "build" as const,
+		src: undefined,
+		label: "Channels — an agent replying in Discord",
+		alt: "An agent replying inside a Discord channel",
+		ratio: "4 / 3",
 	},
 	{
-		num: "03",
-		title: "Open everywhere",
-		body: "Same Space from the web, CLI, API, or a scheduled prompt. Point the CLI at a local folder with cohub sandbox up and that directory becomes the sandbox.",
-		kind: "open" as const,
-	},
-	{
-		num: "04",
-		title: "Publish Live Works",
-		body: "Publish a file, site, or running port as a public app on Cohub that exposes your Space. Visitors can authorize actions that go back to the Space.",
-		kind: "work" as const,
-	},
-	{
-		num: "05",
-		title: "Never start blank",
-		body: "Fork a Checkpoint into a new Space, or @space so the agent can pull other context in. You stay in one session — not hopping between agents.",
-		kind: "fork" as const,
+		src: undefined,
+		label: "CLI — cohub spaces prompt",
+		alt: "Driving a Space from the terminal with the Cohub CLI",
+		ratio: "4 / 3",
 	},
 ];
 </script>
 
 <svelte:head>
-	<title>Cohub — create, play, and build with people and agents</title>
+	<title>Cohub — a living space where people and agents build together</title>
 	<meta
 		name="description"
-		content="A living Space for people and agents. Create on the web or connect a local folder with the CLI, save Checkpoints, and publish Live Works that still run on Cohub."
+		content="A living space where people and agents create, play, and build together. Open a Space, work with an Agent on real files, save checkpoints, and publish live Works."
 	/>
 	<link rel="canonical" href={canonical} />
 	<meta property="og:type" content="website" />
 	<meta property="og:site_name" content="Cohub" />
-	<meta property="og:title" content="Cohub — create, play, and build with people and agents" />
+	<meta property="og:title" content="Cohub — a living space where people and agents build together" />
 	<meta
 		property="og:description"
-		content="A living Space for people and agents. Start on the web or from a local folder via CLI. Save Checkpoints. Publish Live Works."
+		content="Open a Space, build with an Agent on real files, save checkpoints, and publish live Works."
 	/>
 	<meta property="og:url" content={canonical} />
-	<meta name="twitter:card" content="summary" />
-	<meta name="twitter:title" content="Cohub — create, play, and build with people and agents" />
+	<meta name="twitter:card" content="summary_large_image" />
+	<meta name="twitter:title" content="Cohub — a living space where people and agents build together" />
 	<meta
 		name="twitter:description"
-		content="A living Space for people and agents. Start on the web or from a local folder via CLI. Save Checkpoints. Publish Live Works."
+		content="Open a Space, build with an Agent on real files, save checkpoints, and publish live Works."
 	/>
 </svelte:head>
 
@@ -207,222 +164,156 @@ const ideas = [
 			: ''}"
 		aria-hidden={redirecting ? "true" : undefined}
 	>
-		<!-- Ambient brand glow -->
-		<div
-			aria-hidden="true"
-			class="pointer-events-none fixed inset-x-0 top-0 h-[480px] bg-[radial-gradient(circle_at_18%_-8%,color-mix(in_srgb,var(--brand)_14%,transparent),transparent_55%)]"
-		></div>
-
-		<!-- Header -->
 		<PublicHeader cta="start" onStart={handlePrimaryCta} />
 
 		<main class="relative flex-1">
-			<!-- Hero -->
-			<section class="relative overflow-hidden">
-				<div
-					class="mx-auto grid w-full max-w-6xl items-center gap-11 px-5 pb-20 pt-12 sm:px-8 sm:pt-16 lg:grid-cols-[1.02fr_0.98fr] lg:gap-14 lg:pb-24 lg:pt-24"
-				>
-					<div class="relative max-w-xl">
-						<div
-							class="rise rise-1 inline-flex items-center gap-2 rounded-full border border-brand-border bg-brand-muted px-3 py-1 text-[11px] font-medium text-brand"
-						>
-							<span class="live-dot h-1.5 w-1.5 rounded-full bg-brand"></span>
-							people + agents welcome
-						</div>
-						<h1
-							class="rise rise-2 mt-6 text-[clamp(2.3rem,5.6vw,3.9rem)] font-semibold leading-[0.99] tracking-[-0.04em] text-text-primary"
-						>
-							Your own space to <span class="accent">create</span>, play, and build with people and
-							agents.
+			<!-- 1 · Hero -->
+			<section class="hero">
+				<div class="mx-auto w-full max-w-6xl px-5 sm:px-8">
+					<div class="mx-auto max-w-4xl text-center">
+						<h1 class="hero-title">
+							A living space where people and agents
+							<span class="accent">create, play, and build</span> together.
 						</h1>
-						<p class="rise rise-3 mt-5 max-w-md text-[15px] leading-7 text-text-tertiary sm:text-[16px]">
-							A living Space where people and agents work in one context. Start on the web, or connect a
-							local folder with the CLI. Make in any medium, save Checkpoints, and share as Live Works.
+						<p class="hero-lede">
+							Open a Space and you get a real computer, an agent to work with, and room for
+							friends to join in. Publish anything that comes out of it.
 						</p>
-						<div class="rise rise-4 mt-8 flex flex-wrap items-center gap-x-4 gap-y-3">
-							<button
-								type="button"
-								onclick={handlePrimaryCta}
-								class="cta-btn group inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-full bg-brand px-5 py-3 text-[13px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover"
-							>
+						<div class="hero-actions">
+							<button type="button" onclick={handlePrimaryCta} class="cta cta-primary group">
 								Start a Space
-								<ArrowRight class="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+								<ArrowRight class="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
 							</button>
-						</div>
-						<p class="rise rise-4 mt-3 font-mono text-[11.5px] text-text-placeholder">
-							$ cohub sandbox up ./my-project
-						</p>
-					</div>
-
-					<div class="rise rise-5 relative lg:pt-2">
-						<LandingSpaceDemo />
-					</div>
-				</div>
-			</section>
-
-			<!-- Medium strip -->
-			<section class="border-y border-border-subtle">
-				<div
-					class="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-x-8 gap-y-3.5 px-5 py-5 sm:px-8"
-				>
-					<span
-						class="text-[11px] font-medium uppercase tracking-[0.14em] text-text-placeholder"
-						>Make in any medium</span
-					>
-					<div class="flex flex-wrap gap-2.5">
-						{#each mediums as medium (medium)}
-							<span
-								class="medium-chip inline-flex items-center gap-2 rounded-full border border-border-subtle bg-[color-mix(in_srgb,var(--bg-surface)_45%,transparent)] px-3 py-1.5 text-[13px] text-text-secondary"
+							<a
+								href="https://github.com/talesofai/cohub"
+								target="_blank"
+								rel="noopener noreferrer"
+								class="cta cta-secondary"
 							>
-								<span class="h-1.5 w-1.5 rounded-full bg-brand"></span>
-								{medium}
-							</span>
-						{/each}
-					</div>
-				</div>
-			</section>
-
-			<!-- How it works -->
-			<section class="mx-auto w-full max-w-6xl px-5 pb-4 pt-20 sm:px-8 lg:pt-24">
-				<div class="max-w-2xl">
-					<div class="text-[12px] font-semibold uppercase tracking-[0.16em] text-brand">
-						How it works
-					</div>
-					<h2
-						class="mt-3 text-[clamp(1.7rem,3.2vw,2.5rem)] font-semibold leading-tight tracking-[-0.03em] text-text-primary"
-					>
-						Start a Space. Build in it. Publish live.
-					</h2>
-					<p class="mt-3.5 max-w-xl text-[15px] leading-7 text-text-tertiary">
-						Open one on the web or from a local folder with the CLI. Work together, save a Checkpoint,
-						then publish a Live Work that keeps running on Cohub.
-					</p>
-				</div>
-				<div use:reveal class="reveal-row mt-9">
-					<LandingHowItWorks />
-				</div>
-			</section>
-
-			<!-- Differentials -->
-			<section class="mx-auto w-full max-w-6xl px-5 pb-4 pt-20 sm:px-8 lg:pt-24">
-				<div class="max-w-2xl">
-					<div class="text-[12px] font-semibold uppercase tracking-[0.16em] text-brand">
-						What makes it different
-					</div>
-					<h2
-						class="mt-3 text-[clamp(1.7rem,3.2vw,2.5rem)] font-semibold leading-tight tracking-[-0.03em] text-text-primary"
-					>
-						Share live. Reuse context.
-					</h2>
-					<p class="mt-3.5 max-w-xl text-[15px] leading-7 text-text-tertiary">
-						Publish an app that exposes your Space, or let the agent pull context in with
-						<code class="rounded-[5px] bg-brand-muted px-1.5 py-0.5 font-mono text-[0.92em] text-brand">@space</code>
-						— other Spaces as context, not a hunt for another agent. Useful once you are building.
-					</p>
-				</div>
-				<div use:reveal class="reveal-row mt-9">
-					<LandingDifferentials />
-				</div>
-			</section>
-
-			<!-- Ideas -->
-			<section class="mx-auto w-full max-w-6xl px-5 pb-4 pt-20 sm:px-8 lg:pt-24">
-				<div class="max-w-2xl">
-					<div class="text-[12px] font-semibold uppercase tracking-[0.16em] text-brand">
-						Inside a Space
-					</div>
-					<h2
-						class="mt-3 text-[clamp(1.7rem,3.2vw,2.5rem)] font-semibold leading-tight tracking-[-0.03em] text-text-primary"
-					>
-						Everything happens in a Space.
-					</h2>
-					<p class="mt-3.5 max-w-xl text-[15px] leading-7 text-text-tertiary">
-						Chats, files, previews, scheduled prompts, and published Works — people and agents, one place.
-					</p>
-				</div>
-
-				<div class="mt-8 flex flex-col gap-6 sm:gap-2">
-					{#each ideas as idea, index (idea.title)}
-						<div
-							use:reveal
-							class="reveal-row grid items-center gap-9 py-8 lg:grid-cols-2 lg:gap-14 lg:py-10"
-						>
-							<div class={index % 2 === 1 ? "lg:order-2" : ""}>
-								<span class="font-mono text-[12px] text-brand">{idea.num}</span>
-								<h3
-									class="mt-1.5 text-[clamp(1.4rem,2.3vw,1.9rem)] font-semibold tracking-[-0.02em] text-text-primary"
-								>
-									{idea.title}
-								</h3>
-								<p class="mt-3 max-w-md text-[15px] leading-7 text-text-tertiary">
-									{#if idea.kind === "fork"}
-										Fork a Checkpoint into a new Space, or use
-										<code class="rounded-[5px] bg-brand-muted px-1.5 py-0.5 font-mono text-[0.92em] text-brand">@space</code>
-										so the agent pulls other context in. You stay in one session — not hopping between agents.
-									{:else if idea.kind === "work"}
-										Publish a file, site, or running port as a public app that exposes your Space.
-										After a visitor authorizes, it can still prompt or generate back in the Space.
-									{:else if idea.kind === "open"}
-										Same Space from the web, CLI, API, or a schedule. Link a local folder with
-										<code class="rounded-[5px] bg-brand-muted px-1.5 py-0.5 font-mono text-[0.92em] text-brand">cohub sandbox up</code>
-										and work from your machine.
-									{:else}
-										{idea.body}
-									{/if}
-								</p>
-							</div>
-							<div class={index % 2 === 1 ? "lg:order-1" : ""}>
-								<LandingIdeaArt kind={idea.kind} />
-							</div>
+								<Star class="h-4 w-4" />
+								Star on GitHub
+							</a>
 						</div>
+					</div>
+
+					<div class="hero-media">
+						<LandingMedia
+							kind="video"
+							alt="An agent editing files inside a Cohub Space while the preview updates"
+							label="Hero — agent edits a file, preview updates"
+							ratio="16 / 9"
+							priority
+						/>
+					</div>
+				</div>
+			</section>
+
+			<!-- 2 · Proof -->
+			<div class="mx-auto w-full max-w-6xl px-5 sm:px-8">
+				<LandingProof />
+			</div>
+
+			<!-- 3 · Same room — the differentiator, straight after the proof strip -->
+			<LandingSection
+				eyebrow="Same room"
+				title="Everyone in the Space shares the same context."
+				lede="Chats are not private threads. Keep going in someone else's, or fork from any message to take your own line. Messages drift past so you know what everyone is up to."
+				divided
+			>
+				<LandingMedia
+					kind="video"
+					alt="Two people working in the same Cohub chat, with live messages drifting past"
+					label="Shared chat — a second person picking up the same session"
+					ratio="16 / 9"
+				/>
+			</LandingSection>
+
+			<!-- 4 · Live Works — the strongest outcome: a real URL that feeds back -->
+			<LandingSection
+				eyebrow="Live Works"
+				title="Publish something people can play with."
+				lede="A game, a demo, a weird little tool: publish it from a file, a directory, or a running port. Visitors get something live, not a screenshot. And if you let it, a Work can even reach back and change the Space behind it."
+				divided
+			>
+				<LandingMedia
+					alt="A published Cohub Work running at a public URL"
+					label="Work — published page with its public URL"
+					ratio="16 / 9"
+				/>
+			</LandingSection>
+
+			<!-- 5 · Everywhere — mobile, channels, CLI -->
+			<LandingSection
+				eyebrow="Everywhere"
+				title="The Space follows you."
+				lede="Start on the web, keep going on your phone, reach agents from Discord or WeChat, and drive the same Space from your terminal."
+				divided
+			>
+				<div class="surfaces">
+					{#each surfaces as surface (surface.label)}
+						<LandingMedia
+							src={surface.src}
+							alt={surface.alt}
+							label={surface.label}
+							ratio={surface.ratio}
+						/>
 					{/each}
 				</div>
-			</section>
+			</LandingSection>
 
-			<!-- Concepts -->
-			<section class="mx-auto w-full max-w-6xl px-5 pb-8 pt-20 sm:px-8 lg:pt-24">
-				<div class="mx-auto max-w-2xl text-center">
-					<div class="text-[12px] font-semibold uppercase tracking-[0.16em] text-brand">
-						The mental model
-					</div>
-					<h2
-						class="mt-3 text-[clamp(1.7rem,3.2vw,2.5rem)] font-semibold leading-tight tracking-[-0.03em] text-text-primary"
-					>
-						A few ideas, used together.
-					</h2>
-					<p class="mt-3.5 text-[15px] leading-7 text-text-tertiary">
-						You work in Spaces, save Checkpoints, and share Live Works.
-						<code class="rounded-[5px] bg-brand-muted px-1.5 py-0.5 font-mono text-[0.92em] text-brand">@space</code>
-						lets the agent reach for other context; Fork opens a new Space when you need a branch.
-					</p>
-				</div>
-				<div use:reveal class="reveal-row mt-9">
-					<LandingConcepts />
-				</div>
-			</section>
+			<!-- 6 · Any medium — split layout breaks the run of full-width images -->
+			<LandingSection
+				eyebrow="Any medium"
+				title="Text, images, video, music, and running code."
+				lede="Generation happens in the conversation, not in a separate tool. Results land in the Space as files you can edit, save, and publish."
+				divided
+				split
+			>
+				<LandingMedia
+					alt="A generated image returned inline in a Cohub chat"
+					label="Inline generation — an image returned in chat"
+					ratio="4 / 3"
+				/>
+			</LandingSection>
 
-			<!-- CTA -->
-			<section class="mx-auto w-full max-w-6xl px-5 pb-24 pt-12 sm:px-8 lg:pb-32">
-				<div use:reveal class="cta-card reveal-row relative overflow-hidden rounded-[24px] px-6 py-12 sm:px-12 sm:py-14">
-					<div class="relative max-w-2xl">
-						<h2
-							class="text-[clamp(1.7rem,3.4vw,2.6rem)] font-semibold tracking-[-0.03em] text-brand-contrast-fg"
-						>
-							Start in seconds. Stay for the context.
-						</h2>
-						<p
-							class="mt-3.5 text-[16px] leading-7 text-[color-mix(in_srgb,var(--brand-contrast-fg)_88%,transparent)]"
-						>
-							One Space to play, build, and share — on the web or from a local folder via CLI.
+			<!-- 7 · Context network — reversed split, so it reads differently again -->
+			<LandingSection
+				eyebrow="Context network"
+				title="No Space is an island."
+				lede="Mention @space and another Space joins the conversation as context. Type / and reusable skills are already there. Fork a Save and start with its files loaded — context compounds instead of resetting."
+				divided
+				split
+				reverse
+			>
+				<LandingMedia
+					alt="Mentioning another Space and running a skill from the composer"
+					label="@space mention and /skill in the composer"
+					ratio="4 / 3"
+				/>
+			</LandingSection>
+
+			<!-- 8 · Sandbox — text-only; density drops on the way into the CTA -->
+			<LandingSection
+				eyebrow="Cloud sandbox"
+				title="Every Space gets a real computer."
+				lede="Everything above runs on an isolated environment behind each Space, ready to build, serve, schedule, and keep working while you are away."
+				divided
+			>
+				<LandingSandboxSpec />
+			</LandingSection>
+
+			<!-- 9 · Closing CTA -->
+			<section class="closing">
+				<div class="mx-auto w-full max-w-6xl px-5 sm:px-8">
+					<div class="cta-card">
+						<h2 class="cta-title">Start a Space. See where it goes.</h2>
+						<p class="cta-lede">
+							Free to try, open source, and yours to self-host.
 						</p>
-						<div class="mt-8">
-							<button
-								type="button"
-								onclick={handlePrimaryCta}
-								class="cta-btn cta-btn-invert group inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-full bg-brand-contrast-fg px-5 py-3 text-[13px] font-medium text-brand transition hover:brightness-95"
-							>
+						<div class="hero-actions justify-center">
+							<button type="button" onclick={handlePrimaryCta} class="cta cta-invert group">
 								Start a Space
-								<ArrowRight class="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+								<ArrowRight class="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
 							</button>
 						</div>
 					</div>
@@ -430,89 +321,93 @@ const ideas = [
 			</section>
 		</main>
 
-		<!-- Footer -->
 		<footer class="border-t border-border-subtle">
-			<div class="mx-auto w-full max-w-6xl px-5 py-12 sm:px-8">
+			<div class="mx-auto w-full max-w-6xl px-5 py-14 sm:px-8">
 				<div class="flex flex-col gap-10 sm:flex-row sm:items-start sm:justify-between">
-					<a href="/" class="inline-flex items-center gap-2.5" aria-label="Cohub home">
-						<div
-							class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border-subtle bg-bg-surface text-[14px] font-semibold text-brand"
-						>
-							C
-						</div>
-						<span class="text-[15px] font-semibold tracking-tight text-text-primary">Cohub</span>
-					</a>
-
-					<div class="grid grid-cols-2 gap-10 sm:gap-16">
-						<div>
+					<div class="max-w-xs">
+						<a href="/" class="inline-flex items-center gap-2.5" aria-label="Cohub home">
 							<div
-								class="text-[11px] font-medium uppercase tracking-[0.14em] text-text-placeholder"
+								class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand text-[14px] font-semibold text-brand-contrast-fg"
 							>
-								Product
+								C
 							</div>
-							<ul class="mt-4 space-y-2.5 text-[13px]">
+							<span class="text-[15px] font-semibold tracking-tight text-text-primary">Cohub</span>
+						</a>
+						<p class="mt-4 text-[13px] leading-6 text-text-tertiary">
+							A living space where people and agents create, play, and build together.
+						</p>
+					</div>
+
+					<div class="grid grid-cols-2 gap-10 sm:grid-cols-3 sm:gap-16">
+						<div>
+							<div class="footer-heading">Product</div>
+							<ul class="footer-list">
+								<li><a href="/docs" class="footer-link">Docs</a></li>
+								<li><a href="/pricing" class="footer-link">Pricing</a></li>
+								<li><a href="/changelog" class="footer-link">Changelog</a></li>
+								<li><a href="/trending" class="footer-link">Trending</a></li>
+							</ul>
+						</div>
+
+						<div>
+							<div class="footer-heading">Open source</div>
+							<ul class="footer-list">
 								<li>
 									<a
-										href="/docs"
-										class="text-text-secondary transition-colors hover:text-text-primary"
-										>Docs</a
+										href="https://github.com/talesofai/cohub"
+										target="_blank"
+										rel="noopener noreferrer"
+										class="footer-link">GitHub</a
 									>
 								</li>
 								<li>
 									<a
-										href="/pricing"
-										class="text-text-secondary transition-colors hover:text-text-primary"
-										>Pricing</a
+										href="https://www.npmjs.com/package/@neta-art/cohub-cli"
+										target="_blank"
+										rel="noopener noreferrer"
+										class="footer-link">CLI on npm</a
 									>
 								</li>
+								<li><a href="/docs/developers/cli" class="footer-link">CLI docs</a></li>
 								<li>
 									<a
-										href="/changelog"
-										class="text-text-secondary transition-colors hover:text-text-primary"
-										>Changelog</a
-									>
-								</li>
-								<li>
-									<a
-										href="/trending"
-										class="text-text-secondary transition-colors hover:text-text-primary"
-										>Trending</a
+										href="https://github.com/talesofai/cohub/blob/main/docs/self-hosting.md"
+										target="_blank"
+										rel="noopener noreferrer"
+										class="footer-link">Self-hosting</a
 									>
 								</li>
 							</ul>
 						</div>
 
 						<div>
-							<div
-								class="text-[11px] font-medium uppercase tracking-[0.14em] text-text-placeholder"
-							>
-								Connect
-							</div>
-							<ul class="mt-4 space-y-2.5 text-[13px]">
+							<div class="footer-heading">Connect</div>
+							<ul class="footer-list">
+								<li>
+									<a
+										href="https://cohub.run/tzwm/cohub"
+										class="footer-link">Built in the open</a
+									>
+								</li>
 								<li>
 									<a
 										href="https://x.com/NetaArt_AI"
 										target="_blank"
 										rel="noopener noreferrer"
-										class="text-text-secondary transition-colors hover:text-text-primary"
-										>X / Twitter</a
+										class="footer-link">X / Twitter</a
 									>
 								</li>
-								<li>
-									<a
-										href="mailto:dev@talesof.ai"
-										class="text-text-secondary transition-colors hover:text-text-primary"
-										>dev@talesof.ai</a
-									>
-								</li>
+								<li><a href="mailto:dev@talesof.ai" class="footer-link">dev@talesof.ai</a></li>
 							</ul>
 						</div>
 					</div>
 				</div>
+
 				<div
 					class="mt-12 flex flex-col items-start justify-between gap-3 border-t border-border-subtle pt-6 text-[12px] text-text-tertiary sm:flex-row sm:items-center"
 				>
 					<span>Copyright 2026 Viscept Limited</span>
+					<span>Apache License 2.0</span>
 				</div>
 			</div>
 		</footer>
@@ -547,144 +442,174 @@ const ideas = [
 	:global(html[data-home-redirect="1"] .home-redirect-shell) {
 		display: flex !important;
 	}
-	@keyframes live-pulse {
-		0%,
-		100% {
-			opacity: 1;
-			transform: scale(1);
-		}
-		50% {
-			opacity: 0.4;
-			transform: scale(0.8);
-		}
-	}
-	.live-dot {
-		animation: live-pulse 2.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+
+	.hero {
+		padding-top: clamp(3.5rem, 7vw, 6rem);
+		padding-bottom: clamp(2.5rem, 5vw, 4rem);
 	}
 
-	@media (prefers-reduced-motion: no-preference) {
-		.rise {
-			opacity: 0;
-			transform: translateY(10px);
-			animation: rise-in 0.7s cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
-		}
-		.rise-1 {
-			animation-delay: 0.05s;
-		}
-		.rise-2 {
-			animation-delay: 0.12s;
-		}
-		.rise-3 {
-			animation-delay: 0.19s;
-		}
-		.rise-4 {
-			animation-delay: 0.26s;
-		}
-		.rise-5 {
-			animation-delay: 0.33s;
-		}
-	}
-	@keyframes rise-in {
-		to {
-			opacity: 1;
-			transform: translateY(0);
-		}
+	.hero-title {
+		font-size: clamp(2.4rem, 6vw, 4.4rem);
+		font-weight: 600;
+		line-height: 1.03;
+		letter-spacing: 0;
+		color: var(--text-primary);
+		text-wrap: balance;
 	}
 
-	@media (prefers-reduced-motion: reduce) {
-		.live-dot {
-			animation: none;
-		}
-		.rise {
-			opacity: 1;
-			transform: none;
-			animation: none;
-		}
-	}
-
-	/* Brand highlight on the hero headline — soft gradient underline. */
+	/* Brand emphasis on the verbs — the part that separates Cohub from a chat UI. */
 	.accent {
-		position: relative;
 		color: var(--brand);
-		white-space: nowrap;
-	}
-	.accent::after {
-		content: "";
-		position: absolute;
-		left: -0.04em;
-		right: -0.04em;
-		bottom: 0.08em;
-		z-index: -1;
-		height: 0.26em;
-		border-radius: 999px;
-		background: linear-gradient(
-			90deg,
-			color-mix(in srgb, var(--brand) 26%, transparent),
-			color-mix(in srgb, var(--brand) 10%, transparent)
-		);
 	}
 
-	/* Scroll-reveal for idea rows, concepts, and CTA. */
-	@media (prefers-reduced-motion: no-preference) {
-		.reveal-row {
-			opacity: 0;
-			transform: translateY(18px);
-			transition:
-				opacity 0.6s cubic-bezier(0.22, 0.61, 0.36, 1),
-				transform 0.6s cubic-bezier(0.22, 0.61, 0.36, 1);
-		}
-		.reveal-row:global(.in-view) {
-			opacity: 1;
-			transform: none;
-		}
+	.hero-lede {
+		margin: 1.5rem auto 0;
+		max-width: 34rem;
+		font-size: clamp(15px, 1.5vw, 17px);
+		line-height: 1.7;
+		color: var(--text-tertiary);
+		text-wrap: pretty;
 	}
 
-	/* Keyboard focus rings on primary CTAs. */
-	.cta-btn {
+	.hero-actions {
+		margin-top: 2.25rem;
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: center;
+		align-items: center;
+		gap: 0.75rem;
+	}
+
+	.cta {
+		display: inline-flex;
+		min-height: 44px;
 		cursor: pointer;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		border-radius: 6px;
+		padding: 0.75rem 1.35rem;
+		font-size: 14px;
+		font-weight: 500;
+		transition:
+			background-color 0.2s,
+			border-color 0.2s,
+			color 0.2s;
 	}
-	.cta-btn:focus-visible {
+
+	.cta-primary {
+		background: var(--brand);
+		color: var(--brand-contrast-fg);
+	}
+	.cta-primary:hover {
+		background: var(--brand-hover);
+	}
+
+	.cta-secondary {
+		border: 1px solid var(--border-subtle);
+		color: var(--text-secondary);
+	}
+	.cta-secondary:hover {
+		border-color: var(--border-primary);
+		color: var(--text-primary);
+	}
+
+	.cta-invert {
+		background: var(--brand-contrast-fg);
+		color: var(--brand);
+	}
+	.cta-invert:hover {
+		filter: brightness(0.96);
+	}
+
+	.cta:focus-visible {
 		outline: none;
 		box-shadow:
 			0 0 0 2px var(--bg-primary),
 			0 0 0 4px var(--brand);
 	}
-	.cta-btn-invert:focus-visible {
+	.cta-invert:focus-visible {
 		box-shadow:
 			0 0 0 2px var(--brand),
 			0 0 0 4px var(--brand-contrast-fg);
 	}
 
-	/* Medium chips — subtle hover lift. */
-	.medium-chip {
-		transition:
-			border-color 0.2s,
-			color 0.2s,
-			transform 0.2s;
+	.hero-media {
+		margin-top: clamp(3rem, 6vw, 4.5rem);
 	}
-	.medium-chip:hover {
-		transform: translateY(-2px);
-		border-color: var(--brand-border);
-		color: var(--text-primary);
+
+	.surfaces {
+		display: grid;
+		gap: 1.25rem;
+		align-items: start;
 	}
-	@media (prefers-reduced-motion: reduce) {
-		.medium-chip:hover {
-			transform: none;
+
+	/* Mobile gets one product image only; channels and command palette are
+	   supporting desktop proof, not additional mobile scroll cost. */
+	.surfaces :global(.media:nth-child(n + 2)) {
+		display: none;
+	}
+
+	@media (min-width: 720px) {
+		.surfaces {
+			grid-template-columns: 0.7fr 1fr 1fr;
+		}
+		.surfaces :global(.media:nth-child(n + 2)) {
+			display: block;
 		}
 	}
 
-	/* Final CTA gradient card. */
-	.cta-card {
-		background: linear-gradient(135deg, var(--brand), oklch(52% 0.2 40));
-		box-shadow: 0 40px 90px -50px var(--brand);
+	.closing {
+		padding-block: clamp(4rem, 8vw, 7rem);
 	}
-	.cta-card::before {
-		content: "";
-		position: absolute;
-		inset: 0;
-		pointer-events: none;
-		background:
-			radial-gradient(60% 120% at 90% 0%, rgba(255, 255, 255, 0.16), transparent 55%),
-			radial-gradient(50% 100% at 0% 100%, rgba(0, 0, 0, 0.16), transparent 60%);
+
+	.cta-card {
+		position: relative;
+		overflow: hidden;
+		border-radius: 8px;
+		background: var(--brand);
+		padding: clamp(3rem, 6vw, 4.5rem) 1.5rem;
+		text-align: center;
+	}
+
+	.cta-title {
+		position: relative;
+		font-size: clamp(1.8rem, 3.6vw, 2.7rem);
+		font-weight: 600;
+		letter-spacing: 0;
+		color: var(--brand-contrast-fg);
+		text-wrap: balance;
+	}
+
+	.cta-lede {
+		position: relative;
+		margin-top: 1rem;
+		font-size: 16px;
+		line-height: 1.7;
+		color: color-mix(in srgb, var(--brand-contrast-fg) 88%, transparent);
+	}
+
+	.footer-heading {
+		font-size: 11px;
+		font-weight: 500;
+		letter-spacing: 0.14em;
+		text-transform: uppercase;
+		color: var(--text-placeholder);
+	}
+
+	.footer-list {
+		margin-top: 1rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.625rem;
+		font-size: 13px;
+	}
+
+	.footer-link {
+		color: var(--text-secondary);
+		transition: color 0.2s;
+	}
+	.footer-link:hover {
+		color: var(--text-primary);
 	}
 </style>

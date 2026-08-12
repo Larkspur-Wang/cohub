@@ -31,10 +31,11 @@
         var stored = localStorage.getItem('cohub-theme');
         var resolved;
         var path = location.pathname;
-        // Marketing home is always dark; other public pages follow the visitor theme.
+        // Marketing home renders light so product captures only need one theme;
+        // other public pages follow the visitor theme.
         var isHome = path === '/' || path === '';
         if (isHome) {
-          resolved = 'dark';
+          resolved = 'light';
         } else if (Object.hasOwn(themeColors, stored)) {
           resolved = stored;
         } else if (stored === 'system' || !stored) {
