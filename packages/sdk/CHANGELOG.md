@@ -1,5 +1,11 @@
 # @neta-art/cohub
 
+## 5.4.3
+
+### Patch Changes
+
+- Re-establish room subscriptions after a WebSocket reconnect, so realtime room events resume flowing without manually resubscribing.
+
 ## 5.4.2
 
 ### Patch Changes
