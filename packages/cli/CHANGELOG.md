@@ -1,5 +1,13 @@
 # @neta-art/cohub-cli
 
+## 3.9.1
+
+### Patch Changes
+
+- Preserve original avatar formats (JPEG/PNG/GIF/WebP) and upload avatars as immutable assets with stable URLs, so replacing a profile or space avatar no longer breaks previously served images.
+- Updated dependencies
+  - @neta-art/cohub@5.4.2
+
 ## 3.9.0
 
 ### Minor Changes
