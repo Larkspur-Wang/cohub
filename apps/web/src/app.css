@@ -312,6 +312,18 @@ body.pointer-dragging {
 	margin-top: 0.5em;
 }
 
+.markdown-content [align="center"] {
+	text-align: center;
+}
+
+.markdown-content [align="right"] {
+	text-align: right;
+}
+
+.markdown-content [align="left"] {
+	text-align: left;
+}
+
 .markdown-content h1,
 .markdown-content h2,
 .markdown-content h3,
@@ -656,8 +668,8 @@ body.pointer-dragging {
 
 .markdown-content img,
 .markdown-content video {
-	width: auto;
 	height: auto;
+	vertical-align: middle;
 	border: 1px solid var(--border-subtle);
 	border-radius: 0.5rem;
 	margin: 1em 0;
@@ -712,6 +724,17 @@ body.pointer-dragging {
 .markdown-content[data-variant="document"] video {
 	max-width: 100%;
 	max-height: none;
+}
+
+.markdown-content p[align]:has(> img[width$="%"]),
+.markdown-content p[align]:has(> a > img[width$="%"]) {
+	white-space: nowrap;
+}
+
+.markdown-content p[align] > img,
+.markdown-content p[align] > a > img {
+	display: inline-block;
+	margin: 0.25em 0;
 }
 
 @media (min-width: 640px) {

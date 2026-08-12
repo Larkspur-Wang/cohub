@@ -580,9 +580,113 @@ function normalizeNestedMarkdownCodeFences(source: string) {
 	return output.join("");
 }
 
-function escapeSourceHtmlTokens(tokens: Token[]) {
+const MARKDOWN_SOURCE_HTML_TAGS = [
+	"a",
+	"abbr",
+	"b",
+	"blockquote",
+	"br",
+	"caption",
+	"code",
+	"col",
+	"colgroup",
+	"dd",
+	"del",
+	"details",
+	"div",
+	"dl",
+	"dt",
+	"em",
+	"figcaption",
+	"figure",
+	"h1",
+	"h2",
+	"h3",
+	"h4",
+	"h5",
+	"h6",
+	"hr",
+	"i",
+	"img",
+	"kbd",
+	"li",
+	"mark",
+	"ol",
+	"p",
+	"picture",
+	"pre",
+	"q",
+	"s",
+	"samp",
+	"small",
+	"span",
+	"strong",
+	"sub",
+	"summary",
+	"sup",
+	"table",
+	"tbody",
+	"td",
+	"tfoot",
+	"th",
+	"thead",
+	"tr",
+	"ul",
+	"var",
+];
+
+const MARKDOWN_SOURCE_HTML_ATTRIBUTES = [
+	"align",
+	"alt",
+	"colspan",
+	"height",
+	"href",
+	"open",
+	"reversed",
+	"rowspan",
+	"src",
+	"start",
+	"title",
+	"width",
+];
+
+const MARKDOWN_SOURCE_URL_PATTERN =
+	/^(?:(?:https?:)?\/\/|\/|#|\?|\.{1,2}(?:\/|$)|[^:/?#]+(?:[/?#]|$))/i;
+
+function sanitizeSourceHtml(html: string) {
+	return DOMPurify.sanitize(html, {
+		ALLOWED_ATTR: MARKDOWN_SOURCE_HTML_ATTRIBUTES,
+		ALLOWED_TAGS: MARKDOWN_SOURCE_HTML_TAGS,
+		ALLOWED_URI_REGEXP: MARKDOWN_SOURCE_URL_PATTERN,
+		ALLOW_ARIA_ATTR: false,
+		ALLOW_DATA_ATTR: false,
+	});
+}
+
+function sanitizeInlineSourceHtml(html: string) {
+	const tag = html.match(/^<(\/)?([a-z][a-z0-9-]*)(?:\s[^<>]*)?\s*\/?>$/i);
+	if (!tag) return escapeHtml(html);
+
+	const tagName = tag[2].toLowerCase();
+	if (!MARKDOWN_SOURCE_HTML_TAGS.includes(tagName)) return escapeHtml(html);
+	if (tag[1]) return `</${tagName}>`;
+
+	const sanitized = sanitizeSourceHtml(`${html}</${tagName}>`);
+	const openingTag = sanitized.match(/^<[^>]+>/)?.[0];
+	return openingTag ?? "";
+}
+
+function prepareSourceHtmlTokens(tokens: Token[], allowHtml: boolean) {
 	marked.walkTokens(tokens, (token) => {
-		if (token.type === "html") token.text = escapeHtml(token.text);
+		if (token.type !== "html") return;
+		if (!allowHtml) {
+			token.text = escapeHtml(token.text);
+			return;
+		}
+
+		token.text = token.block
+			? sanitizeSourceHtml(token.text)
+			: sanitizeInlineSourceHtml(token.text);
 	});
 }
 
@@ -593,9 +697,10 @@ async function renderMarkdownHtml(
 	const tokens = marked.lexer(normalizeNestedMarkdownCodeFences(source), {
 		gfm: true,
 	});
-	// Treat all source HTML as text. Renderer-generated HTML is added only after
-	// this pass and is still sanitized before reaching Svelte's `{@html}` sink.
-	escapeSourceHtmlTokens(tokens);
+	// During streaming, incomplete source tags stay visible as text. Completed
+	// renders accept a small document-oriented HTML subset before Cohub adds its
+	// own generated HTML; the combined output is sanitized again below.
+	prepareSourceHtmlTokens(tokens, !options?.streamingSafe);
 	if (!options?.streamingSafe) {
 		enhanceMediaPreviewTokens(tokens);
 		enhanceCohubAskTokens(tokens);

@@ -42,16 +42,58 @@ test("renderMarkdown adds href titles to links without overriding explicit title
 	assert.match(html, /<a href="docs\/readme.md" title="Docs">docs<\/a>/);
 });
 
-test("renderMarkdown escapes source HTML instead of rendering it", async () => {
+test("renderMarkdown supports safe README-style HTML", async () => {
+	const html = await renderMarkdown(`<p align="center">
+	<a href="https://cohub.run/"><img src="https://img.shields.io/badge/cohub-ready" alt="Cohub" width="800" /></a>
+</p>
+
+<p align="center"><em>Build with <code>@space</code>.</em></p>`);
+
+	assert.match(html, /<p align="center">/);
+	assert.match(
+		html,
+		/<a href="https:\/\/cohub\.run\/"[^>]*target="_blank"[^>]*>/,
+	);
+	assert.match(
+		html,
+		/<img src="https:\/\/img\.shields\.io\/badge\/cohub-ready" alt="Cohub" width="800">/,
+	);
+	assert.match(html, /<em>Build with <code>@space<\/code>\.<\/em>/);
+});
+
+test("renderMarkdown sanitizes unsafe source HTML", async () => {
 	const html = await renderMarkdown(
-		`400 Bad Request\n\n<h1>Bad Request</h1>\n<hr>\n<img src="x" onerror="alert(1)">\n\n- <svg onload="alert(2)">upstream</svg>`,
+		`<div id="cover" class="fixed" style="position:fixed" onclick="alert(1)">Safe</div>
+<script>alert(2)</script>
+<iframe src="https://example.com"></iframe>
+<img src="javascript:alert(3)" onerror="alert(4)">
+<a href="data:text/html,bad">bad</a>
+Before <svg onload="alert(5)">unsafe</svg> after`,
 	);
 
-	assert.match(html, /&lt;h1&gt;Bad Request&lt;\/h1&gt;/);
-	assert.match(html, /&lt;hr&gt;/);
-	assert.match(html, /&lt;img src="x" onerror="alert\(1\)"&gt;/);
-	assert.match(html, /&lt;svg onload="alert\(2\)"&gt;upstream&lt;\/svg&gt;/);
-	assert.doesNotMatch(html, /<h1>|<hr>|<img\b|<svg\b|<script\b/);
+	assert.match(html, /<div>Safe<\/div>/);
+	assert.match(html, /<img>/);
+	assert.match(html, /<a>bad<\/a>/);
+	assert.match(html, /Before\s+after/);
+	assert.doesNotMatch(html, /unsafe/);
+	assert.doesNotMatch(
+		html,
+		/<(?:script|iframe|svg)\b|\s(?:class|data-|href|id|onerror|onclick|src|style)=/,
+	);
+});
+
+test("renderMarkdown allows web and workspace URLs in source HTML", async () => {
+	const html = await renderMarkdown(`<a href="docs/readme.md">Docs</a>
+<a href="../README.md#start">Parent</a>
+<a href="/workspace/file.md">Workspace</a>
+<a href="//cohub.run/docs">Web</a>
+<img src="assets/preview.png" alt="Preview">`);
+
+	assert.match(html, /href="docs\/readme\.md"/);
+	assert.match(html, /href="\.\.\/README\.md#start"/);
+	assert.match(html, /href="\/workspace\/file\.md"/);
+	assert.match(html, /href="\/\/cohub\.run\/docs"/);
+	assert.match(html, /src="assets\/preview\.png"/);
 });
 
 test("renderStreamingMarkdownSplit escapes source HTML in the live tail", async () => {
