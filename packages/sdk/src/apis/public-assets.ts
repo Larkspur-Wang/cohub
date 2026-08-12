@@ -2,7 +2,7 @@ import type { HttpTransport } from "../transport.js";
 
 export type PublicAssetPurpose = "user_avatar" | "space_avatar" | "chat_attachment";
 export type PublicAssetUploadProtocol = "s3_post_v1" | "presigned_put_v1";
-/** Avatar + preprocessed chat images. General chat files may use any mime string. */
+/** Preprocessed chat images. General chat files and avatars may use any mime string. */
 export type PublicAssetMimeType = "image/webp" | "image/jpeg";
 
 /** Strip characters Safari rejects in FormData file names. */
@@ -165,7 +165,7 @@ export class PublicAssetsApi {
     if (input.signal?.aborted) throw createAbortError();
     const plan = await this.createUpload({
       purpose: input.purpose,
-      uploadProtocol: input.purpose === "chat_attachment" ? "presigned_put_v1" : undefined,
+      uploadProtocol: "presigned_put_v1",
       spaceId: input.spaceId,
       sessionId: input.sessionId,
       file: {

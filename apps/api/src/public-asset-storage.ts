@@ -2,9 +2,7 @@ import { randomUUID } from "node:crypto";
 import { config } from "./config.js";
 import {
   buildPublicObjectUrl,
-  cacheBuster,
   createPresignedPostObject,
-  createPresignedPutObjectUrl,
   type PresignStorageConfig,
 } from "./object-presign.js";
 import { redisCommandClient } from "./redis.js";
@@ -54,10 +52,12 @@ export type CreateInternalPublicAssetUploadResponse = {
   };
 };
 
-const IMAGE_MIME_TYPES = new Set(["image/webp", "image/jpeg"]);
+const IMAGE_MIME_TYPES = new Set(["image/webp", "image/jpeg", "image/png", "image/gif"]);
 const IMAGE_EXTENSIONS: Record<string, string> = {
   "image/webp": "webp",
   "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/gif": "gif",
 };
 
 /** Common mime → extension for chat attachments (fallback when filename has no ext). */
@@ -86,7 +86,7 @@ const CHAT_MIME_EXTENSIONS: Record<string, string> = {
   "video/webm": "webm",
 };
 
-const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
+const MAX_AVATAR_BYTES = 4 * 1024 * 1024;
 /**
  * Chat durable object (any file). Public URL; UUID-unguessable.
  * Body goes directly to object storage via presign. Align with the Space upload single-file cap.
@@ -115,11 +115,6 @@ const getStorageConfig = (): PresignStorageConfig => ({
   accessKeyId: config.publicAssetOssAccessKeyId,
   secretAccessKey: config.publicAssetOssSecretAccessKey,
 });
-
-const getInternalStorageConfig = (): PresignStorageConfig => {
-  const storage = getStorageConfig();
-  return { ...storage, publicEndpoint: storage.endpoint };
-};
 
 const requirePublicAssetConfig = () => {
   const storage = getStorageConfig();
@@ -195,10 +190,13 @@ export const buildPublicAssetObjectKey = (input: {
 }) => {
   if (input.purpose === "user_avatar" || input.purpose === "space_avatar") {
     const extension = IMAGE_EXTENSIONS[input.mimeType];
-    if (!extension) throw new PublicAssetValidationError("image uploads must be WebP or JPEG images");
-    if (input.purpose === "user_avatar") return `${envPrefix()}users/${input.userUuid}/avatar.${extension}`;
+    if (!extension) throw new PublicAssetValidationError("avatar images must be WebP, JPEG, PNG, or GIF");
+    const assetId = randomUUID();
+    if (input.purpose === "user_avatar") {
+      return `${envPrefix()}avatars/users/${input.userUuid}/${assetId}.${extension}`;
+    }
     if (!input.spaceId) throw new PublicAssetValidationError("spaceId is required for space avatar uploads");
-    return `${envPrefix()}spaces/${input.spaceId}/avatar.${extension}`;
+    return `${envPrefix()}avatars/spaces/${input.spaceId}/${assetId}.${extension}`;
   }
   // Chat attachments are user-scoped. spaceId/sessionId are optional association only.
   const extension = extensionForChatAttachment({
@@ -213,8 +211,6 @@ const buildLegacyPublicAssetUrl = (objectKey: string) => {
     ? `${config.publicAssetCdnBaseUrl}/${objectKey.split("/").map(encodeURIComponent).join("/")}`
     : buildPublicObjectUrl(requirePublicAssetConfig(), objectKey);
 };
-
-const buildVersionedPublicAssetUrl = (objectKey: string) => `${buildLegacyPublicAssetUrl(objectKey)}?v=${cacheBuster()}`;
 
 const tryParseOrigin = (value: string | undefined) => {
   if (!value) return null;
@@ -283,7 +279,9 @@ export const assertPublicAssetUploadFile = (input: {
     return;
   }
 
-  if (!IMAGE_MIME_TYPES.has(file.mimeType)) throw new PublicAssetValidationError("image uploads must be WebP or JPEG images");
+  if (!IMAGE_MIME_TYPES.has(file.mimeType)) {
+    throw new PublicAssetValidationError("avatar images must be WebP, JPEG, PNG, or GIF");
+  }
   if (file.size > MAX_AVATAR_BYTES) throw new PublicAssetValidationError("avatar image is too large");
 };
 
@@ -352,12 +350,22 @@ export const createPublicAssetUploadPlan = (input: {
     filename: input.file.filename,
   });
 
-  if (input.purpose === "chat_attachment" && input.uploadProtocol === "presigned_put_v1") {
-    const { signed, publicUrl } = createChatAttachmentPutPlan({
-      objectKey,
-      mimeType,
-      filename: input.file.filename,
-    });
+  if (input.purpose !== "chat_attachment" || input.uploadProtocol === "presigned_put_v1") {
+    const { signed, publicUrl } = input.purpose === "chat_attachment"
+      ? createChatAttachmentPutPlan({
+        objectKey,
+        mimeType,
+        filename: input.file.filename,
+      })
+      : {
+        signed: createUserUploadPutUrl({
+          kind: "chat_attachment",
+          objectKey,
+          contentType: mimeType,
+          cacheControl: IMMUTABLE_PUBLIC_CACHE_CONTROL,
+        }),
+        publicUrl: buildChatAttachmentPublicUrl(objectKey),
+      };
     return {
       expiresAt: signed.expiresAt,
       asset: {
@@ -386,9 +394,7 @@ export const createPublicAssetUploadPlan = (input: {
     asset: {
       purpose: input.purpose,
       objectKey,
-      publicUrl: input.purpose === "chat_attachment"
-        ? buildLegacyPublicAssetUrl(objectKey)
-        : buildVersionedPublicAssetUrl(objectKey),
+      publicUrl: buildLegacyPublicAssetUrl(objectKey),
       uploadMethod: "POST",
       uploadUrl: signed.uploadUrl,
       uploadFields: signed.fields,
@@ -415,20 +421,24 @@ export const createInternalPublicAssetUploadPlan = (input: {
     mimeType,
     filename: input.file.filename,
   });
-  const chatPlan = input.purpose === "chat_attachment"
+  const userUploadPlan = input.purpose === "chat_attachment"
     ? createChatAttachmentPutPlan({ objectKey, mimeType, filename: input.file.filename })
-    : null;
-  const signed = chatPlan?.signed ?? createPresignedPutObjectUrl(
-    getInternalStorageConfig(),
-    objectKey,
-    mimeType,
-  );
+    : {
+      signed: createUserUploadPutUrl({
+        kind: "chat_attachment",
+        objectKey,
+        contentType: mimeType,
+        cacheControl: IMMUTABLE_PUBLIC_CACHE_CONTROL,
+      }),
+      publicUrl: buildChatAttachmentPublicUrl(objectKey),
+    };
+  const signed = userUploadPlan.signed;
   return {
     expiresAt: signed.expiresAt,
     asset: {
       purpose: input.purpose,
       objectKey,
-      publicUrl: chatPlan?.publicUrl ?? buildVersionedPublicAssetUrl(objectKey),
+      publicUrl: userUploadPlan.publicUrl,
       uploadMethod: "PUT",
       uploadUrl: signed.uploadUrl,
       uploadHeaders: signed.headers,

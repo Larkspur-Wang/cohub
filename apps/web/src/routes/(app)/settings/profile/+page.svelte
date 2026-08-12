@@ -269,12 +269,12 @@ onMount(() => {
 											<Upload class="h-4 w-4 text-overlay-control-text" />
 										{/if}
 									</span>
-									<input type="file" accept="image/jpeg,image/png,image/webp" class="sr-only" disabled={uploadingAvatar} onchange={handleAvatarFileChange} />
+									<input type="file" accept="image/jpeg,image/png,image/gif,image/webp" class="sr-only" disabled={uploadingAvatar} onchange={handleAvatarFileChange} />
 								</label>
 								<label class="inline-flex cursor-pointer items-center gap-1 rounded-[4px] px-1 py-0.5 text-[11px] leading-none text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary focus-within:bg-bg-hover focus-within:text-text-secondary {uploadingAvatar ? 'pointer-events-none opacity-70' : ''}">
 									{#if uploadingAvatar}<Loader2 class="h-3 w-3 animate-spin" />{:else}<Upload class="h-3 w-3" />{/if}
 									<span aria-live="polite">{avatarUploadStage === "preparing" ? "Preparing" : avatarUploadStage === "uploading" ? `${avatarUploadProgress}%` : avatarUploadStage === "saving" ? "Saving" : avatarUrl ? "Change" : "Upload"}</span>
-									<input type="file" accept="image/jpeg,image/png,image/webp" class="sr-only" disabled={uploadingAvatar} onchange={handleAvatarFileChange} />
+									<input type="file" accept="image/jpeg,image/png,image/gif,image/webp" class="sr-only" disabled={uploadingAvatar} onchange={handleAvatarFileChange} />
 								</label>
 								{#if uploadingAvatar}
 									<UploadProgress class="w-12 rounded-full" value={avatarUploadStage === "uploading" ? avatarUploadProgress : null} label="Avatar upload progress" />

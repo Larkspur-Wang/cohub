@@ -3,7 +3,7 @@ import { it } from "node:test";
 import { PublicAssetsApi, type CreatePublicAssetUploadResponse } from "../src/apis/public-assets.js";
 import type { HttpTransport } from "../src/transport.js";
 
-it("negotiates R2 PUT for chat attachments while retaining avatar POST uploads", async () => {
+it("negotiates PUT uploads for chat attachments and avatars", async () => {
   const requests: Array<Record<string, unknown>> = [];
   const responses: CreatePublicAssetUploadResponse[] = [
     {
@@ -21,11 +21,11 @@ it("negotiates R2 PUT for chat attachments while retaining avatar POST uploads",
       expiresAt: "2026-01-01T00:00:00.000Z",
       asset: {
         purpose: "user_avatar",
-        objectKey: "users/user/avatar.webp",
-        publicUrl: "https://public.example.com/users/user/avatar.webp?v=1",
-        uploadMethod: "POST",
-        uploadUrl: "https://bucket.oss.example.com",
-        uploadFields: { key: "users/user/avatar.webp", policy: "signed-policy" },
+        objectKey: "avatars/users/user/avatar-id.webp",
+        publicUrl: "https://uploads.example.com/avatars/users/user/avatar-id.webp",
+        uploadMethod: "PUT",
+        uploadUrl: "https://bucket.example.com/avatars/users/user/avatar-id.webp",
+        uploadHeaders: { "content-type": "image/webp" },
       },
     },
   ];
@@ -54,12 +54,12 @@ it("negotiates R2 PUT for chat attachments while retaining avatar POST uploads",
     });
 
     assert.equal(requests[0]?.uploadProtocol, "presigned_put_v1");
-    assert.equal(requests[1]?.uploadProtocol, undefined);
+    assert.equal(requests[1]?.uploadProtocol, "presigned_put_v1");
     assert.equal(uploads[0]?.method, "PUT");
     assert.equal(uploads[0]?.body, chatFile);
     assert.deepEqual(uploads[0]?.headers, { "content-type": "text/plain" });
-    assert.equal(uploads[1]?.method, "POST");
-    assert.ok(uploads[1]?.body instanceof FormData);
+    assert.equal(uploads[1]?.method, "PUT");
+    assert.equal(uploads[1]?.body instanceof Blob, true);
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -1571,12 +1571,12 @@ $effect(() => {
 										<span class="absolute inset-0 flex items-center justify-center bg-overlay-scrim-strong opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
 											{#if spaceAvatarUploading}<Loader2 class="h-4 w-4 animate-spin text-overlay-control-text" />{:else}<Upload class="h-4 w-4 text-overlay-control-text" />{/if}
 										</span>
-										<input type="file" accept="image/jpeg,image/png,image/webp" class="sr-only" disabled={spaceAvatarUploading} onchange={handleSpaceAvatarFileChange} />
+										<input type="file" accept="image/jpeg,image/png,image/gif,image/webp" class="sr-only" disabled={spaceAvatarUploading} onchange={handleSpaceAvatarFileChange} />
 									</label>
 									<label class="inline-flex cursor-pointer items-center gap-1 rounded-[4px] px-1 py-0.5 text-[11px] leading-none text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary {spaceAvatarUploading ? 'pointer-events-none opacity-70' : ''}">
 										{#if spaceAvatarUploading}<Loader2 class="h-3 w-3 animate-spin" />{:else}<Upload class="h-3 w-3" />{/if}
 										<span aria-live="polite">{spaceAvatarUploadStage === "preparing" ? "Preparing" : spaceAvatarUploadStage === "uploading" ? `${spaceAvatarUploadProgress}%` : spaceAvatarUploadStage === "saving" ? "Saving" : space?.publicProfile?.avatarUrl ? "Change" : "Upload"}</span>
-										<input type="file" accept="image/jpeg,image/png,image/webp" class="sr-only" disabled={spaceAvatarUploading} onchange={handleSpaceAvatarFileChange} />
+										<input type="file" accept="image/jpeg,image/png,image/gif,image/webp" class="sr-only" disabled={spaceAvatarUploading} onchange={handleSpaceAvatarFileChange} />
 									</label>
 									{#if spaceAvatarUploading}
 										<UploadProgress class="w-12 rounded-full" value={spaceAvatarUploadStage === "uploading" ? spaceAvatarUploadProgress : null} label="Space avatar upload progress" />
