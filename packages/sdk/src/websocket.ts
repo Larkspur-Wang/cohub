@@ -327,6 +327,7 @@ export class WebsocketClient {
           this.startPingLoop();
           await this.authenticate();
           this.state = "open";
+          this.restoreRoomSubscriptions();
           this.reconnectAttempt = 0;
           this.emit("open", { connectionId: this.connectionId });
           resolveOnce();
@@ -365,6 +366,7 @@ export class WebsocketClient {
         this.ws = null;
         this.compactStreamContexts.clear();
         this.patchStreamBuffers.clear();
+        this.resetRoomSubscriptions();
         const closeError = new Error(formatCloseMessage(event.code, event.reason));
         this.rejectAuthWaiter(closeError);
         const retryAuthClose = event.code === AUTH_CLOSE_CODE && this.retryAuthClose;
@@ -404,10 +406,7 @@ export class WebsocketClient {
     this.retryAuthClose = false;
     this.compactStreamContexts.clear();
     this.patchStreamBuffers.clear();
-    for (const state of this.roomSubscriptions.values()) {
-      state.subscribed = false;
-      state.pending = false;
-    }
+    this.resetRoomSubscriptions();
   }
 
   async updatePresence(input: {
@@ -612,12 +611,11 @@ export class WebsocketClient {
       payload: { token, capabilities: [WS_COMPACT_STREAM_CAPABILITY, WS_ROOM_SUBSCRIPTION_CAPABILITY, WS_BOARD_AWARENESS_CAPABILITY, WS_REALTIME_ROOM_CAPABILITY] },
     });
     await waiter.promise;
-    await this.restoreRoomSubscriptions();
     this.authReconnectAttempted = false;
   }
 
   private flushRoomSubscriptions() {
-    if (this.ws?.readyState !== WebSocket.OPEN) return;
+    if (this.state !== "open" || this.ws?.readyState !== WebSocket.OPEN) return;
     const rooms = [...this.roomSubscriptions.entries()]
       .filter(([, state]) => state.refCount > 0 && !state.subscribed && !state.pending)
       .map(([room]) => room);
@@ -629,11 +627,16 @@ export class WebsocketClient {
     }
   }
 
-  private async restoreRoomSubscriptions() {
+  private restoreRoomSubscriptions() {
+    this.resetRoomSubscriptions();
+    this.flushRoomSubscriptions();
+  }
+
+  private resetRoomSubscriptions() {
     for (const state of this.roomSubscriptions.values()) {
       state.subscribed = false;
+      state.pending = false;
     }
-    this.flushRoomSubscriptions();
   }
 
   private createAuthWaiter() {

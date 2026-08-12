@@ -86,22 +86,28 @@ test("retries authentication with a forced token refresh and restores rooms", as
     reconnectMaxDelayMs: 0,
     getAccessToken: (options) => {
       tokenOptions.push(options);
-      return options?.forceRefresh ? "fresh-token" : null;
+      return options?.forceRefresh ? "fresh-token" : "stale-token";
     },
     WebSocketImpl: FakeWebSocket,
   });
   client.on("close", (snapshot) => closes.push(snapshot));
 
-  const release = client.subscribeSpace("space-1");
+  void client.connect().catch(() => undefined);
   const first = FakeWebSocket.instances[0];
   assert.ok(first);
   first.open();
+  await waitFor(() => sentTypes(first).includes("auth"), "expected the initial auth request");
+
+  const release = client.subscribeSpace("space-1");
+  assert.deepEqual(sentTypes(first), ["auth"]);
+  first.receive(authError);
 
   await waitFor(() => FakeWebSocket.instances.length === 2, "expected an auth reconnect");
   const second = FakeWebSocket.instances[1];
   assert.ok(second);
   second.open();
   await waitFor(() => sentTypes(second).includes("auth"), "expected the refreshed auth request");
+  assert.deepEqual(sentTypes(second), ["auth"]);
   second.receive(authOk("connection-2"));
   await waitFor(() => sentTypes(second).includes("subscribe"), "expected room restoration");
 
