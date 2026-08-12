@@ -423,13 +423,14 @@ export function createBoardEditor(options: BoardEditorOptions) {
 	 * the board — which is the difference between a drag that stays smooth on a
 	 * densely connected board and one that does not.
 	 */
-	let connectionIndex = createConnectionIndex(synced.connections);
-	let indexedConnections: BoardConnection[] = synced.connections;
+	let connectionIndex = createConnectionIndex([]);
+	let indexedConnections: BoardConnection[] | null = null;
 
 	function ensureConnectionIndex() {
-		if (indexedConnections === synced.connections) return;
-		connectionIndex = createConnectionIndex(synced.connections);
-		indexedConnections = synced.connections;
+		const connections = synced.connections;
+		if (indexedConnections === connections) return;
+		connectionIndex = createConnectionIndex(connections);
+		indexedConnections = connections;
 	}
 
 	/** Connections touching any of the given nodes. */

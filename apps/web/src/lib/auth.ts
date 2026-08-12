@@ -8,7 +8,7 @@ import {
 
 const IS_DEV =
 	(typeof location !== "undefined" && location.hostname.startsWith("dev")) ||
-	process.env.NODE_ENV === "development";
+	Boolean(import.meta.env?.DEV);
 
 /**
  * Official hosted defaults. Self-hosted deployments should override via
@@ -27,12 +27,13 @@ const OFFICIAL = IS_DEV
 		};
 
 export const API_RESOURCE =
-	process.env.PUBLIC_LOGTO_API_RESOURCE?.trim() || OFFICIAL.resource;
+	import.meta.env?.PUBLIC_LOGTO_API_RESOURCE?.trim() || OFFICIAL.resource;
 
 const LOGTO_ENDPOINT =
-	process.env.PUBLIC_LOGTO_ENDPOINT?.trim() || OFFICIAL.endpoint;
+	import.meta.env?.PUBLIC_LOGTO_ENDPOINT?.trim() || OFFICIAL.endpoint;
 
-const LOGTO_APP_ID = process.env.PUBLIC_LOGTO_APP_ID?.trim() || OFFICIAL.appId;
+const LOGTO_APP_ID =
+	import.meta.env?.PUBLIC_LOGTO_APP_ID?.trim() || OFFICIAL.appId;
 
 /**
  * Lazy browser-only client. Safe to import on the server; construction and
