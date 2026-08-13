@@ -4,6 +4,19 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v2.18 — 2026-08-13
+
+- **Space task hooks**: Space Hooks can now react to `task.updated` transitions, exposing task status, changed fields, identifiers, and errors while preventing re-entrant hook loops.
+- **Generation routing**: Workers now support the generic Generation SDK through `GENERATION_API_KEY` and an optional `GENERATION_BASE_URL`, enabling configurable provider endpoints.
+- **Landing experience**: Rebuilt the marketing home around real product captures with responsive media, lazy video playback, text-rendered CLI sessions, light-theme consistency, and CSS scroll-driven reveals.
+- **Board connection indexing**: Connection indexes now initialize lazily and rebuild only when synchronized relations change, reducing drag-time work on densely connected boards.
+
+### Bug Fixes
+
+- **WebSocket recovery**: Room subscriptions are reset and restored after reconnects, so realtime room events resume without manual resubscription.
+- **CLI timestamps**: File and checkpoint listings now display modification times as ISO 8601 values instead of raw epoch floats while preserving machine-readable JSON output.
+- **Browser-safe authentication**: Web authentication now reads Vite `import.meta.env` values, avoiding server-only environment access in browser builds.
+
 ## v2.17 — 2026-08-12
 
 - **Immutable avatar assets**: Profile and space avatars now use unique owner-scoped object keys, stable public URLs, and long-lived immutable cache headers, so replacing an avatar cannot invalidate or overwrite previously served images.
