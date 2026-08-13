@@ -229,7 +229,7 @@ const cliLines = [
 							src="hero"
 							alt="A Cohub Space chat with the repo README open in preview, LLM usage stats, and the file tree"
 							label="Hero — a Space mid-collaboration"
-							ratio="1984 / 1131"
+							ratio="3022 / 1722"
 							priority
 						/>
 					</div>

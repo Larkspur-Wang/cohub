@@ -26,7 +26,7 @@ export type LandingMediaExt = "webp" | "webm" | "mp4";
  * replaced stays on its bare filename.
  */
 const VERSIONS: Record<string, string> = {
-	hero: "5da64c15",
+	hero: "4bcbcab1",
 	context: "11313556",
 	generation: "a53a308a",
 };
