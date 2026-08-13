@@ -13,7 +13,7 @@ import type {
 import type { Command } from "commander";
 import { uploadAvatarAsset, uploadChatImageAsset } from "../avatar.js";
 import { createClient } from "../client.js";
-import { table, json as outJson, jsonRequested, ok, error, handleHttp } from "../output.js";
+import { table, json as outJson, jsonRequested, ok, error, handleHttp, formatEpochMs } from "../output.js";
 import { resolveSpace } from "../space.js";
 import { registerSpaceCommerce } from "./space-commerce.js";
 import { registerSpaceInvitations } from "./space-invitations.js";
@@ -1217,7 +1217,7 @@ function registerFiles(spacesCmd: Command): void {
           { key: "name", label: "Name" },
           { key: "type", label: "Type" },
           { key: "size", label: "Size" },
-          { key: "mtimeMs", label: "Modified" },
+          { key: "mtimeMs", label: "Modified", format: formatEpochMs },
         ]);
       } catch (e: unknown) {
         handleHttp(e);
@@ -1934,7 +1934,7 @@ function registerCheckpoints(spacesCmd: Command): void {
           { key: "type", label: "Type" },
           { key: "size", label: "Size" },
           { key: "mimeType", label: "MIME" },
-          { key: "mtimeMs", label: "Modified" },
+          { key: "mtimeMs", label: "Modified", format: formatEpochMs },
         ]);
       } catch (e: unknown) {
         handleHttp(e);

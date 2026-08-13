@@ -5,22 +5,55 @@ import { extractBillingPayload } from "@neta-art/cohub";
 
 export type Row = Record<string, unknown>;
 
-function colWidth(rows: Row[], key: string, label: string): number {
-  const maxVal = rows.reduce((m, r) => {
-    const v = r[key] ?? "";
-    const s = typeof v === "object" ? JSON.stringify(v) : String(v);
-    return Math.max(m, s.length);
-  }, 0);
-  return Math.max(label.length, maxVal) + 2;
+/**
+ * A table column. `format` maps a raw cell value to its display string, so
+ * machine-oriented fields (epoch timestamps, byte counts) stay unmodified in
+ * `--json` output while the human-facing table shows something readable.
+ */
+export type Column = {
+  key: string;
+  label: string;
+  format?: (value: unknown, row: Row) => string;
+};
+
+/**
+ * Epoch milliseconds → ISO 8601, matching the ISO timestamps other tables print.
+ *
+ * Absent values render empty rather than falling through `Number()` coercion:
+ * `null` and `""` both become 0 there, which would print a confident-looking
+ * `1970-01-01T00:00:00.000Z` for a timestamp the server never sent.
+ */
+export function formatEpochMs(value: unknown): string {
+  const ms =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && value.trim() !== ""
+        ? Number(value)
+        : Number.NaN;
+  if (!Number.isFinite(ms)) return "";
+  const date = new Date(ms);
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString();
 }
 
-export function table(rows: Row[], columns: { key: string; label: string }[]): void {
+function cellText(column: Column, row: Row): string {
+  const raw = row[column.key];
+  if (column.format) return column.format(raw, row);
+  const v = raw ?? "";
+  return typeof v === "object" ? JSON.stringify(v) : String(v);
+}
+
+function colWidth(rows: Row[], column: Column): number {
+  const maxVal = rows.reduce((m, r) => Math.max(m, cellText(column, r).length), 0);
+  return Math.max(column.label.length, maxVal) + 2;
+}
+
+export function table(rows: Row[], columns: Column[]): void {
   if (rows.length === 0) {
     console.log("  (empty)");
     return;
   }
 
-  const widths = columns.map((c) => colWidth(rows, c.key, c.label));
+  const widths = columns.map((c) => colWidth(rows, c));
 
   const header = columns
     .map((c, i) => c.label.padEnd(widths[i] ?? 0))
@@ -32,11 +65,7 @@ export function table(rows: Row[], columns: { key: string; label: string }[]): v
 
   for (const row of rows) {
     const line = columns
-      .map((c, i) => {
-        const v = row[c.key] ?? "";
-        const s = typeof v === "object" ? JSON.stringify(v) : String(v);
-        return s.padEnd(widths[i] ?? 0);
-      })
+      .map((c, i) => cellText(c, row).padEnd(widths[i] ?? 0))
       .join(" │ ")
       .trimEnd();
     console.log(line);
