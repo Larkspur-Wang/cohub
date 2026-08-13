@@ -227,9 +227,9 @@ const cliLines = [
 					<div class="hero-media">
 						<LandingMedia
 							src="hero"
-							alt="A Cohub Space with five people online, live messages drifting across the chat, forked sessions in the sidebar, and the file tree open"
+							alt="A Cohub Space chat with the repo README open in preview, LLM usage stats, and the file tree"
 							label="Hero — a Space mid-collaboration"
-							ratio="16 / 10"
+							ratio="1984 / 1131"
 							priority
 						/>
 					</div>

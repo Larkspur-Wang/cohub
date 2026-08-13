@@ -12,7 +12,7 @@
 ---
 
 <p align="center">
-  <img src="https://public.cohub.run/s/cf327f11-5065-4f3a-bfe5-cdb0a70f3377/cohub/readme/screenshot.webp" alt="Cohub Space — 多人与 Agent 协作" width="800" />
+  <img src="https://public.cohub.run/s/cf327f11-5065-4f3a-bfe5-cdb0a70f3377/cohub/readme/screenshot.5da64c15.webp" alt="Cohub Space — 项目聊天与仓库 README 预览" width="800" />
 </p>
 
 我们公司每周在 Cohub Spaces 里消耗 1000 亿 token。
