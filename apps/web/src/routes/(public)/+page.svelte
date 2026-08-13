@@ -10,6 +10,7 @@ import LandingMedia from "$lib/components/landing/LandingMedia.svelte";
 import LandingProof from "$lib/components/landing/LandingProof.svelte";
 import LandingSandboxSpec from "$lib/components/landing/LandingSandboxSpec.svelte";
 import LandingSection from "$lib/components/landing/LandingSection.svelte";
+import LandingTerminal from "$lib/components/landing/LandingTerminal.svelte";
 import PublicHeader from "$lib/components/PublicHeader.svelte";
 import { canonicalUrl as buildCanonical } from "$lib/seo";
 import { authStore } from "$lib/stores/auth.svelte";
@@ -111,25 +112,52 @@ onMount(() => {
 	};
 });
 
-const surfaces = [
+/**
+ * Verbatim CLI output from a Space driven from a terminal: a prompt goes out,
+ * the agent edits a file, and that file is published as a new Work version.
+ * Ids, sizes, and timestamps are exactly what the CLI printed — including the
+ * full turn id, which wraps here the same way it wraps in a narrow terminal.
+ */
+const cliLines = [
 	{
-		src: undefined,
-		label: "Mobile — a Space on a phone",
-		alt: "Cohub running on a phone",
-		ratio: "9 / 16",
+		kind: "out" as const,
+		text: "export COHUB_SPACE_ID=39b1a22b-a635-4ef4-8a60-8106de0c5404",
+		dim: true,
+	},
+	{ kind: "gap" as const },
+	{
+		kind: "command" as const,
+		text: "cohub prompt",
+		arg: '"Add a shooting star to demo/index.html"',
 	},
 	{
-		src: undefined,
-		label: "Channels — an agent replying in Discord",
-		alt: "An agent replying inside a Discord channel",
-		ratio: "4 / 3",
+		kind: "ok" as const,
+		text: "Prompt sent",
+		detail: " — turnId: 63d24a41-9f95-4d30-810b-892270bab2c0",
+	},
+	{ kind: "gap" as const },
+	{ kind: "command" as const, text: "cohub spaces files ls demo" },
+	{
+		kind: "out" as const,
+		text: "Name         │ Type   │ Size   │ Modified",
+		dim: true,
 	},
 	{
-		src: undefined,
-		label: "CLI — cohub spaces prompt",
-		alt: "Driving a Space from the terminal with the Cohub CLI",
-		ratio: "4 / 3",
+		kind: "out" as const,
+		text: "index.html   │ file   │ 6666   │ 2026-08-12T17:37:10.462Z",
 	},
+	{ kind: "gap" as const },
+	{
+		kind: "command" as const,
+		text: "cohub works publish starfield",
+		flags: "--file demo/index.html --visibility public",
+	},
+	{ kind: "ok" as const, text: "Work version updated: v2" },
+	{ kind: "gap" as const },
+	{ kind: "command" as const, text: "cohub sandbox status" },
+	{ kind: "out" as const, text: "provider: cloud", dim: true },
+	{ kind: "out" as const, text: "status:   running", dim: true },
+	{ kind: "gap" as const },
 ];
 </script>
 
@@ -198,10 +226,10 @@ const surfaces = [
 
 					<div class="hero-media">
 						<LandingMedia
-							kind="video"
-							alt="An agent editing files inside a Cohub Space while the preview updates"
-							label="Hero — agent edits a file, preview updates"
-							ratio="16 / 9"
+							src="hero"
+							alt="A Cohub Space with five people online, live messages drifting across the chat, forked sessions in the sidebar, and the file tree open"
+							label="Hero — a Space mid-collaboration"
+							ratio="16 / 10"
 							priority
 						/>
 					</div>
@@ -221,9 +249,9 @@ const surfaces = [
 				divided
 			>
 				<LandingMedia
-					kind="video"
-					alt="Two people working in the same Cohub chat, with live messages drifting past"
-					label="Shared chat — a second person picking up the same session"
+					src="multiplayer"
+					alt="Several people taking turns in one Cohub chat, with forked sessions and live messages drifting past"
+					label="Shared chat — several people in one session"
 					ratio="16 / 9"
 				/>
 			</LandingSection>
@@ -236,13 +264,14 @@ const surfaces = [
 				divided
 			>
 				<LandingMedia
-					alt="A published Cohub Work running at a public URL"
+					src="work"
+					alt="A published Cohub Work running at its public URL"
 					label="Work — published page with its public URL"
-					ratio="16 / 9"
+					ratio="16 / 10"
 				/>
 			</LandingSection>
 
-			<!-- 5 · Everywhere — mobile, channels, CLI -->
+			<!-- 5 · Everywhere — the phone capture beside a real terminal session -->
 			<LandingSection
 				eyebrow="Everywhere"
 				title="The Space follows you."
@@ -250,14 +279,18 @@ const surfaces = [
 				divided
 			>
 				<div class="surfaces">
-					{#each surfaces as surface (surface.label)}
-						<LandingMedia
-							src={surface.src}
-							alt={surface.alt}
-							label={surface.label}
-							ratio={surface.ratio}
-						/>
-					{/each}
+					<!-- The capture is a 390x844 viewport; anything else crops the phone. -->
+					<LandingMedia
+						src="mobile"
+						alt="Cohub running on a phone, with the same Space and chat"
+						label="Mobile — a Space on a phone"
+						ratio="390 / 844"
+					/>
+					<!-- Rendered as text, not a capture: real output stays sharp at any
+					     width and reflows instead of shrinking. -->
+					<div class="surface-terminal">
+						<LandingTerminal title="cohub — night-sea" lines={cliLines} />
+					</div>
 				</div>
 			</LandingSection>
 
@@ -270,7 +303,8 @@ const surfaces = [
 				split
 			>
 				<LandingMedia
-					alt="A generated image returned inline in a Cohub chat"
+					src="generation"
+					alt="A generated poster returned inline in a Cohub chat, with the file saved into the Space"
 					label="Inline generation — an image returned in chat"
 					ratio="4 / 3"
 				/>
@@ -286,8 +320,9 @@ const surfaces = [
 				reverse
 			>
 				<LandingMedia
-					alt="Mentioning another Space and running a skill from the composer"
-					label="@space mention and /skill in the composer"
+					src="context"
+					alt="Mentioning another Space from the composer, with the mention picker open"
+					label="@space mention in the composer"
 					ratio="4 / 3"
 				/>
 			</LandingSection>
@@ -544,18 +579,13 @@ const surfaces = [
 		align-items: start;
 	}
 
-	/* Mobile gets one product image only; channels and command palette are
-	   supporting desktop proof, not additional mobile scroll cost. */
-	.surfaces :global(.media:nth-child(n + 2)) {
-		display: none;
-	}
-
 	@media (min-width: 720px) {
+		/* The phone capture is tall and fixed-width by nature; the terminal is a
+		   short block, so centre it against the phone rather than leaving it
+		   stranded at the top of a much taller row. */
 		.surfaces {
-			grid-template-columns: 0.7fr 1fr 1fr;
-		}
-		.surfaces :global(.media:nth-child(n + 2)) {
-			display: block;
+			grid-template-columns: 0.68fr 1.32fr;
+			align-items: center;
 		}
 	}
 

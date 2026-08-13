@@ -2,9 +2,11 @@
 /**
  * Landing media slot — the single way marketing sections show product visuals.
  *
- * Assets are dropped into `static/landing/`. Until a file exists, the slot
- * renders a labelled placeholder frame so the page keeps its layout and
- * reviewers can see exactly which asset is still missing.
+ * Assets are hosted outside the repo (see `LANDING_MEDIA_BASE`) so marketing
+ * captures can be re-shot without pushing binaries through git. `src` is a
+ * basename; the slot resolves it to `<base>/<src>.webp`. Until a name is
+ * given, the slot renders a labelled placeholder frame so the page keeps its
+ * layout and reviewers can see exactly which asset is still missing.
  *
  * Video is lazy by design: `preload="none"` + a poster, and playback only
  * starts once the element is actually near the viewport. The homepage doubles
@@ -12,9 +14,10 @@
  * with that path for bandwidth.
  */
 import { browser } from "$app/environment";
+import { landingMediaUrl } from "$lib/components/landing/media";
 
 type Props = {
-	/** Basename in `static/landing/`, e.g. "hero" → hero.mp4 / hero.webm / hero.webp */
+	/** Asset basename, e.g. "hero" → <base>/hero.webp (and .webm/.mp4 for video) */
 	src?: string;
 	kind?: "video" | "image";
 	alt: string;
@@ -79,16 +82,16 @@ function autoplayWhenVisible(node: HTMLVideoElement) {
 			loop
 			playsinline
 			preload="none"
-			poster="/landing/{src}.webp"
+			poster={landingMediaUrl(src, "webp")}
 			aria-label={alt}
 		>
-			<source src="/landing/{src}.webm" type="video/webm" />
-			<source src="/landing/{src}.mp4" type="video/mp4" />
+			<source src={landingMediaUrl(src, "webm")} type="video/webm" />
+			<source src={landingMediaUrl(src, "mp4")} type="video/mp4" />
 		</video>
 	{:else if src}
 		<img
 			class="asset"
-			src="/landing/{src}.webp"
+			src={landingMediaUrl(src, "webp")}
 			{alt}
 			loading={priority ? "eager" : "lazy"}
 			decoding="async"
