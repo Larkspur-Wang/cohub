@@ -203,9 +203,10 @@ jobs:
       pull-requests: write
     environment:
       name: preview-${{ github.event.pull_request.number }}
-      url: https://${{ env.WEB_HOSTNAME }}
+      # environment.url 不支持 env 上下文，直接展开固定域名
+      url: https://dev-${{ github.event.pull_request.number }}-preview.cohub.run
     env:
-      WEB_URL: https://${{ env.WEB_HOSTNAME }}
+      WEB_URL: https://dev-${{ github.event.pull_request.number }}-preview.cohub.run
     steps:
       # 部署脚本/模板必须来自 main（可信）；PR 的代码只以镜像 tag 形式进入
       - name: Checkout (main)
