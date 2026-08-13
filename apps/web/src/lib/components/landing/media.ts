@@ -16,7 +16,22 @@ const BASE = (
 
 export type LandingMediaExt = "webp" | "webm" | "mp4";
 
+/**
+ * Content hashes for assets that have been re-shot.
+ *
+ * The CDN in front of this bucket serves with a 30-day edge lifetime and
+ * ignores query strings, so overwriting a file in place keeps serving the old
+ * bytes. Replacing an asset means uploading it under a new name and recording
+ * the hash here; entries are optional, so an asset that has never been
+ * replaced stays on its bare filename.
+ */
+const VERSIONS: Record<string, string> = {
+	context: "11313556",
+	generation: "a53a308a",
+};
+
 /** Resolve an asset basename, e.g. ("hero", "webp") → `<base>/hero.webp`. */
 export function landingMediaUrl(name: string, ext: LandingMediaExt): string {
-	return `${BASE}/${name}.${ext}`;
+	const version = VERSIONS[name];
+	return `${BASE}/${name}${version ? `.${version}` : ""}.${ext}`;
 }

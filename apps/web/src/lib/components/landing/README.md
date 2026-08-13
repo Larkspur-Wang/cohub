@@ -24,18 +24,37 @@ In `routes/(public)/+page.svelte`, give the slot its basename:
 Leave `src` unset and the slot renders a labelled placeholder frame, so the
 layout holds while an asset is still missing.
 
+## Replacing an asset
+
+The CDN in front of the bucket caches for 30 days and **ignores query
+strings**, so overwriting a file in place keeps serving the old bytes. Upload
+under a hashed name instead and record it in the `VERSIONS` map in `media.ts`:
+
+```bash
+h=$(md5sum generation.webp | cut -c1-8)
+cp generation.webp "$PUBLIC_DIR/cohub-landing/generation.$h.webp"
+# then set VERSIONS.generation = "<h>" in media.ts
+```
+
+Always re-check `ratio` against the new file. The wrapper uses
+`object-fit: cover`, so a stale ratio silently crops the capture.
+
 ## Current set
 
 Listed in page order.
 
-| Basename | Section | Shows |
-| --- | --- | --- |
-| `hero` | 1 · Hero | People online, live messages drifting past, forked sessions, file tree |
-| `multiplayer` | 3 · Same room | A second person picking up the same chat |
-| `work` | 4 · Live Works | A published Work at its public URL |
-| `mobile` | 5 · Everywhere | A Space on a phone |
-| `generation` | 6 · Any medium | A generated image returned inline in chat |
-| `context` | 7 · Context network | `@space` mention and `/skill` in the composer |
+| Basename | Section | Shows | Source |
+| --- | --- | --- | --- |
+| `hero` | 1 · Hero | People online, live messages drifting past, forked sessions, file tree | 1440×900 |
+| `multiplayer` | 3 · Same room | A second person picking up the same chat | 1200×675 |
+| `work` | 4 · Live Works | A published Work at its public URL | 1300×812 |
+| `mobile` | 5 · Everywhere | A Space on a phone | 390×844 |
+| `generation` | 6 · Any medium | A generated poster returned inline, saved into the Space | 800×730 |
+| `context` | 7 · Context network | `@space` mention picker open in the composer | 1290×801 |
+
+`generation` and `context` are shot at narrow viewports (1000px and 430px) at
+raised DPR, because both are composer-level detail that has to stay legible in
+a half-width column — a 1440px capture scaled into 435px is not.
 
 Two sections deliberately use no capture:
 
@@ -53,7 +72,10 @@ Two sections deliberately use no capture:
 - **Shoot at the size the slot renders.** A 1440px-wide capture dropped into a
   435px column is unreadable no matter how many pixels it has. Measure the
   slot first, then frame the capture to roughly that CSS width and raise DPR
-  for sharpness.
+  for sharpness — DPR adds sharpness, it does not change the scale factor.
+- **Crop on content edges.** A capture that ends mid-line of text reads as a
+  broken image. Measure the element bounds in the page rather than guessing
+  offsets.
 - **Real content only** — real files, real output, real timestamps. If a
   command is shown, it must be a command that actually runs.
 - **No third-party data** — no other users' Space names, handles, or emails.

@@ -306,7 +306,7 @@ const cliLines = [
 					src="generation"
 					alt="A generated poster returned inline in a Cohub chat, with the file saved into the Space"
 					label="Inline generation — an image returned in chat"
-					ratio="4 / 3"
+					ratio="800 / 730"
 				/>
 			</LandingSection>
 
@@ -323,7 +323,7 @@ const cliLines = [
 					src="context"
 					alt="Mentioning another Space from the composer, with the mention picker open"
 					label="@space mention in the composer"
-					ratio="4 / 3"
+					ratio="1290 / 801"
 				/>
 			</LandingSection>
 
