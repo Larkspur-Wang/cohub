@@ -11,6 +11,7 @@ import type {
 	TaskRunRecord,
 	WorkRecord,
 } from "@neta-art/cohub";
+import { taskRunToBoardTaskSnapshot as taskBoardSnapshot } from "@neta-art/cohub/board";
 import {
 	Activity,
 	ArrowLeft,
@@ -48,7 +49,6 @@ import { page } from "$app/state";
 import { floatNear } from "$lib/actions/portal";
 import { logtoClient } from "$lib/auth";
 import { handleUnauthorizedError } from "$lib/auth-redirect";
-import { taskBoardSnapshot } from "$lib/board/board-task";
 import { clearAllIndexedDbCache } from "$lib/cache/clear";
 import { canUseUserScopedCache, getCacheUserKey } from "$lib/cache/keys";
 import ChannelProviderIcon from "$lib/components/ChannelProviderIcon.svelte";

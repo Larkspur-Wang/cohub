@@ -8,8 +8,22 @@ export class TasksApi {
     return this.transport.request<TaskRunDetailResponse>(`/api/tasks/${taskRunId}`);
   }
 
-  list(filters?: { cronJobId?: string; spaceId?: string; sessionId?: string; taskType?: string; status?: "active" | TaskRunRecord["status"]; limit?: number; cursor?: string }) {
+  getMany(taskRunIds: string[], options?: { spaceId?: string }) {
+    const ids = [...new Set(taskRunIds.filter(Boolean))];
+    if (ids.length === 0) {
+      return Promise.resolve({ runs: [] as TaskRunRecord[] });
+    }
+    if (ids.length > 100) throw new Error("At most 100 task runs can be fetched at once");
+    return this.list({
+      ids,
+      spaceId: options?.spaceId,
+      limit: ids.length,
+    }).then(({ runs }) => ({ runs }));
+  }
+
+  list(filters?: { ids?: string[]; cronJobId?: string; spaceId?: string; sessionId?: string; taskType?: string; status?: "active" | TaskRunRecord["status"]; limit?: number; cursor?: string }) {
     const params = new URLSearchParams();
+    if (filters?.ids?.length) params.set("ids", [...new Set(filters.ids)].join(","));
     if (filters?.cronJobId) params.set("cronJobId", filters.cronJobId);
     if (filters?.spaceId) params.set("spaceId", filters.spaceId);
     if (filters?.sessionId) params.set("sessionId", filters.sessionId);

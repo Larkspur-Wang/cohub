@@ -16,6 +16,7 @@ import {
 	screenPoint,
 	screenToWorld,
 	shapeCapabilities,
+	taskRunToBoardTaskSnapshot as taskBoardSnapshot,
 	VIEWPORT_MARGIN_RATIO,
 	visibleWorldRect,
 	worldPoint,
@@ -46,7 +47,6 @@ import {
 } from "$lib/board/board-file-preview-source";
 import type { BoardStageExportBridge } from "$lib/board/board-image-export";
 import { createBoardScene } from "$lib/board/board-scene";
-import { taskBoardSnapshot } from "$lib/board/board-task";
 import {
 	type BoardThemeBackground,
 	type BoardThemeSnapshot,

@@ -124,6 +124,16 @@ const stop = board.subscribe({
 stop();
 ```
 
+Task nodes keep a small, replaceable display snapshot beside their stable `taskRunId`. The SDK can build that projection from an authoritative TaskRun without copying the full payload, result or inline media into a Board:
+
+```ts
+import { taskRunToBoardTaskSnapshot } from "@neta-art/cohub/board";
+
+const snapshot = taskRunToBoardTaskSnapshot(taskRun);
+```
+
+Use `client.tasks.getMany(ids, { spaceId })` to restore the TaskRuns for a Board in one request. The server applies the same Space permissions and result sanitization as the regular task list endpoint.
+
 Board is split by dependency: the model runs anywhere, drawing needs PixiJS.
 `@neta-art/cohub/board` carries the document schema, geometry, the shape layer,
 timeline compilation and export planning, with no renderer and no PixiJS — so

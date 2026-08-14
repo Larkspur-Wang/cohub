@@ -26,12 +26,14 @@ function buildTaskCursor(run: { createdAt: Date | string | null; id: string } | 
 
 function applyTaskFilters(input: {
   conditions: ReturnType<typeof eq>[];
+  taskRunIds?: string[];
   sessionId?: string;
   cronJobId?: string;
   taskType?: string;
   status?: string;
   cursor: ReturnType<typeof parseTaskCursor>;
 }) {
+  if (input.taskRunIds?.length) input.conditions.push(inArray(taskRuns.id, input.taskRunIds));
   if (input.sessionId) input.conditions.push(eq(taskRuns.sessionId, input.sessionId));
   if (input.cronJobId) input.conditions.push(eq(taskRuns.cronJobId, input.cronJobId));
   if (input.taskType?.trim()) input.conditions.push(eq(taskRuns.taskType, input.taskType.trim()));
@@ -114,6 +116,7 @@ function hydrateTaskRunUserProfiles<T extends {
 }
 
 router.get("/", async (c) => {
+  const idsParam = c.req.query("ids");
   const cronJobId = c.req.query("cronJobId");
   const spaceId = c.req.query("spaceId");
   const sessionId = c.req.query("sessionId");
@@ -125,7 +128,13 @@ router.get("/", async (c) => {
   const user = spaceId ? getOptionalAuth(c) : useAuth(c);
   if (user instanceof Response) return user;
   const userId = user?.uuid;
+  const taskRunIds = idsParam
+    ? [...new Set(idsParam.split(",").map((id) => id.trim()).filter(Boolean))]
+    : undefined;
 
+  if (taskRunIds && (taskRunIds.length > 100 || taskRunIds.some((id) => !requireValidId(id)))) {
+    return c.json({ message: "invalid task run ids" }, 400);
+  }
   if (spaceId && !requireValidId(spaceId)) return c.json({ message: "invalid spaceId" }, 400);
   if (sessionId && !requireValidId(sessionId)) return c.json({ message: "invalid sessionId" }, 400);
   if (cronJobId && !requireValidId(cronJobId)) return c.json({ message: "invalid cronJobId" }, 400);
@@ -138,7 +147,7 @@ router.get("/", async (c) => {
   if (spaceId) {
     if (!(await hasPermission(user, "taskrun.view", { spaceId, sessionId: sessionId ?? undefined }))) return authzDenied(c);
     const conditions = [eq(taskRuns.spaceId, spaceId)];
-    applyTaskFilters({ conditions, sessionId, cronJobId, taskType, status, cursor: cursorValue });
+    applyTaskFilters({ conditions, taskRunIds, sessionId, cronJobId, taskType, status, cursor: cursorValue });
     const rows = await db
       .select()
       .from(taskRuns)
@@ -155,7 +164,7 @@ router.get("/", async (c) => {
   if (!userId) return c.json({ message: "unauthorized" }, 401);
 
   const conditions = [eq(taskRuns.userUuid, userId)];
-  applyTaskFilters({ conditions, sessionId, cronJobId, taskType, status, cursor: cursorValue });
+  applyTaskFilters({ conditions, taskRunIds, sessionId, cronJobId, taskType, status, cursor: cursorValue });
   const rows = await db
     .select()
     .from(taskRuns)

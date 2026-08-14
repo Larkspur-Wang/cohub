@@ -1,5 +1,9 @@
 <script lang="ts">
-import { screenToWorld, shapeCapabilities } from "@neta-art/cohub/board";
+import {
+	screenToWorld,
+	shapeCapabilities,
+	taskRunToBoardTaskSnapshot as taskBoardSnapshot,
+} from "@neta-art/cohub/board";
 import { onDestroy, onMount, untrack } from "svelte";
 import { createSpaceBoardAssetSource } from "$lib/board/board-asset-source";
 import {
@@ -7,7 +11,6 @@ import {
 	createBoardAwarenessController,
 } from "$lib/board/board-awareness";
 import type { BoardStageExportBridge } from "$lib/board/board-image-export";
-import { taskBoardSnapshot } from "$lib/board/board-task";
 import { defaultBoardTool } from "$lib/board/board-tool";
 import { createBoardEditor } from "$lib/board/editor.svelte";
 import type { BoardRuntimeProps } from "$lib/board/runtime/board-runtime";

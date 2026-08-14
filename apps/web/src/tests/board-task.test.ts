@@ -5,13 +5,13 @@ import {
 	BoardDocumentSchema,
 	boardNodeToItem,
 	imageAssetKey,
+	taskRunToBoardTaskSnapshot as taskBoardSnapshot,
 } from "@neta-art/cohub/board";
 import {
 	boardItemToNode,
 	createEmptyBoardDocument,
 } from "$lib/board/board-document";
 import { createTaskBoardItem } from "$lib/board/board-items";
-import { taskBoardSnapshot } from "$lib/board/board-task";
 
 function generationRun(result: unknown): TaskRunRecord {
 	return {
