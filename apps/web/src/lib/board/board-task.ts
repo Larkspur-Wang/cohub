@@ -54,6 +54,32 @@ function blockMimeType(block: Record<string, unknown>): string | undefined {
 	return typeof value === "string" ? value : undefined;
 }
 
+function positiveNumber(value: unknown): number | undefined {
+	return typeof value === "number" && Number.isFinite(value) && value > 0
+		? value
+		: undefined;
+}
+
+function blockNaturalSize(block: Record<string, unknown>): {
+	naturalWidth?: number;
+	naturalHeight?: number;
+} {
+	const source = record(block.source);
+	const naturalWidth = positiveNumber(
+		source?.width ?? source?.naturalWidth ?? block.width ?? block.naturalWidth,
+	);
+	const naturalHeight = positiveNumber(
+		source?.height ??
+			source?.naturalHeight ??
+			block.height ??
+			block.naturalHeight,
+	);
+	return {
+		...(naturalWidth ? { naturalWidth } : {}),
+		...(naturalHeight ? { naturalHeight } : {}),
+	};
+}
+
 function contentBlocks(value: unknown): Record<string, unknown>[] {
 	return Array.isArray(value)
 		? (value.filter((item) => record(item)) as Record<string, unknown>[])
@@ -84,6 +110,7 @@ function primaryOutput(
 					type: block.type,
 					url,
 					...(blockMimeType(block) ? { mimeType: blockMimeType(block) } : {}),
+					...blockNaturalSize(block),
 				};
 		}
 	}

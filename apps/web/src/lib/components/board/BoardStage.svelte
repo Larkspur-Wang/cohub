@@ -271,10 +271,10 @@ $effect(() => {
 });
 
 // Adopt intrinsic image sizes once their textures resolve, so a frame created
-// without dimension metadata (file-tree drop) stops letterboxing. Guarded by the
-// snapshot in the editor, so each node is corrected once and never re-corrected.
-// Only nodes near the viewport can have a resolved texture, so the same spatial
-// candidate set bounds this work too.
+// without dimension metadata stops letterboxing. The editor records the size on
+// media files and task outputs, so each node is corrected once and never fights a
+// later user resize. Only nearby nodes can have a resolved texture, which bounds
+// this work to the same spatial candidate set.
 $effect(() => {
 	editor.structureVersion;
 	editor.geometryVersion;
@@ -286,8 +286,19 @@ $effect(() => {
 	if (width === 0 || height === 0) return;
 	const pending: Array<{ id: string; width: number; height: number }> = [];
 	for (const item of itemsNearViewport(camera, width, height)) {
-		if (item.type !== "image" && item.type !== "video") continue;
-		if (item.snapshot?.naturalWidth && item.snapshot?.naturalHeight) continue;
+		const taskOutput =
+			item.type === "task" &&
+			(item.snapshot.primaryOutput?.type === "image" ||
+				item.snapshot.primaryOutput?.type === "video")
+				? item.snapshot.primaryOutput
+				: null;
+		const recorded = taskOutput
+			? taskOutput
+			: item.type === "image" || item.type === "video"
+				? item.snapshot
+				: null;
+		if (!recorded) continue;
+		if (recorded.naturalWidth && recorded.naturalHeight) continue;
 		const key = assets.assetKey(item);
 		if (!key) continue;
 		const natural = assets.getNaturalSize(key);

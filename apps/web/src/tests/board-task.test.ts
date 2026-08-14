@@ -49,7 +49,11 @@ test("projects a generation task to a concise remote-media snapshot", () => {
 				{ type: "image", source: { data: "large-base64" } },
 				{
 					type: "image",
-					source: { url: "https://cdn.example.com/output.png" },
+					source: {
+						url: "https://cdn.example.com/output.png",
+						width: 1024,
+						height: 1536,
+					},
 				},
 			],
 		}),
@@ -61,6 +65,8 @@ test("projects a generation task to a concise remote-media snapshot", () => {
 	assert.deepEqual(snapshot.primaryOutput, {
 		type: "image",
 		url: "https://cdn.example.com/output.png",
+		naturalWidth: 1024,
+		naturalHeight: 1536,
 	});
 	assert.equal(JSON.stringify(snapshot).includes("large-base64"), false);
 });
@@ -82,7 +88,14 @@ test("never persists inline generation media in a task snapshot", () => {
 test("task items survive document and server-node round trips", () => {
 	const snapshot = taskBoardSnapshot(
 		generationRun({
-			output: [{ type: "image", url: "https://cdn.example.com/output.png" }],
+			output: [
+				{
+					type: "image",
+					url: "https://cdn.example.com/output.png",
+					width: 1024,
+					height: 1536,
+				},
+			],
 		}),
 	);
 	const item = createTaskBoardItem("task_1", snapshot, 200, 120);
@@ -106,5 +119,8 @@ test("task items survive document and server-node round trips", () => {
 	assert.equal(
 		imageAssetKey(decoded),
 		"url:https://cdn.example.com/output.png",
+	);
+	assert.ok(
+		Math.abs(decoded.frame.width / decoded.frame.height - 2 / 3) < 1e-6,
 	);
 });

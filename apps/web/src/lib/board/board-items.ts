@@ -24,6 +24,7 @@ import { getResourceTitle, inferMediaKind } from "$lib/board/board-media";
 
 const DEFAULT_MEDIA_SIZE = { width: 320, height: 200 };
 const DEFAULT_TASK_SIZE = { width: 300, height: 188 };
+const DEFAULT_TASK_MEDIA_SIZE = { width: 320, height: 180 };
 /** Fallback for video with unknown intrinsic size: the common 16:9 aspect. */
 const DEFAULT_VIDEO_SIZE = { width: 320, height: 180 };
 /** Offset applied when duplicating so the copy is visibly displaced. */
@@ -207,16 +208,25 @@ export function createTaskBoardItem(
 	x: number,
 	y: number,
 ): BoardTaskItem {
+	const output = snapshot.primaryOutput;
+	const mediaOutput =
+		output?.type === "image" || output?.type === "video" ? output : null;
+	const size = mediaOutput
+		? mediaFrameSize(
+				mediaOutput.naturalWidth,
+				mediaOutput.naturalHeight,
+				480,
+				DEFAULT_TASK_MEDIA_SIZE,
+			)
+		: output?.type === "audio"
+			? DEFAULT_TASK_MEDIA_SIZE
+			: DEFAULT_TASK_SIZE;
 	return {
 		id: createBoardItemId(),
 		type: "task",
 		taskRunId,
 		snapshot,
-		frame: createFrame(
-			x - DEFAULT_TASK_SIZE.width / 2,
-			y - DEFAULT_TASK_SIZE.height / 2,
-			DEFAULT_TASK_SIZE,
-		),
+		frame: createFrame(x - size.width / 2, y - size.height / 2, size),
 	};
 }
 

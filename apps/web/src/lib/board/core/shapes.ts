@@ -90,6 +90,8 @@ const taskDefinition: ShapeDefinition = {
 		...FULL_CAPABILITIES,
 		canEdit: false,
 		canRotate: false,
+		// Media-led task nodes keep their preview aspect like image and video nodes.
+		aspectLocked: true,
 	},
 };
 

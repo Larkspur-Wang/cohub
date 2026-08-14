@@ -223,6 +223,9 @@ export const BoardTaskOutputSchema = z.object({
 	url: z.string().url().optional(),
 	textExcerpt: z.string().max(480).optional(),
 	mimeType: z.string().max(160).optional(),
+	/** Intrinsic media size, cached so the node can match the preview aspect. */
+	naturalWidth: z.number().positive().optional(),
+	naturalHeight: z.number().positive().optional(),
 });
 
 /**

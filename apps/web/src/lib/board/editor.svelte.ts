@@ -1391,13 +1391,43 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		const byId = new Map(sizes.map((entry) => [entry.id, entry]));
 		const dirty: string[] = [];
 		const next = synced.items.map((item) => {
-			if (item.type !== "image" && item.type !== "video") return item;
 			const natural = byId.get(item.id);
-			if (!natural) return item;
+			if (!natural || natural.width <= 0 || natural.height <= 0) return item;
+
+			if (
+				item.type === "task" &&
+				(item.snapshot.primaryOutput?.type === "image" ||
+					item.snapshot.primaryOutput?.type === "video")
+			) {
+				const output = item.snapshot.primaryOutput;
+				// Already recorded: never re-correct (and never fight the user's resize).
+				if (output.naturalWidth && output.naturalHeight) return item;
+				const height = (item.frame.width * natural.height) / natural.width;
+				if (!Number.isFinite(height) || height <= 0) return item;
+				dirty.push(item.id);
+				const center = rectCenter(item.frame);
+				return {
+					...item,
+					snapshot: {
+						...item.snapshot,
+						primaryOutput: {
+							...output,
+							naturalWidth: natural.width,
+							naturalHeight: natural.height,
+						},
+					},
+					frame: {
+						...item.frame,
+						y: center.y - height / 2,
+						height,
+					},
+				};
+			}
+
+			if (item.type !== "image" && item.type !== "video") return item;
 			// Already recorded: never re-correct (and never fight the user's resize).
-			if (item.snapshot?.naturalWidth && item.snapshot?.naturalHeight)
+			if (item.snapshot?.naturalWidth && item.snapshot.naturalHeight)
 				return item;
-			if (natural.width <= 0 || natural.height <= 0) return item;
 			const height = (item.frame.width * natural.height) / natural.width;
 			if (!Number.isFinite(height) || height <= 0) return item;
 			dirty.push(item.id);
