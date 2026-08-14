@@ -10,6 +10,7 @@ import {
 } from "@neta-art/cohub/board";
 import {
 	ArrowUpRight,
+	Blend,
 	Circle,
 	Diamond,
 	Frame,
@@ -29,7 +30,14 @@ import BoardNumberControl from "$lib/components/board/BoardNumberControl.svelte"
 const {
 	editor,
 	immersive = false,
-}: { editor: BoardEditor; immersive?: boolean } = $props();
+	generationOpen = false,
+	onToggleGeneration,
+}: {
+	editor: BoardEditor;
+	immersive?: boolean;
+	generationOpen?: boolean;
+	onToggleGeneration?: () => void;
+} = $props();
 
 let styleOpen = $state(false);
 let previousTool = $state<BoardToolId | null>(null);
@@ -181,6 +189,20 @@ function toolTitle(tool: ToolDef) {
 				<tool.icon class="h-4 w-4" />
 			</button>
 		{/each}
+
+		<div class="divider"></div>
+
+		<button
+			type="button"
+			class="tool-btn"
+			class:tool-btn--active={generationOpen}
+			title="Generate media"
+			aria-label="Generate media"
+			aria-pressed={generationOpen}
+			onclick={onToggleGeneration}
+		>
+			<Blend class="h-4 w-4" />
+		</button>
 
 		<div class="divider history-divider"></div>
 

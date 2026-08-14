@@ -17,6 +17,7 @@ import BoardContextMenu from "$lib/components/board/BoardContextMenu.svelte";
 import BoardEmptyState from "$lib/components/board/BoardEmptyState.svelte";
 import BoardExportDialog from "$lib/components/board/BoardExportDialog.svelte";
 import BoardFloatingToolbar from "$lib/components/board/BoardFloatingToolbar.svelte";
+import BoardGenerationComposer from "$lib/components/board/BoardGenerationComposer.svelte";
 import BoardSelectionToolbar from "$lib/components/board/BoardSelectionToolbar.svelte";
 import BoardStage from "$lib/components/board/BoardStage.svelte";
 import BoardTextEditor from "$lib/components/board/BoardTextEditor.svelte";
@@ -66,6 +67,7 @@ let contextMenu = $state<{ x: number; y: number } | null>(null);
  */
 let exportBridge = $state<BoardStageExportBridge | null>(null);
 let exportOpen = $state(false);
+let generationOpen = $state(false);
 let awarenessVersion = $state(0);
 let surfaceSize = $state<{ width: number; height: number }>({
 	width: 0,
@@ -248,7 +250,7 @@ function handleReadonlyKeydown(
 }
 
 function handleKeydown(event: KeyboardEvent) {
-	if (!active || editor.editingId) return;
+	if (!active || generationOpen || editor.editingId) return;
 	if (isEditableTarget(event.target)) return;
 	const mod = event.metaKey || event.ctrlKey;
 	const key = event.key.toLowerCase();
@@ -500,6 +502,7 @@ $effect(() => {
 	if (active) return;
 	contextMenu = null;
 	exportOpen = false;
+	generationOpen = false;
 	clearSpaceHeld();
 });
 
@@ -576,7 +579,22 @@ onDestroy(() => {
 		{#if !readonly}
 			<BoardSelectionToolbar {editor} />
 			<BoardConnectionToolbar {editor} />
-			<BoardFloatingToolbar {editor} {immersive} />
+			{#if generationOpen}
+				<BoardGenerationComposer
+					{editor}
+					{spaceId}
+					{boardId}
+					assetSource={resolvedAssetSource}
+					{immersive}
+					onClose={() => { generationOpen = false; }}
+				/>
+			{/if}
+			<BoardFloatingToolbar
+				{editor}
+				{immersive}
+				{generationOpen}
+				onToggleGeneration={() => { generationOpen = !generationOpen; }}
+			/>
 		{/if}
 		<BoardZoomMenu {editor} {immersive} />
 
