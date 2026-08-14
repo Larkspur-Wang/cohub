@@ -1,5 +1,11 @@
 # @neta-art/cohub
 
+## 5.5.0
+
+### Minor Changes
+
+- 82c244c: **Board task nodes**: Support task nodes with multimodal previews (image, video, audio waveform, and text excerpts), snapshot decoding, and headless task-card rendering on Board documents.
+
 ## 5.4.3
 
 ### Patch Changes
