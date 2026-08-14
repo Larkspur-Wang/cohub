@@ -6,6 +6,7 @@ import {
 	Copy,
 	ExternalLink,
 	ImageDown,
+	LayoutDashboard,
 	LocateFixed,
 	Pencil,
 	Trash2,
@@ -19,12 +20,14 @@ const {
 	position,
 	onClose,
 	onOpenFile,
+	onOpenTask,
 	onExport,
 }: {
 	editor: BoardEditor;
 	position: { x: number; y: number };
 	onClose: () => void;
 	onOpenFile?: (path: string) => void | Promise<void>;
+	onOpenTask?: (taskRunId: string) => void;
 	/** Opens the export dialog; absent until the stage can render one. */
 	onExport?: () => void;
 } = $props();
@@ -45,6 +48,13 @@ const singleFile = $derived.by(() => {
 	return item?.type === "file" ? item : null;
 });
 
+/** The single selected task node, if that is what the selection is. */
+const singleTask = $derived.by(() => {
+	if (editor.selectedItems.length !== 1) return null;
+	const item = editor.selectedItems[0];
+	return item?.type === "task" ? item : null;
+});
+
 type MenuAction = {
 	label: string;
 	icon: typeof Pencil;
@@ -55,6 +65,13 @@ type MenuAction = {
 const actions = $derived.by<MenuAction[]>(() => {
 	const list: MenuAction[] = [];
 	const file = singleFile;
+	const task = singleTask;
+	if (task && onOpenTask)
+		list.push({
+			label: "Open task",
+			icon: LayoutDashboard,
+			run: () => onOpenTask(task.taskRunId),
+		});
 	if (file && onOpenFile)
 		list.push({
 			label: "Open file",

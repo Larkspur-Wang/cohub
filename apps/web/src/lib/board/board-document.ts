@@ -250,6 +250,16 @@ function boardItemToNodeWithKey(
 				view: { ...preservedView, ...(item.snapshot ?? {}) },
 				data: dataWith({}),
 			};
+		case "task":
+			return {
+				...base,
+				type: "task",
+				refKind: null,
+				refPath: null,
+				refUrl: null,
+				view: { ...preservedView, ...item.snapshot },
+				data: dataWith({ taskRunId: item.taskRunId }),
+			};
 		default: {
 			const fallback = item as { type: string; raw?: Record<string, unknown> };
 			const rawData: Record<string, unknown> = {};

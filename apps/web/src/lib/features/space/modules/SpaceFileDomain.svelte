@@ -144,6 +144,7 @@ export type SpaceFileDomainProps = {
 		target: string | WorkspaceFileLinkTarget,
 	) => void | Promise<void>;
 	onOpenInlineBoard: (path: string) => void | Promise<void>;
+	onOpenTask: (taskRunId: string) => void | Promise<void>;
 	onCloseInlineFile: () => void;
 	onActivateInlineFile: (path: string) => void;
 	onCloseInlineFileTab: (path: string) => void;
@@ -291,6 +292,7 @@ let {
 	onOpenInlineFile,
 	onOpenLinkedInlineFile,
 	onOpenInlineBoard,
+	onOpenTask,
 	onCloseInlineFile,
 	onActivateInlineFile,
 	onCloseInlineFileTab,
@@ -528,6 +530,7 @@ function previewContentOut(node: Element) {
 		onRetrySave={onRetryInlineBoardSave}
 		onViewStateChange={onBoardViewStateChange}
 		onOpenFile={onOpenInlineFile}
+		onOpenTask={onOpenTask}
 		/>
 	</div>
 {/if}

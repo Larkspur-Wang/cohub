@@ -1,9 +1,10 @@
 import type { LabelResourceType } from "@neta-art/cohub";
+import type { BoardTaskSnapshot } from "@neta-art/cohub/board";
 
 export const COHUB_RESOURCE_MIME = "application/x-cohub-resource";
 export const COHUB_PATH_MIME = "text/cohub-path";
 
-export type CohubResourceType = LabelResourceType;
+export type CohubResourceType = LabelResourceType | "task";
 
 export type CohubDragResource = {
 	type: CohubResourceType;
@@ -15,11 +16,14 @@ export type CohubDragResource = {
 	mimeType?: string | null;
 	size?: number;
 	mtimeMs?: number;
+	taskRunId?: string;
+	snapshot?: BoardTaskSnapshot;
 };
 
 export type CohubDragOrigin =
 	| { kind: "sidebar-session-list" }
 	| { kind: "space-file-tree" }
+	| { kind: "task-list" }
 	| { kind: "label-items"; labelRef: string; labelName?: string };
 
 export type CohubResourceDragPayload = {
@@ -41,10 +45,16 @@ function normalizeResource(
 	if (
 		resource.type !== "session" &&
 		resource.type !== "file" &&
-		resource.type !== "checkpoint"
+		resource.type !== "checkpoint" &&
+		resource.type !== "task"
 	)
 		return null;
 	if (typeof resource.ref !== "string" || !resource.ref.trim()) return null;
+	if (
+		resource.type === "task" &&
+		(typeof resource.taskRunId !== "string" || !resource.snapshot)
+	)
+		return null;
 	return {
 		...resource,
 		ref: resource.ref.trim(),
@@ -56,7 +66,8 @@ function normalizeOrigin(origin: unknown): CohubDragOrigin | undefined {
 	const value = origin as Partial<CohubDragOrigin>;
 	if (
 		value.kind === "sidebar-session-list" ||
-		value.kind === "space-file-tree"
+		value.kind === "space-file-tree" ||
+		value.kind === "task-list"
 	) {
 		return { kind: value.kind };
 	}

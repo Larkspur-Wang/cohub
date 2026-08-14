@@ -48,6 +48,7 @@ import { page } from "$app/state";
 import { floatNear } from "$lib/actions/portal";
 import { logtoClient } from "$lib/auth";
 import { handleUnauthorizedError } from "$lib/auth-redirect";
+import { taskBoardSnapshot } from "$lib/board/board-task";
 import { clearAllIndexedDbCache } from "$lib/cache/clear";
 import { canUseUserScopedCache, getCacheUserKey } from "$lib/cache/keys";
 import ChannelProviderIcon from "$lib/components/ChannelProviderIcon.svelte";
@@ -716,6 +717,27 @@ function getTaskRunTitle(run: TaskRunRecord) {
 
 function getTaskRunMeta(run: TaskRunRecord) {
 	return `${formatTaskTypeLabel(run.taskType)} · ${run.status} · ${formatTaskRunTime(run)}`;
+}
+
+function handleTaskDragStart(event: DragEvent, run: TaskRunRecord) {
+	const uri = `cohub://tasks/${run.id}`;
+	setCohubResourceDragData(
+		event.dataTransfer,
+		{
+			version: 1,
+			resources: [
+				{
+					type: "task",
+					ref: run.id,
+					taskRunId: run.id,
+					snapshot: taskBoardSnapshot(run),
+				},
+			],
+			origin: { kind: "task-list" },
+			createdAt: Date.now(),
+		},
+		{ cohubPath: uri, plainText: uri, effectAllowed: "copy" },
+	);
 }
 
 function getFallbackSessionCursor(sessionList: SessionRecord[]) {
@@ -3773,7 +3795,7 @@ $effect(() => {
 			{#each tasks.slice(0, sidebarFlyoutPreviewLimit) as run (run.id)}
 				{@const isActive = activeTaskId === run.id}
 				{@const badge = getTaskRunBadge(run.status)}
-				<a href={buildSpaceTaskRoute(currentSpaceId!, run.id)} class="sidebar-flyout-item flex items-center gap-2 rounded-[var(--sidebar-item-radius)] px-1.5 py-1.5 text-[13px] {isActive ? 'bg-[var(--sidebar-item-active-bg)] font-medium text-[var(--sidebar-item-active-fg)]' : 'text-text-tertiary hover:bg-[var(--sidebar-item-hover-bg)] hover:text-text-secondary'}" onclick={(e) => { e.preventDefault(); handleNavigateToTask(run.id); }}>
+				<a href={buildSpaceTaskRoute(currentSpaceId!, run.id)} draggable={!isMobile} class="sidebar-flyout-item flex items-center gap-2 rounded-[var(--sidebar-item-radius)] px-1.5 py-1.5 text-[13px] {isActive ? 'bg-[var(--sidebar-item-active-bg)] font-medium text-[var(--sidebar-item-active-fg)]' : 'text-text-tertiary hover:bg-[var(--sidebar-item-hover-bg)] hover:text-text-secondary'}" onclick={(e) => { e.preventDefault(); handleNavigateToTask(run.id); }} ondragstart={(event) => handleTaskDragStart(event, run)}>
 					<div class="min-w-0 flex-1"><div class="truncate text-[12px] capitalize leading-tight {badge.color}">{run.status}</div><div class="mt-0.5 text-[10px] text-text-placeholder">{formatTaskRunTime(run)}</div></div>
 					<span class="h-1.5 w-1.5 shrink-0 rounded-full {badge.dot}"></span>
 				</a>
@@ -4340,8 +4362,10 @@ $effect(() => {
                     {@const badge = getTaskRunBadge(run.status)}
                     <a
                       href={buildSpaceTaskRoute(currentSpaceId!, run.id)}
+                      draggable={!isMobile}
                       class="flex items-center gap-2 px-1.5 py-1.5 rounded-[var(--sidebar-item-radius)] text-[13px] transition-colors duration-100 {isActive ? 'text-[var(--sidebar-item-active-fg)] bg-[var(--sidebar-item-active-bg)] font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-[var(--sidebar-item-hover-bg)]'}"
                       onclick={(e) => { e.preventDefault(); handleNavigateToTask(run.id); }}
+                      ondragstart={(event) => handleTaskDragStart(event, run)}
                       title={getTaskRunMeta(run)}
                     >
                       <div class="min-w-0 flex-1">

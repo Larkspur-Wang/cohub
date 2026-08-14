@@ -92,6 +92,7 @@ import type { SpaceFsNode } from "$lib/space-fs";
 import {
 	buildSpaceNewSessionRoute,
 	buildSpaceSessionRoute,
+	buildSpaceTaskRoute,
 } from "$lib/space-routes";
 import {
 	activateSpaceStyle,
@@ -1909,6 +1910,10 @@ async function openInlineBoard(
 	if (filesColumnHidden) previewLayout.setFilesColumnHidden(false);
 	await previewWorkspace.openBoard(path, options);
 }
+async function openTask(taskRunId: string) {
+	if (!spaceId) return;
+	await goto(buildSpaceTaskRoute(spaceId, taskRunId));
+}
 function closeInlineBoard() {
 	const path = activeInlineBoardPath;
 	if (path) previewWorkspace.close("board", path);
@@ -2734,6 +2739,7 @@ const spaceFileDomainProps = $derived.by<
 	onOpenInlineFile: openInlineFile,
 	onOpenLinkedInlineFile: openLinkedInlineFile,
 	onOpenInlineBoard: openInlineBoard,
+	onOpenTask: openTask,
 	onCloseInlineFile: closeInlineFile,
 	onActivateInlineBoard: activateInlineBoardTab,
 	onCloseInlineBoardTab: closeInlineBoardTab,

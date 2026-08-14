@@ -7,6 +7,7 @@ import {
 	createBoardAwarenessController,
 } from "$lib/board/board-awareness";
 import type { BoardStageExportBridge } from "$lib/board/board-image-export";
+import { taskBoardSnapshot } from "$lib/board/board-task";
 import { defaultBoardTool } from "$lib/board/board-tool";
 import { createBoardEditor } from "$lib/board/editor.svelte";
 import type { BoardRuntimeProps } from "$lib/board/runtime/board-runtime";
@@ -22,6 +23,10 @@ import BoardTextEditor from "$lib/components/board/BoardTextEditor.svelte";
 import BoardVideoPlayer from "$lib/components/board/BoardVideoPlayer.svelte";
 import BoardZoomMenu from "$lib/components/board/BoardZoomMenu.svelte";
 import { sdk } from "$lib/sdk";
+import {
+	getCachedTaskRuns,
+	onTaskRunsCacheUpdated,
+} from "$lib/stores/task-runs-cache";
 
 const {
 	path,
@@ -42,7 +47,10 @@ const {
 	onRetrySync,
 	onViewStateChange,
 	onOpenFile,
-}: BoardRuntimeProps = $props();
+	onOpenTask,
+}: BoardRuntimeProps & {
+	onOpenTask?: (taskRunId: string) => void;
+} = $props();
 
 const readonly = $derived(mode === "view");
 /** Live Space by default; a published Board supplies an artifact-backed source. */
@@ -328,13 +336,18 @@ function handleKeydown(event: KeyboardEvent) {
 	switch (event.key) {
 		case "Enter": {
 			// Keyboard equivalent of double-clicking a card: open a file card in the
-			// preview panel, or start editing an editable shape.
+			// preview panel, open a task node in the detail view, or start editing an
+			// editable shape.
 			const single =
 				editor.selectedItems.length === 1 ? editor.selectedItems[0] : null;
 			if (!single) return;
 			event.preventDefault();
 			if (single.type === "file") {
 				void onOpenFile?.(single.ref.path);
+				return;
+			}
+			if (single.type === "task") {
+				void onOpenTask?.(single.taskRunId);
 				return;
 			}
 			if (!single.locked && shapeCapabilities(single).canEdit)
@@ -452,12 +465,27 @@ onMount(() => {
 			awareness: (event) => awareness.receive(event),
 		});
 	}
+	// Live task snapshot updates: when a task node's run completes or fails, its
+	// card updates without waiting for a manual refresh.
+	const unsubscribeTaskCache = onTaskRunsCacheUpdated((event) => {
+		if (event.spaceId !== spaceId) return;
+		const taskItems = editor.items.filter((item) => item.type === "task");
+		if (taskItems.length === 0) return;
+		const taskRunIds = new Set(taskItems.map((item) => item.taskRunId));
+		const updatedRuns = event.runs.filter((run) => taskRunIds.has(run.id));
+		if (updatedRuns.length === 0) return;
+		const snapshots = new Map(
+			updatedRuns.map((run) => [run.id, taskBoardSnapshot(run)]),
+		);
+		editor.applyTaskSnapshots(snapshots);
+	});
 	window.addEventListener("keydown", handleKeydown);
 	window.addEventListener("keyup", handleKeyup);
 	// Space hand can stick if the window blurs mid-hold (tab switch / alt-tab).
 	window.addEventListener("blur", clearSpaceHeld);
 	document.addEventListener("visibilitychange", clearSpaceHeld);
 	return () => {
+		unsubscribeTaskCache();
 		window.removeEventListener("keydown", handleKeydown);
 		window.removeEventListener("keyup", handleKeyup);
 		window.removeEventListener("blur", clearSpaceHeld);
@@ -556,6 +584,7 @@ onDestroy(() => {
 			<BoardContextMenu
 				{editor}
 				{onOpenFile}
+				{onOpenTask}
 				position={contextMenu}
 				onExport={exportBridge ? openExport : undefined}
 				onClose={() => { contextMenu = null; }}

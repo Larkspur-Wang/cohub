@@ -1,4 +1,5 @@
 <script lang="ts">
+import type { BoardTaskSnapshot } from "@neta-art/cohub/board";
 import {
 	AlertCircle,
 	ChevronDown,
@@ -11,6 +12,7 @@ import { onMount } from "svelte";
 import { browser } from "$app/environment";
 import { goto } from "$app/navigation";
 import { type MediaItem, mediaLightbox } from "$lib/components/media-lightbox";
+import { setCohubResourceDragData } from "$lib/drag/cohub-resource-drag";
 import { buildSpaceTaskRoute } from "$lib/space-routes";
 
 export type SessionTaskNotice = {
@@ -198,12 +200,42 @@ function withPreviewOssProcess(src: string | null | undefined) {
 	return `${base}${separator}x-oss-process=${GENERATION_PREVIEW_OSS_PROCESS}${hash}`;
 }
 
+function taskSnapshot(notice: SessionTaskNotice): BoardTaskSnapshot {
+	const media = notice.mediaItems[0];
+	const mediaUrl =
+		media && !isInlineMediaSrc(media.src) ? media.src : undefined;
+	return {
+		taskType: notice.kind === "generation" ? "generation" : "run_command",
+		status: notice.status,
+		title: notice.title,
+		...(notice.preview ? { promptExcerpt: notice.preview } : {}),
+		outputCount: notice.mediaItems.length,
+		...(media && mediaUrl
+			? { primaryOutput: { type: media.type, url: mediaUrl } }
+			: {}),
+		updatedAt: notice.updatedAt,
+	};
+}
+
 function handleNoticeDragStart(event: DragEvent, notice: SessionTaskNotice) {
 	const uri = getTaskReferenceUri(notice);
-	event.dataTransfer?.setData("application/x-cohub-uri", uri);
-	event.dataTransfer?.setData("text/cohub-path", uri);
-	event.dataTransfer?.setData("text/plain", uri);
-	if (event.dataTransfer) event.dataTransfer.effectAllowed = "copy";
+	setCohubResourceDragData(
+		event.dataTransfer,
+		{
+			version: 1,
+			resources: [
+				{
+					type: "task",
+					ref: notice.id,
+					taskRunId: notice.id,
+					snapshot: taskSnapshot(notice),
+				},
+			],
+			origin: { kind: "task-list" },
+			createdAt: Date.now(),
+		},
+		{ cohubPath: uri, plainText: uri, effectAllowed: "copy" },
+	);
 }
 
 function handleCardClick(notice: SessionTaskNotice) {

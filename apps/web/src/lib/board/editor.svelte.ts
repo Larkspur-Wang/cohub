@@ -52,6 +52,7 @@ import {
 	createFileNodeForPath,
 	createFrameBoardItem,
 	createGeoBoardItem,
+	createTaskBoardItem,
 	createTextBoardItem,
 	duplicateBoardItem,
 	patchItemFrames,
@@ -98,6 +99,7 @@ import type {
 	BoardFrame,
 	BoardItem,
 	BoardItemStyle,
+	BoardTaskSnapshot,
 	BoardViewport,
 } from "@neta-art/cohub/board";
 import {
@@ -852,6 +854,16 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		return item.id;
 	}
 
+	function addTask(
+		taskRunId: string,
+		snapshot: BoardTaskSnapshot,
+		at: WorldPoint,
+	) {
+		const item = createTaskBoardItem(taskRunId, snapshot, at.x, at.y);
+		addItemAt(item);
+		return item.id;
+	}
+
 	function addText(text: string, at: WorldPoint) {
 		addItemAt(createTextBoardItem(text, at.x, at.y, toolStyles.text.color));
 	}
@@ -1466,6 +1478,28 @@ export function createBoardEditor(options: BoardEditorOptions) {
 	 * tracks width and line breaks live; the text itself (and the undo step) is
 	 * still recorded once, when the edit is committed.
 	 */
+	function applyTaskSnapshots(
+		snapshots: ReadonlyMap<string, BoardTaskSnapshot>,
+	) {
+		if (snapshots.size === 0) return;
+		const dirty: string[] = [];
+		const next = synced.items.map((item) => {
+			if (item.type !== "task") return item;
+			const snapshot = snapshots.get(item.taskRunId);
+			if (
+				!snapshot ||
+				JSON.stringify(snapshot) === JSON.stringify(item.snapshot)
+			)
+				return item;
+			dirty.push(item.id);
+			return { ...item, snapshot };
+		});
+		if (dirty.length === 0) return;
+		setItems(next, false, dirty);
+		undoBaseline = document;
+		requestCommit();
+	}
+
 	function previewTextLayout(id: string, text: string) {
 		const target = itemById(id);
 		if (target?.type !== "text") return;
@@ -2964,6 +2998,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		clearSelection,
 		selectAll,
 		addFile,
+		addTask,
 		addText,
 		addGeo,
 		addFrame,
@@ -2988,6 +3023,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		applyMediaFileChange,
 		adoptMediaNaturalSizes,
 		applyFileSnapshots,
+		applyTaskSnapshots,
 		retrySave,
 		undo,
 		redo,

@@ -51,6 +51,21 @@ const items: BoardItem[] = [
     frame: frame(220, 90, 150, 100),
   },
   {
+    id: "task1",
+    type: "task",
+    taskRunId: "task_1",
+    snapshot: {
+      taskType: "generation",
+      status: "completed",
+      title: "Product sketch",
+      model: "image-model",
+      outputCount: 1,
+      primaryOutput: { type: "text", textExcerpt: "A concise generated result" },
+      updatedAt: "2026-08-14T10:00:00.000Z",
+    },
+    frame: frame(390, 90, 180, 120),
+  },
+  {
     id: "d1",
     type: "draw",
     points: [
@@ -125,6 +140,29 @@ describe("headless board export", { skip: available ? false : "@napi-rs/canvas i
     assert.equal(result.plan.width, 664);
     assert.equal(result.plan.height, 464);
     assert.ok(result.bytes.length > 1000, "expected a non-trivial image");
+  });
+
+  test("renders a task-only document to non-transparent pixels", async () => {
+    const task = items.find((item) => item.type === "task");
+    assert.ok(task);
+    const result = exportBoardImageBytes(
+      headless,
+      { ...document, items: [task], connections: [] },
+      { scale: 1, background: null },
+    );
+    assert.ok(result);
+
+    const { createCanvas, loadImage } = await import("@napi-rs/canvas");
+    const image = await loadImage(result.bytes);
+    const canvas = createCanvas(result.plan.width, result.plan.height);
+    const context = canvas.getContext("2d");
+    context.drawImage(image, 0, 0);
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    let opaquePixels = 0;
+    for (let index = 3; index < pixels.length; index += 4) {
+      if ((pixels[index] ?? 0) > 0) opaquePixels += 1;
+    }
+    assert.ok(opaquePixels > 1_000, "expected the task card to paint visible pixels");
   });
 
   test("scale multiplies the output size", () => {

@@ -84,6 +84,15 @@ const fileDefinition: ShapeDefinition = {
 	},
 };
 
+const taskDefinition: ShapeDefinition = {
+	type: "task",
+	capabilities: {
+		...FULL_CAPABILITIES,
+		canEdit: false,
+		canRotate: false,
+	},
+};
+
 /** Precise containment for a geo shape in its local (unrotated) space. */
 function geoContainsLocal(item: BoardGeoItem, local: WorldPoint): boolean {
 	const w = item.frame.width;
@@ -224,6 +233,7 @@ export function registerBuiltinShapes() {
 		imageDefinition,
 		videoDefinition,
 		fileDefinition,
+		taskDefinition,
 		geoDefinition,
 		drawDefinition,
 		arrowDefinition,

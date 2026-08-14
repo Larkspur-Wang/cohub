@@ -8,6 +8,7 @@ import { fileCardRenderer } from "./file-card-renderer.js";
 import { frameCardRenderer } from "./frame-card-renderer.js";
 import { geoCardRenderer } from "./geo-card-renderer.js";
 import { imageCardRenderer } from "./image-card-renderer.js";
+import { taskCardRenderer } from "./task-card-renderer.js";
 import { textCardRenderer } from "./text-card-renderer.js";
 import { unknownCardRenderer } from "./unknown-card-renderer.js";
 import { videoCardRenderer } from "./video-card-renderer.js";
@@ -99,6 +100,7 @@ const boardCardRenderers: BoardCardRenderer[] = [
 	imageCardRenderer,
 	videoCardRenderer,
 	fileCardRenderer,
+	taskCardRenderer,
 	geoCardRenderer,
 	drawCardRenderer,
 	arrowCardRenderer,

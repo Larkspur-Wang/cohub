@@ -22,6 +22,7 @@ import {
   BOARD_DOCUMENT_KIND,
   BoardAppearanceSchema,
   BoardFileSnapshotSchema,
+  BoardTaskSnapshotSchema,
   parseBoardDocument,
   UNKNOWN_BOARD_ITEM_TYPE,
 } from "@cohub/protocol/board-document";
@@ -126,6 +127,31 @@ function pointFromData(value: unknown): BoardArrowItem["start"] {
 		return { x: value.x, y: value.y };
 	}
 	return { x: 0, y: 0 };
+}
+
+function unknownItemFromNode(
+	node: BoardNodeRecord,
+	frame: BoardItem["frame"],
+	style: BoardItem["style"],
+	locked: boolean | undefined,
+	data: Record<string, unknown>,
+): BoardItem {
+	const raw: Record<string, unknown> = {
+		...data,
+		id: node.nodeId,
+		type: node.type,
+		frame,
+	};
+	if (style) raw.style = style;
+	if (locked) raw.locked = true;
+	return {
+		id: node.nodeId,
+		type: UNKNOWN_BOARD_ITEM_TYPE,
+		frame,
+		...(locked ? { locked } : {}),
+		style,
+		raw,
+	};
 }
 
 function boardNodeToItemValue(node: BoardNodeRecord): BoardItem {
@@ -249,28 +275,25 @@ function boardNodeToItemValue(node: BoardNodeRecord): BoardItem {
 				style,
 			};
 		}
-		default: {
-			// Unknown shape type: preserve the node's opaque fields verbatim so a
-			// newer client's shape survives a round-trip through this client. The
-			// item discriminant is the reserved "unknown" literal; the real type and
-			// custom fields live in `raw`.
-			const raw: Record<string, unknown> = {
-				...data,
-				id: node.nodeId,
-				type: node.type,
-				frame,
-			};
-			if (style) raw.style = style;
-			if (locked) raw.locked = true;
-			return {
-				id: node.nodeId,
-				type: UNKNOWN_BOARD_ITEM_TYPE,
-				frame,
-				...(locked ? { locked } : {}),
-				style,
-				raw,
-			};
+		case "task": {
+			const parsed = BoardTaskSnapshotSchema.safeParse(node.view ?? {});
+			if (parsed.success && typeof data.taskRunId === "string") {
+				return {
+					id: node.nodeId,
+					type: "task",
+					taskRunId: data.taskRunId,
+					snapshot: parsed.data,
+					frame,
+					...(locked ? { locked } : {}),
+					style,
+				};
+			}
+			return unknownItemFromNode(node, frame, style, locked, data);
 		}
+		default:
+			// Unknown shape type: preserve the node's opaque fields verbatim so a
+			// newer client's shape survives a round-trip through this client.
+			return unknownItemFromNode(node, frame, style, locked, data);
 	}
 }
 

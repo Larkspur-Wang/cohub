@@ -1,5 +1,9 @@
 <script lang="ts">
-import type { BoardFileSnapshot, BoardItem } from "@neta-art/cohub/board";
+import type {
+	BoardFileSnapshot,
+	BoardItem,
+	BoardTaskSnapshot,
+} from "@neta-art/cohub/board";
 import {
 	type BoardShapeColors,
 	buildStrokeOutline,
@@ -26,6 +30,7 @@ import {
 } from "@neta-art/cohub/board/render";
 import { Application, Container, Graphics, type Renderer } from "pixi.js";
 import { onDestroy, onMount, untrack } from "svelte";
+import { goto } from "$app/navigation";
 import { createBoardAssetManager } from "$lib/board/board-asset-manager";
 import type { BoardAssetSource } from "$lib/board/board-asset-source";
 import {
@@ -41,6 +46,7 @@ import {
 } from "$lib/board/board-file-preview-source";
 import type { BoardStageExportBridge } from "$lib/board/board-image-export";
 import { createBoardScene } from "$lib/board/board-scene";
+import { taskBoardSnapshot } from "$lib/board/board-task";
 import {
 	type BoardThemeBackground,
 	type BoardThemeSnapshot,
@@ -57,7 +63,15 @@ import {
 	type BoardDropItem,
 	toBoardDropItems,
 } from "$lib/drag/pointer-drag-core";
+import { sdk } from "$lib/sdk";
+import { buildSpaceTaskRoute } from "$lib/space-routes";
 import { SPACE_STYLE_CHANGED_EVENT } from "$lib/space-style";
+import {
+	getCachedTaskRuns,
+	mergeCachedTaskRun,
+	onTaskRunsCacheUpdated,
+	restoreCachedTaskRuns,
+} from "$lib/stores/task-runs-cache";
 import { getResolvedTheme } from "$lib/theme.svelte";
 
 const {
@@ -171,6 +185,44 @@ const unsubscribeAssets = assets.subscribe(() => {
 // Bumped when a workspace file change invalidates a cached preview, so visible
 // file cards can refresh their snapshot.
 let previewVersion = $state(filePreviewVersion());
+const taskDetailRefreshes = new Map<string, string>();
+const unsubscribeTaskRuns = onTaskRunsCacheUpdated((event) => {
+	if (readonly || event.spaceId !== spaceId) return;
+	applyTaskRuns(event.runs);
+});
+
+function applyTaskRuns(runs: ReturnType<typeof getCachedTaskRuns>) {
+	const wanted = new Set(
+		editor.items
+			.filter((item) => item.type === "task")
+			.map((item) => item.taskRunId),
+	);
+	if (wanted.size === 0) return;
+	const snapshots = new Map<string, BoardTaskSnapshot>();
+	for (const run of runs) {
+		if (wanted.has(run.id)) snapshots.set(run.id, taskBoardSnapshot(run));
+	}
+	editor.applyTaskSnapshots(snapshots);
+	for (const run of runs) {
+		if (
+			!wanted.has(run.id) ||
+			run.taskType !== "generation" ||
+			run.status !== "completed" ||
+			taskBoardSnapshot(run).primaryOutput ||
+			taskDetailRefreshes.get(run.id) === run.updatedAt
+		)
+			continue;
+		taskDetailRefreshes.set(run.id, run.updatedAt);
+		void sdk.tasks
+			.get(run.id)
+			.then(({ run: detail }) => {
+				if (detail.spaceId !== spaceId) return;
+				mergeCachedTaskRun(spaceId, detail);
+			})
+			.catch(() => undefined);
+	}
+}
+
 const unsubscribePreviews = subscribeFilePreviews((event) => {
 	previewVersion = filePreviewVersion();
 	if (readonly || !event || event.spaceId !== spaceId) return;
@@ -885,6 +937,10 @@ function handleDoubleClick(event: MouseEvent) {
 		void onOpenFile?.(item.ref.path);
 		return;
 	}
+	if (item?.type === "task") {
+		if (!readonly) void goto(buildSpaceTaskRoute(spaceId, item.taskRunId));
+		return;
+	}
 	// View mode stops here: text editing and the blank-canvas text draft are both
 	// authoring actions.
 	if (readonly) return;
@@ -932,12 +988,18 @@ async function enrichFileCards(targets: Array<{ id: string; path: string }>) {
 	if (updates.length > 0) editor.applyFileSnapshots(updates);
 }
 
+type BoardTaskDropItem = {
+	taskRunId: string;
+	snapshot: BoardTaskSnapshot;
+};
+
 function handleDrop(event: DragEvent) {
 	event.preventDefault();
 	dropActive = false;
 	if (readonly) return;
 
 	const items: BoardDropItem[] = [];
+	const taskItems: BoardTaskDropItem[] = [];
 
 	const raw = event.dataTransfer?.getData("application/x-cohub-resource");
 	if (raw) {
@@ -951,9 +1013,22 @@ function handleDrop(event: DragEvent) {
 					mimeType?: string;
 					size?: number;
 					mtimeMs?: number;
+					taskRunId?: string;
+					snapshot?: BoardTaskSnapshot;
 				}>;
 			};
 			for (const resource of payload.resources ?? []) {
+				if (
+					resource.type === "task" &&
+					resource.taskRunId &&
+					resource.snapshot
+				) {
+					taskItems.push({
+						taskRunId: resource.taskRunId,
+						snapshot: resource.snapshot,
+					});
+					continue;
+				}
 				if (resource.type && resource.type !== "file") continue;
 				const path = (resource.path ?? resource.ref ?? "").replace(/\/$/, "");
 				if (!path) continue;
@@ -972,14 +1047,16 @@ function handleDrop(event: DragEvent) {
 		}
 	}
 
-	if (items.length === 0) {
+	if (items.length === 0 && taskItems.length === 0) {
 		const path = event.dataTransfer
 			?.getData("text/cohub-path")
 			?.replace(/\/$/, "");
-		if (path) items.push({ path });
+		if (path && !path.startsWith("cohub://tasks/")) items.push({ path });
 	}
 
-	dropBoardItems(event.clientX, event.clientY, items);
+	if (taskItems.length > 0)
+		dropTaskItems(event.clientX, event.clientY, taskItems);
+	if (items.length > 0) dropBoardItems(event.clientX, event.clientY, items);
 }
 
 /**
@@ -1019,6 +1096,24 @@ function dropBoardItems(
 		// simply gain detail when this lands.
 		void enrichFileCards(created);
 	}
+}
+
+function dropTaskItems(
+	clientX: number,
+	clientY: number,
+	items: BoardTaskDropItem[],
+) {
+	if (!host || items.length === 0) return;
+	const rect = host.getBoundingClientRect();
+	const origin = screenToWorld(clientX, clientY, rect, editor.camera);
+	const created = items.map((entry, index) =>
+		editor.addTask(
+			entry.taskRunId,
+			entry.snapshot,
+			worldPoint(origin.x + index * 36, origin.y),
+		),
+	);
+	editor.setSelection(created);
 }
 
 const ROTATE_CURSOR = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M21 12a9 9 0 1 1-2.64-6.36L21 8M21 3v5h-5' fill='none' stroke='%23fff' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M21 12a9 9 0 1 1-2.64-6.36L21 8M21 3v5h-5' fill='none' stroke='%231d1d1f' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") 12 12, crosshair`;
@@ -1065,6 +1160,12 @@ let disposed = false;
 
 onMount(async () => {
 	if (!host) return;
+	if (!readonly) {
+		applyTaskRuns(getCachedTaskRuns(spaceId));
+		void restoreCachedTaskRuns(spaceId)
+			.then(applyTaskRuns)
+			.catch(() => undefined);
+	}
 	const instance = new Application();
 	try {
 		await instance.init({
@@ -1204,6 +1305,7 @@ onDestroy(() => {
 	cancelAnimationFrame(resizeFrame);
 	cancelAnimationFrame(renderFrame);
 	unsubscribeAssets();
+	unsubscribeTaskRuns();
 	unsubscribePreviews();
 	if (host) {
 		host.removeEventListener("pointerdown", handlePointerDown);

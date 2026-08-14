@@ -217,6 +217,36 @@ export const BoardFileItemSchema = BoardItemBaseSchema.extend({
 	snapshot: BoardFileSnapshotSchema.optional(),
 });
 
+export const BoardTaskOutputSchema = z.object({
+	type: z.enum(["image", "video", "audio", "text"]),
+	/** Remote preview only. Inline data is intentionally never persisted. */
+	url: z.string().url().optional(),
+	textExcerpt: z.string().max(480).optional(),
+	mimeType: z.string().max(160).optional(),
+});
+
+/**
+ * Cached task facts used for an immediate first paint. The task run remains the
+ * source of truth and live clients refresh this projection by `taskRunId`.
+ */
+export const BoardTaskSnapshotSchema = z.object({
+	taskType: z.string().min(1).max(120),
+	status: z.enum(["pending", "running", "completed", "failed"]),
+	title: z.string().min(1).max(240),
+	model: z.string().max(160).optional(),
+	promptExcerpt: z.string().max(480).optional(),
+	outputCount: z.number().int().nonnegative().default(0),
+	primaryOutput: BoardTaskOutputSchema.optional(),
+	updatedAt: z.string().optional(),
+});
+
+/** A stable reference to a task run with a small, replaceable display cache. */
+export const BoardTaskItemSchema = BoardItemBaseSchema.extend({
+	type: z.literal("task"),
+	taskRunId: z.string().min(1),
+	snapshot: BoardTaskSnapshotSchema,
+});
+
 /**
  * The set of shape types this client understands natively. Anything else is
  * preserved verbatim as an unknown item (see BoardUnknownItem) so documents
@@ -227,6 +257,7 @@ export const KNOWN_BOARD_ITEM_TYPES = [
 	"image",
 	"video",
 	"file",
+	"task",
 	"text",
 	"geo",
 	"draw",
@@ -287,6 +318,10 @@ export function parseBoardItemLoose(raw: unknown): BoardItem {
 		}
 		case "file": {
 			const parsed = BoardFileItemSchema.safeParse(raw);
+			return parsed.success ? parsed.data : makeUnknownItem(raw);
+		}
+		case "task": {
+			const parsed = BoardTaskItemSchema.safeParse(raw);
 			return parsed.success ? parsed.data : makeUnknownItem(raw);
 		}
 		case "text": {
@@ -375,11 +410,15 @@ export type BoardImageItem = z.infer<typeof BoardImageItemSchema>;
 export type BoardVideoItem = z.infer<typeof BoardVideoItemSchema>;
 export type BoardFileSnapshot = z.infer<typeof BoardFileSnapshotSchema>;
 export type BoardFileItem = z.infer<typeof BoardFileItemSchema>;
+export type BoardTaskOutput = z.infer<typeof BoardTaskOutputSchema>;
+export type BoardTaskSnapshot = z.infer<typeof BoardTaskSnapshotSchema>;
+export type BoardTaskItem = z.infer<typeof BoardTaskItemSchema>;
 /** Known (natively handled) item variants. */
 export type BoardKnownItem =
 	| BoardImageItem
 	| BoardVideoItem
 	| BoardFileItem
+	| BoardTaskItem
 	| BoardTextItem
 	| BoardGeoItem
 	| BoardDrawItem

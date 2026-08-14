@@ -6,6 +6,8 @@ import type {
 	BoardItem,
 	BoardItemStyle,
 	BoardMediaSnapshot,
+	BoardTaskItem,
+	BoardTaskSnapshot,
 	BoardVideoItem,
 } from "@neta-art/cohub/board";
 import {
@@ -21,6 +23,7 @@ import { createBoardItemId } from "$lib/board/board-id";
 import { getResourceTitle, inferMediaKind } from "$lib/board/board-media";
 
 const DEFAULT_MEDIA_SIZE = { width: 320, height: 200 };
+const DEFAULT_TASK_SIZE = { width: 300, height: 188 };
 /** Fallback for video with unknown intrinsic size: the common 16:9 aspect. */
 const DEFAULT_VIDEO_SIZE = { width: 320, height: 180 };
 /** Offset applied when duplicating so the copy is visibly displaced. */
@@ -196,6 +199,25 @@ export function createMediaBoardItem(
 	if (kind === "image") return createImageBoardItem(path, x, y, snapshot);
 	if (kind === "video") return createVideoBoardItem(path, x, y, snapshot);
 	return null;
+}
+
+export function createTaskBoardItem(
+	taskRunId: string,
+	snapshot: BoardTaskSnapshot,
+	x: number,
+	y: number,
+): BoardTaskItem {
+	return {
+		id: createBoardItemId(),
+		type: "task",
+		taskRunId,
+		snapshot,
+		frame: createFrame(
+			x - DEFAULT_TASK_SIZE.width / 2,
+			y - DEFAULT_TASK_SIZE.height / 2,
+			DEFAULT_TASK_SIZE,
+		),
+	};
 }
 
 export function createTextBoardItem(
@@ -421,6 +443,8 @@ export function titleForBoardItem(item: BoardItem): string {
 			return item.snapshot?.title ?? getResourceTitle(item.ref.path);
 		case "file":
 			return item.snapshot?.title ?? fileBaseName(item.ref.path);
+		case "task":
+			return item.snapshot.title;
 		default:
 			return unknownRealType(item);
 	}
@@ -444,6 +468,8 @@ export function subtitleForBoardItem(item: BoardItem): string {
 			return "Video";
 		case "file":
 			return "File";
+		case "task":
+			return "Task";
 		default:
 			return unknownRealType(item);
 	}

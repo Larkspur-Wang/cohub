@@ -17,6 +17,13 @@ export function imageAssetKey(item: BoardItem): string | null {
     if (snapshot?.coverUrl) return `url:${snapshot.coverUrl}`;
     return null;
   }
+  if (item.type === "task") {
+    const output = item.snapshot.primaryOutput;
+    if (output?.type === "image" || output?.type === "video") {
+      const url = output.url;
+      return url ? `url:${url}` : null;
+    }
+  }
   return null;
 }
 

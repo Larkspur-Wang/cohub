@@ -51,6 +51,8 @@ type Props = {
 	onViewStateChange?: (state: BoardRuntimeViewState) => void;
 	/** Open a workspace file in the preview panel (file cards route here). */
 	onOpenFile?: (path: string) => void | Promise<void>;
+	/** Open a task detail view (task cards route here). */
+	onOpenTask?: (taskRunId: string) => void | Promise<void>;
 };
 
 let {
@@ -72,6 +74,7 @@ let {
 	onClosePreviewTab,
 	onViewStateChange,
 	onOpenFile,
+	onOpenTask,
 }: Props = $props();
 
 let boardRuntimeLoadAttempt = $state(0);
@@ -141,6 +144,7 @@ const boardRuntimeModulePromise = $derived.by(() => {
 						onRetrySync={() => onRetrySave(board.boardId as string)}
 						{onViewStateChange}
 						{onOpenFile}
+						{onOpenTask}
 					/>
 				{/key}
 			</div>

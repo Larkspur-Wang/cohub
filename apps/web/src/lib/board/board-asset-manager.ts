@@ -24,6 +24,10 @@ type BoardAssetSource = {
 
 /** Stable preview key shared by cards that reference the same file version. */
 export function boardAssetKey(item: BoardItem): string | null {
+	if (item.type === "task" && item.snapshot.primaryOutput?.type === "video") {
+		const url = item.snapshot.primaryOutput.url;
+		return url ? `video-url:${encodeURIComponent(url)}` : null;
+	}
 	if (item.type === "video") {
 		const path = encodeURIComponent(item.ref.path);
 		return `video:${path}:${item.snapshot?.mtimeMs ?? "unknown"}`;
@@ -37,6 +41,17 @@ function keySource(key: string): BoardAssetSource | null {
 		const separator = key.indexOf(":", 6);
 		if (separator < 0) return null;
 		baseKey = key.slice(separator + 1);
+	}
+	if (baseKey.startsWith("video-url:")) {
+		try {
+			return {
+				kind: "url",
+				media: "video",
+				value: decodeURIComponent(baseKey.slice(10)),
+			};
+		} catch {
+			return null;
+		}
 	}
 	if (baseKey.startsWith("video:")) {
 		const separator = baseKey.lastIndexOf(":");
