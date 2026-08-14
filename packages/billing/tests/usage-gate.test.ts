@@ -15,6 +15,25 @@ const gateWithBalance = (netUsd: number) => createBillingUsageGate({
   },
 });
 
+test("disabled billing bypasses the balance gate", async () => {
+  let requested = false;
+  const gate = createBillingUsageGate({
+    operations: {
+      status: { provider: "disabled", configured: false },
+      getCreditStatus: async () => {
+        requested = true;
+        throw new Error("disabled billing must not be queried");
+      },
+    },
+  });
+
+  assert.deepEqual(
+    await gate.evaluate(gateInput("generation.image")),
+    { status: "allowed", balanceState: "zero", netUsd: 0 },
+  );
+  assert.equal(requested, false);
+});
+
 test("video generation requires at least $0.60", async () => {
   const blocked = await gateWithBalance(0.59).evaluate(gateInput("generation.video"));
   assert.equal(blocked.status, "blocked");
@@ -29,9 +48,20 @@ test("video generation requires at least $0.60", async () => {
   assert.equal(allowed.status, "allowed");
 });
 
-test("minimum video balance does not affect other usage kinds", async () => {
-  const decision = await gateWithBalance(0).evaluate(gateInput("generation.image"));
-  assert.deepEqual(decision, { status: "allowed", balanceState: "zero", netUsd: 0 });
+test("only a positive balance allows usage", async () => {
+  const positive = await gateWithBalance(0.00000001).evaluate(gateInput("generation.image"));
+  assert.deepEqual(positive, { status: "allowed", balanceState: "positive", netUsd: 0.00000001 });
+
+  for (const netUsd of [0, -0.00000001, -1]) {
+    const decision = await gateWithBalance(netUsd).evaluate(gateInput("generation.image"));
+    assert.equal(decision.status, "blocked");
+    if (decision.status !== "blocked") continue;
+    assert.equal(decision.balanceState, netUsd === 0 ? "zero" : "negative");
+    assert.equal(decision.netUsd, netUsd);
+    assert.equal("hardNegativeLimitUsd" in decision && decision.hardNegativeLimitUsd, 0);
+    assert.equal(decision.conversion.reason, "balance_not_positive");
+    assert.equal(decision.conversion.message, "A positive balance is required to continue.");
+  }
 });
 
 test("video balance lookup failures are fail-closed", async () => {
@@ -59,4 +89,29 @@ test("other balance lookup failures preserve fail-open behavior", async () => {
     await gate.evaluate(gateInput("generation.image")),
     { status: "allowed", balanceState: "zero", netUsd: 0 },
   );
+});
+
+test("non-finite balances follow the configured evaluation error policy", async () => {
+  for (const netUsd of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+    const errors: unknown[] = [];
+    const gate = createBillingUsageGate({
+      operations: {
+        getCreditStatus: async () => ({ netUsd, groups: [] }),
+      },
+      onEvaluationError: (error) => errors.push(error),
+    });
+
+    await assert.rejects(
+      gate.evaluate(gateInput("generation.video")),
+      (cause: unknown) => cause instanceof BillingUsageGateUnavailableError && cause.cause === errors[0],
+    );
+    assert.deepEqual(
+      await gate.evaluate(gateInput("generation.image")),
+      { status: "allowed", balanceState: "zero", netUsd: 0 },
+    );
+    assert.equal(errors.length, 2);
+    for (const error of errors) {
+      assert.match(String(error), /non-finite net balance/);
+    }
+  }
 });

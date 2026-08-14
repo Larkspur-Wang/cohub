@@ -58,7 +58,7 @@ export type BillingAccessDecision =
   | {
       status: "blocked";
       code: "billing_credit_limit_exceeded";
-      balanceState: "negative";
+      balanceState: "zero" | "negative";
       netUsd: number;
       hardNegativeLimitUsd: number;
       conversion: BillingConversionIntent;
@@ -69,7 +69,7 @@ export type BillingUsageGate = {
 };
 
 export function createBillingUsageGate(input: {
-  operations: Pick<BillingOperations, "getCreditStatus">;
+  operations: Pick<BillingOperations, "getCreditStatus"> & Partial<Pick<BillingOperations, "status">>;
   hardNegativeLimitUsd?: number;
   minimumBalanceUsdByUsageKind?: Readonly<Record<string, number>>;
   failClosedUsageKinds?: readonly BillingUsageKind[];
@@ -94,13 +94,20 @@ export function createBillingUsageGate(input: {
 
   return {
     async evaluate(gateInput) {
+      if (input.operations.status && !input.operations.status.configured) {
+        return { status: "allowed", balanceState: "zero", netUsd: 0 };
+      }
+
       let netUsd = 0;
       try {
         const credit = await input.operations.getCreditStatus({
           userId: gateInput.userId,
           tokenType,
         });
-        netUsd = Number.isFinite(credit.netUsd) ? credit.netUsd : 0;
+        if (!Number.isFinite(credit.netUsd)) {
+          throw new Error("Billing returned a non-finite net balance");
+        }
+        netUsd = credit.netUsd;
       } catch (error) {
         input.onEvaluationError?.(error, gateInput);
         if (failClosedUsageKinds.has(gateInput.usageKind)) {
@@ -137,7 +144,19 @@ export function createBillingUsageGate(input: {
         return { status: "allowed", balanceState: "positive", netUsd };
       }
       if (netUsd === 0) {
-        return { status: "allowed", balanceState: "zero", netUsd };
+        return {
+          status: "blocked",
+          code: "billing_credit_limit_exceeded",
+          balanceState: "zero",
+          netUsd,
+          hardNegativeLimitUsd,
+          conversion: createBillingConversionIntent({
+            level: "hard",
+            reason: "balance_not_positive",
+            source: gateInput.source,
+            message: "A positive balance is required to continue.",
+          }),
+        };
       }
       if (netUsd >= hardNegativeLimitUsd) {
         return {
@@ -160,8 +179,9 @@ export function createBillingUsageGate(input: {
         hardNegativeLimitUsd,
         conversion: createBillingConversionIntent({
           level: "hard",
-          reason: "negative_balance_limit_exceeded",
+          reason: "balance_not_positive",
           source: gateInput.source,
+          message: "A positive balance is required to continue.",
         }),
       };
     },

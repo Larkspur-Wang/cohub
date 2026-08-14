@@ -457,6 +457,7 @@ export type BillingConversionIntent = {
   reason:
     | "negative_balance"
     | "negative_balance_limit_exceeded"
+    | "balance_not_positive"
     | "minimum_balance_not_met"
     | "feature_not_entitled";
   audience: "free" | "paid" | "unknown";
