@@ -5,10 +5,7 @@ import { mergeCachedTaskRun } from "$lib/stores/task-runs-cache";
 
 const MAX_TRANSIENT_RETRIES = 4;
 const RETRY_BASE_MS = 1_000;
-const activeWatches = new Map<
-	string,
-	{ userKey: string; promise: Promise<void> }
->();
+const activeWatches = new Set<string>();
 
 function sleep(ms: number) {
 	return new Promise<void>((resolve) => window.setTimeout(resolve, ms));
@@ -49,7 +46,6 @@ async function runWatch(spaceId: string, taskRunId: string, userKey: string) {
 	}
 }
 
-/** Keep a generation task projected into the shared task cache after its UI closes. */
 export function watchGenerationTask(
 	spaceId: string,
 	taskRunId: string,
@@ -57,10 +53,9 @@ export function watchGenerationTask(
 ) {
 	if (!canUseUserScopedCache(userKey)) return;
 	const key = `${userKey}:${spaceId}:${taskRunId}`;
-	const existing = activeWatches.get(key);
-	if (existing) return;
-	const promise = runWatch(spaceId, taskRunId, userKey).finally(() =>
+	if (activeWatches.has(key)) return;
+	activeWatches.add(key);
+	void runWatch(spaceId, taskRunId, userKey).finally(() =>
 		activeWatches.delete(key),
 	);
-	activeWatches.set(key, { userKey, promise });
 }

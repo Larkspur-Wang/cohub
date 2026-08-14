@@ -35,9 +35,7 @@ export function getCachedGenerationModels(): PublicGenerationDeclaration[] {
 			);
 			if (filtered.length > 0) memory = filtered;
 		}
-	} catch {
-		// A malformed cache is ignored; the server refresh below replaces it.
-	}
+	} catch {}
 	return memory ?? [];
 }
 
@@ -64,9 +62,7 @@ export async function loadGenerationModels(options?: {
 						storageKey(userKey),
 						JSON.stringify(response.models),
 					);
-				} catch {
-					// Keep the fresh in-memory catalog when persistent storage is full.
-				}
+				} catch {}
 			}
 			return response.models;
 		})

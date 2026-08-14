@@ -79,7 +79,6 @@ export function generationInputSpec(
 	return model.content.input.find((spec) => spec.type === type) ?? null;
 }
 
-/** Models with required provider metadata need a richer, task-specific editor. */
 export function supportsBoardGenerationComposer(
 	model: PublicGenerationDeclaration,
 	references: readonly BoardGenerationReference[] = [],

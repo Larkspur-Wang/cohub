@@ -4,86 +4,78 @@ const MODEL_SCHEMA = "neta.generation.model.v1";
 const CONTENT_TYPES = new Set(["text", "image", "video", "audio"]);
 const SOURCE_TYPES = new Set(["url", "base64"]);
 const MERGE_TYPES = new Set(["newline", "space", "concat"]);
-
 type UnknownRecord = Record<string, unknown>;
 
 function isRecord(value: unknown): value is UnknownRecord {
 	return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-function isOptionalString(value: unknown) {
-	return value === undefined || typeof value === "string";
+function optional(value: unknown, guard: (value: unknown) => boolean) {
+	return value === undefined || guard(value);
 }
 
-function isOptionalBoolean(value: unknown) {
-	return value === undefined || typeof value === "boolean";
+function isString(value: unknown) {
+	return typeof value === "string";
 }
 
-function isOptionalNumber(value: unknown) {
-	return (
-		value === undefined || (typeof value === "number" && Number.isFinite(value))
-	);
+function isBoolean(value: unknown) {
+	return typeof value === "boolean";
 }
 
-function isTypedArray(value: unknown, type: "string" | "number" | "boolean") {
-	return (
-		value === undefined ||
-		(Array.isArray(value) &&
-			value.every(
-				(item) =>
-					typeof item === type && (type !== "number" || Number.isFinite(item)),
-			))
-	);
+function isNumber(value: unknown) {
+	return typeof value === "number" && Number.isFinite(value);
+}
+
+function optionalArray(value: unknown, guard: (value: unknown) => boolean) {
+	return value === undefined || (Array.isArray(value) && value.every(guard));
+}
+
+function absent(spec: UnknownRecord, ...keys: string[]) {
+	return keys.every((key) => spec[key] === undefined);
 }
 
 function isDimensionsSpec(value: unknown) {
-	if (!isRecord(value)) return false;
 	return (
-		(value.separator === undefined ||
-			value.separator === "x" ||
-			value.separator === "*") &&
-		isOptionalNumber(value.min) &&
-		isOptionalNumber(value.max) &&
-		isOptionalNumber(value.multipleOf)
+		isRecord(value) &&
+		optional(value.separator, (item) => item === "x" || item === "*") &&
+		optional(value.min, isNumber) &&
+		optional(value.max, isNumber) &&
+		optional(value.multipleOf, isNumber)
 	);
 }
 
-function hasValidParameterCommon(spec: UnknownRecord) {
-	return isOptionalBoolean(spec.optional) && isOptionalString(spec.description);
-}
-
 function isParameterSpec(value: unknown): boolean {
-	if (!isRecord(value) || !hasValidParameterCommon(value)) return false;
+	if (
+		!isRecord(value) ||
+		!optional(value.optional, isBoolean) ||
+		!optional(value.description, isString)
+	) {
+		return false;
+	}
 
 	switch (value.type) {
 		case "string":
 			return (
-				isOptionalString(value.default) &&
-				isTypedArray(value.enum, "string") &&
-				isTypedArray(value.examples, "string") &&
-				(value.dimensions === undefined ||
-					isDimensionsSpec(value.dimensions)) &&
-				value.min === undefined &&
-				value.max === undefined
+				optional(value.default, isString) &&
+				optionalArray(value.enum, isString) &&
+				optionalArray(value.examples, isString) &&
+				optional(value.dimensions, isDimensionsSpec) &&
+				absent(value, "min", "max")
 			);
 		case "number":
 		case "integer":
 			return (
-				isOptionalNumber(value.default) &&
-				isOptionalNumber(value.min) &&
-				isOptionalNumber(value.max) &&
-				isTypedArray(value.examples, "number") &&
-				value.enum === undefined &&
-				value.dimensions === undefined
+				optional(value.default, isNumber) &&
+				optional(value.min, isNumber) &&
+				optional(value.max, isNumber) &&
+				optionalArray(value.examples, isNumber) &&
+				absent(value, "enum", "dimensions")
 			);
 		case "boolean":
 			return (
-				isOptionalBoolean(value.default) &&
-				isTypedArray(value.examples, "boolean") &&
-				value.enum === undefined &&
-				value.dimensions === undefined &&
-				value.min === undefined &&
-				value.max === undefined
+				optional(value.default, isBoolean) &&
+				optionalArray(value.examples, isBoolean) &&
+				absent(value, "enum", "dimensions", "min", "max")
 			);
 		default:
 			return false;
@@ -91,92 +83,71 @@ function isParameterSpec(value: unknown): boolean {
 }
 
 function isContentSpec(value: unknown): boolean {
-	if (!isRecord(value) || !CONTENT_TYPES.has(value.type as string)) {
-		return false;
-	}
 	return (
-		isOptionalBoolean(value.required) &&
-		isOptionalBoolean(value.roleRequired) &&
-		isOptionalNumber(value.min) &&
-		isOptionalNumber(value.max) &&
-		isOptionalString(value.description) &&
-		(value.sources === undefined ||
-			(Array.isArray(value.sources) &&
-				value.sources.every((source) => SOURCE_TYPES.has(source as string)))) &&
-		isTypedArray(value.roles, "string") &&
-		(value.merge === undefined || MERGE_TYPES.has(value.merge as string)) &&
-		(value.meta === undefined || isRecord(value.meta))
-	);
-}
-
-function isMetaFieldSpec(value: unknown): boolean {
-	if (!isRecord(value)) return false;
-	if (value.type !== "object") return isParameterSpec(value);
-	return (
-		isOptionalBoolean(value.optional) && isOptionalString(value.description)
+		isRecord(value) &&
+		CONTENT_TYPES.has(value.type as string) &&
+		optional(value.required, isBoolean) &&
+		optional(value.roleRequired, isBoolean) &&
+		optional(value.min, isNumber) &&
+		optional(value.max, isNumber) &&
+		optional(value.description, isString) &&
+		optionalArray(value.sources, (source) =>
+			SOURCE_TYPES.has(source as string),
+		) &&
+		optionalArray(value.roles, isString) &&
+		optional(value.merge, (merge) => MERGE_TYPES.has(merge as string)) &&
+		optional(value.meta, isRecord)
 	);
 }
 
 function isMetaSpec(value: unknown): boolean {
 	if (!isRecord(value)) return false;
-	if (
-		value.fields !== undefined &&
-		(!isRecord(value.fields) ||
-			!Object.values(value.fields).every(isMetaFieldSpec))
-	) {
-		return false;
-	}
-	if (!isOptionalString(value.taskField)) return false;
-	if (value.taskVariants === undefined) return true;
-	if (!isRecord(value.taskVariants)) return false;
-	return Object.values(value.taskVariants).every((variant) => {
-		if (!isRecord(variant) || !isOptionalString(variant.description)) {
-			return false;
-		}
-		return (
-			isTypedArray(variant.required, "string") &&
-			(variant.requiredContent === undefined ||
-				(Array.isArray(variant.requiredContent) &&
-					variant.requiredContent.every((type) =>
+	const fields =
+		value.fields === undefined ||
+		(isRecord(value.fields) &&
+			Object.values(value.fields).every(
+				(field) =>
+					isParameterSpec(field) ||
+					(isRecord(field) &&
+						field.type === "object" &&
+						optional(field.optional, isBoolean) &&
+						optional(field.description, isString)),
+			));
+	const variants =
+		value.taskVariants === undefined ||
+		(isRecord(value.taskVariants) &&
+			Object.values(value.taskVariants).every(
+				(variant) =>
+					isRecord(variant) &&
+					optional(variant.description, isString) &&
+					optionalArray(variant.required, isString) &&
+					optionalArray(variant.requiredContent, (type) =>
 						CONTENT_TYPES.has(type as string),
-					))) &&
-			isOptionalBoolean(variant.sendTask)
-		);
-	});
+					) &&
+					optional(variant.sendTask, isBoolean),
+			));
+	return fields && optional(value.taskField, isString) && variants;
 }
 
 export function isValidCachedGenerationModel(
 	value: unknown,
 ): value is PublicGenerationDeclaration {
-	if (!isRecord(value) || value.schema !== MODEL_SCHEMA) return false;
-	if (typeof value.model !== "string" || value.model.trim() === "") {
-		return false;
-	}
-	if (
-		!isOptionalString(value.title) ||
-		!isOptionalString(value.description) ||
-		!isOptionalBoolean(value.hidden) ||
-		!isOptionalBoolean(value.allowUnknownParameters)
-	) {
-		return false;
-	}
-	if (!isRecord(value.content) || !Array.isArray(value.content.input)) {
-		return false;
-	}
-	if (!value.content.input.every(isContentSpec)) return false;
-	if (
-		value.parameters !== undefined &&
-		(!isRecord(value.parameters) ||
-			!Object.values(value.parameters).every(isParameterSpec))
-	) {
-		return false;
-	}
-	if (value.meta !== undefined && !isMetaSpec(value.meta)) return false;
-	return value.examples === undefined || Array.isArray(value.examples);
-}
-
-export function isModelList(
-	value: unknown,
-): value is PublicGenerationDeclaration[] {
-	return Array.isArray(value) && value.every(isValidCachedGenerationModel);
+	return (
+		isRecord(value) &&
+		value.schema === MODEL_SCHEMA &&
+		typeof value.model === "string" &&
+		value.model.trim() !== "" &&
+		optional(value.title, isString) &&
+		optional(value.description, isString) &&
+		optional(value.hidden, isBoolean) &&
+		optional(value.allowUnknownParameters, isBoolean) &&
+		isRecord(value.content) &&
+		Array.isArray(value.content.input) &&
+		value.content.input.every(isContentSpec) &&
+		(value.parameters === undefined ||
+			(isRecord(value.parameters) &&
+				Object.values(value.parameters).every(isParameterSpec))) &&
+		(value.meta === undefined || isMetaSpec(value.meta)) &&
+		(value.examples === undefined || Array.isArray(value.examples))
+	);
 }

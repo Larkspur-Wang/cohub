@@ -84,6 +84,23 @@ let error = $state<string | null>(null);
 let textarea: HTMLTextAreaElement | null = $state(null);
 let disposed = false;
 
+function readStorage(key: string) {
+	if (!cacheEnabled) return null;
+	try {
+		return localStorage.getItem(key);
+	} catch {
+		return null;
+	}
+}
+
+function writeStorage(key: string, value: string | null) {
+	if (!cacheEnabled) return;
+	try {
+		if (value === null) localStorage.removeItem(key);
+		else localStorage.setItem(key, value);
+	} catch {}
+}
+
 const supportedModels = $derived(
 	models.filter((model) => supportsBoardGenerationComposer(model, references)),
 );
@@ -247,13 +264,7 @@ function updateReferenceRole(id: string, role: string) {
 function chooseModel(model: PublicGenerationDeclaration) {
 	selectedModelId = model.model;
 	references = normalizeReferenceRoles(references, model);
-	if (cacheEnabled) {
-		try {
-			localStorage.setItem(modelStorageKey, model.model);
-		} catch {
-			// The selection still applies when preferences cannot be persisted.
-		}
-	}
+	writeStorage(modelStorageKey, model.model);
 	modelOpen = false;
 	modelQuery = "";
 	error = null;
@@ -276,9 +287,8 @@ function clearParameter(name: string) {
 }
 
 function restoreDraft() {
-	if (!cacheEnabled) return;
 	try {
-		const raw = localStorage.getItem(draftKey);
+		const raw = readStorage(draftKey);
 		if (!raw) return;
 		const parsed = JSON.parse(raw) as {
 			prompt?: unknown;
@@ -315,11 +325,7 @@ function restoreDraft() {
 			parametersByModel = next;
 		}
 	} catch {
-		try {
-			localStorage.removeItem(draftKey);
-		} catch {
-			// Storage can remain unavailable for the full browser session.
-		}
+		writeStorage(draftKey, null);
 	}
 }
 
@@ -331,24 +337,17 @@ function hasDraft() {
 }
 
 function persistDraft() {
-	if (!cacheEnabled) return;
-	try {
-		if (!hasDraft()) {
-			localStorage.removeItem(draftKey);
-			return;
-		}
-		localStorage.setItem(
-			draftKey,
-			JSON.stringify({
-				prompt,
-				model: selectedModelId,
-				references,
-				parametersByModel,
-			}),
-		);
-	} catch {
-		// Draft persistence is best-effort; generation remains fully usable.
-	}
+	writeStorage(
+		draftKey,
+		hasDraft()
+			? JSON.stringify({
+					prompt,
+					model: selectedModelId,
+					references,
+					parametersByModel,
+				})
+			: null,
+	);
 }
 
 function taskPosition() {
@@ -367,7 +366,6 @@ async function submit() {
 	}
 	submitting = true;
 	error = null;
-	// Snapshot all inputs to prevent state mismatch if user edits during request.
 	const submittingUserKey = getCacheUserKey();
 	const snapshotModel = selectedModel;
 	const snapshotModelId = snapshotModel.model;
@@ -400,16 +398,11 @@ async function submit() {
 	startedTaskRunId = taskRunId;
 	const currentUserKey = getCacheUserKey();
 	if (currentUserKey !== submittingUserKey) {
-		// User switched during request; do not write to their cache or start watcher.
 		error = "Task created. Find it in Tasks list.";
 		submitting = false;
 		return;
 	}
-	try {
-		watchGenerationTask(spaceId, taskRunId, submittingUserKey);
-	} catch {
-		// Task realtime and the Tasks list remain recovery paths.
-	}
+	watchGenerationTask(spaceId, taskRunId, submittingUserKey);
 
 	let nodeAdded = false;
 	try {
@@ -434,21 +427,14 @@ async function submit() {
 				},
 				updatedAt: snapshot.updatedAt,
 			});
-		} catch {
-			// The watcher will retry this local projection on its first poll.
-		}
+		} catch {}
 
 		const id = editor.addTask(taskRunId, snapshot, taskPosition());
 		nodeAdded = true;
-		try {
-			editor.setSelection([id]);
-		} catch {
-			// Selection is optional; the task node is already part of the document.
-		}
+		editor.setSelection([id]);
 	} catch {
 		error = "Generation started. Open it from Tasks.";
 	} finally {
-		// Only clear fields that were not modified during submission.
 		if (prompt === snapshotPrompt) prompt = "";
 		if (references === snapshotReferences) references = [];
 		const current = parametersByModel[snapshotModelId] ?? {};
@@ -462,7 +448,6 @@ async function submit() {
 			};
 		}
 		persistDraft();
-		// A local projection failure must never make the remote task look retryable.
 		submitting = false;
 	}
 	if (nodeAdded) onClose();
@@ -488,15 +473,7 @@ function handleKeydown(event: KeyboardEvent) {
 
 onMount(() => {
 	restoreDraft();
-	let storedModel = "";
-	if (cacheEnabled) {
-		try {
-			storedModel = localStorage.getItem(modelStorageKey) ?? "";
-		} catch {
-			// Use the discoverable default when preferences are unavailable.
-		}
-	}
-	const preferred = selectedModelId || storedModel;
+	const preferred = selectedModelId || readStorage(modelStorageKey) || "";
 	const initialModel =
 		supportedModels.find((model) => model.model === preferred) ??
 		getGenerationModelPickerItems(supportedModels)[0] ??

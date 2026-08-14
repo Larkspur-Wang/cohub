@@ -1,198 +1,42 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
-import { isValidCachedGenerationModel } from "../lib/stores/generation-models-validation";
+import test from "node:test";
+import { isValidCachedGenerationModel } from "$lib/stores/generation-models-validation";
 
-test("rejects invalid parameter type", () => {
-	assert.equal(
-		isValidCachedGenerationModel({
-			model: "test",
-			schema: "neta.generation.model.v1",
-			content: { input: [] },
-			parameters: { steps: { type: "unknown" } },
-		}),
-		false,
-	);
-});
+function declaration(overrides: Record<string, unknown> = {}) {
+	return {
+		schema: "neta.generation.model.v1",
+		model: "test",
+		content: { input: [] },
+		...overrides,
+	};
+}
 
-test("rejects string parameter with number enum", () => {
-	assert.equal(
-		isValidCachedGenerationModel({
-			model: "test",
-			schema: "neta.generation.model.v1",
-			content: { input: [] },
-			parameters: { style: { type: "string", enum: [1, 2] } },
-		}),
-		false,
-	);
-});
-
-test("rejects number parameter with string enum", () => {
-	assert.equal(
-		isValidCachedGenerationModel({
-			model: "test",
-			schema: "neta.generation.model.v1",
-			content: { input: [] },
-			parameters: { steps: { type: "number", enum: ["low", "high"] } },
-		}),
-		false,
-	);
-});
-
-test("rejects invalid dimension separator", () => {
-	assert.equal(
-		isValidCachedGenerationModel({
-			model: "test",
-			schema: "neta.generation.model.v1",
-			content: { input: [] },
-			parameters: {
-				size: { type: "string", dimensions: { separator: ":" } },
+test("accepts valid cached model declarations", () => {
+	const cases = [
+		declaration(),
+		declaration({
+			title: "Test model",
+			description: "Description",
+			hidden: true,
+			allowUnknownParameters: false,
+			content: {
+				input: [
+					{ type: "text", required: true, max: 1 },
+					{
+						type: "image",
+						sources: ["url", "base64"],
+						roles: ["reference"],
+						roleRequired: true,
+					},
+				],
 			},
-		}),
-		false,
-	);
-});
-
-test("rejects invalid content type", () => {
-	assert.equal(
-		isValidCachedGenerationModel({
-			model: "test",
-			schema: "neta.generation.model.v1",
-			content: { input: [{ type: "document" }] },
-		}),
-		false,
-	);
-});
-
-test("rejects invalid source type", () => {
-	assert.equal(
-		isValidCachedGenerationModel({
-			model: "test",
-			schema: "neta.generation.model.v1",
-			content: { input: [{ type: "image", sources: ["file", "url"] }] },
-		}),
-		false,
-	);
-});
-
-test("rejects invalid merge type", () => {
-	assert.equal(
-		isValidCachedGenerationModel({
-			model: "test",
-			schema: "neta.generation.model.v1",
-			content: { input: [{ type: "text", merge: "join" }] },
-		}),
-		false,
-	);
-});
-
-test("rejects null meta field", () => {
-	assert.equal(
-		isValidCachedGenerationModel({
-			model: "test",
-			schema: "neta.generation.model.v1",
-			content: { input: [] },
-			meta: { fields: { task_id: null } },
-		}),
-		false,
-	);
-});
-
-test("accepts valid minimal model", () => {
-	assert.equal(
-		isValidCachedGenerationModel({
-			model: "test",
-			schema: "neta.generation.model.v1",
-			content: { input: [] },
-		}),
-		true,
-	);
-});
-
-test("accepts valid model with typed parameters", () => {
-	assert.equal(
-		isValidCachedGenerationModel({
-			model: "test",
-			schema: "neta.generation.model.v1",
-			content: { input: [] },
 			parameters: {
-				prompt: { type: "string", default: "hello" },
+				prompt: { type: "string", default: "hello", enum: ["hello"] },
+				size: { type: "string", dimensions: { min: 256, multipleOf: 64 } },
 				steps: { type: "integer", min: 1, max: 100 },
 				temperature: { type: "number", default: 0.7 },
 				enabled: { type: "boolean", optional: true },
 			},
-		}),
-		true,
-	);
-});
-
-test("accepts valid model with string enum", () => {
-	assert.equal(
-		isValidCachedGenerationModel({
-			model: "test",
-			schema: "neta.generation.model.v1",
-			content: { input: [] },
-			parameters: {
-				style: { type: "string", enum: ["natural", "vivid"] },
-			},
-		}),
-		true,
-	);
-});
-
-test("accepts valid model with dimensions", () => {
-	assert.equal(
-		isValidCachedGenerationModel({
-			model: "test",
-			schema: "neta.generation.model.v1",
-			content: { input: [] },
-			parameters: {
-				size: {
-					type: "string",
-					dimensions: { separator: "x", min: 256, multipleOf: 64 },
-				},
-			},
-		}),
-		true,
-	);
-});
-
-test("accepts dimensions without an optional separator", () => {
-	assert.equal(
-		isValidCachedGenerationModel({
-			model: "test",
-			schema: "neta.generation.model.v1",
-			content: { input: [] },
-			parameters: {
-				size: { type: "string", dimensions: { min: 256, max: 1024 } },
-			},
-		}),
-		true,
-	);
-});
-
-test("accepts valid model with content specs", () => {
-	assert.equal(
-		isValidCachedGenerationModel({
-			model: "test",
-			schema: "neta.generation.model.v1",
-			content: {
-				input: [
-					{ type: "text", required: true, max: 1 },
-					{ type: "image", sources: ["url", "base64"], min: 1, max: 5 },
-					{ type: "video", roles: ["reference"], roleRequired: true },
-				],
-			},
-		}),
-		true,
-	);
-});
-
-test("accepts valid model with meta spec", () => {
-	assert.equal(
-		isValidCachedGenerationModel({
-			model: "test",
-			schema: "neta.generation.model.v1",
-			content: { input: [] },
 			meta: {
 				fields: {
 					task_id: { type: "string" },
@@ -209,211 +53,85 @@ test("accepts valid model with meta spec", () => {
 				},
 			},
 		}),
-		true,
-	);
+	];
+
+	for (const value of cases)
+		assert.equal(isValidCachedGenerationModel(value), true);
 });
 
-test("rejects boolean parameter with dimensions", () => {
-	assert.equal(
-		isValidCachedGenerationModel({
-			model: "test",
-			schema: "neta.generation.model.v1",
-			content: { input: [] },
-			parameters: {
-				enabled: { type: "boolean", dimensions: { separator: "x" } },
-			},
-		}),
-		false,
-	);
-});
+test("rejects malformed cached model declarations", () => {
+	const cases: Array<[string, unknown]> = [
+		["record", null],
+		["schema", declaration({ schema: "neta.generation.model.v2" })],
+		["model", declaration({ model: "" })],
+		["title", declaration({ title: {} })],
+		["description", declaration({ description: [] })],
+		["hidden", declaration({ hidden: "true" })],
+		["unknown parameters flag", declaration({ allowUnknownParameters: 1 })],
+		["content", declaration({ content: { input: "text" } })],
+		["content type", declaration({ content: { input: [{ type: "file" }] } })],
+		[
+			"content source",
+			declaration({
+				content: { input: [{ type: "image", sources: ["file"] }] },
+			}),
+		],
+		[
+			"content role",
+			declaration({ content: { input: [{ type: "image", roles: [1] }] } }),
+		],
+		[
+			"content merge",
+			declaration({ content: { input: [{ type: "text", merge: "join" }] } }),
+		],
+		[
+			"parameter type",
+			declaration({ parameters: { value: { type: "unknown" } } }),
+		],
+		[
+			"string enum",
+			declaration({ parameters: { value: { type: "string", enum: [1] } } }),
+		],
+		[
+			"string range",
+			declaration({ parameters: { value: { type: "string", min: 1 } } }),
+		],
+		[
+			"dimensions",
+			declaration({
+				parameters: {
+					value: { type: "string", dimensions: { separator: ":" } },
+				},
+			}),
+		],
+		[
+			"numeric enum",
+			declaration({ parameters: { value: { type: "number", enum: [1] } } }),
+		],
+		[
+			"numeric dimensions",
+			declaration({
+				parameters: { value: { type: "integer", dimensions: {} } },
+			}),
+		],
+		[
+			"boolean range",
+			declaration({ parameters: { value: { type: "boolean", max: 1 } } }),
+		],
+		[
+			"boolean enum",
+			declaration({ parameters: { value: { type: "boolean", enum: [true] } } }),
+		],
+		["meta field", declaration({ meta: { fields: { task_id: null } } })],
+		[
+			"meta variant",
+			declaration({
+				meta: { taskVariants: { remix: { requiredContent: ["file"] } } },
+			}),
+		],
+	];
 
-test("rejects boolean parameter with min/max", () => {
-	assert.equal(
-		isValidCachedGenerationModel({
-			model: "test",
-			schema: "neta.generation.model.v1",
-			content: { input: [] },
-			parameters: {
-				enabled: { type: "boolean", min: 0, max: 1 },
-			},
-		}),
-		false,
-	);
-});
-
-test("rejects string parameter with numeric min/max", () => {
-	assert.equal(
-		isValidCachedGenerationModel({
-			model: "test",
-			schema: "neta.generation.model.v1",
-			content: { input: [] },
-			parameters: {
-				name: { type: "string", min: 1, max: 100 },
-			},
-		}),
-		false,
-	);
-});
-
-test("rejects number parameter with dimensions", () => {
-	assert.equal(
-		isValidCachedGenerationModel({
-			model: "test",
-			schema: "neta.generation.model.v1",
-			content: { input: [] },
-			parameters: {
-				steps: { type: "number", dimensions: { separator: "x" } },
-			},
-		}),
-		false,
-	);
-});
-
-test("rejects empty model id", () => {
-	assert.equal(
-		isValidCachedGenerationModel({
-			model: "",
-			schema: "neta.generation.model.v1",
-			content: { input: [] },
-		}),
-		false,
-	);
-});
-
-test("rejects empty schema", () => {
-	assert.equal(
-		isValidCachedGenerationModel({
-			model: "test",
-			schema: "",
-			content: { input: [] },
-		}),
-		false,
-	);
-});
-
-test("rejects non-string title", () => {
-	assert.equal(
-		isValidCachedGenerationModel({
-			model: "test",
-			schema: "neta.generation.model.v1",
-			content: { input: [] },
-			title: {},
-		}),
-		false,
-	);
-});
-
-test("rejects non-string description", () => {
-	assert.equal(
-		isValidCachedGenerationModel({
-			model: "test",
-			schema: "neta.generation.model.v1",
-			content: { input: [] },
-			description: [],
-		}),
-		false,
-	);
-});
-
-test("rejects non-boolean hidden", () => {
-	assert.equal(
-		isValidCachedGenerationModel({
-			model: "test",
-			schema: "neta.generation.model.v1",
-			content: { input: [] },
-			hidden: "true",
-		}),
-		false,
-	);
-});
-
-test("rejects non-boolean allowUnknownParameters", () => {
-	assert.equal(
-		isValidCachedGenerationModel({
-			model: "test",
-			schema: "neta.generation.model.v1",
-			content: { input: [] },
-			allowUnknownParameters: 1,
-		}),
-		false,
-	);
-});
-
-test("accepts valid model with all top-level fields", () => {
-	assert.equal(
-		isValidCachedGenerationModel({
-			model: "test",
-			schema: "neta.generation.model.v1",
-			title: "Test Model",
-			description: "A test model",
-			hidden: true,
-			allowUnknownParameters: false,
-			content: { input: [] },
-		}),
-		true,
-	);
-});
-
-test("rejects number parameter with enum", () => {
-	assert.equal(
-		isValidCachedGenerationModel({
-			model: "test",
-			schema: "neta.generation.model.v1",
-			content: { input: [] },
-			parameters: {
-				steps: { type: "number", enum: [10, 20, 30] },
-			},
-		}),
-		false,
-	);
-});
-
-test("rejects integer parameter with enum", () => {
-	assert.equal(
-		isValidCachedGenerationModel({
-			model: "test",
-			schema: "neta.generation.model.v1",
-			content: { input: [] },
-			parameters: {
-				count: { type: "integer", enum: [1, 2, 3] },
-			},
-		}),
-		false,
-	);
-});
-
-test("rejects boolean parameter with enum", () => {
-	assert.equal(
-		isValidCachedGenerationModel({
-			model: "test",
-			schema: "neta.generation.model.v1",
-			content: { input: [] },
-			parameters: {
-				enabled: { type: "boolean", enum: [true, false] },
-			},
-		}),
-		false,
-	);
-});
-
-test("rejects invalid schema version", () => {
-	assert.equal(
-		isValidCachedGenerationModel({
-			model: "test",
-			schema: "neta.generation.model.v2",
-			content: { input: [] },
-		}),
-		false,
-	);
-});
-
-test("rejects arbitrary non-empty schema", () => {
-	assert.equal(
-		isValidCachedGenerationModel({
-			model: "test",
-			schema: "some.other.schema",
-			content: { input: [] },
-		}),
-		false,
-	);
+	for (const [name, value] of cases) {
+		assert.equal(isValidCachedGenerationModel(value), false, name);
+	}
 });
