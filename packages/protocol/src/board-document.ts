@@ -180,6 +180,15 @@ export const BoardVideoItemSchema = BoardItemBaseSchema.extend({
 	snapshot: BoardMediaSnapshotSchema.optional(),
 });
 
+/** Audio node — space file only. Playback state is local UI, never synced. */
+export const BoardAudioItemSchema = BoardItemBaseSchema.extend({
+	type: z.literal("audio"),
+	ref: SpaceFileRefSchema,
+	snapshot: BoardMediaSnapshotSchema.extend({
+		durationMs: z.number().finite().nonnegative().optional(),
+	}).optional(),
+});
+
 /**
  * Cached display facts for a file card.
  *
@@ -259,6 +268,7 @@ export const BoardTaskItemSchema = BoardItemBaseSchema.extend({
 export const KNOWN_BOARD_ITEM_TYPES = [
 	"image",
 	"video",
+	"audio",
 	"file",
 	"task",
 	"text",
@@ -317,6 +327,10 @@ export function parseBoardItemLoose(raw: unknown): BoardItem {
 		}
 		case "video": {
 			const parsed = BoardVideoItemSchema.safeParse(raw);
+			return parsed.success ? parsed.data : makeUnknownItem(raw);
+		}
+		case "audio": {
+			const parsed = BoardAudioItemSchema.safeParse(raw);
 			return parsed.success ? parsed.data : makeUnknownItem(raw);
 		}
 		case "file": {
@@ -411,6 +425,7 @@ export type BoardArrowItem = z.infer<typeof BoardArrowItemSchema>;
 export type BoardFrameItem = z.infer<typeof BoardFrameItemSchema>;
 export type BoardImageItem = z.infer<typeof BoardImageItemSchema>;
 export type BoardVideoItem = z.infer<typeof BoardVideoItemSchema>;
+export type BoardAudioItem = z.infer<typeof BoardAudioItemSchema>;
 export type BoardFileSnapshot = z.infer<typeof BoardFileSnapshotSchema>;
 export type BoardFileItem = z.infer<typeof BoardFileItemSchema>;
 export type BoardTaskOutput = z.infer<typeof BoardTaskOutputSchema>;
@@ -420,6 +435,7 @@ export type BoardTaskItem = z.infer<typeof BoardTaskItemSchema>;
 export type BoardKnownItem =
 	| BoardImageItem
 	| BoardVideoItem
+	| BoardAudioItem
 	| BoardFileItem
 	| BoardTaskItem
 	| BoardTextItem
@@ -468,13 +484,18 @@ export function isUnknownItem(item: BoardItem): item is BoardUnknownItem {
 
 export function isMediaItem(
 	item: BoardItem,
-): item is BoardImageItem | BoardVideoItem {
-	return item.type === "image" || item.type === "video";
+): item is BoardImageItem | BoardVideoItem | BoardAudioItem {
+	return item.type === "image" || item.type === "video" || item.type === "audio";
 }
 
-/** Whether an item references a workspace file (image, video or file card). */
+/** Whether an item references a workspace file (media or file card). */
 export function isFileBackedItem(
 	item: BoardItem,
-): item is BoardImageItem | BoardVideoItem | BoardFileItem {
-	return item.type === "image" || item.type === "video" || item.type === "file";
+): item is BoardImageItem | BoardVideoItem | BoardAudioItem | BoardFileItem {
+	return (
+		item.type === "image" ||
+		item.type === "video" ||
+		item.type === "audio" ||
+		item.type === "file"
+	);
 }

@@ -7,7 +7,16 @@ const IMAGE_EXTENSIONS = new Set([
 	"avif",
 	"svg",
 ]);
-const VIDEO_EXTENSIONS = new Set(["mp4", "webm", "mov", "m4v", "ogg"]);
+const VIDEO_EXTENSIONS = new Set(["mp4", "webm", "mov", "m4v"]);
+const AUDIO_EXTENSIONS = new Set([
+	"mp3",
+	"wav",
+	"ogg",
+	"m4a",
+	"aac",
+	"flac",
+	"opus",
+]);
 const TEXT_EXTENSIONS = new Set([
 	"txt",
 	"md",
@@ -26,7 +35,7 @@ const TEXT_EXTENSIONS = new Set([
 	"sh",
 ]);
 
-export type BoardMediaKind = "image" | "video" | "text" | "file";
+export type BoardMediaKind = "image" | "video" | "audio" | "text" | "file";
 
 export function getExtension(value: string) {
 	const clean = value.split(/[?#]/, 1)[0] ?? value;
@@ -41,11 +50,13 @@ export function inferMediaKind(
 ): BoardMediaKind {
 	if (mimeType?.startsWith("image/")) return "image";
 	if (mimeType?.startsWith("video/")) return "video";
+	if (mimeType?.startsWith("audio/")) return "audio";
 	if (mimeType?.startsWith("text/") || mimeType === "application/json")
 		return "text";
 	const ext = getExtension(value);
 	if (IMAGE_EXTENSIONS.has(ext)) return "image";
 	if (VIDEO_EXTENSIONS.has(ext)) return "video";
+	if (AUDIO_EXTENSIONS.has(ext)) return "audio";
 	if (TEXT_EXTENSIONS.has(ext)) return "text";
 	return "file";
 }

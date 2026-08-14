@@ -13,6 +13,7 @@
 import type {
   BoardAppearance,
   BoardArrowItem,
+  BoardAudioItem,
   BoardDocument,
   BoardDrawItem,
   BoardItem,
@@ -254,6 +255,18 @@ function boardNodeToItemValue(node: BoardNodeRecord): BoardItem {
 				type: "video",
 				ref: { kind: "space-file", path },
 				snapshot: node.view as BoardMediaSnapshot,
+				frame,
+				...(locked ? { locked } : {}),
+				style,
+			};
+		}
+		case "audio": {
+			const path = spaceFilePathFromNode(node) ?? "missing";
+			return {
+				id: node.nodeId,
+				type: "audio",
+				ref: { kind: "space-file", path },
+				snapshot: node.view as BoardAudioItem["snapshot"],
 				frame,
 				...(locked ? { locked } : {}),
 				style,

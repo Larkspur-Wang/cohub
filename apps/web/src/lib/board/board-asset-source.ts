@@ -11,8 +11,10 @@
 import type { WorkBoardAsset } from "@neta-art/cohub";
 
 export type BoardAssetSource = {
-	/** Displayable URL for a space-file reference, or null when unavailable. */
+	/** Displayable preview URL for a space-file reference, or null when unavailable. */
 	resolveFileUrl: (path: string) => Promise<string | null>;
+	/** Streamable URL for audio/video. Never returns an inline data URL. */
+	resolvePlaybackUrl?: (path: string) => Promise<string | null>;
 };
 
 export function createSpaceBoardAssetSource(spaceId: string): BoardAssetSource {
@@ -22,6 +24,12 @@ export function createSpaceBoardAssetSource(spaceId: string): BoardAssetSource {
 				"$lib/board/board-image-urls"
 			);
 			return resolveSpaceFileImageUrl(spaceId, path);
+		},
+		resolvePlaybackUrl: async (path) => {
+			const { resolveSpaceFilePlaybackUrl } = await import(
+				"$lib/board/board-image-urls"
+			);
+			return resolveSpaceFilePlaybackUrl(spaceId, path);
 		},
 	};
 }
@@ -43,10 +51,12 @@ export function createWorkBoardAssetSource(input: {
 			.filter((asset) => asset.status === "captured" && asset.artifactPath)
 			.map((asset) => [asset.sourcePath, asset.artifactPath as string]),
 	);
+	const resolveArtifactUrl = async (path: string) => {
+		const artifactPath = byPath.get(path);
+		return artifactPath ? new URL(artifactPath, base).toString() : null;
+	};
 	return {
-		resolveFileUrl: async (path) => {
-			const artifactPath = byPath.get(path);
-			return artifactPath ? new URL(artifactPath, base).toString() : null;
-		},
+		resolveFileUrl: resolveArtifactUrl,
+		resolvePlaybackUrl: resolveArtifactUrl,
 	};
 }

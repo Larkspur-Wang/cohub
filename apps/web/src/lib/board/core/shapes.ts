@@ -59,9 +59,18 @@ const videoDefinition: ShapeDefinition = {
 	type: "video",
 	capabilities: {
 		...FULL_CAPABILITIES,
-		canEdit: true,
+		canEdit: false,
 		canRotate: false,
 		aspectLocked: true,
+	},
+};
+
+const audioDefinition: ShapeDefinition = {
+	type: "audio",
+	capabilities: {
+		...FULL_CAPABILITIES,
+		canEdit: false,
+		canRotate: false,
 	},
 };
 
@@ -234,6 +243,7 @@ export function registerBuiltinShapes() {
 		textDefinition,
 		imageDefinition,
 		videoDefinition,
+		audioDefinition,
 		fileDefinition,
 		taskDefinition,
 		geoDefinition,

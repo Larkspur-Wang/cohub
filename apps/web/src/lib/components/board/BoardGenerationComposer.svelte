@@ -136,7 +136,8 @@ function mediaIcon(type: BoardGenerationMediaType) {
 }
 
 function itemMediaType(item: BoardItem): BoardGenerationMediaType | null {
-	if (item.type === "image" || item.type === "video") return item.type;
+	if (item.type === "image" || item.type === "video" || item.type === "audio")
+		return item.type;
 	if (item.type === "file") {
 		const mimeType = item.snapshot?.mimeType ?? "";
 		if (mimeType.startsWith("image/")) return "image";
@@ -153,7 +154,12 @@ function itemMediaType(item: BoardItem): BoardGenerationMediaType | null {
 }
 
 function itemLabel(item: BoardItem): string {
-	if (item.type === "image" || item.type === "video" || item.type === "file") {
+	if (
+		item.type === "image" ||
+		item.type === "video" ||
+		item.type === "audio" ||
+		item.type === "file"
+	) {
 		return (
 			item.snapshot?.title ?? item.ref.path.split("/").pop() ?? item.ref.path
 		);
@@ -168,7 +174,12 @@ async function resolveItemReference(
 	const type = itemMediaType(item);
 	if (!type) return null;
 	let rawUrl: string | undefined | null;
-	if (item.type === "image" || item.type === "video" || item.type === "file") {
+	if (
+		item.type === "image" ||
+		item.type === "video" ||
+		item.type === "audio" ||
+		item.type === "file"
+	) {
 		rawUrl = await assetSource.resolveFileUrl(item.ref.path);
 	} else if (item.type === "task") {
 		rawUrl = item.snapshot.primaryOutput?.url;

@@ -238,6 +238,16 @@ function boardItemToNodeWithKey(
 				view: { ...preservedView, ...(item.snapshot ?? {}) },
 				data: dataWith({}),
 			};
+		case "audio":
+			return {
+				...base,
+				type: "audio",
+				refKind: "space_file",
+				refPath: item.ref.path,
+				refUrl: null,
+				view: { ...preservedView, ...(item.snapshot ?? {}) },
+				data: dataWith({}),
+			};
 		case "file":
 			return {
 				...base,

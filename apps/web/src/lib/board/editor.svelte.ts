@@ -1,5 +1,9 @@
 import type { BoardOperation } from "@neta-art/cohub";
-import type { BoardFileSnapshot, DrawPoint } from "@neta-art/cohub/board";
+import type {
+	BoardFileSnapshot,
+	BoardMediaSnapshot,
+	DrawPoint,
+} from "@neta-art/cohub/board";
 import {
 	anchorPointOnFrame,
 	angleFromCenter,
@@ -455,7 +459,12 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		if (!mediaIdsByPath) {
 			mediaIdsByPath = new Map();
 			for (const item of synced.items) {
-				if (item.type !== "image" && item.type !== "video") continue;
+				if (
+					item.type !== "image" &&
+					item.type !== "video" &&
+					item.type !== "audio"
+				)
+					continue;
 				const ids = mediaIdsByPath.get(item.ref.path) ?? new Set<string>();
 				ids.add(item.id);
 				mediaIdsByPath.set(item.ref.path, ids);
@@ -832,7 +841,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 	/**
 	 * Place a workspace file on the board.
 	 *
-	 * Every file is accepted: images and videos become media nodes, and everything
+	 * Every file is accepted: images, videos and audio become media nodes, and everything
 	 * else becomes a file card. A board should never refuse a file — it only varies
 	 * in how much detail it can show — so this always returns the created node's id
 	 * for the caller to enrich once a preview has been read.
@@ -1361,13 +1370,21 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		if (targetIds.size === 0) return;
 		const dirty: string[] = [];
 		const next = synced.items.map((item) => {
-			if (item.type !== "image" && item.type !== "video") return item;
+			if (
+				item.type !== "image" &&
+				item.type !== "video" &&
+				item.type !== "audio"
+			)
+				return item;
 			if (!targetIds.has(item.id)) return item;
-			const snapshot = { ...item.snapshot };
+			const snapshot: BoardMediaSnapshot & { durationMs?: number } = {
+				...item.snapshot,
+			};
 			if (change.size !== undefined) snapshot.size = change.size;
 			if (change.mtimeMs !== undefined) snapshot.mtimeMs = change.mtimeMs;
 			delete snapshot.naturalWidth;
 			delete snapshot.naturalHeight;
+			if (item.type === "audio") delete snapshot.durationMs;
 			if (JSON.stringify(snapshot) === JSON.stringify(item.snapshot ?? {}))
 				return item;
 			dirty.push(item.id);

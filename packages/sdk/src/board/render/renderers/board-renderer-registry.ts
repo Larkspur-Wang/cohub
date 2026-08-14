@@ -3,6 +3,7 @@ import type { BoardDocument, BoardItem } from "@cohub/protocol/board-document";
 import type { BoardShapeColors } from "../../core/palette.js";
 import { ensureBoardTextMeasurement } from "../text-measurement.js";
 import { arrowCardRenderer } from "./arrow-card-renderer.js";
+import { audioCardRenderer } from "./audio-card-renderer.js";
 import { drawCardRenderer } from "./draw-card-renderer.js";
 import { fileCardRenderer } from "./file-card-renderer.js";
 import { frameCardRenderer } from "./frame-card-renderer.js";
@@ -99,6 +100,7 @@ const boardCardRenderers: BoardCardRenderer[] = [
 	textCardRenderer,
 	imageCardRenderer,
 	videoCardRenderer,
+	audioCardRenderer,
 	fileCardRenderer,
 	taskCardRenderer,
 	geoCardRenderer,

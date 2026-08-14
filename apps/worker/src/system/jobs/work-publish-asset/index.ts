@@ -116,6 +116,10 @@ const mimeByExt: Record<string, string> = {
   ".mp3": "audio/mpeg",
   ".wav": "audio/wav",
   ".ogg": "audio/ogg",
+  ".m4a": "audio/mp4",
+  ".aac": "audio/aac",
+  ".flac": "audio/flac",
+  ".opus": "audio/ogg",
   ".zip": "application/zip",
   ".gz": "application/gzip",
   ".tar": "application/x-tar",
@@ -815,7 +819,10 @@ async function writeWorkFileAsset(input: {
 function collectBoardDependencyPaths(snapshot: BoardSnapshot): string[] {
   const paths = new Set<string>();
   for (const node of snapshot.nodes) {
-    if ((node.type === "image" || node.type === "video") && node.refPath) {
+    if (
+      (node.type === "image" || node.type === "video" || node.type === "audio") &&
+      node.refPath
+    ) {
       paths.add(node.refPath);
     }
     if (node.type === "file" && typeof node.view.coverPath === "string") {

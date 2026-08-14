@@ -26,6 +26,7 @@ export {
 	FULL_CAPABILITIES,
 	GEO_KINDS,
 	type ArrowShapeProps,
+	type AudioShapeProps,
 	type DrawShapeProps,
 	type GeoKind,
 	type GeoShapeProps,

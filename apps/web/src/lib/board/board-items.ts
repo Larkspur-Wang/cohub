@@ -1,4 +1,5 @@
 import type {
+	BoardAudioItem,
 	BoardFileItem,
 	BoardFileSnapshot,
 	BoardFrame,
@@ -27,6 +28,7 @@ const DEFAULT_TASK_SIZE = { width: 300, height: 188 };
 const DEFAULT_TASK_MEDIA_SIZE = { width: 320, height: 180 };
 /** Fallback for video with unknown intrinsic size: the common 16:9 aspect. */
 const DEFAULT_VIDEO_SIZE = { width: 320, height: 180 };
+const DEFAULT_AUDIO_SIZE = { width: 320, height: 112 };
 /** Offset applied when duplicating so the copy is visibly displaced. */
 export const DUPLICATE_OFFSET = 24;
 
@@ -126,6 +128,33 @@ export function createVideoBoardItem(
 	};
 }
 
+export function createAudioBoardItem(
+	path: string,
+	x: number,
+	y: number,
+	snapshot?: BoardAudioItem["snapshot"],
+): BoardAudioItem {
+	return {
+		id: createBoardItemId(),
+		type: "audio",
+		ref: { kind: "space-file", path },
+		snapshot: {
+			...mediaSnapshot(path, {
+				...snapshot,
+				mimeType: snapshot?.mimeType ?? "audio/*",
+			}),
+			...(snapshot?.durationMs === undefined
+				? {}
+				: { durationMs: snapshot.durationMs }),
+		},
+		frame: createFrame(
+			x - DEFAULT_AUDIO_SIZE.width / 2,
+			y - DEFAULT_AUDIO_SIZE.height / 2,
+			DEFAULT_AUDIO_SIZE,
+		),
+	};
+}
+
 /**
  * Card sizes for a file node. Both are free-form (the shape has no aspect lock)
  * and deliberately small: a file card is an entry point, not a document view.
@@ -176,15 +205,16 @@ export function createFileNodeForPath(
 	x: number,
 	y: number,
 	snapshot?: BoardMediaSnapshot & BoardFileSnapshot,
-): BoardImageItem | BoardVideoItem | BoardFileItem {
+): BoardImageItem | BoardVideoItem | BoardAudioItem | BoardFileItem {
 	const kind = inferMediaKind(path, snapshot?.mimeType);
 	if (kind === "image") return createImageBoardItem(path, x, y, snapshot);
 	if (kind === "video") return createVideoBoardItem(path, x, y, snapshot);
+	if (kind === "audio") return createAudioBoardItem(path, x, y, snapshot);
 	return createFileBoardItem(path, x, y, snapshot);
 }
 
 /**
- * Create an image or video node from a space file path. Non-media files return
+ * Create an image, video or audio node from a space file path. Non-media files return
  * null.
  *
  * Prefer `createFileNodeForPath`, which never returns null; this narrower helper
@@ -195,10 +225,11 @@ export function createMediaBoardItem(
 	x: number,
 	y: number,
 	snapshot?: BoardMediaSnapshot,
-): BoardImageItem | BoardVideoItem | null {
+): BoardImageItem | BoardVideoItem | BoardAudioItem | null {
 	const kind = inferMediaKind(path, snapshot?.mimeType);
 	if (kind === "image") return createImageBoardItem(path, x, y, snapshot);
 	if (kind === "video") return createVideoBoardItem(path, x, y, snapshot);
+	if (kind === "audio") return createAudioBoardItem(path, x, y, snapshot);
 	return null;
 }
 
@@ -450,6 +481,7 @@ export function titleForBoardItem(item: BoardItem): string {
 			return item.label || "Frame";
 		case "image":
 		case "video":
+		case "audio":
 			return item.snapshot?.title ?? getResourceTitle(item.ref.path);
 		case "file":
 			return item.snapshot?.title ?? fileBaseName(item.ref.path);
@@ -476,6 +508,8 @@ export function subtitleForBoardItem(item: BoardItem): string {
 			return "Image";
 		case "video":
 			return "Video";
+		case "audio":
+			return "Audio";
 		case "file":
 			return "File";
 		case "task":

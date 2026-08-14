@@ -28,6 +28,10 @@ const mediaExtensions = new Set([
   ".mp3",
   ".wav",
   ".ogg",
+  ".m4a",
+  ".aac",
+  ".flac",
+  ".opus",
   ".pdf",
 ]);
 

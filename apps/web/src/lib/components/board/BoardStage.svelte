@@ -46,6 +46,11 @@ import {
 	subscribeFilePreviews,
 } from "$lib/board/board-file-preview-source";
 import type { BoardStageExportBridge } from "$lib/board/board-image-export";
+import {
+	mediaPlayBadgeHit,
+	mediaPlayBadgeVisible,
+	playableBoardMedia,
+} from "$lib/board/board-media-playback";
 import { createBoardScene } from "$lib/board/board-scene";
 import {
 	type BoardThemeBackground,
@@ -86,6 +91,7 @@ const {
 	onPointerPresence,
 	onSurfaceChange,
 	onOpenFile,
+	onPlayMedia,
 	onExportReady,
 }: {
 	editor: BoardEditor;
@@ -115,6 +121,8 @@ const {
 	onSurfaceChange?: (size: { width: number; height: number }) => void;
 	/** Open a workspace file in the preview panel (same target as the file tree). */
 	onOpenFile?: (path: string) => void | Promise<void>;
+	/** Start the single local media player for a playable node. */
+	onPlayMedia?: (nodeId: string) => void;
 	/**
 	 * Hands the parent a way to export using this stage's live renderer and
 	 * already-resolved theme. Passing a getter (rather than the renderer itself)
@@ -175,6 +183,10 @@ function handleSpaceStyleChanged(event: Event) {
 // One manager per mounted board; the space id and source are fixed for the mount.
 const assets = createBoardAssetManager({
 	spaceId: untrack(() => spaceId),
+	loadVideoPreviews:
+		typeof navigator === "undefined" ||
+		!(navigator as Navigator & { connection?: { saveData?: boolean } })
+			.connection?.saveData,
 	resolveSpaceFileUrl: (_spaceId, path) =>
 		untrack(() => assetSource).resolveFileUrl(path),
 });
@@ -886,8 +898,26 @@ function publishPointerPresence(event: PointerEvent) {
 
 function handlePointerDown(event: PointerEvent) {
 	if (!host) return;
-	host.setPointerCapture(event.pointerId);
 	const input = toPointerEvent(event);
+	if (event.button === 0) {
+		const item = editor.itemAt(input.world);
+		const key = item ? assets.assetKey(item) : null;
+		if (
+			item &&
+			playableBoardMedia(item, assetSource) &&
+			mediaPlayBadgeVisible(item, editor.camera.zoom, {
+				materialized: Boolean(scene?.getNode(item.id)),
+				hasVideoPreview: Boolean(key && assets.getTexture(key)),
+			}) &&
+			mediaPlayBadgeHit(item, input.world, editor.camera.zoom)
+		) {
+			event.preventDefault();
+			editor.setSelection([item.id]);
+			onPlayMedia?.(item.id);
+			return;
+		}
+	}
+	host.setPointerCapture(event.pointerId);
 	editor.pointerDown(input);
 	onPointerPresence?.({
 		x: input.world.x,
@@ -942,6 +972,10 @@ function handleDoubleClick(event: MouseEvent) {
 		editor.camera,
 	);
 	const item = editor.itemAt(worldPointAtCursor);
+	if (item && (item.type === "video" || item.type === "audio")) {
+		onPlayMedia?.(item.id);
+		return;
+	}
 	// A file card is an entry point, not an editable surface: activating it opens
 	// the file in the workspace preview, the same destination as the file tree.
 	if (item?.type === "file") {

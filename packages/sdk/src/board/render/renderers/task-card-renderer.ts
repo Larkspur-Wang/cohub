@@ -4,6 +4,7 @@ import {
 } from "@cohub/protocol/board-constants";
 import type { BoardTaskItem } from "@cohub/protocol/board-document";
 import { Container, Graphics, Sprite, Text } from "pixi.js";
+import { drawAudioWaveform } from "../audio-waveform.js";
 import {
 	syncTextResolution,
 	textResolutionForZoom,
@@ -19,9 +20,7 @@ import { fitTextToLines } from "./file-card-renderer.js";
 const RADIUS = 4;
 const PADDING = 12;
 const META_HEIGHT = 28;
-const FULL_DETAIL_ZOOM = 0.55;
-const WAVEFORM_BARS = 44;
-const WAVEFORM_GAP = 2;
+export const TASK_CARD_FULL_DETAIL_ZOOM = 0.55;
 const PLAY_BADGE_RADIUS = 15;
 
 type TaskParts = {
@@ -128,53 +127,6 @@ export function containTaskPreviewRect(
 	};
 }
 
-function waveformBars(seed: string, count: number): number[] {
-	let hash = 0x811c9dc5;
-	for (let index = 0; index < seed.length; index += 1) {
-		hash ^= seed.charCodeAt(index);
-		hash = Math.imul(hash, 0x01000193) >>> 0;
-	}
-	const bars: number[] = [];
-	for (let index = 0; index < count; index += 1) {
-		hash ^= hash << 13;
-		hash ^= hash >>> 17;
-		hash ^= hash << 5;
-		hash >>>= 0;
-		const unit = (hash % 1000) / 1000;
-		const envelope = Math.sin((Math.PI * (index + 0.5)) / count);
-		bars.push(0.18 + unit * 0.82 * (0.45 + envelope * 0.55));
-	}
-	return bars;
-}
-
-function drawWaveform(
-	graphics: Graphics,
-	seed: string,
-	rect: { x: number; y: number; width: number; height: number },
-	color: number,
-) {
-	const count = Math.max(
-		8,
-		Math.min(WAVEFORM_BARS, Math.floor(rect.width / (WAVEFORM_GAP + 2))),
-	);
-	const step = rect.width / count;
-	const barWidth = Math.max(1.5, step - WAVEFORM_GAP);
-	const centerY = rect.y + rect.height / 2;
-	const maxHeight = Math.max(2, rect.height * 0.68);
-	const bars = waveformBars(seed, count);
-	for (let index = 0; index < count; index += 1) {
-		const amplitude = (bars[index] ?? 0.4) * maxHeight;
-		graphics.roundRect(
-			rect.x + index * step + (step - barWidth) / 2,
-			centerY - amplitude / 2,
-			barWidth,
-			amplitude,
-			barWidth / 2,
-		);
-	}
-	graphics.fill({ color, alpha: 0.68 });
-}
-
 function drawPlayBadge(
 	graphics: Graphics,
 	rect: { x: number; y: number; width: number; height: number },
@@ -270,7 +222,7 @@ function sync(
 	const { width, height } = item.frame;
 	const selected = context.selectedIds.has(item.id);
 	const hovered = context.hoveredId === item.id;
-	const full = context.zoom >= FULL_DETAIL_ZOOM;
+	const full = context.zoom >= TASK_CARD_FULL_DETAIL_ZOOM;
 	const color = statusColor(item, context);
 	const key = context.assetKey(item);
 	if (key !== parts.assetKey) {
@@ -353,7 +305,7 @@ function sync(
 
 		if (kind === "waveform") {
 			const bottomInset = showMeta ? META_HEIGHT : 0;
-			drawWaveform(
+			drawAudioWaveform(
 				parts.previewArt,
 				item.taskRunId,
 				{
@@ -366,10 +318,9 @@ function sync(
 			);
 		}
 		if (
-			kind === "texture" &&
-			texture &&
-			item.snapshot.primaryOutput?.type === "video" &&
-			full
+			full &&
+			(item.snapshot.primaryOutput?.type === "audio" ||
+				(item.snapshot.primaryOutput?.type === "video" && texture))
 		) {
 			drawPlayBadge(parts.previewArt, frame, context);
 		}

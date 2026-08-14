@@ -180,6 +180,8 @@ export type BoardAssetManagerOptions = {
 	spaceId: string;
 	concurrency?: number;
 	videoConcurrency?: number;
+	/** Disable client-side video-frame decoding on data-saving connections. */
+	loadVideoPreviews?: boolean;
 	/** Cooling-pool ceiling for unreferenced textures kept on the GPU. */
 	lruBudget?: LruBudget;
 	/** Injectable preview loader. Images use Pixi with an HTML image fallback; videos decode one frame. */
@@ -303,6 +305,8 @@ export function createBoardAssetManager(
 		const key = boardAssetKey(item);
 		if (!key) return null;
 		const source = keySource(key);
+		if (source?.media === "video" && options.loadVideoPreviews === false)
+			return null;
 		if (source?.kind !== "file") return key;
 		const version = pathVersions.get(source.value) ?? 0;
 		return version > 0 ? `local:${version}:${key}` : key;

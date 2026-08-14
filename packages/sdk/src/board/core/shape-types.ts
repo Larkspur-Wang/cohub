@@ -213,3 +213,8 @@ export type VideoShapeProps = {
 	path: string;
 	mimeType?: string;
 };
+
+export type AudioShapeProps = {
+	path: string;
+	mimeType?: string;
+};

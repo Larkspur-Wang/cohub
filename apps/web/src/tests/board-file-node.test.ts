@@ -31,6 +31,8 @@ test("every file type is accepted, not just media", () => {
 	const cases: Array<[string, BoardItem["type"]]> = [
 		["a/photo.png", "image"],
 		["a/clip.mp4", "video"],
+		["a/song.mp3", "audio"],
+		["a/voice.m4a", "audio"],
 		["a/readme.md", "file"],
 		["a/data.json", "file"],
 		["a/archive.tar.gz", "file"],
@@ -42,6 +44,25 @@ test("every file type is accepted, not just media", () => {
 		const item = createFileNodeForPath(path, 0, 0);
 		assert.equal(item.type, expected, `${path} → ${expected}`);
 	}
+});
+
+test("audio node round-trips as a first-class space-file node", () => {
+	const item = createFileNodeForPath("media/song.mp3", 100, 50, {
+		title: "Song",
+		mimeType: "audio/mpeg",
+		mtimeMs: 42,
+	});
+	assert.equal(item.type, "audio");
+	if (item.type !== "audio") return;
+	const node = boardItemToNode(item, 0);
+	assert.equal(node.type, "audio");
+	assert.equal(node.refKind, "space_file");
+	assert.equal(node.refPath, "media/song.mp3");
+	const back = boardNodeToItem(wrapNode(node));
+	assert.equal(back.type, "audio");
+	if (back.type !== "audio") return;
+	assert.equal(back.snapshot?.title, "Song");
+	assert.equal(back.snapshot?.mtimeMs, 42);
 });
 
 test("file card is centred on the drop point", () => {

@@ -11,6 +11,7 @@ import {
 	createBoardAwarenessController,
 } from "$lib/board/board-awareness";
 import type { BoardStageExportBridge } from "$lib/board/board-image-export";
+import { playableBoardMedia } from "$lib/board/board-media-playback";
 import { defaultBoardTool } from "$lib/board/board-tool";
 import { createBoardEditor } from "$lib/board/editor.svelte";
 import type { BoardRuntimeProps } from "$lib/board/runtime/board-runtime";
@@ -21,10 +22,10 @@ import BoardEmptyState from "$lib/components/board/BoardEmptyState.svelte";
 import BoardExportDialog from "$lib/components/board/BoardExportDialog.svelte";
 import BoardFloatingToolbar from "$lib/components/board/BoardFloatingToolbar.svelte";
 import BoardGenerationComposer from "$lib/components/board/BoardGenerationComposer.svelte";
+import BoardMediaPlayer from "$lib/components/board/BoardMediaPlayer.svelte";
 import BoardSelectionToolbar from "$lib/components/board/BoardSelectionToolbar.svelte";
 import BoardStage from "$lib/components/board/BoardStage.svelte";
 import BoardTextEditor from "$lib/components/board/BoardTextEditor.svelte";
-import BoardVideoPlayer from "$lib/components/board/BoardVideoPlayer.svelte";
 import BoardZoomMenu from "$lib/components/board/BoardZoomMenu.svelte";
 import { sdk } from "$lib/sdk";
 import {
@@ -71,12 +72,23 @@ let contextMenu = $state<{ x: number; y: number } | null>(null);
 let exportBridge = $state<BoardStageExportBridge | null>(null);
 let exportOpen = $state(false);
 let generationOpen = $state(false);
+let playingId = $state<string | null>(null);
 let awarenessVersion = $state(0);
 let surfaceSize = $state<{ width: number; height: number }>({
 	width: 0,
 	height: 0,
 });
 let unsubscribeAwareness: (() => void) | null = null;
+
+function playMedia(nodeId: string) {
+	const item = editor.itemById(nodeId);
+	if (!playableBoardMedia(item, resolvedAssetSource)) return;
+	playingId = nodeId;
+}
+
+function closeMedia() {
+	playingId = null;
+}
 
 function openExport() {
 	if (!exportBridge) return;
@@ -171,6 +183,8 @@ function isEditableTarget(target: EventTarget | null): boolean {
 		tag === "INPUT" ||
 		tag === "TEXTAREA" ||
 		tag === "SELECT" ||
+		tag === "AUDIO" ||
+		tag === "VIDEO" ||
 		target.isContentEditable
 	);
 }
@@ -233,7 +247,13 @@ function handleReadonlyKeydown(
 		case "Enter": {
 			const single =
 				editor.selectedItems.length === 1 ? editor.selectedItems[0] : null;
-			if (single?.type !== "file") return;
+			if (!single) return;
+			if (playableBoardMedia(single, resolvedAssetSource)) {
+				event.preventDefault();
+				playMedia(single.id);
+				return;
+			}
+			if (single.type !== "file") return;
 			event.preventDefault();
 			void onOpenFile?.(single.ref.path);
 			return;
@@ -253,8 +273,13 @@ function handleReadonlyKeydown(
 }
 
 function handleKeydown(event: KeyboardEvent) {
-	if (!active || generationOpen || editor.editingId) return;
-	if (isEditableTarget(event.target)) return;
+	if (!active || generationOpen) return;
+	if (event.key === "Escape" && playingId) {
+		event.preventDefault();
+		closeMedia();
+		return;
+	}
+	if (editor.editingId || isEditableTarget(event.target)) return;
 	const mod = event.metaKey || event.ctrlKey;
 	const key = event.key.toLowerCase();
 
@@ -347,6 +372,10 @@ function handleKeydown(event: KeyboardEvent) {
 				editor.selectedItems.length === 1 ? editor.selectedItems[0] : null;
 			if (!single) return;
 			event.preventDefault();
+			if (playableBoardMedia(single, resolvedAssetSource)) {
+				playMedia(single.id);
+				return;
+			}
 			if (single.type === "file") {
 				void onOpenFile?.(single.ref.path);
 				return;
@@ -504,6 +533,7 @@ onMount(() => {
 $effect(() => {
 	if (active) return;
 	contextMenu = null;
+	playingId = null;
 	exportOpen = false;
 	generationOpen = false;
 	clearSpaceHeld();
@@ -553,6 +583,7 @@ onDestroy(() => {
 			{readonly}
 			assetSource={resolvedAssetSource}
 			{onOpenFile}
+			onPlayMedia={playMedia}
 			onPointerPresence={(cursor) => { if (!readonly) awareness.setCursor(cursor); }}
 			onSurfaceChange={(size) => { editor.surfaceSize = size; surfaceSize = size; }}
 			onExportReady={(bridge) => { exportBridge = bridge; }}
@@ -578,7 +609,14 @@ onDestroy(() => {
 		{#if !readonly}
 			<BoardTextEditor {editor} />
 		{/if}
-		<BoardVideoPlayer {editor} assetSource={resolvedAssetSource} {active} />
+		<BoardMediaPlayer
+			{editor}
+			assetSource={resolvedAssetSource}
+			{playingId}
+			{active}
+			surface={surfaceSize}
+			onClose={closeMedia}
+		/>
 		{#if !readonly}
 			<BoardSelectionToolbar {editor} />
 			<BoardConnectionToolbar {editor} />
