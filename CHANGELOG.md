@@ -4,6 +4,12 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v2.19 — 2026-08-14
+
+- **Board task nodes**: Tasks can now be placed directly on Boards with multimodal output previews (images, videos with play badges, deterministic audio waveforms, and text excerpts), live status synchronization, asset preloading, and drag-and-drop from the session task tray.
+- **In-board media generation**: Added a floating generation composer to Boards with model search, reference inputs, generation parameters, draft persistence, provider-specific model validation, and retry-aware background task watchers.
+- **Headless task rendering**: Exported Board documents to standalone raster images with full task-card layout, status indicators, audio waveforms, and media containment without browser dependencies.
+
 ## v2.18 — 2026-08-13
 
 - **Space task hooks**: Space Hooks can now react to `task.updated` transitions, exposing task status, changed fields, identifiers, and errors while preventing re-entrant hook loops.

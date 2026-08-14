@@ -1,5 +1,15 @@
 [
 	{
+		"version": "2.19",
+		"date": "2026-08-14",
+		"tags": ["v2.19.0"],
+		"highlights": [
+			"**Board task nodes**: Tasks can now be placed directly on Boards with multimodal output previews (images, videos with play badges, deterministic audio waveforms, and text excerpts), live status synchronization, asset preloading, and drag-and-drop from the session task tray.",
+			"**In-board media generation**: Added a floating generation composer to Boards with model search, reference inputs, generation parameters, draft persistence, provider-specific model validation, and retry-aware background task watchers.",
+			"**Headless task rendering**: Exported Board documents to standalone raster images with full task-card layout, status indicators, audio waveforms, and media containment without browser dependencies."
+		]
+	},
+	{
 		"version": "2.18",
 		"date": "2026-08-13",
 		"tags": ["v2.18.0"],
