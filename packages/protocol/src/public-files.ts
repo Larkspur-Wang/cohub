@@ -1,0 +1,50 @@
+export type PublicFileUploadEntryInput = {
+  id: string;
+  relativePath: string;
+  size: number;
+  mimeType?: string | null;
+};
+
+export type PublicFileCreateUploadInput = {
+  entries: PublicFileUploadEntryInput[];
+  overwrite?: boolean;
+};
+
+export type PublicFileUploadPlanEntry = {
+  id: string;
+  path: string;
+  uploadUrl: string;
+  publicUrl: string;
+  headers?: Record<string, string>;
+};
+
+export type PublicFileCreateUploadResponse = {
+  entries: PublicFileUploadPlanEntry[];
+};
+
+export type PublicFileListEntry = {
+  path: string;
+  name: string;
+  kind: "file" | "directory";
+  size: number | null;
+  updatedAt: string | null;
+  publicUrl: string | null;
+};
+
+export type PublicFileListResponse = {
+  path: string;
+  entries: PublicFileListEntry[];
+  nextCursor: string | null;
+};
+
+export type PublicFileUrlResponse = {
+  path: string;
+  url: string;
+};
+
+export type PublicFileDeleteResponse = {
+  path: string;
+  /** Null for an idempotent single-object delete, where existence is intentionally not preflighted. */
+  deleted: number | null;
+  hasMore: boolean;
+};

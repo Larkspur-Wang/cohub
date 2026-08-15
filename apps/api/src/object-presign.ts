@@ -44,6 +44,10 @@ const createPresignedObjectUrl = (
   contentType?: string | null,
   cacheControl?: string | null,
   contentDisposition?: string | null,
+  putConditions?: {
+    contentLength?: number;
+    ifNoneMatch?: boolean;
+  },
 ) => {
   if (!storage.bucket) throw new Error("bucket is required");
   if (!storage.endpoint) throw new Error("endpoint is required");
@@ -62,6 +66,10 @@ const createPresignedObjectUrl = (
     ...(method === "PUT" && contentType ? { "content-type": contentType } : {}),
     ...(method === "PUT" && cacheControl ? { "cache-control": cacheControl } : {}),
     ...(method === "PUT" && contentDisposition ? { "content-disposition": contentDisposition } : {}),
+    ...(method === "PUT" && putConditions?.contentLength != null
+      ? { "content-length": String(putConditions.contentLength) }
+      : {}),
+    ...(method === "PUT" && putConditions?.ifNoneMatch ? { "if-none-match": "*" } : {}),
   };
   const signedHeaders = Object.keys(headers).sort().join(";");
   url.searchParams.set("X-Amz-Algorithm", "AWS4-HMAC-SHA256");
@@ -112,8 +120,20 @@ export const createPresignedPutObjectUrl = (
   contentType?: string | null,
   cacheControl?: string | null,
   contentDisposition?: string | null,
+  conditions?: {
+    contentLength?: number;
+    ifNoneMatch?: boolean;
+  },
 ) => {
-  const signed = createPresignedObjectUrl("PUT", storage, objectKey, contentType, cacheControl, contentDisposition);
+  const signed = createPresignedObjectUrl(
+    "PUT",
+    storage,
+    objectKey,
+    contentType,
+    cacheControl,
+    contentDisposition,
+    conditions,
+  );
   return { uploadUrl: signed.url, expiresAt: signed.expiresAt, headers: signed.headers };
 };
 

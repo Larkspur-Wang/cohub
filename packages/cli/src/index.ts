@@ -10,6 +10,7 @@ import { registerMe } from "./commands/me.js";
 import { registerModels } from "./commands/models.js";
 import { registerProfile } from "./commands/profile.js";
 import { registerPrompts } from "./commands/prompts.js";
+import { registerPublic } from "./commands/public.js";
 import { registerSkills } from "./commands/skills.js";
 import { registerSearch } from "./commands/search.js";
 import { registerReferences } from "./commands/references.js";
@@ -35,9 +36,9 @@ const program = new Command("cohub");
 program
   .name("cohub")
   .summary("Work with Cohub from your terminal")
-  .description("Send prompts, inspect sessions, manage space files, and generate multimodal outputs.")
+  .description("Send prompts, manage Space files, and publish public output.")
   .version(VERSION, "-v, --version", "Show version")
-  .option("-s, --space <id>", "Target space ID for prompt, files, sessions, and space-scoped commands")
+  .option("-s, --space <id>", "Target Space ID")
   .option("--json", "Print machine-readable JSON when supported")
   .helpOption("-h, --help", "Show help")
   .addHelpText("after", `
@@ -55,6 +56,7 @@ Common commands:
   cohub -s <space-id> spaces turns ls --author others
   cohub -s <space-id> spaces sessions turns ls <session-id>
   cohub -s <space-id> spaces files ls
+  cohub -s <space-id> public upload ./dist demo
   cohub -s <space-id> works publish demo --file dist/index.html
   cohub ui preview <work-id> --call selection.get
   cohub -s <space-id> spaces commerce products list
@@ -78,6 +80,7 @@ registerChannels(program);
 registerGenerations(program);
 registerModels(program);
 registerPrompts(program);
+registerPublic(program);
 registerSkills(program);
 registerSearch(program);
 registerReferences(program);

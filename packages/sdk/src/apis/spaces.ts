@@ -1,4 +1,11 @@
 import type { SpacePublicEndpoints } from "@cohub/protocol/ports";
+import type {
+  PublicFileCreateUploadInput,
+  PublicFileCreateUploadResponse,
+  PublicFileDeleteResponse,
+  PublicFileListResponse,
+  PublicFileUrlResponse,
+} from "@cohub/protocol";
 import {
   createBoardConnection,
   type BoardConnection,
@@ -346,6 +353,60 @@ function createSpaceFileDeadlineSignal(signal: AbortSignal | undefined, timeoutM
       signal?.removeEventListener("abort", onAbort);
     },
   };
+}
+
+export class SpacePublicFilesApi {
+  constructor(
+    private readonly transport: HttpTransport,
+    private readonly spaceId: string,
+  ) {}
+
+  createUpload(input: PublicFileCreateUploadInput, options: { signal?: AbortSignal } = {}) {
+    return this.transport.request<PublicFileCreateUploadResponse>(
+      `/api/spaces/${this.spaceId}/public/uploads`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+        signal: options.signal,
+      },
+    );
+  }
+
+  list(path = "", options: {
+    recursive?: boolean;
+    limit?: number;
+    cursor?: string;
+    fetch?: Fetch;
+  } = {}) {
+    const params = new URLSearchParams();
+    if (path) params.set("path", path);
+    if (options.recursive) params.set("recursive", "true");
+    if (options.limit != null) params.set("limit", String(options.limit));
+    if (options.cursor) params.set("cursor", options.cursor);
+    const query = params.toString();
+    return this.transport.request<PublicFileListResponse>(
+      `/api/spaces/${this.spaceId}/public${query ? `?${query}` : ""}`,
+      { fetch: options.fetch },
+    );
+  }
+
+  url(path: string, customFetch?: Fetch) {
+    const params = new URLSearchParams({ path });
+    return this.transport.request<PublicFileUrlResponse>(
+      `/api/spaces/${this.spaceId}/public/url?${params.toString()}`,
+      { fetch: customFetch },
+    );
+  }
+
+  delete(path: string, recursive = false) {
+    const params = new URLSearchParams({ path });
+    if (recursive) params.set("recursive", "true");
+    return this.transport.request<PublicFileDeleteResponse>(
+      `/api/spaces/${this.spaceId}/public?${params.toString()}`,
+      { method: "DELETE" },
+    );
+  }
 }
 
 export class SpaceFilesApi {
@@ -2101,6 +2162,7 @@ function createSpaceCheckpointsApi(transport: HttpTransport, spaceId: string): S
 
 export class SpaceClient {
   readonly files: SpaceFilesApi;
+  readonly publicFiles: SpacePublicFilesApi;
   readonly sessions: SpaceSessionsApi;
   readonly turns: SpaceTurnsApi;
   readonly members: SpaceMembersApi;
@@ -2123,6 +2185,7 @@ export class SpaceClient {
     private readonly websocketClient: WebsocketClient | null,
   ) {
     this.files = new SpaceFilesApi(transport, id);
+    this.publicFiles = new SpacePublicFilesApi(transport, id);
     this.sessions = new SpaceSessionsApi(transport, id, websocketClient);
     this.turns = new SpaceTurnsApi(transport, id);
     this.members = new SpaceMembersApi(transport, id);

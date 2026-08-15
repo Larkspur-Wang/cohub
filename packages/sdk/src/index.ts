@@ -159,7 +159,7 @@ export type {
   WorkRoomPublishResult,
   WorkRoomState,
 } from "./apis/work-realtime.js";
-export { BoardClient, BoardTransactionError } from "./apis/spaces.js";
+export { BoardClient, BoardTransactionError, SpacePublicFilesApi } from "./apis/spaces.js";
 export {
   BoardInputError,
   assertBoardNodes,
@@ -188,7 +188,23 @@ export {
 export * from "./board/animation.js";
 export type { CreatePublicAssetUploadInput, CreatePublicAssetUploadResponse, PublicAssetMimeType, PublicAssetPurpose, PublicAssetUploadProgress, PublicAssetUploadProtocol, UploadChatAttachmentInput, UploadChatImageAttachmentInput, UploadPublicAssetInput } from "./apis/public-assets.js";
 export type { WorkAuthorizeResponse, WorkContent, WorkContentDownload, WorkCreateInput, WorkDetailResponse, WorkExtractedPageMeta, WorkGetResponse, WorkMeta, WorkPresentationMeta, WorkPublicOwnerRecord, WorkPublicSpaceRecord, WorkRecord, WorkResolveResponse, WorkSessionResponse, WorkStatus, WorkTargetType, WorkUpdateInput, WorkVersionRecord, WorkViewSource, WorkViewStatsResponse, WorkVisibility } from "./apis/works.js";
-export type { WorkArtifactDescriptor, WorkArtifactDownloadDescriptor, WorkArtifactManifest, WorkArtifactManifestFile, WorkBoardArtifactManifest, WorkBoardAsset, WorkContentKind } from "@cohub/protocol";
+export type {
+  PublicFileCreateUploadInput,
+  PublicFileCreateUploadResponse,
+  PublicFileDeleteResponse,
+  PublicFileListEntry,
+  PublicFileListResponse,
+  PublicFileUploadEntryInput,
+  PublicFileUploadPlanEntry,
+  PublicFileUrlResponse,
+  WorkArtifactDescriptor,
+  WorkArtifactDownloadDescriptor,
+  WorkArtifactManifest,
+  WorkArtifactManifestFile,
+  WorkBoardArtifactManifest,
+  WorkBoardAsset,
+  WorkContentKind,
+} from "@cohub/protocol";
 export {
   isTerminalUiCommandStatus,
   isUiSurfaceMethod,

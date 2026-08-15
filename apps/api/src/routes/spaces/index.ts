@@ -14,6 +14,7 @@ import previewSessionRouter from "./preview-session.route.js";
 import startupRouter from "./startup.route.js";
 import commerceRouter from "./commerce.route.js";
 import completionsRouter from "./completions.route.js";
+import publicFilesRouter from "./public-files.route.js";
 
 const router = new Hono();
 
@@ -34,6 +35,7 @@ router.route("/", spacesRouter);
 // This remains a local/non-split fallback.
 router.route("/:id/fs", fsRouter);
 router.route("/:id/completions", completionsRouter);
+router.route("/:id/public", publicFilesRouter);
 router.route("/:id/members", membersRouter);
 router.route("/:id/access", accessRouter);
 router.route("/:id/usage", usageRouter);

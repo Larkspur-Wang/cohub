@@ -1,84 +1,66 @@
 ---
 name: public-share
-description: Publish files from the runtime to the public share directory and return direct public URLs.
+description: Upload files or directories as public, space-scoped URLs.
 ---
 
 # Public Share
 
-Use this skill when a user wants a file or static page to be publicly accessible by link.
+Use this skill when a user wants a file, static page, or directory to be publicly accessible by URL.
 
-Public files live under:
+Public files are isolated by Space under the short `/p/{spaceId}/...` URL namespace. Use the current Space unless the user specifies another one.
 
-- `/public`
+## Publish
 
-Public base URL is provided by:
+Upload one file or one directory:
 
-- `PUBLIC_URL_PREFIX`
+```bash
+cohub public upload <source> [destination]
+```
 
 Examples:
 
-- `/public/demo/index.html` -> `${PUBLIC_URL_PREFIX}/demo/index.html`
-- `/public/reports/demo/report.html` -> `${PUBLIC_URL_PREFIX}/reports/demo/report.html`
+```bash
+cohub public upload ./report.pdf
+cohub public upload ./report.pdf reports/latest.pdf
+cohub public upload ./dist demo
+```
 
-## Use for
+For a directory containing `index.html`, the command returns its public URL. Otherwise it returns a concise upload summary.
 
-- static HTML pages
-- markdown or text exports
-- images
-- JSON artifacts
-- small multi-file demos
+Existing files are never replaced implicitly. When replacement is intended, use:
 
-## Rules
+```bash
+cohub public upload <source> [destination] --overwrite
+```
 
-- Only put files in `/public` if they are meant to be public.
-- Never place secrets, tokens, private logs, or internal-only files in `/public`.
-- Prefer publishing into a dedicated subfolder under `/public`, not directly into `/public` root.
-- Group related files together, for example `demo/`, `reports/<name>/`, `exports/<name>/`.
-- For shareable browser output, prefer a main HTML file inside its own folder.
-- Shared links must point to a specific file (e.g. `index.html`), never just a folder path.
-- Use relative asset paths inside HTML, such as `./app.js` or `./assets/chart.png`.
+The command clearly declares overwrite mode before uploading. Without `--overwrite`, object storage rejects any write to an existing path.
 
-## Important working style
+## Inspect
 
-Treat `/public` as a publish target, not a working directory.
+```bash
+cohub public ls [path]
+cohub public ls -r [path]
+cohub public url <path>
+```
 
-- Avoid heavy editing, scanning, or repeated list-style operations inside `/public`.
-- Prefer building files somewhere else first.
-- When the result is ready to publish, copy the final file or final folder into `/public`.
-- If publishing a multi-file site, prepare the folder elsewhere, then copy the final folder into `/public` in one go.
+Read or preview content through its public URL. Do not copy it into `/public`.
 
-This keeps the public area clean and reduces noisy file operations on the mounted share.
+## Remove
 
-## Workflow
+Confirm with the user before deleting public files or directories.
 
-1. Build or edit files outside `/public` when possible.
-2. Copy the final file or folder into a dedicated subfolder under `/public`.
-3. Construct the public URL from `PUBLIC_URL_PREFIX` plus the relative path under `/public`.
-4. Return the direct URL.
+```bash
+cohub public rm <path>
+cohub public rm -r <path> --yes
+```
 
-## Examples
+## Safety
 
-Single page site:
+- Review content before making it public.
+- Never upload secrets, tokens, private logs, or internal-only files.
+- Use relative asset paths in static sites.
+- Use `--overwrite` only when replacing the existing public path is intentional.
 
-- write `/public/demo/index.html`
-- return `${PUBLIC_URL_PREFIX}/demo/index.html`
+## Finish
 
-Nested demo:
-
-- write `/public/demos/todo/index.html`
-- return `${PUBLIC_URL_PREFIX}/demos/todo/index.html`
-
-Raw artifact:
-
-- write `/public/data/output/result.json`
-- return `${PUBLIC_URL_PREFIX}/data/output/result.json`
-
-## Before finishing
-
-Check that:
-
-- the final files are under `/public`
-- they are organized in a dedicated folder, not scattered in `/public` root
-- the returned URL matches the path under `/public`
-- no sensitive content was published
-
+Return the direct public URL when the command provides one.
