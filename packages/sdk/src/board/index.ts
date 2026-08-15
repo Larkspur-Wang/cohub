@@ -46,4 +46,6 @@ export * from "./core/text-metrics.js";
 export * from "./core/tool-styles.js";
 export * from "./geometry.js";
 export * from "./image-key.js";
+export * from "./media.js";
+export * from "./media-playback.js";
 export * from "./task.js";

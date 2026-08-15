@@ -9,9 +9,11 @@
  */
 
 export * from "./connection-layer.js";
+export * from "./media-interaction.js";
 export * from "./palette.js";
 export * from "./renderers/board-renderer-registry.js";
 export { TASK_CARD_FULL_DETAIL_ZOOM } from "./renderers/task-card-renderer.js";
 export * from "./text-measurement.js";
 export * from "./text-resolution.js";
 export * from "./themes/board-theme-registry.js";
+export * from "./video-thumbnail.js";

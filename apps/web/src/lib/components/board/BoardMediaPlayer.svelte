@@ -127,6 +127,14 @@ onMount(() => {
 		document.removeEventListener("visibilitychange", pauseWhenHidden);
 });
 
+function handleMediaError() {
+	if (!src) return;
+	media?.invalidateUrl();
+	src = null;
+	loading = false;
+	error = "Could not load media";
+}
+
 function stopPropagation(event: Event) {
 	event.stopPropagation();
 }
@@ -160,6 +168,7 @@ function stopPropagation(event: Event) {
 						preload="metadata"
 						aria-label={media.title}
 						onended={onClose}
+						onerror={handleMediaError}
 					></video>
 				{:else}
 					<div class="board-audio-content">
@@ -173,6 +182,7 @@ function stopPropagation(event: Event) {
 							preload="metadata"
 							aria-label={media.title}
 							onended={onClose}
+							onerror={handleMediaError}
 						></audio>
 					</div>
 				{/if}

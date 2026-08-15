@@ -282,6 +282,68 @@ export class SpacesApi {
   }
 }
 
+export type SpaceFileUrlPurpose = "preview" | "playback";
+
+export type ResolveSpaceFileUrlOptions = {
+  /** Playback only accepts a streamable URL; previews may fall back to a data URL. */
+  purpose?: SpaceFileUrlPurpose;
+  /** Maximum time to wait while CDN delivery is being prepared. */
+  timeoutMs?: number;
+  signal?: AbortSignal;
+  fetch?: Fetch;
+};
+
+function inlineFileDataUrl(file: SpaceFsFileResponse) {
+  const mimeType = file.mimeType ?? "application/octet-stream";
+  return file.encoding === "base64"
+    ? `data:${mimeType};base64,${file.content}`
+    : `data:${mimeType};charset=utf-8,${encodeURIComponent(file.content)}`;
+}
+
+function spaceFileAbortReason(signal: AbortSignal) {
+  return signal.reason ?? new DOMException("The operation was aborted", "AbortError");
+}
+
+function waitForSpaceFileRetry(ms: number, signal?: AbortSignal) {
+  if (signal?.aborted) return Promise.reject(spaceFileAbortReason(signal));
+  return new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(finish, ms);
+    const onAbort = () => {
+      if (signal) finish(spaceFileAbortReason(signal));
+    };
+    function finish(error?: unknown) {
+      clearTimeout(timeout);
+      signal?.removeEventListener("abort", onAbort);
+      if (error !== undefined) reject(error);
+      else resolve();
+    }
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+function createSpaceFileDeadlineSignal(signal: AbortSignal | undefined, timeoutMs: number) {
+  const controller = new AbortController();
+  let timedOut = false;
+  const onAbort = () => {
+    if (signal) controller.abort(spaceFileAbortReason(signal));
+  };
+  if (signal?.aborted) onAbort();
+  else signal?.addEventListener("abort", onAbort, { once: true });
+  const timeout = setTimeout(() => {
+    if (controller.signal.aborted) return;
+    timedOut = true;
+    controller.abort(new DOMException("Space file URL resolution timed out", "TimeoutError"));
+  }, timeoutMs);
+  return {
+    signal: controller.signal,
+    timedOut: () => timedOut,
+    dispose: () => {
+      clearTimeout(timeout);
+      signal?.removeEventListener("abort", onAbort);
+    },
+  };
+}
+
 export class SpaceFilesApi {
   constructor(
     private readonly transport: HttpTransport,
@@ -298,12 +360,42 @@ export class SpaceFilesApi {
     );
   }
 
-  read(path: string, customFetch?: Fetch) {
+  read(path: string, customFetch?: Fetch, signal?: AbortSignal) {
     const params = new URLSearchParams({ path });
     return this.transport.request<SpaceFsFileResponse | SpaceFsPreparingFile>(
       `/api/spaces/${this.spaceId}/fs/file?${params.toString()}`,
-      { fetch: customFetch },
+      { fetch: customFetch, signal },
     );
+  }
+
+  /** Resolve a browser-ready file URL, waiting for CDN delivery when necessary. */
+  async resolveUrl(path: string, options: ResolveSpaceFileUrlOptions = {}) {
+    const purpose = options.purpose ?? "preview";
+    const requestedTimeoutMs = options.timeoutMs ?? 15_000;
+    const timeoutMs = Number.isFinite(requestedTimeoutMs)
+      ? Math.max(0, requestedTimeoutMs)
+      : 15_000;
+    const deadlineAt = Date.now() + timeoutMs;
+    const deadline = createSpaceFileDeadlineSignal(options.signal, timeoutMs);
+    try {
+      while (true) {
+        const file = await this.read(path, options.fetch, deadline.signal);
+        if (deadline.timedOut()) return null;
+        if ("content" in file) {
+          if (file.delivery === "url" && file.url) return file.url;
+          return purpose === "preview" ? inlineFileDataUrl(file) : null;
+        }
+        const remainingMs = deadlineAt - Date.now();
+        if (remainingMs <= 0) return null;
+        const retryAfterMs = Math.max(250, Math.min(file.retryAfterMs, 2_000));
+        await waitForSpaceFileRetry(Math.min(retryAfterMs, remainingMs), deadline.signal);
+      }
+    } catch (error) {
+      if (deadline.timedOut()) return null;
+      throw error;
+    } finally {
+      deadline.dispose();
+    }
   }
 
   /** Pending workspace changes vs the space head checkpoint. */

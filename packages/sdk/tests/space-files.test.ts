@@ -42,6 +42,99 @@ test("space file mutations forward client mutation ids", async () => {
   });
 });
 
+test("space files resolve preview and playback URLs with distinct delivery rules", async () => {
+  const responses = [
+    {
+      path: "image.png",
+      name: "image.png",
+      size: 3,
+      mimeType: "image/png",
+      mtimeMs: 1,
+      kind: "binary",
+      encoding: "base64",
+      content: "YWJj",
+      delivery: "inline",
+    },
+    {
+      path: "video.mp4",
+      name: "video.mp4",
+      size: 100,
+      mimeType: "video/mp4",
+      mtimeMs: 2,
+      kind: "binary",
+      encoding: "base64",
+      content: "",
+      delivery: "url",
+      url: "https://cdn.example/video.mp4",
+    },
+    {
+      path: "audio.mp3",
+      name: "audio.mp3",
+      size: 3,
+      mimeType: "audio/mpeg",
+      mtimeMs: 3,
+      kind: "binary",
+      encoding: "base64",
+      content: "YWJj",
+      delivery: "inline",
+    },
+  ];
+  const fetch: Fetch = async () => jsonResponse(responses.shift());
+  const files = new CohubHttpClient({ baseUrl: "https://api.example.test", fetch })
+    .space("space-1")
+    .files;
+
+  assert.equal(
+    await files.resolveUrl("image.png", { purpose: "preview" }),
+    "data:image/png;base64,YWJj",
+  );
+  assert.equal(
+    await files.resolveUrl("video.mp4", { purpose: "playback" }),
+    "https://cdn.example/video.mp4",
+  );
+  assert.equal(
+    await files.resolveUrl("audio.mp3", { purpose: "playback" }),
+    null,
+  );
+});
+
+test("space file URL resolution respects a zero preparation timeout", async () => {
+  const fetch: Fetch = async () =>
+    jsonResponse({
+      path: "video.mp4",
+      name: "video.mp4",
+      size: 100,
+      mimeType: "video/mp4",
+      mtimeMs: 1,
+      retryAfterMs: 2_000,
+    });
+  const files = new CohubHttpClient({ baseUrl: "https://api.example.test", fetch })
+    .space("space-1")
+    .files;
+
+  assert.equal(await files.resolveUrl("video.mp4", { timeoutMs: 0 }), null);
+});
+
+test("space file URL resolution aborts a stuck request at its deadline", async () => {
+  let requestSignal: AbortSignal | null = null;
+  const fetch: Fetch = async (_input, init) => {
+    requestSignal = init?.signal as AbortSignal;
+    return await new Promise<Response>((_resolve, reject) => {
+      requestSignal?.addEventListener(
+        "abort",
+        () => reject(requestSignal?.reason),
+        { once: true },
+      );
+    });
+  };
+  const files = new CohubHttpClient({ baseUrl: "https://api.example.test", fetch })
+    .space("space-1")
+    .files;
+
+  assert.equal(await files.resolveUrl("video.mp4", { timeoutMs: 5 }), null);
+  assert.equal(requestSignal?.aborted, true);
+});
+
 test("board creation forwards its mutation id", async () => {
   const requests: Array<{ url: string; init?: RequestInit }> = [];
   const fetch: Fetch = async (input, init) => {

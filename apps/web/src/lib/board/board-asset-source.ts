@@ -9,13 +9,9 @@
  */
 
 import type { WorkBoardAsset } from "@neta-art/cohub";
+import type { BoardAssetSource } from "@neta-art/cohub/board";
 
-export type BoardAssetSource = {
-	/** Displayable preview URL for a space-file reference, or null when unavailable. */
-	resolveFileUrl: (path: string) => Promise<string | null>;
-	/** Streamable URL for audio/video. Never returns an inline data URL. */
-	resolvePlaybackUrl?: (path: string) => Promise<string | null>;
-};
+export type { BoardAssetSource } from "@neta-art/cohub/board";
 
 export function createSpaceBoardAssetSource(spaceId: string): BoardAssetSource {
 	return {

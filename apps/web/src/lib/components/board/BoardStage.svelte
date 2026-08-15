@@ -47,8 +47,7 @@ import {
 } from "$lib/board/board-file-preview-source";
 import type { BoardStageExportBridge } from "$lib/board/board-image-export";
 import {
-	mediaPlayBadgeHit,
-	mediaPlayBadgeVisible,
+	boardMediaActionAt,
 	playableBoardMedia,
 } from "$lib/board/board-media-playback";
 import { createBoardScene } from "$lib/board/board-scene";
@@ -905,11 +904,10 @@ function handlePointerDown(event: PointerEvent) {
 		if (
 			item &&
 			playableBoardMedia(item, assetSource) &&
-			mediaPlayBadgeVisible(item, editor.camera.zoom, {
+			boardMediaActionAt(item, input.world, editor.camera.zoom, {
 				materialized: Boolean(scene?.getNode(item.id)),
 				hasVideoPreview: Boolean(key && assets.getTexture(key)),
-			}) &&
-			mediaPlayBadgeHit(item, input.world, editor.camera.zoom)
+			})
 		) {
 			event.preventDefault();
 			editor.setSelection([item.id]);
