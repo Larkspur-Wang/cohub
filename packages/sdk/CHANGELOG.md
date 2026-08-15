@@ -1,5 +1,15 @@
 # @neta-art/cohub
 
+## 5.7.0
+
+### Minor Changes
+
+- 0d6e57d: Add first-class Board audio nodes with deterministic waveform rendering and shared codec support.
+
+### Patch Changes
+
+- 48ec699: Expose the unified billing reason used when AI requests are blocked because the balance is not positive.
+
 ## 5.6.0
 
 ### Minor Changes
