@@ -8,6 +8,7 @@ import {
 	BOARD_TEXT_MAX_FONT_SIZE,
 	BOARD_TEXT_MIN_FONT_SIZE,
 } from "./board-constants.js";
+import { BoardTaskSnapshotSchema } from "./board-document.js";
 
 export const BOARD_COLOR_IDS = [
 	"brand",
@@ -202,28 +203,7 @@ const fileViewSchema = z
 	})
 	.strict();
 
-const taskViewSchema = z
-	.object({
-		taskType: z.string().min(1).max(120),
-		status: z.enum(["pending", "running", "completed", "failed"]),
-		title: z.string().min(1).max(240),
-		model: z.string().max(160).optional(),
-		promptExcerpt: z.string().max(480).optional(),
-		outputCount: z.number().int().nonnegative().default(0),
-		primaryOutput: z
-			.object({
-				type: z.enum(["image", "video", "audio", "text"]),
-				url: z.string().url().optional(),
-				textExcerpt: z.string().max(480).optional(),
-				mimeType: z.string().max(160).optional(),
-				naturalWidth: z.number().positive().optional(),
-				naturalHeight: z.number().positive().optional(),
-			})
-			.strict()
-			.optional(),
-		updatedAt: z.string().optional(),
-	})
-	.strict();
+const taskViewSchema = BoardTaskSnapshotSchema;
 const emptyViewSchema = z.object({}).strict();
 const viewSchemas = {
 	image: mediaViewSchema,

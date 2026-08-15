@@ -76,11 +76,14 @@ test("task play badges only intercept clicks when visibly rendered", () => {
 			taskType: "generation",
 			status: "completed",
 			title: "Clip",
-			outputCount: 1,
-			primaryOutput: {
-				type: "video",
-				url: "https://cdn.example/clip.mp4",
-			},
+			artifactCount: 1,
+			artifacts: [
+				{
+					id: "clip",
+					type: "video",
+					url: "https://cdn.example/clip.mp4",
+				},
+			],
 		},
 		frame: { x: 0, y: 0, width: 320, height: 180, rotation: 0 },
 	};

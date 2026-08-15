@@ -8,6 +8,7 @@ import {
 	type BoardShapeColors,
 	buildStrokeOutline,
 	expandRect,
+	featuredTaskArtifact,
 	pickBoardColor,
 	pointToWorld,
 	resolveArrow,
@@ -219,7 +220,7 @@ function applyTaskRuns(runs: ReturnType<typeof getCachedTaskRuns>) {
 			!wanted.has(run.id) ||
 			run.taskType !== "generation" ||
 			run.status !== "completed" ||
-			taskBoardSnapshot(run).primaryOutput ||
+			(snapshots.get(run.id)?.artifacts.length ?? 0) > 0 ||
 			taskDetailRefreshes.get(run.id) === run.updatedAt
 		)
 			continue;
@@ -297,14 +298,16 @@ $effect(() => {
 	if (width === 0 || height === 0) return;
 	const pending: Array<{ id: string; width: number; height: number }> = [];
 	for (const item of itemsNearViewport(camera, width, height)) {
-		const taskOutput =
-			item.type === "task" &&
-			(item.snapshot.primaryOutput?.type === "image" ||
-				item.snapshot.primaryOutput?.type === "video")
-				? item.snapshot.primaryOutput
+		const taskArtifact =
+			item.type === "task"
+				? featuredTaskArtifact(item.snapshot.artifacts)
 				: null;
-		const recorded = taskOutput
-			? taskOutput
+		const visualArtifact =
+			taskArtifact?.type === "image" || taskArtifact?.type === "video"
+				? taskArtifact
+				: null;
+		const recorded = visualArtifact
+			? visualArtifact
 			: item.type === "image" || item.type === "video"
 				? item.snapshot
 				: null;

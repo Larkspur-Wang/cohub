@@ -14,6 +14,7 @@ import type {
 import {
 	computeDrawBounds,
 	DEFAULT_BOARD_TOOL_STYLES,
+	featuredTaskArtifact,
 	fileBaseName,
 	filePreviewKind,
 	measureBoardText,
@@ -239,17 +240,17 @@ export function createTaskBoardItem(
 	x: number,
 	y: number,
 ): BoardTaskItem {
-	const output = snapshot.primaryOutput;
-	const mediaOutput =
-		output?.type === "image" || output?.type === "video" ? output : null;
-	const size = mediaOutput
+	const artifact = featuredTaskArtifact(snapshot.artifacts);
+	const visualMedia =
+		artifact?.type === "image" || artifact?.type === "video" ? artifact : null;
+	const size = visualMedia
 		? mediaFrameSize(
-				mediaOutput.naturalWidth,
-				mediaOutput.naturalHeight,
+				visualMedia.naturalWidth,
+				visualMedia.naturalHeight,
 				480,
 				DEFAULT_TASK_MEDIA_SIZE,
 			)
-		: output?.type === "audio"
+		: artifact?.type === "audio"
 			? DEFAULT_TASK_MEDIA_SIZE
 			: DEFAULT_TASK_SIZE;
 	return {

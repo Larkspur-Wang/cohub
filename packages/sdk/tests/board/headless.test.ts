@@ -59,8 +59,14 @@ const items: BoardItem[] = [
       status: "completed",
       title: "Product sketch",
       model: "image-model",
-      outputCount: 1,
-      primaryOutput: { type: "text", textExcerpt: "A concise generated result" },
+      artifactCount: 1,
+      artifacts: [
+        {
+          id: "result",
+          type: "text",
+          textExcerpt: "A concise generated result",
+        },
+      ],
       updatedAt: "2026-08-14T10:00:00.000Z",
     },
     frame: frame(390, 90, 180, 120),

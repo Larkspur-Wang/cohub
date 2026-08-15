@@ -5,6 +5,7 @@ import {
 import type { BoardTaskItem } from "@cohub/protocol/board-document";
 import { Container, Graphics, Sprite, Text } from "pixi.js";
 import { drawAudioWaveform } from "../audio-waveform.js";
+import { featuredTaskArtifact } from "../../task.js";
 import {
 	syncTextResolution,
 	textResolutionForZoom,
@@ -51,12 +52,15 @@ type StateSurface =
 	| "empty"
 	| null;
 
-function previewKindFor(item: BoardTaskItem): PreviewKind {
-	const output = item.snapshot.primaryOutput;
-	if (!output) return "empty";
-	if (output.type === "image" || output.type === "video") return "texture";
-	if (output.type === "audio") return "waveform";
-	return output.textExcerpt ? "text" : "empty";
+function previewKindFor(
+	artifact: ReturnType<typeof featuredTaskArtifact>,
+): PreviewKind {
+	if (!artifact) return "empty";
+	if (artifact.type === "image" || artifact.type === "video") return "texture";
+	if (artifact.type === "audio") {
+		return artifact.previewUrl ? "texture" : "waveform";
+	}
+	return artifact.textExcerpt ? "text" : "empty";
 }
 
 function stateSurfaceFor(
@@ -100,10 +104,13 @@ function statusColor(item: BoardTaskItem, context: BoardRenderContext) {
 }
 
 function metadata(item: BoardTaskItem): string {
+	const { artifactCount, artifacts } = item.snapshot;
 	const extra =
-		item.snapshot.outputCount > 1
-			? `+${item.snapshot.outputCount - 1}`
-			: null;
+		artifactCount > artifacts.length
+			? `${artifacts.length}/${artifactCount}`
+			: artifactCount > 1
+				? `+${artifactCount - 1}`
+				: null;
 	return [item.snapshot.model, extra].filter(Boolean).join(" · ");
 }
 
@@ -232,7 +239,8 @@ function sync(
 	}
 	const texture = key ? context.getTexture(key) : null;
 	const previewFailed = Boolean(key && !texture && context.hasError(key));
-	const kind = previewKindFor(item);
+	const artifact = featuredTaskArtifact(item.snapshot.artifacts);
+	const kind = previewKindFor(artifact);
 	const surface = stateSurfaceFor(
 		item,
 		kind,
@@ -245,7 +253,7 @@ function sync(
 		width: Math.max(1, width - 2),
 		height: Math.max(1, height - 2),
 	};
-	const metaText = item.snapshot.primaryOutput ? metadata(item) : "";
+	const metaText = artifact ? metadata(item) : "";
 	const showMeta = full && Boolean(metaText);
 	const failedWithOutput =
 		item.snapshot.status === "failed" && kind !== "empty";
@@ -264,7 +272,8 @@ function sync(
 		surface,
 		showMeta,
 		failedWithOutput,
-		item.snapshot.primaryOutput?.type ?? "none",
+		artifact?.type ?? "none",
+		artifact?.id ?? "none",
 		item.taskRunId,
 		texture ? `${texture.width}x${texture.height}` : "none",
 		context.palette.surface,
@@ -319,8 +328,8 @@ function sync(
 		}
 		if (
 			full &&
-			(item.snapshot.primaryOutput?.type === "audio" ||
-				(item.snapshot.primaryOutput?.type === "video" && texture))
+			(artifact?.type === "audio" ||
+				(artifact?.type === "video" && texture))
 		) {
 			drawPlayBadge(parts.previewArt, frame, context);
 		}
@@ -357,8 +366,8 @@ function sync(
 	}
 
 	const bodyText =
-		kind === "text"
-			? (item.snapshot.primaryOutput?.textExcerpt ?? "")
+		kind === "text" && artifact?.type === "text"
+			? artifact.textExcerpt
 			: stateLabel(surface);
 	const textSig = [
 		bodyText,

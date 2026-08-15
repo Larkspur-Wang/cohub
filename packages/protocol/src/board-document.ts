@@ -8,8 +8,14 @@ import {
 } from "./board-constants.js";
 import { BoardConnectionSchema } from "./board-connection.js";
 import { BOARD_DOCUMENT_KIND, BOARD_EXTENSION } from "./board.js";
+import { BoardRemoteUrlSchema } from "./board-url.js";
 
 export { BOARD_DOCUMENT_KIND, BOARD_EXTENSION };
+export {
+	BOARD_REMOTE_URL_MAX_LENGTH,
+	BoardRemoteUrlSchema,
+	normalizeBoardRemoteUrl,
+} from "./board-url.js";
 
 export const BoardFrameSchema = z.object({
 	x: z.number().finite(),
@@ -226,31 +232,71 @@ export const BoardFileItemSchema = BoardItemBaseSchema.extend({
 	snapshot: BoardFileSnapshotSchema.optional(),
 });
 
-export const BoardTaskOutputSchema = z.object({
-	type: z.enum(["image", "video", "audio", "text"]),
-	/** Remote preview only. Inline data is intentionally never persisted. */
-	url: z.string().url().optional(),
-	textExcerpt: z.string().max(480).optional(),
+export const BOARD_TASK_ARTIFACT_LIMIT = 6;
+
+const BoardTaskMediaArtifactFields = {
+	id: z.string().min(1).max(240),
+	title: z.string().max(240).optional(),
+	url: BoardRemoteUrlSchema,
 	mimeType: z.string().max(160).optional(),
-	/** Intrinsic media size, cached so the node can match the preview aspect. */
-	naturalWidth: z.number().positive().optional(),
-	naturalHeight: z.number().positive().optional(),
-});
+};
+
+export const BoardTaskArtifactSchema = z.discriminatedUnion("type", [
+	z
+		.object({
+			...BoardTaskMediaArtifactFields,
+			type: z.literal("image"),
+			naturalWidth: z.number().positive().optional(),
+			naturalHeight: z.number().positive().optional(),
+		})
+		.strict(),
+	z
+		.object({
+			...BoardTaskMediaArtifactFields,
+			type: z.literal("video"),
+			previewUrl: BoardRemoteUrlSchema.optional(),
+			durationMs: z.number().int().positive().optional(),
+			naturalWidth: z.number().positive().optional(),
+			naturalHeight: z.number().positive().optional(),
+		})
+		.strict(),
+	z
+		.object({
+			...BoardTaskMediaArtifactFields,
+			type: z.literal("audio"),
+			previewUrl: BoardRemoteUrlSchema.optional(),
+			durationMs: z.number().int().positive().optional(),
+		})
+		.strict(),
+	z
+		.object({
+			id: z.string().min(1).max(240),
+			type: z.literal("text"),
+			title: z.string().max(240).optional(),
+			textExcerpt: z.string().min(1).max(480),
+		})
+		.strict(),
+]);
 
 /**
  * Cached task facts used for an immediate first paint. The task run remains the
  * source of truth and live clients refresh this projection by `taskRunId`.
  */
-export const BoardTaskSnapshotSchema = z.object({
-	taskType: z.string().min(1).max(120),
-	status: z.enum(["pending", "running", "completed", "failed"]),
-	title: z.string().min(1).max(240),
-	model: z.string().max(160).optional(),
-	promptExcerpt: z.string().max(480).optional(),
-	outputCount: z.number().int().nonnegative().default(0),
-	primaryOutput: BoardTaskOutputSchema.optional(),
-	updatedAt: z.string().optional(),
-});
+export const BoardTaskSnapshotSchema = z
+	.object({
+		taskType: z.string().min(1).max(120),
+		status: z.enum(["pending", "running", "completed", "failed"]),
+		title: z.string().min(1).max(240),
+		model: z.string().max(160).optional(),
+		promptExcerpt: z.string().max(480).optional(),
+		artifactCount: z.number().int().nonnegative(),
+		artifacts: z
+			.array(BoardTaskArtifactSchema)
+			.max(BOARD_TASK_ARTIFACT_LIMIT)
+			.default([]),
+		updatedAt: z.string().optional(),
+	})
+	.strict();
 
 /** A stable reference to a task run with a small, replaceable display cache. */
 export const BoardTaskItemSchema = BoardItemBaseSchema.extend({
@@ -428,7 +474,7 @@ export type BoardVideoItem = z.infer<typeof BoardVideoItemSchema>;
 export type BoardAudioItem = z.infer<typeof BoardAudioItemSchema>;
 export type BoardFileSnapshot = z.infer<typeof BoardFileSnapshotSchema>;
 export type BoardFileItem = z.infer<typeof BoardFileItemSchema>;
-export type BoardTaskOutput = z.infer<typeof BoardTaskOutputSchema>;
+export type BoardTaskArtifact = z.infer<typeof BoardTaskArtifactSchema>;
 export type BoardTaskSnapshot = z.infer<typeof BoardTaskSnapshotSchema>;
 export type BoardTaskItem = z.infer<typeof BoardTaskItemSchema>;
 /** Known (natively handled) item variants. */

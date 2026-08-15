@@ -61,13 +61,15 @@ test("projects a generation task to a concise remote-media snapshot", () => {
 
 	assert.equal(snapshot.title, "A precise product sketch");
 	assert.equal(snapshot.model, "image-model");
-	assert.equal(snapshot.outputCount, 2);
-	assert.deepEqual(snapshot.primaryOutput, {
-		type: "image",
-		url: "https://cdn.example.com/output.png",
-		naturalWidth: 1024,
-		naturalHeight: 1536,
-	});
+	assert.deepEqual(snapshot.artifacts, [
+		{
+			id: "output-2",
+			type: "image",
+			url: "https://cdn.example.com/output.png",
+			naturalWidth: 1024,
+			naturalHeight: 1536,
+		},
+	]);
 	assert.equal(JSON.stringify(snapshot).includes("large-base64"), false);
 });
 
@@ -81,8 +83,7 @@ test("never persists inline generation media in a task snapshot", () => {
 		}),
 	);
 
-	assert.equal(snapshot.primaryOutput, undefined);
-	assert.equal(snapshot.outputCount, 2);
+	assert.deepEqual(snapshot.artifacts, []);
 });
 
 test("task items survive document and server-node round trips", () => {

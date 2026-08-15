@@ -1,8 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import {
+	BOARD_TASK_ARTIFACT_LIMIT,
+	normalizeBoardRemoteUrl,
+} from "@cohub/protocol/board-document";
 import type { TaskRunRecord } from "../src/types.js";
 import {
-	normalizeBoardTaskOutputUrl,
+	featuredTaskArtifact,
+	taskArtifacts,
 	taskRunToBoardTaskSnapshot,
 } from "../src/board/task.js";
 
@@ -58,15 +63,114 @@ test("projects generation tasks to concise remote-media snapshots", () => {
 
 	assert.equal(snapshot.title, "A precise product sketch");
 	assert.equal(snapshot.model, "image-model");
-	assert.equal(snapshot.outputCount, 2);
-	assert.deepEqual(snapshot.primaryOutput, {
-		type: "image",
-		url: "https://cdn.example.com/output.png",
-		mimeType: "image/png",
-		naturalWidth: 1024,
-		naturalHeight: 1536,
-	});
+	assert.equal(snapshot.artifactCount, 1);
+	assert.deepEqual(snapshot.artifacts, [
+		{
+			id: "output-2",
+			type: "image",
+			url: "https://cdn.example.com/output.png",
+			mimeType: "image/png",
+			naturalWidth: 1024,
+			naturalHeight: 1536,
+		},
+	]);
 	assert.equal(JSON.stringify(snapshot).includes("large-base64"), false);
+});
+
+test("pairs music covers and features the strongest playable result", () => {
+	const snapshot = taskRunToBoardTaskSnapshot(
+		taskRun({
+			result: {
+				output: [
+					{
+						type: "audio",
+						source: { url: "https://cdn.example.com/short.mp3" },
+						meta: { id: "track-1", title: "Fun", duration: 16.24 },
+					},
+					{
+						type: "image",
+						source: { url: "https://cdn.example.com/short.jpg" },
+						meta: { id: "track-1" },
+					},
+					{
+						type: "audio",
+						source: { url: "https://cdn.example.com/full.mp3" },
+						meta: { id: "track-2", title: "Fun", duration: 101.48 },
+					},
+					{
+						type: "image",
+						source: { url: "https://cdn.example.com/full.jpg" },
+						meta: { id: "track-2" },
+					},
+				],
+			},
+		}),
+	);
+
+	assert.equal(snapshot.artifactCount, 2);
+	assert.deepEqual(snapshot.artifacts, [
+		{
+			id: "track-2",
+			type: "audio",
+			title: "Fun",
+			url: "https://cdn.example.com/full.mp3",
+			previewUrl: "https://cdn.example.com/full.jpg",
+			durationMs: 101_480,
+		},
+		{
+			id: "track-1",
+			type: "audio",
+			title: "Fun",
+			url: "https://cdn.example.com/short.mp3",
+			previewUrl: "https://cdn.example.com/short.jpg",
+			durationMs: 16_240,
+		},
+	]);
+	assert.equal(featuredTaskArtifact(snapshot.artifacts)?.id, "track-2");
+});
+
+test("keeps unpaired multimodal results and prioritizes video", () => {
+	const artifacts = taskArtifacts([
+		{
+			type: "image",
+			source: { url: "https://cdn.example.com/image.png" },
+		},
+		{
+			type: "text",
+			text: "Generated notes",
+		},
+		{
+			type: "video",
+			source: { url: "https://cdn.example.com/video.mp4" },
+			poster: "https://cdn.example.com/poster.jpg",
+		},
+	]);
+
+	assert.deepEqual(
+		artifacts.map((artifact) => artifact.type),
+		["image", "text", "video"],
+	);
+	assert.equal(featuredTaskArtifact(artifacts)?.type, "video");
+});
+
+test("bounds snapshots while retaining the complete artifact count", () => {
+	const output = Array.from({ length: BOARD_TASK_ARTIFACT_LIMIT + 4 }, (_, index) => ({
+		type: "image",
+		source: {
+			url: `https://cdn.example.com/image-${index}.png`,
+			width: 100 + index,
+			height: 100 + index,
+		},
+	}));
+	const snapshot = taskRunToBoardTaskSnapshot(taskRun({ result: { output } }));
+
+	assert.equal(snapshot.artifactCount, output.length);
+	assert.equal(snapshot.artifacts.length, BOARD_TASK_ARTIFACT_LIMIT);
+	assert.equal(snapshot.artifacts[0]?.id, `output-${output.length}`);
+	assert.equal(
+		snapshot.artifacts.at(-1)?.id,
+		`output-${output.length - BOARD_TASK_ARTIFACT_LIMIT + 1}`,
+	);
 });
 
 test("rejects local, inline, and credentialed task output URLs", () => {
@@ -91,18 +195,18 @@ test("rejects local, inline, and credentialed task output URLs", () => {
 		"http://[fec0::1]/output.png",
 		"http://[2001:db8::1]/output.png",
 	]) {
-		assert.equal(normalizeBoardTaskOutputUrl(url), undefined);
+		assert.equal(normalizeBoardRemoteUrl(url), undefined);
 	}
 	assert.equal(
-		normalizeBoardTaskOutputUrl("https://cdn.example.com/output.png"),
+		normalizeBoardRemoteUrl("https://cdn.example.com/output.png"),
 		"https://cdn.example.com/output.png",
 	);
 	assert.equal(
-		normalizeBoardTaskOutputUrl("https://8.8.8.8/output.png"),
+		normalizeBoardRemoteUrl("https://8.8.8.8/output.png"),
 		"https://8.8.8.8/output.png",
 	);
 	assert.equal(
-		normalizeBoardTaskOutputUrl("https://[2606:4700:4700::1111]/output.png"),
+		normalizeBoardRemoteUrl("https://[2606:4700:4700::1111]/output.png"),
 		"https://[2606:4700:4700::1111]/output.png",
 	);
 });
@@ -122,7 +226,8 @@ test("projects generic task facts without copying its payload", () => {
 		status: "running",
 		title: "Refresh the project index",
 		promptExcerpt: "Refresh the project index",
-		outputCount: 0,
+		artifactCount: 0,
+		artifacts: [],
 		updatedAt: "2026-08-14T10:00:02.000Z",
 	});
 	assert.equal(JSON.stringify(snapshot).includes("private"), false);

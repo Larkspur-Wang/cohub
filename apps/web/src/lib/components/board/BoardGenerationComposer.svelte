@@ -1,7 +1,7 @@
 <script lang="ts">
 import type { PublicGenerationDeclaration } from "@cohub/protocol/generation";
 import type { BoardItem } from "@neta-art/cohub/board";
-import { worldPoint } from "@neta-art/cohub/board";
+import { featuredTaskArtifact, worldPoint } from "@neta-art/cohub/board";
 import {
 	ArrowUp,
 	AudioLines,
@@ -145,7 +145,7 @@ function itemMediaType(item: BoardItem): BoardGenerationMediaType | null {
 		if (mimeType.startsWith("audio/")) return "audio";
 	}
 	if (item.type === "task") {
-		const type = item.snapshot.primaryOutput?.type;
+		const type = featuredTaskArtifact(item.snapshot.artifacts)?.type;
 		return type === "image" || type === "video" || type === "audio"
 			? type
 			: null;
@@ -182,7 +182,8 @@ async function resolveItemReference(
 	) {
 		rawUrl = await assetSource.resolveFileUrl(item.ref.path);
 	} else if (item.type === "task") {
-		rawUrl = item.snapshot.primaryOutput?.url;
+		const artifact = featuredTaskArtifact(item.snapshot.artifacts);
+		rawUrl = artifact?.type === "text" ? null : artifact?.url;
 	}
 	const url = rawUrl ? normalizeGenerationReferenceUrl(rawUrl) : null;
 	if (!url) return null;

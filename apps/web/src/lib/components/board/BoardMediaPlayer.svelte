@@ -1,8 +1,8 @@
 <script lang="ts">
-import { X } from "lucide-svelte";
+import { ChevronLeft, ChevronRight, X } from "lucide-svelte";
 import { onMount } from "svelte";
 import type { BoardAssetSource } from "$lib/board/board-asset-source";
-import { playableBoardMedia } from "$lib/board/board-media-playback";
+import { playableBoardMediaList } from "$lib/board/board-media-playback";
 import type { BoardEditor } from "$lib/board/editor.svelte";
 
 const {
@@ -22,20 +22,29 @@ const {
 } = $props();
 
 let mediaEl: HTMLMediaElement | null = $state(null);
+let activeMediaId = $state<string | null>(null);
+let activeNodeId: string | null = null;
 let src = $state<string | null>(null);
 let loading = $state(false);
 let error = $state<string | null>(null);
 
 const item = $derived(playingId ? editor.itemById(playingId) : null);
-const media = $derived(playableBoardMedia(item, assetSource));
+const playlist = $derived(playableBoardMediaList(item, assetSource));
+const media = $derived(
+	playlist.find((entry) => entry.id === activeMediaId) ?? playlist[0] ?? null,
+);
+const activeIndex = $derived(
+	media ? playlist.findIndex((entry) => entry.id === media.id) : -1,
+);
 const layout = $derived.by(() => {
 	if (!item || !media) return null;
 	const camera = editor.camera;
 	const zoom = camera.zoom;
 	const nodeWidth = item.frame.width * zoom;
 	const nodeHeight = item.frame.height * zoom;
-	const width = Math.max(nodeWidth, media.kind === "audio" ? 220 : 1);
-	const height = media.kind === "audio" ? Math.max(72, nodeHeight) : nodeHeight;
+	const width = Math.max(nodeWidth, media.kind === "audio" ? 240 : 1);
+	const height =
+		media.kind === "audio" ? Math.max(100, nodeHeight) : nodeHeight;
 	const centerX = (item.frame.x + item.frame.width / 2) * zoom + camera.x;
 	const centerY = (item.frame.y + item.frame.height / 2) * zoom + camera.y;
 	return {
@@ -45,6 +54,12 @@ const layout = $derived.by(() => {
 		height,
 		rotation: item.frame.rotation || 0,
 	};
+});
+
+$effect(() => {
+	if (playingId === activeNodeId) return;
+	activeNodeId = playingId;
+	activeMediaId = null;
 });
 
 $effect(() => {
@@ -127,6 +142,19 @@ onMount(() => {
 		document.removeEventListener("visibilitychange", pauseWhenHidden);
 });
 
+function selectMedia(index: number) {
+	const target = playlist[index];
+	if (target) activeMediaId = target.id;
+}
+
+function handleEnded() {
+	if (activeIndex >= 0 && activeIndex < playlist.length - 1) {
+		selectMedia(activeIndex + 1);
+		return;
+	}
+	onClose();
+}
+
 function handleMediaError() {
 	if (!src) return;
 	media?.invalidateUrl();
@@ -155,8 +183,43 @@ function stopPropagation(event: Event) {
 		onwheel={stopPropagation}
 		data-drawer-swipe-ignore
 	>
+		<div class="board-media-toolbar">
+			<div class="board-media-title" title={media.title}>{media.title}</div>
+			{#if playlist.length > 1}
+				<span class="board-media-position">{activeIndex + 1} / {playlist.length}</span>
+				<button
+					type="button"
+					class="board-media-action"
+					title="Previous output"
+					aria-label="Previous output"
+					disabled={activeIndex <= 0}
+					onclick={() => selectMedia(activeIndex - 1)}
+				>
+					<ChevronLeft size={14} strokeWidth={2} />
+				</button>
+				<button
+					type="button"
+					class="board-media-action"
+					title="Next output"
+					aria-label="Next output"
+					disabled={activeIndex >= playlist.length - 1}
+					onclick={() => selectMedia(activeIndex + 1)}
+				>
+					<ChevronRight size={14} strokeWidth={2} />
+				</button>
+			{/if}
+			<button
+				type="button"
+				class="board-media-action"
+				title="Close player"
+				aria-label="Close player"
+				onclick={onClose}
+			>
+				<X size={14} strokeWidth={2} />
+			</button>
+		</div>
 		{#if src}
-			{#key `${playingId}:${src}`}
+			{#key `${playingId}:${media.id}:${src}`}
 				{#if media.kind === "video"}
 					<!-- svelte-ignore a11y_media_has_caption -->
 					<video
@@ -167,12 +230,11 @@ function stopPropagation(event: Event) {
 						playsinline
 						preload="metadata"
 						aria-label={media.title}
-						onended={onClose}
+						onended={handleEnded}
 						onerror={handleMediaError}
 					></video>
 				{:else}
 					<div class="board-audio-content">
-						<div class="board-audio-title">{media.title}</div>
 						<!-- svelte-ignore a11y_media_has_caption -->
 						<audio
 							bind:this={mediaEl}
@@ -181,7 +243,7 @@ function stopPropagation(event: Event) {
 							controls
 							preload="metadata"
 							aria-label={media.title}
-							onended={onClose}
+							onended={handleEnded}
 							onerror={handleMediaError}
 						></audio>
 					</div>
@@ -192,15 +254,6 @@ function stopPropagation(event: Event) {
 				{loading ? "Loading..." : (error ?? "Unavailable")}
 			</div>
 		{/if}
-		<button
-			type="button"
-			class="board-media-close"
-			title="Close player"
-			aria-label="Close player"
-			onclick={onClose}
-		>
-			<X size={14} strokeWidth={2} />
-		</button>
 	</div>
 {/if}
 
@@ -216,6 +269,69 @@ function stopPropagation(event: Event) {
 		box-shadow: 0 10px 28px color-mix(in srgb, var(--overlay-scrim-strong) 20%, transparent);
 	}
 
+	.board-media-toolbar {
+		position: absolute;
+		top: 0;
+		right: 0;
+		left: 0;
+		z-index: 2;
+		display: flex;
+		height: 40px;
+		align-items: center;
+		gap: 2px;
+		padding: 4px 4px 4px 9px;
+		background: color-mix(in srgb, var(--bg-elevated) 92%, transparent);
+	}
+
+	.board-media-title {
+		min-width: 0;
+		flex: 1;
+		overflow: hidden;
+		color: var(--text-secondary);
+		font-size: 11px;
+		font-weight: 500;
+		line-height: 1.2;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.board-media-position {
+		flex: none;
+		color: var(--text-tertiary);
+		font-family: var(--font-mono);
+		font-size: 10px;
+		font-variant-numeric: tabular-nums;
+	}
+
+	.board-media-action {
+		display: inline-flex;
+		width: 32px;
+		height: 32px;
+		flex: none;
+		align-items: center;
+		justify-content: center;
+		border: 0;
+		border-radius: 5px;
+		background: transparent;
+		color: var(--text-secondary);
+		cursor: pointer;
+	}
+
+	.board-media-action:hover:not(:disabled) {
+		background: var(--bg-hover);
+		color: var(--text-primary);
+	}
+
+	.board-media-action:disabled {
+		cursor: default;
+		opacity: 0.35;
+	}
+
+	.board-media-action:focus-visible {
+		outline: 2px solid var(--brand-border);
+		outline-offset: -2px;
+	}
+
 	.board-video-el {
 		display: block;
 		width: 100%;
@@ -227,23 +343,12 @@ function stopPropagation(event: Event) {
 
 	.board-audio-player {
 		display: flex;
-		align-items: center;
+		align-items: flex-end;
 	}
 
 	.board-audio-content {
 		width: 100%;
-		padding: 10px 38px 8px 10px;
-	}
-
-	.board-audio-title {
-		overflow: hidden;
-		margin-bottom: 6px;
-		color: var(--text-secondary);
-		font-size: 11px;
-		font-weight: 500;
-		line-height: 1.2;
-		text-overflow: ellipsis;
-		white-space: nowrap;
+		padding: 0 8px 8px;
 	}
 
 	.board-audio-el {
@@ -257,29 +362,8 @@ function stopPropagation(event: Event) {
 		height: 100%;
 		align-items: center;
 		justify-content: center;
-		padding: 12px;
+		padding: 46px 12px 12px;
 		color: var(--text-tertiary);
 		font-size: 12px;
-	}
-
-	.board-media-close {
-		position: absolute;
-		top: 6px;
-		right: 6px;
-		display: inline-flex;
-		width: 28px;
-		height: 28px;
-		align-items: center;
-		justify-content: center;
-		border: 0;
-		border-radius: 6px;
-		background: color-mix(in srgb, var(--bg-elevated) 90%, transparent);
-		color: var(--text-secondary);
-		cursor: pointer;
-	}
-
-	.board-media-close:hover {
-		background: var(--bg-hover);
-		color: var(--text-primary);
 	}
 </style>

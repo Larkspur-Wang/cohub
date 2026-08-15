@@ -1,4 +1,5 @@
 import type { BoardItem } from "@cohub/protocol/board-document";
+import { featuredTaskArtifact, taskArtifactPreviewUrl } from "./task.js";
 
 /**
  * Stable cache key for an item's image resource, or null when it has none.
@@ -18,11 +19,10 @@ export function imageAssetKey(item: BoardItem): string | null {
     return null;
   }
   if (item.type === "task") {
-    const output = item.snapshot.primaryOutput;
-    if (output?.type === "image" || output?.type === "video") {
-      const url = output.url;
-      return url ? `url:${url}` : null;
-    }
+    const url = taskArtifactPreviewUrl(
+      featuredTaskArtifact(item.snapshot.artifacts),
+    );
+    return url ? `url:${url}` : null;
   }
   return null;
 }

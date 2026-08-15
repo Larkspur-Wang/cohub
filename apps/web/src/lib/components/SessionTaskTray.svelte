@@ -1,5 +1,10 @@
 <script lang="ts">
-import type { BoardTaskSnapshot } from "@neta-art/cohub/board";
+import {
+	BOARD_TASK_ARTIFACT_LIMIT,
+	type BoardTaskSnapshot,
+	normalizeBoardRemoteUrl,
+	rankedTaskArtifacts,
+} from "@neta-art/cohub/board";
 import {
 	AlertCircle,
 	ChevronDown,
@@ -201,18 +206,29 @@ function withPreviewOssProcess(src: string | null | undefined) {
 }
 
 function taskSnapshot(notice: SessionTaskNotice): BoardTaskSnapshot {
-	const media = notice.mediaItems[0];
-	const mediaUrl =
-		media && !isInlineMediaSrc(media.src) ? media.src : undefined;
+	const artifacts = notice.mediaItems.flatMap((media, index) => {
+		if (isInlineMediaSrc(media.src)) return [];
+		const url = normalizeBoardRemoteUrl(media.src);
+		if (!url) return [];
+		return [
+			{
+				id: `output-${index + 1}`,
+				type: media.type,
+				url,
+				title: media.alt,
+			},
+		];
+	});
 	return {
 		taskType: notice.kind === "generation" ? "generation" : "run_command",
 		status: notice.status,
 		title: notice.title,
 		...(notice.preview ? { promptExcerpt: notice.preview } : {}),
-		outputCount: notice.mediaItems.length,
-		...(media && mediaUrl
-			? { primaryOutput: { type: media.type, url: mediaUrl } }
-			: {}),
+		artifactCount: artifacts.length,
+		artifacts: rankedTaskArtifacts(artifacts).slice(
+			0,
+			BOARD_TASK_ARTIFACT_LIMIT,
+		),
 		updatedAt: notice.updatedAt,
 	};
 }

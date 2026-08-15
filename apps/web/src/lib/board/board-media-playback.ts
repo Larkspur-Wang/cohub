@@ -1,6 +1,7 @@
 export {
 	type BoardPlayableMedia,
 	playableBoardMedia,
+	playableBoardMediaList,
 	resetBoardPlaybackUrlCache,
 } from "@neta-art/cohub/board";
 export {

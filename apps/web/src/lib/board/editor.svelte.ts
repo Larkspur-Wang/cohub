@@ -12,6 +12,7 @@ import {
 	createBoardConnection,
 	createConnectionIndex,
 	type FrameLookup,
+	featuredTaskArtifact,
 	fitToContent,
 	HANDLE_HIT_RADIUS,
 	itemBounds,
@@ -1411,14 +1412,13 @@ export function createBoardEditor(options: BoardEditorOptions) {
 			const natural = byId.get(item.id);
 			if (!natural || natural.width <= 0 || natural.height <= 0) return item;
 
-			if (
-				item.type === "task" &&
-				(item.snapshot.primaryOutput?.type === "image" ||
-					item.snapshot.primaryOutput?.type === "video")
-			) {
-				const output = item.snapshot.primaryOutput;
+			if (item.type === "task") {
+				const artifact = featuredTaskArtifact(item.snapshot.artifacts);
+				if (artifact?.type !== "image" && artifact?.type !== "video") {
+					return item;
+				}
 				// Already recorded: never re-correct (and never fight the user's resize).
-				if (output.naturalWidth && output.naturalHeight) return item;
+				if (artifact.naturalWidth && artifact.naturalHeight) return item;
 				const height = (item.frame.width * natural.height) / natural.width;
 				if (!Number.isFinite(height) || height <= 0) return item;
 				dirty.push(item.id);
@@ -1427,11 +1427,15 @@ export function createBoardEditor(options: BoardEditorOptions) {
 					...item,
 					snapshot: {
 						...item.snapshot,
-						primaryOutput: {
-							...output,
-							naturalWidth: natural.width,
-							naturalHeight: natural.height,
-						},
+						artifacts: item.snapshot.artifacts.map((entry) =>
+							entry.id === artifact.id
+								? {
+										...entry,
+										naturalWidth: natural.width,
+										naturalHeight: natural.height,
+									}
+								: entry,
+						),
 					},
 					frame: {
 						...item.frame,

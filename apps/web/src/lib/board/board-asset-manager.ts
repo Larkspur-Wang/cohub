@@ -1,7 +1,9 @@
 import {
 	type BoardItem,
 	boardImageKeySource,
+	featuredTaskArtifact,
 	imageAssetKey,
+	taskArtifactPreviewUrl,
 } from "@neta-art/cohub/board";
 import { Assets, Texture } from "pixi.js";
 import {
@@ -24,9 +26,13 @@ type BoardAssetSource = {
 
 /** Stable preview key shared by cards that reference the same file version. */
 export function boardAssetKey(item: BoardItem): string | null {
-	if (item.type === "task" && item.snapshot.primaryOutput?.type === "video") {
-		const url = item.snapshot.primaryOutput.url;
-		return url ? `video-url:${encodeURIComponent(url)}` : null;
+	if (item.type === "task") {
+		const artifact = featuredTaskArtifact(item.snapshot.artifacts);
+		if (artifact?.type === "video" && !artifact.previewUrl) {
+			return `video-url:${encodeURIComponent(artifact.url)}`;
+		}
+		const previewUrl = taskArtifactPreviewUrl(artifact);
+		return previewUrl ? `url:${previewUrl}` : null;
 	}
 	if (item.type === "video") {
 		const path = encodeURIComponent(item.ref.path);

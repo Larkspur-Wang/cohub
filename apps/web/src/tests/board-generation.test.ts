@@ -66,7 +66,8 @@ test("builds content and a pending task snapshot", () => {
 			title: "Product photo",
 			model: model.model,
 			promptExcerpt: "Product photo",
-			outputCount: 0,
+			artifactCount: 0,
+			artifacts: [],
 			updatedAt: "2026-08-14T10:00:00.000Z",
 		},
 	);

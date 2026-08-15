@@ -285,7 +285,8 @@ export function pendingGenerationTaskSnapshot(input: {
 		title: excerpt.slice(0, 240) || "Media generation",
 		model: input.model,
 		...(excerpt ? { promptExcerpt: excerpt } : {}),
-		outputCount: 0,
+		artifactCount: 0,
+		artifacts: [],
 		updatedAt: input.now ?? new Date().toISOString(),
 	};
 }

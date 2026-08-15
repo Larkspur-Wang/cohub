@@ -1,4 +1,5 @@
 import type { BoardItem } from "@cohub/protocol/board-document";
+import { rankedTaskArtifacts } from "./task.js";
 
 export type BoardAssetSource = {
 	/** Displayable preview URL for a workspace-file reference. */
@@ -8,8 +9,10 @@ export type BoardAssetSource = {
 };
 
 export type BoardPlayableMedia = {
+	id: string;
 	kind: "video" | "audio";
 	title: string;
+	durationMs?: number;
 	resolveUrl: () => Promise<string | null>;
 	/** Drop a failed or expired resolved URL without affecting other media. */
 	invalidateUrl: () => void;
@@ -52,34 +55,51 @@ function cachedUrl(key: string, resolve: () => Promise<string | null>) {
 	return pending;
 }
 
-export function playableBoardMedia(
+export function playableBoardMediaList(
 	item: BoardItem | null,
 	assetSource: BoardAssetSource,
-): BoardPlayableMedia | null {
+): BoardPlayableMedia[] {
 	if (item?.type === "video" || item?.type === "audio") {
 		const path = item.ref.path;
 		const version = item.snapshot?.mtimeMs ?? "unknown";
 		const cacheKey = `${sourceId(assetSource)}:${item.type}:file:${path}:${version}`;
-		return {
-			kind: item.type,
-			title: item.snapshot?.title ?? path.split("/").pop() ?? item.type,
-			resolveUrl: () =>
-				cachedUrl(cacheKey, () =>
-					(assetSource.resolvePlaybackUrl ?? assetSource.resolveFileUrl)(path),
-				),
-			invalidateUrl: () => invalidateCachedUrl(cacheKey),
-		};
+		const durationMs = item.type === "audio" ? item.snapshot?.durationMs : undefined;
+		return [
+			{
+				id: item.id,
+				kind: item.type,
+				title: item.snapshot?.title ?? path.split("/").pop() ?? item.type,
+				...(durationMs ? { durationMs } : {}),
+				resolveUrl: () =>
+					cachedUrl(cacheKey, () =>
+						(assetSource.resolvePlaybackUrl ?? assetSource.resolveFileUrl)(path),
+					),
+				invalidateUrl: () => invalidateCachedUrl(cacheKey),
+			},
+		];
 	}
-	if (item?.type !== "task") return null;
-	const output = item.snapshot.primaryOutput;
-	if (!output?.url || (output.type !== "video" && output.type !== "audio"))
-		return null;
-	return {
-		kind: output.type,
-		title: item.snapshot.title,
-		resolveUrl: () => Promise.resolve(output.url ?? null),
-		invalidateUrl: () => {},
-	};
+	if (item?.type !== "task") return [];
+	return rankedTaskArtifacts(item.snapshot.artifacts)
+		.filter(
+			(artifact) => artifact.type === "video" || artifact.type === "audio",
+		)
+		.map((artifact) => ({
+			id: artifact.id,
+			kind: artifact.type,
+			title: artifact.title ?? item.snapshot.title,
+			...(artifact.durationMs ? { durationMs: artifact.durationMs } : {}),
+			resolveUrl: () => Promise.resolve(artifact.url),
+			invalidateUrl: () => {},
+		}));
+}
+
+export function playableBoardMedia(
+	item: BoardItem | null,
+	assetSource: BoardAssetSource,
+	artifactId?: string | null,
+): BoardPlayableMedia | null {
+	const media = playableBoardMediaList(item, assetSource);
+	return media.find((entry) => entry.id === artifactId) ?? media[0] ?? null;
 }
 
 export function resetBoardPlaybackUrlCache() {

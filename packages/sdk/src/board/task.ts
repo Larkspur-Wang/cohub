@@ -1,6 +1,8 @@
-import type {
-	BoardTaskOutput,
-	BoardTaskSnapshot,
+import {
+	BOARD_TASK_ARTIFACT_LIMIT,
+	type BoardTaskArtifact,
+	type BoardTaskSnapshot,
+	normalizeBoardRemoteUrl,
 } from "@cohub/protocol/board-document";
 import type { TaskRunRecord } from "../types.js";
 
@@ -24,118 +26,13 @@ function cleanExcerpt(
 		: clean;
 }
 
-function parseIpv4(host: string): [number, number, number, number] | null {
-	const parts = host.split(".").map(Number);
-	return parts.length === 4 &&
-		parts.every(
-			(part) => Number.isInteger(part) && part >= 0 && part <= 255,
-		)
-		? (parts as [number, number, number, number])
-		: null;
-}
-
-function isBlockedIpv4(host: string): boolean {
-	const parts = parseIpv4(host);
-	if (!parts) return false;
-	const [first, second, third] = parts;
-	if (first === 0 || first === 10 || first === 127) return true;
-	if (first === 100 && second >= 64 && second <= 127) return true;
-	if (first === 169 && second === 254) return true;
-	if (first === 172 && second >= 16 && second <= 31) return true;
-	if (first === 192 && second === 168) return true;
-	if (first === 192 && second === 0 && (third === 0 || third === 2)) return true;
-	if (first === 192 && second === 88 && third === 99) return true;
-	if (first === 198 && (second === 18 || second === 19)) return true;
-	if (first === 198 && second === 51 && third === 100) return true;
-	if (first === 203 && second === 0 && third === 113) return true;
-	return first >= 224;
-}
-
-function expandIpv6(host: string): string[] | null {
-	const [head, tail, extra] = host.toLowerCase().split("::");
-	if (extra !== undefined) return null;
-	const headParts = head ? head.split(":").filter(Boolean) : [];
-	const tailParts = tail ? tail.split(":").filter(Boolean) : [];
-	const missing = 8 - headParts.length - tailParts.length;
-	if (missing < 0 || (tail === undefined && missing !== 0)) return null;
-	const parts = [
-		...headParts,
-		...Array.from({ length: missing }, () => "0"),
-		...tailParts,
-	];
-	if (
-		parts.length !== 8 ||
-		parts.some((part) => !/^[0-9a-f]{1,4}$/.test(part))
-	)
-		return null;
-	return parts.map((part) => part.padStart(4, "0"));
-}
-
-function isBlockedIpv6(host: string): boolean {
-	const parts = expandIpv6(host);
-	if (!parts) return true;
-	if (parts.every((part) => part === "0000")) return true;
-	if (
-		parts.slice(0, 7).every((part) => part === "0000") &&
-		parts[7] === "0001"
-	)
-		return true;
-	if (
-		parts.slice(0, 5).every((part) => part === "0000") &&
-		parts[5] === "ffff"
-	) {
-		const high = Number.parseInt(parts[6] ?? "0", 16);
-		const low = Number.parseInt(parts[7] ?? "0", 16);
-		return isBlockedIpv4(
-			`${high >> 8}.${high & 0xff}.${low >> 8}.${low & 0xff}`,
-		);
-	}
-	if (parts.slice(0, 6).every((part) => part === "0000")) return true;
-	const first = Number.parseInt(parts[0] ?? "0", 16);
-	if ((first & 0xfe00) === 0xfc00) return true;
-	if ((first & 0xffc0) === 0xfe80 || (first & 0xffc0) === 0xfec0)
-		return true;
-	if ((first & 0xff00) === 0xff00) return true;
-	return parts[0] === "2001" && parts[1] === "0db8";
-}
-
-function isBlockedTaskOutputHost(hostname: string): boolean {
-	const host = hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
-	if (
-		host === "localhost" ||
-		host.endsWith(".localhost") ||
-		host.endsWith(".local") ||
-		host.endsWith(".internal")
-	)
-		return true;
-	if (parseIpv4(host)) return isBlockedIpv4(host);
-	return host.includes(":") && isBlockedIpv6(host);
-}
-
-/**
- * Normalize a persistable remote media URL and reject credentialed or visibly
- * non-public hosts. Server-side fetchers must still validate resolved DNS addresses.
- */
-export function normalizeBoardTaskOutputUrl(value: unknown): string | undefined {
-	if (typeof value !== "string") return undefined;
-	try {
-		const url = new URL(value.trim());
-		if (url.protocol !== "https:" && url.protocol !== "http:") return undefined;
-		if (url.username || url.password || isBlockedTaskOutputHost(url.hostname))
-			return undefined;
-		return url.toString();
-	} catch {
-		return undefined;
-	}
-}
-
 function blockText(block: Record<string, unknown>): string | undefined {
 	return cleanExcerpt(block.text ?? block.content ?? block.value);
 }
 
 function blockUrl(block: Record<string, unknown>): string | undefined {
 	const source = record(block.source);
-	return normalizeBoardTaskOutputUrl(
+	return normalizeBoardRemoteUrl(
 		source?.url ?? source?.src ?? block.url ?? block.src,
 	);
 }
@@ -201,35 +98,232 @@ function generationPrompt(run: TaskRunRecord): string | undefined {
 	return undefined;
 }
 
-function primaryOutput(
-	blocks: Record<string, unknown>[],
-): BoardTaskOutput | undefined {
-	for (const block of blocks) {
-		if (block.type !== "image" && block.type !== "video") continue;
-		const url = blockUrl(block);
-		if (!url) continue;
-		const mimeType = blockMimeType(block);
-		return {
-			type: block.type,
-			url,
-			...(mimeType ? { mimeType } : {}),
-			...blockNaturalSize(block),
-		};
+function blockMeta(block: Record<string, unknown>) {
+	return record(block.meta);
+}
+
+function blockIdentity(block: Record<string, unknown>): string | undefined {
+	const meta = blockMeta(block);
+	const value =
+		meta?.id ??
+		meta?.clip_id ??
+		meta?.clipId ??
+		block.id ??
+		block.clip_id ??
+		block.clipId;
+	if (typeof value !== "string" && typeof value !== "number") return undefined;
+	return cleanExcerpt(String(value), 220);
+}
+
+function blockTitle(block: Record<string, unknown>): string | undefined {
+	const meta = blockMeta(block);
+	return cleanExcerpt(meta?.title ?? block.title ?? block.name, 240);
+}
+
+function blockDurationMs(block: Record<string, unknown>): number | undefined {
+	const source = record(block.source);
+	const meta = blockMeta(block);
+	const milliseconds = positiveNumber(
+		source?.durationMs ?? meta?.durationMs ?? block.durationMs,
+	);
+	if (milliseconds) return Math.round(milliseconds);
+	const seconds = positiveNumber(
+		source?.duration ?? meta?.duration ?? block.duration,
+	);
+	return seconds ? Math.round(seconds * 1000) : undefined;
+}
+
+function blockPreviewUrl(block: Record<string, unknown>): string | undefined {
+	const source = record(block.source);
+	return normalizeBoardRemoteUrl(
+		source?.poster ??
+			source?.thumbnail ??
+			source?.previewUrl ??
+			block.poster ??
+			block.thumbnail ??
+			block.previewUrl,
+	);
+}
+
+function artifactId(
+	base: string,
+	used: Set<string>,
+	suffix?: string,
+): string {
+	const stem = cleanExcerpt(base, 220) ?? "output";
+	let candidate = suffix ? `${stem}-${suffix}` : stem;
+	let sequence = 2;
+	while (used.has(candidate)) {
+		candidate = `${stem}-${suffix ? `${suffix}-` : ""}${sequence}`;
+		sequence += 1;
 	}
-	for (const block of blocks) {
-		if (block.type === "audio") {
-			const url = blockUrl(block);
+	used.add(candidate);
+	return candidate;
+}
+
+/**
+ * Group provider blocks into user-facing works. A cover/poster sharing a stable
+ * provider id with playable media belongs to that work instead of becoming a
+ * competing image result.
+ */
+export function taskArtifacts(
+	blocks: Record<string, unknown>[],
+): BoardTaskArtifact[] {
+	const groups = new Map<string, Record<string, unknown>[]>();
+	blocks.forEach((block, index) => {
+		const key = blockIdentity(block) ?? `output-${index + 1}`;
+		const group = groups.get(key);
+		if (group) group.push(block);
+		else groups.set(key, [block]);
+	});
+
+	const artifacts: BoardTaskArtifact[] = [];
+	const usedIds = new Set<string>();
+	for (const [groupId, blocksInGroup] of groups) {
+		const images = blocksInGroup
+			.filter((block) => block.type === "image")
+			.map((block) => ({ block, url: blockUrl(block) }))
+			.filter(
+				(entry): entry is typeof entry & { url: string } => Boolean(entry.url),
+			);
+		const media = blocksInGroup
+			.filter((block) => block.type === "video" || block.type === "audio")
+			.map((block) => ({ block, url: blockUrl(block) }))
+			.filter(
+				(entry): entry is typeof entry & { url: string } => Boolean(entry.url),
+			);
+		const pairedPreview = images[0];
+
+		media.forEach(({ block, url }, mediaIndex) => {
+			const type = block.type as "video" | "audio";
 			const mimeType = blockMimeType(block);
-			return {
-				type: "audio",
-				...(url ? { url } : {}),
+			const title = blockTitle(block);
+			const durationMs = blockDurationMs(block);
+			const previewUrl = blockPreviewUrl(block) ?? pairedPreview?.url;
+			const id = artifactId(
+				groupId,
+				usedIds,
+				media.length > 1 ? `${type}-${mediaIndex + 1}` : undefined,
+			);
+			if (type === "video") {
+				artifacts.push({
+					id,
+					type,
+					url,
+					...(title ? { title } : {}),
+					...(previewUrl ? { previewUrl } : {}),
+					...(mimeType ? { mimeType } : {}),
+					...(durationMs ? { durationMs } : {}),
+					...blockNaturalSize(block),
+				});
+				return;
+			}
+			artifacts.push({
+				id,
+				type,
+				url,
+				...(title ? { title } : {}),
+				...(previewUrl ? { previewUrl } : {}),
 				...(mimeType ? { mimeType } : {}),
-			};
+				...(durationMs ? { durationMs } : {}),
+			});
+		});
+
+		const firstUnpairedImage = media.length > 0 ? 1 : 0;
+		images.slice(firstUnpairedImage).forEach(({ block, url }, imageIndex) => {
+			const mimeType = blockMimeType(block);
+			const title = blockTitle(block);
+			artifacts.push({
+				id: artifactId(
+					groupId,
+					usedIds,
+					images.length - firstUnpairedImage > 1
+						? `image-${imageIndex + 1}`
+						: undefined,
+				),
+				type: "image",
+				url,
+				...(title ? { title } : {}),
+				...(mimeType ? { mimeType } : {}),
+				...blockNaturalSize(block),
+			});
+		});
+
+		blocksInGroup
+			.filter((block) => block.type === "text")
+			.forEach((block, textIndex, texts) => {
+				const textExcerpt = blockText(block);
+				if (!textExcerpt) return;
+				const title = blockTitle(block);
+				artifacts.push({
+					id: artifactId(
+						groupId,
+						usedIds,
+						texts.length > 1 ? `text-${textIndex + 1}` : undefined,
+					),
+					type: "text",
+					...(title ? { title } : {}),
+					textExcerpt,
+				});
+			});
+	}
+	return artifacts;
+}
+
+function artifactScore(artifact: BoardTaskArtifact): readonly number[] {
+	const kind = { text: 1, image: 2, audio: 3, video: 4 }[artifact.type];
+	if (artifact.type === "text") return [kind, artifact.textExcerpt.length];
+	if (artifact.type === "image") {
+		return [kind, (artifact.naturalWidth ?? 0) * (artifact.naturalHeight ?? 0)];
+	}
+	return [
+		kind,
+		artifact.previewUrl ? 1 : 0,
+		artifact.durationMs ? 1 : 0,
+		artifact.durationMs ?? 0,
+	];
+}
+
+function compareArtifacts(a: BoardTaskArtifact, b: BoardTaskArtifact): number {
+	const left = artifactScore(a);
+	const right = artifactScore(b);
+	for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
+		const difference = (right[index] ?? 0) - (left[index] ?? 0);
+		if (difference !== 0) return difference;
+	}
+	return 0;
+}
+
+/** Highest-value artifact first, with provider order as the stable final tie. */
+export function rankedTaskArtifacts(
+	artifacts: readonly BoardTaskArtifact[],
+): BoardTaskArtifact[] {
+	return artifacts
+		.map((artifact, index) => ({ artifact, index }))
+		.sort(
+			(a, b) => compareArtifacts(a.artifact, b.artifact) || a.index - b.index,
+		)
+		.map(({ artifact }) => artifact);
+}
+
+export function featuredTaskArtifact(
+	artifacts: readonly BoardTaskArtifact[],
+): BoardTaskArtifact | undefined {
+	let featured: BoardTaskArtifact | undefined;
+	for (const artifact of artifacts) {
+		if (!featured || compareArtifacts(artifact, featured) < 0) {
+			featured = artifact;
 		}
-		if (block.type === "text") {
-			const textExcerpt = blockText(block);
-			if (textExcerpt) return { type: "text", textExcerpt };
-		}
+	}
+	return featured;
+}
+
+export function taskArtifactPreviewUrl(
+	artifact: BoardTaskArtifact | undefined,
+): string | undefined {
+	if (artifact?.type === "image") return artifact.url;
+	if (artifact?.type === "video" || artifact?.type === "audio") {
+		return artifact.previewUrl;
 	}
 	return undefined;
 }
@@ -254,15 +348,19 @@ export function taskRunToBoardTaskSnapshot(
 			? generationPrompt(run)
 			: cleanExcerpt(data?.command ?? data?.prompt ?? data?.title);
 	const model = typeof data?.model === "string" ? data.model : undefined;
-	const primary = primaryOutput(blocks);
+	const allArtifacts = taskArtifacts(blocks);
+	const artifacts = rankedTaskArtifacts(allArtifacts).slice(
+		0,
+		BOARD_TASK_ARTIFACT_LIMIT,
+	);
 	return {
 		taskType: run.taskType,
 		status: run.status,
 		title: promptExcerpt ?? taskTypeTitle(run.taskType),
 		...(model ? { model } : {}),
 		...(promptExcerpt ? { promptExcerpt } : {}),
-		outputCount: blocks.length,
-		...(primary ? { primaryOutput: primary } : {}),
+		artifactCount: allArtifacts.length,
+		artifacts,
 		updatedAt: run.updatedAt,
 	};
 }
