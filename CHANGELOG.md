@@ -4,6 +4,16 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v2.20 — 2026-08-15
+
+- **Board audio**: Add first-class audio nodes across the Board protocol, SDK codec, renderer, Web editor, and Work publishing, with deterministic waveform previews and support for common audio formats.
+- **Unified media playback**: Play Board file and generation-task audio/video outputs in one inline player with streamable CDN URLs, stable play targets, keyboard controls, visibility/off-screen pausing, URL deduplication, and data-saving video-preview suppression.
+- **Shared TaskRun projections**: Move Board snapshot construction into the SDK, normalize safe remote output URLs without copying raw payloads or results, and add permission-aware batched task lookup via `TasksApi.getMany()` and the `ids` API filter.
+
+### Bug Fixes
+
+- **AI usage billing**: Fix zero-balance enforcement so paid AI requests require a positive balance, retain the $0.60 video minimum, bypass the gate when billing is disabled, and treat non-finite balances as evaluation errors.
+
 ## v2.19 — 2026-08-14
 
 - **Board task nodes**: Tasks can now be placed directly on Boards with multimodal output previews (images, videos with play badges, deterministic audio waveforms, and text excerpts), live status synchronization, asset preloading, and drag-and-drop from the session task tray.

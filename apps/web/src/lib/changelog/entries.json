@@ -1,5 +1,18 @@
 [
 	{
+		"version": "2.20",
+		"date": "2026-08-15",
+		"tags": ["v2.20.0"],
+		"highlights": [
+			"**Board audio**: Add first-class audio nodes across the Board protocol, SDK codec, renderer, Web editor, and Work publishing, with deterministic waveform previews and support for common audio formats.",
+			"**Unified media playback**: Play Board file and generation-task audio/video outputs in one inline player with streamable CDN URLs, stable play targets, keyboard controls, visibility/off-screen pausing, URL deduplication, and data-saving video-preview suppression.",
+			"**Shared TaskRun projections**: Move Board snapshot construction into the SDK, normalize safe remote output URLs without copying raw payloads or results, and add permission-aware batched task lookup via `TasksApi.getMany()` and the `ids` API filter."
+		],
+		"fixes": [
+			"**AI usage billing**: Fix zero-balance enforcement so paid AI requests require a positive balance, retain the $0.60 video minimum, bypass the gate when billing is disabled, and treat non-finite balances as evaluation errors."
+		]
+	},
+	{
 		"version": "2.19",
 		"date": "2026-08-14",
 		"tags": ["v2.19.0"],
