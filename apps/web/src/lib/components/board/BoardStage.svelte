@@ -846,8 +846,8 @@ function resizeStage() {
 	resizeFrame = requestAnimationFrame(() => {
 		if (!app) return;
 		app.resize();
-		syncStage();
 		reportSurfaceSize();
+		syncStage();
 	});
 }
 

@@ -13,8 +13,16 @@ import {
 import type { BoardStageExportBridge } from "$lib/board/board-image-export";
 import { playableBoardMedia } from "$lib/board/board-media-playback";
 import { defaultBoardTool } from "$lib/board/board-tool";
+import {
+	type BoardViewPreference,
+	boardViewPreferenceFromCamera,
+	cameraFromBoardViewPreference,
+	readBoardViewPreference,
+	writeBoardViewPreference,
+} from "$lib/board/board-view-preferences";
 import { createBoardEditor } from "$lib/board/editor.svelte";
 import type { BoardRuntimeProps } from "$lib/board/runtime/board-runtime";
+import { canUseUserScopedCache, getCacheUserKey } from "$lib/cache/keys";
 import BoardCollaboratorOverlay from "$lib/components/board/BoardCollaboratorOverlay.svelte";
 import BoardConnectionToolbar from "$lib/components/board/BoardConnectionToolbar.svelte";
 import BoardContextMenu from "$lib/components/board/BoardContextMenu.svelte";
@@ -79,6 +87,18 @@ let surfaceSize = $state<{ width: number; height: number }>({
 	height: 0,
 });
 let unsubscribeAwareness: (() => void) | null = null;
+const viewPreferenceUserKey = untrack(() => getCacheUserKey());
+const viewPreferenceEnabled = untrack(
+	() => mode === "edit" && canUseUserScopedCache(viewPreferenceUserKey),
+);
+const restoredViewPreference = viewPreferenceEnabled
+	? untrack(() =>
+			readBoardViewPreference(viewPreferenceUserKey, spaceId, boardId),
+		)
+	: null;
+let viewPreferenceRestored = false;
+let pendingViewPreference: BoardViewPreference | null = null;
+let viewPreferenceTimer: ReturnType<typeof setTimeout> | null = null;
 
 function playMedia(nodeId: string) {
 	const item = editor.itemById(nodeId);
@@ -118,6 +138,43 @@ const editor = createBoardEditor({
 	onViewStateChange: (state) => {
 		onViewStateChange?.({ path, ...state });
 	},
+});
+
+function flushViewPreference() {
+	if (viewPreferenceTimer) clearTimeout(viewPreferenceTimer);
+	viewPreferenceTimer = null;
+	if (!viewPreferenceEnabled || !pendingViewPreference) return;
+	writeBoardViewPreference(
+		viewPreferenceUserKey,
+		spaceId,
+		boardId,
+		pendingViewPreference,
+	);
+	pendingViewPreference = null;
+}
+
+function scheduleViewPreference(preference: BoardViewPreference) {
+	pendingViewPreference = preference;
+	if (viewPreferenceTimer) clearTimeout(viewPreferenceTimer);
+	viewPreferenceTimer = setTimeout(flushViewPreference, 300);
+}
+
+function handleSurfaceChange(size: { width: number; height: number }) {
+	editor.surfaceSize = size;
+	surfaceSize = size;
+	if (viewPreferenceRestored || size.width <= 0 || size.height <= 0) return;
+	viewPreferenceRestored = true;
+	if (!restoredViewPreference) return;
+	const camera = cameraFromBoardViewPreference(restoredViewPreference, size);
+	if (camera) editor.setCamera(camera);
+}
+
+$effect(() => {
+	const camera = editor.camera;
+	const surface = surfaceSize;
+	if (!viewPreferenceEnabled || !viewPreferenceRestored) return;
+	const preference = boardViewPreferenceFromCamera(camera, surface);
+	if (preference) untrack(() => scheduleViewPreference(preference));
 });
 
 $effect(() => {
@@ -465,6 +522,11 @@ function clearSpaceHeld() {
 	awareness.setCursor(null);
 }
 
+function handleVisibilityChange() {
+	clearSpaceHeld();
+	if (document.visibilityState === "hidden") flushViewPreference();
+}
+
 function retrySync() {
 	if (editor.saveError) {
 		editor.retrySave();
@@ -517,13 +579,15 @@ onMount(() => {
 	window.addEventListener("keyup", handleKeyup);
 	// Space hand can stick if the window blurs mid-hold (tab switch / alt-tab).
 	window.addEventListener("blur", clearSpaceHeld);
-	document.addEventListener("visibilitychange", clearSpaceHeld);
+	window.addEventListener("pagehide", flushViewPreference);
+	document.addEventListener("visibilitychange", handleVisibilityChange);
 	return () => {
 		unsubscribeTaskCache();
 		window.removeEventListener("keydown", handleKeydown);
 		window.removeEventListener("keyup", handleKeyup);
 		window.removeEventListener("blur", clearSpaceHeld);
-		document.removeEventListener("visibilitychange", clearSpaceHeld);
+		window.removeEventListener("pagehide", flushViewPreference);
+		document.removeEventListener("visibilitychange", handleVisibilityChange);
 		const unsubscribe = unsubscribeAwareness;
 		unsubscribeAwareness = null;
 		void awareness.destroy().finally(() => unsubscribe?.());
@@ -540,10 +604,12 @@ $effect(() => {
 });
 
 onDestroy(() => {
+	flushViewPreference();
 	window.removeEventListener("keydown", handleKeydown);
 	window.removeEventListener("keyup", handleKeyup);
 	window.removeEventListener("blur", clearSpaceHeld);
-	document.removeEventListener("visibilitychange", clearSpaceHeld);
+	window.removeEventListener("pagehide", flushViewPreference);
+	document.removeEventListener("visibilitychange", handleVisibilityChange);
 	editor.spaceHeld = false;
 	const unsubscribe = unsubscribeAwareness;
 	unsubscribeAwareness = null;
@@ -585,7 +651,7 @@ onDestroy(() => {
 			{onOpenFile}
 			onPlayMedia={playMedia}
 			onPointerPresence={(cursor) => { if (!readonly) awareness.setCursor(cursor); }}
-			onSurfaceChange={(size) => { editor.surfaceSize = size; surfaceSize = size; }}
+			onSurfaceChange={handleSurfaceChange}
 			onExportReady={(bridge) => { exportBridge = bridge; }}
 		/>
 
