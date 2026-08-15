@@ -42,7 +42,7 @@ LOGTO_ENDPOINT: "https://auth-dev.example.com"
 
 # ========== 路由配置 ==========
 ROUTE_ENABLED: "true"
-GATEWAY_HOSTNAME: "gateway-dev.example.com"
+GATEWAY_HOSTNAMES: "gateway-dev.cohub.live,gateway-dev.cohub.run"
 
 # ========== 环境标识 ==========
 ENV: "dev"

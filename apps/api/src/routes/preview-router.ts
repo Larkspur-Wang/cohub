@@ -12,7 +12,7 @@ import type {
 const PREVIEW_SESSION_COOKIE = "__preview_session";
 
 export type PreviewRouterDependencies = {
-  previewHostname: () => string;
+  previewHostnames: () => readonly string[];
   previewSessionTtlSeconds: number;
   getPreviewSessionPrincipal: (context: Context) => PreviewSessionPrincipal | null;
   hasPreviewSessionPermission: (
@@ -59,8 +59,11 @@ export function createPreviewRouter(dependencies: PreviewRouterDependencies) {
 
   function isPreviewHost(host: string | undefined) {
     const normalized = host?.split(":")[0]?.toLowerCase();
-    const expected = dependencies.previewHostname().trim().toLowerCase();
-    return Boolean(normalized && expected && normalized === expected);
+    return Boolean(
+      normalized && dependencies.previewHostnames().some(
+        (hostname) => normalized === hostname.trim().toLowerCase(),
+      ),
+    );
   }
 
   function previewOnly(context: Context) {

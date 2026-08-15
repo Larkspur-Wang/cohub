@@ -53,7 +53,10 @@ READINESS_FAILURE_THRESHOLD=$(get_value "READINESS_FAILURE_THRESHOLD")
 API_BASE_URL=$(get_value "API_BASE_URL")
 LOGTO_ENDPOINT=$(get_value "LOGTO_ENDPOINT")
 ROUTE_ENABLED=$(get_value "ROUTE_ENABLED")
-GATEWAY_HOSTNAME=$(get_value "GATEWAY_HOSTNAME")
+GATEWAY_HOSTNAMES=$(get_value "GATEWAY_HOSTNAMES")
+if [ -z "$GATEWAY_HOSTNAMES" ]; then
+  GATEWAY_HOSTNAMES=$(get_value "GATEWAY_HOSTNAME")
+fi
 ENV=$(get_value "ENV")
 LOG_LEVEL=$(get_value "LOG_LEVEL")
 
@@ -75,18 +78,27 @@ render_template() {
 
   cp "$src" "$dst"
 
-  python - "$dst" "$IMAGE_PULL_SECRET" <<'PY'
+  python - "$dst" "$IMAGE_PULL_SECRET" "$GATEWAY_HOSTNAMES" <<'PY'
 from pathlib import Path
+import re
 import sys
 path = Path(sys.argv[1])
 secret = sys.argv[2]
+hostnames = [value.strip().lower() for value in sys.argv[3].split(",") if value.strip()]
 text = path.read_text()
-placeholder = "__IMAGE_PULL_SECRETS_BLOCK__\n"
-if placeholder in text:
+secret_placeholder = "__IMAGE_PULL_SECRETS_BLOCK__\n"
+if secret_placeholder in text:
     replacement = ""
     if secret:
         replacement = f"      imagePullSecrets:\n        - name: {secret}\n"
-    text = text.replace(placeholder, replacement)
+    text = text.replace(secret_placeholder, replacement)
+hostnames_placeholder = "__HOSTNAMES_BLOCK__\n"
+if hostnames_placeholder in text:
+    if not hostnames:
+        raise SystemExit("At least one gateway hostname is required")
+    if any(not re.fullmatch(r"[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?", host) or ".." in host for host in hostnames):
+        raise SystemExit("Invalid gateway hostname")
+    text = text.replace(hostnames_placeholder, "".join(f'    - "{host}"\n' for host in dict.fromkeys(hostnames)))
 path.write_text(text)
 PY
 
@@ -116,7 +128,6 @@ PY
     -e "s|__READINESS_FAILURE_THRESHOLD__|${READINESS_FAILURE_THRESHOLD}|g" \
     -e "s|__API_BASE_URL__|${API_BASE_URL}|g" \
     -e "s|__LOGTO_ENDPOINT__|${LOGTO_ENDPOINT}|g" \
-    -e "s|__GATEWAY_HOSTNAME__|${GATEWAY_HOSTNAME}|g" \
     -e "s|__ENV__|${ENV}|g" \
     -e "s|__LOG_LEVEL__|${LOG_LEVEL:-info}|g" \
     "$dst"

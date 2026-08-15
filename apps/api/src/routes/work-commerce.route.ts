@@ -53,7 +53,7 @@ async function resolvePublicWorkUrl(input: { spaceId: string; workSlug: string }
     .limit(1);
   if (!row?.username || !row.spaceSlug) return null;
   const origin = config.webOrigin?.replace(/\/+$/, "")
-    ?? (config.env === "prod" ? "https://cohub.run" : "https://dev.cohub.run");
+    ?? (config.env === "prod" ? "https://cohub.live" : "https://dev.cohub.live");
   return `${origin}/${encodeURIComponent(row.username)}/${encodeURIComponent(row.spaceSlug)}/w/${encodeURIComponent(input.workSlug)}`;
 }
 

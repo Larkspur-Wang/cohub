@@ -280,7 +280,7 @@ when a deployment needs reproducible dependency updates.
 ### Environment detection — critical
 
 The SDK defaults to **production**. A Work running on a dev/staging host
-(e.g. `dev.cohub.run`, a `/dev/` path prefix) **must** pass `env: "dev"`
+(e.g. `dev.cohub.live`, a `/dev/` path prefix) **must** pass `env: "dev"`
 explicitly — browsers do not inject `ENV` like Node does. If you omit this,
 your Work will call the production API while the runtime host expects dev,
 causing silent auth failures.
@@ -304,7 +304,7 @@ iframe), pass the `work` option so the SDK can fall back to broker mode:
 const client = createCohubClient({
   env: isDevWork ? "dev" : "prod",
   work: {
-    brokerOrigin: isDevWork ? "https://dev.cohub.run" : "https://cohub.run",
+    brokerOrigin: isDevWork ? "https://dev.cohub.live" : "https://cohub.live",
     workId: "<your-published-work-id>",
   },
 });
@@ -332,7 +332,7 @@ All three values are known before publishing:
 const client = createCohubClient({
   env: isDevWork ? "dev" : "prod",
   work: {
-    brokerOrigin: isDevWork ? "https://dev.cohub.run" : "https://cohub.run",
+    brokerOrigin: isDevWork ? "https://dev.cohub.live" : "https://cohub.live",
     ownerUsername,
     spaceSlug,
     workSlug,

@@ -420,7 +420,7 @@ const cliLines = [
 							<ul class="footer-list">
 								<li>
 									<a
-										href="https://cohub.run/tzwm/cohub"
+										href="https://cohub.live/tzwm/cohub"
 										class="footer-link">Built in the open</a
 									>
 								</li>

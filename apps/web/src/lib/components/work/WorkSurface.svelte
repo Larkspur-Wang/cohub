@@ -104,7 +104,9 @@ function isAllowedFrameOrigin(origin: string, targetType: string) {
 		const { protocol, hostname } = new URL(origin);
 		if (protocol !== "https:") return false;
 		if (targetType === "port")
-			return hostname === "cohub.run" || hostname.endsWith(".cohub.run");
+			return ["cohub.live", "cohub.run"].some(
+				(domain) => hostname === domain || hostname.endsWith(`.${domain}`),
+			);
 		return true;
 	} catch {
 		return false;

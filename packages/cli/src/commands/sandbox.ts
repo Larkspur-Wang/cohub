@@ -18,7 +18,7 @@ type UpOptions = {
 };
 
 // Derive the gateway relay control endpoint from the realtime websocket URL,
-// e.g. wss://gateway.cohub.run/ws -> wss://gateway.cohub.run/sandbox/relay.
+// e.g. wss://gateway.cohub.live/ws -> wss://gateway.cohub.live/sandbox/relay.
 const resolveRelayUrl = (): string => {
   const explicit = process.env.COHUB_RELAY_URL?.trim();
   if (explicit) return explicit;
@@ -37,7 +37,7 @@ const confirm = async (question: string): Promise<boolean> => {
 };
 
 const webBaseUrl = (): string =>
-  resolveCohubEnvironment() === "prod" ? "https://cohub.run" : "https://dev.cohub.run";
+  resolveCohubEnvironment() === "prod" ? "https://cohub.live" : "https://dev.cohub.live";
 
 export const resolveLocalSpaceName = (rootDir: string, requestedName?: string): string =>
   requestedName?.trim() || basename(rootDir) || "local-space";

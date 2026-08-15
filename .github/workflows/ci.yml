@@ -63,9 +63,9 @@ jobs:
         run: |
           cat > .env <<EOF
           PUBLIC_COHUB_ENV=dev
-          PUBLIC_API_ORIGIN=https://api-dev.cohub.run
-          PUBLIC_GATEWAY_ORIGIN=https://gateway-dev.cohub.run
-          PUBLIC_PREVIEW_ORIGIN=https://preview-dev.cohub.run
+          PUBLIC_API_ORIGIN=https://api-dev.cohub.live
+          PUBLIC_GATEWAY_ORIGIN=https://gateway-dev.cohub.live
+          PUBLIC_PREVIEW_ORIGIN=https://preview-dev.cohub.live
           PUBLIC_LOGTO_ENDPOINT=https://dev-auth.neta.art/
           PUBLIC_LOGTO_APP_ID=vpikk7sl9zwvefiptowtn
           PUBLIC_LOGTO_API_RESOURCE=https://api.talesofai

@@ -87,7 +87,10 @@ SANDBOX_PUBLIC_DOMAINS=$(get_value "SANDBOX_PUBLIC_DOMAINS")
 WORK_CONTENT_HOST_SUFFIXES=$(get_value "WORK_CONTENT_HOST_SUFFIXES")
 CHECKPOINT_GIT_AUTHOR_EMAIL=$(get_value "CHECKPOINT_GIT_AUTHOR_EMAIL")
 ROUTE_ENABLED=$(get_value "ROUTE_ENABLED")
-API_HOSTNAME=$(get_value "API_HOSTNAME")
+API_HOSTNAMES=$(get_value "API_HOSTNAMES")
+if [ -z "$API_HOSTNAMES" ]; then
+  API_HOSTNAMES=$(get_value "API_HOSTNAME")
+fi
 ENV=$(get_value "ENV")
 LOG_LEVEL=$(get_value "LOG_LEVEL")
 
@@ -109,18 +112,27 @@ render_template() {
 
   cp "$src" "$dst"
 
-  python - "$dst" "$IMAGE_PULL_SECRET" <<'PY'
+  python - "$dst" "$IMAGE_PULL_SECRET" "$API_HOSTNAMES" <<'PY'
 from pathlib import Path
+import re
 import sys
 path = Path(sys.argv[1])
 secret = sys.argv[2]
+hostnames = [value.strip().lower() for value in sys.argv[3].split(",") if value.strip()]
 text = path.read_text()
-placeholder = "__IMAGE_PULL_SECRETS_BLOCK__\n"
-if placeholder in text:
+secret_placeholder = "__IMAGE_PULL_SECRETS_BLOCK__\n"
+if secret_placeholder in text:
     replacement = ""
     if secret:
         replacement = f"      imagePullSecrets:\n        - name: {secret}\n"
-    text = text.replace(placeholder, replacement)
+    text = text.replace(secret_placeholder, replacement)
+hostnames_placeholder = "__HOSTNAMES_BLOCK__\n"
+if hostnames_placeholder in text:
+    if not hostnames:
+        raise SystemExit("At least one API hostname is required")
+    if any(not re.fullmatch(r"[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?", host) or ".." in host for host in hostnames):
+        raise SystemExit("Invalid API hostname")
+    text = text.replace(hostnames_placeholder, "".join(f'    - "{host}"\n' for host in dict.fromkeys(hostnames)))
 path.write_text(text)
 PY
 
@@ -184,7 +196,6 @@ PY
     -e "s|__SANDBOX_PUBLIC_DOMAINS__|${SANDBOX_PUBLIC_DOMAINS}|g" \
     -e "s|__WORK_CONTENT_HOST_SUFFIXES__|${WORK_CONTENT_HOST_SUFFIXES}|g" \
     -e "s|__CHECKPOINT_GIT_AUTHOR_EMAIL__|${CHECKPOINT_GIT_AUTHOR_EMAIL}|g" \
-    -e "s|__API_HOSTNAME__|${API_HOSTNAME}|g" \
     -e "s|__ENV__|${ENV}|g" \
     -e "s|__LOG_LEVEL__|${LOG_LEVEL:-info}|g" \
     "$dst"

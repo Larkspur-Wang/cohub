@@ -101,7 +101,7 @@ resolved from request provenance. Nothing else can be targeted.
 Examples:
   cohub ui preview <work-id>
   cohub ui preview alice/studio/launch
-  cohub ui preview https://cohub.run/alice/studio/w/launch?view=timeline
+  cohub ui preview https://cohub.live/alice/studio/w/launch?view=timeline
   cohub ui preview <work-id> --call selection.get
   cohub ui preview <work-id> --call board.focus --data '{"nodeId":"n1"}'
 `,

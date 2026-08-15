@@ -127,7 +127,7 @@ function resolveMediaRef(
 	if (/^https?:/i.test(value) || /^data:/i.test(value)) return null;
 	if (!contentUrl) return null;
 	try {
-		// Root-relative `/favicon.svg` is the Work package root, not cohub.run/.
+		// Root-relative `/favicon.svg` is the Work package root, not cohub.live/.
 		const base = new URL(contentUrl);
 		const relative = value.replace(/^\.\//, "").replace(/^\/+/, "");
 		if (!relative || relative.includes("\0")) return null;

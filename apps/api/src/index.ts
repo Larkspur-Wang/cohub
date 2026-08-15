@@ -83,8 +83,9 @@ const PREVIEW_SESSION_COOKIE = "__preview_session";
 
 const isPreviewHost = (host: string | undefined) => {
   const normalized = host?.split(":")[0]?.toLowerCase();
-  const configured = process.env.PREVIEW_HOSTNAME?.trim().toLowerCase();
-  return Boolean(normalized && configured && normalized === configured);
+  return Boolean(
+    normalized && config.previewHostnames.some((hostname) => normalized === hostname),
+  );
 };
 
 app.use(async (c, next) => {

@@ -10,12 +10,12 @@ import {
 } from "../preview-sessions.js";
 import { createPreviewRouter } from "./preview-router.js";
 
-function createTestApp() {
+function createTestApp(previewHostnames: readonly string[] = ["preview.test"]) {
   const app = new Hono();
   app.route("/", createPreviewRouter({
     getPreviewSessionPrincipal: () => null,
     hasPreviewSessionPermission,
-    previewHostname: () => process.env.PREVIEW_HOSTNAME ?? "",
+    previewHostnames: () => previewHostnames,
     previewSessionTtlSeconds: PREVIEW_SESSION_TTL_SECONDS,
     requireValidId: (value) => Boolean(value),
     resolveSpaceFileDownload: async () => {
@@ -55,10 +55,17 @@ test("preview routes remain preview-host only", async () => {
   assert.deepEqual(await response.json(), { message: "not found" });
 });
 
+test("all configured preview hostnames are accepted", async () => {
+  const app = createTestApp(["preview.cohub.live", "preview.cohub.run"]);
+
+  for (const host of ["preview.cohub.live", "preview.cohub.run"]) {
+    const response = await app.request("/__session", { headers: { host } });
+    assert.equal(response.status, 401);
+  }
+});
+
 test("direct preview query tokens stay bound to their space", async () => {
-  const previousHostname = process.env.PREVIEW_HOSTNAME;
   const previousKey = config.appEncryptionKey;
-  process.env.PREVIEW_HOSTNAME = "preview.test";
   config.appEncryptionKey = "preview-route-test-key";
   try {
     const app = createTestApp();
@@ -74,15 +81,12 @@ test("direct preview query tokens stay bound to their space", async () => {
     assert.equal(response.status, 403);
     assert.deepEqual(await response.json(), { message: "forbidden" });
   } finally {
-    process.env.PREVIEW_HOSTNAME = previousHostname;
     config.appEncryptionKey = previousKey;
   }
 });
 
 test("legacy preview session ingress still redirects to a clean file URL", async () => {
-  const previousHostname = process.env.PREVIEW_HOSTNAME;
   const previousKey = config.appEncryptionKey;
-  process.env.PREVIEW_HOSTNAME = "preview.test";
   config.appEncryptionKey = "preview-route-test-key";
   try {
     const app = createTestApp();
@@ -100,7 +104,6 @@ test("legacy preview session ingress still redirects to a clean file URL", async
     assert.equal(response.headers.get("location"), `/s/${spaceId}/index.html`);
     assert.match(response.headers.get("set-cookie") ?? "", /__preview_session=/);
   } finally {
-    process.env.PREVIEW_HOSTNAME = previousHostname;
     config.appEncryptionKey = previousKey;
   }
 });

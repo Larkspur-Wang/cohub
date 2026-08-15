@@ -15,8 +15,8 @@
 
 | 环境 | 示例值 | 说明 |
 | --- | --- | --- |
-| dev | `https://api-dev.cohub.run` | GitHub Actions 自动部署到 dev 时使用 |
-| prod | `https://api.cohub.run` | GitHub Actions 手动部署到 prod 时使用 |
+| dev | `https://api-dev.cohub.live` | GitHub Actions 自动部署到 dev 时使用 |
+| prod | `https://api.cohub.live` | GitHub Actions 手动部署到 prod 时使用 |
 
 > 说明：该变量由 GitHub Actions 在构建前写入 `apps/web/.env`，无需再通过 Wrangler variables 配置。
 

@@ -8,8 +8,7 @@ spec:
     - name: traefik-gateway
       namespace: kube-system
   hostnames:
-    - "__API_HOSTNAME__"
-    - "__PREVIEW_HOSTNAME__"
+__HOSTNAMES_BLOCK__
   rules:
     # Space filesystem requests, including checkpoint snapshot browsing, are routed
     # from the main API to this fs-api deployment.

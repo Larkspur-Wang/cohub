@@ -77,7 +77,7 @@ export const config: WorkerConfig = {
   turnObjectS3Endpoint: process.env.TURN_OBJECT_S3_ENDPOINT ?? "http://127.0.0.1:9000",
   turnObjectS3Region: process.env.TURN_OBJECT_S3_REGION ?? "us-west-1",
   turnObjectS3Bucket: process.env.TURN_OBJECT_S3_BUCKET ?? "cohub-sessions",
-  turnObjectCdnBaseUrl: (process.env.TURN_OBJECT_CDN_BASE_URL ?? "https://sessions.cohub.run").replace(/\/+$/, ""),
+  turnObjectCdnBaseUrl: (process.env.TURN_OBJECT_CDN_BASE_URL ?? "https://sessions.cohub.live").replace(/\/+$/, ""),
   turnObjectS3AccessKeyId: process.env.TURN_OBJECT_S3_ACCESS_KEY_ID,
   turnObjectS3SecretAccessKey: process.env.TURN_OBJECT_S3_SECRET_ACCESS_KEY,
   publicAssetOssEndpoint: process.env.PUBLIC_ASSET_OSS_ENDPOINT,
@@ -94,7 +94,7 @@ export const config: WorkerConfig = {
   talesofaiBillingBusinessKey: process.env.TALESOFAI_BILLING_BUSINESS_KEY,
   talesofaiBillingAdminApiKey: process.env.TALESOFAI_BILLING_ADMIN_API_KEY,
   env,
-  checkpointGitAuthorEmail: process.env.CHECKPOINT_GIT_AUTHOR_EMAIL?.trim() || "noreply@cohub.run",
+  checkpointGitAuthorEmail: process.env.CHECKPOINT_GIT_AUTHOR_EMAIL?.trim() || "noreply@cohub.live",
 };
 
 export const assertRequiredConfig = () => {

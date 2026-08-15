@@ -73,8 +73,8 @@ CONFIGS_SUBPATH: "configs/prod"
 
 # ========== 路由配置 ==========
 ROUTE_ENABLED: "true"
-API_HOSTNAME: "api.example.com"
-PREVIEW_HOSTNAME: "preview.example.com"
+API_HOSTNAMES: "api.cohub.live,api.cohub.run"
+PREVIEW_HOSTNAMES: "preview.cohub.live,preview.cohub.run"
 
 # ========== 环境标识 ==========
 ENV: "prod"

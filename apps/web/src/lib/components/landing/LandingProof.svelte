@@ -18,7 +18,7 @@ const proofs = [
 	{
 		value: "Built in the open",
 		label: "Cohub is developed inside a public Cohub Space",
-		href: "https://cohub.run/tzwm/cohub",
+		href: "https://cohub.live/tzwm/cohub",
 	},
 	{
 		value: "Apache-2.0",

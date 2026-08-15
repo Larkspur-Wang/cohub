@@ -1,7 +1,7 @@
 import { config } from "../config.js";
 
 export function getWorkPublicOrigin() {
-  return (config.webOrigin ?? (config.env === "prod" ? "https://cohub.run" : "https://dev.cohub.run")).replace(/\/+$/, "");
+  return (config.webOrigin ?? (config.env === "prod" ? "https://cohub.live" : "https://dev.cohub.live")).replace(/\/+$/, "");
 }
 
 /** Build a public Work URL. Returns null when status is provided and not published. */

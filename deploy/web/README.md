@@ -12,8 +12,8 @@
 
 | 环境 | Worker 名称 | 配置文件 | API 地址 |
 |------|------------|---------|---------|
-| dev | cohub-web-dev | `wrangler.toml` | `https://api-dev.cohub.run` |
-| prod | cohub-web | `wrangler.prod.toml` | `https://api.cohub.run` |
+| dev | cohub-web-dev | `wrangler.toml` | `https://api-dev.cohub.live` |
+| prod | cohub-web | `wrangler.prod.toml` | `https://api.cohub.live` |
 
 ## 本地部署
 

@@ -13,6 +13,8 @@
 const EXACT_ALLOWED_ORIGINS = new Set<string>([
 	// Cohub public domain itself (for the case where a public work page opens
 	// the broker directly).
+	"https://cohub.live",
+	"https://www.cohub.live",
 	"https://cohub.run",
 	"https://www.cohub.run",
 	// neta.art trusted root domain and wildcard subdomains.
@@ -20,14 +22,14 @@ const EXACT_ALLOWED_ORIGINS = new Set<string>([
 	"https://www.neta.art",
 ]);
 
-const ALLOWED_SUFFIXES = [".neta.art", ".cohub.run"];
+const ALLOWED_SUFFIXES = [".neta.art", ".cohub.live", ".cohub.run"];
 
 /**
  * Returns true when the given origin is allowed to use the work auth broker.
  *
  * - HTTPS is enforced for all non-localhost origins.
  * - localhost / 127.0.0.1 on any port are always allowed for local dev.
- * - Exact matches and suffix matches (*.neta.art, *.cohub.run) are checked.
+ * - Exact matches and suffix matches (*.neta.art, *.cohub.live, *.cohub.run) are checked.
  */
 export function isAllowedWorkOrigin(origin: string): boolean {
 	if (!origin) return false;

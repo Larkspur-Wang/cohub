@@ -6,7 +6,7 @@ import { isCohubHostOrigin, WorkSurfaceApi } from "../src/work-surface.js";
 
 const originalWindow = globalThis.window;
 const originalDocument = globalThis.document;
-const COHUB = "https://cohub.run";
+const COHUB = "https://cohub.live";
 
 afterEach(() => {
 	globalThis.window = originalWindow;
@@ -123,13 +123,13 @@ test("a Cohub host can call a method and gets a reply addressed to its origin", 
 });
 
 // Each case must reach neither the handler nor `postMessage` — not even the
-// method list may leak. `works.cohub.run` matters most: Works are served from
+// method list may leak. `works.cohub.live` matters most: Works are served from
 // there, so a suffix match would let one Work call into another.
 for (const [name, embedder, origin, otherWindow] of [
 	["a third-party embedder", "https://evil.example", "https://evil.example", false],
 	["a spoofed origin from the real parent", COHUB, "https://evil.example", false],
 	["another window claiming the host origin", COHUB, COHUB, true],
-	["a Cohub content origin", "https://works.cohub.run", "https://works.cohub.run", false],
+	["a Cohub content origin", "https://works.cohub.live", "https://works.cohub.live", false],
 ] as const) {
 	test(`${name} cannot invoke a Work's methods`, async () => {
 		const { surface, posted, send } = mountWork(embedder, "https://sessions.cohub.run");
@@ -181,16 +181,21 @@ test("an unknown method and a throwing handler both report instead of hanging", 
 });
 
 test("only explicit app origins are trusted, not the whole subdomain space", () => {
-	for (const origin of [COHUB, "https://dev.cohub.run"]) {
+	for (const origin of [
+		COHUB,
+		"https://dev.cohub.live",
+		"https://cohub.run",
+		"https://dev.cohub.run",
+	]) {
 		assert.equal(isCohubHostOrigin(origin), true, origin);
 	}
 	for (const origin of [
-		"https://works.cohub.run",
+		"https://works.cohub.live",
 		"https://public.cohub.run",
-		"https://anything.cohub.run",
-		"http://cohub.run",
-		"https://cohub.run.evil.example",
-		"https://notcohub.run",
+		"https://anything.cohub.live",
+		"http://cohub.live",
+		"https://cohub.live.evil.example",
+		"https://notcohub.live",
 		"garbage",
 	]) {
 		assert.equal(isCohubHostOrigin(origin), false, origin);

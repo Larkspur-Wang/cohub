@@ -33,7 +33,7 @@ deploy/api/
 | Namespace | `cohub` | `cohub-dev` |
 | Sessions Namespace | `cohub-sessions` | `cohub-sessions-dev` |
 | App Name | `cohub-api` | `cohub-api-dev` |
-| Hostname | `api.cohub.run` | `api-dev.cohub.run` |
+| Hostname | `api.cohub.live` | `api-dev.cohub.live` |
 | ENV | `prod` | `dev` |
 
 ## 快速开始

@@ -1,3 +1,4 @@
+import { config } from "../config.js";
 import { getPreviewSessionPrincipal, requireValidId } from "../lib/middleware.js";
 import {
   hasPreviewSessionPermission,
@@ -14,7 +15,7 @@ import { createPreviewRouter } from "./preview-router.js";
 const router = createPreviewRouter({
   getPreviewSessionPrincipal,
   hasPreviewSessionPermission,
-  previewHostname: () => process.env.PREVIEW_HOSTNAME ?? "",
+  previewHostnames: () => config.previewHostnames,
   previewSessionTtlSeconds: PREVIEW_SESSION_TTL_SECONDS,
   requireValidId,
   resolveSpaceFileDownload,

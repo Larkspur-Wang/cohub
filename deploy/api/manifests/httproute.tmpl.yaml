@@ -8,7 +8,7 @@ spec:
     - name: traefik-gateway
       namespace: kube-system
   hostnames:
-    - "__API_HOSTNAME__"
+__HOSTNAMES_BLOCK__
   rules:
     - matches:
         - path:

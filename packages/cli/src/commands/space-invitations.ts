@@ -94,7 +94,7 @@ function invitationUrl(
     spaceSlug: string | null;
   },
 ) {
-  const origin = process.env.COHUB_WEB_URL?.replace(/\/+$/, "") ?? "https://cohub.run";
+  const origin = process.env.COHUB_WEB_URL?.replace(/\/+$/, "") ?? "https://cohub.live";
   return `${origin}${buildSpaceInvitePath({
     spaceId: invitation.spaceId,
     ownerUsername: invitation.ownerUsername,

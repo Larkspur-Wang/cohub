@@ -1,6 +1,6 @@
 /** Shared helpers for public marketing / content SEO. */
 
-const DEFAULT_ORIGIN = "https://cohub.run";
+const DEFAULT_ORIGIN = "https://cohub.live";
 
 export function siteOrigin(originFromPage?: string | null): string {
 	const fromEnv =

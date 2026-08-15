@@ -16,7 +16,7 @@ prod/
 1. 配置 `values.yaml`，确认以下关键配置：
    - `IMAGE_TAG` - 镜像版本
    - `API_BASE_URL` - API 服务地址（默认 `http://cohub-api:8787`）
-   - `GATEWAY_HOSTNAME` - 外部访问域名（默认 `gateway.cohub.run`）
+   - `GATEWAY_HOSTNAMES` - 外部访问域名列表（默认 `gateway.cohub.live,gateway.cohub.run`）
    - `ROUTE_ENABLED` - 是否启用外部路由（默认 `true`）
 
 2. 复制 secrets 模板并填入真实值：

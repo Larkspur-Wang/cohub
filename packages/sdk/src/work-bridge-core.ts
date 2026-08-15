@@ -91,7 +91,7 @@ export type WorkBridgeCoreConfig = {
 	authorizationContext?: WorkBridgeAuthorizationContext;
 	/** @deprecated Use authorizationContext with a background surface. */
 	isBackground?: boolean;
-	/** Base origin for Cohub API requests (e.g. "https://cohub.run"). */
+	/** Base origin for Cohub API requests (e.g. "https://cohub.live"). */
 	apiOrigin: string;
 	/** Sends a reply payload back to the work runtime. */
 	reply: (requestId: string, payload: Record<string, unknown>) => void;

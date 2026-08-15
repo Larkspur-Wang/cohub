@@ -31,7 +31,7 @@ type SessionServer interface {
 // Options configures the relay client.
 type Options struct {
 	// RelayURL is the gateway control endpoint, e.g.
-	// wss://gateway.cohub.run/sandbox/relay.
+	// wss://gateway.cohub.live/sandbox/relay.
 	RelayURL string
 	// Token is the user's access token, used by the gateway to authorize the
 	// caller against the target space.

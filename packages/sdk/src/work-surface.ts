@@ -19,11 +19,14 @@ export type WorkSurfaceHandler = (
 ) => unknown | Promise<unknown>;
 
 /**
- * Explicit app origins, not a `*.cohub.run` suffix match: Works themselves are
+ * Explicit app origins, not a Cohub suffix match: Works themselves are
  * served from Cohub subdomains, so a suffix match would let one Work call into
  * another and turn a subdomain takeover into surface access.
  */
 export const COHUB_APP_ORIGINS: readonly string[] = [
+  "https://cohub.live",
+  "https://www.cohub.live",
+  "https://dev.cohub.live",
   "https://cohub.run",
   "https://www.cohub.run",
   "https://dev.cohub.run",

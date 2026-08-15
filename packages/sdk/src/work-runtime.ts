@@ -468,7 +468,7 @@ export class WorkRuntimeApi {
 export type WorkRuntimeModeConfig = {
   /** Explicit mode selection. When omitted, auto-detection is used. */
   mode?: "bridge" | "broker";
-  /** Cohub origin for the broker page (e.g. "https://cohub.run"). */
+  /** Cohub origin for the broker page (e.g. "https://cohub.live"). */
   brokerOrigin?: string;
   /**
    * The work's public id. Required for broker mode unless the slug triple

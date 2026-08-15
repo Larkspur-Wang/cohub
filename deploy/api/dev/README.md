@@ -69,7 +69,7 @@ CI 构建还需要配置 `GITEA_NPM_TOKEN` secret。该 token 只在构建期用
 | Sessions Namespace | cohub-sessions | cohub-sessions-dev |
 | App Name | cohub-api | cohub-api-dev |
 | Replicas | 1+ | 1 |
-| Hostname | api.cohub.run | api-dev.cohub.run |
+| Hostname | api.cohub.live | api-dev.cohub.live |
 
 ## 常用命令
 

@@ -1,6 +1,6 @@
 # @neta-art/cohub-cli
 
-CLI for [Cohub](https://cohub.run) — work with Spaces, Chats, files, Saves, Tasks, scheduled prompts, search, and multimodal generation from your terminal.
+CLI for [Cohub](https://cohub.live) — work with Spaces, Chats, files, Saves, Tasks, scheduled prompts, search, and multimodal generation from your terminal.
 
 ## Installation
 

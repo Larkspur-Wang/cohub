@@ -1,5 +1,6 @@
 ---
 "@neta-art/cohub": patch
+"@neta-art/cohub-cli": patch
 ---
 
-Use `cohub.live` endpoints for the SDK's production and development environments.
+Use `cohub.live` endpoints and hosted app origins across the SDK and CLI.

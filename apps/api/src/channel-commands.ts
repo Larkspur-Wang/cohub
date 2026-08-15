@@ -77,7 +77,7 @@ type ChannelCommandHandler = (input: ChannelCommandExecutionInput) => Promise<bo
 const DEFAULT_MODEL_CONTEXT_WINDOW = 128_000;
 
 const getSessionUrl = (spaceId: string, sessionId: string) => {
-  const origin = (config.webOrigin ?? (config.env === "prod" ? "https://cohub.run" : "https://dev.cohub.run")).replace(/\/+$/, "");
+  const origin = (config.webOrigin ?? (config.env === "prod" ? "https://cohub.live" : "https://dev.cohub.live")).replace(/\/+$/, "");
   return `${origin}/spaces/${spaceId}/sessions/${sessionId}`;
 };
 

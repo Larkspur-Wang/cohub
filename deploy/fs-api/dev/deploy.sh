@@ -86,8 +86,16 @@ SPACE_UPLOAD_S3_BUCKET=$(get_value "SPACE_UPLOAD_S3_BUCKET")
 WORK_ASSET_CDN_BASE_URL=$(get_value "WORK_ASSET_CDN_BASE_URL")
 CONFIGS_SUBPATH=$(get_value "CONFIGS_SUBPATH")
 ROUTE_ENABLED=$(get_value "ROUTE_ENABLED")
-API_HOSTNAME=$(get_value "API_HOSTNAME")
-PREVIEW_HOSTNAME=$(get_value "PREVIEW_HOSTNAME")
+API_HOSTNAMES=$(get_value "API_HOSTNAMES")
+if [ -z "$API_HOSTNAMES" ]; then
+  API_HOSTNAMES=$(get_value "API_HOSTNAME")
+fi
+PREVIEW_HOSTNAMES=$(get_value "PREVIEW_HOSTNAMES")
+if [ -z "$PREVIEW_HOSTNAMES" ]; then
+  PREVIEW_HOSTNAMES=$(get_value "PREVIEW_HOSTNAME")
+fi
+PREVIEW_HOSTNAME=${PREVIEW_HOSTNAMES%%,*}
+ROUTE_HOSTNAMES="${API_HOSTNAMES},${PREVIEW_HOSTNAMES}"
 ENV=$(get_value "ENV")
 LOG_LEVEL=$(get_value "LOG_LEVEL")
 
@@ -103,18 +111,27 @@ render_template() {
 
   cp "$src" "$dst"
 
-  python - "$dst" "$IMAGE_PULL_SECRET" <<'PY'
+  python - "$dst" "$IMAGE_PULL_SECRET" "$ROUTE_HOSTNAMES" <<'PY'
 from pathlib import Path
+import re
 import sys
 path = Path(sys.argv[1])
 secret = sys.argv[2]
+hostnames = [value.strip().lower() for value in sys.argv[3].split(",") if value.strip()]
 text = path.read_text()
-placeholder = "__IMAGE_PULL_SECRETS_BLOCK__\n"
-if placeholder in text:
+secret_placeholder = "__IMAGE_PULL_SECRETS_BLOCK__\n"
+if secret_placeholder in text:
     replacement = ""
     if secret:
         replacement = f"      imagePullSecrets:\n        - name: {secret}\n"
-    text = text.replace(placeholder, replacement)
+    text = text.replace(secret_placeholder, replacement)
+hostnames_placeholder = "__HOSTNAMES_BLOCK__\n"
+if hostnames_placeholder in text:
+    if not hostnames:
+        raise SystemExit("At least one FS API hostname is required")
+    if any(not re.fullmatch(r"[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?", host) or ".." in host for host in hostnames):
+        raise SystemExit("Invalid FS API hostname")
+    text = text.replace(hostnames_placeholder, "".join(f'    - "{host}"\n' for host in dict.fromkeys(hostnames)))
 path.write_text(text)
 PY
 
@@ -151,6 +168,7 @@ PY
     -e "s|__GITEA_MANAGED_EMAIL_DOMAIN__|${GITEA_MANAGED_EMAIL_DOMAIN}|g" \
     -e "s|__WEB_ORIGIN__|${WEB_ORIGIN}|g" \
     -e "s|__PREVIEW_HOSTNAME__|${PREVIEW_HOSTNAME}|g" \
+    -e "s|__PREVIEW_HOSTNAMES__|${PREVIEW_HOSTNAMES}|g" \
     -e "s|__SANDBOX_IMAGE__|${SANDBOX_IMAGE}|g" \
     -e "s|__SPACE_STORAGE_ROOT__|${SPACE_STORAGE_ROOT}|g" \
     -e "s|__SPACE_SYSTEM_ROOT__|${SPACE_SYSTEM_ROOT}|g" \
@@ -177,8 +195,6 @@ PY
     -e "s|__SPACE_UPLOAD_S3_BUCKET__|${SPACE_UPLOAD_S3_BUCKET}|g" \
     -e "s|__WORK_ASSET_CDN_BASE_URL__|${WORK_ASSET_CDN_BASE_URL}|g" \
     -e "s|__CONFIGS_SUBPATH__|${CONFIGS_SUBPATH}|g" \
-    -e "s|__API_HOSTNAME__|${API_HOSTNAME}|g" \
-    -e "s|__PREVIEW_HOSTNAME__|${PREVIEW_HOSTNAME}|g" \
     -e "s|__ENV__|${ENV}|g" \
     -e "s|__LOG_LEVEL__|${LOG_LEVEL:-info}|g" \
     "$dst"

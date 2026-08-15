@@ -56,6 +56,8 @@ export type AppConfig = {
   checkpointAssetOssSecretAccessKey?: string;
   /** Router status probe API base URL, used to derive per-model availability. */
   routerStatusUrl: string;
+  /** Hostnames accepted for file preview requests. */
+  previewHostnames: string[];
   /** Public domains for sandbox port hostnames; the first is the primary. */
   sandboxPublicDomains: string[];
   /** Host suffixes accepted for Work content port URLs (security boundary). */
@@ -186,7 +188,7 @@ export const config: AppConfig = {
   turnObjectS3Bucket: process.env.TURN_OBJECT_S3_BUCKET ?? "cohub-sessions",
   turnObjectS3AccessKeyId: process.env.TURN_OBJECT_S3_ACCESS_KEY_ID,
   turnObjectS3SecretAccessKey: process.env.TURN_OBJECT_S3_SECRET_ACCESS_KEY,
-  turnObjectCdnBaseUrl: (process.env.TURN_OBJECT_CDN_BASE_URL ?? "https://sessions.cohub.run").replace(/\/+$/, ""),
+  turnObjectCdnBaseUrl: (process.env.TURN_OBJECT_CDN_BASE_URL ?? "https://sessions.cohub.live").replace(/\/+$/, ""),
   publicAssetOssEndpoint: process.env.PUBLIC_ASSET_OSS_ENDPOINT,
   publicAssetOssPublicEndpoint: process.env.PUBLIC_ASSET_OSS_PUBLIC_ENDPOINT,
   publicAssetOssRegion: process.env.PUBLIC_ASSET_OSS_REGION ?? "us-west-1",
@@ -209,15 +211,19 @@ export const config: AppConfig = {
   checkpointAssetOssAccessKeyId: process.env.CHECKPOINT_ASSET_OSS_ACCESS_KEY_ID ?? process.env.TURN_OBJECT_S3_ACCESS_KEY_ID,
   checkpointAssetOssSecretAccessKey: process.env.CHECKPOINT_ASSET_OSS_SECRET_ACCESS_KEY ?? process.env.TURN_OBJECT_S3_SECRET_ACCESS_KEY,
   routerStatusUrl: (process.env.ROUTER_STATUS_URL ?? "https://router-status.neta.art/api/v1/status").trim(),
+  previewHostnames: parseDomainList(
+    process.env.PREVIEW_HOSTNAMES ?? process.env.PREVIEW_HOSTNAME,
+    [],
+  ),
   sandboxPublicDomains: parseDomainList(
     process.env.SANDBOX_PUBLIC_DOMAINS ?? process.env.SANDBOX_PUBLIC_DOMAIN,
-    ["cohub.run"],
+    ["cohub.live", "cohub.run"],
   ),
   allowedWorkContentHostSuffixes: parseDomainList(
     process.env.WORK_CONTENT_HOST_SUFFIXES,
-    [".cohub.run", ".cohub.live"],
+    [".cohub.live", ".cohub.run"],
   ),
-  checkpointGitAuthorEmail: process.env.CHECKPOINT_GIT_AUTHOR_EMAIL?.trim() || "noreply@cohub.run",
+  checkpointGitAuthorEmail: process.env.CHECKPOINT_GIT_AUTHOR_EMAIL?.trim() || "noreply@cohub.live",
 };
 
 export const sessionsNamespace = getSessionsNamespace(config.env);

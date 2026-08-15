@@ -5,7 +5,7 @@ name: Preview Deploy
 # - 首次（labeled / reopened）：全量部署 api + gateway + web
 # - 后续 push（synchronize）：按变更路径增量部署（dorny/paths-filter）
 # - api / gateway：部署到 cohub-dev namespace（共享 PVC/配置），资源名带 pr-<n> 前缀隔离
-# - web：独立 Cloudflare Worker（cohub-web-pr-<n>），route 绑定 dev-<n>-preview.cohub.run
+# - web：独立 Cloudflare Worker（cohub-web-pr-<n>），route 绑定 dev-<n>-preview.cohub.live
 # 共享 dev：数据库（不跑 migration）、sandbox 镜像、PVC 存储（subpath 隔离）、configs。
 # fork PR 不部署（拿不到 secrets），只跑 CI。
 
@@ -31,11 +31,11 @@ env:
   PREVIEW_NAMESPACE: cohub-dev
   API_APP_NAME: cohub-api-pr-${{ github.event.pull_request.number }}
   GATEWAY_APP_NAME: cohub-gateway-pr-${{ github.event.pull_request.number }}
-  API_HOSTNAME: api-${{ github.event.pull_request.number }}-preview.cohub.run
-  GATEWAY_HOSTNAME: gateway-${{ github.event.pull_request.number }}-preview.cohub.run
+  API_HOSTNAME: api-${{ github.event.pull_request.number }}-preview.cohub.live
+  GATEWAY_HOSTNAME: gateway-${{ github.event.pull_request.number }}-preview.cohub.live
   # Web 域名必须以 dev 开头：auth.ts 的 IS_DEV 按 location.hostname.startsWith("dev")
   # 运行时判断 Logto 端点（dev-auth vs auth），preview 必须落入 dev 分支
-  WEB_HOSTNAME: dev-${{ github.event.pull_request.number }}-preview.cohub.run
+  WEB_HOSTNAME: dev-${{ github.event.pull_request.number }}-preview.cohub.live
   WEB_WORKER_NAME: cohub-web-pr-${{ github.event.pull_request.number }}
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -164,7 +164,7 @@ jobs:
           PUBLIC_COHUB_ENV=dev
           PUBLIC_API_ORIGIN=https://${{ env.API_HOSTNAME }}
           PUBLIC_GATEWAY_ORIGIN=https://${{ env.GATEWAY_HOSTNAME }}
-          PUBLIC_PREVIEW_ORIGIN=https://preview-dev.cohub.run
+          PUBLIC_PREVIEW_ORIGIN=https://preview-dev.cohub.live
           PUBLIC_LOGTO_ENDPOINT=https://dev-auth.neta.art/
           PUBLIC_LOGTO_APP_ID=vpikk7sl9zwvefiptowtn
           PUBLIC_LOGTO_API_RESOURCE=https://api.talesofai
@@ -204,9 +204,9 @@ jobs:
     environment:
       name: preview-${{ github.event.pull_request.number }}
       # environment.url 不支持 env 上下文，直接展开固定域名
-      url: https://dev-${{ github.event.pull_request.number }}-preview.cohub.run
+      url: https://dev-${{ github.event.pull_request.number }}-preview.cohub.live
     env:
-      WEB_URL: https://dev-${{ github.event.pull_request.number }}-preview.cohub.run
+      WEB_URL: https://dev-${{ github.event.pull_request.number }}-preview.cohub.live
     steps:
       # 部署脚本/模板必须来自 main（可信）；PR 的代码只以镜像 tag 形式进入
       - name: Checkout (main)
@@ -454,7 +454,7 @@ jobs:
             const updated = new Date().toUTCString();
 
             const body = `${marker}
-            <img src="https://cohub.run/favicon.svg" width="20" height="20" alt="Cohub" align="left" /> &nbsp;**Cohub Preview Deployed**
+            <img src="https://cohub.live/favicon.svg" width="20" height="20" alt="Cohub" align="left" /> &nbsp;**Cohub Preview Deployed**
 
             | Status | Name | Commit | Preview URL | Updated (UTC) |
             |---|---|---|---|---|
