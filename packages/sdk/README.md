@@ -23,8 +23,8 @@ const content: ContentBlock[] = [{ type: "text", text: "Hello" }];
 
 The SDK connects to production by default:
 
-- API: `https://api.cohub.run`
-- WebSocket: `wss://gateway.cohub.run/ws`
+- API: `https://api.cohub.live`
+- WebSocket: `wss://gateway.cohub.live/ws`
 
 Use development with `ENV=dev` in Node.js:
 
@@ -43,8 +43,8 @@ const client = createCohubClient({
 
 Development uses:
 
-- API: `https://api-dev.cohub.run`
-- WebSocket: `wss://gateway-dev.cohub.run/ws`
+- API: `https://api-dev.cohub.live`
+- WebSocket: `wss://gateway-dev.cohub.live/ws`
 
 Custom endpoints are still supported when needed:
 

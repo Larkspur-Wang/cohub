@@ -2,14 +2,14 @@ export type CohubEnvironment = "prod" | "dev";
 
 export const COHUB_ENVIRONMENTS = {
   prod: {
-    apiBaseUrl: "https://api.cohub.run",
-    websocketUrl: "wss://gateway.cohub.run/ws",
-    voiceInputWebsocketUrl: "wss://gateway.cohub.run/asr/ws",
+    apiBaseUrl: "https://api.cohub.live",
+    websocketUrl: "wss://gateway.cohub.live/ws",
+    voiceInputWebsocketUrl: "wss://gateway.cohub.live/asr/ws",
   },
   dev: {
-    apiBaseUrl: "https://api-dev.cohub.run",
-    websocketUrl: "wss://gateway-dev.cohub.run/ws",
-    voiceInputWebsocketUrl: "wss://gateway-dev.cohub.run/asr/ws",
+    apiBaseUrl: "https://api-dev.cohub.live",
+    websocketUrl: "wss://gateway-dev.cohub.live/ws",
+    voiceInputWebsocketUrl: "wss://gateway-dev.cohub.live/asr/ws",
   },
 } as const satisfies Record<CohubEnvironment, { apiBaseUrl: string; websocketUrl: string; voiceInputWebsocketUrl: string }>;
 
