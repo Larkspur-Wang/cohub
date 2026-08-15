@@ -5,17 +5,11 @@ import type {
 	SkillCatalogEntry,
 	VoiceInputClient,
 } from "@neta-art/cohub";
-import {
-	ArrowUp,
-	ChevronDown,
-	Maximize2,
-	Mic,
-	Minimize2,
-	Plus,
-	Square,
-	X,
-} from "lucide-svelte";
+import { Maximize2, Mic, Minimize2, Plus, X } from "lucide-svelte";
 import { onMount } from "svelte";
+import ComposerModelTrigger from "$lib/components/composer/ComposerModelTrigger.svelte";
+import ComposerSubmitButton from "$lib/components/composer/ComposerSubmitButton.svelte";
+import ComposerSurface from "$lib/components/composer/ComposerSurface.svelte";
 import { mediaLightbox } from "$lib/components/media-lightbox.svelte";
 import SlashCommandMenu, {
 	type SlashCommandMenuItem,
@@ -28,6 +22,10 @@ import {
 	type ComposerAttachment,
 	type ComposerImageAttachment,
 } from "$lib/composer-attachments";
+import {
+	getComposerKeyAction,
+	isMobileComposerInput,
+} from "$lib/composer-keyboard";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import {
 	type ResourceMentionTextToken,
@@ -345,23 +343,13 @@ const shouldRenderComposerMentionMirror = $derived(
 	composerHasRenderableMentions,
 );
 
-// Detect mobile/touch — on mobile, Enter should insert newline, not send
-function isMobile(): boolean {
-	if (typeof window === "undefined") return false;
-	return (
-		"ontouchstart" in window ||
-		window.matchMedia("(pointer: coarse)").matches ||
-		navigator.maxTouchPoints > 0
-	);
-}
-
 function getViewportHeight(): number {
 	if (typeof window === "undefined") return 800;
 	return window.visualViewport?.height ?? window.innerHeight;
 }
 
 function getTextareaLimits(expanded = isComposerExpanded) {
-	const mobile = isMobile();
+	const mobile = isMobileComposerInput();
 	const viewportHeight = getViewportHeight();
 	const min = expanded ? (mobile ? 144 : 168) : 44;
 	const max = expanded
@@ -1028,7 +1016,7 @@ function handlePaste(event: ClipboardEvent) {
 }
 
 onMount(() => {
-	if (mobileAutoFocusOnMount || !isMobile()) focusComposer();
+	if (mobileAutoFocusOnMount || !isMobileComposerInput()) focusComposer();
 	const handleComposerInsert = (event: Event) => {
 		const custom = event as CustomEvent<{
 			snippet?: string;
@@ -1153,13 +1141,7 @@ $effect(() => {
 			{/if}
 		{/if}
 
-		<form
-			class="relative rounded-[var(--chat-composer-radius)] border border-[color:var(--chat-composer-border)] bg-[var(--chat-composer-bg)] p-2 shadow-[0_12px_36px_rgba(15,23,42,0.08)] backdrop-blur-md transition-colors focus-within:border-[color:var(--chat-composer-border-focus)] focus-within:bg-[var(--chat-composer-bg-focus)]"
-			onsubmit={(event) => {
-				event.preventDefault();
-				submitDraft();
-			}}
-		>
+		<ComposerSurface onsubmit={submitDraft}>
 			{#if viewportContexts.length > 0}
 				<div class="mb-1.5 px-3 pt-1" data-drawer-swipe-ignore>
 					<ViewportContextBlocks
@@ -1373,21 +1355,10 @@ $effect(() => {
 							}
 
 							if (
-								(event.metaKey || event.ctrlKey) &&
-								event.key === 'Enter' &&
-								!isComposingKeyboardEvent(event)
+								getComposerKeyAction(event, {
+									mobile: isMobileComposerInput(),
+								}) === 'submit'
 							) {
-								event.preventDefault();
-								submitDraft();
-								return;
-							}
-
-							if (
-								event.key === 'Enter' &&
-								!event.shiftKey &&
-								!isComposingKeyboardEvent(event)
-							) {
-								if (isMobile()) return;
 								event.preventDefault();
 								submitDraft();
 							}
@@ -1435,42 +1406,15 @@ $effect(() => {
 							{/if}
 
 							{#if onModelSelect}
-								<button
-									type="button"
-									class="group flex h-7 max-w-[min(100%,17rem)] items-center gap-1 overflow-hidden rounded-full border border-border-subtle px-2 text-[11px] leading-none text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand/40 disabled:cursor-not-allowed disabled:opacity-50"
-									onclick={() => onModelSelect?.()}
+								<ComposerModelTrigger
+									label={modelControlLabel}
+									meta={[thinkingLevelLabel, generationPolicyLabel].filter(
+										(value): value is string => Boolean(value),
+									)}
+									ariaLabel={modelControlAriaLabel}
 									disabled={disabled || sending}
-									aria-label={modelControlAriaLabel}
-								>
-									<span class="flex min-w-0 flex-1 items-baseline gap-1 overflow-hidden">
-										<span class="min-w-0 shrink truncate text-text-tertiary group-hover:text-text-secondary">
-											{modelControlLabel}
-										</span>
-										{#if thinkingLevelLabel}
-											<span
-												class="flex min-w-0 max-w-[4.25rem] shrink-[3] items-baseline gap-0.5 text-[10px] leading-none text-text-placeholder/80 transition-colors group-hover:text-text-placeholder"
-												aria-hidden="true"
-											>
-												<span class="shrink-0 opacity-40">·</span>
-												<span class="min-w-0 truncate tracking-tight tabular-nums">
-													{thinkingLevelLabel}
-												</span>
-											</span>
-										{/if}
-										{#if generationPolicyLabel}
-											<span
-												class="flex min-w-0 max-w-[6.5rem] shrink-[4] items-baseline gap-0.5 text-[10px] leading-none text-text-placeholder/80 transition-colors group-hover:text-text-placeholder"
-												aria-hidden="true"
-											>
-												<span class="shrink-0 opacity-40">·</span>
-												<span class="min-w-0 truncate tracking-tight tabular-nums">
-													{generationPolicyLabel}
-												</span>
-											</span>
-										{/if}
-									</span>
-									<ChevronDown class="h-3 w-3 shrink-0 opacity-40 transition-opacity group-hover:opacity-65" />
-								</button>
+									onclick={() => onModelSelect?.()}
+								/>
 							{/if}
 						</div>
 
@@ -1509,27 +1453,17 @@ $effect(() => {
 							>
 								<Mic class="h-4 w-4" />
 							</button>
-							<button
-								type={showAbort ? "button" : "submit"}
+							<ComposerSubmitButton
+								label={showAbort ? "Stop generation" : "Send"}
+								stop={showAbort}
 								disabled={showAbort ? disabled || aborting : submitDisabled}
-								class={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-all hover:scale-[1.02] disabled:scale-100 disabled:cursor-not-allowed disabled:bg-bg-hover-strong disabled:text-text-disabled ${showAbort ? 'bg-text-primary text-bg-primary hover:bg-text-secondary' : 'bg-brand text-brand-contrast-fg hover:bg-brand-hover'}`}
-								title={showAbort ? "Stop generation" : "Send"}
-								aria-label={showAbort ? "Stop generation" : "Send"}
-								onclick={() => {
-									if (showAbort) onabort?.();
-								}}
-							>
-								{#if showAbort}
-									<Square class="h-3.5 w-3.5 fill-current" />
-								{:else}
-									<ArrowUp class="h-4 w-4" />
-								{/if}
-							</button>
+								onclick={showAbort ? () => onabort?.() : undefined}
+							/>
 						</div>
 					</div>
 				</div>
 			</div>
-		</form>
+		</ComposerSurface>
 	</div>
 </div>
 

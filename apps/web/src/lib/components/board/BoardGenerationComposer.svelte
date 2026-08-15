@@ -3,9 +3,7 @@ import type { PublicGenerationDeclaration } from "@cohub/protocol/generation";
 import type { BoardItem } from "@neta-art/cohub/board";
 import { featuredTaskArtifact, worldPoint } from "@neta-art/cohub/board";
 import {
-	ArrowUp,
 	AudioLines,
-	ChevronDown,
 	Image,
 	Link2,
 	LoaderCircle,
@@ -33,7 +31,15 @@ import {
 } from "$lib/board/board-generation";
 import type { BoardEditor } from "$lib/board/editor.svelte";
 import { canUseUserScopedCache, getCacheUserKey } from "$lib/cache/keys";
+import ComposerModelTrigger from "$lib/components/composer/ComposerModelTrigger.svelte";
+import ComposerSubmitButton from "$lib/components/composer/ComposerSubmitButton.svelte";
+import ComposerSurface from "$lib/components/composer/ComposerSurface.svelte";
+import {
+	getComposerKeyAction,
+	isMobileComposerInput,
+} from "$lib/composer-keyboard";
 import { getGenerationModelPickerItems } from "$lib/generation-model-catalog";
+import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { sdk } from "$lib/sdk";
 import {
 	getCachedGenerationModels,
@@ -82,6 +88,7 @@ let submitting = $state(false);
 let startedTaskRunId = $state<string | null>(null);
 let error = $state<string | null>(null);
 let textarea: HTMLTextAreaElement | null = $state(null);
+let resizeFrame: number | null = null;
 let disposed = false;
 
 function readStorage(key: string) {
@@ -465,22 +472,56 @@ async function submit() {
 	if (nodeAdded) onClose();
 }
 
+function resizeTextarea() {
+	resizeFrame = null;
+	if (!textarea) return;
+	const selectionStart = textarea.selectionStart;
+	const selectionEnd = textarea.selectionEnd;
+	const scrollTop = textarea.scrollTop;
+	const maxHeight = Math.min(
+		window.visualViewport?.height ? window.visualViewport.height * 0.34 : 180,
+		220,
+	);
+	textarea.style.height = "1px";
+	textarea.style.height = `${Math.max(44, Math.min(textarea.scrollHeight, maxHeight))}px`;
+	textarea.setSelectionRange(selectionStart, selectionEnd);
+	textarea.scrollTop = Math.min(
+		scrollTop,
+		Math.max(0, textarea.scrollHeight - textarea.clientHeight),
+	);
+}
+
+function scheduleResizeTextarea() {
+	if (resizeFrame !== null) return;
+	resizeFrame = window.requestAnimationFrame(resizeTextarea);
+}
+
+function handlePromptKeydown(event: KeyboardEvent) {
+	if (
+		getComposerKeyAction(event, { mobile: isMobileComposerInput() }) !==
+		"submit"
+	)
+		return;
+	event.preventDefault();
+	void submit();
+}
+
 function handleKeydown(event: KeyboardEvent) {
-	if (event.key === "Escape") {
-		if (modelOpen || settingsOpen || referenceOpen) {
-			modelOpen = false;
-			settingsOpen = false;
-			referenceOpen = false;
-			return;
-		}
-		persistDraft();
-		onClose();
+	if (event.key !== "Escape" || isComposingKeyboardEvent(event)) return;
+	if (modelOpen || settingsOpen || referenceOpen) {
+		event.preventDefault();
+		modelOpen = false;
+		settingsOpen = false;
+		referenceOpen = false;
 		return;
 	}
-	if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+	if (document.activeElement === textarea) {
 		event.preventDefault();
-		void submit();
+		textarea?.blur();
+		return;
 	}
+	persistDraft();
+	onClose();
 }
 
 onMount(() => {
@@ -516,7 +557,22 @@ onMount(() => {
 		.finally(() => {
 			if (!disposed) loadingModels = false;
 		});
-	requestAnimationFrame(() => textarea?.focus());
+	const handleViewportResize = () => scheduleResizeTextarea();
+	window.addEventListener("resize", handleViewportResize);
+	window.visualViewport?.addEventListener("resize", handleViewportResize);
+	requestAnimationFrame(() => {
+		resizeTextarea();
+		textarea?.focus();
+	});
+	return () => {
+		window.removeEventListener("resize", handleViewportResize);
+		window.visualViewport?.removeEventListener("resize", handleViewportResize);
+	};
+});
+
+$effect(() => {
+	prompt;
+	scheduleResizeTextarea();
 });
 
 $effect(() => {
@@ -530,6 +586,7 @@ $effect(() => {
 
 onDestroy(() => {
 	disposed = true;
+	if (resizeFrame !== null) window.cancelAnimationFrame(resizeFrame);
 	persistDraft();
 });
 </script>
@@ -537,7 +594,8 @@ onDestroy(() => {
 <svelte:window onkeydown={handleKeydown} />
 
 <div class="generation-wrap" class:generation-wrap--immersive={immersive}>
-	<div class="generation-composer">
+	{#if error}<div class="error-notice" role="status">{error}</div>{/if}
+	<ComposerSurface>
 		{#if references.length > 0 || resolvingSelection}
 			<div class="reference-strip" aria-label="Generation references">
 				{#each references as reference (reference.id)}
@@ -569,24 +627,22 @@ onDestroy(() => {
 		<textarea
 			bind:this={textarea}
 			bind:value={prompt}
-			rows="2"
+			rows="1"
 			placeholder="Describe what to generate..."
 			aria-label="Generation prompt"
+			oninput={scheduleResizeTextarea}
+			onkeydown={handlePromptKeydown}
 		></textarea>
 
 		<div class="composer-footer">
 			<div class="footer-tools">
-				<div class="relative">
-					<button
-						type="button"
-						class="control-btn model-btn"
-						aria-expanded={modelOpen}
+				<div class="relative min-w-0">
+					<ComposerModelTrigger
+						label={selectedModel?.title ?? selectedModel?.model ?? "Model"}
+						expanded={modelOpen}
+						loading={loadingModels && !selectedModel}
 						onclick={() => { modelOpen = !modelOpen; settingsOpen = false; referenceOpen = false; }}
-					>
-						{#if loadingModels && !selectedModel}<LoaderCircle class="h-3.5 w-3.5 animate-spin" />{/if}
-						<span class="truncate">{selectedModel?.title ?? selectedModel?.model ?? "Model"}</span>
-						<ChevronDown class="h-3 w-3 shrink-0" />
-					</button>
+					/>
 					{#if modelOpen}
 						<div class="popover model-popover">
 							<label class="search-field">
@@ -681,21 +737,17 @@ onDestroy(() => {
 				{/if}
 			</div>
 
-			{#if error}<span class="error-text" title={error}>{error}</span>{/if}
-			<button
-				type="button"
-				class="submit-btn"
-				title={startedTaskRunId
+			<ComposerSubmitButton
+				label={startedTaskRunId
 					? "Generation started"
-					: validationError ?? "Generate (Ctrl+Enter)"}
-				aria-label="Generate"
+					: validationError ?? "Generate"}
+				loading={submitting}
 				disabled={submitting || Boolean(startedTaskRunId || validationError)}
+				buttonType="button"
 				onclick={() => { void submit(); }}
-			>
-				{#if submitting}<LoaderCircle class="h-4 w-4 animate-spin" />{:else}<ArrowUp class="h-4 w-4" />{/if}
-			</button>
+			/>
 		</div>
-	</div>
+	</ComposerSurface>
 </div>
 
 <style>
@@ -711,36 +763,40 @@ onDestroy(() => {
 		left: calc((var(--preview-safe-left, 10px) + 100% - var(--preview-safe-right, 10px)) / 2);
 		width: min(560px, calc(100% - var(--preview-safe-left, 10px) - var(--preview-safe-right, 10px) - 16px));
 	}
-	.generation-composer {
-		position: relative;
-		border: 1px solid var(--border-subtle);
-		border-radius: 8px;
-		background: color-mix(in srgb, var(--bg-elevated) 97%, transparent);
-		box-shadow: 0 14px 34px color-mix(in srgb, var(--overlay-scrim-strong) 20%, transparent);
-		backdrop-filter: blur(14px);
-		overflow: visible;
+	.error-notice {
+		margin-bottom: 8px;
+		border: 1px solid color-mix(in srgb, var(--error-soft) 25%, transparent);
+		border-radius: 12px;
+		background: var(--error-bg);
+		padding: 8px 12px;
+		font-size: 11px;
+		line-height: 1.4;
+		color: var(--error-soft);
+		overflow-wrap: anywhere;
 	}
 	textarea {
 		display: block;
 		width: 100%;
-		min-height: 68px;
-		max-height: 180px;
-		resize: vertical;
+		min-height: 44px;
+		max-height: 220px;
+		resize: none;
+		overflow-y: auto;
+		overscroll-behavior: contain;
 		border: 0;
 		background: transparent;
-		padding: 12px 12px 7px;
-		font-size: 13px;
-		line-height: 1.5;
+		padding: 6px 12px 0;
+		font-size: 14px;
+		line-height: 24px;
 		color: var(--text-primary);
 		outline: none;
 	}
-	textarea::placeholder { color: var(--text-tertiary); }
+	textarea::placeholder { color: var(--text-placeholder); }
 	.reference-strip {
 		display: flex;
 		align-items: center;
 		gap: 5px;
 		overflow-x: auto;
-		padding: 8px 8px 0;
+		padding: 4px 12px 6px;
 		scrollbar-width: none;
 	}
 	.reference-strip::-webkit-scrollbar { display: none; }
@@ -768,14 +824,13 @@ onDestroy(() => {
 	}
 	.composer-footer {
 		display: flex;
-		min-height: 40px;
+		min-height: 42px;
 		align-items: center;
-		gap: 6px;
-		border-top: 1px solid var(--border-subtle);
-		padding: 5px 6px;
+		gap: 8px;
+		padding: 2px 4px 0;
 	}
-	.footer-tools { display: flex; min-width: 0; flex: 1; align-items: center; gap: 3px; }
-	.control-btn, .icon-btn, .mini-btn, .submit-btn {
+	.footer-tools { display: flex; min-width: 0; flex: 1; align-items: center; gap: 4px; }
+	.icon-btn, .mini-btn {
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
@@ -783,35 +838,10 @@ onDestroy(() => {
 		color: var(--text-secondary);
 		transition: background-color 100ms ease, color 100ms ease, border-color 100ms ease;
 	}
-	.control-btn:hover, .icon-btn:hover, .mini-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
-	.model-btn {
-		max-width: 190px;
-		height: 28px;
-		gap: 5px;
-		border-radius: 6px;
-		padding: 0 7px;
-		font-size: 11px;
-	}
+	.icon-btn:hover, .mini-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
 	.icon-btn { width: 28px; height: 28px; border-radius: 6px; }
 	.icon-btn--active { background: var(--brand-bg); color: var(--brand-muted-fg); }
 	.mini-btn { width: 20px; height: 20px; border-radius: 4px; }
-	.submit-btn {
-		width: 30px;
-		height: 30px;
-		flex: 0 0 auto;
-		border-radius: 7px;
-		background: var(--brand);
-		color: var(--brand-contrast-fg);
-	}
-	.submit-btn:disabled { cursor: not-allowed; opacity: 0.4; }
-	.error-text {
-		max-width: 180px;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		font-size: 10px;
-		color: var(--error-soft);
-	}
 	.popover {
 		position: absolute;
 		bottom: calc(100% + 7px);
@@ -894,15 +924,12 @@ onDestroy(() => {
 	.parameter-row input[type="checkbox"] { justify-self: end; accent-color: var(--brand); }
 	@media (pointer: coarse) {
 		.generation-wrap { bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
-		.icon-btn, .submit-btn { width: 36px; height: 36px; }
-		.model-btn { min-width: 0; height: 36px; max-width: 150px; }
+		.icon-btn { width: 36px; height: 36px; }
 		.composer-footer { min-height: 48px; }
 		.mini-btn { width: 28px; height: 28px; }
 	}
 	@media (max-width: 520px) {
 		.generation-wrap { width: calc(100% - 16px); }
-		.generation-composer { border-radius: 8px; }
-		.error-text { max-width: 110px; }
 		.reference-anchor, .settings-anchor { position: static; }
 		.reference-popover, .settings-popover {
 			left: 8px;
