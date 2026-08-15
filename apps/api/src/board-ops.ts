@@ -14,6 +14,7 @@ import {
   type BoardRenderCost,
   type BoardTransaction,
   type BoardValidationResult,
+  validateBoardNodeInput,
 } from "@cohub/protocol";
 import {
   BoardConnectionPatchSchema,
@@ -28,6 +29,7 @@ export class BoardServiceError extends Error {
     public status: number,
     message: string,
     public code?: string,
+    public diagnostics?: BoardDiagnostic[],
   ) {
     super(message);
     this.name = "BoardServiceError";
@@ -164,18 +166,32 @@ function optionalString(value: unknown, fieldName: string, maxLength = MAX_REF_L
   return result || null;
 }
 
-export function normalizeNode(input: BoardNodeInput): BoardNodeInput {
+export function normalizeNode(
+  input: BoardNodeInput,
+  path = "node",
+  validateSemantics = true,
+): BoardNodeInput {
   if (!isRecord(input) || typeof input.nodeId !== "string" || !input.nodeId.trim()) {
     throw new BoardServiceError(400, "nodeId is required");
   }
   if (input.nodeId.length > MAX_NODE_ID_LENGTH) throw new BoardServiceError(400, "nodeId is too long");
   if (typeof input.type !== "string" || !input.type.trim()) throw new BoardServiceError(400, "node type is required");
   if (input.type.length > MAX_NODE_TYPE_LENGTH) throw new BoardServiceError(400, "node type is too long");
+  const diagnostics = validateSemantics ? validateBoardNodeInput(input, path) : [];
+  if (diagnostics.length > 0) {
+    const first = diagnostics[0];
+    throw new BoardServiceError(
+      400,
+      first?.message ?? "invalid Board node",
+      first?.code ?? "INVALID_BOARD_NODE",
+      diagnostics,
+    );
+  }
   const refUrl = optionalString(input.refUrl, "refUrl");
   if (refUrl && /^https?:\/\//i.test(refUrl)) {
     throw new BoardServiceError(400, "refUrl cannot contain a network URL", "UNTRUSTED_URL");
   }
-  return {
+  const node: BoardNodeInput = {
     nodeId: input.nodeId.trim(),
     type: input.type.trim(),
     parentId: optionalString(input.parentId, "parentId"),
@@ -192,6 +208,7 @@ export function normalizeNode(input: BoardNodeInput): BoardNodeInput {
     style: cleanRecord(input.style, "style"),
     data: cleanRecord(input.data, "data"),
   };
+  return node;
 }
 
 export function normalizeNodes(input: BoardNodeInput[]): BoardNodeInput[] {
@@ -201,7 +218,7 @@ export function normalizeNodes(input: BoardNodeInput[]): BoardNodeInput[] {
   // carries free-form view/style/data, so a legal count says nothing about the size
   // of the request behind it.
   if (jsonBytes(input) > MAX_NODES_BYTES) throw new BoardServiceError(413, "board nodes are too large");
-  const nodes = input.map(normalizeNode);
+  const nodes = input.map((node, index) => normalizeNode(node, `nodes.${index}`));
   const ids = new Set<string>();
   for (const node of nodes) {
     if (ids.has(node.nodeId)) throw new BoardServiceError(400, `duplicate nodeId: ${node.nodeId}`);
@@ -279,7 +296,7 @@ function normalizeNodePatch(input: unknown): NormalizedNodePatch {
     style: input.style as Record<string, unknown>,
     data: input.data as Record<string, unknown>,
   };
-  const normalized = normalizeNode(sentinel);
+  const normalized = normalizeNode(sentinel, "patch", false);
   const patch: NormalizedNodePatch = {};
   for (const key of Object.keys(input)) {
     if (key === "nodeId" || !(key in normalized)) throw new BoardServiceError(400, `unsupported node patch field: ${key}`);
@@ -393,7 +410,16 @@ export function normalizeBoardOperation(operation: BoardOperation): BoardOperati
       return { ...base, type: "board.patch", payload: { patch } };
     }
     case "node.create":
-      return { ...base, type: "node.create", payload: { node: normalizeNode(operation.payload.node as BoardNodeInput) } };
+      return {
+        ...base,
+        type: "node.create",
+        payload: {
+          node: normalizeNode(
+            operation.payload.node as BoardNodeInput,
+            "payload.node",
+          ),
+        },
+      };
     case "node.patch": {
       const nodeId = optionalString(operation.payload.nodeId, "nodeId", MAX_NODE_ID_LENGTH);
       if (!nodeId) throw new BoardServiceError(400, "node.patch requires nodeId");
@@ -528,6 +554,8 @@ function sequencePeakCost(clips: Array<Omit<BoardClip, "sequenceId">>): BoardRen
 export type BoardValidationContext = {
   boardVersion: number;
   nodeIds: Iterable<string>;
+  /** Full records for nodes patched by this transaction. */
+  nodes?: Iterable<BoardNodeInput>;
   /** Existing connections, so deletes and patches can be checked in order. */
   connections: Iterable<Pick<BoardConnection, "id" | "source" | "target">>;
   effects: Iterable<Pick<BoardEffect, "id" | "target">>;
@@ -588,6 +616,9 @@ export function contextualValidation(
   const result = structuralValidation(transaction);
   const diagnostics = [...result.diagnostics];
   const nodeIds = new Set(context.nodeIds);
+  const nodes = new Map(
+    [...(context.nodes ?? [])].map((node) => [node.nodeId, node]),
+  );
   const connections = new Map(
     [...context.connections].map((connection) => [connection.id, connection]),
   );
@@ -618,12 +649,20 @@ export function contextualValidation(
         error("INVALID_REFERENCE", `parent node does not exist: ${operation.payload.node.parentId}`, `${path}.payload.node.parentId`);
       }
       nodeIds.add(operation.payload.node.nodeId);
+      nodes.set(operation.payload.node.nodeId, operation.payload.node);
       continue;
     }
     if (operation.type === "node.patch") {
       if (!nodeIds.has(operation.payload.nodeId)) error("NODE_NOT_FOUND", `node does not exist: ${operation.payload.nodeId}`, `${path}.payload.nodeId`);
       if (operation.payload.patch.parentId && !nodeIds.has(operation.payload.patch.parentId)) {
         error("INVALID_REFERENCE", `parent node does not exist: ${operation.payload.patch.parentId}`, `${path}.payload.patch.parentId`);
+      }
+      const current = nodes.get(operation.payload.nodeId);
+      if (current) {
+        const next = { ...current, ...operation.payload.patch, nodeId: current.nodeId };
+        const nodeDiagnostics = validateBoardNodeInput(next, `${path}.payload.patch`);
+        diagnostics.push(...nodeDiagnostics);
+        nodes.set(current.nodeId, next);
       }
       continue;
     }
@@ -654,6 +693,7 @@ export function contextualValidation(
         );
       }
       nodeIds.delete(operation.payload.nodeId);
+      nodes.delete(operation.payload.nodeId);
       continue;
     }
     if (operation.type === "connection.create") {

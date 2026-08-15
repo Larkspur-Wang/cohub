@@ -17,6 +17,7 @@ import type {
   BoardClip,
   BoardEffect,
   BoardInspectInput,
+  BoardNodeInput,
   BoardOperation,
   BoardPlaybackCommand,
   BoardPlaybackSnapshot,
@@ -27,6 +28,7 @@ import type {
 } from "@cohub/protocol";
 import {
   BOARD_BUILTIN_CAPABILITIES,
+  BOARD_NODE_CONTRACT,
   DEFAULT_BOARD_RENDER_LIMITS,
 } from "@cohub/protocol";
 import {
@@ -61,6 +63,7 @@ const BOARD_CAPABILITIES: BoardCapabilities = {
   protocolVersion: 1,
   capabilities: BOARD_BUILTIN_CAPABILITIES,
   limits: DEFAULT_BOARD_RENDER_LIMITS,
+  nodes: BOARD_NODE_CONTRACT,
 };
 
 function dateString(value: Date | null | undefined): string | null {
@@ -209,10 +212,23 @@ export async function getBoardCapabilities(spaceId: string, boardId: string): Pr
   return BOARD_CAPABILITIES;
 }
 
+function nodeInputFromRow(row: typeof boardNodes.$inferSelect): BoardNodeInput {
+  const {
+    boardId: _boardId,
+    version: _version,
+    createdAt: _createdAt,
+    updatedAt: _updatedAt,
+    deletedAt: _deletedAt,
+    ...node
+  } = row;
+  return node;
+}
+
 function createValidationContext(input: {
   boardVersion: number;
   metadata: Record<string, unknown>;
   nodes: Array<{ nodeId: string }>;
+  nodeInputs?: BoardNodeInput[];
   connections: Array<typeof boardConnections.$inferSelect>;
   effects: Array<typeof boardEffects.$inferSelect>;
   sequences: Array<typeof boardSequences.$inferSelect>;
@@ -228,6 +244,7 @@ function createValidationContext(input: {
     boardVersion: input.boardVersion,
     metadata: input.metadata,
     nodeIds: input.nodes.map((node) => node.nodeId),
+    nodes: input.nodeInputs,
     connections: input.connections.map(connectionFromRow),
     effects: input.effects.map(effectFromRow),
     sequences: input.sequences.map((sequence) => ({
@@ -245,8 +262,16 @@ export async function validateBoardTransaction(input: {
   const [board] = await db.select({ id: boards.id, version: boards.version, metadata: boards.metadata }).from(boards)
     .where(and(eq(boards.id, transaction.boardId), eq(boards.spaceId, input.spaceId))).limit(1);
   if (!board) throw new BoardServiceError(404, "board not found", "BOARD_NOT_FOUND");
-  const [nodes, connections, effects, sequences, clips] = await Promise.all([
+  const touchedNodeIds = collectTouchedNodeIds(transaction.operations);
+  const [nodes, nodeRows, connections, effects, sequences, clips] = await Promise.all([
     db.select({ nodeId: boardNodes.nodeId }).from(boardNodes).where(and(eq(boardNodes.boardId, board.id), isNull(boardNodes.deletedAt))),
+    touchedNodeIds.length
+      ? db.select().from(boardNodes).where(and(
+          eq(boardNodes.boardId, board.id),
+          inArray(boardNodes.nodeId, touchedNodeIds),
+          isNull(boardNodes.deletedAt),
+        ))
+      : Promise.resolve([]),
     db.select().from(boardConnections).where(and(eq(boardConnections.boardId, board.id), isNull(boardConnections.deletedAt))),
     db.select().from(boardEffects).where(eq(boardEffects.boardId, board.id)),
     db.select().from(boardSequences).where(eq(boardSequences.boardId, board.id)),
@@ -256,6 +281,7 @@ export async function validateBoardTransaction(input: {
     boardVersion: board.version,
     metadata: board.metadata,
     nodes,
+    nodeInputs: nodeRows.map(nodeInputFromRow),
     connections,
     effects,
     sequences,
@@ -328,8 +354,15 @@ export async function applyBoardTransaction(input: {
       .where(and(eq(boardTransactions.boardId, transaction.boardId), eq(boardTransactions.txId, transaction.txId))).limit(1);
     if (existing) return { idempotent: true, version: existing.resultVersion, playback: null };
 
-    const [validationNodes, validationConnections, validationEffects, validationSequences, validationClips] = await Promise.all([
+    const touchedNodeIds = collectTouchedNodeIds(transaction.operations);
+    const [validationNodes, nodeRows, validationConnections, validationEffects, validationSequences, validationClips] = await Promise.all([
       tx.select({ nodeId: boardNodes.nodeId }).from(boardNodes).where(and(eq(boardNodes.boardId, board.id), isNull(boardNodes.deletedAt))),
+      touchedNodeIds.length
+        ? tx.select().from(boardNodes).where(and(
+            eq(boardNodes.boardId, transaction.boardId),
+            inArray(boardNodes.nodeId, touchedNodeIds),
+          ))
+        : Promise.resolve([]),
       tx.select().from(boardConnections).where(and(eq(boardConnections.boardId, board.id), isNull(boardConnections.deletedAt))),
       tx.select().from(boardEffects).where(eq(boardEffects.boardId, board.id)),
       tx.select().from(boardSequences).where(eq(boardSequences.boardId, board.id)),
@@ -339,6 +372,9 @@ export async function applyBoardTransaction(input: {
       boardVersion: board.version,
       metadata: board.metadata,
       nodes: validationNodes,
+      nodeInputs: nodeRows
+        .filter((row) => row.deletedAt === null)
+        .map(nodeInputFromRow),
       connections: validationConnections,
       effects: validationEffects,
       sequences: validationSequences,
@@ -348,7 +384,12 @@ export async function applyBoardTransaction(input: {
     if (validationError) {
       const conflict = validationError.code === "VERSION_CONFLICT" || validationError.code.endsWith("_EXISTS") || validationError.code.endsWith("_REFERENCED");
       const status = conflict ? 409 : validationError.code.endsWith("_NOT_FOUND") ? 404 : 400;
-      throw new BoardServiceError(status, validationError.message, validationError.code);
+      throw new BoardServiceError(
+        status,
+        validationError.message,
+        validationError.code,
+        [validationError],
+      );
     }
 
     const nextVersion = board.version + 1;
@@ -362,11 +403,6 @@ export async function applyBoardTransaction(input: {
     // is what let a large selection edit hold the board's row lock for as long as it
     // had nodes. Effect/sequence/playback operations stay inline: they are few by
     // nature and each carries its own bespoke cascade.
-    const touchedNodeIds = collectTouchedNodeIds(transaction.operations);
-    const nodeRows = touchedNodeIds.length
-      ? await tx.select().from(boardNodes)
-        .where(and(eq(boardNodes.boardId, transaction.boardId), inArray(boardNodes.nodeId, touchedNodeIds)))
-      : [];
     const existingNodes = new Map<string, ExistingNodeRow>();
     for (const row of nodeRows) {
       const { boardId: _boardId, version: _version, createdAt: _createdAt, updatedAt: _updatedAt, deletedAt, ...fields } = row;

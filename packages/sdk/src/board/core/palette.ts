@@ -1,3 +1,7 @@
+import type { BoardColorId } from "@cohub/protocol";
+
+export type { BoardColorId } from "@cohub/protocol";
+
 /**
  * Board color palette — a small, named set of shape colors shared by text,
  * geo, draw and arrow shapes. Colors are stored by id in shape props (never
@@ -8,17 +12,6 @@
  *   --board-color-{id}-stroke | -fill | -label
  * with hard-coded light/dark tables as offline / export fallbacks.
  */
-
-export type BoardColorId =
-	| "brand"
-	| "neutral"
-	| "black"
-	| "white"
-	| "blue"
-	| "green"
-	| "amber"
-	| "violet"
-	| "rose";
 
 export type BoardColorValue = {
 	/** Stroke / accent color (sRGB hex). */

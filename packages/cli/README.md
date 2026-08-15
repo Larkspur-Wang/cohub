@@ -158,7 +158,37 @@ cohub -s <spaceId> boards watch <boardId> --json
 ```
 
 Pass nodes, effects, and sequences as JSON when creating a Board. The path and
-title stay explicit in the command:
+title stay explicit in the command. Inspect `boards capabilities --json` for the
+supported node types, enums, and coordinate spaces.
+
+```json
+{
+  "nodes": [
+    {
+      "nodeId": "goal",
+      "type": "geo",
+      "parentId": null,
+      "orderKey": null,
+      "x": 80,
+      "y": 80,
+      "width": 240,
+      "height": 120,
+      "rotation": 0,
+      "refKind": null,
+      "refPath": null,
+      "refUrl": null,
+      "view": {},
+      "style": {},
+      "data": {
+        "geo": "rectangle",
+        "text": "Ship",
+        "color": "green",
+        "fillOpacity": 0.12
+      }
+    }
+  ]
+}
+```
 
 ```bash
 cohub -s <spaceId> boards create boards/plan.board \

@@ -80,14 +80,27 @@ Use `space.boards` for collection operations and bind an ID with
 `space.board(boardId)` for entity operations:
 
 ```ts
+import { createBoardNode } from "@neta-art/cohub";
+
 const created = await space.boards.create({
   path: "boards/plan.board",
   title: "Plan",
-  nodes: [],
+  nodes: [
+    createBoardNode({
+      id: "goal",
+      type: "geo",
+      frame: { x: 80, y: 80, width: 240, height: 120 },
+      text: "Ship",
+      color: "green",
+    }),
+  ],
 });
 
 const board = space.board(created.board.id);
 // Equivalent: space.boards.byId(created.board.id)
+
+// Machine-readable types, enums and coordinate spaces for dynamic clients.
+const capabilities = await board.capabilities();
 
 const snapshot = await board.inspect({
   include: ["nodes", "effects", "sequences", "clips", "playback"],

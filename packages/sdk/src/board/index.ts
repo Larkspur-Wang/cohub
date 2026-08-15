@@ -48,4 +48,5 @@ export * from "./geometry.js";
 export * from "./image-key.js";
 export * from "./media.js";
 export * from "./media-playback.js";
+export * from "./nodes.js";
 export * from "./task.js";

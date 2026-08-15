@@ -161,6 +161,27 @@ export type {
 } from "./apis/work-realtime.js";
 export { BoardClient, BoardTransactionError } from "./apis/spaces.js";
 export {
+  BoardInputError,
+  assertBoardNodes,
+  createBoardNode,
+  validateBoardNodes,
+} from "./board/nodes.js";
+export type { BoardNodeFrameInput, BoardNodeSpec } from "./board/nodes.js";
+export {
+  BOARD_COLOR_IDS,
+  BOARD_GEO_KINDS,
+  BOARD_NATIVE_NODE_TYPES,
+  BOARD_NODE_CONTRACT,
+  validateBoardNodeInput,
+} from "@cohub/protocol";
+export type {
+  BoardColorId,
+  BoardGeoKind,
+  BoardNativeNodeType,
+  BoardNodeContract,
+  BoardNodeValidationDiagnostic,
+} from "@cohub/protocol";
+export {
   BoardPlaybackPolicySchema,
   parseBoardPlaybackPolicy,
 } from "@cohub/protocol";

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { BoardClient, BoardTransactionError } from "../src/apis/spaces.js";
+import { BoardInputError } from "../src/board/nodes.js";
 import { CohubHttpClient } from "../src/http.js";
 import { HttpTransport, type Fetch } from "../src/transport.js";
 import type { WebsocketClient, WebsocketEventPayload } from "../src/websocket.js";
@@ -49,6 +50,39 @@ test("space.board and boards.byId bind the Board identity", async () => {
 		operations: [{ type: "board.patch", payload: { patch: { title: "Plan" } } }],
 		boardId: "board-1",
 	});
+});
+
+test("Board create rejects invalid nodes before making a request", async () => {
+	let requests = 0;
+	const fetch: Fetch = async () => {
+		requests += 1;
+		return jsonResponse({});
+	};
+	const client = new CohubHttpClient({ baseUrl: "https://api.example.test", fetch });
+	await assert.rejects(
+		async () => client.space("space-1").boards.create({
+			path: "bad.board",
+			nodes: [{
+				nodeId: "bad",
+				type: "rect",
+				parentId: null,
+				orderKey: null,
+				x: 0,
+				y: 0,
+				width: 100,
+				height: 80,
+				rotation: 0,
+				refKind: null,
+				refPath: null,
+				refUrl: null,
+				view: {},
+				style: {},
+				data: {},
+			}],
+		}),
+		(error) => error instanceof BoardInputError,
+	);
+	assert.equal(requests, 0);
 });
 
 test("Board apply exposes version conflicts as BoardTransactionError", async () => {

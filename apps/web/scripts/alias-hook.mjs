@@ -22,13 +22,32 @@ const packagesRoot = resolvePath(here, "..", "..", "..", "packages");
  * it to an unbuilt `dist`.
  */
 const PACKAGE_SOURCES = [
-	["@neta-art/cohub/board/headless", `${packagesRoot}/sdk/src/board/headless/index.ts`],
-	["@neta-art/cohub/board/render", `${packagesRoot}/sdk/src/board/render/index.ts`],
-	["@neta-art/cohub/board/export", `${packagesRoot}/sdk/src/board/export/index.ts`],
+	[
+		"@neta-art/cohub/board/headless",
+		`${packagesRoot}/sdk/src/board/headless/index.ts`,
+	],
+	[
+		"@neta-art/cohub/board/render",
+		`${packagesRoot}/sdk/src/board/render/index.ts`,
+	],
+	[
+		"@neta-art/cohub/board/export",
+		`${packagesRoot}/sdk/src/board/export/index.ts`,
+	],
 	["@neta-art/cohub/board", `${packagesRoot}/sdk/src/board/index.ts`],
-	["@cohub/protocol/public-identifiers", `${packagesRoot}/protocol/src/public-identifiers.ts`],
-	["@cohub/protocol/board-document", `${packagesRoot}/protocol/src/board-document.ts`],
-	["@cohub/protocol/board-constants", `${packagesRoot}/protocol/src/board-constants.ts`],
+	[
+		"@cohub/protocol/public-identifiers",
+		`${packagesRoot}/protocol/src/public-identifiers.ts`,
+	],
+	[
+		"@cohub/protocol/board-document",
+		`${packagesRoot}/protocol/src/board-document.ts`,
+	],
+	[
+		"@cohub/protocol/board-constants",
+		`${packagesRoot}/protocol/src/board-constants.ts`,
+	],
+	["@cohub/protocol", `${packagesRoot}/protocol/src/index.ts`],
 ];
 
 /** Candidate suffixes for an extension-less import, in precedence order. */
@@ -48,7 +67,9 @@ function firstMatch(base) {
 
 export function resolve(specifier, context, next) {
 	if (specifier.startsWith("$lib/")) {
-		const url = firstMatch(resolvePath(libRoot, specifier.slice("$lib/".length)));
+		const url = firstMatch(
+			resolvePath(libRoot, specifier.slice("$lib/".length)),
+		);
 		if (url) return { url, shortCircuit: true };
 	}
 	for (const [name, target] of PACKAGE_SOURCES) {
@@ -69,7 +90,8 @@ export function resolve(specifier, context, next) {
 			// Only when the .js genuinely does not exist, so a real build output is
 			// never shadowed by its source.
 			const asTs = `${target.slice(0, -3)}.ts`;
-			if (isFile(asTs)) return { url: pathToFileURL(asTs).href, shortCircuit: true };
+			if (isFile(asTs))
+				return { url: pathToFileURL(asTs).href, shortCircuit: true };
 		}
 	}
 	return next(specifier, context);

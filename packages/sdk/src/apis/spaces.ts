@@ -14,6 +14,10 @@ import {
 } from "@cohub/protocol/realtime/types";
 import type { BoardAwarenessUpdate } from "@cohub/protocol/realtime";
 import { ensureRealtimeConnected } from "../realtime.js";
+import {
+  assertBoardNodes,
+  assertBoardTransactionNodeCreates,
+} from "../board/nodes.js";
 import type { WebsocketClient, WebsocketEventPayload } from "../websocket.js";
 import { HttpError, type HttpTransport, type Fetch } from "../transport.js";
 import {
@@ -1835,6 +1839,7 @@ export class SpaceBoardsApi {
   }
 
   create(input: BoardCreateInput) {
+    assertBoardNodes(input.nodes ?? []);
     return this.transport.request<BoardBootstrap>(
       `/api/spaces/${this.spaceId}/boards`,
       {
@@ -1875,6 +1880,7 @@ export class SpaceBoardsApi {
   }
 
   async apply(transaction: BoardTransaction) {
+    assertBoardTransactionNodeCreates(transaction.operations);
     try {
       return await this.transport.request<BoardBootstrap>(
         `/api/spaces/${this.spaceId}/boards/${transaction.boardId}/transactions`,

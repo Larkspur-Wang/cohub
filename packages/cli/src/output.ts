@@ -141,12 +141,24 @@ function errorPresentationFromHttpError(e: unknown): { message?: string; detail?
 }
 
 export function handleHttp(e: unknown): never {
+  const status = (e as { status?: number }).status;
+  const body = (e as { body?: unknown }).body;
+
+  if (jsonRequested()) {
+    const payload = body && typeof body === "object"
+      ? body
+      : {
+          code: (e as { code?: unknown }).code ?? "CLI_ERROR",
+          message: e instanceof Error ? e.message : String(e),
+          ...(status ? { status } : {}),
+        };
+    process.stderr.write(`${JSON.stringify(payload, null, 2)}\n`);
+    process.exit(1);
+  }
+
   if (e instanceof Error && e.name === "AuthRequiredError") {
     return error("not authenticated", "run `cohub auth login`");
   }
-
-  const status = (e as { status?: number }).status;
-  const body = (e as { body?: unknown }).body;
 
   if (status === 402) {
     const conversion = extractBillingPayload(body)?.conversion as

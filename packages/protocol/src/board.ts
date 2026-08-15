@@ -4,12 +4,12 @@ import type {
   BoardRenderCost,
 } from "./board-constants.js";
 import {
-  BoardConnectionPatchSchema,
   BoardConnectionSchema,
   type BoardConnectionInput,
   type BoardConnectionPatch,
   type BoardConnectionRecord,
 } from "./board-connection.js";
+import type { BoardNodeContract } from "./board-node.js";
 
 export {
   BOARD_BUILTIN_CAPABILITIES,
@@ -280,6 +280,10 @@ export type BoardDiagnostic = {
   message: string;
   path?: string;
   adaptation?: Record<string, unknown>;
+  expected?: string;
+  received?: unknown;
+  allowedValues?: readonly string[];
+  coordinateSpace?: "frame-local" | "world";
 };
 
 export type BoardValidationResult = {
@@ -288,7 +292,12 @@ export type BoardValidationResult = {
   peakCost: BoardRenderCost;
 };
 
-export type BoardCapabilities = { protocolVersion: 1; capabilities: BoardCapability[]; limits: BoardRenderCost };
+export type BoardCapabilities = {
+  protocolVersion: 1;
+  capabilities: BoardCapability[];
+  limits: BoardRenderCost;
+  nodes: BoardNodeContract;
+};
 
 /** Persisted on `boards.metadata.playback`: how a Board plays when opened. */
 export const BoardPlaybackPolicySchema = z.object({

@@ -369,6 +369,23 @@ export function registerBoards(program: Command): Command {
           { key: "renderers", label: "Renderers" },
           { key: "digest", label: "Digest" },
         ]);
+        const nodes = (result as Partial<typeof result>).nodes;
+        if (nodes) {
+          console.log();
+          table([{
+            types: nodes.types.join(", "),
+            colors: nodes.colors.join(", "),
+            geos: nodes.geos.join(", "),
+            drawPoints: nodes.coordinates.drawPoints,
+            arrowEndpoints: nodes.coordinates.arrowEndpoints,
+          }], [
+            { key: "types", label: "Node types" },
+            { key: "colors", label: "Colors" },
+            { key: "geos", label: "Geo kinds" },
+            { key: "drawPoints", label: "Draw points" },
+            { key: "arrowEndpoints", label: "Arrow endpoints" },
+          ]);
+        }
       } catch (cause) {
         handleHttp(cause);
       }

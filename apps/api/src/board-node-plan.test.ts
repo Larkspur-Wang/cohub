@@ -19,7 +19,7 @@ function node(nodeId: string, overrides: Partial<BoardNodeInput> = {}): BoardNod
     width: 240,
     height: 160,
     rotation: 0,
-    refKind: "space-file",
+    refKind: "space_file",
     refPath: `docs/${nodeId}.md`,
     refUrl: null,
     view: {},

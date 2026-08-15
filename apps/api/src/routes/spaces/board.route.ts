@@ -83,9 +83,36 @@ async function removeOrphanBoardManifest(spaceId: string, path: string, boardId:
 }
 
 function errorResponse(error: unknown) {
-  if (error instanceof BoardServiceError) return { status: error.status, message: error.message, code: error.code };
-  if (error instanceof SpaceFsError) return { status: error.status, message: error.message, code: undefined };
-  return { status: 500, message: "Board operation failed", code: undefined };
+  if (error instanceof BoardServiceError) {
+    return {
+      status: error.status,
+      message: error.message,
+      code: error.code,
+      diagnostics: error.diagnostics,
+    };
+  }
+  if (error instanceof SpaceFsError) {
+    return {
+      status: error.status,
+      message: error.message,
+      code: undefined,
+      diagnostics: undefined,
+    };
+  }
+  return {
+    status: 500,
+    message: "Board operation failed",
+    code: undefined,
+    diagnostics: undefined,
+  };
+}
+
+function errorBody(response: ReturnType<typeof errorResponse>) {
+  return {
+    message: response.message,
+    ...(response.code ? { code: response.code } : {}),
+    ...(response.diagnostics ? { diagnostics: response.diagnostics } : {}),
+  };
 }
 
 router.post("/", async (c) => {
@@ -106,7 +133,7 @@ router.post("/", async (c) => {
     path = assertSafeRelativePath(body.path);
   } catch (error) {
     const response = errorResponse(error);
-    return c.json({ message: response.message, code: response.code }, response.status as never);
+    return c.json(errorBody(response), response.status as never);
   }
   if (!isBoardPath(path)) return c.json({ message: `path must end with ${BOARD_EXTENSION}` }, 400);
   const title = (body.title?.trim() || path.split("/").at(-1) || "Board").slice(0, 255);
@@ -128,7 +155,7 @@ router.post("/", async (c) => {
     ].map(normalizeBoardOperation);
   } catch (error) {
     const response = errorResponse(error);
-    return c.json({ message: response.message, code: response.code }, response.status as never);
+    return c.json(errorBody(response), response.status as never);
   }
 
   const identity = buildBoardCreateIdentity({
@@ -154,7 +181,7 @@ router.post("/", async (c) => {
     } catch (error) {
       if (!(error instanceof BoardServiceError) || error.code !== "BOARD_NOT_FOUND") {
         const response = errorResponse(error);
-        return c.json({ message: response.message, code: response.code }, response.status as never);
+        return c.json(errorBody(response), response.status as never);
       }
     }
   }
@@ -211,7 +238,7 @@ router.post("/", async (c) => {
       void removeOrphanBoardManifest(spaceId, path, boardId);
     }
     const response = errorResponse(error);
-    return c.json({ message: response.message, code: response.code }, response.status as never);
+    return c.json(errorBody(response), response.status as never);
   }
 });
 
@@ -240,7 +267,7 @@ router.get("/:boardId", async (c) => {
     return c.json(await inspectBoard(spaceId, boardId, parsedInput.data));
   } catch (error) {
     const response = errorResponse(error);
-    return c.json({ message: response.message, code: response.code }, response.status as never);
+    return c.json(errorBody(response), response.status as never);
   }
 });
 
@@ -254,7 +281,7 @@ router.get("/:boardId/capabilities", async (c) => {
     return c.json(await getBoardCapabilities(spaceId, boardId));
   } catch (error) {
     const response = errorResponse(error);
-    return c.json({ message: response.message, code: response.code }, response.status as never);
+    return c.json(errorBody(response), response.status as never);
   }
 });
 
@@ -272,7 +299,7 @@ router.post("/:boardId/validate", async (c) => {
     return c.json(await validateBoardTransaction({ spaceId, value: transaction }));
   } catch (error) {
     const response = errorResponse(error);
-    return c.json({ message: response.message, code: response.code }, response.status as never);
+    return c.json(errorBody(response), response.status as never);
   }
 });
 
@@ -295,7 +322,7 @@ router.post("/:boardId/transactions", async (c) => {
     }));
   } catch (error) {
     const response = errorResponse(error);
-    return c.json({ message: response.message, code: response.code }, response.status as never);
+    return c.json(errorBody(response), response.status as never);
   }
 });
 
@@ -313,7 +340,7 @@ router.post("/:boardId/playback", async (c) => {
     return c.json(await applyBoardPlaybackCommand({ spaceId, boardId, command: parsed.data }));
   } catch (error) {
     const response = errorResponse(error);
-    return c.json({ message: response.message, code: response.code }, response.status as never);
+    return c.json(errorBody(response), response.status as never);
   }
 });
 

@@ -82,28 +82,7 @@ test("requires an exact base version", () => {
   }).baseVersion, 0);
 });
 
-test("allows data URLs and ordinary js fields while rejecting executable source", () => {
-  const node = {
-    nodeId: "n1",
-    type: "image",
-    parentId: null,
-    orderKey: null,
-    x: 0,
-    y: 0,
-    width: 100,
-    height: 100,
-    rotation: 0,
-    refKind: null,
-    refPath: null,
-    refUrl: null,
-    view: {},
-    style: {},
-    data: { source: "https://cdn.example/image.png", js: "business-value" },
-  };
-  assert.deepEqual(
-    operation({ type: "node.create", payload: { node } }).payload,
-    { node },
-  );
+test("allows ordinary metadata while rejecting executable source", () => {
   assert.doesNotThrow(() => operation({
     type: "board.patch",
     payload: {
@@ -129,6 +108,41 @@ test("validates Board create input before side effects", () => {
   assert.equal(BoardCreateInputSchema.safeParse({ path: "battle.board" }).success, true);
   assert.equal(BoardCreateInputSchema.safeParse({ path: "battle.board", mutationId: "mutation-1" }).success, true);
   assert.equal(BoardCreateInputSchema.safeParse({ path: "battle.board", mutationId: "x".repeat(129) }).success, false);
+});
+
+test("rejects unsupported node types and non-semantic colors", () => {
+  const base = {
+    nodeId: "n1",
+    parentId: null,
+    orderKey: null,
+    x: 0,
+    y: 0,
+    width: 100,
+    height: 40,
+    rotation: 0,
+    refKind: null,
+    refPath: null,
+    refUrl: null,
+    view: {},
+    style: {},
+  };
+  assert.throws(
+    () => normalizeNodes([{ ...base, type: "rect", data: {} }]),
+    (error) =>
+      error instanceof BoardServiceError &&
+      error.code === "INVALID_BOARD_NODE" &&
+      error.diagnostics?.[0]?.path === "nodes.0.type",
+  );
+  assert.throws(
+    () => normalizeNodes([{
+      ...base,
+      type: "text",
+      data: { text: "x", color: "#22c55e", fontSize: 24 },
+    }]),
+    (error) =>
+      error instanceof BoardServiceError &&
+      error.diagnostics?.[0]?.path === "nodes.0.data.color",
+  );
 });
 
 test("rejects clips outside their sequence", () => {
@@ -379,7 +393,7 @@ test("requires extension asset digests", () => {
 function nodeInput(nodeId: string) {
   return {
     nodeId,
-    type: "test-shape",
+    type: "text",
     parentId: null,
     orderKey: null,
     x: 0,
@@ -392,9 +406,36 @@ function nodeInput(nodeId: string) {
     refUrl: null,
     view: {},
     style: {},
-    data: {},
+    data: { text: "", color: "neutral", fontSize: 24 },
   };
 }
+
+test("validates a node patch after merging it with current state", () => {
+  const current = nodeInput("n1");
+  const transaction = normalizeBoardTransaction({
+    txId: "tx-node-patch",
+    boardId,
+    baseVersion: 0,
+    operations: [{
+      type: "node.patch",
+      payload: {
+        nodeId: "n1",
+        patch: { data: { text: "x", color: "#22c55e", fontSize: 24 } },
+      },
+    }],
+  });
+  const validation = contextualValidation(transaction, {
+    boardVersion: 0,
+    nodeIds: ["n1"],
+    nodes: [current],
+    connections: [],
+    effects: [],
+    sequences: [],
+  });
+  assert.equal(validation.valid, false);
+  assert.equal(validation.diagnostics[0]?.code, "INVALID_BOARD_NODE");
+  assert.equal(validation.diagnostics[0]?.path, "operations.0.payload.patch.data.color");
+});
 
 function effectInput(id: string, nodeId: string) {
   return {

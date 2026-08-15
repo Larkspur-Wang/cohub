@@ -8,6 +8,10 @@
  */
 
 import type { Rect, WorldPoint } from "../geometry.js";
+import {
+	BOARD_GEO_KINDS,
+	type BoardGeoKind,
+} from "@cohub/protocol";
 import type { BoardFrame } from "@cohub/protocol/board-document";
 
 // ─── Shape geometry ─────────────────────────────────────────────────
@@ -130,20 +134,8 @@ export type DrawShapeProps = {
 
 // ─── Geo shape ──────────────────────────────────────────────────────
 
-export type GeoKind =
-	| "rectangle"
-	| "ellipse"
-	| "diamond"
-	| "triangle"
-	| "rounded";
-
-export const GEO_KINDS: readonly GeoKind[] = [
-	"rectangle",
-	"rounded",
-	"ellipse",
-	"diamond",
-	"triangle",
-] as const;
+export type GeoKind = BoardGeoKind;
+export const GEO_KINDS: readonly GeoKind[] = BOARD_GEO_KINDS;
 
 export function isGeoKind(value: unknown): value is GeoKind {
 	return (
