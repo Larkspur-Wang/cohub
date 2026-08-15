@@ -9,6 +9,7 @@ import {
 const LEGACY_STORAGE_KEYS = {
 	leftSidebarWidth: "cohub:layout:left-sidebar-width",
 	rightSidebarWidth: "cohub:layout:right-sidebar-width",
+	workspacePreviewWidth: "cohub:layout:workspace-preview-width",
 	immersiveChatWidth: "cohub:layout:immersive-chat-width",
 	rightSidebarCollapsed: "cohub:layout:right-sidebar-collapsed",
 	leftSidebarCollapsed: "cohub:layout:left-sidebar-collapsed",
@@ -53,7 +54,8 @@ const RIGHT_SIDEBAR_DEFAULT = 320;
 const IMMERSIVE_CHAT_MIN = 320;
 const IMMERSIVE_CHAT_MAX = 760;
 const IMMERSIVE_CHAT_DEFAULT = 640;
-/** Default preview panel width; shared with the workspace layout controller. */
+/** Preview panel bounds shared with the workspace layout controller. */
+const WORKSPACE_PREVIEW_MIN_WIDTH = 280;
 const WORKSPACE_PREVIEW_DEFAULT_WIDTH = 480;
 
 function clamp(value: number, min: number, max: number) {
@@ -96,6 +98,7 @@ class UIState {
 	settingsOverlayOpen = $state(false);
 	leftSidebarWidth = $state(LEFT_SIDEBAR_DEFAULT);
 	rightSidebarWidth = $state(RIGHT_SIDEBAR_DEFAULT);
+	workspacePreviewWidth = $state(WORKSPACE_PREVIEW_DEFAULT_WIDTH);
 	immersiveChatWidth = $state(IMMERSIVE_CHAT_DEFAULT);
 	leftSidebarCollapsed = $state(false);
 	rightSidebarCollapsed = $state(false);
@@ -136,6 +139,7 @@ class UIState {
 			"rightSidebarCollapsed",
 			"filesColumnHidden",
 			"workspacePresentation",
+			"workspacePreviewWidth",
 		];
 		return keys.some(
 			(key) => readStorage(layoutStorageKey(scope, key)) !== null,
@@ -193,6 +197,9 @@ class UIState {
 
 		const rawLeftWidth = this.readLayoutPref("leftSidebarWidth");
 		const rawRightWidth = this.readLayoutPref("rightSidebarWidth");
+		const rawWorkspacePreviewWidth = this.readLayoutPref(
+			"workspacePreviewWidth",
+		);
 		const rawImmersiveChatWidth = this.readLayoutPref("immersiveChatWidth");
 		const rawLeftCollapsed = this.readLayoutPref("leftSidebarCollapsed");
 		const rawRightCollapsed = this.readLayoutPref("rightSidebarCollapsed");
@@ -211,6 +218,12 @@ class UIState {
 			RIGHT_SIDEBAR_DEFAULT,
 			RIGHT_SIDEBAR_MIN,
 			RIGHT_SIDEBAR_MAX,
+		);
+		this.workspacePreviewWidth = this.parseWidth(
+			rawWorkspacePreviewWidth,
+			WORKSPACE_PREVIEW_DEFAULT_WIDTH,
+			WORKSPACE_PREVIEW_MIN_WIDTH,
+			Number.MAX_SAFE_INTEGER,
 		);
 		this.immersiveChatWidth = this.parseWidth(
 			rawImmersiveChatWidth,
@@ -245,6 +258,13 @@ class UIState {
 		const next = clamp(width, RIGHT_SIDEBAR_MIN, RIGHT_SIDEBAR_MAX);
 		this.rightSidebarWidth = next;
 		this.writeLayoutPref("rightSidebarWidth", String(next));
+	}
+
+	setWorkspacePreviewWidth(width: number) {
+		const next = Math.max(WORKSPACE_PREVIEW_MIN_WIDTH, width);
+		if (!Number.isFinite(next)) return;
+		this.workspacePreviewWidth = next;
+		this.writeLayoutPref("workspacePreviewWidth", String(next));
 	}
 
 	setImmersiveChatWidth(width: number) {
@@ -365,4 +385,5 @@ export {
 	RIGHT_SIDEBAR_MAX,
 	RIGHT_SIDEBAR_MIN,
 	WORKSPACE_PREVIEW_DEFAULT_WIDTH,
+	WORKSPACE_PREVIEW_MIN_WIDTH,
 };

@@ -3,6 +3,7 @@ import { DESKTOP_SHELL_MIN_WIDTH_PX } from "$lib/layout/breakpoints";
 import {
 	uiState,
 	WORKSPACE_PREVIEW_DEFAULT_WIDTH,
+	WORKSPACE_PREVIEW_MIN_WIDTH,
 	type WorkspaceLayoutSnapshot,
 	type WorkspacePresentation,
 } from "$lib/stores/ui.svelte";
@@ -13,7 +14,7 @@ import {
 } from "./float-layout";
 
 const MAIN_PANEL_MIN_WIDTH = 320;
-const PREVIEW_PANEL_MIN_WIDTH = 280;
+const PREVIEW_PANEL_MIN_WIDTH = WORKSPACE_PREVIEW_MIN_WIDTH;
 const PREVIEW_PANEL_DEFAULT_WIDTH = WORKSPACE_PREVIEW_DEFAULT_WIDTH;
 
 export type { WorkspacePresentation };
@@ -87,9 +88,15 @@ export function createWorkspaceLayoutController(options: {
 
 	function setPreviewWidth(
 		nextWidth: number,
-		setOptions: { persistSnapshot?: boolean } = {},
+		setOptions: {
+			persistPreference?: boolean;
+			persistSnapshot?: boolean;
+		} = {},
 	) {
 		const clamped = clampPreviewWidth(nextWidth);
+		if (setOptions.persistPreference) {
+			uiState.setWorkspacePreviewWidth(clamped);
+		}
 		if (previewWidth === clamped) {
 			// Drag may have painted a temporary width; snap CSS back to state.
 			paintPreviewWidth(clamped);
@@ -227,10 +234,11 @@ export function createWorkspaceLayoutController(options: {
 			return;
 		}
 
-		// Default: only reset width on space switch (exit already restored snapshot).
+		// Default: restore the space-scoped user width after the workspace DOM has
+		// settled. Exit already restores its in-memory snapshot without a reset.
 		if (spaceChanged) {
-			previewWidth = PREVIEW_PANEL_DEFAULT_WIDTH;
-			ensurePreviewFits();
+			await tick();
+			setPreviewWidth(uiState.workspacePreviewWidth);
 		}
 	}
 
@@ -276,7 +284,9 @@ export function createWorkspaceLayoutController(options: {
 			return;
 		}
 		if (presentation === "immersive") return;
-		if (options.getHasPreview()) ensurePreviewFits();
+		if (options.getHasPreview()) {
+			setPreviewWidth(uiState.workspacePreviewWidth);
+		}
 	}
 
 	function beginPreviewResize(event: PointerEvent) {
@@ -301,8 +311,12 @@ export function createWorkspaceLayoutController(options: {
 			window.removeEventListener("pointerup", stop);
 			window.removeEventListener("pointercancel", stop);
 			if (resizeCleanup === stop) resizeCleanup = null;
-			// Commit once on release so dependent layout state stays in sync.
-			setPreviewWidth(liveWidth, { persistSnapshot: true });
+			// Commit once on release so dependent layout state stays in sync and the
+			// user's split position survives reloads without persisting live drag IO.
+			setPreviewWidth(liveWidth, {
+				persistPreference: true,
+				persistSnapshot: true,
+			});
 		};
 		resizeCleanup = stop;
 		document.body.classList.add("sidebar-resizing");

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import {
 	type FilesChromeVisibility,
@@ -7,6 +8,28 @@ import {
 	nextTreeSnapshot,
 	resolveFilesChromeToggle,
 } from "../lib/features/space/modules/float-layout.ts";
+
+test("preview split width is persisted and restored per workspace", () => {
+	const modules = new URL("../lib/features/space/modules/", import.meta.url);
+	const controller = readFileSync(
+		new URL("workspace-layout-controller.svelte.ts", modules),
+		"utf8",
+	);
+	const uiState = readFileSync(
+		new URL("../lib/stores/ui.svelte.ts", import.meta.url),
+		"utf8",
+	);
+
+	assert.match(
+		uiState,
+		/workspacePreviewWidth: "cohub:layout:workspace-preview-width"/,
+	);
+	assert.match(controller, /setPreviewWidth\(uiState\.workspacePreviewWidth\)/);
+	assert.match(
+		controller,
+		/setPreviewWidth\(liveWidth, \{[\s\S]*persistPreference: true,[\s\S]*persistSnapshot: true/,
+	);
+});
 
 test("float panels preserve a usable preview corridor", () => {
 	assert.equal(floatPanelsFit(960, 260, 320), false);
