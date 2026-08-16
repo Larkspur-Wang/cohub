@@ -156,7 +156,7 @@ await cohub.auth.request({
   scopes: ["user.usage.read"],
   reason: "This Work wants to show your usage summary.",
 });
-const usage = await cohub.user.getUsage(30);
+const usage = await cohub.user.getUsage({ days: 30 });
 ```
 
 For commerce inside a Work — feature unlocks and credit consumption:

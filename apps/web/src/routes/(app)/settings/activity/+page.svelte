@@ -1,5 +1,6 @@
 <script lang="ts">
-import { Loader2, RefreshCw } from "lucide-svelte";
+import type { UserUsageRange, UserUsageRankings } from "@neta-art/cohub";
+import { Loader2 } from "lucide-svelte";
 import { onMount } from "svelte";
 import { page } from "$app/state";
 import { ensureAuth } from "$lib/auth";
@@ -10,7 +11,6 @@ import {
 	type ActivityDay,
 	buildActivityDays,
 	formatCompact,
-	formatCost,
 	formatDay,
 	getActivityStats,
 	isActivityCacheFresh,
@@ -19,26 +19,36 @@ import {
 } from "$lib/user-activity";
 
 const ranges = [
+	{ days: 7, label: "7D" },
 	{ days: 30, label: "30D" },
-	{ days: 90, label: "90D" },
 	{ days: 365, label: "1Y" },
 ] as const;
+const EMPTY_RANKINGS: UserUsageRankings = {
+	llmModels: [],
+	generationModels: [],
+	works: [],
+};
 
-let selectedDays = $state(90);
+let selectedDays = $state(30);
 let activityDays = $state<ActivityDay[] | null>(null);
+let rankings = $state<UserUsageRankings | null>(null);
+let usageRange = $state<UserUsageRange | null>(null);
 let loading = $state(true);
 let refreshing = $state(false);
 let loadError = $state("");
 let requestId = 0;
 
 const displayedDays = $derived(activityDays ?? []);
-const stats = $derived(getActivityStats(displayedDays));
-const tokenTotal = $derived(
-	stats.inputTokens +
-		stats.outputTokens +
-		stats.cacheReadTokens +
-		stats.cacheWriteTokens,
+const displayedRankings = $derived(rankings ?? EMPTY_RANKINGS);
+const identityLabel = $derived(
+	authStore.profile?.username
+		? `@${authStore.profile.username}`
+		: authStore.profile?.displayName || "Your account",
 );
+const rangeLabel = $derived(
+	selectedDays === 365 ? "Last year" : `Last ${selectedDays} days`,
+);
+const stats = $derived(getActivityStats(displayedDays));
 const maxTokens = $derived(
 	Math.max(0, ...displayedDays.map((day) => day.tokens)),
 );
@@ -70,6 +80,14 @@ function dayTitle(day: ActivityDay) {
 	return `${formatDay(day.date)} · ${formatCompact(day.tokens)} tokens · ${formatCompact(day.requests)} requests${generation}`;
 }
 
+function getSelectedRange(days: number) {
+	const to = new Date();
+	const from = new Date(to);
+	from.setHours(0, 0, 0, 0);
+	from.setDate(from.getDate() - (days - 1));
+	return { from, to };
+}
+
 async function loadActivity({ force = false } = {}) {
 	const id = ++requestId;
 	loadError = "";
@@ -81,7 +99,11 @@ async function loadActivity({ force = false } = {}) {
 	}
 
 	const cached = readActivityCache(userUuid, selectedDays);
-	if (cached && !force) activityDays = cached.activityDays;
+	if (cached && !force) {
+		activityDays = cached.activityDays;
+		rankings = cached.rankings;
+		usageRange = cached.range;
+	}
 	loading = !activityDays;
 	refreshing = Boolean(activityDays);
 	try {
@@ -89,12 +111,22 @@ async function loadActivity({ force = false } = {}) {
 			refreshing = false;
 			return;
 		}
-		// One extra rolling day guarantees complete local calendar days across time zones and DST.
-		const data = await sdk.user.getUsage(selectedDays + 1);
+		const data = await sdk.user.getUsage({
+			...getSelectedRange(selectedDays),
+			rankings: true,
+		});
 		if (id !== requestId) return;
 		const nextActivityDays = buildActivityDays(data, selectedDays);
+		const nextRankings = data.rankings ?? EMPTY_RANKINGS;
 		activityDays = nextActivityDays;
-		writeActivityCache(userUuid, selectedDays, nextActivityDays);
+		rankings = nextRankings;
+		usageRange = data.range;
+		writeActivityCache(userUuid, {
+			days: selectedDays,
+			activityDays: nextActivityDays,
+			range: data.range,
+			rankings: nextRankings,
+		});
 	} catch (error) {
 		if (id !== requestId) return;
 		if (await handleUnauthorizedError(error, page.url.pathname)) return;
@@ -112,6 +144,8 @@ function selectRange(days: number) {
 	if (selectedDays === days) return;
 	selectedDays = days;
 	activityDays = null;
+	rankings = null;
+	usageRange = null;
 	void loadActivity();
 }
 
@@ -127,20 +161,16 @@ onMount(async () => {
 
 <div class="flex min-h-0 flex-1 flex-col overflow-y-auto">
 	<div class="w-full max-w-5xl px-4 py-7 sm:px-6 lg:px-8">
-		<header class="flex flex-wrap items-start justify-between gap-4 border-b border-border-subtle pb-5">
+		<header class="flex flex-wrap items-end justify-between gap-4 border-b border-border-subtle pb-5">
 			<div>
-				<h1 class="text-[18px] font-semibold text-text-primary">Activity</h1>
-				<p class="mt-1 text-[13px] leading-5 text-text-tertiary">Your Cohub usage across spaces.</p>
+				<p class="text-[11px] font-semibold text-brand">Cohub</p>
+				<h1 class="mt-1 text-[20px] font-semibold text-text-primary">Activity</h1>
+				<p class="mt-1 text-[12px] text-text-tertiary" title={usageRange ? `${usageRange.from} to ${usageRange.to}` : undefined}>{identityLabel} · {rangeLabel}</p>
 			</div>
-			<div class="flex items-center gap-2">
-				<div class="flex rounded-md bg-bg-surface p-0.5" aria-label="Activity range">
-					{#each ranges as range (range.days)}
-						<button type="button" class="min-w-11 rounded-[4px] px-2.5 py-1.5 text-[11px] font-medium transition-colors {selectedDays === range.days ? 'bg-bg-active text-text-primary' : 'text-text-placeholder hover:text-text-secondary'}" aria-pressed={selectedDays === range.days} onclick={() => selectRange(range.days)}>{range.label}</button>
-					{/each}
-				</div>
-				<button type="button" class="flex h-8 w-8 items-center justify-center rounded-md text-text-placeholder transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title="Refresh activity" aria-label="Refresh activity" disabled={loading || refreshing} onclick={() => void loadActivity({ force: true })}>
-					<RefreshCw class={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
-				</button>
+			<div class="flex rounded-md bg-bg-surface p-0.5" aria-label="Activity range">
+				{#each ranges as range (range.days)}
+					<button type="button" class="min-w-11 rounded-[4px] px-2.5 py-1.5 text-[11px] font-medium transition-colors {selectedDays === range.days ? 'bg-bg-active text-text-primary' : 'text-text-placeholder hover:text-text-secondary'}" aria-pressed={selectedDays === range.days} onclick={() => selectRange(range.days)}>{range.label}</button>
+				{/each}
 			</div>
 		</header>
 
@@ -154,10 +184,10 @@ onMount(async () => {
 			</div>
 		{:else}
 			<section class="grid grid-cols-2 border-b border-border-subtle py-6 sm:grid-cols-4" aria-label="Activity summary">
-				<div class="border-r border-border-subtle px-3 first:pl-0 sm:px-5"><div class="font-mono text-[20px] text-text-primary sm:text-[22px]">{formatCompact(stats.totalTokens)}</div><div class="mt-1 text-[11px] text-text-placeholder">Tokens</div></div>
-				<div class="px-3 sm:border-r sm:border-border-subtle sm:px-5"><div class="font-mono text-[20px] text-text-primary sm:text-[22px]">{formatCompact(stats.totalRequests)}</div><div class="mt-1 text-[11px] text-text-placeholder">Requests</div></div>
-				<div class="mt-5 border-r border-border-subtle px-3 first:pl-0 sm:mt-0 sm:px-5"><div class="font-mono text-[20px] text-text-primary sm:text-[22px]">{stats.activeDays}</div><div class="mt-1 text-[11px] text-text-placeholder">Active days</div></div>
-				<div class="mt-5 px-3 sm:mt-0 sm:pl-5"><div class="font-mono text-[20px] text-text-primary sm:text-[22px]">{stats.currentStreak}</div><div class="mt-1 text-[11px] text-text-placeholder">Current streak</div></div>
+				<div class="border-r border-border-subtle pr-3 sm:pr-5"><div class="font-mono text-[20px] text-text-primary sm:text-[22px]">{formatCompact(stats.totalTokens)}</div><div class="mt-1 text-[11px] text-text-placeholder">Tokens</div></div>
+				<div class="pl-3 sm:border-r sm:border-border-subtle sm:px-5"><div class="font-mono text-[20px] text-text-primary sm:text-[22px]">{formatCompact(stats.totalRequests)}</div><div class="mt-1 text-[11px] text-text-placeholder">Requests</div></div>
+				<div class="mt-5 border-r border-border-subtle pr-3 sm:mt-0 sm:px-5"><div class="font-mono text-[20px] text-text-primary sm:text-[22px]">{stats.activeDays}</div><div class="mt-1 text-[11px] text-text-placeholder">Active days</div></div>
+				<div class="mt-5 pl-3 sm:mt-0 sm:pl-5"><div class="font-mono text-[20px] text-text-primary sm:text-[22px]">{stats.currentStreak}</div><div class="mt-1 text-[11px] text-text-placeholder">Current streak</div></div>
 			</section>
 
 			<section class="border-b border-border-subtle py-7">
@@ -175,33 +205,50 @@ onMount(async () => {
 				{#if stats.totalRequests === 0}<p class="mt-4 text-[12px] text-text-placeholder">Activity will appear here after your first request.</p>{/if}
 			</section>
 
-			<div class="grid gap-8 py-7 md:grid-cols-2 md:gap-12">
+			<div class="grid gap-8 py-7 md:grid-cols-2 md:gap-x-10 lg:grid-cols-3">
 				<section>
-					<h2 class="mb-4 text-[13px] font-medium text-text-primary">Highlights</h2>
-					<dl class="space-y-3 text-[12px]">
-						<div class="flex items-baseline justify-between gap-4"><dt class="text-text-tertiary">Longest streak</dt><dd class="font-mono text-text-secondary">{stats.longestStreak} days</dd></div>
-						<div class="flex items-baseline justify-between gap-4"><dt class="text-text-tertiary">Peak day</dt><dd class="text-right font-mono text-text-secondary">{stats.peakDay ? `${formatDay(stats.peakDay.date)} · ${formatCompact(stats.peakDay.tokens)}` : "—"}</dd></div>
-						<div class="flex items-baseline justify-between gap-4"><dt class="text-text-tertiary">Success rate</dt><dd class="font-mono text-text-secondary">{stats.successRate === null ? "—" : `${(stats.successRate * 100).toFixed(1)}%`}</dd></div>
-						<div class="flex items-baseline justify-between gap-4"><dt class="text-text-tertiary">Official cost</dt><dd class="font-mono text-text-secondary">{formatCost(stats.totalCost)}</dd></div>
-						<div class="flex items-baseline justify-between gap-4"><dt class="text-text-tertiary">Generation requests</dt><dd class="font-mono text-text-secondary">{formatCompact(stats.totalGenerationRequests)}</dd></div>
-					</dl>
+					<div class="mb-4 flex items-center justify-between"><h2 class="text-[13px] font-medium text-text-primary">LLM models</h2><span class="text-[10px] text-text-placeholder">Tokens</span></div>
+					{#if displayedRankings.llmModels.length}
+						<ol class="space-y-3">
+							{#each displayedRankings.llmModels as row, index (`${row.provider}:${row.model}`)}
+								<li class="grid grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-2 text-[12px]">
+									<span class="font-mono text-[10px] text-text-placeholder">{index + 1}</span>
+									<div class="min-w-0" title={`${row.provider}/${row.model}`}><div class="truncate text-text-secondary">{row.model}</div><div class="truncate text-[10px] text-text-placeholder">{row.provider}</div></div>
+									<span class="font-mono text-text-secondary">{formatCompact(row.totalTokens)}</span>
+								</li>
+							{/each}
+						</ol>
+					{:else}<p class="text-[12px] text-text-placeholder">No LLM usage in this range.</p>{/if}
 				</section>
-				<section>
-					<h2 class="mb-4 text-[13px] font-medium text-text-primary">Token mix</h2>
-					<div class="mb-4 flex h-1.5 overflow-hidden rounded-full bg-bg-hover" aria-hidden="true">
-						{#if tokenTotal > 0}
-							<div class="bg-brand" style:width={`${stats.inputTokens / tokenTotal * 100}%`}></div>
-							<div class="bg-text-secondary" style:width={`${stats.outputTokens / tokenTotal * 100}%`}></div>
-							<div class="bg-status-running" style:width={`${stats.cacheReadTokens / tokenTotal * 100}%`}></div>
-							<div class="bg-text-placeholder" style:width={`${stats.cacheWriteTokens / tokenTotal * 100}%`}></div>
-						{/if}
-					</div>
-					<dl class="space-y-3 text-[12px]">
-						<div class="flex items-center justify-between gap-4"><dt class="flex items-center gap-2 text-text-tertiary"><span class="h-1.5 w-1.5 rounded-full bg-brand"></span>Input</dt><dd class="font-mono text-text-secondary">{formatCompact(stats.inputTokens)}</dd></div>
-						<div class="flex items-center justify-between gap-4"><dt class="flex items-center gap-2 text-text-tertiary"><span class="h-1.5 w-1.5 rounded-full bg-text-secondary"></span>Output</dt><dd class="font-mono text-text-secondary">{formatCompact(stats.outputTokens)}</dd></div>
-						<div class="flex items-center justify-between gap-4"><dt class="flex items-center gap-2 text-text-tertiary"><span class="h-1.5 w-1.5 rounded-full bg-status-running"></span>Cache read</dt><dd class="font-mono text-text-secondary">{formatCompact(stats.cacheReadTokens)}</dd></div>
-						<div class="flex items-center justify-between gap-4"><dt class="flex items-center gap-2 text-text-tertiary"><span class="h-1.5 w-1.5 rounded-full bg-text-placeholder"></span>Cache write</dt><dd class="font-mono text-text-secondary">{formatCompact(stats.cacheWriteTokens)}</dd></div>
-					</dl>
+
+				<section class="border-t border-border-subtle pt-7 md:border-0 md:pt-0">
+					<div class="mb-4 flex items-center justify-between"><h2 class="text-[13px] font-medium text-text-primary">Generation models</h2><span class="text-[10px] text-text-placeholder">Calls</span></div>
+					{#if displayedRankings.generationModels.length}
+						<ol class="space-y-3">
+							{#each displayedRankings.generationModels as row, index (`${row.provider}:${row.model}`)}
+								<li class="grid grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-2 text-[12px]">
+									<span class="font-mono text-[10px] text-text-placeholder">{index + 1}</span>
+									<div class="min-w-0" title={`${row.provider}/${row.model}`}><div class="truncate text-text-secondary">{row.model}</div><div class="truncate text-[10px] text-text-placeholder">{row.provider}</div></div>
+									<span class="font-mono text-text-secondary">{formatCompact(row.requestCount)}</span>
+								</li>
+							{/each}
+						</ol>
+					{:else}<p class="text-[12px] text-text-placeholder">No generation usage in this range.</p>{/if}
+				</section>
+
+				<section class="border-t border-border-subtle pt-7 md:col-span-2 lg:col-span-1 lg:border-0 lg:pt-0">
+					<div class="mb-4 flex items-center justify-between"><h2 class="text-[13px] font-medium text-text-primary">Works</h2><span class="text-[10px] text-text-placeholder">Views</span></div>
+					{#if displayedRankings.works.length}
+						<ol class="space-y-3">
+							{#each displayedRankings.works as row, index (row.workId)}
+								<li class="grid grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-2 text-[12px]">
+									<span class="font-mono text-[10px] text-text-placeholder">{index + 1}</span>
+									<a class="min-w-0 truncate text-text-secondary transition-colors hover:text-brand" href={`/spaces/${row.spaceId}/works/${row.workId}`} title={row.title}>{row.title}</a>
+									<span class="font-mono text-text-secondary">{formatCompact(row.viewCount)}</span>
+								</li>
+							{/each}
+						</ol>
+					{:else}<p class="text-[12px] text-text-placeholder">No Work views in this range.</p>{/if}
 				</section>
 			</div>
 

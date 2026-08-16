@@ -1564,6 +1564,45 @@ export type SpaceUsageResponse = {
   days: number;
 };
 
+export type UserUsageQuery = {
+  days?: number;
+  from?: string | Date;
+  to?: string | Date;
+  rankings?: boolean;
+};
+
+export type UserUsageRange = {
+  from: string;
+  to: string;
+};
+
+export type UserUsageRankings = {
+  llmModels: Array<{
+    provider: string;
+    model: string;
+    totalTokens: number;
+    requestCount: number;
+  }>;
+  generationModels: Array<{
+    provider: string;
+    model: string;
+    requestCount: number;
+  }>;
+  works: Array<{
+    workId: string;
+    spaceId: string;
+    slug: string;
+    title: string;
+    status: "published" | "disabled";
+    viewCount: number;
+  }>;
+};
+
+export type UserUsageResponse = SpaceUsageResponse & {
+  range: UserUsageRange;
+  rankings: UserUsageRankings | null;
+};
+
 // ─── Referral types ───
 
 export type ReferralStatus = "pending" | "qualified" | "rewarded";

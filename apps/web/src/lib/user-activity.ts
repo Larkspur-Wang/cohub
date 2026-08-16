@@ -1,4 +1,8 @@
-import type { SpaceUsageResponse } from "@neta-art/cohub";
+import type {
+	SpaceUsageResponse,
+	UserUsageRange,
+	UserUsageRankings,
+} from "@neta-art/cohub";
 
 export type ActivityDay = {
 	date: string;
@@ -18,6 +22,8 @@ export type ActivitySnapshot = {
 	days: number;
 	updatedAt: number;
 	activityDays: ActivityDay[];
+	range: UserUsageRange;
+	rankings: UserUsageRankings;
 };
 
 const CACHE_PREFIX = "cohub:activity:v1";
@@ -62,6 +68,49 @@ function isActivityDay(value: unknown): value is ActivityDay {
 	);
 }
 
+function isRankings(value: unknown): value is UserUsageRankings {
+	if (
+		!isRecord(value) ||
+		!Array.isArray(value.llmModels) ||
+		!Array.isArray(value.generationModels) ||
+		!Array.isArray(value.works)
+	)
+		return false;
+	return (
+		value.llmModels.every(
+			(row) =>
+				isRecord(row) &&
+				typeof row.provider === "string" &&
+				typeof row.model === "string" &&
+				hasFiniteNumbers(row, ["totalTokens", "requestCount"]),
+		) &&
+		value.generationModels.every(
+			(row) =>
+				isRecord(row) &&
+				typeof row.provider === "string" &&
+				typeof row.model === "string" &&
+				hasFiniteNumbers(row, ["requestCount"]),
+		) &&
+		value.works.every(
+			(row) =>
+				isRecord(row) &&
+				typeof row.workId === "string" &&
+				typeof row.spaceId === "string" &&
+				typeof row.title === "string" &&
+				typeof row.slug === "string" &&
+				hasFiniteNumbers(row, ["viewCount"]),
+		)
+	);
+}
+
+function isRange(value: unknown): value is UserUsageRange {
+	return (
+		isRecord(value) &&
+		typeof value.from === "string" &&
+		typeof value.to === "string"
+	);
+}
+
 function cacheKey(userUuid: string, days: number) {
 	return `${CACHE_PREFIX}:${userUuid}:${days}`;
 }
@@ -90,7 +139,9 @@ export function readActivityCache(
 			Date.now() - value.updatedAt > CACHE_MAX_AGE_MS ||
 			!Array.isArray(value.activityDays) ||
 			value.activityDays.length !== days ||
-			!value.activityDays.every(isActivityDay)
+			!value.activityDays.every(isActivityDay) ||
+			!isRange(value.range) ||
+			!isRankings(value.rankings)
 		) {
 			removeCacheKey(key);
 			return null;
@@ -99,6 +150,8 @@ export function readActivityCache(
 			days,
 			updatedAt: value.updatedAt,
 			activityDays: value.activityDays,
+			range: value.range,
+			rankings: value.rankings,
 		};
 	} catch {
 		removeCacheKey(key);
@@ -121,17 +174,18 @@ export function clearActivityCache(userUuid: string) {
 
 export function writeActivityCache(
 	userUuid: string,
-	days: number,
-	activityDays: ActivityDay[],
+	value: Omit<ActivitySnapshot, "updatedAt">,
 ) {
 	if (typeof localStorage === "undefined" || !userUuid) return;
 	try {
 		const snapshot = {
-			days,
+			...value,
 			updatedAt: Date.now(),
-			activityDays,
 		} satisfies ActivitySnapshot;
-		localStorage.setItem(cacheKey(userUuid, days), JSON.stringify(snapshot));
+		localStorage.setItem(
+			cacheKey(userUuid, value.days),
+			JSON.stringify(snapshot),
+		);
 	} catch {
 		// Usage is still available from the network when storage is unavailable.
 	}

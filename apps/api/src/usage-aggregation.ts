@@ -186,6 +186,69 @@ export const buildUsageDateRange = (days: number) => {
   return { startDate, now };
 };
 
+const DAY_MS = 86_400_000;
+const MAX_USER_USAGE_DAYS = 366;
+
+export class InvalidUsageRangeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "InvalidUsageRangeError";
+  }
+}
+
+function parseUsageBoundary(value: string, name: "from" | "to") {
+  const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(value);
+  const parsed = new Date(isDateOnly ? `${value}T00:00:00.000Z` : value);
+  if (!Number.isFinite(parsed.getTime()) || (isDateOnly && parsed.toISOString().slice(0, 10) !== value)) {
+    throw new InvalidUsageRangeError(`${name} must be an ISO 8601 date`);
+  }
+  return parsed;
+}
+
+export function resolveUserUsageRange(
+  input: { days?: string; from?: string; to?: string },
+  now = new Date(),
+) {
+  const hasCustomRange = input.from !== undefined || input.to !== undefined;
+  if (input.days !== undefined && hasCustomRange) {
+    throw new InvalidUsageRangeError("days cannot be combined with from or to");
+  }
+  if (input.to !== undefined && input.from === undefined) {
+    throw new InvalidUsageRangeError("from is required when to is provided");
+  }
+
+  if (input.from !== undefined) {
+    const startDate = parseUsageBoundary(input.from, "from");
+    const endDate = input.to === undefined ? now : parseUsageBoundary(input.to, "to");
+    const duration = endDate.getTime() - startDate.getTime();
+    if (duration <= 0) throw new InvalidUsageRangeError("to must be after from");
+    if (duration > MAX_USER_USAGE_DAYS * DAY_MS) {
+      throw new InvalidUsageRangeError(`usage range cannot exceed ${MAX_USER_USAGE_DAYS} days`);
+    }
+    return {
+      startDate,
+      endDate,
+      days: Math.ceil(duration / DAY_MS),
+      range: { from: startDate.toISOString(), to: endDate.toISOString() },
+    };
+  }
+
+  const rawDays = input.days ?? "30";
+  if (!/^\d+$/.test(rawDays)) throw new InvalidUsageRangeError("days must be a positive integer");
+  const days = Number(rawDays);
+  if (!Number.isSafeInteger(days) || days < 1 || days > MAX_USER_USAGE_DAYS) {
+    throw new InvalidUsageRangeError(`days must be between 1 and ${MAX_USER_USAGE_DAYS}`);
+  }
+  const startDate = new Date(now.getTime() - days * DAY_MS);
+  startDate.setUTCMinutes(0, 0, 0);
+  return {
+    startDate,
+    endDate: new Date(now.getTime() + 1),
+    days,
+    range: { from: startDate.toISOString(), to: now.toISOString() },
+  };
+}
+
 export type GenerationUsageRow = {
   bucketStartAt: Date;
   costTotal: string;

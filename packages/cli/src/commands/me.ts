@@ -46,15 +46,33 @@ export function registerMe(program: Command): void {
     });
 
   meCmd
-    .command("usage [days]")
-    .description("Your aggregated usage across all spaces (default: 30 days)")
+    .command("usage")
+    .description("Your aggregated usage across all spaces")
+    .option("--days <n>", "Rolling day range (default 30)")
+    .option("--from <date>", "Range start as an ISO 8601 date")
+    .option("--to <date>", "Exclusive range end as an ISO 8601 date")
     .option("--json", "Output as JSON")
-    .action(async (days: string | undefined, opts: { json?: boolean }) => {
+    .action(async (opts: { days?: string; from?: string; to?: string; json?: boolean }) => {
+      if (opts.days && (opts.from || opts.to)) {
+        process.stderr.write("\n  ✗ Invalid range\n    --days cannot be combined with --from or --to\n\n");
+        process.exitCode = 1;
+        return;
+      }
+      if (opts.to && !opts.from) {
+        process.stderr.write("\n  ✗ Invalid range\n    --from is required when --to is provided\n\n");
+        process.exitCode = 1;
+        return;
+      }
+
       const client = createClient();
       try {
-        const usage = await client.user.getUsage(days ? parseInteger(days, "days", 1) : 30);
+        const usage = await client.user.getUsage({
+          days: opts.days ? parseInteger(opts.days, "days", 1) : undefined,
+          from: opts.from,
+          to: opts.to,
+        });
         if (jsonRequested(opts)) return outJson(usage);
-        console.log("\n  Summary:");
+        console.log(`\n  ${usage.range.from} → ${usage.range.to}`);
         table([usage.summary], [
           { key: "totalTokens", label: "Tokens" },
           { key: "costTotal", label: "Cost ($)" },

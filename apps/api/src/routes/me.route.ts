@@ -1,7 +1,7 @@
 import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { Hono } from "hono";
-import { and, eq, gte, lte, desc } from "drizzle-orm";
+import { and, desc, eq, gte, lt, sql } from "drizzle-orm";
 import * as schema from "@cohub/db";
 import { db } from "../db/index.js";
 import { config } from "../config.js";
@@ -24,9 +24,9 @@ import {
 import {
   aggregateGenerationUsageRows,
   aggregateUsageRows,
-  buildUsageDateRange,
   GENERATION_USAGE_SELECT_COLUMNS,
-  resolveUsageDays,
+  InvalidUsageRangeError,
+  resolveUserUsageRange,
   USAGE_SELECT_COLUMNS,
   type GenerationUsageRow,
   type UsageRow,
@@ -298,6 +298,100 @@ router.get("/sessions", async (c) => {
   }
 });
 
+function finiteNumber(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function workTitle(meta: unknown, slug: string) {
+  if (!meta || typeof meta !== "object" || Array.isArray(meta)) return slug;
+  const value = meta as Record<string, unknown>;
+  const extracted = value.extracted && typeof value.extracted === "object" && !Array.isArray(value.extracted)
+    ? value.extracted as Record<string, unknown>
+    : null;
+  for (const candidate of [value.title, value.name, extracted?.title]) {
+    if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
+  }
+  return slug;
+}
+
+async function loadUserUsageRankings(userId: string, startDate: Date, endDate: Date) {
+  const [llmRows, generationRows, workRows] = await Promise.all([
+    db
+      .select({
+        provider: schema.tokenUsageStatsHourly.provider,
+        model: schema.tokenUsageStatsHourly.model,
+        totalTokens: sql<number>`sum(${schema.tokenUsageStatsHourly.totalTokens})`,
+        requestCount: sql<number>`sum(${schema.tokenUsageStatsHourly.requestCount})`,
+      })
+      .from(schema.tokenUsageStatsHourly)
+      .where(and(
+        eq(schema.tokenUsageStatsHourly.userId, userId),
+        gte(schema.tokenUsageStatsHourly.bucketStartAt, startDate),
+        lt(schema.tokenUsageStatsHourly.bucketStartAt, endDate),
+      ))
+      .groupBy(schema.tokenUsageStatsHourly.provider, schema.tokenUsageStatsHourly.model)
+      .orderBy(desc(sql`sum(${schema.tokenUsageStatsHourly.totalTokens})`))
+      .limit(5),
+    db
+      .select({
+        provider: schema.generationUsageStatsHourly.provider,
+        model: schema.generationUsageStatsHourly.model,
+        requestCount: sql<number>`sum(${schema.generationUsageStatsHourly.requestCount})`,
+      })
+      .from(schema.generationUsageStatsHourly)
+      .where(and(
+        eq(schema.generationUsageStatsHourly.userId, userId),
+        gte(schema.generationUsageStatsHourly.bucketStartAt, startDate),
+        lt(schema.generationUsageStatsHourly.bucketStartAt, endDate),
+      ))
+      .groupBy(schema.generationUsageStatsHourly.provider, schema.generationUsageStatsHourly.model)
+      .orderBy(desc(sql`sum(${schema.generationUsageStatsHourly.requestCount})`))
+      .limit(5),
+    db
+      .select({
+        workId: schema.works.id,
+        spaceId: schema.works.spaceId,
+        slug: schema.works.slug,
+        status: schema.works.status,
+        meta: schema.works.meta,
+        viewCount: sql<number>`sum(${schema.workViewStatsHourly.viewCount})`,
+      })
+      .from(schema.works)
+      .innerJoin(schema.workViewStatsHourly, eq(schema.workViewStatsHourly.workId, schema.works.id))
+      .where(and(
+        eq(schema.works.userUuid, userId),
+        gte(schema.workViewStatsHourly.bucketStartAt, startDate),
+        lt(schema.workViewStatsHourly.bucketStartAt, endDate),
+      ))
+      .groupBy(schema.works.id, schema.works.spaceId, schema.works.slug, schema.works.status, schema.works.meta)
+      .orderBy(desc(sql`sum(${schema.workViewStatsHourly.viewCount})`))
+      .limit(5),
+  ]);
+
+  return {
+    llmModels: llmRows.map((row) => ({
+      provider: row.provider ?? "unknown",
+      model: row.model ?? "unknown",
+      totalTokens: finiteNumber(row.totalTokens),
+      requestCount: finiteNumber(row.requestCount),
+    })),
+    generationModels: generationRows.map((row) => ({
+      provider: row.provider,
+      model: row.model,
+      requestCount: finiteNumber(row.requestCount),
+    })),
+    works: workRows.map((row) => ({
+      workId: row.workId,
+      spaceId: row.spaceId,
+      slug: row.slug,
+      title: workTitle(row.meta, row.slug),
+      status: row.status,
+      viewCount: finiteNumber(row.viewCount),
+    })),
+  };
+}
+
 router.get("/usage", async (c) => {
   const user = useAuth(c);
   if (user instanceof Response) return user;
@@ -305,13 +399,25 @@ router.get("/usage", async (c) => {
   const identity = asAccountIdentity(user);
   if (!identity) return authzDenied(c);
 
-  const days = resolveUsageDays(c.req.query("days"));
-  const { startDate, now } = buildUsageDateRange(days);
+  let usageRange: ReturnType<typeof resolveUserUsageRange>;
+  try {
+    usageRange = resolveUserUsageRange({
+      days: c.req.query("days"),
+      from: c.req.query("from"),
+      to: c.req.query("to"),
+    });
+  } catch (error) {
+    if (error instanceof InvalidUsageRangeError) return c.json({ message: error.message }, 400);
+    throw error;
+  }
+  const { startDate, endDate, days, range } = usageRange;
+  const includeRankings = c.req.query("rankings") === "1";
 
   let rows: UsageRow[];
   let generationRows: GenerationUsageRow[];
+  let rankings: Awaited<ReturnType<typeof loadUserUsageRankings>> | null;
   try {
-    [rows, generationRows] = await Promise.all([
+    [rows, generationRows, rankings] = await Promise.all([
       db
         .select(USAGE_SELECT_COLUMNS)
         .from(schema.tokenUsageStatsHourly)
@@ -319,7 +425,7 @@ router.get("/usage", async (c) => {
           and(
             eq(schema.tokenUsageStatsHourly.userId, identity.uuid),
             gte(schema.tokenUsageStatsHourly.bucketStartAt, startDate),
-            lte(schema.tokenUsageStatsHourly.bucketStartAt, now),
+            lt(schema.tokenUsageStatsHourly.bucketStartAt, endDate),
           ),
         )
         .orderBy(desc(schema.tokenUsageStatsHourly.bucketStartAt)),
@@ -330,10 +436,11 @@ router.get("/usage", async (c) => {
           and(
             eq(schema.generationUsageStatsHourly.userId, identity.uuid),
             gte(schema.generationUsageStatsHourly.bucketStartAt, startDate),
-            lte(schema.generationUsageStatsHourly.bucketStartAt, now),
+            lt(schema.generationUsageStatsHourly.bucketStartAt, endDate),
           ),
         )
         .orderBy(desc(schema.generationUsageStatsHourly.bucketStartAt)),
+      includeRankings ? loadUserUsageRankings(identity.uuid, startDate, endDate) : Promise.resolve(null),
     ]);
   } catch (error) {
     logger.error("[me/usage] DB query failed", error);
@@ -342,7 +449,7 @@ router.get("/usage", async (c) => {
 
   const { hourly, summary } = aggregateUsageRows(rows);
   const generation = aggregateGenerationUsageRows(generationRows);
-  return c.json({ hourly, summary, generation, days });
+  return c.json({ hourly, summary, generation, days, range, rankings });
 });
 
 export default router;

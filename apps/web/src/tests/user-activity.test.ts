@@ -84,11 +84,30 @@ test("activity cache stores daily aggregates", () => {
 	const values = new Map<string, string>();
 	withLocalStorage(values, () => {
 		const activityDays = [day("2026-08-16", 2, 100)];
-		writeActivityCache("user-1", 1, activityDays);
-		assert.deepEqual(
-			readActivityCache("user-1", 1)?.activityDays,
+		const rankings = {
+			llmModels: [
+				{
+					provider: "openai",
+					model: "gpt-5",
+					totalTokens: 100,
+					requestCount: 2,
+				},
+			],
+			generationModels: [],
+			works: [],
+		};
+		writeActivityCache("user-1", {
+			days: 1,
 			activityDays,
-		);
+			range: {
+				from: "2026-08-16T00:00:00.000Z",
+				to: "2026-08-17T00:00:00.000Z",
+			},
+			rankings,
+		});
+		const cached = readActivityCache("user-1", 1);
+		assert.deepEqual(cached?.activityDays, activityDays);
+		assert.deepEqual(cached?.rankings, rankings);
 		assert.doesNotMatch([...values.values()][0], /hourly/);
 	});
 });

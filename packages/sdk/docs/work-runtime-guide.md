@@ -623,7 +623,7 @@ await client.auth.request({
   scopes: ["user.usage.read"],
   reason: "Show your usage summary.",
 });
-const usage = await client.user.getUsage(30); // last 30 days
+const usage = await client.user.getUsage({ days: 30 }); // last 30 days
 ```
 
 ### Commerce (`work.commerce`)
