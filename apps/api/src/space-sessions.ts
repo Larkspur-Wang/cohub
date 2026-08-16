@@ -19,9 +19,9 @@ import {
   spaces,
 } from "@cohub/db";
 import { getSpaceSandboxBySpaceId, updateSpaceSandbox } from "./space-sandboxes.js";
-import { buildSessionOutputsForPersistedMessage, dispatchSessionOutputs, dispatchTurnFinalized } from "./session-output.js";
+import { buildSessionOutputsForPersistedMessage, dispatchSessionOutputs, dispatchTurnFinalized, dispatchTurnUpdated } from "./session-output.js";
 import { dispatchLabelAssignmentsUpdated, dispatchSessionCreated, dispatchSessionUpdated, dispatchTurnCreated } from "./realtime-events.js";
-import { finalizeSessionTurnFromMessage, hydrateTurnAuthorProfiles } from "./session-turns.js";
+import { finalizeSessionTurnFromMessage, getSessionTurnById, hydrateTurnAuthorProfiles } from "./session-turns.js";
 import { enqueueAgentSessionForkJob } from "./agent-turn-queue.js";
 import { requestAgentTurnAbort } from "./agent-turn-abort.js";
 import { countToolCallsInContent, deriveMessagePreviewText, extractPlainText } from "./session-content.js";
@@ -726,7 +726,9 @@ export const enqueueSessionFork = async (input: { spaceId: string; sessionId: st
   });
 };
 
-export const enqueueSessionAbort = async (input: { spaceId: string; sessionId: string; actorUserId?: string | null; turnId?: string | null }) => {
+export const enqueueSessionAbort = async (input: { sessionId: string; actorUserId?: string | null; turnId?: string | null }) => {
+  const session = await getSpaceSessionById(input.sessionId);
+  if (!session) return;
   const explicitTurnId = input.turnId?.trim() || null;
   const turnId = explicitTurnId ?? ((await db.select({ id: sessionTurns.id })
     .from(sessionTurns)
@@ -739,7 +741,7 @@ export const enqueueSessionAbort = async (input: { spaceId: string; sessionId: s
 
   if (!turnId) return;
 
-  await db.update(sessionTurns).set({
+  const [updated] = await db.update(sessionTurns).set({
     status: "abort_requested",
     meta: sql`coalesce(${sessionTurns.meta}, '{}'::jsonb) || ${JSON.stringify({
       abortRequestedAt: new Date().toISOString(),
@@ -750,10 +752,19 @@ export const enqueueSessionAbort = async (input: { spaceId: string; sessionId: s
     eq(sessionTurns.id, turnId),
     eq(sessionTurns.sessionId, input.sessionId),
     inArray(sessionTurns.status, ["running", "abort_requested"]),
-  ));
+  )).returning({ id: sessionTurns.id });
+
+  if (!updated) return;
+  await getSessionTurnById(input.sessionId, updated.id)
+    .then(async (turn) => {
+      if (!turn) return;
+      const [hydrated = turn] = await hydrateTurnAuthorProfiles([turn]);
+      await dispatchTurnUpdated({ spaceId: session.spaceId, sessionId: input.sessionId, turn: hydrated });
+    })
+    .catch((error) => logger.warn("[SessionTurn] failed to dispatch abort-requested turn", error));
 
   await requestAgentTurnAbort({
-    spaceId: input.spaceId,
+    spaceId: session.spaceId,
     sessionId: input.sessionId,
     turnId,
     reason: "abort",

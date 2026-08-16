@@ -12,7 +12,7 @@ import { wrapAgentTurn } from "@cohub/infra/tracing/agent";
 import { runInActiveSpan, extractTrace } from "@cohub/infra/tracing/propagator";
 import { getAgentTracer } from "@cohub/infra/tracing/agent";
 import { getSpace } from "./api.js";
-import { abortSessionTurn, failSessionTurn, interruptSessionTurn, persistAssistantMessage, persistUserMessage } from "./persistence.js";
+import { abortSessionTurn, failSessionTurn, interruptSessionTurn, persistAssistantMessage, persistUserMessage, publishSessionTurnsUpdated } from "./persistence.js";
 import { ensureSandboxConnection } from "./sandbox-pool.js";
 import { createSandboxCodingTools } from "./sandbox/tools.js";
 import { CohubModelRegistry } from "./runtime/model-registry.js";
@@ -843,6 +843,10 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
       clearRetryState(data);
       const { batch } = claim;
       claimedBatch = batch;
+      await publishSessionTurnsUpdated({
+        sessionId: data.sessionId,
+        turnIds: batch.turns.map((turn) => turn.id),
+      }).catch((error) => logger.warn("[Realtime] failed to publish claimed turn updates", error));
       const ownerMeta = (batch.ownerTurn.meta && typeof batch.ownerTurn.meta === "object" && !Array.isArray(batch.ownerTurn.meta)
         ? batch.ownerTurn.meta as Record<string, unknown>
         : {});

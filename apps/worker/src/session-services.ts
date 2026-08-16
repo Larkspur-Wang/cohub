@@ -9,6 +9,7 @@ import { config } from "./config.js";
 import type { PromptTemplateService } from "./prompt-templates.js";
 import type { SkillService } from "./skills.js";
 import { dispatchLabelAssignmentsUpdated } from "./label-events.js";
+import { dispatchTurnCreated, dispatchTurnUpdated } from "./realtime-events.js";
 
 const AGENT_TURN_JOB_NAME = "agent_turns";
 
@@ -42,6 +43,8 @@ export function getSessionDomainServices(input: {
     billingUsageGate,
     injectTrace,
     getRequestId: () => null,
+    onSessionTurnCreated: dispatchTurnCreated,
+    onSessionTurnUpdated: dispatchTurnUpdated,
     onSessionParticipantsUpdated: async ({ spaceId, sessionId, userUuids }) => {
       const affectedLabelIds = await assignSessionParticipantSystemLabels({ db, spaceId, sessionId, userUuids });
       await dispatchLabelAssignmentsUpdated({

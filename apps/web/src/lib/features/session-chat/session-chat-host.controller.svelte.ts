@@ -3633,6 +3633,26 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			}
 			const currentActiveSessionId = activeSessionId;
 			const isActiveSession = targetSessionId === currentActiveSessionId;
+			if (
+				payload.type === "session.turn.created" ||
+				payload.type === "session.turn.updated" ||
+				payload.type === "session.turn.finalized"
+			) {
+				const turn = payload.payload.turn as SessionTurnRecord | undefined;
+				if (turn?.id && Array.isArray(turn.userContent)) {
+					void sessionTurnsRepo
+						.mergeTurns(spaceId, targetSessionId, [turn], {
+							preferIncoming: true,
+							source: "network",
+						})
+						.catch((error) =>
+							console.warn(
+								"[session-chat] failed to cache realtime turn",
+								error,
+							),
+						);
+				}
+			}
 			if (payload.type === "session.request.accepted") {
 				clearPostSendRecovery(targetSessionId);
 				return;

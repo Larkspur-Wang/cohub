@@ -18,7 +18,7 @@ function createDeps(validatePromptModel: SessionPromptDependencies["validateProm
   return {
     randomUUID: () => "message-id",
     expandPromptTemplate: async () => null,
-    createSessionTurn: async () => ({ id: "turn-id" }),
+    createSessionTurn: async () => ({ id: "turn-id", spaceId: "space-1" }),
     enqueueSpacePrompt: async () => undefined,
     failSessionTurn: async () => undefined,
     validatePromptModel,

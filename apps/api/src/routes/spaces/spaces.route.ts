@@ -154,6 +154,23 @@ type SpaceTurnActionResult = {
   affectedTurns: NonNullable<Awaited<ReturnType<typeof getSessionTurnById>>>[];
 };
 
+async function loadHydratedTurns(sessionId: string, turnIds: string[]) {
+  const turns = (await Promise.all(turnIds.map((turnId) => getSessionTurnById(sessionId, turnId))))
+    .filter(Boolean) as NonNullable<Awaited<ReturnType<typeof getSessionTurnById>>>[];
+  return hydrateTurnAuthorProfiles(turns);
+}
+
+async function dispatchAffectedTurnUpdates(input: {
+  spaceId: string;
+  sessionId: string;
+  turns: SpaceTurnActionResult["affectedTurns"];
+}) {
+  await Promise.all(input.turns.map((turn) =>
+    dispatchTurnUpdated({ spaceId: input.spaceId, sessionId: input.sessionId, turn })
+      .catch((error) => logger.warn("[SessionTurn] failed to dispatch steered turn", error)),
+  ));
+}
+
 async function promoteQueuedTurnToSteer(input: {
   spaceId: string;
   sessionId: string;
@@ -216,6 +233,13 @@ async function promoteQueuedTurnToSteer(input: {
     if (result.activeTurnId && result.activeTurnId !== result.targetId && result.activeTurnStatus === "running") {
       await db.update(sessionTurns).set({ status: "running", updatedAt: failedAt }).where(and(eq(sessionTurns.id, result.activeTurnId), eq(sessionTurns.sessionId, input.sessionId), eq(sessionTurns.status, "abort_requested")));
     }
+    await loadHydratedTurns(input.sessionId, result.affectedTurnIds)
+      .then((turns) => dispatchAffectedTurnUpdates({
+        spaceId: input.spaceId,
+        sessionId: input.sessionId,
+        turns,
+      }))
+      .catch((dispatchError) => logger.warn("[SessionTurn] failed to dispatch steer enqueue rollback", dispatchError));
     throw new Error("failed to enqueue steered turn");
   }
 
@@ -231,9 +255,7 @@ async function promoteQueuedTurnToSteer(input: {
       logger.warn("[SessionTurn] failed to publish steer abort", error);
     });
   }
-  const turns = (await Promise.all(result.affectedTurnIds.map((turnId) => getSessionTurnById(input.sessionId, turnId))))
-    .filter(Boolean) as NonNullable<Awaited<ReturnType<typeof getSessionTurnById>>>[];
-  const hydrated = await hydrateTurnAuthorProfiles(turns);
+  const hydrated = await loadHydratedTurns(input.sessionId, result.affectedTurnIds);
   const target = hydrated.find((turn) => turn.id === result.targetId);
   if (!target) throw new Error("turn not found");
   return { turn: target, affectedTurns: hydrated };
@@ -2056,7 +2078,7 @@ router.post("/:id/sessions/:sessionId/turns/:turnId/steer", async (c) => {
 
   try {
     const result = await promoteQueuedTurnToSteer({ spaceId, sessionId, turnId, actorUserId: user.uuid });
-    await Promise.all(result.affectedTurns.map((turn) => dispatchTurnUpdated({ spaceId, sessionId, turn }).catch((error) => logger.warn("[SessionTurn] failed to dispatch steered turn", error))));
+    await dispatchAffectedTurnUpdates({ spaceId, sessionId, turns: result.affectedTurns });
     return c.json({ ok: true, turn: result.turn, affectedTurns: result.affectedTurns });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

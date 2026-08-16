@@ -22,7 +22,7 @@ const captureTurnMeta = async (sourceClientId: string | null) => {
     expandPromptTemplate: async () => null,
     createSessionTurn: async (input) => {
       turnMetas.push(input.meta);
-      return { id: "turn-id" };
+      return { id: "turn-id", spaceId: "space-1" };
     },
     enqueueSpacePrompt: async () => undefined,
     failSessionTurn: async () => undefined,
@@ -42,4 +42,29 @@ test("prompt meta rejects an invalid source client id", async () => {
   const meta = await captureTurnMeta("invalid client id");
   assert.equal(meta?.source, "web");
   assert.equal(meta?.sourceClientId, undefined);
+});
+
+test("enqueue uses the created turn space instead of the request space", async () => {
+  let enqueuedInput: Parameters<SessionPromptDependencies["enqueueSpacePrompt"]>[0] | undefined;
+  let failedInput: Parameters<SessionPromptDependencies["failSessionTurn"]>[0] | undefined;
+  const deps: SessionPromptDependencies = {
+    randomUUID: () => "message-id",
+    expandPromptTemplate: async () => null,
+    createSessionTurn: async () => ({ id: "turn-id", spaceId: "canonical-space" }),
+    enqueueSpacePrompt: async (input) => {
+      enqueuedInput = input;
+      throw new Error("queue unavailable");
+    },
+    failSessionTurn: async (input) => {
+      failedInput = input;
+    },
+  };
+
+  await assert.rejects(submitSessionPrompt(deps, createInput(null)), /queue unavailable/);
+  assert.equal(enqueuedInput?.spaceId, "canonical-space");
+  assert.deepEqual(failedInput, {
+    sessionId: "session-1",
+    turnId: "turn-id",
+    errorMessage: "queue unavailable",
+  });
 });

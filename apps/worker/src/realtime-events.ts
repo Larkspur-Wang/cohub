@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { REALTIME_OUTBOUND_CHANNEL, type RealtimeTaskRecord } from "@cohub/protocol/realtime";
+import type { SessionTurnRecord } from "@cohub/protocol/model";
 import type { TaskRunStatus } from "@cohub/protocol/task";
 import { redisCommandClient } from "./redis.js";
 import { enqueueSpaceHookFromEvent } from "./space-hooks.js";
@@ -103,3 +104,28 @@ export const dispatchTaskUpdated = (input: {
   task: Parameters<typeof toRealtimeTaskRecord>[0];
   changed: string[];
 }) => publishTaskEvent({ type: "task.updated", task: input.task, changed: input.changed });
+
+async function dispatchTurnEvent(input: {
+  type: "session.turn.created" | "session.turn.updated";
+  spaceId: string;
+  turn: SessionTurnRecord;
+}) {
+  await redisCommandClient.publish(
+    REALTIME_OUTBOUND_CHANNEL,
+    JSON.stringify({
+      id: randomUUID(),
+      timestamp: Date.now(),
+      domain: "session",
+      type: input.type,
+      spaceId: input.spaceId,
+      sessionId: input.turn.sessionId,
+      payload: { turn: input.turn },
+    }),
+  );
+}
+
+export const dispatchTurnCreated = (input: { spaceId: string; turn: SessionTurnRecord }) =>
+  dispatchTurnEvent({ type: "session.turn.created", ...input });
+
+export const dispatchTurnUpdated = (input: { spaceId: string; turn: SessionTurnRecord }) =>
+  dispatchTurnEvent({ type: "session.turn.updated", ...input });

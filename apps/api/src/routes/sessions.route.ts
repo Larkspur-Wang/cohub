@@ -387,7 +387,6 @@ router.post("/:id/abort", async (c) => {
   if (turnId && !requireValidId(turnId)) return c.json({ message: "invalid turn id" }, 400);
 
   await enqueueSessionAbort({
-    spaceId: session.spaceId,
     sessionId: session.id,
     actorUserId: user.uuid,
     turnId,

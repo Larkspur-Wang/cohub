@@ -13,7 +13,9 @@ import { expandSkillCommand, type ExpandedSkill } from "./skills.js";
 import { ensureSpaceSandbox, recoverSpaceSandbox } from "./space-sandboxes.js";
 import { getSpaceSessionById, getSpaceById } from "./space-sessions.js";
 import { touchSpaceActivity } from "./space-activity.js";
-import { dispatchLabelAssignmentsUpdated, dispatchSessionUpdated } from "./realtime-events.js";
+import { dispatchLabelAssignmentsUpdated, dispatchSessionUpdated, dispatchTurnCreated } from "./realtime-events.js";
+import { dispatchTurnUpdated } from "./session-output.js";
+import { hydrateTurnAuthorProfiles } from "./session-turns.js";
 import { createLogger } from "@cohub/infra/logging";
 import { validatePromptModel } from "./llm/models.js";
 
@@ -99,6 +101,14 @@ export function getSessionDomainServices(input?: {
     },
     injectTrace,
     getRequestId: getCurrentRequestId,
+    onSessionTurnCreated: async ({ spaceId, turn: turnRecord }) => {
+      const [turn = turnRecord] = await hydrateTurnAuthorProfiles([turnRecord]);
+      await dispatchTurnCreated({ spaceId, sessionId: turn.sessionId, turn });
+    },
+    onSessionTurnUpdated: async ({ spaceId, turn: turnRecord }) => {
+      const [turn = turnRecord] = await hydrateTurnAuthorProfiles([turnRecord]);
+      await dispatchTurnUpdated({ spaceId, sessionId: turn.sessionId, turn });
+    },
     onSessionActivityUpdated: async ({ sessionId, changed }) => {
       const session = await getSpaceSessionById(sessionId);
       if (!session) return;

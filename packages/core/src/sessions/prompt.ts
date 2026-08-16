@@ -222,7 +222,7 @@ export type SessionPromptDependencies = {
     userContent: ContentBlock[];
     intent: SessionTurnIntent;
     meta: Record<string, unknown>;
-  }): Promise<{ id: string }>;
+  }): Promise<{ id: string; spaceId: string }>;
   enqueueSpacePrompt(input: {
     spaceId: string;
     sessionId: string;
@@ -448,6 +448,7 @@ export const submitSessionPrompt = async (
   });
 
   const turnId = turn.id;
+  const turnSpaceId = turn.spaceId;
   const meta = {
     ...baseMeta,
     turnId,
@@ -456,7 +457,7 @@ export const submitSessionPrompt = async (
   try {
     await hooks.beforeEnqueue?.({ turnId, userMessageId, content, meta });
     await deps.enqueueSpacePrompt({
-      spaceId: input.spaceId,
+      spaceId: turnSpaceId,
       sessionId: input.sessionId,
       turnId,
       userMessageId,

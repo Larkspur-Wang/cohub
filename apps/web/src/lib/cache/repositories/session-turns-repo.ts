@@ -10,6 +10,7 @@ import {
 	idbPut,
 	type SessionTurnsCacheRecord,
 } from "$lib/cache/db";
+import { createKeyedSerialQueue } from "$lib/cache/keyed-serial-queue";
 import { getCacheUserKey, sessionTurnsKey } from "$lib/cache/keys";
 import { MemoryLru } from "$lib/cache/memory-lru";
 import {
@@ -23,12 +24,24 @@ import { mergeTurnsById } from "$lib/stores/turn-cache";
 const SESSION_TURNS_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_TURNS_PER_SESSION_CACHE = 500;
 const memory = new MemoryLru<string, SessionTurnsCacheRecord>(50);
+const runMutation = createKeyedSerialQueue();
 const listeners = new Set<
 	(
 		snapshot: SessionTurnsSnapshot & { spaceId: string; sessionId: string },
 	) => void
 >();
 let subscribedToBroadcast = false;
+
+function runSessionMutation<T>(
+	spaceId: string,
+	sessionId: string,
+	mutation: () => T | Promise<T>,
+) {
+	return runMutation(
+		sessionTurnsKey(getCacheUserKey(), spaceId, sessionId),
+		mutation,
+	);
+}
 
 export type SessionTurnsSnapshot = {
 	session: SessionRecord | null;
@@ -177,7 +190,6 @@ async function readRecord(spaceId: string, sessionId: string) {
 	if (!record) return null;
 	const touched = { ...record, lastAccessedAt: Date.now() };
 	memory.set(key, touched);
-	void idbPut("session_turns", touched).catch(() => undefined);
 	return { record: touched, source: "indexeddb" as CacheSource };
 }
 
@@ -308,57 +320,62 @@ export const sessionTurnsRepo = {
 		},
 		options?: { source?: CacheSource },
 	) {
-		ensureBroadcastSubscription();
-		const current = await readRecord(spaceId, sessionId);
-		if (
-			current &&
-			isIncomingTailOlder({
-				currentTurns: current.record.turns,
-				incomingTurns: response.turns,
-			})
-		) {
-			return toSnapshot(current.record, current.source);
-		}
+		return runSessionMutation(spaceId, sessionId, async () => {
+			ensureBroadcastSubscription();
+			const current = await readRecord(spaceId, sessionId);
+			if (
+				current &&
+				isIncomingTailOlder({
+					currentTurns: current.record.turns,
+					incomingTurns: response.turns,
+				})
+			) {
+				return toSnapshot(current.record, current.source);
+			}
 
-		const currentTurns = current?.record.turns ?? [];
-		const nextTurns = reconcileTailTurns(currentTurns, response.turns);
-		const keptLocalOlderTurns = Boolean(
-			currentTurns.length > 0 &&
-				response.turns.length > 0 &&
-				currentTurns.some(
-					(turn) => turn.sequence < (response.turns[0]?.sequence ?? 0),
-				),
-		);
-		const nextHasMoreOlder = keptLocalOlderTurns
-			? current?.record.hasMoreOlder === true
-			: response.hasMore;
-		const nextHasMoreNewer = false;
-		const source = options?.source ?? "network";
-		if (
-			current &&
-			areJsonEqual(current.record.session, response.session) &&
-			current.record.hasMoreOlder === nextHasMoreOlder &&
-			Boolean(
-				(current.record as SessionTurnsCacheRecord & { hasMoreNewer?: boolean })
-					.hasMoreNewer,
-			) === nextHasMoreNewer &&
-			areTurnListsEqual(current.record.turns, nextTurns)
-		) {
-			return toSnapshot(current.record, current.source);
-		}
+			const currentTurns = current?.record.turns ?? [];
+			const nextTurns = reconcileTailTurns(currentTurns, response.turns);
+			const keptLocalOlderTurns = Boolean(
+				currentTurns.length > 0 &&
+					response.turns.length > 0 &&
+					currentTurns.some(
+						(turn) => turn.sequence < (response.turns[0]?.sequence ?? 0),
+					),
+			);
+			const nextHasMoreOlder = keptLocalOlderTurns
+				? current?.record.hasMoreOlder === true
+				: response.hasMore;
+			const nextHasMoreNewer = false;
+			const source = options?.source ?? "network";
+			if (
+				current &&
+				areJsonEqual(current.record.session, response.session) &&
+				current.record.hasMoreOlder === nextHasMoreOlder &&
+				Boolean(
+					(
+						current.record as SessionTurnsCacheRecord & {
+							hasMoreNewer?: boolean;
+						}
+					).hasMoreNewer,
+				) === nextHasMoreNewer &&
+				areTurnListsEqual(current.record.turns, nextTurns)
+			) {
+				return toSnapshot(current.record, current.source);
+			}
 
-		const record = await writeRecord(
-			spaceId,
-			sessionId,
-			{
-				session: response.session,
-				turns: nextTurns,
-				hasMoreOlder: nextHasMoreOlder,
-				hasMoreNewer: nextHasMoreNewer,
-			},
-			{ source },
-		);
-		return toSnapshot(record, source);
+			const record = await writeRecord(
+				spaceId,
+				sessionId,
+				{
+					session: response.session,
+					turns: nextTurns,
+					hasMoreOlder: nextHasMoreOlder,
+					hasMoreNewer: nextHasMoreNewer,
+				},
+				{ source },
+			);
+			return toSnapshot(record, source);
+		});
 	},
 
 	async mergeTurns(
@@ -374,35 +391,41 @@ export const sessionTurnsRepo = {
 			trimAnchorSequence?: number | null;
 		},
 	) {
-		ensureBroadcastSubscription();
-		const current = await readRecord(spaceId, sessionId);
-		const merged = mergeTurnsById(current?.record.turns ?? [], turns, {
-			preferIncoming: options?.preferIncoming ?? true,
+		return runSessionMutation(spaceId, sessionId, async () => {
+			ensureBroadcastSubscription();
+			const current = await readRecord(spaceId, sessionId);
+			const merged = mergeTurnsById(current?.record.turns ?? [], turns, {
+				preferIncoming: options?.preferIncoming ?? true,
+			});
+			const record = await writeRecord(
+				spaceId,
+				sessionId,
+				{
+					session: options?.session ?? current?.record.session ?? null,
+					turns: merged,
+					hasMoreOlder:
+						options?.hasMoreOlder ?? current?.record.hasMoreOlder ?? false,
+					hasMoreNewer:
+						options?.hasMoreNewer ??
+						Boolean(
+							(
+								current?.record as
+									| (SessionTurnsCacheRecord & { hasMoreNewer?: boolean })
+									| undefined
+							)?.hasMoreNewer,
+						),
+				},
+				{
+					source: options?.source ?? "indexeddb",
+					trimAnchorSequence: options?.trimAnchorSequence,
+				},
+			);
+			return toSnapshotWithTurns(
+				record,
+				options?.source ?? "indexeddb",
+				merged,
+			);
 		});
-		const record = await writeRecord(
-			spaceId,
-			sessionId,
-			{
-				session: options?.session ?? current?.record.session ?? null,
-				turns: merged,
-				hasMoreOlder:
-					options?.hasMoreOlder ?? current?.record.hasMoreOlder ?? false,
-				hasMoreNewer:
-					options?.hasMoreNewer ??
-					Boolean(
-						(
-							current?.record as
-								| (SessionTurnsCacheRecord & { hasMoreNewer?: boolean })
-								| undefined
-						)?.hasMoreNewer,
-					),
-			},
-			{
-				source: options?.source ?? "indexeddb",
-				trimAnchorSequence: options?.trimAnchorSequence,
-			},
-		);
-		return toSnapshotWithTurns(record, options?.source ?? "indexeddb", merged);
 	},
 
 	async replaceTurnId(
@@ -411,43 +434,47 @@ export const sessionTurnsRepo = {
 		input: { previousTurnId: string; nextTurnId: string },
 		options?: { source?: CacheSource },
 	) {
-		ensureBroadcastSubscription();
-		if (input.previousTurnId === input.nextTurnId) {
+		return runSessionMutation(spaceId, sessionId, async () => {
+			ensureBroadcastSubscription();
+			if (input.previousTurnId === input.nextTurnId) {
+				const current = await readRecord(spaceId, sessionId);
+				return current ? toSnapshot(current.record, current.source) : null;
+			}
 			const current = await readRecord(spaceId, sessionId);
-			return current ? toSnapshot(current.record, current.source) : null;
-		}
-		const current = await readRecord(spaceId, sessionId);
-		if (!current) return null;
-		const remappedTurns = current.record.turns.map((turn) => {
-			if (turn.id !== input.previousTurnId) return turn;
-			const meta = turn.meta ? { ...turn.meta } : null;
-			if (meta && "optimistic" in meta) delete meta.optimistic;
-			return {
-				...turn,
-				id: input.nextTurnId,
-				meta,
-			};
+			if (!current) return null;
+			const remappedTurns = current.record.turns.map((turn) => {
+				if (turn.id !== input.previousTurnId) return turn;
+				const meta = turn.meta ? { ...turn.meta } : null;
+				if (meta && "optimistic" in meta) delete meta.optimistic;
+				return {
+					...turn,
+					id: input.nextTurnId,
+					meta,
+				};
+			});
+			const merged = mergeTurnsById([], remappedTurns, {
+				preferIncoming: true,
+			});
+			const record = await writeRecord(
+				spaceId,
+				sessionId,
+				{
+					session: current.record.session,
+					turns: merged,
+					hasMoreOlder: current.record.hasMoreOlder,
+					hasMoreNewer: Boolean(
+						(
+							current.record as SessionTurnsCacheRecord & {
+								hasMoreNewer?: boolean;
+							}
+						).hasMoreNewer,
+					),
+					reconciledAt: current.record.reconciledAt,
+				},
+				{ source: options?.source ?? "indexeddb" },
+			);
+			return toSnapshot(record, options?.source ?? "indexeddb");
 		});
-		const merged = mergeTurnsById([], remappedTurns, { preferIncoming: true });
-		const record = await writeRecord(
-			spaceId,
-			sessionId,
-			{
-				session: current.record.session,
-				turns: merged,
-				hasMoreOlder: current.record.hasMoreOlder,
-				hasMoreNewer: Boolean(
-					(
-						current.record as SessionTurnsCacheRecord & {
-							hasMoreNewer?: boolean;
-						}
-					).hasMoreNewer,
-				),
-				reconciledAt: current.record.reconciledAt,
-			},
-			{ source: options?.source ?? "indexeddb" },
-		);
-		return toSnapshot(record, options?.source ?? "indexeddb");
 	},
 
 	async loadOlder(
@@ -459,43 +486,51 @@ export const sessionTurnsRepo = {
 			hasMore: boolean;
 		},
 	) {
-		const current = await readRecord(spaceId, sessionId);
-		const merged = mergeTurnsById(current?.record.turns ?? [], response.turns, {
-			preferIncoming: false,
+		return runSessionMutation(spaceId, sessionId, async () => {
+			const current = await readRecord(spaceId, sessionId);
+			const merged = mergeTurnsById(
+				current?.record.turns ?? [],
+				response.turns,
+				{
+					preferIncoming: false,
+				},
+			);
+			const record = await writeRecord(
+				spaceId,
+				sessionId,
+				{
+					session: response.session ?? current?.record.session ?? null,
+					turns: merged,
+					hasMoreOlder: response.hasMore,
+					hasMoreNewer: Boolean(
+						(
+							current?.record as
+								| (SessionTurnsCacheRecord & { hasMoreNewer?: boolean })
+								| undefined
+						)?.hasMoreNewer,
+					),
+				},
+				{ source: "network", trimMode: "head" },
+			);
+			return toSnapshotWithTurns(record, "network", merged);
 		});
-		const record = await writeRecord(
-			spaceId,
-			sessionId,
-			{
-				session: response.session ?? current?.record.session ?? null,
-				turns: merged,
-				hasMoreOlder: response.hasMore,
-				hasMoreNewer: Boolean(
-					(
-						current?.record as
-							| (SessionTurnsCacheRecord & { hasMoreNewer?: boolean })
-							| undefined
-					)?.hasMoreNewer,
-				),
-			},
-			{ source: "network", trimMode: "head" },
-		);
-		return toSnapshotWithTurns(record, "network", merged);
 	},
 
 	async clearSession(spaceId: string, sessionId: string) {
-		const userKey = getCacheUserKey();
-		const key = sessionTurnsKey(userKey, spaceId, sessionId);
-		memory.delete(key);
-		await idbDelete("session_turns", key);
-		publishCacheMessage({
-			type: "cache-deleted",
-			store: "session_turns",
-			key,
-			userKey,
-			spaceId,
-			sessionId,
-			updatedAt: Date.now(),
+		return runSessionMutation(spaceId, sessionId, async () => {
+			const userKey = getCacheUserKey();
+			const key = sessionTurnsKey(userKey, spaceId, sessionId);
+			memory.delete(key);
+			await idbDelete("session_turns", key);
+			publishCacheMessage({
+				type: "cache-deleted",
+				store: "session_turns",
+				key,
+				userKey,
+				spaceId,
+				sessionId,
+				updatedAt: Date.now(),
+			});
 		});
 	},
 

@@ -220,6 +220,31 @@ const truncateTurnPreview = (text: string | null | undefined) => {
   return normalized.length > 180 ? `${normalized.slice(0, 177)}...` : normalized;
 };
 
+export async function publishSessionTurnsUpdated(input: {
+  sessionId: string;
+  turnIds: string[];
+}) {
+  const turnIds = [...new Set(input.turnIds.filter(Boolean))];
+  if (turnIds.length === 0) return;
+  const rows = await db.select({
+    turn: sessionTurns,
+    spaceId: spaceSessions.spaceId,
+  }).from(sessionTurns).innerJoin(
+    spaceSessions,
+    eq(spaceSessions.id, sessionTurns.sessionId),
+  ).where(and(
+    eq(sessionTurns.sessionId, input.sessionId),
+    inArray(sessionTurns.id, turnIds),
+  ));
+  await Promise.all(rows.map(({ turn, spaceId }) => publishRealtimeEnvelope({
+    domain: "session",
+    type: "session.turn.updated",
+    spaceId,
+    sessionId: input.sessionId,
+    payload: { turn: toTurnRecord(turn) },
+  })));
+}
+
 async function publishTurnFinalized(spaceId: string, turn: SessionTurnRecord) {
   await clearPersistedSessionStreamSnapshot(spaceId, turn.sessionId);
   await publishRealtimeEnvelope({ domain: "session", type: "session.turn.finalized", spaceId, sessionId: turn.sessionId, payload: { turn } });
@@ -663,7 +688,6 @@ export async function persistUserMessage(input: { spaceId: string; sessionId: st
   const record = toMessageRecord(persisted.message);
   if (!persisted.created) return { ok: true, message: record, created: false };
   await publishMessagePersisted(input.spaceId, record);
-  await publishTurnCreated(input.spaceId, toTurnRecord(turnRow)).catch((error) => logger.warn("[Realtime] failed to publish turn created", error));
   return { ok: true, message: record };
 }
 

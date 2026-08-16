@@ -3,7 +3,8 @@ import { randomUUID as defaultRandomUUID } from "node:crypto";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type { ContentBlock } from "@cohub/protocol/core";
-import type { SessionTurnIntent } from "@cohub/protocol/model";
+import type { SessionTurnIntent, SessionTurnRecord } from "@cohub/protocol/model";
+import type { ModelThinkingLevel } from "@cohub/protocol";
 import { sessionTurnSegments, sessionTurns, spaceSessions, spaces } from "@cohub/db";
 import { sanitizePostgresJsonValue } from "../content/sanitize.js";
 import { addSessionParticipantMeta, initializeSessionParticipantsMeta } from "./session-meta.js";
@@ -49,6 +50,46 @@ const AGENT_TURN_ABORT_CHANNEL = "pubsub:agent:turn_abort";
 const getAgentTurnAbortKey = (turnId: string) => `agent:turn:${turnId}:abort`;
 
 const imagePreviewLabel = (count: number) => (count === 1 ? "Image" : `${count} images`);
+
+const THINKING_LEVELS = new Set<ModelThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+
+const toSessionTurnRecord = (row: typeof sessionTurns.$inferSelect): SessionTurnRecord => {
+  const meta = row.meta && typeof row.meta === "object" && !Array.isArray(row.meta)
+    ? row.meta as Record<string, unknown>
+    : null;
+  const thinkingLevel = typeof meta?.effectiveThinkingLevel === "string" && THINKING_LEVELS.has(meta.effectiveThinkingLevel as ModelThinkingLevel)
+    ? meta.effectiveThinkingLevel as ModelThinkingLevel
+    : null;
+  const fallbackTimestamp = new Date().toISOString();
+  return {
+    id: row.id,
+    sessionId: row.sessionId,
+    userUuid: row.userUuid ?? null,
+    sequence: row.sequence,
+    status: row.status,
+    intent: row.intent,
+    userContent: row.userContent,
+    userText: row.userText ?? null,
+    assistantContent: row.assistantContent ?? null,
+    assistantText: row.assistantText ?? null,
+    provider: row.provider ?? null,
+    model: row.model ?? null,
+    stopReason: row.stopReason ?? null,
+    errorMessage: row.errorMessage ?? null,
+    finalUsage: row.finalUsage ?? row.totalUsage ?? null,
+    totalUsage: row.totalUsage ?? row.finalUsage ?? null,
+    summary: row.summary ?? null,
+    intermediateIndex: row.intermediateIndex ?? null,
+    intermediateSummary: row.intermediateSummary ?? null,
+    meta,
+    thinkingLevel,
+    startedAt: row.startedAt?.toISOString() ?? null,
+    completedAt: row.completedAt?.toISOString() ?? null,
+    durationMs: row.durationMs ?? null,
+    createdAt: row.createdAt?.toISOString() ?? fallbackTimestamp,
+    updatedAt: row.updatedAt?.toISOString() ?? fallbackTimestamp,
+  };
+};
 
 const deriveMessagePreviewText = (input: { content: ContentBlock[] }) => {
   const parts: string[] = [];
@@ -102,6 +143,8 @@ export function createSessionServices(input: {
   injectTrace?: () => Record<string, unknown>;
   getRequestId?: () => string | null | undefined;
   logger?: Pick<Console, "warn">;
+  onSessionTurnCreated?: (input: { spaceId: string; turn: SessionTurnRecord }) => void | Promise<void>;
+  onSessionTurnUpdated?: (input: { spaceId: string; turn: SessionTurnRecord }) => void | Promise<void>;
   onSessionActivityUpdated?: (input: { sessionId: string; changed: string[] }) => void | Promise<void>;
   onSessionParticipantsUpdated?: (input: { spaceId: string; sessionId: string; userUuids: string[] }) => void | Promise<void>;
 }) {
@@ -196,6 +239,8 @@ export function createSessionServices(input: {
       return { row, spaceId: sessionRow.spaceId };
     });
     if (!row) throw new Error("failed to create session turn");
+    await Promise.resolve(input.onSessionTurnCreated?.({ spaceId, turn: toSessionTurnRecord(row) }))
+      .catch((error) => logger.warn("[Session] failed to publish created turn", error));
     await Promise.resolve(input.onSessionActivityUpdated?.({
       sessionId: turnInput.sessionId,
       changed: ["latestMessageText", "lastMessageAt", "updatedAt"],
@@ -205,10 +250,15 @@ export function createSessionServices(input: {
       sessionId: turnInput.sessionId,
       userUuids: [turnInput.userUuid],
     })).catch((error) => logger.warn("[Session] failed to publish session participant labels", error));
-    return row;
+    return { ...row, spaceId };
   }
 
   async function failSessionTurn(turnInput: { sessionId: string; turnId: string; errorMessage: string }) {
+    const [session] = await input.db.select({ spaceId: spaceSessions.spaceId })
+      .from(spaceSessions)
+      .where(eq(spaceSessions.id, turnInput.sessionId))
+      .limit(1);
+    if (!session) return null;
     const [row] = await input.db.update(sessionTurns).set({
       status: "failed",
       errorMessage: turnInput.errorMessage,
@@ -220,6 +270,10 @@ export function createSessionServices(input: {
       eq(sessionTurns.sessionId, turnInput.sessionId),
       inArray(sessionTurns.status, ["queued", "running", "abort_requested"]),
     )).returning();
+    if (row) {
+      await Promise.resolve(input.onSessionTurnUpdated?.({ spaceId: session.spaceId, turn: toSessionTurnRecord(row) }))
+        .catch((error) => logger.warn("[Session] failed to publish updated turn", error));
+    }
     return row ?? null;
   }
 
@@ -266,11 +320,17 @@ export function createSessionServices(input: {
     }
 
     if (dispatchIntent === "steer" && activeTurn && activeTurn.id !== promptInput.turnId) {
-      await input.db.update(sessionTurns).set({
+      const [updatedActiveTurn] = await input.db.update(sessionTurns).set({
         status: "abort_requested",
         meta: sql`coalesce(${sessionTurns.meta}, '{}'::jsonb) || ${JSON.stringify({ abortRequestedAt: new Date().toISOString(), continuedByTurnId: promptInput.turnId })}::jsonb`,
         updatedAt: new Date(),
-      }).where(and(eq(sessionTurns.id, activeTurn.id), eq(sessionTurns.sessionId, promptInput.sessionId), inArray(sessionTurns.status, ["running", "abort_requested"])));
+      }).where(and(eq(sessionTurns.id, activeTurn.id), eq(sessionTurns.sessionId, promptInput.sessionId), inArray(sessionTurns.status, ["running", "abort_requested"]))).returning();
+      if (updatedActiveTurn) {
+        await Promise.resolve(input.onSessionTurnUpdated?.({
+          spaceId: promptInput.spaceId,
+          turn: toSessionTurnRecord(updatedActiveTurn),
+        })).catch((error) => logger.warn("[Session] failed to publish abort-requested turn", error));
+      }
       await requestAgentTurnAbort({
         spaceId: promptInput.spaceId,
         sessionId: promptInput.sessionId,
