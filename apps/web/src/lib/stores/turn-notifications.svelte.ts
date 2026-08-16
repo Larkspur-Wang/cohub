@@ -53,7 +53,7 @@ export type TurnNotification = {
 	space: SpaceRecord | null;
 	dismissAt: number | null;
 	remainingMs: number;
-	hovered: boolean;
+	interactionPaused: boolean;
 };
 
 type DesktopPromptState = {
@@ -279,9 +279,9 @@ class TurnNotificationsStore {
 		this.syncTick();
 	}
 
-	setHovered(id: string, hovered: boolean) {
+	setInteractionPaused(id: string, interactionPaused: boolean) {
 		this.items = this.items.map((item) =>
-			item.id === id ? { ...item, hovered } : item,
+			item.id === id ? { ...item, interactionPaused } : item,
 		);
 		this.syncCountdowns();
 	}
@@ -463,7 +463,7 @@ class TurnNotificationsStore {
 			space: cachedSpace,
 			dismissAt: null,
 			remainingMs: AUTO_DISMISS_MS,
-			hovered: false,
+			interactionPaused: false,
 		};
 		this.items = [
 			item,
@@ -543,10 +543,10 @@ class TurnNotificationsStore {
 	}
 
 	private syncCountdowns() {
-		const active = this.visible && this.focused;
+		const active = this.visible;
 		const now = Date.now();
 		this.items = this.items.map((item) => {
-			if (!active || item.hovered) {
+			if (!active || item.interactionPaused) {
 				return item.dismissAt
 					? {
 							...item,

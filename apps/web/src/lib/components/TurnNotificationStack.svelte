@@ -32,6 +32,11 @@ function dismiss(event: MouseEvent, id: string) {
 	turnNotifications.dismiss(id);
 }
 
+function handlePointerPause(event: PointerEvent, id: string, paused: boolean) {
+	if (event.pointerType !== "mouse") return;
+	turnNotifications.setInteractionPaused(id, paused);
+}
+
 function handleCardKeydown(
 	event: KeyboardEvent,
 	notification: TurnNotification,
@@ -54,15 +59,15 @@ function handleCardKeydown(
 				data-drawer-swipe-ignore
 				use:swipeDismiss={{
 					onDismiss: () => turnNotifications.dismiss(notification.id),
-					onGestureStart: () => turnNotifications.setHovered(notification.id, true),
-					onGestureEnd: () => turnNotifications.setHovered(notification.id, false),
 				}}
 				onclick={() => openCurrent(notification)}
 				onkeydown={(event) => handleCardKeydown(event, notification)}
-				onmouseenter={() => turnNotifications.setHovered(notification.id, true)}
-				onmouseleave={() => turnNotifications.setHovered(notification.id, false)}
-				onfocus={() => turnNotifications.setHovered(notification.id, true)}
-				onblur={() => turnNotifications.setHovered(notification.id, false)}
+				onpointerenter={(event) =>
+					handlePointerPause(event, notification.id, true)}
+				onpointerleave={(event) =>
+					handlePointerPause(event, notification.id, false)}
+				onfocus={() => turnNotifications.setInteractionPaused(notification.id, true)}
+				onblur={() => turnNotifications.setInteractionPaused(notification.id, false)}
 			>
 				<div class="flex min-w-0 items-center gap-2">
 					<SpaceAvatar name={title} profile={notification.space?.publicProfile} size="xs" />
