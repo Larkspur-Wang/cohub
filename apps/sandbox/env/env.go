@@ -55,6 +55,18 @@ type Config struct {
 // IsLocal reports whether the sandbox runs in local dial-out mode.
 func (c Config) IsLocal() bool { return c.Mode == ModeLocal }
 
+// ResolveSandboxVersion prefers the Cohub-specific env and accepts IMAGE_VERSION
+// for sandboxes created before the env migration.
+func ResolveSandboxVersion(fallback string) string {
+	if version := strings.TrimSpace(os.Getenv("COHUB_SANDBOX_VERSION")); version != "" {
+		return version
+	}
+	if version := strings.TrimSpace(os.Getenv("IMAGE_VERSION")); version != "" {
+		return version
+	}
+	return fallback
+}
+
 func Load() (Config, error) {
 	spaceID := strings.TrimSpace(os.Getenv("COHUB_SPACE_ID"))
 	if spaceID == "" {
@@ -79,10 +91,7 @@ func Load() (Config, error) {
 	}
 	userAgentsDir = filepath.Clean(userAgentsDir)
 
-	imageVersion := strings.TrimSpace(os.Getenv("IMAGE_VERSION"))
-	if imageVersion == "" {
-		imageVersion = "sandbox:dev"
-	}
+	imageVersion := ResolveSandboxVersion("sandbox:dev")
 
 	return Config{
 		SpaceID:                        spaceID,
@@ -147,10 +156,7 @@ func LoadLocal(opts LocalOptions) (Config, error) {
 	}
 	cacheDir := filepath.Join(homeDir, ".cache", "cohub", "spaces", opts.SpaceID)
 
-	imageVersion := strings.TrimSpace(os.Getenv("IMAGE_VERSION"))
-	if imageVersion == "" {
-		imageVersion = "sandboxd:dev"
-	}
+	imageVersion := ResolveSandboxVersion("sandboxd:dev")
 
 	return Config{
 		SpaceID:           opts.SpaceID,

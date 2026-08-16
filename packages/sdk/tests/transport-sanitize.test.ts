@@ -100,6 +100,7 @@ test("HttpTransport attaches X-Cohub-Source-* from requestSource", async () => {
 			sessionId: "22222222-2222-2222-2222-222222222222",
 			turnId: "33333333-3333-3333-3333-333333333333",
 			toolCallId: "44444444-4444-4444-4444-444444444444",
+			sandboxVersion: "cohub-sandbox:sha-abc123",
 			via: "cli",
 		},
 		fetch: async (_input, init) => {
@@ -109,6 +110,7 @@ test("HttpTransport attaches X-Cohub-Source-* from requestSource", async () => {
 				session: headers.get(COHUB_SOURCE_HEADER.session),
 				turn: headers.get(COHUB_SOURCE_HEADER.turn),
 				toolCall: headers.get(COHUB_SOURCE_HEADER.toolCall),
+				sandboxVersion: headers.get(COHUB_SOURCE_HEADER.sandboxVersion),
 				via: headers.get(COHUB_SOURCE_HEADER.via),
 			});
 			return new Response(JSON.stringify({ ok: true }), {
@@ -124,6 +126,7 @@ test("HttpTransport attaches X-Cohub-Source-* from requestSource", async () => {
 		session: "22222222-2222-2222-2222-222222222222",
 		turn: "33333333-3333-3333-3333-333333333333",
 		toolCall: "44444444-4444-4444-4444-444444444444",
+		sandboxVersion: "cohub-sandbox:sha-abc123",
 		via: "cli",
 	});
 });
@@ -133,12 +136,14 @@ test("readRequestSourceFromEnv defaults via for sandbox env", () => {
 		{
 			COHUB_SPACE_ID: "11111111-1111-1111-1111-111111111111",
 			COHUB_SESSION_ID: "22222222-2222-2222-2222-222222222222",
+			COHUB_SANDBOX_VERSION: "cohub-sandbox:sha-abc123",
 		},
 		{ via: "cli" },
 	);
 	assert.deepEqual(source, {
 		spaceId: "11111111-1111-1111-1111-111111111111",
 		sessionId: "22222222-2222-2222-2222-222222222222",
+		sandboxVersion: "cohub-sandbox:sha-abc123",
 		via: "cli",
 	});
 	assert.deepEqual(
@@ -146,8 +151,16 @@ test("readRequestSourceFromEnv defaults via for sandbox env", () => {
 		{
 			[COHUB_SOURCE_HEADER.space]: "11111111-1111-1111-1111-111111111111",
 			[COHUB_SOURCE_HEADER.session]: "22222222-2222-2222-2222-222222222222",
+			[COHUB_SOURCE_HEADER.sandboxVersion]: "cohub-sandbox:sha-abc123",
 			[COHUB_SOURCE_HEADER.via]: "cli",
 		},
+	);
+});
+
+test("readRequestSourceFromEnv supports legacy Sandbox version env", () => {
+	assert.deepEqual(
+		readRequestSourceFromEnv({ IMAGE_VERSION: "cohub-sandbox:legacy" }),
+		{ sandboxVersion: "cohub-sandbox:legacy" },
 	);
 });
 

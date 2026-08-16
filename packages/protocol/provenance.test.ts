@@ -57,8 +57,11 @@ test("header round-trip includes via-only", () => {
 test("readRequestSourceFromEnv applies default via even without identity", () => {
   assert.deepEqual(readRequestSourceFromEnv({}, { via: "cli" }), { via: "cli" });
   assert.deepEqual(
-    readRequestSourceFromEnv({ COHUB_SPACE_ID: SPACE }, { via: "cli" }),
-    { spaceId: SPACE, via: "cli" },
+    readRequestSourceFromEnv(
+      { COHUB_SPACE_ID: SPACE, IMAGE_VERSION: "cohub-sandbox:sha-abc123" },
+      { via: "cli" },
+    ),
+    { spaceId: SPACE, sandboxVersion: "cohub-sandbox:sha-abc123", via: "cli" },
   );
   assert.equal(readRequestSourceFromEnv({ COHUB_SPACE_ID: "not-a-uuid" }), null);
 });
@@ -89,6 +92,46 @@ test("mergeRequestSourceIntoMeta stores identity only", () => {
 });
 
 const CLIENT = "abc123def456abc789def012";
+
+test("sandbox version supports legacy env fallback and prefers the Cohub env", () => {
+  assert.deepEqual(
+    readRequestSourceFromEnv({ IMAGE_VERSION: "cohub-sandbox:legacy" }),
+    { sandboxVersion: "cohub-sandbox:legacy" },
+  );
+  assert.deepEqual(
+    readRequestSourceFromEnv({
+      COHUB_SANDBOX_VERSION: "cohub-sandbox:current",
+      IMAGE_VERSION: "cohub-sandbox:legacy",
+    }),
+    { sandboxVersion: "cohub-sandbox:current" },
+  );
+  assert.deepEqual(
+    readRequestSourceFromEnv({
+      COHUB_SANDBOX_VERSION: "  ",
+      IMAGE_VERSION: "cohub-sandbox:legacy",
+    }),
+    { sandboxVersion: "cohub-sandbox:legacy" },
+  );
+});
+
+test("sandbox version round-trips as bounded provenance", () => {
+  const headers = requestSourceToHeaders({
+    sandboxVersion: "cohub-sandbox:sha-abc123",
+    via: "cli",
+  });
+  assert.equal(
+    headers[COHUB_SOURCE_HEADER.sandboxVersion],
+    "cohub-sandbox:sha-abc123",
+  );
+  assert.deepEqual(
+    parseRequestSourceFromHeaders((name) => headers[name] ?? null),
+    { sandboxVersion: "cohub-sandbox:sha-abc123", via: "cli" },
+  );
+  assert.equal(
+    normalizeRequestSource({ sandboxVersion: `v${"x".repeat(200)}` })?.sandboxVersion?.length,
+    128,
+  );
+});
 
 test("clientId travels as identity so UI commands can route back to a frontend", () => {
   assert.deepEqual(normalizeRequestSource({ clientId: CLIENT, via: "web" }), {
@@ -124,6 +167,7 @@ test("every emitted header is a declared name, which CORS allowlists derive from
     turnId: SPACE,
     toolCallId: SESSION,
     clientId: CLIENT,
+    sandboxVersion: "cohub-sandbox:sha-abc123",
     via: "web",
   });
   for (const name of Object.keys(headers)) {

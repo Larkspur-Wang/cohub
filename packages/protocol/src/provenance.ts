@@ -6,6 +6,7 @@ export const COHUB_SOURCE_HEADER = {
   turn: "X-Cohub-Source-Turn",
   toolCall: "X-Cohub-Source-Tool-Call",
   client: "X-Cohub-Source-Client",
+  sandboxVersion: "X-Cohub-Source-Sandbox",
   via: "X-Cohub-Source-Via",
 } as const;
 
@@ -27,6 +28,8 @@ export type RequestSource = {
    * — never an authorization input.
    */
   clientId?: string;
+  /** Untrusted provenance hint derived from the Sandbox runtime environment. */
+  sandboxVersion?: string;
   via?: RequestSourceVia;
 };
 
@@ -76,6 +79,11 @@ const asClientId = (value: unknown): string | undefined => {
   return cleaned && isRequestSourceClientId(cleaned) ? cleaned : undefined;
 };
 
+export const SANDBOX_VERSION_MAX_LENGTH = 128;
+
+const asSandboxVersion = (value: unknown): string | undefined =>
+  asNonEmpty(value)?.slice(0, SANDBOX_VERSION_MAX_LENGTH);
+
 export const isRequestSourceEmpty = (
   source: RequestSource | null | undefined,
 ): boolean => {
@@ -86,6 +94,7 @@ export const isRequestSourceEmpty = (
     !source.turnId &&
     !source.toolCallId &&
     !source.clientId &&
+    !source.sandboxVersion &&
     !source.via
   );
 };
@@ -110,6 +119,7 @@ export const normalizeRequestSource = (
   const turnId = asUuid(record.turnId);
   const toolCallId = asUuid(record.toolCallId);
   const clientId = asClientId(record.clientId);
+  const sandboxVersion = asSandboxVersion(record.sandboxVersion);
   const via = asVia(record.via);
   const source: RequestSource = {
     ...(spaceId ? { spaceId } : {}),
@@ -117,6 +127,7 @@ export const normalizeRequestSource = (
     ...(turnId ? { turnId } : {}),
     ...(toolCallId ? { toolCallId } : {}),
     ...(clientId ? { clientId } : {}),
+    ...(sandboxVersion ? { sandboxVersion } : {}),
     ...(via ? { via } : {}),
   };
   return isRequestSourceEmpty(source) ? null : source;
@@ -131,6 +142,7 @@ export const parseRequestSourceFromHeaders = (
     turnId: getHeader(COHUB_SOURCE_HEADER.turn),
     toolCallId: getHeader(COHUB_SOURCE_HEADER.toolCall),
     clientId: getHeader(COHUB_SOURCE_HEADER.client),
+    sandboxVersion: getHeader(COHUB_SOURCE_HEADER.sandboxVersion),
     via: getHeader(COHUB_SOURCE_HEADER.via),
   });
 
@@ -145,6 +157,9 @@ export const requestSourceToHeaders = (
   if (normalized.turnId) headers[COHUB_SOURCE_HEADER.turn] = normalized.turnId;
   if (normalized.toolCallId) headers[COHUB_SOURCE_HEADER.toolCall] = normalized.toolCallId;
   if (normalized.clientId) headers[COHUB_SOURCE_HEADER.client] = normalized.clientId;
+  if (normalized.sandboxVersion) {
+    headers[COHUB_SOURCE_HEADER.sandboxVersion] = normalized.sandboxVersion;
+  }
   if (normalized.via) headers[COHUB_SOURCE_HEADER.via] = normalized.via;
   return headers;
 };
@@ -160,6 +175,7 @@ export const readRequestSourceFromEnv = (
     turnId: env.COHUB_TURN_ID,
     toolCallId: env.COHUB_TOOL_CALL_ID,
     clientId: env.COHUB_SOURCE_CLIENT_ID,
+    sandboxVersion: asNonEmpty(env.COHUB_SANDBOX_VERSION) ?? env.IMAGE_VERSION,
     via: env.COHUB_SOURCE_VIA ?? defaults?.via,
   });
 

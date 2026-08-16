@@ -96,8 +96,8 @@ func toProtocolPortChanges(changes []portwatch.Change) []protocol.PortChange {
 }
 
 // buildVersion is stamped at build time via -ldflags "-X main.buildVersion=...".
-// For the containerized sandbox the IMAGE_VERSION env var takes precedence; for
-// standalone local binaries this ldflags value is the source of truth.
+// Containerized sandboxes receive a version env; standalone local binaries use
+// this build value as the source of truth.
 var buildVersion = "dev"
 
 func main() {
@@ -108,11 +108,7 @@ func main() {
 	localRelay := flag.String("relay", "", "local mode: gateway relay control url (wss://…/sandbox/relay)")
 	flag.Parse()
 	if *showVersion {
-		version := os.Getenv("IMAGE_VERSION")
-		if version == "" {
-			version = buildVersion
-		}
-		fmt.Println(version)
+		fmt.Println(env.ResolveSandboxVersion(buildVersion))
 		return
 	}
 
@@ -296,6 +292,8 @@ func runLocal(logger *slog.Logger, spaceID, root, relayURL string) {
 	// Remove the user token from the environment immediately so it can never be
 	// inherited by agent-started processes via os.Environ().
 	_ = os.Unsetenv("COHUB_RELAY_TOKEN")
+	// The standalone binary's build version is the authoritative local runtime version.
+	_ = os.Setenv("COHUB_SANDBOX_VERSION", buildVersion)
 	cfg, err := env.LoadLocal(env.LocalOptions{
 		SpaceID:    spaceID,
 		RootDir:    root,

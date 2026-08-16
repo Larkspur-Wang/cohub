@@ -40,7 +40,7 @@
 
 - `linux/amd64`、`linux/arm64`、`darwin/amd64`、`darwin/arm64`
 - 每平台产出 `cohub-sandboxd_<version>_<os>_<arch>.tar.gz` + `.sha256`，附带聚合 `SHA256SUMS.txt`
-- 版本经 `-ldflags -X main.buildVersion=<tag>` 注入；容器内仍以 `IMAGE_VERSION` 环境变量优先
+- 版本经 `-ldflags -X main.buildVersion=<tag>` 注入；容器内以 `COHUB_SANDBOX_VERSION` 环境变量优先，并兼容旧 `IMAGE_VERSION`
 - Windows 暂不支持（进程组管理依赖 Unix syscall，待后续补平台适配）
 - 产物同时：附加到 GitHub Release（私有 repo，仅内部可下）、上传公共 CDN `https://public.cohub.run/sandboxd/<version>/`（CLI 下载源）
 
@@ -108,7 +108,7 @@ RPC 中的 `path` / `cwd` 语义与 pi tools 保持一致：
 - `WORKSPACE_DIR`
 - `PLATFORM_AGENTS_DIR=/configs/platform/.agents`
 - `HEARTBEAT_INTERVAL_SECS`
-- `IMAGE_VERSION`
+- `COHUB_SANDBOX_VERSION`（兼容旧 `IMAGE_VERSION`）
 
 ## 本地联调
 
