@@ -1,8 +1,76 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { InvalidUsageRangeError, resolveUserUsageRange } from "./usage-aggregation.js";
+import {
+  aggregateUserModelRankings,
+  InvalidUsageRangeError,
+  resolveUserUsageRange,
+  type GenerationUsageRow,
+  type UsageRow,
+} from "./usage-aggregation.js";
 
 const now = new Date("2026-08-16T12:30:00.000Z");
+
+function usageRow(overrides: Partial<UsageRow>): UsageRow {
+  return {
+    bucketStartAt: now,
+    totalTokens: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    costInput: "0",
+    costOutput: "0",
+    costCacheRead: "0",
+    costCacheWrite: "0",
+    costTotal: "0",
+    requestCount: 0,
+    successCount: 0,
+    errorCount: 0,
+    provider: null,
+    model: null,
+    ...overrides,
+  };
+}
+
+function generationRow(overrides: Partial<GenerationUsageRow>): GenerationUsageRow {
+  return {
+    bucketStartAt: now,
+    costTotal: "0",
+    requestCount: 0,
+    successCount: 0,
+    errorCount: 0,
+    provider: "unknown",
+    model: null,
+    usageType: "image",
+    ...overrides,
+  };
+}
+
+test("model rankings reuse usage rows and aggregate matching models", () => {
+  const rankings = aggregateUserModelRankings(
+    [
+      usageRow({ provider: "openai", model: "gpt-5", totalTokens: 100, requestCount: 1 }),
+      usageRow({ provider: "openai", model: "gpt-5", totalTokens: 250, requestCount: 2 }),
+      usageRow({ provider: "anthropic", model: "claude", totalTokens: 200, requestCount: 1 }),
+    ],
+    [
+      generationRow({ provider: "openai.images", model: "gpt-image", requestCount: 2 }),
+      generationRow({ provider: "openai.images", model: "gpt-image", requestCount: 3 }),
+    ],
+  );
+
+  assert.deepEqual(rankings.llmModels[0], {
+    provider: "openai",
+    model: "gpt-5",
+    totalTokens: 350,
+    requestCount: 3,
+  });
+  assert.deepEqual(rankings.generationModels[0], {
+    provider: "openai.images",
+    model: "gpt-image",
+    requestCount: 5,
+  });
+});
 
 test("user usage range defaults to 30 rolling days", () => {
   const result = resolveUserUsageRange({}, now);

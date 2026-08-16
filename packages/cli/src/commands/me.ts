@@ -46,12 +46,13 @@ export function registerMe(program: Command): void {
     });
 
   meCmd
-    .command("usage")
-    .description("Your aggregated usage across all spaces")
-    .option("--days <n>", "Rolling day range (default 30)")
-    .option("--from <date>", "Range start as an ISO 8601 date")
-    .option("--to <date>", "Exclusive range end as an ISO 8601 date")
+    .command("activity")
+    .description("Show your activity across all spaces")
+    .option("--days <n>", "Show the last N days (default: 30)")
+    .option("--from <date>", "Start at this ISO 8601 date")
+    .option("--to <date>", "Stop before this ISO 8601 date")
     .option("--json", "Output as JSON")
+    .addHelpText("after", "\nExamples:\n  $ cohub me activity --days 7\n  $ cohub me activity --from 2026-01-01 --to 2026-02-01")
     .action(async (opts: { days?: string; from?: string; to?: string; json?: boolean }) => {
       if (opts.days && (opts.from || opts.to)) {
         process.stderr.write("\n  ✗ Invalid range\n    --days cannot be combined with --from or --to\n\n");
@@ -66,14 +67,14 @@ export function registerMe(program: Command): void {
 
       const client = createClient();
       try {
-        const usage = await client.user.getUsage({
+        const activity = await client.user.getActivity({
           days: opts.days ? parseInteger(opts.days, "days", 1) : undefined,
           from: opts.from,
           to: opts.to,
         });
-        if (jsonRequested(opts)) return outJson(usage);
-        console.log(`\n  ${usage.range.from} → ${usage.range.to}`);
-        table([usage.summary], [
+        if (jsonRequested(opts)) return outJson(activity);
+        console.log(`\n  ${activity.range.from} → ${activity.range.to}`);
+        table([activity.summary], [
           { key: "totalTokens", label: "Tokens" },
           { key: "costTotal", label: "Cost ($)" },
           { key: "requestCount", label: "Requests" },

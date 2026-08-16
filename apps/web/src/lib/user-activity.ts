@@ -1,7 +1,7 @@
 import type {
 	SpaceUsageResponse,
-	UserUsageRange,
-	UserUsageRankings,
+	UserActivityRange,
+	UserActivityRankings,
 } from "@neta-art/cohub";
 
 export type ActivityDay = {
@@ -22,8 +22,8 @@ export type ActivitySnapshot = {
 	days: number;
 	updatedAt: number;
 	activityDays: ActivityDay[];
-	range: UserUsageRange;
-	rankings: UserUsageRankings;
+	range: UserActivityRange;
+	rankings: UserActivityRankings;
 };
 
 const CACHE_PREFIX = "cohub:activity:v1";
@@ -68,7 +68,7 @@ function isActivityDay(value: unknown): value is ActivityDay {
 	);
 }
 
-function isRankings(value: unknown): value is UserUsageRankings {
+function isRankings(value: unknown): value is UserActivityRankings {
 	if (
 		!isRecord(value) ||
 		!Array.isArray(value.llmModels) ||
@@ -103,7 +103,7 @@ function isRankings(value: unknown): value is UserUsageRankings {
 	);
 }
 
-function isRange(value: unknown): value is UserUsageRange {
+function isRange(value: unknown): value is UserActivityRange {
 	return (
 		isRecord(value) &&
 		typeof value.from === "string" &&

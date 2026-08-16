@@ -1564,19 +1564,18 @@ export type SpaceUsageResponse = {
   days: number;
 };
 
-export type UserUsageQuery = {
+export type UserActivityQuery = {
   days?: number;
   from?: string | Date;
   to?: string | Date;
-  rankings?: boolean;
 };
 
-export type UserUsageRange = {
+export type UserActivityRange = {
   from: string;
   to: string;
 };
 
-export type UserUsageRankings = {
+export type UserActivityRankings = {
   llmModels: Array<{
     provider: string;
     model: string;
@@ -1598,9 +1597,9 @@ export type UserUsageRankings = {
   }>;
 };
 
-export type UserUsageResponse = SpaceUsageResponse & {
-  range: UserUsageRange;
-  rankings: UserUsageRankings | null;
+export type UserActivityResponse = SpaceUsageResponse & {
+  range: UserActivityRange;
+  rankings: UserActivityRankings;
 };
 
 // ─── Referral types ───

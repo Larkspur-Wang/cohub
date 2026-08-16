@@ -1,5 +1,5 @@
 import { HttpError, type HttpTransport, type Fetch } from "../transport.js";
-import type { LabelAssignmentRecord, LabelResourceType, MeResponse, SessionRecord, SpaceRecord, UserProfile, UserRulesResponse, UserSessionsResponse, UserUsageQuery, UserUsageResponse } from "../types.js";
+import type { LabelAssignmentRecord, LabelResourceType, MeResponse, SessionRecord, SpaceRecord, UserActivityQuery, UserActivityResponse, UserProfile, UserRulesResponse, UserSessionsResponse } from "../types.js";
 
 const usageDate = (value: string | Date) => value instanceof Date ? value.toISOString() : value;
 
@@ -58,15 +58,14 @@ export class UserApi {
     );
   }
 
-  getUsage(options: UserUsageQuery = {}, customFetch?: Fetch) {
+  getActivity(options: UserActivityQuery = {}, customFetch?: Fetch) {
     const params = new URLSearchParams();
     if (options.days !== undefined) params.set("days", String(options.days));
     if (options.from !== undefined) params.set("from", usageDate(options.from));
     if (options.to !== undefined) params.set("to", usageDate(options.to));
-    if (options.rankings) params.set("rankings", "1");
     const query = params.toString();
-    return this.transport.request<UserUsageResponse>(
-      `/api/me/usage${query ? `?${query}` : ""}`,
+    return this.transport.request<UserActivityResponse>(
+      `/api/me/activity${query ? `?${query}` : ""}`,
       { fetch: customFetch },
     );
   }

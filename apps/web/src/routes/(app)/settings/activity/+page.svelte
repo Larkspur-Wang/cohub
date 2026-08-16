@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { UserUsageRange, UserUsageRankings } from "@neta-art/cohub";
+import type { UserActivityRange, UserActivityRankings } from "@neta-art/cohub";
 import { Loader2 } from "lucide-svelte";
 import { onMount } from "svelte";
 import { page } from "$app/state";
@@ -23,16 +23,22 @@ const ranges = [
 	{ days: 30, label: "30D" },
 	{ days: 365, label: "1Y" },
 ] as const;
-const EMPTY_RANKINGS: UserUsageRankings = {
+const EMPTY_RANKINGS: UserActivityRankings = {
 	llmModels: [],
 	generationModels: [],
 	works: [],
 };
+type HeatmapMode = "llm" | "multimodal";
+const heatmapModes: Array<{ value: HeatmapMode; label: string }> = [
+	{ value: "llm", label: "LLM" },
+	{ value: "multimodal", label: "Multimodal" },
+];
 
-let selectedDays = $state(30);
+let selectedDays = $state(365);
+let heatmapMode = $state<HeatmapMode>("llm");
 let activityDays = $state<ActivityDay[] | null>(null);
-let rankings = $state<UserUsageRankings | null>(null);
-let usageRange = $state<UserUsageRange | null>(null);
+let rankings = $state<UserActivityRankings | null>(null);
+let activityRange = $state<UserActivityRange | null>(null);
 let loading = $state(true);
 let refreshing = $state(false);
 let loadError = $state("");
@@ -49,8 +55,20 @@ const rangeLabel = $derived(
 	selectedDays === 365 ? "Last year" : `Last ${selectedDays} days`,
 );
 const stats = $derived(getActivityStats(displayedDays));
-const maxTokens = $derived(
-	Math.max(0, ...displayedDays.map((day) => day.tokens)),
+const heatmapTotal = $derived(
+	displayedDays.reduce(
+		(total, day) =>
+			total + (heatmapMode === "llm" ? day.tokens : day.generationRequests),
+		0,
+	),
+);
+const maxHeatValue = $derived(
+	Math.max(
+		0,
+		...displayedDays.map((day) =>
+			heatmapMode === "llm" ? day.tokens : day.generationRequests,
+		),
+	),
 );
 const heatmapDays = $derived.by((): Array<ActivityDay | null> => {
 	if (!displayedDays.length) return [];
@@ -63,10 +81,14 @@ const heatmapDays = $derived.by((): Array<ActivityDay | null> => {
 	return values;
 });
 
+function heatValue(day: ActivityDay) {
+	return heatmapMode === "llm" ? day.tokens : day.generationRequests;
+}
+
 function heatLevel(day: ActivityDay) {
-	if (!day.requests) return 0;
-	if (!day.tokens || !maxTokens) return 1;
-	const ratio = day.tokens / maxTokens;
+	const value = heatValue(day);
+	if (!value || !maxHeatValue) return 0;
+	const ratio = value / maxHeatValue;
 	if (ratio < 0.08) return 1;
 	if (ratio < 0.25) return 2;
 	if (ratio < 0.55) return 3;
@@ -74,10 +96,10 @@ function heatLevel(day: ActivityDay) {
 }
 
 function dayTitle(day: ActivityDay) {
-	const generation = day.generationRequests
-		? ` · ${formatCompact(day.generationRequests)} generation`
-		: "";
-	return `${formatDay(day.date)} · ${formatCompact(day.tokens)} tokens · ${formatCompact(day.requests)} requests${generation}`;
+	const value = formatCompact(heatValue(day));
+	return heatmapMode === "llm"
+		? `${formatDay(day.date)} · ${value} LLM tokens`
+		: `${formatDay(day.date)} · ${value} multimodal calls`;
 }
 
 function getSelectedRange(days: number) {
@@ -102,7 +124,7 @@ async function loadActivity({ force = false } = {}) {
 	if (cached && !force) {
 		activityDays = cached.activityDays;
 		rankings = cached.rankings;
-		usageRange = cached.range;
+		activityRange = cached.range;
 	}
 	loading = !activityDays;
 	refreshing = Boolean(activityDays);
@@ -111,16 +133,13 @@ async function loadActivity({ force = false } = {}) {
 			refreshing = false;
 			return;
 		}
-		const data = await sdk.user.getUsage({
-			...getSelectedRange(selectedDays),
-			rankings: true,
-		});
+		const data = await sdk.user.getActivity(getSelectedRange(selectedDays));
 		if (id !== requestId) return;
 		const nextActivityDays = buildActivityDays(data, selectedDays);
-		const nextRankings = data.rankings ?? EMPTY_RANKINGS;
+		const nextRankings = data.rankings;
 		activityDays = nextActivityDays;
 		rankings = nextRankings;
-		usageRange = data.range;
+		activityRange = data.range;
 		writeActivityCache(userUuid, {
 			days: selectedDays,
 			activityDays: nextActivityDays,
@@ -145,7 +164,7 @@ function selectRange(days: number) {
 	selectedDays = days;
 	activityDays = null;
 	rankings = null;
-	usageRange = null;
+	activityRange = null;
 	void loadActivity();
 }
 
@@ -165,7 +184,7 @@ onMount(async () => {
 			<div>
 				<p class="text-[11px] font-semibold text-brand">Cohub</p>
 				<h1 class="mt-1 text-[20px] font-semibold text-text-primary">Activity</h1>
-				<p class="mt-1 text-[12px] text-text-tertiary" title={usageRange ? `${usageRange.from} to ${usageRange.to}` : undefined}>{identityLabel} · {rangeLabel}</p>
+				<p class="mt-1 text-[12px] text-text-tertiary" title={activityRange ? `${activityRange.from} to ${activityRange.to}` : undefined}>{identityLabel} · {rangeLabel}</p>
 			</div>
 			<div class="flex rounded-md bg-bg-surface p-0.5" aria-label="Activity range">
 				{#each ranges as range (range.days)}
@@ -191,18 +210,25 @@ onMount(async () => {
 			</section>
 
 			<section class="border-b border-border-subtle py-7">
-				<div class="mb-4 flex items-center justify-between gap-4">
+				<div class="mb-4 flex flex-wrap items-center justify-between gap-3">
 					<h2 class="text-[13px] font-medium text-text-primary">Daily activity</h2>
-					<div class="flex items-center gap-1.5 text-[10px] text-text-placeholder"><span>Less</span>{#each [0, 1, 2, 3, 4] as level}<span class="heat-cell" data-level={level}></span>{/each}<span>More</span></div>
+					<div class="flex flex-wrap items-center justify-end gap-3">
+						<div class="flex rounded-md bg-bg-surface p-0.5" aria-label="Activity type">
+							{#each heatmapModes as mode (mode.value)}
+								<button type="button" class="rounded-[4px] px-2.5 py-1 text-[10px] font-medium transition-colors {heatmapMode === mode.value ? 'bg-bg-active text-text-primary' : 'text-text-placeholder hover:text-text-secondary'}" aria-pressed={heatmapMode === mode.value} onclick={() => heatmapMode = mode.value}>{mode.label}</button>
+							{/each}
+						</div>
+						<div class="flex items-center gap-1.5 text-[10px] text-text-placeholder"><span>Less</span>{#each [0, 1, 2, 3, 4] as level}<span class="heat-cell" data-mode={heatmapMode} data-level={level}></span>{/each}<span>More</span></div>
+					</div>
 				</div>
 				<div class="heatmap-scroll overflow-x-auto pb-1">
-					<div class="heatmap" style:--weeks={heatmapDays.length / 7} role="img" aria-label={`Daily activity over the last ${selectedDays} days`}>
+					<div class="heatmap" style:--weeks={heatmapDays.length / 7} role="img" aria-label={`${heatmapMode === 'llm' ? 'LLM token' : 'Multimodal call'} activity over the last ${selectedDays} days`}>
 						{#each heatmapDays as day, index (day?.date ?? `blank-${index}`)}
-							{#if day}<div class="heat-cell" data-level={heatLevel(day)} title={dayTitle(day)}></div>{:else}<div></div>{/if}
+							{#if day}<div class="heat-cell" data-mode={heatmapMode} data-level={heatLevel(day)} title={dayTitle(day)}></div>{:else}<div></div>{/if}
 						{/each}
 					</div>
 				</div>
-				{#if stats.totalRequests === 0}<p class="mt-4 text-[12px] text-text-placeholder">Activity will appear here after your first request.</p>{/if}
+				{#if heatmapTotal === 0}<p class="mt-4 text-[12px] text-text-placeholder">{heatmapMode === "llm" ? "LLM token activity" : "Multimodal calls"} will appear here after your first request.</p>{/if}
 			</section>
 
 			<div class="grid gap-8 py-7 md:grid-cols-2 md:gap-x-10 lg:grid-cols-3">
@@ -281,6 +307,10 @@ onMount(async () => {
 	.heat-cell[data-level="2"] { background: color-mix(in srgb, var(--brand) 42%, var(--bg-primary)); }
 	.heat-cell[data-level="3"] { background: color-mix(in srgb, var(--brand) 66%, var(--bg-primary)); }
 	.heat-cell[data-level="4"] { background: var(--brand); }
+	.heat-cell[data-mode="multimodal"][data-level="1"] { background: color-mix(in srgb, var(--status-running) 24%, var(--bg-primary)); }
+	.heat-cell[data-mode="multimodal"][data-level="2"] { background: color-mix(in srgb, var(--status-running) 42%, var(--bg-primary)); }
+	.heat-cell[data-mode="multimodal"][data-level="3"] { background: color-mix(in srgb, var(--status-running) 66%, var(--bg-primary)); }
+	.heat-cell[data-mode="multimodal"][data-level="4"] { background: var(--status-running); }
 	@media (min-width: 640px) {
 		.heatmap { grid-template-rows: repeat(7, 13px); grid-template-columns: repeat(var(--weeks), 13px); gap: 4px; }
 		.heat-cell { width: 13px; height: 13px; }

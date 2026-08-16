@@ -20,6 +20,7 @@ export type UsageRow = {
   requestCount: number;
   successCount: number;
   errorCount: number;
+  provider: string | null;
   model: string | null;
 };
 
@@ -171,6 +172,7 @@ export const USAGE_SELECT_COLUMNS = {
   requestCount: tokenUsageStatsHourly.requestCount,
   successCount: tokenUsageStatsHourly.successCount,
   errorCount: tokenUsageStatsHourly.errorCount,
+  provider: tokenUsageStatsHourly.provider,
   model: tokenUsageStatsHourly.model,
 } as const;
 
@@ -255,6 +257,7 @@ export type GenerationUsageRow = {
   requestCount: number;
   successCount: number;
   errorCount: number;
+  provider: string;
   model: string | null;
   usageType: string;
 };
@@ -279,12 +282,64 @@ export type GenerationUsageAggregationResult = {
   };
 };
 
+export type UserModelRankings = {
+  llmModels: Array<{
+    provider: string;
+    model: string;
+    totalTokens: number;
+    requestCount: number;
+  }>;
+  generationModels: Array<{
+    provider: string;
+    model: string;
+    requestCount: number;
+  }>;
+};
+
+export function aggregateUserModelRankings(
+  usageRows: readonly UsageRow[],
+  generationRows: readonly GenerationUsageRow[],
+): UserModelRankings {
+  const llmModels = new Map<string, UserModelRankings["llmModels"][number]>();
+  for (const row of usageRows) {
+    const provider = row.provider ?? "unknown";
+    const model = row.model ?? "unknown";
+    const key = `${provider}\0${model}`;
+    const current = llmModels.get(key);
+    if (current) {
+      current.totalTokens += row.totalTokens;
+      current.requestCount += row.requestCount;
+    } else {
+      llmModels.set(key, { provider, model, totalTokens: row.totalTokens, requestCount: row.requestCount });
+    }
+  }
+
+  const multimodalModels = new Map<string, UserModelRankings["generationModels"][number]>();
+  for (const row of generationRows) {
+    const model = row.model ?? "unknown";
+    const key = `${row.provider}\0${model}`;
+    const current = multimodalModels.get(key);
+    if (current) current.requestCount += row.requestCount;
+    else multimodalModels.set(key, { provider: row.provider, model, requestCount: row.requestCount });
+  }
+
+  return {
+    llmModels: [...llmModels.values()]
+      .sort((a, b) => b.totalTokens - a.totalTokens || a.model.localeCompare(b.model))
+      .slice(0, 5),
+    generationModels: [...multimodalModels.values()]
+      .sort((a, b) => b.requestCount - a.requestCount || a.model.localeCompare(b.model))
+      .slice(0, 5),
+  };
+}
+
 export const GENERATION_USAGE_SELECT_COLUMNS = {
   bucketStartAt: generationUsageStatsHourly.bucketStartAt,
   costTotal: generationUsageStatsHourly.costTotal,
   requestCount: generationUsageStatsHourly.requestCount,
   successCount: generationUsageStatsHourly.successCount,
   errorCount: generationUsageStatsHourly.errorCount,
+  provider: generationUsageStatsHourly.provider,
   model: generationUsageStatsHourly.model,
   usageType: generationUsageStatsHourly.usageType,
 } as const;

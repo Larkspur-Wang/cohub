@@ -218,7 +218,7 @@ result needs `taskrun.view` (a work scope).
 | Read task run detail | `client.tasks.get(taskRunId)` | `taskrun.view` | work |
 | List viewer's spaces | `client.spaces.list()` | `user.space.list` | viewer |
 | List viewer's sessions | `client.user.listSessions()` | `user.session.list` | viewer |
-| Read viewer's usage | `client.user.getUsage()` | `user.usage.read` | viewer |
+| Read viewer's activity | `client.user.getActivity()` | `user.usage.read` | viewer |
 | Commerce: entitlements | `client.work.commerce.getEntitlements()` | *(runtime only, no scope)* | — |
 | Commerce: consume credits | `client.work.commerce.consumeCredits()` | *(runtime only, no scope)* | — |
 | Commerce: purchase | `client.work.commerce.purchase()` | *(runtime only, no scope)* | — |
@@ -618,12 +618,12 @@ await client.auth.request({
 });
 const { sessions } = await client.user.listSessions({ limit: 20 });
 
-// Read aggregated usage — needs user.usage.read
+// Read activity — needs user.usage.read
 await client.auth.request({
   scopes: ["user.usage.read"],
-  reason: "Show your usage summary.",
+  reason: "Show your activity.",
 });
-const usage = await client.user.getUsage({ days: 30 }); // last 30 days
+const activity = await client.user.getActivity({ days: 30 }); // last 30 days
 ```
 
 ### Commerce (`work.commerce`)

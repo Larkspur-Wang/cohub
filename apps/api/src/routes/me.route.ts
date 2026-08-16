@@ -24,6 +24,7 @@ import {
 import {
   aggregateGenerationUsageRows,
   aggregateUsageRows,
+  aggregateUserModelRankings,
   GENERATION_USAGE_SELECT_COLUMNS,
   InvalidUsageRangeError,
   resolveUserUsageRange,
@@ -315,93 +316,47 @@ function workTitle(meta: unknown, slug: string) {
   return slug;
 }
 
-async function loadUserUsageRankings(userId: string, startDate: Date, endDate: Date) {
-  const [llmRows, generationRows, workRows] = await Promise.all([
-    db
-      .select({
-        provider: schema.tokenUsageStatsHourly.provider,
-        model: schema.tokenUsageStatsHourly.model,
-        totalTokens: sql<number>`sum(${schema.tokenUsageStatsHourly.totalTokens})`,
-        requestCount: sql<number>`sum(${schema.tokenUsageStatsHourly.requestCount})`,
-      })
-      .from(schema.tokenUsageStatsHourly)
-      .where(and(
-        eq(schema.tokenUsageStatsHourly.userId, userId),
-        gte(schema.tokenUsageStatsHourly.bucketStartAt, startDate),
-        lt(schema.tokenUsageStatsHourly.bucketStartAt, endDate),
-      ))
-      .groupBy(schema.tokenUsageStatsHourly.provider, schema.tokenUsageStatsHourly.model)
-      .orderBy(desc(sql`sum(${schema.tokenUsageStatsHourly.totalTokens})`))
-      .limit(5),
-    db
-      .select({
-        provider: schema.generationUsageStatsHourly.provider,
-        model: schema.generationUsageStatsHourly.model,
-        requestCount: sql<number>`sum(${schema.generationUsageStatsHourly.requestCount})`,
-      })
-      .from(schema.generationUsageStatsHourly)
-      .where(and(
-        eq(schema.generationUsageStatsHourly.userId, userId),
-        gte(schema.generationUsageStatsHourly.bucketStartAt, startDate),
-        lt(schema.generationUsageStatsHourly.bucketStartAt, endDate),
-      ))
-      .groupBy(schema.generationUsageStatsHourly.provider, schema.generationUsageStatsHourly.model)
-      .orderBy(desc(sql`sum(${schema.generationUsageStatsHourly.requestCount})`))
-      .limit(5),
-    db
-      .select({
-        workId: schema.works.id,
-        spaceId: schema.works.spaceId,
-        slug: schema.works.slug,
-        status: schema.works.status,
-        meta: schema.works.meta,
-        viewCount: sql<number>`sum(${schema.workViewStatsHourly.viewCount})`,
-      })
-      .from(schema.works)
-      .innerJoin(schema.workViewStatsHourly, eq(schema.workViewStatsHourly.workId, schema.works.id))
-      .where(and(
-        eq(schema.works.userUuid, userId),
-        gte(schema.workViewStatsHourly.bucketStartAt, startDate),
-        lt(schema.workViewStatsHourly.bucketStartAt, endDate),
-      ))
-      .groupBy(schema.works.id, schema.works.spaceId, schema.works.slug, schema.works.status, schema.works.meta)
-      .orderBy(desc(sql`sum(${schema.workViewStatsHourly.viewCount})`))
-      .limit(5),
-  ]);
+async function loadUserWorkRankings(userId: string, startDate: Date, endDate: Date) {
+  const rows = await db
+    .select({
+      workId: schema.works.id,
+      spaceId: schema.works.spaceId,
+      slug: schema.works.slug,
+      status: schema.works.status,
+      meta: schema.works.meta,
+      viewCount: sql<number>`sum(${schema.workViewStatsHourly.viewCount})`,
+    })
+    .from(schema.works)
+    .innerJoin(schema.workViewStatsHourly, eq(schema.workViewStatsHourly.workId, schema.works.id))
+    .where(and(
+      eq(schema.works.userUuid, userId),
+      gte(schema.workViewStatsHourly.bucketStartAt, startDate),
+      lt(schema.workViewStatsHourly.bucketStartAt, endDate),
+    ))
+    .groupBy(schema.works.id, schema.works.spaceId, schema.works.slug, schema.works.status, schema.works.meta)
+    .orderBy(desc(sql`sum(${schema.workViewStatsHourly.viewCount})`))
+    .limit(5);
 
-  return {
-    llmModels: llmRows.map((row) => ({
-      provider: row.provider ?? "unknown",
-      model: row.model ?? "unknown",
-      totalTokens: finiteNumber(row.totalTokens),
-      requestCount: finiteNumber(row.requestCount),
-    })),
-    generationModels: generationRows.map((row) => ({
-      provider: row.provider,
-      model: row.model,
-      requestCount: finiteNumber(row.requestCount),
-    })),
-    works: workRows.map((row) => ({
-      workId: row.workId,
-      spaceId: row.spaceId,
-      slug: row.slug,
-      title: workTitle(row.meta, row.slug),
-      status: row.status,
-      viewCount: finiteNumber(row.viewCount),
-    })),
-  };
+  return rows.map((row) => ({
+    workId: row.workId,
+    spaceId: row.spaceId,
+    slug: row.slug,
+    title: workTitle(row.meta, row.slug),
+    status: row.status,
+    viewCount: finiteNumber(row.viewCount),
+  }));
 }
 
-router.get("/usage", async (c) => {
+router.get("/activity", async (c) => {
   const user = useAuth(c);
   if (user instanceof Response) return user;
   if (!(await hasPermission(user, "user.usage.read", { spaceId: "" }))) return authzDenied(c);
   const identity = asAccountIdentity(user);
   if (!identity) return authzDenied(c);
 
-  let usageRange: ReturnType<typeof resolveUserUsageRange>;
+  let activityRange: ReturnType<typeof resolveUserUsageRange>;
   try {
-    usageRange = resolveUserUsageRange({
+    activityRange = resolveUserUsageRange({
       days: c.req.query("days"),
       from: c.req.query("from"),
       to: c.req.query("to"),
@@ -410,14 +365,13 @@ router.get("/usage", async (c) => {
     if (error instanceof InvalidUsageRangeError) return c.json({ message: error.message }, 400);
     throw error;
   }
-  const { startDate, endDate, days, range } = usageRange;
-  const includeRankings = c.req.query("rankings") === "1";
+  const { startDate, endDate, days, range } = activityRange;
 
   let rows: UsageRow[];
   let generationRows: GenerationUsageRow[];
-  let rankings: Awaited<ReturnType<typeof loadUserUsageRankings>> | null;
+  let workRankings: Awaited<ReturnType<typeof loadUserWorkRankings>>;
   try {
-    [rows, generationRows, rankings] = await Promise.all([
+    [rows, generationRows, workRankings] = await Promise.all([
       db
         .select(USAGE_SELECT_COLUMNS)
         .from(schema.tokenUsageStatsHourly)
@@ -440,15 +394,16 @@ router.get("/usage", async (c) => {
           ),
         )
         .orderBy(desc(schema.generationUsageStatsHourly.bucketStartAt)),
-      includeRankings ? loadUserUsageRankings(identity.uuid, startDate, endDate) : Promise.resolve(null),
+      loadUserWorkRankings(identity.uuid, startDate, endDate),
     ]);
   } catch (error) {
-    logger.error("[me/usage] DB query failed", error);
-    return c.json({ message: "failed to load usage data" }, 500);
+    logger.error("[me/activity] DB query failed", error);
+    return c.json({ message: "failed to load activity data" }, 500);
   }
 
   const { hourly, summary } = aggregateUsageRows(rows);
   const generation = aggregateGenerationUsageRows(generationRows);
+  const rankings = { ...aggregateUserModelRankings(rows, generationRows), works: workRankings };
   return c.json({ hourly, summary, generation, days, range, rankings });
 });
 
