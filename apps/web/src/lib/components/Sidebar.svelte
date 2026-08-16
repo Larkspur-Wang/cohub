@@ -193,6 +193,7 @@ import {
 import { uiState } from "$lib/stores/ui.svelte";
 import { clearGrantedWorkScopes } from "$lib/stores/work-grant-cache";
 import { formatCompactAbsoluteTime } from "$lib/time-format";
+import { clearActivityCache } from "$lib/user-activity";
 import { resolveWorkspaceRouteContext } from "$lib/workspace-route";
 
 const {
@@ -559,6 +560,12 @@ async function refreshBillingPlan() {
 
 const baseSettingsTabs = [
 	{ id: "profile", label: "Profile", icon: User, href: "/settings/profile" },
+	{
+		id: "activity",
+		label: "Activity",
+		icon: Activity,
+		href: "/settings/activity",
+	},
 	{
 		id: "referrals",
 		label: "Referrals",
@@ -2955,6 +2962,7 @@ async function handleLogout() {
 		console.warn("[sidebar] Failed to clear IndexedDB cache", error);
 	});
 	const userUuid = authStore.userUuid;
+	if (userUuid) clearActivityCache(userUuid);
 	if (userUuid) clearRecentSpace(userUuid);
 	if (userUuid) clearGrantedWorkScopes(userUuid);
 	authStore.reset();
