@@ -21,7 +21,7 @@ const originalStorage = {
 
 before(() => {
   config.publicAssetCdnBaseUrl = "https://public.example.com";
-  config.publicAssetOssEndpoint = "https://oss.example.com";
+  config.publicAssetOssEndpoint = "https://oss-internal.example.com";
   config.publicAssetOssPublicEndpoint = "https://oss.example.com";
   config.publicAssetOssBucket = "public-bucket";
   config.publicAssetOssAccessKeyId = "test-key";
@@ -83,5 +83,23 @@ describe("public file paths", () => {
       "content-length": "128",
     });
     assert.equal("content-disposition" in (overwritePlan.entries[0]?.headers ?? {}), false);
+  });
+
+  it("presigns execution uploads against the internal endpoint", () => {
+    const input = {
+      entries: [{
+        id: "index",
+        relativePath: "demo/index.html",
+        size: 128,
+        mimeType: "text/html; charset=utf-8",
+      }],
+    };
+
+    const publicPlan = createPublicFileUpload("space-id", input);
+    const internalPlan = createPublicFileUpload("space-id", input, { endpoint: "internal" });
+
+    assert.equal(new URL(publicPlan.entries[0]?.uploadUrl ?? "").hostname, "public-bucket.oss.example.com");
+    assert.equal(new URL(internalPlan.entries[0]?.uploadUrl ?? "").hostname, "public-bucket.oss-internal.example.com");
+    assert.equal(internalPlan.entries[0]?.publicUrl, publicPlan.entries[0]?.publicUrl);
   });
 });

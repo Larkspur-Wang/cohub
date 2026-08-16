@@ -3,7 +3,7 @@ import type { PublicFileCreateUploadInput } from "@cohub/protocol";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { z } from "zod";
-import { authzDenied, requireValidId, useAuth } from "../../lib/middleware.js";
+import { authzDenied, getExecutionPrincipal, requireValidId, useAuth } from "../../lib/middleware.js";
 import { hasPermission } from "../../permissions.js";
 import {
   consumePublicFileUploadQuota,
@@ -52,7 +52,9 @@ router.post("/uploads", uploadBodyLimit, async (c) => {
   if (!parsed.success) return c.json({ message: "invalid upload request" }, 400);
 
   try {
-    const plan = createPublicFileUpload(spaceId, parsed.data);
+    const plan = createPublicFileUpload(spaceId, parsed.data, {
+      endpoint: getExecutionPrincipal(c) ? "internal" : "public",
+    });
     await consumePublicFileUploadQuota({
       userId: user.uuid,
       spaceId,

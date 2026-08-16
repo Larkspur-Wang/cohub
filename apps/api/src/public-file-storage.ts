@@ -185,6 +185,7 @@ function normalizeMimeType(value: string | null | undefined) {
 export function createPublicFileUpload(
   spaceId: string,
   input: PublicFileCreateUploadInput,
+  options: { endpoint?: "internal" | "public" } = {},
 ): PublicFileCreateUploadResponse {
   if (!input?.entries?.length) throw new PublicFileValidationError("entries are required");
   if (input.overwrite != null && typeof input.overwrite !== "boolean") {
@@ -219,8 +220,11 @@ export function createPublicFileUpload(
 
   return {
     entries: entries.map((entry) => {
+      const storage = requireStorage();
       const signed = createPresignedPutObjectUrl(
-        requireStorage(),
+        options.endpoint === "internal"
+          ? { ...storage, publicEndpoint: storage.endpoint }
+          : storage,
         entry.objectKey,
         entry.mimeType,
         PUBLIC_FILE_CACHE_CONTROL,
