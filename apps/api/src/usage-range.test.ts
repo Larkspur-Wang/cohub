@@ -49,13 +49,35 @@ function generationRow(overrides: Partial<GenerationUsageRow>): GenerationUsageR
 test("model rankings reuse usage rows and aggregate matching models", () => {
   const rankings = aggregateUserModelRankings(
     [
-      usageRow({ provider: "openai", model: "gpt-5", totalTokens: 100, requestCount: 1 }),
-      usageRow({ provider: "openai", model: "gpt-5", totalTokens: 250, requestCount: 2 }),
+      usageRow({
+        provider: "openai",
+        model: "gpt-5",
+        totalTokens: 100,
+        requestCount: 1,
+        costTotal: "0.1",
+      }),
+      usageRow({
+        provider: "openai",
+        model: "gpt-5",
+        totalTokens: 250,
+        requestCount: 2,
+        costTotal: "0.2",
+      }),
       usageRow({ provider: "anthropic", model: "claude", totalTokens: 200, requestCount: 1 }),
     ],
     [
-      generationRow({ provider: "openai.images", model: "gpt-image", requestCount: 2 }),
-      generationRow({ provider: "openai.images", model: "gpt-image", requestCount: 3 }),
+      generationRow({
+        provider: "openai.images",
+        model: "gpt-image",
+        requestCount: 2,
+        costTotal: "0.75",
+      }),
+      generationRow({
+        provider: "openai.images",
+        model: "gpt-image",
+        requestCount: 3,
+        costTotal: "0.5",
+      }),
     ],
   );
 
@@ -64,11 +86,13 @@ test("model rankings reuse usage rows and aggregate matching models", () => {
     model: "gpt-5",
     totalTokens: 350,
     requestCount: 3,
+    costTotal: 0.3,
   });
   assert.deepEqual(rankings.generationModels[0], {
     provider: "openai.images",
     model: "gpt-image",
     requestCount: 5,
+    costTotal: 1.25,
   });
 });
 

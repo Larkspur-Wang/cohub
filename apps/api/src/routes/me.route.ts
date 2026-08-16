@@ -321,25 +321,35 @@ async function loadUserWorkRankings(userId: string, startDate: Date, endDate: Da
     .select({
       workId: schema.works.id,
       spaceId: schema.works.spaceId,
+      spaceName: schema.spaces.name,
       slug: schema.works.slug,
       status: schema.works.status,
       meta: schema.works.meta,
       viewCount: sql<number>`sum(${schema.workViewStatsHourly.viewCount})`,
     })
     .from(schema.works)
+    .innerJoin(schema.spaces, eq(schema.spaces.id, schema.works.spaceId))
     .innerJoin(schema.workViewStatsHourly, eq(schema.workViewStatsHourly.workId, schema.works.id))
     .where(and(
       eq(schema.works.userUuid, userId),
       gte(schema.workViewStatsHourly.bucketStartAt, startDate),
       lt(schema.workViewStatsHourly.bucketStartAt, endDate),
     ))
-    .groupBy(schema.works.id, schema.works.spaceId, schema.works.slug, schema.works.status, schema.works.meta)
+    .groupBy(
+      schema.works.id,
+      schema.works.spaceId,
+      schema.spaces.name,
+      schema.works.slug,
+      schema.works.status,
+      schema.works.meta,
+    )
     .orderBy(desc(sql`sum(${schema.workViewStatsHourly.viewCount})`))
     .limit(5);
 
   return rows.map((row) => ({
     workId: row.workId,
     spaceId: row.spaceId,
+    spaceName: row.spaceName,
     slug: row.slug,
     title: workTitle(row.meta, row.slug),
     status: row.status,

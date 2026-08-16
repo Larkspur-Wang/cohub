@@ -288,11 +288,13 @@ export type UserModelRankings = {
     model: string;
     totalTokens: number;
     requestCount: number;
+    costTotal: number;
   }>;
   generationModels: Array<{
     provider: string;
     model: string;
     requestCount: number;
+    costTotal: number;
   }>;
 };
 
@@ -309,8 +311,15 @@ export function aggregateUserModelRankings(
     if (current) {
       current.totalTokens += row.totalTokens;
       current.requestCount += row.requestCount;
+      current.costTotal += toFiniteNumber(row.costTotal);
     } else {
-      llmModels.set(key, { provider, model, totalTokens: row.totalTokens, requestCount: row.requestCount });
+      llmModels.set(key, {
+        provider,
+        model,
+        totalTokens: row.totalTokens,
+        requestCount: row.requestCount,
+        costTotal: toFiniteNumber(row.costTotal),
+      });
     }
   }
 
@@ -319,17 +328,28 @@ export function aggregateUserModelRankings(
     const model = row.model ?? "unknown";
     const key = `${row.provider}\0${model}`;
     const current = generationModels.get(key);
-    if (current) current.requestCount += row.requestCount;
-    else generationModels.set(key, { provider: row.provider, model, requestCount: row.requestCount });
+    if (current) {
+      current.requestCount += row.requestCount;
+      current.costTotal += toFiniteNumber(row.costTotal);
+    } else {
+      generationModels.set(key, {
+        provider: row.provider,
+        model,
+        requestCount: row.requestCount,
+        costTotal: toFiniteNumber(row.costTotal),
+      });
+    }
   }
 
   return {
     llmModels: [...llmModels.values()]
       .sort((a, b) => b.totalTokens - a.totalTokens || a.model.localeCompare(b.model))
-      .slice(0, 5),
+      .slice(0, 5)
+      .map((row) => ({ ...row, costTotal: Number(row.costTotal.toFixed(8)) })),
     generationModels: [...generationModels.values()]
       .sort((a, b) => b.requestCount - a.requestCount || a.model.localeCompare(b.model))
-      .slice(0, 5),
+      .slice(0, 5)
+      .map((row) => ({ ...row, costTotal: Number(row.costTotal.toFixed(8)) })),
   };
 }
 

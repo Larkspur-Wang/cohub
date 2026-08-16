@@ -82,20 +82,21 @@ function isRankings(value: unknown): value is UserActivityRankings {
 				isRecord(row) &&
 				typeof row.provider === "string" &&
 				typeof row.model === "string" &&
-				hasFiniteNumbers(row, ["totalTokens", "requestCount"]),
+				hasFiniteNumbers(row, ["totalTokens", "requestCount", "costTotal"]),
 		) &&
 		value.generationModels.every(
 			(row) =>
 				isRecord(row) &&
 				typeof row.provider === "string" &&
 				typeof row.model === "string" &&
-				hasFiniteNumbers(row, ["requestCount"]),
+				hasFiniteNumbers(row, ["requestCount", "costTotal"]),
 		) &&
 		value.works.every(
 			(row) =>
 				isRecord(row) &&
 				typeof row.workId === "string" &&
 				typeof row.spaceId === "string" &&
+				typeof row.spaceName === "string" &&
 				typeof row.title === "string" &&
 				typeof row.slug === "string" &&
 				hasFiniteNumbers(row, ["viewCount"]),

@@ -11,6 +11,7 @@ import {
 	type ActivityDay,
 	buildActivityDays,
 	formatCompact,
+	formatCost,
 	formatDay,
 	getActivityStats,
 	isActivityCacheFresh,
@@ -233,14 +234,14 @@ onMount(async () => {
 
 			<div class="grid gap-8 py-7 md:grid-cols-2 md:gap-x-10 lg:grid-cols-3">
 				<section>
-					<div class="mb-4 flex items-center justify-between"><h2 class="text-[13px] font-medium text-text-primary">LLM models</h2><span class="text-[10px] text-text-placeholder">Tokens</span></div>
+					<div class="mb-4 flex items-center justify-between"><h2 class="text-[13px] font-medium text-text-primary">LLM models</h2><span class="text-[10px] text-text-placeholder">Tokens · Cost</span></div>
 					{#if displayedRankings.llmModels.length}
 						<ol class="space-y-3">
 							{#each displayedRankings.llmModels as row, index (`${row.provider}:${row.model}`)}
 								<li class="grid grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-2 text-[12px]">
 									<span class="font-mono text-[10px] text-text-placeholder">{index + 1}</span>
 									<div class="min-w-0" title={`${row.provider}/${row.model}`}><div class="truncate text-text-secondary">{row.model}</div><div class="truncate text-[10px] text-text-placeholder">{row.provider}</div></div>
-									<span class="font-mono text-text-secondary">{formatCompact(row.totalTokens)}</span>
+									<div class="text-right font-mono"><div class="text-text-secondary">{formatCompact(row.totalTokens)}</div><div class="text-[10px] text-text-placeholder">{formatCost(row.costTotal)}</div></div>
 								</li>
 							{/each}
 						</ol>
@@ -248,14 +249,14 @@ onMount(async () => {
 				</section>
 
 				<section class="border-t border-border-subtle pt-7 md:border-0 md:pt-0">
-					<div class="mb-4 flex items-center justify-between"><h2 class="text-[13px] font-medium text-text-primary">Generation models</h2><span class="text-[10px] text-text-placeholder">Calls</span></div>
+					<div class="mb-4 flex items-center justify-between"><h2 class="text-[13px] font-medium text-text-primary">Generation models</h2><span class="text-[10px] text-text-placeholder">Calls · Cost</span></div>
 					{#if displayedRankings.generationModels.length}
 						<ol class="space-y-3">
 							{#each displayedRankings.generationModels as row, index (`${row.provider}:${row.model}`)}
 								<li class="grid grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-2 text-[12px]">
 									<span class="font-mono text-[10px] text-text-placeholder">{index + 1}</span>
-									<div class="min-w-0" title={`${row.provider}/${row.model}`}><div class="truncate text-text-secondary">{row.model}</div><div class="truncate text-[10px] text-text-placeholder">{row.provider}</div></div>
-									<span class="font-mono text-text-secondary">{formatCompact(row.requestCount)}</span>
+									<div class="min-w-0 truncate text-text-secondary" title={`${row.provider}/${row.model}`}>{row.model}</div>
+									<div class="text-right font-mono"><div class="text-text-secondary">{formatCompact(row.requestCount)}</div><div class="text-[10px] text-text-placeholder">{formatCost(row.costTotal)}</div></div>
 								</li>
 							{/each}
 						</ol>
@@ -269,7 +270,7 @@ onMount(async () => {
 							{#each displayedRankings.works as row, index (row.workId)}
 								<li class="grid grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-2 text-[12px]">
 									<span class="font-mono text-[10px] text-text-placeholder">{index + 1}</span>
-									<a class="min-w-0 truncate text-text-secondary transition-colors hover:text-brand" href={`/spaces/${row.spaceId}/works/${row.workId}`} title={row.title}>{row.title}</a>
+									<div class="min-w-0"><a class="block truncate text-text-secondary transition-colors hover:text-brand" href={`/spaces/${row.spaceId}/works/${row.workId}`} title={row.title}>{row.title}</a><div class="truncate text-[10px] text-text-placeholder">{row.spaceName}</div></div>
 									<span class="font-mono text-text-secondary">{formatCompact(row.viewCount)}</span>
 								</li>
 							{/each}

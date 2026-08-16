@@ -91,10 +91,28 @@ test("activity cache stores daily aggregates", () => {
 					model: "gpt-5",
 					totalTokens: 100,
 					requestCount: 2,
+					costTotal: 0.03,
 				},
 			],
-			generationModels: [],
-			works: [],
+			generationModels: [
+				{
+					provider: "openai.images",
+					model: "gpt-image",
+					requestCount: 1,
+					costTotal: 0.5,
+				},
+			],
+			works: [
+				{
+					workId: "work-1",
+					spaceId: "space-1",
+					spaceName: "Studio",
+					slug: "launch-film",
+					title: "Launch Film",
+					status: "published" as const,
+					viewCount: 42,
+				},
+			],
 		};
 		writeActivityCache("user-1", {
 			days: 1,

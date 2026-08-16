@@ -1581,15 +1581,18 @@ export type UserActivityRankings = {
     model: string;
     totalTokens: number;
     requestCount: number;
+    costTotal: number;
   }>;
   generationModels: Array<{
     provider: string;
     model: string;
     requestCount: number;
+    costTotal: number;
   }>;
   works: Array<{
     workId: string;
     spaceId: string;
+    spaceName: string;
     slug: string;
     title: string;
     status: "published" | "disabled";
