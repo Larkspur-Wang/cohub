@@ -59,6 +59,60 @@ function parseRedemptionCode(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function parsePromotionCode(value: unknown) {
+  if (value === undefined) return undefined;
+  return typeof value === "string" ? value.trim() : "";
+}
+
+const MAX_OFFER_KEY_LENGTH = 256;
+const OFFER_REVISION_PATTERN = /^[a-f0-9]{64}$/i;
+
+function parseOfferRef(value: unknown) {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const key = typeof (value as { key?: unknown }).key === "string"
+    ? (value as { key: string }).key.trim()
+    : "";
+  const revision = typeof (value as { revision?: unknown }).revision === "string"
+    ? (value as { revision: string }).revision.trim()
+    : "";
+  return key &&
+    key.length <= MAX_OFFER_KEY_LENGTH &&
+    OFFER_REVISION_PATTERN.test(revision)
+    ? { key, revision }
+    : null;
+}
+
+function parseCheckoutDiscount(body: Record<string, unknown>) {
+  const promotionCode = parsePromotionCode(body.promotionCode);
+  const offer = parseOfferRef(body.offer);
+  if (promotionCode === "") {
+    throw new ApiError({
+      status: 400,
+      message: "Promotion code is invalid",
+      code: "promotion_code_invalid",
+      responseBody: null,
+    });
+  }
+  if (offer === null) {
+    throw new ApiError({
+      status: 400,
+      message: "Offer reference is invalid",
+      code: "offer_ref_invalid",
+      responseBody: null,
+    });
+  }
+  if (promotionCode && offer) {
+    throw new ApiError({
+      status: 400,
+      message: "Promotion code and automatic offer are mutually exclusive",
+      code: "discount_selection_ambiguous",
+      responseBody: null,
+    });
+  }
+  return { promotionCode, offer };
+}
+
 function billingApiErrorResponse(c: Context, error: { status: number; message: string; code?: string }) {
   return jsonError(c, {
     status: error.status,
@@ -145,6 +199,27 @@ router.get("/subscriptions", async (c) => {
   }
 });
 
+router.post("/promotion-code-preview", async (c) => {
+  const user = useAuth(c);
+  if (user instanceof Response) return user;
+  try {
+    const body = await readCheckoutBody(c) as Record<string, unknown>;
+    const productKey = typeof body.productKey === "string" ? body.productKey.trim() : "";
+    const promotionCode = parsePromotionCode(body.promotionCode);
+    if (!productKey) return c.json({ message: "Product key is required" }, 400);
+    if (!promotionCode) return c.json({ message: "Promotion code is required" }, 400);
+    const preview = await billingOperations.previewPromotionCode({
+      userId: user.uuid,
+      productKey,
+      promotionCode,
+    });
+    return c.json({ preview });
+  } catch (error) {
+    if (isBillingApiError(error)) return billingApiErrorResponse(c, error);
+    throw error;
+  }
+});
+
 router.post("/orders", async (c) => {
   const user = useAuth(c);
   if (user instanceof Response) return user;
@@ -155,10 +230,12 @@ router.post("/orders", async (c) => {
         ? (body as { productKey: string }).productKey.trim()
         : "";
     if (!productKey) return c.json({ message: "Product key is required" }, 400);
+    const discount = parseCheckoutDiscount(body as Record<string, unknown>);
     const checkout = await billingOperations.purchaseAddon({
       userId: user.uuid,
       productKey,
       returnUrl: parseReturnUrl((body as { returnUrl?: unknown }).returnUrl),
+      ...discount,
     });
     return c.json({ checkout });
   } catch (error) {
@@ -177,10 +254,12 @@ router.post("/subscriptions", async (c) => {
         ? (body as { productKey: string }).productKey.trim()
         : "";
     if (!productKey) return c.json({ message: "Product key is required" }, 400);
+    const discount = parseCheckoutDiscount(body as Record<string, unknown>);
     const checkout = await billingOperations.createSubscription({
       userId: user.uuid,
       productKey,
       returnUrl: parseReturnUrl((body as { returnUrl?: unknown }).returnUrl),
+      ...discount,
     });
     return c.json({ checkout });
   } catch (error) {

@@ -224,6 +224,29 @@ export type BillingProductPricing = {
   discountRate: number | null;
 };
 
+export type BillingDiscountPricing = {
+  amountMinor: number;
+  amountUsd: number;
+  discountAmountMinor: number;
+  discountAmountUsd: number;
+  paidAmountMinor: number;
+  paidAmountUsd: number;
+  currency: string;
+};
+
+export type BillingDiscountOfferRef = {
+  key: string;
+  revision: string;
+};
+
+export type BillingDiscountOffer = {
+  ref: BillingDiscountOfferRef;
+  name: string;
+  duration: "once" | "forever";
+  endsAt: string | null;
+  pricing: BillingDiscountPricing;
+};
+
 export type BillingProductDisplay = {
   description: string | null;
   benefits: string[];
@@ -259,6 +282,7 @@ export type BillingCatalogProduct = {
   kind: BillingProductKind;
   interval: BillingProductBillingInterval;
   pricing: BillingProductPricing;
+  offer: BillingDiscountOffer | null;
   display: BillingProductDisplay;
   isDefaultPlan: boolean;
 };
@@ -441,6 +465,19 @@ export type BillingCheckoutResult = {
   orderId: string | null;
   subscriptionId: string | null;
   reused: boolean;
+};
+
+export type BillingPromotionCodePreview = {
+  userId: string;
+  productKey: string;
+  promotionCode: string;
+  eligible: boolean;
+  reasonCode: string | null;
+  message: string | null;
+  name: string | null;
+  duration: "once" | "forever" | null;
+  endsAt: string | null;
+  pricing: BillingDiscountPricing | null;
 };
 
 export type BillingRedemptionResult = {

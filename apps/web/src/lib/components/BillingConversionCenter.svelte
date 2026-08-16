@@ -5,6 +5,7 @@ import type {
 	BillingCreditStatus,
 } from "@neta-art/cohub";
 import { AlertCircle, Check, CreditCard, Loader2, X } from "lucide-svelte";
+import BillingCheckoutSheet from "$lib/components/BillingCheckoutSheet.svelte";
 import Sheet from "$lib/components/Sheet.svelte";
 import { sdk } from "$lib/sdk";
 import { billingCatalogStore } from "$lib/stores/billing-catalog.svelte";
@@ -15,7 +16,7 @@ type PlanInterval = "monthly" | "yearly";
 let catalog = $state<BillingCatalog | null>(null);
 let catalogRefreshing = $state(false);
 let error = $state("");
-let busyKey = $state<string | null>(null);
+let checkoutProduct = $state<BillingCatalogProduct | null>(null);
 let checkoutError = $state("");
 let credit = $state<BillingCreditStatus | null>(null);
 let creditLoading = $state(false);
@@ -58,6 +59,7 @@ const paidPlans = $derived.by(() =>
 		),
 	),
 );
+const creditPackages = $derived.by(() => sortProducts(catalog?.addons ?? []));
 const monthlyPlans = $derived.by(() =>
 	paidPlans.filter((product) => product.interval === "monthly"),
 );
@@ -75,7 +77,10 @@ const visiblePlanProducts = $derived.by(() => {
 });
 const primaryProducts = $derived.by(() => {
 	if (!catalog) return [];
-	return hasActivePaidPlan ? paidPlans.slice(0, 4) : visiblePlanProducts;
+	if (hasActivePaidPlan && creditPackages.length > 0) {
+		return creditPackages.slice(0, 4);
+	}
+	return visiblePlanProducts;
 });
 const headline = $derived(
 	intent?.title ?? (isHard ? "Add credits to continue" : "Balance below zero"),
@@ -88,7 +93,9 @@ const balanceLabel = $derived(
 			: null,
 );
 const primaryLabel = $derived(
-	hasActivePaidPlan ? "Plan options" : "Choose a plan",
+	hasActivePaidPlan && creditPackages.length > 0
+		? "Credit packages"
+		: "Choose a plan",
 );
 const selectedIntervalLabel = $derived(
 	visiblePlanProducts === yearlyPlans ? "Yearly" : "Monthly",
@@ -260,42 +267,13 @@ async function loadCatalog(options: { force?: boolean } = {}) {
 	}
 }
 
-async function startCheckout(product: BillingCatalogProduct) {
-	if (
-		busyKey ||
-		catalog?.payment.available === false ||
-		isCurrentPlanProduct(product)
-	) {
+function startCheckout(product: BillingCatalogProduct) {
+	if (catalog?.payment.available === false || isCurrentPlanProduct(product)) {
 		return;
 	}
-	busyKey = product.key;
 	checkoutError = "";
-	try {
-		const result =
-			product.kind === "plan"
-				? await sdk.billing.createSubscription(product.key, {
-						returnUrl: returnUrl(),
-					})
-				: await sdk.billing.createOrder(product.key, {
-						returnUrl: returnUrl(),
-					});
-		const checkout = result.checkout;
-		if (checkout.checkoutUsable && checkout.checkoutUrl) {
-			window.location.href = checkout.checkoutUrl;
-			return;
-		}
-		checkoutError =
-			checkout.payment.reason ??
-			checkout.message ??
-			"Checkout is not available";
-	} catch (checkoutStartError) {
-		checkoutError =
-			checkoutStartError instanceof Error
-				? checkoutStartError.message
-				: "Failed to start checkout";
-	} finally {
-		busyKey = null;
-	}
+	checkoutProduct = product;
+	billingConversion.close();
 }
 </script>
 
@@ -391,12 +369,9 @@ async function startCheckout(product: BillingCatalogProduct) {
 											{/each}
 										</ul>
 
-										<button type="button" class="mt-4 inline-flex min-h-10 w-full cursor-pointer items-center justify-center rounded-[6px] px-3 text-[12px] font-medium transition-colors focus:outline-none focus:ring-1 focus:ring-brand/40 disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-8 {recommended && !current ? 'bg-brand text-brand-contrast-fg hover:bg-brand-hover' : 'border border-border-subtle bg-bg-input text-text-primary hover:bg-bg-hover'}" disabled={!!busyKey || catalog.payment.available === false || current} onclick={() => startCheckout(product)}>
+										<button type="button" class="mt-4 inline-flex min-h-10 w-full cursor-pointer items-center justify-center rounded-[6px] px-3 text-[12px] font-medium transition-colors focus:outline-none focus:ring-1 focus:ring-brand/40 disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-8 {recommended && !current ? 'bg-brand text-brand-contrast-fg hover:bg-brand-hover' : 'border border-border-subtle bg-bg-input text-text-primary hover:bg-bg-hover'}" disabled={catalog.payment.available === false || current} onclick={() => startCheckout(product)}>
 											{#if current}
 												Current plan
-											{:else if busyKey === product.key}
-												<Loader2 class="mr-1.5 h-3.5 w-3.5 animate-spin" />
-												Starting
 											{:else}
 												Subscribe
 											{/if}
@@ -410,7 +385,7 @@ async function startCheckout(product: BillingCatalogProduct) {
 						<div class="mb-2 text-[11px] font-medium uppercase tracking-[0.12em] text-text-tertiary">{primaryLabel}</div>
 						<div class="grid gap-2 sm:grid-cols-3">
 							{#each primaryProducts as product (product.key)}
-								<button type="button" class="group cursor-pointer rounded-[10px] border border-border-subtle bg-bg-content p-3 text-left transition-colors hover:border-brand/70 hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-60" disabled={!!busyKey || catalog.payment.available === false} onclick={() => startCheckout(product)}>
+								<button type="button" class="group cursor-pointer rounded-[10px] border border-border-subtle bg-bg-content p-3 text-left transition-colors hover:border-brand/70 hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-60" disabled={catalog.payment.available === false} onclick={() => startCheckout(product)}>
 									<div class="flex items-start justify-between gap-3">
 										<div class="min-w-0">
 											<div class="truncate text-[13px] font-medium text-text-primary">{product.name}</div>
@@ -421,7 +396,7 @@ async function startCheckout(product: BillingCatalogProduct) {
 									{#if includedBalanceText(product)}
 										<div class="mt-2 text-[11px] text-text-secondary">Balance included: {includedBalanceText(product)}</div>
 									{/if}
-									<div class="mt-3 flex items-center gap-1.5 text-[12px] text-brand"><CreditCard class="h-3.5 w-3.5" /> {busyKey === product.key ? "Starting" : "Select"}</div>
+									<div class="mt-3 flex items-center gap-1.5 text-[12px] text-brand"><CreditCard class="h-3.5 w-3.5" /> Select</div>
 								</button>
 							{/each}
 						</div>
@@ -436,3 +411,10 @@ async function startCheckout(product: BillingCatalogProduct) {
 		</div>
 	</Sheet>
 {/if}
+
+<BillingCheckoutSheet
+	open={checkoutProduct !== null}
+	product={checkoutProduct}
+	returnUrl={returnUrl()}
+	onClose={() => (checkoutProduct = null)}
+/>

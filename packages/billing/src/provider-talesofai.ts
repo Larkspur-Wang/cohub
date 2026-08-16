@@ -45,6 +45,8 @@ import {
   type BillingCatalogProduct,
   type BillingCheckoutInput,
   type BillingCheckoutResult,
+  type BillingDiscountOffer,
+  type BillingDiscountPricing,
   type BillingProductCreditBenefit,
   type BillingCreditBalance,
   type BillingCreditExpiryGroup,
@@ -60,6 +62,8 @@ import {
   type BillingOperations,
   type BillingPaymentStatus,
   type BillingPluginStatus,
+  type BillingPromotionCodePreview,
+  type BillingPromotionCodePreviewInput,
   type BillingRedemptionInput,
   type BillingRedemptionResult,
   type BillingReferralRewardResult,
@@ -99,8 +103,74 @@ function createConfiguredSdk(input: BillingClientConfig) {
 
 type ConfiguredBillingSdk = ReturnType<typeof createConfiguredSdk>;
 
+type BillingDiscountRaw = {
+  id: string;
+  name: string;
+  effective_status: string;
+  code_preview: string | null;
+  effect: { type: string; percentage_bps?: number };
+  duration: { type: "once" | "forever" };
+  ends_at: string | null;
+  max_redemptions_per_customer: number | null;
+  version: number;
+  metadata: Record<string, unknown>;
+  created_at: string;
+};
+
+type BillingDiscountPreviewRaw =
+  | {
+      eligible: true;
+      reason_code: null;
+      discount: {
+        discount_id: string;
+        name: string;
+        ends_at: string | null;
+      };
+      duration: { type: "once" | "forever" };
+      pricing: {
+        amount: number;
+        discount_amount: number;
+        paid_amount: number;
+        currency: string;
+      };
+    }
+  | {
+      eligible: false;
+      reason_code: string;
+      message: string;
+    };
+
+type FirstPurchaseCampaign = {
+  key: string;
+  revision: string;
+  discount: BillingDiscountRaw;
+};
+
+type FirstPurchaseCampaigns = {
+  subscription: FirstPurchaseCampaign | null;
+  addons: Map<string, FirstPurchaseCampaign>;
+};
+
+type BillingCheckoutInspectResponse = {
+  discount?: { discount_id?: string };
+};
+
+type ResolvedCheckoutDiscount = {
+  discountId: string;
+  createSelector: { discount_id: string } | { discount_code: string };
+  selectionKey: string;
+};
+
+const FIRST_PURCHASE_MARKER = "cohub_first_purchase_default_v1";
+const FIRST_PURCHASE_PRODUCT_KEY = "cohub_first_purchase_product_key";
+const FIRST_SUBSCRIPTION_OFFER_KEY = "cohub-first-subscription-v1";
+const MAX_PROMOTION_CODE_LENGTH = 256;
+
 const ENSURE_CUSTOMER_CACHE_TTL_MS = 5 * 60 * 1000;
 const BILLING_STATIC_CATALOG_CACHE_TTL_SECONDS = 6 * 60 * 60;
+const FIRST_PURCHASE_CAMPAIGN_CACHE_TTL_SECONDS = 60;
+const BILLING_OFFER_PREVIEW_CACHE_TTL_SECONDS = 15;
+const BILLING_PURCHASE_FACTS_CACHE_TTL_SECONDS = 15;
 const BILLING_CATALOG_APP_NAME = "cohub";
 const CHECKOUT_LOCK_TTL_MS = 30_000;
 const CHECKOUT_LOCK_RETRY_DELAY_MS = 250;
@@ -714,6 +784,71 @@ function minorAmountToUsd(amount: number): number {
   return Number((amount / 100).toFixed(2));
 }
 
+function normalizePromotionCode(value: string): string {
+  const code = value.trim().toUpperCase();
+  if (!code || code.length > MAX_PROMOTION_CODE_LENGTH) {
+    throw billingApiError(
+      400,
+      "Promotion code is invalid",
+      "promotion_code_invalid",
+    );
+  }
+  return code;
+}
+
+function discountPricing(
+  pricing: Extract<BillingDiscountPreviewRaw, { eligible: true }>["pricing"],
+): BillingDiscountPricing {
+  return {
+    amountMinor: pricing.amount,
+    amountUsd: minorAmountToUsd(pricing.amount),
+    discountAmountMinor: pricing.discount_amount,
+    discountAmountUsd: minorAmountToUsd(pricing.discount_amount),
+    paidAmountMinor: pricing.paid_amount,
+    paidAmountUsd: minorAmountToUsd(pricing.paid_amount),
+    currency: pricing.currency,
+  };
+}
+
+function firstPurchaseRevision(
+  key: string,
+  discount: BillingDiscountRaw,
+): string {
+  return createHash("sha256")
+    .update(JSON.stringify([key, discount.id, discount.version]))
+    .digest("hex");
+}
+
+function checkoutSelectionKey(input: BillingCheckoutInput): string {
+  const selection = input.promotionCode
+    ? `code:${input.promotionCode.trim().toUpperCase()}`
+    : input.offer
+      ? `preset:${input.offer.key}:${input.offer.revision}`
+      : "base";
+  return createHash("sha256").update(selection).digest("hex");
+}
+
+function isValidFirstPurchaseDiscount(discount: BillingDiscountRaw): boolean {
+  return (
+    discount.code_preview === null &&
+    discount.effect.type === "percentage" &&
+    discount.effect.percentage_bps === 5_000 &&
+    discount.duration.type === "once" &&
+    discount.max_redemptions_per_customer === 1
+  );
+}
+
+function newestDiscount(
+  current: BillingDiscountRaw | undefined,
+  candidate: BillingDiscountRaw,
+): BillingDiscountRaw {
+  if (!current) return candidate;
+  if (candidate.created_at !== current.created_at) {
+    return candidate.created_at > current.created_at ? candidate : current;
+  }
+  return candidate.id > current.id ? candidate : current;
+}
+
 function normalizeBillingPage(value: number | undefined): number {
   return Math.max(1, Math.floor(value ?? 1));
 }
@@ -811,6 +946,10 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function optionalString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function checkoutDiscountId(value: BillingCheckoutInspectResponse): string | null {
+  return optionalString(value.discount?.discount_id);
 }
 
 function optionalNumber(value: unknown): number | null {
@@ -1077,6 +1216,7 @@ function mapCatalogProduct(
       discountLabel: optionalString(pricing.discount_label),
       discountRate: optionalNumber(pricing.discount_rate),
     },
+    offer: null,
     display: {
       description: optionalString(display.description) ?? product.description,
       benefits: stringArray(display.benefits),
@@ -1416,6 +1556,165 @@ export function createTalesofaiBillingOperations(
     provider: "talesofai",
     configured: true,
   };
+
+  let campaignCache: {
+    value: FirstPurchaseCampaigns;
+    expiresAt: number;
+  } | null = null;
+  let campaignInflight: Promise<FirstPurchaseCampaigns> | null = null;
+  const loadFirstPurchaseCampaigns =
+    async (): Promise<FirstPurchaseCampaigns> => {
+      const listDiscountsByKind = async (kind: "subscription" | "addon") => {
+        const discounts: BillingDiscountRaw[] = [];
+        for (let page = 1; page <= 20; page += 1) {
+          const response = await sdk.http.request<{
+            items: BillingDiscountRaw[];
+            pagination: { has_more: boolean };
+          }>({
+            method: "GET",
+            path: "/discounts",
+            query: {
+              business_key: businessKey,
+              metadata_contains: JSON.stringify({
+                [FIRST_PURCHASE_MARKER]: kind,
+              }),
+              sorting: "-created_at",
+              include_count: false,
+              page,
+              limit: 100,
+            },
+          });
+          discounts.push(...response.items);
+          if (!response.pagination.has_more) break;
+        }
+        return discounts;
+      };
+      const [subscriptionDiscounts, addonDiscountsList] = await Promise.all([
+        listDiscountsByKind("subscription"),
+        listDiscountsByKind("addon"),
+      ]);
+
+      let subscriptionDiscount: BillingDiscountRaw | undefined;
+      const discounts = [...subscriptionDiscounts, ...addonDiscountsList];
+      const addonDiscounts = new Map<string, BillingDiscountRaw>();
+      for (const discount of discounts) {
+        if (
+          discount.effective_status !== "available" ||
+          !isValidFirstPurchaseDiscount(discount)
+        ) {
+          continue;
+        }
+        const kind = discount.metadata[FIRST_PURCHASE_MARKER];
+        if (kind === "subscription") {
+          subscriptionDiscount = newestDiscount(subscriptionDiscount, discount);
+          continue;
+        }
+        if (kind !== "addon") continue;
+        const productKey = optionalString(
+          discount.metadata[FIRST_PURCHASE_PRODUCT_KEY],
+        );
+        if (!productKey) continue;
+        addonDiscounts.set(
+          productKey,
+          newestDiscount(addonDiscounts.get(productKey), discount),
+        );
+      }
+
+      const toCampaign = (
+        key: string,
+        discount: BillingDiscountRaw | undefined,
+      ): FirstPurchaseCampaign | null => {
+        if (!discount) return null;
+        return {
+          key,
+          revision: firstPurchaseRevision(key, discount),
+          discount,
+        };
+      };
+
+      const value = {
+        subscription: toCampaign(
+          FIRST_SUBSCRIPTION_OFFER_KEY,
+          subscriptionDiscount,
+        ),
+        addons: new Map(
+          [...addonDiscounts].flatMap(([productKey, discount]) => {
+            const campaign = toCampaign(
+              `cohub-first-addon-v1:${productKey}`,
+              discount,
+            );
+            return campaign ? [[productKey, campaign]] : [];
+          }),
+        ),
+      };
+      return value;
+    };
+
+  const listFirstPurchaseCampaigns =
+    async (): Promise<FirstPurchaseCampaigns> => {
+      if (campaignCache && campaignCache.expiresAt > Date.now()) {
+        return campaignCache.value;
+      }
+      if (campaignInflight) return campaignInflight;
+      campaignInflight = (async () => {
+        const cached = await getBillingCache<{
+          subscription: FirstPurchaseCampaign | null;
+          addons: [string, FirstPurchaseCampaign][];
+        }>(
+          `billing:first-purchase-campaigns:${businessKey}:v1`,
+          FIRST_PURCHASE_CAMPAIGN_CACHE_TTL_SECONDS,
+          async () => {
+            const loaded = await loadFirstPurchaseCampaigns();
+            return {
+              subscription: loaded.subscription,
+              addons: [...loaded.addons.entries()],
+            };
+          },
+        );
+        const value = {
+          subscription: cached.subscription,
+          addons: new Map(cached.addons),
+        };
+        campaignCache = {
+          value,
+          expiresAt:
+            Date.now() + FIRST_PURCHASE_CAMPAIGN_CACHE_TTL_SECONDS * 1_000,
+        };
+        return value;
+      })();
+      try {
+        return await campaignInflight;
+      } finally {
+        campaignInflight = null;
+      }
+    };
+
+  const previewDiscount = async (input: {
+    userId: string;
+    productKey: string;
+    selector: { discount_id: string } | { discount_code: string };
+  }): Promise<BillingDiscountPreviewRaw> =>
+    sdk.http.request({
+      method: "POST",
+      path: "/discounts/preview",
+      body: {
+        business_key: businessKey,
+        external_user_id: input.userId,
+        product_key: input.productKey,
+        ...input.selector,
+      },
+    });
+
+  const getPurchaseFacts = async (userId: string) =>
+    sdk.http.request<{
+      facts: { subscription_purchase: { exists: boolean } };
+    }>({
+      method: "GET",
+      path: "/customers/:external_user_id/purchase-facts",
+      pathParams: { external_user_id: userId },
+      query: { business_key: businessKey },
+    });
+
   const ensuredCustomers = new Map<
     string,
     { value: BillingUserRef; expiresAt: number }
@@ -1424,10 +1723,15 @@ export function createTalesofaiBillingOperations(
   const inflightCheckouts = new Map<string, Promise<BillingCheckoutResult>>();
 
   const runCheckoutSingleflight = (
-    input: { kind: "addon" | "plan"; userId: string; productKey: string },
+    input: {
+      kind: "addon" | "plan";
+      userId: string;
+      productKey: string;
+      selectionKey: string;
+    },
     run: () => Promise<BillingCheckoutResult>,
   ): Promise<BillingCheckoutResult> => {
-    const key = `${businessKey}:${input.kind}:${input.userId}:${input.productKey}`;
+    const key = `${businessKey}:${input.kind}:${input.userId}:${input.productKey}:${input.selectionKey}`;
     const inflight = inflightCheckouts.get(key);
     if (inflight) return inflight;
     const promise = withRedisCheckoutLock(key, run).finally(() => {
@@ -1781,6 +2085,78 @@ export function createTalesofaiBillingOperations(
       },
     );
 
+  const applyAutomaticOffers = async (
+    userId: string,
+    products: BillingCatalogProduct[],
+  ): Promise<BillingCatalogProduct[]> => {
+    try {
+      const campaigns = await listFirstPurchaseCampaigns();
+      const hasPlanCampaign = products.some(
+        (product) => product.kind === "plan" && campaigns.subscription,
+      );
+      const purchaseFacts = hasPlanCampaign
+        ? await getBillingCache(
+            `billing:purchase-facts:${businessKey}:${createHash("sha256").update(userId).digest("hex")}`,
+            BILLING_PURCHASE_FACTS_CACHE_TTL_SECONDS,
+            () => getPurchaseFacts(userId),
+          )
+        : null;
+      const previews = await Promise.all(
+        products.map(async (product) => {
+          const campaign =
+            product.kind === "plan"
+              ? purchaseFacts?.facts.subscription_purchase.exists === false
+                ? campaigns.subscription
+                : null
+              : (campaigns.addons.get(product.key) ?? null);
+          if (!campaign) return product;
+          try {
+            const preview = await getBillingCache(
+              `billing:offer-preview:${businessKey}:${createHash("sha256")
+                .update(
+                  JSON.stringify([userId, product.key, campaign.revision]),
+                )
+                .digest("hex")}`,
+              BILLING_OFFER_PREVIEW_CACHE_TTL_SECONDS,
+              () =>
+                previewDiscount({
+                  userId,
+                  productKey: product.key,
+                  selector: { discount_id: campaign.discount.id },
+                }),
+            );
+            if (
+              !preview.eligible ||
+              preview.discount.discount_id !== campaign.discount.id ||
+              preview.pricing.amount !== product.pricing.amountMinor ||
+              preview.pricing.discount_amount <= 0
+            ) {
+              return product;
+            }
+            const offer: BillingDiscountOffer = {
+              ref: { key: campaign.key, revision: campaign.revision },
+              name: preview.discount.name,
+              duration: preview.duration.type,
+              endsAt: preview.discount.ends_at,
+              pricing: discountPricing(preview.pricing),
+            };
+            return { ...product, offer };
+          } catch (error) {
+            console.warn(
+              `[billing] Offer preview failed for ${product.key}`,
+              error,
+            );
+            return product;
+          }
+        }),
+      );
+      return previews;
+    } catch (error) {
+      console.warn("[billing] Automatic offer discovery failed", error);
+      return products;
+    }
+  };
+
   const getCatalog = async (input?: BillingUserRef): Promise<BillingCatalog> => {
     const userId = input?.userId ?? "anonymous";
     if (input?.userId) await ensureCustomer({ userId: input.userId });
@@ -1815,7 +2191,7 @@ export function createTalesofaiBillingOperations(
           subscriptions: [...currentSubscriptions, ...blockingSubscriptions],
         })
       : catalogProducts;
-    const mappedProducts = products
+    const baseProducts = products
       .filter(isCohubCatalogProduct)
       .map((product) =>
         mapCatalogProduct(product, defaultPlanProductKey, creditBenefits),
@@ -1823,6 +2199,9 @@ export function createTalesofaiBillingOperations(
       .sort(
         (left, right) => left.pricing.amountMinor - right.pricing.amountMinor,
       );
+    const mappedProducts = input?.userId
+      ? await applyAutomaticOffers(input.userId, baseProducts)
+      : baseProducts;
     const plans = mappedProducts.filter((product) => product.kind === "plan");
     const addons = mappedProducts.filter((product) => product.kind === "addon");
     return {
@@ -1863,6 +2242,122 @@ export function createTalesofaiBillingOperations(
     }
   };
 
+  const previewPromotionCode = async (
+    input: BillingPromotionCodePreviewInput,
+  ): Promise<BillingPromotionCodePreview> => {
+    const promotionCode = normalizePromotionCode(input.promotionCode);
+    const product = await getProductOrNull(input.productKey);
+    if (
+      product?.status !== "active" ||
+      product.visibility !== "public" ||
+      !isCohubCatalogProduct(product)
+    ) {
+      throw billingApiError(404, "Product not found", "product_not_found");
+    }
+    await ensureCustomer({ userId: input.userId });
+    const preview = await previewDiscount({
+      userId: input.userId,
+      productKey: product.key,
+      selector: { discount_code: promotionCode },
+    });
+    if (!preview.eligible) {
+      return {
+        userId: input.userId,
+        productKey: product.key,
+        promotionCode,
+        eligible: false,
+        reasonCode: preview.reason_code,
+        message: preview.message,
+        name: null,
+        duration: null,
+        endsAt: null,
+        pricing: null,
+      };
+    }
+    return {
+      userId: input.userId,
+      productKey: product.key,
+      promotionCode,
+      eligible: true,
+      reasonCode: null,
+      message: null,
+      name: preview.discount.name,
+      duration: preview.duration.type,
+      endsAt: preview.discount.ends_at,
+      pricing: discountPricing(preview.pricing),
+    };
+  };
+
+  const resolveCheckoutDiscount = async (
+    input: BillingCheckoutInput,
+    product: Product,
+  ): Promise<ResolvedCheckoutDiscount | null> => {
+    if (input.promotionCode && input.offer) {
+      throw billingApiError(
+        400,
+        "Promotion code and automatic offer are mutually exclusive",
+        "discount_selection_ambiguous",
+      );
+    }
+    if (input.promotionCode) {
+      const promotionCode = normalizePromotionCode(input.promotionCode);
+      const preview = await previewDiscount({
+        userId: input.userId,
+        productKey: product.key,
+        selector: { discount_code: promotionCode },
+      });
+      if (!preview.eligible) {
+        throw billingApiError(409, preview.message, preview.reason_code);
+      }
+      return {
+        discountId: preview.discount.discount_id,
+        createSelector: { discount_code: promotionCode },
+        selectionKey: `code:${createHash("sha256").update(promotionCode).digest("hex")}`,
+      };
+    }
+    if (!input.offer) return null;
+
+    const campaigns = await listFirstPurchaseCampaigns();
+    const campaign =
+      product.billing_type === "recurring"
+        ? campaigns.subscription
+        : (campaigns.addons.get(product.key) ?? null);
+    if (
+      !campaign ||
+      campaign.key !== input.offer.key ||
+      campaign.revision !== input.offer.revision
+    ) {
+      throw billingApiError(
+        409,
+        "This offer has changed. Refresh pricing and try again",
+        "first_purchase_offer_changed",
+      );
+    }
+    if (product.billing_type === "recurring") {
+      const facts = await getPurchaseFacts(input.userId);
+      if (facts.facts.subscription_purchase.exists) {
+        throw billingApiError(
+          409,
+          "The first subscription offer is no longer available",
+          "first_subscription_required",
+        );
+      }
+    }
+    const preview = await previewDiscount({
+      userId: input.userId,
+      productKey: product.key,
+      selector: { discount_id: campaign.discount.id },
+    });
+    if (!preview.eligible) {
+      throw billingApiError(409, preview.message, preview.reason_code);
+    }
+    return {
+      discountId: campaign.discount.id,
+      createSelector: { discount_id: campaign.discount.id },
+      selectionKey: `preset:${campaign.revision}`,
+    };
+  };
+
   const createUnavailableCheckout = (input: {
     userId: string;
     productKey: string;
@@ -1878,6 +2373,7 @@ export function createTalesofaiBillingOperations(
   const findReusableAddonCheckout = async (input: {
     userId: string;
     productKey: string;
+    discountId: string | null;
   }): Promise<BillingCheckoutResult | null> => {
     const response = await sdk.admin.orders.list({
       business_key: businessKey,
@@ -1898,7 +2394,9 @@ export function createTalesofaiBillingOperations(
         });
         if (
           inspected.checkout?.checkout_usable === true &&
-          inspected.checkout.checkout_url
+          inspected.checkout.checkout_url &&
+          checkoutDiscountId(inspected as BillingCheckoutInspectResponse) ===
+            input.discountId
         ) {
           return checkoutResultFromOrder({
             userId: input.userId,
@@ -1918,6 +2416,7 @@ export function createTalesofaiBillingOperations(
   const findReusableSubscriptionCheckout = async (input: {
     userId: string;
     productKey: string;
+    discountId: string | null;
   }): Promise<BillingCheckoutResult | null> => {
     const response = await sdk.admin.subscriptions.list({
       business_key: businessKey,
@@ -1937,7 +2436,9 @@ export function createTalesofaiBillingOperations(
         });
         if (
           inspected.checkout?.checkout_usable === true &&
-          inspected.checkout.checkout_url
+          inspected.checkout.checkout_url &&
+          checkoutDiscountId(inspected as BillingCheckoutInspectResponse) ===
+            input.discountId
         ) {
           return checkoutResultFromSubscription({
             userId: input.userId,
@@ -1957,7 +2458,12 @@ export function createTalesofaiBillingOperations(
     input: BillingCheckoutInput,
   ): Promise<BillingCheckoutResult> => {
     return runCheckoutSingleflight(
-      { kind: "addon", userId: input.userId, productKey: input.productKey },
+      {
+        kind: "addon",
+        userId: input.userId,
+        productKey: input.productKey,
+        selectionKey: checkoutSelectionKey(input),
+      },
       () => purchaseAddonUnprotected(input),
     );
   };
@@ -1978,9 +2484,11 @@ export function createTalesofaiBillingOperations(
     }
 
     await ensureCustomer({ userId: input.userId });
+    const discount = await resolveCheckoutDiscount(input, product);
     const reusableCheckout = await findReusableAddonCheckout({
       userId: input.userId,
       productKey: product.key,
+      discountId: discount?.discountId ?? null,
     });
     if (reusableCheckout) return reusableCheckout;
 
@@ -1999,6 +2507,7 @@ export function createTalesofaiBillingOperations(
       product_key: product.key,
       billing_reason: "purchase",
       ...checkoutRedirects(input.returnUrl),
+      ...(discount?.createSelector ?? {}),
     });
     return checkoutResultFromOrder({
       userId: input.userId,
@@ -2012,7 +2521,12 @@ export function createTalesofaiBillingOperations(
     input: BillingCheckoutInput,
   ): Promise<BillingCheckoutResult> => {
     return runCheckoutSingleflight(
-      { kind: "plan", userId: input.userId, productKey: input.productKey },
+      {
+        kind: "plan",
+        userId: input.userId,
+        productKey: input.productKey,
+        selectionKey: checkoutSelectionKey(input),
+      },
       () => createSubscriptionUnprotected(input),
     );
   };
@@ -2042,9 +2556,11 @@ export function createTalesofaiBillingOperations(
       });
     }
 
+    const discount = await resolveCheckoutDiscount(input, product);
     const reusableCheckout = await findReusableSubscriptionCheckout({
       userId: input.userId,
       productKey: product.key,
+      discountId: discount?.discountId ?? null,
     });
     if (reusableCheckout) return reusableCheckout;
 
@@ -2062,6 +2578,7 @@ export function createTalesofaiBillingOperations(
       external_user_id: input.userId,
       product_key: product.key,
       ...checkoutRedirects(input.returnUrl),
+      ...(discount?.createSelector ?? {}),
     });
     return checkoutResultFromSubscription({
       userId: input.userId,
@@ -2327,6 +2844,8 @@ export function createTalesofaiBillingOperations(
     },
 
     getCatalog,
+
+    previewPromotionCode,
 
     listSubscriptions,
 

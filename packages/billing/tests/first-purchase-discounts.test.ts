@@ -1,0 +1,367 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { createTalesofaiBillingOperations } from "../src/client.js";
+
+const response = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+
+const product = (key: string, billingType: "recurring" | "one_time") => ({
+  id: `product_${key}`,
+  business_id: "business_1",
+  key,
+  name: key,
+  description: null,
+  status: "active",
+  visibility: "public",
+  billing_type: billingType,
+  amount: 2_000,
+  currency: "USD",
+  billing_period: billingType === "recurring" ? "month" : "one_time",
+  billing_interval_count: 1,
+  meta: { appName: "cohub" },
+  created_at: "2026-08-01T00:00:00.000Z",
+  updated_at: "2026-08-01T00:00:00.000Z",
+});
+
+const discount = (input: {
+  id: string;
+  kind: "subscription" | "addon";
+  productKey?: string;
+}) => ({
+  id: input.id,
+  name: `${input.kind} half price`,
+  effective_status: "available",
+  code_preview: null,
+  effect: { type: "percentage", percentage_bps: 5_000 },
+  duration: { type: "once" },
+  ends_at: null,
+  max_redemptions_per_customer: 1,
+  version: 1,
+  metadata: {
+    cohub_first_purchase_default_v1: input.kind,
+    ...(input.productKey
+      ? { cohub_first_purchase_product_key: input.productKey }
+      : {}),
+  },
+  created_at: "2026-08-01T00:00:00.000Z",
+});
+
+function preview(discountId: string) {
+  return {
+    eligible: true,
+    reason_code: null,
+    discount: {
+      discount_id: discountId,
+      name: `${discountId} half price`,
+      ends_at: null,
+    },
+    duration: { type: "once" },
+    pricing: {
+      amount: 2_000,
+      discount_amount: 1_000,
+      paid_amount: 1_000,
+      currency: "USD",
+    },
+  };
+}
+
+test("catalog shares one first-purchase offer across plans and isolates addon offers per product", async () => {
+  const originalFetch = globalThis.fetch;
+  const products = [
+    product("cohub_pro_monthly", "recurring"),
+    product("cohub_max_monthly", "recurring"),
+    product("cohub_credits_small", "one_time"),
+    product("cohub_credits_large", "one_time"),
+  ];
+  let createdSubscriptionBody: Record<string, unknown> | null = null;
+  let subscriptionCreateRequests = 0;
+  let subscriptionCreated = false;
+  let orderCreateRequests = 0;
+  let orderCreated = false;
+  let discountListRequests = 0;
+  let failingPreviewId: string | null = null;
+  const discounts = [
+    discount({ id: "discount_subscription", kind: "subscription" }),
+    discount({
+      id: "discount_small",
+      kind: "addon",
+      productKey: "cohub_credits_small",
+    }),
+    discount({
+      id: "discount_large",
+      kind: "addon",
+      productKey: "cohub_credits_large",
+    }),
+  ];
+
+  globalThis.fetch = async (input, init) => {
+    const url = new URL(String(input));
+    const method = init?.method ?? "GET";
+    if (url.pathname === "/v1/customers" && method === "POST") {
+      return response({ customer: { external_user_id: "user_1" } });
+    }
+    if (url.pathname === "/v1/products") {
+      return response({ items: products, pagination: { has_more: false } });
+    }
+    if (url.pathname === "/v1/benefits") {
+      return response({ items: [], pagination: { has_more: false } });
+    }
+    if (url.pathname === "/v1/business-default-plan") {
+      return response({
+        default_plan: { status: "disabled", product_id: null },
+      });
+    }
+    if (url.pathname === "/v1/providers/status") {
+      return response({
+        status: "available",
+        checkout_available: true,
+        active_provider_key: "stripe",
+        providers: [],
+      });
+    }
+    if (url.pathname === "/v1/subscriptions" && method === "POST") {
+      subscriptionCreateRequests += 1;
+      subscriptionCreated = true;
+      createdSubscriptionBody = JSON.parse(String(init?.body)) as Record<
+        string,
+        unknown
+      >;
+      return response({
+        subscription: { id: "subscription_1" },
+        checkout: {
+          checkout_usable: true,
+          checkout_url: "https://checkout.example.test/session_1",
+        },
+        reused: false,
+      });
+    }
+    if (url.pathname === "/v1/orders" && method === "POST") {
+      orderCreateRequests += 1;
+      orderCreated = true;
+      return response({
+        order: { id: "order_1", subscription_id: null },
+        checkout: {
+          checkout_usable: true,
+          checkout_url: "https://checkout.example.test/order_1",
+        },
+      });
+    }
+    if (url.pathname === "/v1/orders/order_1" && method === "GET") {
+      return response({
+        order: { id: "order_1", subscription_id: null },
+        checkout: {
+          checkout_usable: true,
+          checkout_url: "https://checkout.example.test/order_1",
+        },
+        discount: { discount_id: "discount_small" },
+      });
+    }
+    if (url.pathname === "/v1/orders") {
+      return response({
+        items: orderCreated ? [{ id: "order_1" }] : [],
+        pagination: { has_more: false },
+      });
+    }
+    if (
+      url.pathname === "/v1/subscriptions/subscription_1" &&
+      method === "GET"
+    ) {
+      return response({
+        subscription: {
+          id: "subscription_1",
+          status: "pending_checkout",
+          product_key_snapshot: "cohub_pro_monthly",
+        },
+        checkout: {
+          checkout_usable: true,
+          checkout_url: "https://checkout.example.test/session_1",
+        },
+        discount: { discount_id: "discount_subscription" },
+      });
+    }
+    if (url.pathname === "/v1/subscriptions") {
+      return response({
+        items: subscriptionCreated
+          ? [
+              {
+                id: "subscription_1",
+                status: "pending_checkout",
+                product_key_snapshot: "cohub_pro_monthly",
+              },
+            ]
+          : [],
+        pagination: { has_more: false },
+      });
+    }
+    if (url.pathname.startsWith("/v1/products/") && method === "GET") {
+      const productKey = decodeURIComponent(
+        url.pathname.split("/").at(-1) ?? "",
+      );
+      const found = products.find((item) => item.key === productKey);
+      return found
+        ? response({ product: found })
+        : response({ error: { message: "Not found" } }, 404);
+    }
+    if (url.pathname === "/v1/discounts" && method === "GET") {
+      discountListRequests += 1;
+      return response({ items: discounts, pagination: { has_more: false } });
+    }
+    if (url.pathname === "/v1/customers/user_1/purchase-facts") {
+      return response({
+        checked_at: "2026-08-15T00:00:00.000Z",
+        facts: {
+          subscription_purchase: { exists: false },
+          order_purchase: { exists: false },
+        },
+      });
+    }
+    if (url.pathname === "/v1/discounts/preview" && method === "POST") {
+      const body = JSON.parse(String(init?.body)) as { discount_id: string };
+      return body.discount_id === failingPreviewId
+        ? response({ error: { message: "Preview unavailable" } }, 503)
+        : response(preview(body.discount_id));
+    }
+    throw new Error(`Unexpected request: ${method} ${url}`);
+  };
+
+  try {
+    const operations = createTalesofaiBillingOperations({
+      baseUrl: "https://billing.example.test/v1",
+      businessKey: "cohub",
+      adminApiKey: "test-key",
+    });
+    const catalog = await operations.getCatalog({ userId: "user_1" });
+    const pro = catalog.plans.find((item) => item.key === "cohub_pro_monthly");
+    const max = catalog.plans.find((item) => item.key === "cohub_max_monthly");
+    const small = catalog.addons.find(
+      (item) => item.key === "cohub_credits_small",
+    );
+    const large = catalog.addons.find(
+      (item) => item.key === "cohub_credits_large",
+    );
+
+    assert.ok(pro?.offer);
+    assert.ok(max?.offer);
+    assert.equal(pro.offer.ref.key, "cohub-first-subscription-v1");
+    assert.equal(pro.offer.ref.revision, max.offer.ref.revision);
+    assert.equal(pro.pricing.amountMinor, 2_000);
+    assert.equal(pro.offer.pricing.paidAmountMinor, 1_000);
+    assert.ok(small?.offer);
+    assert.ok(large?.offer);
+    assert.notEqual(small.offer.ref.key, large.offer.ref.key);
+    assert.notEqual(small.offer.ref.revision, large.offer.ref.revision);
+
+    failingPreviewId = "discount_large";
+    const partiallyAvailableCatalog = await operations.getCatalog({
+      userId: "user_1",
+    });
+    assert.ok(partiallyAvailableCatalog.plans.every((item) => item.offer));
+    assert.ok(
+      partiallyAvailableCatalog.addons.find(
+        (item) => item.key === "cohub_credits_small",
+      )?.offer,
+    );
+    assert.equal(
+      partiallyAvailableCatalog.addons.find(
+        (item) => item.key === "cohub_credits_large",
+      )?.offer,
+      null,
+    );
+    assert.equal(discountListRequests, 2);
+    failingPreviewId = null;
+
+    const checkout = await operations.createSubscription({
+      userId: "user_1",
+      productKey: pro.key,
+      offer: pro.offer.ref,
+      returnUrl: "https://cohub.example.test/settings/billing",
+    });
+    assert.equal(checkout.checkoutUsable, true);
+    assert.equal(createdSubscriptionBody?.discount_id, "discount_subscription");
+    assert.equal(createdSubscriptionBody?.discount_code, undefined);
+
+    const retriedCheckout = await operations.createSubscription({
+      userId: "user_1",
+      productKey: pro.key,
+      offer: pro.offer.ref,
+      returnUrl: "https://cohub.example.test/settings/billing",
+    });
+    assert.equal(retriedCheckout.reused, true);
+    assert.equal(subscriptionCreateRequests, 1);
+
+    const addonCheckout = await operations.purchaseAddon({
+      userId: "user_1",
+      productKey: small.key,
+      offer: small.offer.ref,
+      returnUrl: "https://cohub.example.test/settings/billing",
+    });
+    const retriedAddonCheckout = await operations.purchaseAddon({
+      userId: "user_1",
+      productKey: small.key,
+      offer: small.offer.ref,
+      returnUrl: "https://cohub.example.test/settings/billing",
+    });
+    assert.equal(addonCheckout.checkoutUsable, true);
+    assert.equal(retriedAddonCheckout.reused, true);
+    assert.equal(orderCreateRequests, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("promotion code preview preserves Billing pricing and rejection reasons", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = new URL(String(input));
+    const method = init?.method ?? "GET";
+    if (url.pathname === "/v1/products/cohub_pro_monthly") {
+      return response({ product: product("cohub_pro_monthly", "recurring") });
+    }
+    if (url.pathname === "/v1/customers" && method === "POST") {
+      return response({ customer: { external_user_id: "user_1" } });
+    }
+    if (url.pathname === "/v1/discounts/preview" && method === "POST") {
+      const body = JSON.parse(String(init?.body)) as { discount_code: string };
+      if (body.discount_code === "HALF")
+        return response(preview("discount_code"));
+      return response({
+        eligible: false,
+        reason_code: "discount_not_found",
+        message: "Promotion code not found",
+      });
+    }
+    throw new Error(`Unexpected request: ${method} ${url}`);
+  };
+
+  try {
+    const operations = createTalesofaiBillingOperations({
+      baseUrl: "https://billing.example.test/v1",
+      businessKey: "cohub",
+      adminApiKey: "test-key",
+    });
+    const eligible = await operations.previewPromotionCode({
+      userId: "user_1",
+      productKey: "cohub_pro_monthly",
+      promotionCode: " half ",
+    });
+    assert.equal(eligible.promotionCode, "HALF");
+    assert.equal(eligible.eligible, true);
+    assert.equal(eligible.pricing?.amountMinor, 2_000);
+    assert.equal(eligible.pricing?.discountAmountMinor, 1_000);
+    assert.equal(eligible.pricing?.paidAmountMinor, 1_000);
+
+    const rejected = await operations.previewPromotionCode({
+      userId: "user_1",
+      productKey: "cohub_pro_monthly",
+      promotionCode: "missing",
+    });
+    assert.equal(rejected.eligible, false);
+    assert.equal(rejected.reasonCode, "discount_not_found");
+    assert.equal(rejected.pricing, null);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

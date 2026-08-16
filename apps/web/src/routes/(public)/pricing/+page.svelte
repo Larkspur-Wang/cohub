@@ -1,12 +1,12 @@
 <script lang="ts">
 import type { BillingCatalogProduct } from "@neta-art/cohub";
-import { Check, Loader2 } from "lucide-svelte";
+import { Check } from "lucide-svelte";
 import { onMount } from "svelte";
 import { goto } from "$app/navigation";
 import { page } from "$app/state";
 import { signInWithRedirectPath } from "$lib/auth";
+import BillingCheckoutSheet from "$lib/components/BillingCheckoutSheet.svelte";
 import PublicHeader from "$lib/components/PublicHeader.svelte";
-import { sdk } from "$lib/sdk";
 import { canonicalUrl } from "$lib/seo";
 import { authStore } from "$lib/stores/auth.svelte";
 import { billingCatalogStore } from "$lib/stores/billing-catalog.svelte";
@@ -23,7 +23,8 @@ let monthlyPlans = $state<BillingCatalogProduct[]>([]);
 let yearlyPlans = $state<BillingCatalogProduct[]>([]);
 let catalogLoading = $state(true);
 let catalogError = $state("");
-let checkoutBusyKey = $state<string | null>(null);
+let checkoutProduct = $state<BillingCatalogProduct | null>(null);
+let checkoutLoadingKey = $state<string | null>(null);
 let checkoutError = $state("");
 let interval = $state<PlanInterval>("monthly");
 
@@ -201,27 +202,18 @@ async function startCheckout(product: BillingCatalogProduct) {
 		await signInWithRedirectPath(pricingReturnPath);
 		return;
 	}
-	checkoutBusyKey = product.key;
 	checkoutError = "";
+	checkoutLoadingKey = product.key;
 	try {
-		const input = { returnUrl: `${window.location.origin}/settings/billing` };
-		const { checkout } =
-			product.kind === "plan"
-				? await sdk.billing.createSubscription(product.key, input)
-				: await sdk.billing.createOrder(product.key, input);
-		if (checkout.checkoutUsable && checkout.checkoutUrl) {
-			window.location.href = checkout.checkoutUrl;
-			return;
-		}
-		checkoutError =
-			checkout.payment.reason ??
-			checkout.message ??
-			"Checkout is not available";
+		const personalizedCatalog = await billingCatalogStore.load();
+		checkoutProduct =
+			personalizedCatalog.products.find((item) => item.key === product.key) ??
+			product;
 	} catch (error) {
 		checkoutError = "Checkout is not available right now.";
-		console.warn("[pricing] Failed to start checkout", error);
+		console.warn("[pricing] Failed to refresh personalized pricing", error);
 	} finally {
-		checkoutBusyKey = null;
+		checkoutLoadingKey = null;
 	}
 }
 
@@ -349,12 +341,11 @@ onMount(() => {
 							<button
 								type="button"
 								onclick={() => startCheckout(product)}
-								disabled={checkoutBusyKey !== null}
+								disabled={checkoutLoadingKey !== null}
 								class={getCheckoutButtonClass(recommended, { muted: free })}
 							>
-								{#if checkoutBusyKey === product.key}
-									<Loader2 class="mr-1.5 h-3.5 w-3.5 animate-spin" />
-									Processing
+								{#if checkoutLoadingKey === product.key}
+									Preparing
 								{:else if free}
 									Get started
 								{:else}
@@ -369,3 +360,10 @@ onMount(() => {
 
 	</main>
 </div>
+
+<BillingCheckoutSheet
+	open={checkoutProduct !== null}
+	product={checkoutProduct}
+	returnUrl={typeof window === "undefined" ? undefined : `${window.location.origin}/settings/billing`}
+	onClose={() => (checkoutProduct = null)}
+/>

@@ -281,6 +281,21 @@ export function createDisabledBillingOperations(
       });
     },
 
+    async previewPromotionCode(input): Promise<import("./interfaces.js").BillingPromotionCodePreview> {
+      return {
+        userId: input.userId,
+        productKey: input.productKey,
+        promotionCode: input.promotionCode,
+        eligible: false,
+        reasonCode: "billing_unavailable",
+        message: status.reason ?? "Billing integration is not configured",
+        name: null,
+        duration: null,
+        endsAt: null,
+        pricing: null,
+      };
+    },
+
     async listSubscriptions(
       input: BillingHistoryListInput,
     ): Promise<BillingSubscriptionHistoryList> {

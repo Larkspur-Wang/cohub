@@ -33,7 +33,8 @@
     "release": "pnpm --filter @neta-art/cohub-cli... build && changeset publish",
     "changelog:generate": "tsx scripts/changelog/generate.ts",
     "changelog:render": "tsx scripts/changelog/render.ts",
-    "changelog:release": "tsx scripts/changelog/release.ts"
+    "changelog:release": "tsx scripts/changelog/release.ts",
+    "billing:configure-first-purchase": "tsx scripts/billing/configure-first-purchase-discounts.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.3",

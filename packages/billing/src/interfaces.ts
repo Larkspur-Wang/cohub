@@ -204,6 +204,29 @@ export type BillingProductPricing = {
   discountRate: number | null;
 };
 
+export type BillingDiscountPricing = {
+  amountMinor: number;
+  amountUsd: number;
+  discountAmountMinor: number;
+  discountAmountUsd: number;
+  paidAmountMinor: number;
+  paidAmountUsd: number;
+  currency: string;
+};
+
+export type BillingDiscountOfferRef = {
+  key: string;
+  revision: string;
+};
+
+export type BillingDiscountOffer = {
+  ref: BillingDiscountOfferRef;
+  name: string;
+  duration: "once" | "forever";
+  endsAt: string | null;
+  pricing: BillingDiscountPricing;
+};
+
 export type BillingProductDisplay = {
   description: string | null;
   benefits: string[];
@@ -239,6 +262,8 @@ export type BillingCatalogProduct = {
   kind: BillingProductKind;
   interval: BillingProductBillingInterval;
   pricing: BillingProductPricing;
+  /** User-specific automatic offer. Base pricing remains unchanged. */
+  offer: BillingDiscountOffer | null;
   display: BillingProductDisplay;
   isDefaultPlan: boolean;
 };
@@ -329,6 +354,25 @@ export type BillingSubscriptionHistoryList = BillingUserRef & {
 export type BillingCheckoutInput = BillingUserRef & {
   productKey: string;
   returnUrl?: string;
+  promotionCode?: string;
+  offer?: BillingDiscountOfferRef;
+};
+
+export type BillingPromotionCodePreviewInput = BillingUserRef & {
+  productKey: string;
+  promotionCode: string;
+};
+
+export type BillingPromotionCodePreview = BillingUserRef & {
+  productKey: string;
+  promotionCode: string;
+  eligible: boolean;
+  reasonCode: string | null;
+  message: string | null;
+  name: string | null;
+  duration: "once" | "forever" | null;
+  endsAt: string | null;
+  pricing: BillingDiscountPricing | null;
 };
 
 export type BillingCheckoutResult = BillingUserRef & {
@@ -509,6 +553,7 @@ export interface BillingOperations {
   getGenerationModelDiscount(input: GenerationModelDiscountInput): Promise<GenerationModelDiscount>;
   getCreditStatus(input: BillingUserRef & { tokenType?: CohubBillingTokenType }): Promise<BillingCreditStatus>;
   getCatalog(input?: BillingUserRef): Promise<BillingCatalog>;
+  previewPromotionCode(input: BillingPromotionCodePreviewInput): Promise<BillingPromotionCodePreview>;
   listSubscriptions(input: BillingHistoryListInput): Promise<BillingSubscriptionHistoryList>;
   purchaseAddon(input: BillingCheckoutInput): Promise<BillingCheckoutResult>;
   createSubscription(input: BillingCheckoutInput): Promise<BillingCheckoutResult>;

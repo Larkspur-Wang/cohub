@@ -3,6 +3,8 @@ import type {
   BillingCatalog,
   BillingCheckoutResult,
   BillingCreditStatus,
+  BillingDiscountOfferRef,
+  BillingPromotionCodePreview,
   BillingRedemptionResult,
   BillingSubscriptionHistoryList,
   BillingSubscriptionHistoryStatus,
@@ -54,7 +56,18 @@ export class BillingApi {
     );
   }
 
-  async createOrder(productKey: string, input?: { returnUrl?: string }) {
+  async previewPromotionCode(input: { productKey: string; promotionCode: string }) {
+    return this.transport.request<{ preview: BillingPromotionCodePreview }>(
+      "/api/billing/promotion-code-preview",
+      { method: "POST", body: JSON.stringify(input) },
+    );
+  }
+
+  async createOrder(productKey: string, input?: {
+    returnUrl?: string;
+    promotionCode?: string;
+    offer?: BillingDiscountOfferRef;
+  }) {
     return this.transport.request<{ checkout: BillingCheckoutResult }>(
       "/api/billing/orders",
       {
@@ -64,7 +77,11 @@ export class BillingApi {
     );
   }
 
-  async createSubscription(productKey: string, input?: { returnUrl?: string }) {
+  async createSubscription(productKey: string, input?: {
+    returnUrl?: string;
+    promotionCode?: string;
+    offer?: BillingDiscountOfferRef;
+  }) {
     return this.transport.request<{ checkout: BillingCheckoutResult }>(
       "/api/billing/subscriptions",
       {

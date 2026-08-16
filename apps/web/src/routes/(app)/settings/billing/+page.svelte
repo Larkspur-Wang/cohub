@@ -22,6 +22,7 @@ import { goto } from "$app/navigation";
 import { page } from "$app/state";
 import { ensureAuth } from "$lib/auth";
 import { handleUnauthorizedError } from "$lib/auth-redirect";
+import BillingCheckoutSheet from "$lib/components/BillingCheckoutSheet.svelte";
 import { sdk } from "$lib/sdk";
 import { billingCatalogStore } from "$lib/stores/billing-catalog.svelte";
 
@@ -52,7 +53,7 @@ let selectedPlanInterval =
 	$state<Extract<BillingProductBillingInterval, "monthly" | "yearly">>(
 		"monthly",
 	);
-let checkoutBusyKey = $state<string | null>(null);
+let checkoutProduct = $state<BillingCatalogProduct | null>(null);
 let billingActionBusyKey = $state<string | null>(null);
 let redemptionLoading = $state(false);
 let checkoutNow = $state(Date.now());
@@ -74,6 +75,9 @@ const routeBillingTab = $derived(
 );
 const selectedPlanProducts = $derived.by(() =>
 	getPlanProductsForInterval(selectedPlanInterval),
+);
+const addonProducts = $derived.by(() =>
+	sortProductsByPrice(billingCatalog?.addons ?? []),
 );
 const currentSubscription = $derived(
 	billingCatalog?.currentSubscriptions.find(
@@ -572,40 +576,17 @@ async function createRedemption(event: SubmitEvent) {
 	}
 }
 
-async function createSubscription(product: BillingCatalogProduct) {
+function startCheckout(product: BillingCatalogProduct) {
 	if (
-		checkoutBusyKey ||
-		isCurrentPlanProduct(product) ||
-		billingCatalog?.hasActiveSubscription ||
+		(product.kind === "plan" &&
+			(isCurrentPlanProduct(product) ||
+				billingCatalog?.hasActiveSubscription)) ||
 		billingCatalog?.payment.available === false
 	) {
 		return;
 	}
-	checkoutBusyKey = product.key;
 	checkoutError = "";
-	try {
-		const { checkout } = await sdk.billing.createSubscription(product.key, {
-			returnUrl: returnUrl(),
-		});
-		if (checkout.checkoutUsable && checkout.checkoutUrl) {
-			window.location.href = checkout.checkoutUrl;
-			return;
-		}
-		checkoutError =
-			checkout.payment.reason ??
-			checkout.message ??
-			"Not available for purchase";
-	} catch (error) {
-		if (
-			await handleUnauthorizedError(error, `${currentPath}${currentSearch}`)
-		) {
-			return;
-		}
-		checkoutError =
-			error instanceof Error ? error.message : "Failed to start subscription";
-	} finally {
-		checkoutBusyKey = null;
-	}
+	checkoutProduct = product;
 }
 
 function payCheckout(item: BillingSubscriptionHistoryStatus) {
@@ -835,11 +816,8 @@ $effect(() => {
 										<div class="text-[11px] text-text-secondary">Balance included: {getProductBalanceText(product)}</div>
 									{/if}
 								</div>
-								<button type="button" onclick={() => createSubscription(product)} disabled={checkoutBusyKey !== null || isCurrentPlanProduct(product) || billingCatalog?.hasActiveSubscription || billingCatalog?.payment.available === false} class="mt-3 inline-flex h-8 items-center justify-center rounded-[5px] border border-border-subtle bg-bg-input px-3 text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-55">
-									{#if checkoutBusyKey === product.key}
-										<Loader2 class="mr-1.5 h-3.5 w-3.5 animate-spin" />
-										<span>Processing</span>
-									{:else if isCurrentPlanProduct(product)}
+								<button type="button" onclick={() => startCheckout(product)} disabled={isCurrentPlanProduct(product) || billingCatalog?.hasActiveSubscription || billingCatalog?.payment.available === false} class="mt-3 inline-flex h-8 items-center justify-center rounded-[5px] border border-border-subtle bg-bg-input px-3 text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-55">
+									{#if isCurrentPlanProduct(product)}
 										<span>Current subscription</span>
 									{:else if billingCatalog?.hasActiveSubscription || billingCatalog?.payment.available === false}
 										<span>Not available</span>
@@ -865,6 +843,35 @@ $effect(() => {
 					</div>
 				{:else}
 					<p class="mt-4 text-[12px] text-text-tertiary">No available plans in this billing period.</p>
+				{/if}
+
+				{#if addonProducts.length > 0}
+					<section class="mt-6 border-t border-border-subtle pt-5">
+						<h2 class="text-[14px] font-medium text-text-primary">Credit packages</h2>
+						<div class="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+							{#each addonProducts as product (product.key)}
+								<div class="flex min-h-36 flex-col rounded-[6px] border border-border-subtle px-3 py-3">
+									<div class="flex items-start justify-between gap-3">
+										<div class="min-w-0">
+											<h3 class="truncate text-[13px] font-semibold text-text-primary">{product.name}</h3>
+											{#if getProductBalanceText(product)}
+												<p class="mt-1 text-[11px] text-text-tertiary">{getProductBalanceText(product)} balance</p>
+											{/if}
+										</div>
+										<div class="shrink-0 text-right">
+											{#if product.offer}
+												<div class="font-mono text-[13px] font-semibold text-text-primary">{formatProductPrice(product.offer.pricing.paidAmountUsd)}</div>
+												<div class="mt-0.5 text-[10px] text-brand">First purchase 50% off</div>
+											{:else}
+												<div class="font-mono text-[13px] font-semibold text-text-primary">{formatProductPrice(product.pricing.amountUsd)}</div>
+											{/if}
+										</div>
+									</div>
+									<button type="button" onclick={() => startCheckout(product)} disabled={billingCatalog?.payment.available === false} class="mt-auto inline-flex h-9 items-center justify-center rounded-[5px] border border-border-subtle bg-bg-input px-3 text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-55">Buy package</button>
+								</div>
+							{/each}
+						</div>
+					</section>
 				{/if}
 
 				<div class="mt-6 border-t border-border-subtle pt-5">
@@ -1120,3 +1127,10 @@ $effect(() => {
 		</section>
 	</div>
 </div>
+
+<BillingCheckoutSheet
+	open={checkoutProduct !== null}
+	product={checkoutProduct}
+	returnUrl={returnUrl()}
+	onClose={() => (checkoutProduct = null)}
+/>
