@@ -1559,7 +1559,7 @@ export type GenerationUsageBlock = {
 export type SpaceUsageResponse = {
   hourly: SpaceUsageHourlyStat[];
   summary: SpaceUsageSummary;
-  /** Multimodal generation rollups (image / video / music). Optional for older servers. */
+  /** Generation rollups (image / video / music). Optional for older servers. */
   generation?: GenerationUsageBlock;
   days: number;
 };

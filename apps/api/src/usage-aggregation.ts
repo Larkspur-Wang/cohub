@@ -314,20 +314,20 @@ export function aggregateUserModelRankings(
     }
   }
 
-  const multimodalModels = new Map<string, UserModelRankings["generationModels"][number]>();
+  const generationModels = new Map<string, UserModelRankings["generationModels"][number]>();
   for (const row of generationRows) {
     const model = row.model ?? "unknown";
     const key = `${row.provider}\0${model}`;
-    const current = multimodalModels.get(key);
+    const current = generationModels.get(key);
     if (current) current.requestCount += row.requestCount;
-    else multimodalModels.set(key, { provider: row.provider, model, requestCount: row.requestCount });
+    else generationModels.set(key, { provider: row.provider, model, requestCount: row.requestCount });
   }
 
   return {
     llmModels: [...llmModels.values()]
       .sort((a, b) => b.totalTokens - a.totalTokens || a.model.localeCompare(b.model))
       .slice(0, 5),
-    generationModels: [...multimodalModels.values()]
+    generationModels: [...generationModels.values()]
       .sort((a, b) => b.requestCount - a.requestCount || a.model.localeCompare(b.model))
       .slice(0, 5),
   };
@@ -344,7 +344,7 @@ export const GENERATION_USAGE_SELECT_COLUMNS = {
   usageType: generationUsageStatsHourly.usageType,
 } as const;
 
-/** Aggregate multimodal generation usage rows into hourly buckets + summary. */
+/** Aggregate generation usage rows into hourly buckets and a summary. */
 export function aggregateGenerationUsageRows(
   rows: readonly GenerationUsageRow[],
 ): GenerationUsageAggregationResult {

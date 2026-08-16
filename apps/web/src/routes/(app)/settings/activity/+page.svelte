@@ -28,10 +28,10 @@ const EMPTY_RANKINGS: UserActivityRankings = {
 	generationModels: [],
 	works: [],
 };
-type HeatmapMode = "llm" | "multimodal";
+type HeatmapMode = "llm" | "generation";
 const heatmapModes: Array<{ value: HeatmapMode; label: string }> = [
 	{ value: "llm", label: "LLM" },
-	{ value: "multimodal", label: "Multimodal" },
+	{ value: "generation", label: "Generation" },
 ];
 
 let selectedDays = $state(365);
@@ -99,7 +99,7 @@ function dayTitle(day: ActivityDay) {
 	const value = formatCompact(heatValue(day));
 	return heatmapMode === "llm"
 		? `${formatDay(day.date)} · ${value} LLM tokens`
-		: `${formatDay(day.date)} · ${value} multimodal calls`;
+		: `${formatDay(day.date)} · ${value} generation calls`;
 }
 
 function getSelectedRange(days: number) {
@@ -222,13 +222,13 @@ onMount(async () => {
 					</div>
 				</div>
 				<div class="heatmap-scroll overflow-x-auto pb-1">
-					<div class="heatmap" style:--weeks={heatmapDays.length / 7} role="img" aria-label={`${heatmapMode === 'llm' ? 'LLM token' : 'Multimodal call'} activity over the last ${selectedDays} days`}>
+					<div class="heatmap" style:--weeks={heatmapDays.length / 7} role="img" aria-label={`${heatmapMode === 'llm' ? 'LLM token' : 'Generation call'} activity over the last ${selectedDays} days`}>
 						{#each heatmapDays as day, index (day?.date ?? `blank-${index}`)}
 							{#if day}<div class="heat-cell" data-mode={heatmapMode} data-level={heatLevel(day)} title={dayTitle(day)}></div>{:else}<div></div>{/if}
 						{/each}
 					</div>
 				</div>
-				{#if heatmapTotal === 0}<p class="mt-4 text-[12px] text-text-placeholder">{heatmapMode === "llm" ? "LLM token activity" : "Multimodal calls"} will appear here after your first request.</p>{/if}
+				{#if heatmapTotal === 0}<p class="mt-4 text-[12px] text-text-placeholder">{heatmapMode === "llm" ? "LLM token activity" : "Generation calls"} will appear here after your first request.</p>{/if}
 			</section>
 
 			<div class="grid gap-8 py-7 md:grid-cols-2 md:gap-x-10 lg:grid-cols-3">
@@ -307,10 +307,10 @@ onMount(async () => {
 	.heat-cell[data-level="2"] { background: color-mix(in srgb, var(--brand) 42%, var(--bg-primary)); }
 	.heat-cell[data-level="3"] { background: color-mix(in srgb, var(--brand) 66%, var(--bg-primary)); }
 	.heat-cell[data-level="4"] { background: var(--brand); }
-	.heat-cell[data-mode="multimodal"][data-level="1"] { background: color-mix(in srgb, var(--status-running) 24%, var(--bg-primary)); }
-	.heat-cell[data-mode="multimodal"][data-level="2"] { background: color-mix(in srgb, var(--status-running) 42%, var(--bg-primary)); }
-	.heat-cell[data-mode="multimodal"][data-level="3"] { background: color-mix(in srgb, var(--status-running) 66%, var(--bg-primary)); }
-	.heat-cell[data-mode="multimodal"][data-level="4"] { background: var(--status-running); }
+	.heat-cell[data-mode="generation"][data-level="1"] { background: color-mix(in srgb, var(--status-running) 24%, var(--bg-primary)); }
+	.heat-cell[data-mode="generation"][data-level="2"] { background: color-mix(in srgb, var(--status-running) 42%, var(--bg-primary)); }
+	.heat-cell[data-mode="generation"][data-level="3"] { background: color-mix(in srgb, var(--status-running) 66%, var(--bg-primary)); }
+	.heat-cell[data-mode="generation"][data-level="4"] { background: var(--status-running); }
 	@media (min-width: 640px) {
 		.heatmap { grid-template-rows: repeat(7, 13px); grid-template-columns: repeat(var(--weeks), 13px); gap: 4px; }
 		.heat-cell { width: 13px; height: 13px; }
