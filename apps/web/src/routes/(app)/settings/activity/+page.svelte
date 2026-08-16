@@ -241,7 +241,7 @@ onMount(async () => {
 								<li class="grid grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-2 text-[12px]">
 									<span class="font-mono text-[10px] text-text-placeholder">{index + 1}</span>
 									<div class="min-w-0" title={`${row.provider}/${row.model}`}><div class="truncate text-text-secondary">{row.model}</div><div class="truncate text-[10px] text-text-placeholder">{row.provider}</div></div>
-									<div class="text-right font-mono"><div class="text-text-secondary">{formatCompact(row.totalTokens)}</div><div class="text-[10px] text-text-placeholder">{formatCost(row.costTotal)}</div></div>
+									<div class="whitespace-nowrap text-right font-mono text-text-secondary">{formatCompact(row.totalTokens)} · {formatCost(row.costTotal)}</div>
 								</li>
 							{/each}
 						</ol>
@@ -256,7 +256,7 @@ onMount(async () => {
 								<li class="grid grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-2 text-[12px]">
 									<span class="font-mono text-[10px] text-text-placeholder">{index + 1}</span>
 									<div class="min-w-0 truncate text-text-secondary" title={`${row.provider}/${row.model}`}>{row.model}</div>
-									<div class="text-right font-mono"><div class="text-text-secondary">{formatCompact(row.requestCount)}</div><div class="text-[10px] text-text-placeholder">{formatCost(row.costTotal)}</div></div>
+									<div class="whitespace-nowrap text-right font-mono text-text-secondary">{formatCompact(row.requestCount)} · {formatCost(row.costTotal)}</div>
 								</li>
 							{/each}
 						</ol>
