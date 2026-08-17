@@ -4,6 +4,21 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v2.21 — 2026-08-17
+
+- **Native Board node contract**: shared protocol-level schema with machine-readable validation diagnostics, semantic node builders, and capability discovery for SDK and CLI clients, enforced across API board ops
+- **SDK Board media toolkit**: exposed reusable media inference, playback resolution, interaction, and video-thumbnail primitives plus purpose-aware Space file URL resolution; the web board now reuses them, remembers the local viewport, and supports regenerating generation task nodes
+- **cohub.live domain migration**: primary platform domain moved to cohub.live with validated multi-hostname routing across API, web, worker, CLI, SDK, and deploy configs, keeping cohub.run as a legacy secondary domain
+- **Direct public file uploads**: space-scoped, presigned direct uploads with concise SDK and CLI APIs, including sandbox-internal upload paths
+- **Personal activity analytics**: unified personal activity dashboard with time-range queries and model/work rankings, new web settings page, enriched CLI `me` output, and sandbox runtime version provenance for accurate attribution
+
+### Bug Fixes
+
+- Collaborative turn state is now synchronized across clients via a reworked session turns cache
+- Public file uploads fixed on OSS and switched to internal uploads inside sandboxes
+- Restored mobile settings navigation and persisted workspace preview width
+- Normalized task media artifacts and aligned activity ranking metrics and generation terminology
+
 ## v2.20 — 2026-08-15
 
 - **Board audio**: Add first-class audio nodes across the Board protocol, SDK codec, renderer, Web editor, and Work publishing, with deterministic waveform previews and support for common audio formats.
