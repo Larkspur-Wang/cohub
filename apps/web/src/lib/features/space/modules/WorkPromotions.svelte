@@ -4,7 +4,15 @@ import type {
 	WorkPromotionRecord,
 	WorkPromotionStatsResponse,
 } from "@neta-art/cohub";
-import { BarChart3, Check, Copy, Loader2, Plus, X } from "lucide-svelte";
+import {
+	BarChart3,
+	Check,
+	ChevronDown,
+	Copy,
+	Loader2,
+	Plus,
+	X,
+} from "lucide-svelte";
 import { onMount } from "svelte";
 import { sdk } from "$lib/sdk";
 
@@ -143,8 +151,8 @@ onMount(() => {
 	</div>
 
 	{#if createOpen}
-		<form class="mb-5 grid gap-3 border-b border-border-subtle/60 pb-5 lg:grid-cols-2" onsubmit={createPromotion}>
-			<div class="space-y-1.5 lg:col-span-2">
+		<form class="mb-5 grid gap-3 border-b border-border-subtle/60 pb-5 lg:grid-cols-[minmax(0,1fr)_180px]" onsubmit={createPromotion}>
+			<div class="space-y-1.5">
 				<label for="promotion-name" class="block text-[10px] font-medium text-text-tertiary">Name</label>
 				<input id="promotion-name" required maxlength="120" bind:value={name} placeholder="Meta launch creative A" class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[12px] text-text-primary focus:border-brand/50 focus:outline-none" />
 			</div>
@@ -156,22 +164,31 @@ onMount(() => {
 					{/each}
 				</select>
 			</div>
-			<div class="space-y-1.5">
-				<label for="promotion-source" class="block text-[10px] font-medium text-text-tertiary">UTM source</label>
-				<input id="promotion-source" bind:value={utmSource} placeholder="instagram" class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 font-mono text-[12px] text-text-primary focus:border-brand/50 focus:outline-none" />
-			</div>
-			<div class="space-y-1.5">
-				<label for="promotion-medium" class="block text-[10px] font-medium text-text-tertiary">UTM medium</label>
-				<input id="promotion-medium" bind:value={utmMedium} placeholder="paid_social" class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 font-mono text-[12px] text-text-primary focus:border-brand/50 focus:outline-none" />
-			</div>
-			<div class="space-y-1.5">
-				<label for="promotion-campaign" class="block text-[10px] font-medium text-text-tertiary">UTM campaign</label>
-				<input id="promotion-campaign" bind:value={utmCampaign} placeholder="launch_2026" class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 font-mono text-[12px] text-text-primary focus:border-brand/50 focus:outline-none" />
-			</div>
-			<div class="space-y-1.5 lg:col-span-2">
-				<label for="promotion-content" class="block text-[10px] font-medium text-text-tertiary">UTM content</label>
-				<input id="promotion-content" bind:value={utmContent} placeholder="video_a" class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 font-mono text-[12px] text-text-primary focus:border-brand/50 focus:outline-none" />
-			</div>
+			<details class="group border-y border-border-subtle/60 lg:col-span-2">
+				<summary class="flex min-h-9 cursor-pointer list-none items-center gap-2 py-2 text-[11px] text-text-tertiary transition-colors hover:text-text-secondary">
+					<span class="font-medium">URL parameters</span>
+					<span class="text-[10px] text-text-placeholder">Optional</span>
+					<ChevronDown class="ml-auto h-3.5 w-3.5 transition-transform group-open:rotate-180" />
+				</summary>
+				<div class="grid gap-3 pb-3 pt-1 sm:grid-cols-2">
+					<div class="space-y-1.5">
+						<label for="promotion-source" class="block text-[10px] font-medium text-text-tertiary">UTM source</label>
+						<input id="promotion-source" bind:value={utmSource} placeholder="instagram" class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 font-mono text-[12px] text-text-primary focus:border-brand/50 focus:outline-none" />
+					</div>
+					<div class="space-y-1.5">
+						<label for="promotion-medium" class="block text-[10px] font-medium text-text-tertiary">UTM medium</label>
+						<input id="promotion-medium" bind:value={utmMedium} placeholder="paid_social" class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 font-mono text-[12px] text-text-primary focus:border-brand/50 focus:outline-none" />
+					</div>
+					<div class="space-y-1.5">
+						<label for="promotion-campaign" class="block text-[10px] font-medium text-text-tertiary">UTM campaign</label>
+						<input id="promotion-campaign" bind:value={utmCampaign} placeholder="launch_2026" class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 font-mono text-[12px] text-text-primary focus:border-brand/50 focus:outline-none" />
+					</div>
+					<div class="space-y-1.5">
+						<label for="promotion-content" class="block text-[10px] font-medium text-text-tertiary">UTM content</label>
+						<input id="promotion-content" bind:value={utmContent} placeholder="video_a" class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 font-mono text-[12px] text-text-primary focus:border-brand/50 focus:outline-none" />
+					</div>
+				</div>
+			</details>
 			<div class="flex justify-end lg:col-span-2">
 				<button type="submit" disabled={creating || !name.trim()} class="inline-flex min-h-9 items-center gap-1.5 rounded-[5px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover disabled:opacity-50">
 					{#if creating}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Plus class="h-3.5 w-3.5" />{/if}
