@@ -3,6 +3,7 @@ import {
 	screenToWorld,
 	shapeCapabilities,
 	taskRunToBoardTaskSnapshot as taskBoardSnapshot,
+	worldPoint,
 } from "@neta-art/cohub/board";
 import { onDestroy, onMount, untrack } from "svelte";
 import { createSpaceBoardAssetSource } from "$lib/board/board-asset-source";
@@ -10,6 +11,12 @@ import {
 	type BoardAwarenessController,
 	createBoardAwarenessController,
 } from "$lib/board/board-awareness";
+import {
+	generationPromptFromContent,
+	pendingGenerationTaskSnapshot,
+	regeneratedTaskPosition,
+	regenerationRequestFromTaskRun,
+} from "$lib/board/board-generation";
 import type { BoardStageExportBridge } from "$lib/board/board-image-export";
 import { playableBoardMedia } from "$lib/board/board-media-playback";
 import { defaultBoardTool } from "$lib/board/board-tool";
@@ -36,6 +43,7 @@ import BoardStage from "$lib/components/board/BoardStage.svelte";
 import BoardTextEditor from "$lib/components/board/BoardTextEditor.svelte";
 import BoardZoomMenu from "$lib/components/board/BoardZoomMenu.svelte";
 import { sdk } from "$lib/sdk";
+import { watchGenerationTask } from "$lib/stores/generation-task-watch";
 import {
 	getCachedTaskRuns,
 	onTaskRunsCacheUpdated,
@@ -81,6 +89,9 @@ let exportBridge = $state<BoardStageExportBridge | null>(null);
 let exportOpen = $state(false);
 let generationOpen = $state(false);
 let playingId = $state<string | null>(null);
+let regeneratingNodeId = $state<string | null>(null);
+let regenerationError = $state<string | null>(null);
+let regenerationErrorTimer: ReturnType<typeof setTimeout> | null = null;
 let awarenessVersion = $state(0);
 let surfaceSize = $state<{ width: number; height: number }>({
 	width: 0,
@@ -114,6 +125,65 @@ function openExport() {
 	if (!exportBridge) return;
 	contextMenu = null;
 	exportOpen = true;
+}
+
+function showRegenerationError(message: string) {
+	regenerationError = message;
+	if (regenerationErrorTimer) clearTimeout(regenerationErrorTimer);
+	regenerationErrorTimer = setTimeout(() => {
+		regenerationError = null;
+		regenerationErrorTimer = null;
+	}, 6000);
+}
+
+async function regenerateTask(nodeId: string) {
+	if (regeneratingNodeId) return;
+	const source = editor.itemById(nodeId);
+	if (source?.type !== "task" || source.snapshot.taskType !== "generation")
+		return;
+	const sourceFrame = { ...source.frame };
+	const submittingUserKey = getCacheUserKey();
+	let createdTaskRunId: string | null = null;
+	regeneratingNodeId = nodeId;
+	regenerationError = null;
+	try {
+		const detail = await sdk.tasks.get(source.taskRunId);
+		const request = regenerationRequestFromTaskRun(detail.run, spaceId);
+		const created = await sdk.generations.create(request);
+		createdTaskRunId = created.taskRunId;
+		if (getCacheUserKey() !== submittingUserKey) {
+			showRegenerationError("Task created. Find it in Tasks list.");
+			return;
+		}
+
+		watchGenerationTask(spaceId, created.taskRunId, submittingUserKey);
+		const snapshot = pendingGenerationTaskSnapshot({
+			prompt: generationPromptFromContent(request.content),
+			model: request.model,
+		});
+		const position = regeneratedTaskPosition(sourceFrame);
+		editor.addTask(
+			created.taskRunId,
+			snapshot,
+			worldPoint(position.x, position.y),
+			{
+				regeneration: {
+					sourceTaskRunId: source.taskRunId,
+					sourceNodeId: source.id,
+				},
+			},
+		);
+	} catch (cause) {
+		showRegenerationError(
+			createdTaskRunId
+				? "Generation started. Open it from Tasks."
+				: cause instanceof Error
+					? cause.message
+					: "Generation could not start.",
+		);
+	} finally {
+		regeneratingNodeId = null;
+	}
 }
 
 const boardClient = sdk
@@ -604,6 +674,7 @@ $effect(() => {
 });
 
 onDestroy(() => {
+	if (regenerationErrorTimer) clearTimeout(regenerationErrorTimer);
 	flushViewPreference();
 	window.removeEventListener("keydown", handleKeydown);
 	window.removeEventListener("keyup", handleKeyup);
@@ -639,6 +710,12 @@ onDestroy(() => {
 		class="relative min-h-0 flex-1 bg-bg-primary"
 		oncontextmenu={handleContextMenu}
 	>
+		{#if regenerationError}
+			<div class="board-regeneration-notice" role="status" aria-live="polite">
+				{regenerationError}
+			</div>
+		{/if}
+
 		<BoardStage
 			{editor}
 			{runtime}
@@ -684,7 +761,11 @@ onDestroy(() => {
 			onClose={closeMedia}
 		/>
 		{#if !readonly}
-			<BoardSelectionToolbar {editor} />
+			<BoardSelectionToolbar
+				{editor}
+				onRegenerateTask={regenerateTask}
+				{regeneratingNodeId}
+			/>
 			<BoardConnectionToolbar {editor} />
 			{#if generationOpen}
 				<BoardGenerationComposer
@@ -710,6 +791,8 @@ onDestroy(() => {
 				{editor}
 				{onOpenFile}
 				{onOpenTask}
+				onRegenerateTask={regenerateTask}
+				{regeneratingNodeId}
 				position={contextMenu}
 				onExport={exportBridge ? openExport : undefined}
 				onClose={() => { contextMenu = null; }}
@@ -730,6 +813,22 @@ onDestroy(() => {
 <style>
 	.board-panel--immersive {
 		position: relative;
+	}
+
+	.board-regeneration-notice {
+		position: absolute;
+		top: 12px;
+		left: 50%;
+		z-index: 32;
+		max-width: min(420px, calc(100% - 24px));
+		transform: translateX(-50%);
+		border: 1px solid var(--error-soft);
+		border-radius: 7px;
+		background: var(--error-bg);
+		padding: 7px 10px;
+		color: var(--error-soft);
+		font-size: 11px;
+		box-shadow: 0 8px 20px color-mix(in srgb, var(--overlay-scrim-strong) 12%, transparent);
 	}
 
 	.board-sync-notice--immersive {

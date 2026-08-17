@@ -1,12 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { PublicGenerationDeclaration } from "@cohub/protocol/generation";
+import type { TaskRunRecord } from "@neta-art/cohub";
 import {
 	buildBoardGenerationContent,
+	generationPromptFromContent,
 	modelAcceptsGenerationReferences,
 	normalizeGenerationReferenceUrl,
 	parseBoardGenerationReferences,
 	pendingGenerationTaskSnapshot,
+	regeneratedTaskPosition,
+	regenerationRequestFromTaskRun,
 	supportsBoardGenerationComposer,
 	validateBoardGeneration,
 	validateBoardGenerationParameters,
@@ -40,6 +44,29 @@ function withContent(
 	return { ...model, content: { input } };
 }
 
+function generationRun(payload: unknown): TaskRunRecord {
+	return {
+		id: "task-1",
+		jobId: "job-1",
+		cronJobId: null,
+		taskType: "generation",
+		status: "completed",
+		payload,
+		result: null,
+		errorMessage: null,
+		attemptCount: 1,
+		spaceId: "space-1",
+		sessionId: null,
+		turnId: null,
+		userUuid: null,
+		scheduledAt: null,
+		startedAt: null,
+		finishedAt: null,
+		createdAt: "2026-08-14T10:00:00.000Z",
+		updatedAt: "2026-08-14T10:00:00.000Z",
+	};
+}
+
 test("builds content and a pending task snapshot", () => {
 	assert.deepEqual(
 		buildBoardGenerationContent("  Refine this  ", [
@@ -70,6 +97,79 @@ test("builds content and a pending task snapshot", () => {
 			artifacts: [],
 			updatedAt: "2026-08-14T10:00:00.000Z",
 		},
+	);
+});
+
+test("rebuilds regeneration requests without server-owned fields", () => {
+	const content = [
+		{ type: "text", text: "Refine this", meta: { language: "en" } },
+		{
+			type: "image",
+			source: { type: "url", url: image.url },
+			meta: { role: "reference_image" },
+		},
+	];
+	const request = regenerationRequestFromTaskRun(
+		generationRun({
+			type: "generation",
+			data: {
+				model: model.model,
+				content,
+				parameters: { size: "1024x1024" },
+				meta: { seed: "stable" },
+				requestSource: { client: "web" },
+				modelDiscount: { multiplier: 0.5 },
+			},
+		}),
+		"space-1",
+	);
+
+	assert.deepEqual(request, {
+		spaceId: "space-1",
+		model: model.model,
+		content,
+		parameters: { size: "1024x1024" },
+		meta: { seed: "stable" },
+	});
+	assert.equal(generationPromptFromContent(request.content), "Refine this");
+	assert.deepEqual(
+		regeneratedTaskPosition({
+			x: 20,
+			y: 40,
+			width: 320,
+			height: 180,
+			rotation: 0,
+		}),
+		{ x: 538, y: 130 },
+	);
+});
+
+test("rejects unavailable regeneration inputs", () => {
+	assert.throws(
+		() => regenerationRequestFromTaskRun(generationRun(null), "space-1"),
+		/The original generation input is unavailable/,
+	);
+	assert.throws(
+		() =>
+			regenerationRequestFromTaskRun(
+				generationRun({
+					type: "generation",
+					data: { model: model.model, content: [{ type: "image" }] },
+				}),
+				"space-1",
+			),
+		/The original generation input is unavailable/,
+	);
+	assert.throws(
+		() =>
+			regenerationRequestFromTaskRun(
+				generationRun({
+					type: "generation",
+					data: { model: model.model, content: [{ type: "text", text: "Go" }] },
+				}),
+				"space-2",
+			),
+		/This task cannot be regenerated on this board/,
 	);
 });
 

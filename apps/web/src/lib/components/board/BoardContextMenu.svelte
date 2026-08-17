@@ -9,6 +9,7 @@ import {
 	LayoutDashboard,
 	LocateFixed,
 	Pencil,
+	RefreshCw,
 	Trash2,
 } from "lucide-svelte";
 import { onDestroy, onMount, untrack } from "svelte";
@@ -21,6 +22,8 @@ const {
 	onClose,
 	onOpenFile,
 	onOpenTask,
+	onRegenerateTask,
+	regeneratingNodeId = null,
 	onExport,
 }: {
 	editor: BoardEditor;
@@ -28,6 +31,8 @@ const {
 	onClose: () => void;
 	onOpenFile?: (path: string) => void | Promise<void>;
 	onOpenTask?: (taskRunId: string) => void;
+	onRegenerateTask?: (nodeId: string) => void;
+	regeneratingNodeId?: string | null;
 	/** Opens the export dialog; absent until the stage can render one. */
 	onExport?: () => void;
 } = $props();
@@ -59,6 +64,7 @@ type MenuAction = {
 	label: string;
 	icon: typeof Pencil;
 	danger?: boolean;
+	disabled?: boolean;
 	run: () => void;
 };
 
@@ -71,6 +77,13 @@ const actions = $derived.by<MenuAction[]>(() => {
 			label: "Open task",
 			icon: LayoutDashboard,
 			run: () => onOpenTask(task.taskRunId),
+		});
+	if (task?.snapshot.taskType === "generation" && onRegenerateTask)
+		list.push({
+			label: regeneratingNodeId === task.id ? "Regenerating…" : "Regenerate",
+			icon: RefreshCw,
+			disabled: regeneratingNodeId !== null,
+			run: () => onRegenerateTask(task.id),
 		});
 	if (file && onOpenFile)
 		list.push({
@@ -127,6 +140,7 @@ const actions = $derived.by<MenuAction[]>(() => {
 });
 
 function run(action: MenuAction) {
+	if (action.disabled) return;
 	action.run();
 	onClose();
 }
@@ -170,6 +184,7 @@ onDestroy(() => {
 			type="button"
 			class="ctx-item"
 			class:ctx-item--danger={action.danger}
+			disabled={action.disabled}
 			role="menuitem"
 			onclick={() => run(action)}
 		>
@@ -208,5 +223,6 @@ onDestroy(() => {
 		transition: background-color 100ms ease, color 100ms ease;
 	}
 	.ctx-item:hover { background: var(--bg-hover); color: var(--text-primary); }
+	.ctx-item:disabled { cursor: default; opacity: 0.55; }
 	.ctx-item--danger:hover { background: var(--error-bg); color: var(--error-700); }
 </style>

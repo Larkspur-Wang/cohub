@@ -239,6 +239,7 @@ export function createTaskBoardItem(
 	snapshot: BoardTaskSnapshot,
 	x: number,
 	y: number,
+	metadata?: Record<string, unknown>,
 ): BoardTaskItem {
 	const artifact = featuredTaskArtifact(snapshot.artifacts);
 	const visualMedia =
@@ -258,6 +259,7 @@ export function createTaskBoardItem(
 		type: "task",
 		taskRunId,
 		snapshot,
+		...(metadata ? { metadata } : {}),
 		frame: createFrame(x - size.width / 2, y - size.height / 2, size),
 	};
 }

@@ -868,8 +868,9 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		taskRunId: string,
 		snapshot: BoardTaskSnapshot,
 		at: WorldPoint,
+		metadata?: Record<string, unknown>,
 	) {
-		const item = createTaskBoardItem(taskRunId, snapshot, at.x, at.y);
+		const item = createTaskBoardItem(taskRunId, snapshot, at.x, at.y, metadata);
 		addItemAt(item);
 		return item.id;
 	}

@@ -99,7 +99,12 @@ test("task items survive document and server-node round trips", () => {
 			],
 		}),
 	);
-	const item = createTaskBoardItem("task_1", snapshot, 200, 120);
+	const item = createTaskBoardItem("task_1", snapshot, 200, 120, {
+		regeneration: {
+			sourceTaskRunId: "task_0",
+			sourceNodeId: "node_0",
+		},
+	});
 	const document = BoardDocumentSchema.parse({
 		...createEmptyBoardDocument(),
 		items: [item],
@@ -117,6 +122,12 @@ test("task items survive document and server-node round trips", () => {
 	if (decoded.type !== "task") assert.fail("expected task item");
 	assert.equal(decoded.taskRunId, "task_1");
 	assert.deepEqual(decoded.snapshot, snapshot);
+	assert.deepEqual(decoded.metadata, {
+		regeneration: {
+			sourceTaskRunId: "task_0",
+			sourceNodeId: "node_0",
+		},
+	});
 	assert.equal(
 		imageAssetKey(decoded),
 		"url:https://cdn.example.com/output.png",

@@ -12,14 +12,24 @@ import {
 	ArrowDownToLine,
 	ArrowUpToLine,
 	Copy,
+	LoaderCircle,
 	Lock,
 	LockOpen,
+	RefreshCw,
 	Trash2,
 } from "lucide-svelte";
 import { canTapSelectWithHand } from "$lib/board/board-tool";
 import type { BoardEditor } from "$lib/board/editor.svelte";
 
-const { editor }: { editor: BoardEditor } = $props();
+const {
+	editor,
+	onRegenerateTask,
+	regeneratingNodeId = null,
+}: {
+	editor: BoardEditor;
+	onRegenerateTask?: (nodeId: string) => void;
+	regeneratingNodeId?: string | null;
+} = $props();
 
 const visible = $derived(
 	editor.selection.length > 0 &&
@@ -40,6 +50,13 @@ const visible = $derived(
 
 const canAlign = $derived(editor.selection.length >= 2);
 const canDistribute = $derived(editor.selection.length >= 3);
+const generationTask = $derived.by(() => {
+	if (editor.selectedItems.length !== 1) return null;
+	const item = editor.selectedItems[0];
+	return item?.type === "task" && item.snapshot.taskType === "generation"
+		? item
+		: null;
+});
 
 const position = $derived.by(() => {
 	const bounds = editor.bounds;
@@ -97,6 +114,24 @@ const currentColor = $derived.by<string | null | undefined>(() => {
 					></button>
 				{/each}
 			</div>
+			<div class="divider"></div>
+		{/if}
+
+		{#if generationTask && onRegenerateTask}
+			<button
+				type="button"
+				class="sel-btn"
+				title={regeneratingNodeId === generationTask.id ? "Regenerating" : "Regenerate"}
+				aria-label={regeneratingNodeId === generationTask.id ? "Regenerating" : "Regenerate task"}
+				disabled={regeneratingNodeId !== null}
+				onclick={() => onRegenerateTask(generationTask.id)}
+			>
+				{#if regeneratingNodeId === generationTask.id}
+					<LoaderCircle class="h-3.5 w-3.5 animate-spin" />
+				{:else}
+					<RefreshCw class="h-3.5 w-3.5" />
+				{/if}
+			</button>
 			<div class="divider"></div>
 		{/if}
 
@@ -211,6 +246,7 @@ const currentColor = $derived.by<string | null | undefined>(() => {
 		flex-shrink: 0;
 	}
 	.sel-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+	.sel-btn:disabled { cursor: default; opacity: 0.55; }
 	.sel-btn--danger:hover { background: var(--error-bg); color: var(--error-700); }
 
 	.divider {

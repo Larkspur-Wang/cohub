@@ -46,7 +46,6 @@ import {
 	loadGenerationModels,
 } from "$lib/stores/generation-models-cache";
 import { watchGenerationTask } from "$lib/stores/generation-task-watch";
-import { mergeCachedTaskRun } from "$lib/stores/task-runs-cache";
 
 const {
 	editor,
@@ -429,25 +428,6 @@ async function submit() {
 			prompt: snapshotPrompt,
 			model: snapshotModel.model,
 		});
-		try {
-			if (getCacheUserKey() !== submittingUserKey) return;
-			mergeCachedTaskRun(spaceId, {
-				id: taskRunId,
-				taskType: "generation",
-				status: "pending",
-				spaceId,
-				payload: {
-					type: "generation",
-					data: {
-						model: snapshotModel.model,
-						content,
-						parameters: snapshotParameters,
-					},
-				},
-				updatedAt: snapshot.updatedAt,
-			});
-		} catch {}
-
 		const id = editor.addTask(taskRunId, snapshot, taskPosition());
 		nodeAdded = true;
 		editor.setSelection([id]);

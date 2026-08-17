@@ -1,8 +1,10 @@
 import type {
+	CreateGenerationTaskRequest,
 	GenerationContentBlock,
 	PublicGenerationDeclaration,
 } from "@cohub/protocol/generation";
-import type { BoardTaskSnapshot } from "@neta-art/cohub/board";
+import type { TaskRunRecord } from "@neta-art/cohub";
+import type { BoardFrame, BoardTaskSnapshot } from "@neta-art/cohub/board";
 
 export type BoardGenerationMediaType = "image" | "video" | "audio";
 
@@ -13,6 +15,88 @@ export type BoardGenerationReference = {
 	label: string;
 	role?: string;
 };
+
+const REGENERATED_TASK_GAP = 48;
+const PENDING_TASK_WIDTH = 300;
+
+function record(value: unknown): Record<string, unknown> | null {
+	return value && typeof value === "object" && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: null;
+}
+
+function isGenerationContentBlock(
+	value: unknown,
+): value is GenerationContentBlock {
+	const block = record(value);
+	if (!block) return false;
+	if (block.meta !== undefined && !record(block.meta)) return false;
+	if (block.type === "text") return typeof block.text === "string";
+	if (
+		block.type !== "image" &&
+		block.type !== "video" &&
+		block.type !== "audio"
+	)
+		return false;
+	const source = record(block.source);
+	if (source?.type === "url") return typeof source.url === "string";
+	return (
+		source?.type === "base64" &&
+		typeof source.mediaType === "string" &&
+		typeof source.data === "string"
+	);
+}
+
+/** Rebuild a public generation request from an authoritative TaskRun detail. */
+export function regenerationRequestFromTaskRun(
+	run: TaskRunRecord,
+	spaceId: string,
+): CreateGenerationTaskRequest {
+	if (run.taskType !== "generation" || run.spaceId !== spaceId) {
+		throw new Error("This task cannot be regenerated on this board.");
+	}
+	const payload = record(run.payload);
+	const data = record(payload?.data) ?? payload;
+	const model = data?.model;
+	const content = data?.content;
+	const parameters = data?.parameters;
+	const meta = data?.meta;
+	if (
+		typeof model !== "string" ||
+		!model.trim() ||
+		!Array.isArray(content) ||
+		content.length === 0 ||
+		!content.every(isGenerationContentBlock) ||
+		(parameters !== undefined && !record(parameters)) ||
+		(meta !== undefined && !record(meta))
+	) {
+		throw new Error("The original generation input is unavailable.");
+	}
+	return {
+		spaceId,
+		model,
+		content,
+		...(parameters === undefined
+			? {}
+			: { parameters: parameters as Record<string, unknown> }),
+		...(meta === undefined ? {} : { meta: meta as Record<string, unknown> }),
+	};
+}
+
+export function generationPromptFromContent(
+	content: readonly GenerationContentBlock[],
+): string {
+	const block = content.find((candidate) => candidate.type === "text");
+	return block?.type === "text" ? block.text : "";
+}
+
+/** Center a pending task node to the right of its source with a stable gap. */
+export function regeneratedTaskPosition(source: BoardFrame) {
+	return {
+		x: source.x + source.width + REGENERATED_TASK_GAP + PENDING_TASK_WIDTH / 2,
+		y: source.y + source.height / 2,
+	};
+}
 
 const QWEN_REFERENCE_VOICE_MODELS = new Set([
 	"qwen-tts",
