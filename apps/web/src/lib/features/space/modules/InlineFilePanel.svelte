@@ -29,6 +29,7 @@ import type { PdfPreviewControls } from "$lib/components/PdfPreview.svelte";
 import type { PreviewCaptureTarget } from "$lib/features/preview-mark";
 import PreviewMarkHost from "$lib/features/preview-mark/ui/PreviewMarkHost.svelte";
 import { createLazyModuleLoader } from "$lib/lazy-module";
+import type { ResolveWorkspaceAsset } from "$lib/workspace-assets";
 import type {
 	OpenWorkspaceFileTarget,
 	WorkspaceFilePosition,
@@ -99,6 +100,7 @@ type Props = {
 	onOpenLinkedInlineFile: (
 		target: OpenWorkspaceFileTarget,
 	) => void | Promise<void>;
+	resolveWorkspaceAsset: ResolveWorkspaceAsset;
 	onDownloadInlineFile: () => void | Promise<void>;
 	onRetryInlineFile?: () => void | Promise<void>;
 	onCopyInlineFileContent: () => void | Promise<void>;
@@ -163,6 +165,7 @@ let {
 	onClosePreviewTab,
 	onBackInlineFile,
 	onOpenLinkedInlineFile,
+	resolveWorkspaceAsset,
 	onDownloadInlineFile,
 	onRetryInlineFile,
 	onCopyInlineFileContent,
@@ -599,6 +602,7 @@ $effect(() => {
 			variant="document"
 			baseFilePath={inlineFile.response.path}
 			onOpenFile={onOpenLinkedInlineFile}
+			{resolveWorkspaceAsset}
 		/>
 	{/if}
 {/snippet}

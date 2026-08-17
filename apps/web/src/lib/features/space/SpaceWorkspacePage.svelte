@@ -116,6 +116,10 @@ import {
 } from "$lib/stores/ui.svelte";
 import type { LocalUploadEntry } from "$lib/upload-entries";
 import { workDisplayTitle } from "$lib/work-page-meta";
+import {
+	type ResolveWorkspaceAsset,
+	resolveWorkspaceFileAsset,
+} from "$lib/workspace-assets";
 import type { WorkspaceFileLinkTarget } from "$lib/workspace-file-links";
 import { resolveWorkspaceSpaceId } from "$lib/workspace-route";
 import { createBoardPreviewController } from "./modules/board-preview-controller.svelte";
@@ -1893,6 +1897,8 @@ async function openLinkedInlineFile(target: string | WorkspaceFileLinkTarget) {
 		position,
 	});
 }
+const resolveWorkspaceAsset: ResolveWorkspaceAsset = (path, { signal }) =>
+	resolveWorkspaceFileAsset(fileWorkspace.readActiveFsFile, path, { signal });
 async function goBackInlineFile() {
 	await previewWorkspace.goBackFile();
 }
@@ -2738,6 +2744,7 @@ const spaceFileDomainProps = $derived.by<
 	onInsertPathReference: insertPathReference,
 	onOpenInlineFile: openInlineFile,
 	onOpenLinkedInlineFile: openLinkedInlineFile,
+	resolveWorkspaceAsset,
 	onOpenInlineBoard: openInlineBoard,
 	onOpenTask: openTask,
 	onCloseInlineFile: closeInlineFile,

@@ -706,8 +706,8 @@ export function createFileWorkspaceController(
 		return getActiveFsClient().list(path);
 	}
 
-	function readActiveFsFile(path: string) {
-		return getActiveFsClient().read(path);
+	function readActiveFsFile(path: string, signal?: AbortSignal) {
+		return getActiveFsClient().read(path, signal);
 	}
 
 	async function loadFileTree(force = false) {

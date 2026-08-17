@@ -19,7 +19,10 @@ export type ActiveFsClient = {
 	readonly sourceKey: string;
 	readonly readonly: boolean;
 	list: (path: string) => Promise<{ entries: SpaceFsEntry[] }>;
-	read: (path: string) => Promise<SpaceFsFileResponse | SpaceFsPreparingFile>;
+	read: (
+		path: string,
+		signal?: AbortSignal,
+	) => Promise<SpaceFsFileResponse | SpaceFsPreparingFile>;
 	download: (
 		path: string,
 		knownFile?: SpaceFsFileResponse | null,
@@ -55,14 +58,14 @@ export function createActiveFsClient(input: {
 		}
 		return sdk.space(spaceId).files.list(path);
 	};
-	const read: ActiveFsClient["read"] = (path) => {
+	const read: ActiveFsClient["read"] = (path, signal) => {
 		if (source.kind === "checkpoint") {
 			return sdk
 				.space(spaceId)
 				.checkpoints(source.checkpointId)
 				.files.read(path);
 		}
-		return sdk.space(spaceId).files.read(path);
+		return sdk.space(spaceId).files.read(path, undefined, signal);
 	};
 	const download: ActiveFsClient["download"] = async (path, knownFile) => {
 		const filename = filenameFromPath(path);

@@ -676,6 +676,29 @@ body.pointer-dragging {
 	cursor: zoom-in;
 }
 
+.markdown-content [data-workspace-asset-state="loading"] {
+	background: color-mix(in srgb, var(--bg-elevated) 72%, var(--bg-content));
+	opacity: 0.58;
+}
+
+.markdown-content img[data-workspace-asset-state="loading"] {
+	min-width: min(100%, 12rem);
+	min-height: 7rem;
+	cursor: progress;
+}
+
+.markdown-content [data-workspace-asset-state="error"] {
+	border-color: color-mix(in srgb, var(--error-soft) 45%, var(--border-subtle));
+	background: var(--error-bg);
+	opacity: 0.72;
+}
+
+.markdown-content img[data-workspace-asset-state="error"] {
+	min-height: 4.5rem;
+	padding: 0.75rem;
+	cursor: default;
+}
+
 .markdown-content audio {
 	width: min(100%, 31.2rem);
 	margin: 1em 0;

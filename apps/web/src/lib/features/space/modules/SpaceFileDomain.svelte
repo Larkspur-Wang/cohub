@@ -26,6 +26,7 @@ import type { SpaceFsNode } from "$lib/space-fs";
 import { patchCachedSpaceList } from "$lib/stores/space-list-cache";
 import { cacheSpaceRecordSoon } from "$lib/stores/space-record-cache";
 import type { LocalUploadEntry } from "$lib/upload-entries";
+import type { ResolveWorkspaceAsset } from "$lib/workspace-assets";
 import type { WorkspaceFileLinkTarget } from "$lib/workspace-file-links";
 import BoardPreviewPanel from "./BoardPreviewPanel.svelte";
 import type { InlineBoardPanelState } from "./board-preview-controller.svelte";
@@ -143,6 +144,7 @@ export type SpaceFileDomainProps = {
 	onOpenLinkedInlineFile: (
 		target: string | WorkspaceFileLinkTarget,
 	) => void | Promise<void>;
+	resolveWorkspaceAsset: ResolveWorkspaceAsset;
 	onOpenInlineBoard: (path: string) => void | Promise<void>;
 	onOpenTask: (taskRunId: string) => void | Promise<void>;
 	onCloseInlineFile: () => void;
@@ -291,6 +293,7 @@ let {
 	onInsertPathReference,
 	onOpenInlineFile,
 	onOpenLinkedInlineFile,
+	resolveWorkspaceAsset,
 	onOpenInlineBoard,
 	onOpenTask,
 	onCloseInlineFile,
@@ -485,6 +488,7 @@ function previewContentOut(node: Element) {
 		onCloseInlineFile={onCloseInlineFile}
 		onBackInlineFile={onBackInlineFile}
 		onOpenLinkedInlineFile={onOpenLinkedInlineFile}
+		{resolveWorkspaceAsset}
 		onDownloadInlineFile={onDownloadInlineFile}
 		onRetryInlineFile={onRetryInlineFile}
 		onCopyInlineFileContent={onCopyInlineFileContent}

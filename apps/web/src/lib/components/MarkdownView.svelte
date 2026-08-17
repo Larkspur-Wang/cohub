@@ -28,6 +28,10 @@ import MarkdownFrontmatter from "$lib/components/MarkdownFrontmatter.svelte";
 import MarkdownSurface from "$lib/components/MarkdownSurface.svelte";
 import { parseMarkdownFrontmatter } from "$lib/markdown-frontmatter";
 import { StreamingMarkdownController } from "$lib/streaming-markdown-controller";
+import {
+	prepareWorkspaceAssetHtml,
+	type ResolveWorkspaceAsset,
+} from "$lib/workspace-assets";
 import type { WorkspaceFileLinkTarget } from "$lib/workspace-file-links";
 
 type MarkdownTextBlock = Extract<ContentBlock, { type: "text" }>;
@@ -42,6 +46,7 @@ type Props = {
 	onStart?: () => void;
 	onRendered?: () => void;
 	onOpenFile?: (target: WorkspaceFileLinkTarget) => void | Promise<void>;
+	resolveWorkspaceAsset?: ResolveWorkspaceAsset;
 };
 
 const {
@@ -53,6 +58,7 @@ const {
 	onStart,
 	onRendered,
 	onOpenFile,
+	resolveWorkspaceAsset,
 }: Props = $props();
 
 let stableHtml = $state("");
@@ -92,7 +98,11 @@ function destroyController() {
 	controller = null;
 }
 
-function renderFullMarkdown(markdownSource: string) {
+function renderFullMarkdown(
+	markdownSource: string,
+	assetBasePath: string | null,
+	assetResolver: ResolveWorkspaceAsset | undefined,
+) {
 	const seq = ++renderSeq;
 	stableHtml = renderPlainTextFallback(markdownSource);
 	tailHtml = "";
@@ -101,7 +111,10 @@ function renderFullMarkdown(markdownSource: string) {
 		.then(({ renderMarkdown }) => renderMarkdown(markdownSource))
 		.then((html) => {
 			if (seq !== renderSeq) return;
-			stableHtml = html;
+			stableHtml =
+				assetBasePath && assetResolver
+					? prepareWorkspaceAssetHtml(html, assetBasePath)
+					: html;
 			tailHtml = "";
 			void tick().then(() => {
 				if (seq === renderSeq) untrack(() => onRendered?.());
@@ -116,6 +129,8 @@ function renderFullMarkdown(markdownSource: string) {
 $effect(() => {
 	const markdownSource = renderSource;
 	const streaming = isStreaming;
+	const assetBasePath = baseFilePath;
+	const assetResolver = resolveWorkspaceAsset;
 
 	if (streaming) {
 		untrack(() => onStart?.());
@@ -124,7 +139,7 @@ $effect(() => {
 	}
 
 	destroyController();
-	renderFullMarkdown(markdownSource);
+	renderFullMarkdown(markdownSource, assetBasePath, assetResolver);
 });
 
 onDestroy(() => {
@@ -150,5 +165,6 @@ onDestroy(() => {
 		streamingLive={isStreaming}
 		{baseFilePath}
 		{onOpenFile}
+		{resolveWorkspaceAsset}
 	/>
 </div>

@@ -8,6 +8,10 @@ import {
 import { mediaLightbox } from "$lib/components/media-lightbox.svelte";
 import { insertComposerSnippet } from "$lib/stores/composer-insert";
 import {
+	createWorkspaceAssetLoader,
+	type ResolveWorkspaceAsset,
+} from "$lib/workspace-assets";
+import {
 	normalizeWorkspaceFileLinkTarget,
 	type WorkspaceFileLinkTarget,
 } from "$lib/workspace-file-links";
@@ -21,6 +25,7 @@ type Props = {
 	streamingLive?: boolean;
 	baseFilePath?: string | null;
 	onOpenFile?: (target: WorkspaceFileLinkTarget) => void | Promise<void>;
+	resolveWorkspaceAsset?: ResolveWorkspaceAsset;
 };
 
 const {
@@ -30,11 +35,13 @@ const {
 	streamingLive = false,
 	baseFilePath = null,
 	onOpenFile,
+	resolveWorkspaceAsset,
 }: Props = $props();
 
 let markdownEl = $state<HTMLElement | null>(null);
 let copyResetTimer: ReturnType<typeof setTimeout> | null = null;
 let themeObserver: MutationObserver | null = null;
+let workspaceAssetRun = 0;
 
 const mountedAudioPlayers: {
 	mount: HTMLElement;
@@ -58,6 +65,147 @@ $effect(() => {
 	enhanceCodeBlocks();
 	renderMermaid();
 	enhanceAudioPlayers();
+});
+
+$effect(() => {
+	stableHtml;
+	const root = markdownEl;
+	const resolve = resolveWorkspaceAsset;
+	if (!root || !resolve) return;
+
+	const run = ++workspaceAssetRun;
+	const controller = new AbortController();
+	const elements = Array.from(
+		root.querySelectorAll<HTMLElement>(
+			"[data-workspace-asset-src], [data-workspace-asset-poster]",
+		),
+	);
+	const targets = elements.flatMap((element) => {
+		const parent = element.parentElement;
+		const stateElement =
+			element.tagName === "SOURCE" && parent instanceof HTMLMediaElement
+				? parent
+				: element;
+		const entries: Array<{
+			element: HTMLElement;
+			stateElement: HTMLElement;
+			attribute: "src" | "poster";
+			path: string;
+		}> = [];
+		if (element.dataset.workspaceAssetSrc) {
+			entries.push({
+				element,
+				stateElement,
+				attribute: "src",
+				path: element.dataset.workspaceAssetSrc,
+			});
+		}
+		if (element.dataset.workspaceAssetPoster) {
+			entries.push({
+				element,
+				stateElement,
+				attribute: "poster",
+				path: element.dataset.workspaceAssetPoster,
+			});
+		}
+		return entries;
+	});
+	const loadAsset = createWorkspaceAssetLoader(resolve, controller.signal);
+	const remaining = new Map<HTMLElement, number>();
+	const failed = new Set<HTMLElement>();
+	for (const { stateElement } of targets) {
+		remaining.set(stateElement, (remaining.get(stateElement) ?? 0) + 1);
+	}
+
+	function settle(element: HTMLElement, error?: unknown) {
+		if (controller.signal.aborted || run !== workspaceAssetRun) return;
+		if (error) {
+			failed.add(element);
+			element.title =
+				error instanceof Error ? error.message : "Asset failed to load";
+		}
+		const next = (remaining.get(element) ?? 1) - 1;
+		remaining.set(element, next);
+		if (next > 0) return;
+		element.dataset.workspaceAssetState = failed.has(element)
+			? "error"
+			: "loaded";
+		element.removeAttribute("aria-busy");
+	}
+
+	function observeLoad(
+		target: EventTarget,
+		event: string,
+		stateElement: HTMLElement,
+		errorMessage: string,
+		onLoad?: () => void,
+	) {
+		const options = { once: true, signal: controller.signal };
+		target.addEventListener(
+			event,
+			() => {
+				onLoad?.();
+				settle(stateElement);
+			},
+			options,
+		);
+		target.addEventListener(
+			"error",
+			() => settle(stateElement, new Error(errorMessage)),
+			options,
+		);
+	}
+
+	for (const { element, stateElement, attribute, path } of targets) {
+		void loadAsset(path)
+			.then(({ src }) => {
+				if (controller.signal.aborted || run !== workspaceAssetRun) return;
+				if (attribute === "poster") {
+					const poster = new Image();
+					observeLoad(
+						poster,
+						"load",
+						stateElement,
+						"Poster failed to load",
+						() => element.setAttribute(attribute, src),
+					);
+					poster.src = src;
+					return;
+				}
+
+				if (element instanceof HTMLImageElement) {
+					observeLoad(element, "load", stateElement, "Image failed to load");
+					element.src = src;
+					return;
+				}
+
+				const media =
+					element instanceof HTMLMediaElement
+						? element
+						: element.parentElement instanceof HTMLMediaElement
+							? element.parentElement
+							: null;
+				if (!media) {
+					element.setAttribute(attribute, src);
+					settle(stateElement);
+					return;
+				}
+
+				observeLoad(
+					media,
+					"loadedmetadata",
+					stateElement,
+					"Media failed to load",
+					media instanceof HTMLAudioElement ? enhanceAudioPlayers : undefined,
+				);
+				media.preload = "metadata";
+				element.setAttribute(attribute, src);
+				if (element.tagName === "SOURCE") media.load();
+			})
+			.catch((error) => settle(stateElement, error));
+	}
+
+	return () => controller.abort();
 });
 
 function sweepDisconnectedAudioPlayers() {
