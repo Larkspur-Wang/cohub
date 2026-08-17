@@ -3,6 +3,7 @@ import type {
   SpaceTurnListItem,
   SpaceTurnsResponse,
 } from "@cohub/protocol/model";
+import { isUuidLike } from "@cohub/protocol/identifiers";
 import { sessionTurns, spaceSessions } from "@cohub/db";
 import {
   and,
@@ -28,7 +29,6 @@ import {
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
 const MAX_UUID = "ffffffff-ffff-ffff-ffff-ffffffffffff";
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type SpaceTurnCursor = {
   createdAt: Date;
@@ -49,7 +49,7 @@ export function encodeSpaceTurnCursor(input: {
   const createdAt = input.createdAt instanceof Date
     ? input.createdAt
     : new Date(input.createdAt);
-  if (Number.isNaN(createdAt.getTime()) || !UUID_RE.test(input.id)) {
+  if (Number.isNaN(createdAt.getTime()) || !isUuidLike(input.id)) {
     throw new InvalidSpaceTurnListQueryError("invalid cursor boundary");
   }
   return Buffer.from(JSON.stringify({ v: 1, t: createdAt.toISOString(), i: input.id })).toString("base64url");
@@ -63,7 +63,7 @@ export function decodeSpaceTurnCursor(value: string | null | undefined): SpaceTu
       t?: unknown;
       i?: unknown;
     };
-    if (parsed.v !== 1 || typeof parsed.t !== "string" || typeof parsed.i !== "string" || !UUID_RE.test(parsed.i)) {
+    if (parsed.v !== 1 || typeof parsed.t !== "string" || !isUuidLike(parsed.i)) {
       throw new InvalidSpaceTurnListQueryError("invalid cursor");
     }
     const createdAt = new Date(parsed.t);

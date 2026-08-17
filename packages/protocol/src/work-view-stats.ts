@@ -1,3 +1,5 @@
+import { isUuidLike } from "./identifiers.js";
+
 const WORK_VIEW_STATS_REDIS_PREFIX = "cohub:{work-view-stats-v1}";
 export const WORK_VIEW_STATS_ACTIVE_REDIS_KEY = `${WORK_VIEW_STATS_REDIS_PREFIX}:active`;
 export const WORK_VIEW_STATS_PENDING_REDIS_KEY_PREFIX = `${WORK_VIEW_STATS_REDIS_PREFIX}:pending:`;
@@ -17,7 +19,6 @@ export type WorkViewStatsRedisField = {
 };
 
 const WORK_VIEW_STATS_SOURCES = new Set<WorkViewStatsSource>(["web", "cli", "api"]);
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function encodeWorkViewStatsRedisField(input: WorkViewStatsRedisField): string {
   return JSON.stringify([
@@ -33,8 +34,8 @@ export function decodeWorkViewStatsRedisField(value: string): WorkViewStatsRedis
     const parsed = JSON.parse(value) as unknown;
     if (!Array.isArray(parsed) || parsed.length !== 4) return null;
     const [workId, workVersionId, bucketStartAtMs, source] = parsed;
-    if (typeof workId !== "string" || !UUID_RE.test(workId)) return null;
-    if (typeof workVersionId !== "string" || !UUID_RE.test(workVersionId)) return null;
+    if (!isUuidLike(workId)) return null;
+    if (!isUuidLike(workVersionId)) return null;
     if (
       !Number.isSafeInteger(bucketStartAtMs)
       || bucketStartAtMs < 0

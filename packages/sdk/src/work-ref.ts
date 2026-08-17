@@ -1,3 +1,4 @@
+import { isUuid } from "@cohub/protocol/identifiers";
 import { parseSpaceSlug, parseUsername } from "@cohub/protocol/public-identifiers";
 
 /**
@@ -8,8 +9,6 @@ import { parseSpaceSlug, parseUsername } from "@cohub/protocol/public-identifier
  * separately so it can be forwarded to the Work while the stable identity stays
  * clean.
  */
-
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export type WorkPublicRef = {
   username: string;
@@ -24,7 +23,7 @@ export type ParsedWorkRef = ({ id: string } | WorkPublicRef) & {
   hash?: string;
 };
 
-export const isWorkId = (value: string): boolean => UUID_PATTERN.test(value.trim());
+export const isWorkId = (value: string): boolean => isUuid(value.trim());
 
 function decodePart(value: string) {
   try {
@@ -66,9 +65,9 @@ function parseUrlRef(value: string): ParsedWorkRef | null {
   if (
     parts.length === 4 &&
     parts[0] === "spaces" &&
-    UUID_PATTERN.test(parts[1] ?? "") &&
+    isUuid(parts[1] ?? "") &&
     parts[2] === "works" &&
-    UUID_PATTERN.test(parts[3] ?? "")
+    isUuid(parts[3] ?? "")
   ) {
     return { id: parts[3] as string };
   }
@@ -88,7 +87,7 @@ export class WorkRefParseError extends Error {
 
 export function parseWorkRef(input: string): ParsedWorkRef {
   const value = input.trim();
-  if (UUID_PATTERN.test(value)) return { id: value };
+  if (isUuid(value)) return { id: value };
 
   const parsedUrl = parseUrlRef(
     value.includes("://") ? value : value.startsWith("/") ? `https://cohub.invalid${value}` : value,

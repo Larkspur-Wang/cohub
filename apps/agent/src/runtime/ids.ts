@@ -1,11 +1,9 @@
-export const UUID_PATTERN = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}";
-export const SHORT_UUID_PATTERN = "[0-9a-fA-F]{32}";
-export const UUID_OR_SHORT_UUID_PATTERN = `^(?:${UUID_PATTERN}|${SHORT_UUID_PATTERN})$`;
+import { isUuidOrShortUuid, UUID_OR_SHORT_UUID_PATTERN } from "@cohub/protocol/identifiers";
 
-const UUID_OR_SHORT_UUID_REGEX = new RegExp(UUID_OR_SHORT_UUID_PATTERN);
+export { UUID_OR_SHORT_UUID_PATTERN };
 
 export function isValidId(value: string): boolean {
-  return UUID_OR_SHORT_UUID_REGEX.test(value);
+  return isUuidOrShortUuid(value);
 }
 
 export function assertValidId(value: string, label = "id") {

@@ -3,6 +3,7 @@ import { config as loadDotenv } from "dotenv";
 loadDotenv({ path: "apps/api/.env", override: false });
 
 import { resolveMessageTurnId } from "@cohub/core/sessions";
+import { isUuid } from "@cohub/protocol/identifiers";
 import * as schema from "@cohub/db";
 import { asc, gt, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
@@ -16,7 +17,6 @@ const { sessionMessages, sessionTurns } = schema;
 const DEFAULT_BATCH_SIZE = 500;
 const MAX_BATCH_SIZE = 5_000;
 const DEFAULT_SLEEP_MS = 50;
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /**
  * Backfill session_messages.turn_id from validated meta.turnId values.
@@ -66,7 +66,7 @@ function parseArgs(rawArgv: string[]): Args {
   }
   const afterMessageValue = readValue("--after-message");
   const afterMessage = afterMessageValue?.trim().toLowerCase() || null;
-  if (afterMessage && !UUID_PATTERN.test(afterMessage)) throw new Error("Invalid --after-message");
+  if (afterMessage && !isUuid(afterMessage)) throw new Error("Invalid --after-message");
   return {
     write: argv.includes("--write"),
     batchSize: Math.max(1, readNumber("--batch-size", DEFAULT_BATCH_SIZE, MAX_BATCH_SIZE)),

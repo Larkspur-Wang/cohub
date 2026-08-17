@@ -5,6 +5,7 @@ import type { AuthUserProfile } from "../auth.js";
 import type { ExecutionAuthPrincipal } from "../auth.js";
 import type { PreviewSessionPrincipal } from "../preview-sessions.js";
 import type { WorkSessionPrincipal } from "../work-sessions.js";
+import { isUuidOrShortUuid } from "@cohub/protocol/identifiers";
 
 /** AuthUserProfile with guaranteed uuid (returned after auth checks pass). */
 export type AuthUser = AuthUserProfile & { uuid: string };
@@ -58,16 +59,8 @@ const principalToAuthUser = (principal: RequestPrincipal | null | undefined): Au
   return null;
 };
 
-// ── ID validation ────────────────────────────────────────────────────────────
-
-/** Standard UUID: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx */
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-/** Short UUID (no hyphens): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx */
-const SHORT_UUID_REGEX = /^[0-9a-f]{32}$/i;
-
 export const requireValidId = (value: string | null | undefined) =>
-  Boolean(value && (UUID_REGEX.test(value) || SHORT_UUID_REGEX.test(value)));
+  isUuidOrShortUuid(value);
 
 // ── Auth helpers ─────────────────────────────────────────────────────────────
 

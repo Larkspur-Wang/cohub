@@ -16,6 +16,7 @@ export {
   WorkRefParseError,
 } from "./work-ref.js";
 export type { ParsedWorkRef, WorkPublicRef } from "./work-ref.js";
+export { isUuid } from "@cohub/protocol/identifiers";
 export { WorkCommerceApi } from "./apis/work-commerce.js";
 export { WorkRealtimeApi, WorkRoom } from "./apis/work-realtime.js";
 export { ReferencesApi } from "./apis/references.js";

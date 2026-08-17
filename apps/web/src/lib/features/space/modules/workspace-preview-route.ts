@@ -1,3 +1,5 @@
+import { isUuid } from "@cohub/protocol/identifiers";
+
 export type WorkspacePreviewKind = "file" | "board" | "port" | "work";
 
 export type WorkspacePreviewRef = {
@@ -7,12 +9,8 @@ export type WorkspacePreviewRef = {
 
 export const PREVIEW_QUERY_KEY = "preview";
 
-/** Work preview keys are Work ids. */
-const WORK_ID_RE =
-	/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
 export function isValidWorkKey(key: string): boolean {
-	return WORK_ID_RE.test(key);
+	return isUuid(key);
 }
 
 /** Accept only integer ports in 1..65535. Reject host-injection forms. */

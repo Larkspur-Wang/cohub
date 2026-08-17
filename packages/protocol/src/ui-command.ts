@@ -5,6 +5,7 @@
  */
 
 import type { RequestSource } from "./provenance.js";
+import { isUuid } from "./identifiers.js";
 
 export const UI_COMMAND_VERSION = 1;
 
@@ -100,8 +101,6 @@ const METHOD_RE = /^[A-Za-z][A-Za-z0-9_.:-]{0,63}$/;
 export const isUiSurfaceMethod = (value: unknown): value is string =>
   typeof value === "string" && METHOD_RE.test(value);
 
-const WORK_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
 const UI_COMMAND_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
 export const parseUiCommandId = (value: unknown): string | null => {
@@ -169,7 +168,7 @@ export const parseUiCommand = (input: unknown): ParsedUiCommand => {
   }
   const workId = asTrimmed(preview.workId);
   if (!workId) return { command: null, error: "command.preview.workId is required" };
-  if (!WORK_ID_RE.test(workId)) {
+  if (!isUuid(workId)) {
     return { command: null, error: "command.preview.workId must be a Work id" };
   }
   const label = asTrimmed(preview.label);

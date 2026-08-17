@@ -1,8 +1,9 @@
-import type {
-  ReferenceAggregateGroupBy,
-  ReferenceDirection,
-  ReferenceKind,
-  ReferenceQueryableType,
+import {
+  isUuid,
+  type ReferenceAggregateGroupBy,
+  type ReferenceDirection,
+  type ReferenceKind,
+  type ReferenceQueryableType,
 } from "@neta-art/cohub";
 import type { Command } from "commander";
 import { createClient } from "../client.js";
@@ -30,7 +31,6 @@ const REFERENCE_KINDS = new Set<ReferenceKind>([
 ]);
 const DIRECTIONS = new Set<ReferenceDirection>(["out", "in", "both"]);
 const GROUP_BYS = new Set<ReferenceAggregateGroupBy>(["kind", "targetType", "target", "sourceType", "day"]);
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type QueryOpts = {
   direction?: string;
@@ -171,7 +171,7 @@ Examples:
     .action(async (spaceId: string, opts: AggregateOpts) => {
       const client = createClient();
       try {
-        if (!UUID_PATTERN.test(spaceId.trim())) return error("Invalid space id");
+        if (!isUuid(spaceId.trim())) return error("Invalid space id");
         const groupBy = (opts.groupBy ?? "kind") as ReferenceAggregateGroupBy;
         if (!GROUP_BYS.has(groupBy)) return error(`Invalid group-by: ${opts.groupBy}`);
         const kinds = parseKinds(opts.kinds);

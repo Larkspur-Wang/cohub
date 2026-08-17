@@ -58,6 +58,10 @@
       "types": "./dist/generation/index.d.ts",
       "default": "./dist/generation/index.js"
     },
+    "./identifiers": {
+      "types": "./dist/identifiers.d.ts",
+      "default": "./dist/identifiers.js"
+    },
     "./platform/default-space-mods": {
       "types": "./dist/platform/default-space-mods.d.ts",
       "default": "./dist/platform/default-space-mods.js"

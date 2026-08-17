@@ -1,4 +1,4 @@
-import type { GlobalSearchResult, GlobalSearchType } from "@neta-art/cohub";
+import { isUuid, type GlobalSearchResult, type GlobalSearchType } from "@neta-art/cohub";
 import type { Command } from "commander";
 import { createClient } from "../client.js";
 import { table, json as outJson, jsonRequested, error, handleHttp, type Row } from "../output.js";
@@ -8,7 +8,6 @@ const MAX_TITLE_LENGTH = 72;
 const MAX_CONTEXT_LENGTH = 42;
 
 const SEARCH_TYPES = new Set<GlobalSearchType>(["turn", "session", "space", "label"]);
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type SearchCliOptions = {
   limit?: string;
@@ -51,7 +50,7 @@ function parseTypes(value: string | undefined): GlobalSearchType[] | undefined {
 function parseSearchInput(opts: SearchCliOptions) {
   const types = parseTypes(opts.types);
   const spaceId = opts.spaceId?.trim();
-  if (spaceId && !UUID_PATTERN.test(spaceId)) throw new Error("Invalid space id");
+  if (spaceId && !isUuid(spaceId)) throw new Error("Invalid space id");
   return { types, spaceId: spaceId || undefined, labelRef: opts.labelRef?.trim() || undefined };
 }
 

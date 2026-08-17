@@ -4,7 +4,7 @@ import { db } from "../db/index.js";
 import { fallbackPublicUserProfile, getProfilesByUuids } from "../user-profiles.js";
 import { normalizePublicAvatarUrl, useAuth } from "../lib/middleware.js";
 import { createLogger } from "@cohub/infra/logging";
-
+import { isUuid } from "@cohub/protocol/identifiers";
 
 const logger = createLogger({ serviceName: "cohub-api" });
 const router = new Hono();
@@ -12,8 +12,6 @@ const MIN_QUERY_LENGTH = 2;
 const MIN_GLOBAL_TURN_QUERY_LENGTH = 3;
 const DEFAULT_LIMIT = 30;
 const MAX_LIMIT = 50;
-
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const SEARCH_RESOURCE_TYPES = ["turn", "session", "space", "label"] as const;
 const SEARCH_RESOURCE_TYPE_SET = new Set<string>(SEARCH_RESOURCE_TYPES);
@@ -91,7 +89,7 @@ function parseSearchTypes(typeValues: string[] | undefined, typesValue: string |
 function parseSpaceId(value: string | undefined) {
   const normalized = value?.trim();
   if (!normalized) return { spaceId: null } as const;
-  if (!UUID_PATTERN.test(normalized)) return { error: "invalid spaceId" } as const;
+  if (!isUuid(normalized)) return { error: "invalid spaceId" } as const;
   return { spaceId: normalized } as const;
 }
 
@@ -376,7 +374,7 @@ router.get("/", async (c) => {
         'label'::text AS type,
         la.id AS id,
         lm.scope_id::uuid AS space_id,
-        CASE WHEN la.resource_type = 'session' AND la.resource_ref ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' THEN la.resource_ref::uuid ELSE NULL::uuid END AS session_id,
+        CASE WHEN la.resource_type = 'session' AND la.resource_ref ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' THEN la.resource_ref::uuid ELSE NULL::uuid END AS session_id,
         NULL::uuid AS turn_id,
         NULL::int AS sequence,
         CASE
@@ -424,9 +422,9 @@ router.get("/", async (c) => {
       JOIN v2.label_assignments la
         ON la.label_id = lm.id AND la.scope_type = 'space' AND la.scope_id = lm.scope_id
       LEFT JOIN visible_sessions sess
-        ON sess.id = CASE WHEN la.resource_type = 'session' AND la.resource_ref ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' THEN la.resource_ref::uuid ELSE NULL::uuid END
+        ON sess.id = CASE WHEN la.resource_type = 'session' AND la.resource_ref ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' THEN la.resource_ref::uuid ELSE NULL::uuid END
       LEFT JOIN v2.checkpoints cp
-        ON cp.space_id = lm.scope_id::uuid AND cp.id = CASE WHEN la.resource_type = 'checkpoint' AND la.resource_ref ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' THEN la.resource_ref::uuid ELSE NULL::uuid END
+        ON cp.space_id = lm.scope_id::uuid AND cp.id = CASE WHEN la.resource_type = 'checkpoint' AND la.resource_ref ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' THEN la.resource_ref::uuid ELSE NULL::uuid END
       WHERE
         ${includeLabels}
         AND (

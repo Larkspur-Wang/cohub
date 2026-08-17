@@ -1,4 +1,5 @@
 import type { ContentBlock } from "@cohub/protocol/core";
+import { isUuidLike } from "@cohub/protocol/identifiers";
 import { parseMentions } from "./mentions.js";
 import { fileTargetId, normalizeFilePath } from "./paths.js";
 import type { ReferenceInput, ReferenceKind } from "./types.js";
@@ -15,10 +16,6 @@ export type TurnReferenceSource = {
   /** Assistant content (carries tool calls). */
   assistantContent?: ContentBlock[] | null;
 };
-
-const isUuid = (value: unknown): value is string =>
-  typeof value === "string" &&
-  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(value);
 
 const collectText = (content: ContentBlock[] | null | undefined): string => {
   if (!content) return "";
@@ -41,8 +38,8 @@ const readToolTarget = (
   const spaceRaw = input.spaceId ?? input.space_id;
   const sessionRaw = input.sessionId ?? input.session_id;
   return {
-    spaceId: isUuid(spaceRaw) ? (spaceRaw as string) : undefined,
-    sessionId: isUuid(sessionRaw) ? (sessionRaw as string) : undefined,
+    spaceId: isUuidLike(spaceRaw) ? (spaceRaw as string) : undefined,
+    sessionId: isUuidLike(sessionRaw) ? (sessionRaw as string) : undefined,
   };
 };
 

@@ -1,3 +1,5 @@
+import { isUuidLike } from "./identifiers.js";
+
 /** Request provenance via X-Cohub-Source-* headers. Never used for authorization. */
 
 export const COHUB_SOURCE_HEADER = {
@@ -33,11 +35,8 @@ export type RequestSource = {
   via?: RequestSourceVia;
 };
 
-const UUID_RE =
-  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
-
 export const isRequestSourceUuid = (value: unknown): value is string =>
-  typeof value === "string" && UUID_RE.test(value);
+  isUuidLike(value);
 
 export const REQUEST_SOURCE_VIA_MAX_LENGTH = 64;
 
