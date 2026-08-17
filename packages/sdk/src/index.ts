@@ -191,7 +191,6 @@ export type { WorkAuthorizeResponse, WorkContent, WorkContentDownload, WorkCreat
 export type {
   PublicFileCreateUploadInput,
   PublicFileCreateUploadResponse,
-  PublicFileDeleteResponse,
   PublicFileListEntry,
   PublicFileListResponse,
   PublicFileUploadEntryInput,

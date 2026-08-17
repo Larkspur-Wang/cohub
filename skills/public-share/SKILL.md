@@ -45,15 +45,6 @@ cohub public url <path>
 
 Read or preview content through its public URL. Do not copy it into `/public`.
 
-## Remove
-
-Confirm with the user before deleting public files or directories.
-
-```bash
-cohub public rm <path>
-cohub public rm -r <path> --yes
-```
-
 ## Safety
 
 - Review content before making it public.

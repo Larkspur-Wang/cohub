@@ -45,7 +45,7 @@ Billing 启用后，Cohub 使用 `usd_micro_cent` credit type：`1 usd_micro_cen
 - `PUBLIC_ASSET_OSS_ENDPOINT` / `PUBLIC_ASSET_OSS_PUBLIC_ENDPOINT` / `PUBLIC_ASSET_OSS_REGION` / `PUBLIC_ASSET_OSS_BUCKET` / `PUBLIC_ASSET_CDN_BASE_URL` / `WORK_ASSET_CDN_BASE_URL` - 头像、旧附件和 Work asset 配置
 - `USER_UPLOAD_S3_ENDPOINT` / `USER_UPLOAD_S3_REGION` / `CHAT_ATTACHMENT_S3_BUCKET` / `CHAT_ATTACHMENT_PUBLIC_BASE_URL` / `SPACE_UPLOAD_S3_BUCKET` - R2 用户上传配置；聊天 Bucket 绑定公开域名，Space Bucket 保持私有并为 `uploads/`、`dev/uploads/` 配置 3 天生命周期
 
-两个 R2 Bucket 都需要为 `WEB_ORIGIN` 配置浏览器直传 CORS：允许 `PUT`，允许 `Content-Type`、`Cache-Control`、`Content-Disposition` 请求头，并暴露 `ETag`。公共文件使用的 OSS Bucket 还需允许 `If-None-Match` 与 `Content-Length`。聊天附件 Bucket 绑定 `CHAT_ATTACHMENT_PUBLIC_BASE_URL` 对应的 Custom Domain；Space 上传 Bucket 不开放公共访问。
+两个 R2 Bucket 都需要为 `WEB_ORIGIN` 配置浏览器直传 CORS：允许 `PUT`，允许 `Content-Type`、`Cache-Control`、`Content-Disposition` 请求头，并暴露 `ETag`。公共文件使用的 OSS Bucket 还需允许 `x-oss-forbid-overwrite` 与 `Content-Length`。聊天附件 Bucket 绑定 `CHAT_ATTACHMENT_PUBLIC_BASE_URL` 对应的 Custom Domain；Space 上传 Bucket 不开放公共访问。
 
 CI 构建还需要配置 `GITEA_NPM_TOKEN` secret。该 token 只在构建期用于读取 `git.talesofai.com/api/packages/talesofai/npm/` 中的私有 npm 包，不是 API 运行时 secret。
 

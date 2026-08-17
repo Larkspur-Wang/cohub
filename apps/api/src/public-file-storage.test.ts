@@ -58,7 +58,7 @@ describe("public file paths", () => {
     assert.equal(PUBLIC_FILE_CACHE_CONTROL, "public, max-age=300, stale-while-revalidate=3600");
   });
 
-  it("presigns browser-previewable files with bounded and conditional PUTs", () => {
+  it("presigns browser-previewable files with bounded and non-overwriting PUTs", () => {
     const input = {
       entries: [{
         id: "index",
@@ -72,7 +72,7 @@ describe("public file paths", () => {
       "content-type": "text/html; charset=utf-8",
       "cache-control": PUBLIC_FILE_CACHE_CONTROL,
       "content-length": "128",
-      "if-none-match": "*",
+      "x-oss-forbid-overwrite": "true",
     });
 
     const overwritePlan = createPublicFileUpload("space-id", { ...input, overwrite: true });

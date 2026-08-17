@@ -2,7 +2,6 @@ import type { SpacePublicEndpoints } from "@cohub/protocol/ports";
 import type {
   PublicFileCreateUploadInput,
   PublicFileCreateUploadResponse,
-  PublicFileDeleteResponse,
   PublicFileListResponse,
   PublicFileUrlResponse,
 } from "@cohub/protocol";
@@ -396,15 +395,6 @@ export class SpacePublicFilesApi {
     return this.transport.request<PublicFileUrlResponse>(
       `/api/spaces/${this.spaceId}/public/url?${params.toString()}`,
       { fetch: customFetch },
-    );
-  }
-
-  delete(path: string, recursive = false) {
-    const params = new URLSearchParams({ path });
-    if (recursive) params.set("recursive", "true");
-    return this.transport.request<PublicFileDeleteResponse>(
-      `/api/spaces/${this.spaceId}/public?${params.toString()}`,
-      { method: "DELETE" },
     );
   }
 }

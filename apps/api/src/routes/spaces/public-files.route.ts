@@ -8,13 +8,11 @@ import { hasPermission } from "../../permissions.js";
 import {
   consumePublicFileUploadQuota,
   createPublicFileUpload,
-  deletePublicFiles,
   getPublicFileUrl,
   listPublicFiles,
   MAX_PUBLIC_FILE_BYTES,
   MAX_PUBLIC_UPLOAD_FILES,
   PublicFileConfigError,
-  PublicFileDeleteError,
   PublicFileRateLimitError,
   PublicFileValidationError,
 } from "../../public-file-storage.js";
@@ -124,30 +122,6 @@ router.get("/", async (c) => {
     if (error instanceof PublicFileConfigError) return c.json({ message: error.message }, 503);
     logger.error("[public-files] failed to list files", { spaceId, error });
     return c.json({ message: "failed to list public files" }, 502);
-  }
-});
-
-router.delete("/", async (c) => {
-  const user = useAuth(c);
-  if (user instanceof Response) return user;
-  const spaceId = getSpaceId(c.req.param("id"));
-  if (!spaceId) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "file.edit", { spaceId }))) return authzDenied(c);
-
-  try {
-    return c.json(await deletePublicFiles(
-      spaceId,
-      c.req.query("path") ?? "",
-      c.req.query("recursive") === "true",
-    ));
-  } catch (error) {
-    if (error instanceof PublicFileValidationError) return c.json({ message: error.message }, 400);
-    if (error instanceof PublicFileConfigError) return c.json({ message: error.message }, 503);
-    if (error instanceof PublicFileDeleteError) {
-      return c.json({ message: error.message, deleted: error.deleted, failed: error.failed }, 502);
-    }
-    logger.error("[public-files] failed to delete files", { spaceId, error });
-    return c.json({ message: "failed to delete public files" }, 502);
   }
 });
 

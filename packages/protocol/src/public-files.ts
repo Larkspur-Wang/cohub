@@ -41,10 +41,3 @@ export type PublicFileUrlResponse = {
   path: string;
   url: string;
 };
-
-export type PublicFileDeleteResponse = {
-  path: string;
-  /** Null for an idempotent single-object delete, where existence is intentionally not preflighted. */
-  deleted: number | null;
-  hasMore: boolean;
-};

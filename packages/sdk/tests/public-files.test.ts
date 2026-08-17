@@ -26,7 +26,6 @@ test("space public files use concise space-scoped routes", async () => {
   });
   await publicFiles.list("demo", { recursive: true, limit: 100, cursor: "next-page" });
   await publicFiles.url("demo/index.html");
-  await publicFiles.delete("demo", true);
 
   assert.equal(new URL(requests[0]?.url ?? "").pathname, "/api/spaces/space-1/public/uploads");
   assert.deepEqual(JSON.parse(String(requests[0]?.init?.body)), {
@@ -45,10 +44,4 @@ test("space public files use concise space-scoped routes", async () => {
   const publicUrl = new URL(requests[2]?.url ?? "");
   assert.equal(publicUrl.pathname, "/api/spaces/space-1/public/url");
   assert.equal(publicUrl.searchParams.get("path"), "demo/index.html");
-
-  const deleteUrl = new URL(requests[3]?.url ?? "");
-  assert.equal(deleteUrl.pathname, "/api/spaces/space-1/public");
-  assert.equal(deleteUrl.searchParams.get("path"), "demo");
-  assert.equal(deleteUrl.searchParams.get("recursive"), "true");
-  assert.equal(requests[3]?.init?.method, "DELETE");
 });

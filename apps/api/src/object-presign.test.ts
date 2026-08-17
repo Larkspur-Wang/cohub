@@ -39,24 +39,24 @@ describe("object presigning", () => {
     });
   });
 
-  it("signs exact PUT length and create-only conditions when requested", () => {
+  it("signs exact PUT length and OSS create-only conditions when requested", () => {
     const signed = createPresignedPutObjectUrl(
       storage,
       "dev/p/space/file.html",
       "text/html",
       "public, max-age=300",
       null,
-      { contentLength: 42, ifNoneMatch: true },
+      { contentLength: 42, forbidOverwrite: true },
     );
     const url = new URL(signed.uploadUrl);
 
     assert.match(url.searchParams.get("X-Amz-SignedHeaders") ?? "", /content-length/);
-    assert.match(url.searchParams.get("X-Amz-SignedHeaders") ?? "", /if-none-match/);
+    assert.match(url.searchParams.get("X-Amz-SignedHeaders") ?? "", /x-oss-forbid-overwrite/);
     assert.deepEqual(signed.headers, {
       "content-type": "text/html",
       "cache-control": "public, max-age=300",
       "content-length": "42",
-      "if-none-match": "*",
+      "x-oss-forbid-overwrite": "true",
     });
   });
 

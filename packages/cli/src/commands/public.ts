@@ -4,7 +4,6 @@ import { lstat, readdir } from "node:fs/promises";
 import { basename, extname, relative, resolve } from "node:path";
 import type {
   CohubHttpClient,
-  PublicFileDeleteResponse,
   PublicFileListEntry,
   PublicFileUploadPlanEntry,
 } from "@neta-art/cohub";
@@ -308,48 +307,6 @@ async function printPublicUrl(command: Command, path: string, deps: PublicComman
   }
 }
 
-async function confirmRecursiveDelete(path: string, opts: { yes?: boolean }) {
-  if (opts.yes) return;
-  if (!process.stdin.isTTY || !process.stdout.isTTY) {
-    return error("Confirmation required", "Pass --yes to remove a public directory.");
-  }
-  process.stdout.write(`Remove all public files under ${path}/? [y/N] `);
-  const chunks: Buffer[] = [];
-  for await (const chunk of process.stdin) {
-    chunks.push(chunk);
-    break;
-  }
-  const answer = Buffer.concat(chunks).toString().trim().toLowerCase();
-  if (answer !== "y" && answer !== "yes") return error("Cancelled");
-}
-
-async function removePublic(
-  command: Command,
-  path: string,
-  opts: { recursive?: boolean; yes?: boolean; json?: boolean },
-  deps: PublicCommandDeps,
-) {
-  if (opts.recursive) await confirmRecursiveDelete(path, opts);
-  const client = deps.createClient?.() ?? createClient();
-  try {
-    const publicFiles = client.space(resolveSpace(command)).publicFiles;
-    let deleted = 0;
-    let result: PublicFileDeleteResponse;
-    do {
-      result = await publicFiles.delete(path, Boolean(opts.recursive));
-      deleted += result.deleted ?? 0;
-      if (result.hasMore && result.deleted === 0) throw new Error("Public directory deletion made no progress");
-    } while (opts.recursive && result.hasMore);
-    const output = { path: result.path, deleted, hasMore: false };
-    if (jsonRequested(opts)) return outJson(output);
-    console.log(opts.recursive
-      ? `Removed ${deleted} files from ${result.path}/`
-      : `Removed ${result.path}`);
-  } catch (exception) {
-    handleHttp(exception);
-  }
-}
-
 export function registerPublic(program: Command, deps: PublicCommandDeps = {}) {
   const publicCommand = program
     .command("public")
@@ -373,14 +330,6 @@ export function registerPublic(program: Command, deps: PublicCommandDeps = {}) {
     .command("url <path>")
     .description("Print a public file URL")
     .action((path: string, _opts: object, command: Command) => printPublicUrl(command, path, deps));
-
-  publicCommand
-    .command("rm <path>")
-    .description("Remove a public file")
-    .option("-r, --recursive", "Remove a public directory")
-    .option("--yes", "Skip confirmation")
-    .action((path: string, opts: { recursive?: boolean; yes?: boolean; json?: boolean }, command: Command) =>
-      removePublic(command, path, opts, deps));
 
   return publicCommand;
 }

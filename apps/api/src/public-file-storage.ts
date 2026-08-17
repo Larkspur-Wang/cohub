@@ -1,13 +1,10 @@
 import {
-  DeleteObjectCommand,
-  DeleteObjectsCommand,
   ListObjectsV2Command,
   S3Client,
 } from "@aws-sdk/client-s3";
 import type {
   PublicFileCreateUploadInput,
   PublicFileCreateUploadResponse,
-  PublicFileDeleteResponse,
   PublicFileListEntry,
   PublicFileListResponse,
   PublicFileUrlResponse,
@@ -42,17 +39,6 @@ export class PublicFileValidationError extends Error {
 
 export class PublicFileRateLimitError extends Error {
   override name = "PublicFileRateLimitError";
-}
-
-export class PublicFileDeleteError extends Error {
-  override name = "PublicFileDeleteError";
-
-  constructor(
-    public readonly deleted: number,
-    public readonly failed: number,
-  ) {
-    super(`deleted ${deleted} files; failed to delete ${failed}`);
-  }
 }
 
 type RequiredStorage = PresignStorageConfig & {
@@ -231,7 +217,7 @@ export function createPublicFileUpload(
         undefined,
         {
           contentLength: entry.size,
-          ifNoneMatch: !input.overwrite,
+          forbidOverwrite: !input.overwrite,
         },
       );
       return {
@@ -308,39 +294,4 @@ export async function listPublicFiles(
 export function getPublicFileUrl(spaceId: string, inputPath: string): PublicFileUrlResponse {
   const path = normalizePublicFilePath(inputPath);
   return { path, url: buildPublicFileUrl(spaceId, path) };
-}
-
-export async function deletePublicFiles(
-  spaceId: string,
-  inputPath: string,
-  recursive: boolean,
-): Promise<PublicFileDeleteResponse> {
-  const path = normalizePublicFilePath(inputPath);
-  const storage = requireStorage();
-  if (!recursive) {
-    await getS3Client().send(new DeleteObjectCommand({
-      Bucket: storage.bucket,
-      Key: buildPublicFileObjectKey(spaceId, path),
-    }));
-    return { path, deleted: null, hasMore: false };
-  }
-
-  const listed = await getS3Client().send(new ListObjectsV2Command({
-    Bucket: storage.bucket,
-    Prefix: `${buildPublicFileObjectKey(spaceId, path)}/`,
-    MaxKeys: 1000,
-  }));
-  const keys = (listed.Contents ?? [])
-    .map((item) => item.Key)
-    .filter((key): key is string => Boolean(key));
-  if (keys.length === 0) return { path, deleted: 0, hasMore: false };
-
-  const result = await getS3Client().send(new DeleteObjectsCommand({
-    Bucket: storage.bucket,
-    Delete: { Objects: keys.map((Key) => ({ Key })), Quiet: true },
-  }));
-  const failed = result.Errors?.length ?? 0;
-  const deleted = Math.max(0, keys.length - failed);
-  if (failed > 0) throw new PublicFileDeleteError(deleted, failed);
-  return { path, deleted, hasMore: Boolean(listed.IsTruncated) };
 }

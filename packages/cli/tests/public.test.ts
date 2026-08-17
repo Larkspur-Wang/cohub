@@ -23,6 +23,13 @@ async function createFixture() {
   return dist;
 }
 
+test("public commands do not expose removal", () => {
+  const program = new Command("cohub");
+  const publicCommand = registerPublic(program);
+
+  assert.deepEqual(publicCommand.commands.map((command) => command.name()), ["upload", "ls", "url"]);
+});
+
 test("public upload maps a directory to one concise destination", async () => {
   const dist = await createFixture();
   const upload = await collectPublicUpload(dist, "demo");
@@ -128,34 +135,4 @@ test("public ls follows pagination without exposing cursors", async () => {
 
   assert.deepEqual(cursors, [undefined, "page-2"]);
   assert.deepEqual(logs, ["assets/", "index.html"]);
-});
-
-test("recursive public rm continues bounded delete batches", async () => {
-  let calls = 0;
-  const client = {
-    space: () => ({
-      publicFiles: {
-        delete: async () => {
-          calls += 1;
-          return calls === 1
-            ? { path: "demo", deleted: 1000, hasMore: true }
-            : { path: "demo", deleted: 2, hasMore: false };
-        },
-      },
-    }),
-  } as unknown as CohubHttpClient;
-  const program = new Command("cohub").option("-s, --space <id>");
-  registerPublic(program, { createClient: () => client });
-
-  const logs: string[] = [];
-  const originalLog = console.log;
-  console.log = (...values: unknown[]) => logs.push(values.join(" "));
-  try {
-    await program.parseAsync(["node", "cohub", "-s", "space-1", "public", "rm", "demo", "-r", "--yes"]);
-  } finally {
-    console.log = originalLog;
-  }
-
-  assert.equal(calls, 2);
-  assert.deepEqual(logs, ["Removed 1002 files from demo/"]);
 });
