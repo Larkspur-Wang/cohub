@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { and, asc, eq, gte, sql } from "drizzle-orm";
 import { userProfiles, workPromotions, workPromotionStatsHourly, works } from "@cohub/db";
-import { WORK_PROMOTION_EVENT_KEYS, type WorkPromotionEventKey } from "@cohub/protocol";
+import type { WorkPromotionEventKey } from "@cohub/protocol";
 import { db } from "../db/index.js";
 import { authzDenied, requireValidId, useAuth } from "../lib/middleware.js";
 import { hasPermission } from "../permissions.js";
@@ -24,7 +24,11 @@ const PARAMETER_KEYS = new Set([
   "utm_term",
   "utm_content",
 ]);
-const EVENT_KEYS = new Set<string>(WORK_PROMOTION_EVENT_KEYS);
+const PUBLIC_EVENT_KEYS = new Set<WorkPromotionEventKey>([
+  "landing",
+  "ready",
+  "paywall_viewed",
+]);
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 const STATS_DAYS = 30;
@@ -225,7 +229,9 @@ router.post("/:workId/promotions/:promotionId/events", async (c) => {
   const body = await c.req.json().catch(() => null) as Record<string, unknown> | null;
   const eventKey = typeof body?.eventKey === "string" ? body.eventKey : "";
   const eventId = typeof body?.eventId === "string" && EVENT_ID_RE.test(body.eventId) ? body.eventId : null;
-  if (!EVENT_KEYS.has(eventKey)) return c.json({ message: "event is invalid" }, 400);
+  if (!PUBLIC_EVENT_KEYS.has(eventKey as WorkPromotionEventKey)) {
+    return c.json({ message: "event is invalid" }, 400);
+  }
   if (!eventId) return c.json({ message: "eventId is invalid" }, 400);
 
   const row = await resolvePublishedWorkPromotion(workId, promotionId);
