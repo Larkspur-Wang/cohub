@@ -1,5 +1,24 @@
 # @neta-art/cohub-cli
 
+## 3.10.0
+
+### Minor Changes
+
+- 1ed2878: Add a shared native Board node contract, semantic node builder, machine-readable validation diagnostics, and capability discovery for SDK and CLI clients.
+- 6be8f7e: Add direct, space-scoped public file uploads and inspection with OSS-native overwrite protection in the SDK and CLI.
+
+### Patch Changes
+
+- 0dbc522: Use `cohub.live` endpoints and hosted app origins across the SDK and CLI.
+- 8736c29: Send the Sandbox runtime version as request provenance when Cohub CLI requests inherit a valid Sandbox environment.
+- Updated dependencies [2539eb6]
+- Updated dependencies [1ed2878]
+- Updated dependencies [6be8f7e]
+- Updated dependencies [10d93b2]
+- Updated dependencies [0dbc522]
+- Updated dependencies [8736c29]
+  - @neta-art/cohub@5.8.0
+
 ## 3.9.6
 
 ### Patch Changes

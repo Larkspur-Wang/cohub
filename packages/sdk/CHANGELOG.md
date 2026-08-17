@@ -1,5 +1,19 @@
 # @neta-art/cohub
 
+## 5.8.0
+
+### Minor Changes
+
+- 2539eb6: Add automatic first-purchase offers and promotion-code previews to billing checkout APIs.
+- 1ed2878: Add a shared native Board node contract, semantic node builder, machine-readable validation diagnostics, and capability discovery for SDK and CLI clients.
+- 6be8f7e: Add direct, space-scoped public file uploads and inspection with OSS-native overwrite protection in the SDK and CLI.
+- 10d93b2: Expose reusable Board media inference, playback resolution, interaction, and video thumbnail primitives, and add purpose-aware Space file URL resolution.
+
+### Patch Changes
+
+- 0dbc522: Use `cohub.live` endpoints and hosted app origins across the SDK and CLI.
+- 8736c29: Send the Sandbox runtime version as request provenance when Cohub CLI requests inherit a valid Sandbox environment.
+
 ## 5.7.0
 
 ### Minor Changes
