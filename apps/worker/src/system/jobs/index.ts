@@ -6,3 +6,4 @@ import "./session-message-postprocess/index.js";
 import "./space-hook-dispatch/index.js";
 import "./work-publish-asset/index.js";
 import "./work-view-stats-flush/index.js";
+import "./work-promotion-stats-flush/index.js";

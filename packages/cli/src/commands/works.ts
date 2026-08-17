@@ -91,6 +91,14 @@ function printWorkUrls(result: { publicUrl?: string | null; content?: { url: str
   if (lines.length) console.log(`\n${lines.join("\n")}`);
 }
 
+function promotionUrl(publicUrl: string | null, promotion: { id: string; parameters: Record<string, string> }): string | null {
+  if (!publicUrl) return null;
+  const url = new URL(publicUrl);
+  url.searchParams.set("cohub_campaign", promotion.id);
+  for (const [key, value] of Object.entries(promotion.parameters)) url.searchParams.set(key, value);
+  return url.toString();
+}
+
 function printWorkStats(stats: WorkViewStatsResponse): void {
   table([stats.summary], [
     { key: "totalViews", label: "Total" },
@@ -429,6 +437,113 @@ export function registerWorks(program: Command): void {
           { key: "targetType", label: "Target" },
           { key: "targetRef", label: "Ref" },
           { key: "createdAt", label: "Created" },
+        ]);
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
+  const promotionsCmd = worksCmd.command("promotions").description("Work promotion links and analytics");
+
+  promotionsCmd
+    .command("list <work>")
+    .alias("ls")
+    .description("List promotion links")
+    .option("--json", "Output as JSON")
+    .action(async (workRef: string, opts: { json?: boolean }) => {
+      const client = createClient();
+      try {
+        const detail = await getWorkByRef(client, workRef);
+        const result = await client.works.listPromotions(detail.work.id);
+        const promotions = result.promotions.map((promotion) => ({
+          ...promotion,
+          url: promotionUrl(detail.publicUrl, promotion),
+        }));
+        if (jsonRequested(opts)) return outJson({ ...result, promotions });
+        table(promotions, [
+          { key: "name", label: "Name" },
+          { key: "provider", label: "Provider" },
+          { key: "id", label: "ID" },
+          { key: "url", label: "URL" },
+        ]);
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
+  promotionsCmd
+    .command("create <work>")
+    .description("Create an immutable promotion link")
+    .requiredOption("--name <name>", "Promotion name")
+    .option("--provider <provider>", "Promotion provider", "generic")
+    .option("--utm-id <value>", "UTM campaign ID")
+    .option("--utm-source <value>", "UTM source")
+    .option("--utm-medium <value>", "UTM medium")
+    .option("--utm-campaign <value>", "UTM campaign")
+    .option("--utm-term <value>", "UTM term")
+    .option("--utm-content <value>", "UTM content")
+    .option("--json", "Output as JSON")
+    .action(async (workRef: string, opts: {
+      name: string;
+      provider: string;
+      utmId?: string;
+      utmSource?: string;
+      utmMedium?: string;
+      utmCampaign?: string;
+      utmTerm?: string;
+      utmContent?: string;
+      json?: boolean;
+    }) => {
+      const client = createClient();
+      try {
+        const detail = await getWorkByRef(client, workRef);
+        const parameters = Object.fromEntries(Object.entries({
+          utm_id: opts.utmId,
+          utm_source: opts.utmSource,
+          utm_medium: opts.utmMedium,
+          utm_campaign: opts.utmCampaign,
+          utm_term: opts.utmTerm,
+          utm_content: opts.utmContent,
+        }).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
+        const result = await client.works.createPromotion(detail.work.id, {
+          name: opts.name,
+          provider: opts.provider,
+          parameters,
+        });
+        const url = promotionUrl(detail.publicUrl, result.promotion);
+        if (jsonRequested(opts)) return outJson({ ...result, url });
+        ok("Promotion created");
+        table([{ ...result.promotion, url }], [
+          { key: "name", label: "Name" },
+          { key: "provider", label: "Provider" },
+          { key: "id", label: "ID" },
+          { key: "url", label: "URL" },
+        ]);
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
+  promotionsCmd
+    .command("stats <work> <promotionId>")
+    .description("Show promotion analytics")
+    .option("--json", "Output as JSON")
+    .action(async (workRef: string, promotionId: string, opts: { json?: boolean }) => {
+      const client = createClient();
+      try {
+        const detail = await getWorkByRef(client, workRef);
+        const result = await client.works.getPromotionStats(detail.work.id, promotionId);
+        if (jsonRequested(opts)) return outJson(result);
+        table([{
+          name: result.promotion.name,
+          landing: result.summary.landing,
+          ready: result.summary.ready,
+          readyRate: `${(result.summary.readyRate * 100).toFixed(1)}%`,
+        }], [
+          { key: "name", label: "Name" },
+          { key: "landing", label: "Landing" },
+          { key: "ready", label: "Ready" },
+          { key: "readyRate", label: "Ready rate" },
         ]);
       } catch (e: unknown) {
         handleHttp(e);

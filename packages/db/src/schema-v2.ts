@@ -343,6 +343,53 @@ export const workViewStatsHourly = v2.table(
   }),
 );
 
+/** Immutable promotion configuration for a published Work. */
+export const workPromotions = v2.table(
+  "work_promotions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workId: uuid("work_id").notNull(),
+    name: varchar("name", { length: 120 }).notNull(),
+    provider: varchar("provider", { length: 64 }).notNull(),
+    parameters: jsonb("parameters").$type<Record<string, string>>().notNull().default(sql`'{}'::jsonb`),
+    createdBy: varchar("created_by", { length: 255 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    workIdx: index("v2_idx_work_promotions_work_id").on(table.workId),
+    providerCheck: check(
+      "v2_chk_work_promotions_provider",
+      sql`length(${table.provider}) between 1 and 64 and ${table.provider} !~ '[^a-z0-9_-]'`,
+    ),
+  }),
+);
+
+/** Hourly promotion event counts; no visitor-level data is retained. */
+export const workPromotionStatsHourly = v2.table(
+  "work_promotion_stats_hourly",
+  {
+    promotionId: uuid("promotion_id").notNull(),
+    workVersionId: uuid("work_version_id").notNull(),
+    bucketStartAt: timestamp("bucket_start_at", { withTimezone: true }).notNull(),
+    eventKey: varchar("event_key", { length: 64 }).notNull(),
+    eventCount: bigint("event_count", { mode: "number" }).notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    bucketDimensionsUniqueIdx: uniqueIndex("v2_uq_work_promotion_stats_hourly_dims").on(
+      table.promotionId,
+      table.workVersionId,
+      table.bucketStartAt,
+      table.eventKey,
+    ),
+    promotionBucketIdx: index("v2_idx_work_promotion_stats_hourly_promotion_bucket").on(
+      table.promotionId,
+      table.bucketStartAt,
+    ),
+  }),
+);
+
 export const workViewerGrants = v2.table(
   "work_viewer_grants",
   {

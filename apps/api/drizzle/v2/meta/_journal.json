@@ -379,6 +379,13 @@
       "when": 1786418274224,
       "tag": "0053_goofy_smiling_tiger",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1786961566010,
+      "tag": "0054_medical_revanche",
+      "breakpoints": true
     }
   ]
 }

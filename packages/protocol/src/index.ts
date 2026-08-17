@@ -29,3 +29,4 @@ export * from "./ui-command.js";
 export * from "./work.js";
 export * from "./work-surface.js";
 export * from "./work-view-stats.js";
+export * from "./work-promotion-stats.js";

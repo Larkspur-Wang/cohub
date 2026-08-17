@@ -188,7 +188,7 @@ export {
 } from "@cohub/protocol";
 export * from "./board/animation.js";
 export type { CreatePublicAssetUploadInput, CreatePublicAssetUploadResponse, PublicAssetMimeType, PublicAssetPurpose, PublicAssetUploadProgress, PublicAssetUploadProtocol, UploadChatAttachmentInput, UploadChatImageAttachmentInput, UploadPublicAssetInput } from "./apis/public-assets.js";
-export type { WorkAuthorizeResponse, WorkContent, WorkContentDownload, WorkCreateInput, WorkDetailResponse, WorkExtractedPageMeta, WorkGetResponse, WorkMeta, WorkPresentationMeta, WorkPublicOwnerRecord, WorkPublicSpaceRecord, WorkRecord, WorkResolveResponse, WorkSessionResponse, WorkStatus, WorkTargetType, WorkUpdateInput, WorkVersionRecord, WorkViewSource, WorkViewStatsResponse, WorkVisibility } from "./apis/works.js";
+export type { WorkAuthorizeResponse, WorkContent, WorkContentDownload, WorkCreateInput, WorkDetailResponse, WorkExtractedPageMeta, WorkGetResponse, WorkMeta, WorkPresentationMeta, WorkPromotionCreateInput, WorkPromotionEventResponse, WorkPromotionProvider, WorkPromotionProviderStatus, WorkPromotionRecord, WorkPromotionStatsResponse, WorkPublicOwnerRecord, WorkPublicSpaceRecord, WorkRecord, WorkResolveResponse, WorkSessionResponse, WorkStatus, WorkTargetType, WorkUpdateInput, WorkVersionRecord, WorkViewSource, WorkViewStatsResponse, WorkVisibility } from "./apis/works.js";
 export type {
   PublicFileCreateUploadInput,
   PublicFileCreateUploadResponse,

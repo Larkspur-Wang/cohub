@@ -172,6 +172,48 @@ export type WorkViewStatsResponse = {
   sources: Array<{ source: WorkViewSource; views: number }>;
 };
 
+export type WorkPromotionProvider = "generic" | "meta";
+
+export type WorkPromotionRecord = {
+  id: string;
+  workId: string;
+  name: string;
+  provider: WorkPromotionProvider | string;
+  parameters: Record<string, string>;
+  createdBy: string;
+  createdAt: string;
+};
+
+export type WorkPromotionProviderStatus = {
+  key: WorkPromotionProvider | string;
+  configured: boolean;
+};
+
+export type WorkPromotionCreateInput = {
+  name: string;
+  provider: WorkPromotionProvider | string;
+  parameters: Record<string, string>;
+};
+
+export type WorkPromotionStatsResponse = {
+  promotion: WorkPromotionRecord;
+  summary: {
+    landing: number;
+    ready: number;
+    readyRate: number;
+  };
+  daily: Array<{ date: string; landing: number; ready: number }>;
+};
+
+export type WorkPromotionEventResponse = {
+  ok: true;
+  eventId: string;
+  browser:
+    | { provider: "generic" }
+    | { provider: "meta"; pixelId: string }
+    | null;
+};
+
 export type WorkSessionResponse = {
   token: string;
   expiresIn: number;
@@ -243,6 +285,51 @@ export class WorksApi {
 
   getStats(workId: string) {
     return this.transport.request<WorkViewStatsResponse>(`/api/works/${workId}/stats`);
+  }
+
+  listPromotions(workId: string) {
+    return this.transport.request<{
+      promotions: WorkPromotionRecord[];
+      providers: WorkPromotionProviderStatus[];
+    }>(`/api/works/${workId}/promotions`);
+  }
+
+  createPromotion(workId: string, input: WorkPromotionCreateInput) {
+    return this.transport.request<{ promotion: WorkPromotionRecord }>(
+      `/api/works/${workId}/promotions`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      },
+    );
+  }
+
+  getPromotionStats(workId: string, promotionId: string) {
+    return this.transport.request<WorkPromotionStatsResponse>(
+      `/api/works/${workId}/promotions/${promotionId}/stats`,
+    );
+  }
+
+  recordPromotionEvent(
+    workId: string,
+    promotionId: string,
+    input: {
+      eventKey: "landing" | "ready";
+      eventId?: string;
+      sourceUrl?: string;
+      fbp?: string;
+      fbc?: string;
+    },
+  ) {
+    return this.transport.request<WorkPromotionEventResponse>(
+      `/api/works/${workId}/promotions/${promotionId}/events`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      },
+    );
   }
 
   listVersions(workId: string) {

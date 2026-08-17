@@ -64,6 +64,12 @@ export type AppConfig = {
   allowedWorkContentHostSuffixes: string[];
   /** Author email for checkpoint git commits. */
   checkpointGitAuthorEmail: string;
+  /** Optional deployment-level Meta promotion provider configuration. */
+  metaPromotionPixelId?: string;
+  metaPromotionAccessToken?: string;
+  metaPromotionApiVersion: string;
+  /** Trusted proxy header containing the public client IP for Meta CAPI. */
+  metaPromotionClientIpHeader?: string;
 };
 
 export type SandboxToleration = {
@@ -224,6 +230,10 @@ export const config: AppConfig = {
     [".cohub.live", ".cohub.run"],
   ),
   checkpointGitAuthorEmail: process.env.CHECKPOINT_GIT_AUTHOR_EMAIL?.trim() || "noreply@cohub.live",
+  metaPromotionPixelId: process.env.COHUB_META_PIXEL_ID?.trim() || undefined,
+  metaPromotionAccessToken: process.env.COHUB_META_CAPI_ACCESS_TOKEN?.trim() || undefined,
+  metaPromotionApiVersion: process.env.COHUB_META_API_VERSION?.trim() || "v21.0",
+  metaPromotionClientIpHeader: process.env.COHUB_META_CLIENT_IP_HEADER?.trim().toLowerCase() || undefined,
 };
 
 export const sessionsNamespace = getSessionsNamespace(config.env);

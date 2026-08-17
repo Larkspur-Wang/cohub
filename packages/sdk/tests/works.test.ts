@@ -14,6 +14,32 @@ test("WorksApi.getStats requests the fixed analytics range", async () => {
   await new WorksApi(transport).getStats("work-1");
 });
 
+test("WorksApi creates and records Work promotions", async () => {
+  const requests: Array<{ path: string; init?: RequestInit }> = [];
+  const transport = {
+    request: async (path: string, init?: RequestInit) => {
+      requests.push({ path, init });
+      return {};
+    },
+  } as unknown as HttpTransport;
+  const api = new WorksApi(transport);
+
+  await api.createPromotion("work-1", {
+    name: "Launch",
+    provider: "generic",
+    parameters: { utm_source: "newsletter" },
+  });
+  await api.recordPromotionEvent("work-1", "promotion-1", {
+    eventKey: "ready",
+    eventId: "event-1",
+  });
+
+  assert.equal(requests[0]?.path, "/api/works/work-1/promotions");
+  assert.equal(requests[0]?.init?.method, "POST");
+  assert.equal(requests[1]?.path, "/api/works/work-1/promotions/promotion-1/events");
+  assert.equal(requests[1]?.init?.method, "POST");
+});
+
 test("WorksApi.getBySlug forwards the abort signal", async () => {
   const controller = new AbortController();
   const transport = {

@@ -6,6 +6,10 @@ import WorkPageHead from "$lib/components/work/WorkPageHead.svelte";
 import WorkSurface from "$lib/components/work/WorkSurface.svelte";
 import { sdk } from "$lib/sdk";
 import { buildWorkPageMeta } from "$lib/work-page-meta";
+import {
+	reportWorkPromotionReady,
+	startWorkPromotion,
+} from "$lib/work-promotion";
 
 type ReadyData = {
 	mode: "ready";
@@ -39,6 +43,33 @@ let clientError = $state("");
 let clientLoading = $state(false);
 /** WorkSurface uses window/postMessage; mount only after hydration. */
 let surfaceReady = $state(false);
+let surfaceLoaded = false;
+let promotionReadyReported = false;
+let promotionRuntime: ReturnType<typeof startWorkPromotion> | null = null;
+let activePromotionKey = "";
+
+const promotionId = $derived(page.url.searchParams.get("cohub_campaign"));
+
+function maybeReportPromotionReady() {
+	if (
+		!surfaceLoaded ||
+		promotionReadyReported ||
+		!promotionRuntime ||
+		!promotionId ||
+		!ready
+	)
+		return;
+	const workId = ready.work.id;
+	promotionReadyReported = true;
+	void promotionRuntime
+		.then((runtime) => reportWorkPromotionReady(workId, promotionId, runtime))
+		.catch(() => undefined);
+}
+
+function handleSurfaceReady() {
+	surfaceLoaded = true;
+	maybeReportPromotionReady();
+}
 
 const ready = $derived(
 	props.data.mode === "ready"
@@ -79,6 +110,17 @@ const pageMeta = $derived(
 
 onMount(() => {
 	surfaceReady = true;
+});
+
+$effect(() => {
+	if (!surfaceReady || !promotionId || !ready) return;
+	const key = `${ready.work.id}:${promotionId}`;
+	if (activePromotionKey === key) return;
+	activePromotionKey = key;
+	promotionReadyReported = false;
+	promotionRuntime = startWorkPromotion(ready.work.id, promotionId);
+	promotionRuntime.catch(() => undefined);
+	maybeReportPromotionReady();
 });
 
 $effect(() => {
@@ -130,6 +172,7 @@ $effect(() => {
 		owner={ready.owner}
 		content={ready.content}
 		{launchState}
+		onReady={handleSurfaceReady}
 	/>
 {:else if ready}
 	<!-- SSR / first paint: head already has share meta; surface hydrates client-side. -->

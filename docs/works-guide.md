@@ -239,6 +239,31 @@ cannot touch another user's browser. A Work also answers only a Cohub app origin
 so embedding it elsewhere cannot invoke its methods. Native file and Board Works can
 be previewed but expose no callable surface.
 
+## Promote a Work
+
+Work editors can create immutable promotion links for paid or owned traffic. `generic` records local landing and readiness analytics without loading third-party code. `meta` adds the deployment-configured Meta Pixel and Conversions API provider.
+
+```bash
+cohub works promotions create <work> \
+  --name "Meta launch video A" \
+  --provider meta \
+  --utm-source instagram \
+  --utm-medium paid_social \
+  --utm-campaign launch_2026 \
+  --utm-content video_a
+```
+
+List links and inspect one promotion's aggregate statistics:
+
+```bash
+cohub works promotions list <work>
+cohub works promotions stats <work> <promotion-id>
+```
+
+Promotion links always open the current published Work. Statistics retain the immutable Work version that served each event. Only hourly counts are stored; Cohub does not retain visitor-level promotion records.
+
+The `generic` provider is always available. A deployment enables `meta` by configuring `COHUB_META_PIXEL_ID` and `COHUB_META_CAPI_ACCESS_TOKEN`; `COHUB_META_API_VERSION` defaults to `v21.0`. Set `COHUB_META_CLIENT_IP_HEADER` only when the edge overwrites that header with the trusted public client IP (for example, `cf-connecting-ip`); otherwise Cohub uses the direct socket address and omits private addresses.
+
 ## View Statistics
 
 Work editors can inspect total, 24-hour, 7-day, and 30-day views with a source breakdown:

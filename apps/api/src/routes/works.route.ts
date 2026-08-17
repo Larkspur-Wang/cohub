@@ -1,6 +1,6 @@
 import { Hono, type Context } from "hono";
-import { and, desc, eq, ne, sql } from "drizzle-orm";
-import { spaces, works, workVersions, workViewerGrants, workViewStatsHourly, userProfiles } from "@cohub/db";
+import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
+import { spaces, works, workPromotions, workPromotionStatsHourly, workVersions, workViewerGrants, workViewStatsHourly, userProfiles } from "@cohub/db";
 import { createWorkAssetPublicUrl, deleteWorkAssetsByObjectKey, isConfiguredWorkAssetPublicUrl } from "../work-asset-storage.js";
 import { publishWorkAssetInWorker, type WorkPublishAssetJobResult } from "../work-publish-asset-queue.js";
 import type { Permission } from "@cohub/core/permissions";
@@ -822,6 +822,16 @@ router.delete("/:id", async (c) => {
   if (!work) return c.json({ message: "work not found" }, 404);
   if (!(await hasPermission(user, "space.edit", { spaceId: work.spaceId }))) return authzDenied(c);
   await db.transaction(async (tx) => {
+    const promotions = await tx
+      .select({ id: workPromotions.id })
+      .from(workPromotions)
+      .where(eq(workPromotions.workId, work.id));
+    if (promotions.length > 0) {
+      await tx.delete(workPromotionStatsHourly).where(
+        inArray(workPromotionStatsHourly.promotionId, promotions.map((promotion) => promotion.id)),
+      );
+    }
+    await tx.delete(workPromotions).where(eq(workPromotions.workId, work.id));
     await tx.delete(workViewerGrants).where(eq(workViewerGrants.workId, work.id));
     await tx.delete(workViewStatsHourly).where(eq(workViewStatsHourly.workId, work.id));
     await tx.delete(workVersions).where(eq(workVersions.workId, work.id));

@@ -61,6 +61,7 @@ type Props = {
 	 */
 	onSurfaceHost?: (host: WorkSurfaceHost | null) => void;
 	onComposerChip?: (chip: WorkComposerChip | null) => void;
+	onReady?: () => void;
 };
 
 const {
@@ -72,10 +73,18 @@ const {
 	launchState = null,
 	onSurfaceHost = undefined,
 	onComposerChip = undefined,
+	onReady = undefined,
 }: Props = $props();
 
 let frame: HTMLIFrameElement | null = $state(null);
 let bridgeReady = $state(false);
+let readyReported = false;
+
+function reportReady() {
+	if (readyReported) return;
+	readyReported = true;
+	onReady?.();
+}
 
 const isBackground = $derived(mode === "background");
 const isPreview = $derived(mode === "preview");
@@ -190,6 +199,7 @@ async function onFrameMessage(event: MessageEvent) {
 onMount(() => {
 	window.addEventListener("message", onFrameMessage);
 	bridgeReady = true;
+	if (nativeContent) queueMicrotask(reportReady);
 	onSurfaceHost?.(surfaceHost);
 	return () => {
 		window.removeEventListener("message", onFrameMessage);
@@ -227,6 +237,7 @@ onMount(() => {
 			sandbox={frameSandbox}
 			allow={framePermissions}
 			src={iframeSrc}
+			onload={reportReady}
 		></iframe>
 	{:else if !hasFrameSource}
 		<div class="empty-state">Work asset is unavailable.</div>

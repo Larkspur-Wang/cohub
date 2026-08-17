@@ -18,6 +18,7 @@ import {
 	type WorksChangedDetail,
 } from "$lib/features/work/work-realtime";
 import { formatDateTime } from "../space-utils";
+import WorkPromotions from "./WorkPromotions.svelte";
 import WorkViewStats from "./WorkViewStats.svelte";
 import { createWorkDetailController } from "./work-detail-controller.svelte";
 import {
@@ -183,6 +184,9 @@ onDestroy(() => {
           error={workStatsError}
           onRetry={() => void workDetailController.loadStats(workDetail.id)}
         />
+        {#if publicRoute && workDetail.status === 'published'}
+          <WorkPromotions workId={workDetail.id} publicRoute={publicRoute} />
+        {/if}
       {/if}
 
       {#if workDetailController.editMode}
