@@ -88,6 +88,7 @@ let contextMenu = $state<{ x: number; y: number } | null>(null);
 let exportBridge = $state<BoardStageExportBridge | null>(null);
 let exportOpen = $state(false);
 let generationOpen = $state(false);
+let generationSelectionRequest = $state(0);
 let playingId = $state<string | null>(null);
 let regeneratingNodeId = $state<string | null>(null);
 let regenerationError = $state<string | null>(null);
@@ -110,6 +111,11 @@ const restoredViewPreference = viewPreferenceEnabled
 let viewPreferenceRestored = false;
 let pendingViewPreference: BoardViewPreference | null = null;
 let viewPreferenceTimer: ReturnType<typeof setTimeout> | null = null;
+
+function addSelectionToGeneration() {
+	generationOpen = true;
+	generationSelectionRequest += 1;
+}
 
 function playMedia(nodeId: string) {
 	const item = editor.itemById(nodeId);
@@ -162,10 +168,11 @@ async function regenerateTask(nodeId: string) {
 			model: request.model,
 		});
 		const position = regeneratedTaskPosition(sourceFrame);
-		editor.addTask(
+		editor.addTaskWithSources(
 			created.taskRunId,
 			snapshot,
 			worldPoint(position.x, position.y),
+			[{ nodeId: source.id, sourcePortId: "artifacts", targetPortId: "input" }],
 			{
 				regeneration: {
 					sourceTaskRunId: source.taskRunId,
@@ -764,6 +771,7 @@ onDestroy(() => {
 			<BoardSelectionToolbar
 				{editor}
 				onRegenerateTask={regenerateTask}
+				onAddToGeneration={addSelectionToGeneration}
 				{regeneratingNodeId}
 			/>
 			<BoardConnectionToolbar {editor} />
@@ -774,6 +782,7 @@ onDestroy(() => {
 					{boardId}
 					assetSource={resolvedAssetSource}
 					{immersive}
+					selectionAddRequest={generationSelectionRequest}
 					onClose={() => { generationOpen = false; }}
 				/>
 			{/if}
@@ -793,6 +802,7 @@ onDestroy(() => {
 				{onOpenTask}
 				onRegenerateTask={regenerateTask}
 				{regeneratingNodeId}
+				onAddToGeneration={addSelectionToGeneration}
 				position={contextMenu}
 				onExport={exportBridge ? openExport : undefined}
 				onClose={() => { contextMenu = null; }}

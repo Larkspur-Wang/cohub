@@ -1779,6 +1779,8 @@ export class BoardClient {
     relation?: string;
     direction?: BoardConnectionDirection;
     label?: string;
+    sourcePortId?: string;
+    targetPortId?: string;
     txId?: string;
   }) {
     const connection = createBoardConnection({
@@ -1788,6 +1790,8 @@ export class BoardClient {
       ...(input.relation === undefined ? {} : { relation: input.relation }),
       ...(input.direction === undefined ? {} : { direction: input.direction }),
       ...(input.label === undefined ? {} : { label: input.label }),
+      ...(input.sourcePortId === undefined ? {} : { sourcePortId: input.sourcePortId }),
+      ...(input.targetPortId === undefined ? {} : { targetPortId: input.targetPortId }),
     });
     return this.apply({
       txId: input.txId ?? randomBoardId(),

@@ -16,6 +16,7 @@ import {
 	Lock,
 	LockOpen,
 	RefreshCw,
+	Sparkles,
 	Trash2,
 } from "lucide-svelte";
 import { canTapSelectWithHand } from "$lib/board/board-tool";
@@ -24,10 +25,12 @@ import type { BoardEditor } from "$lib/board/editor.svelte";
 const {
 	editor,
 	onRegenerateTask,
+	onAddToGeneration,
 	regeneratingNodeId = null,
 }: {
 	editor: BoardEditor;
 	onRegenerateTask?: (nodeId: string) => void;
+	onAddToGeneration?: () => void;
 	regeneratingNodeId?: string | null;
 } = $props();
 
@@ -50,6 +53,12 @@ const visible = $derived(
 
 const canAlign = $derived(editor.selection.length >= 2);
 const canDistribute = $derived(editor.selection.length >= 3);
+const canGenerate = $derived(
+	editor.selectedItems.some(
+		(item) =>
+			item.type === "image" || item.type === "video" || item.type === "audio",
+	),
+);
 const generationTask = $derived.by(() => {
 	if (editor.selectedItems.length !== 1) return null;
 	const item = editor.selectedItems[0];
@@ -114,6 +123,19 @@ const currentColor = $derived.by<string | null | undefined>(() => {
 					></button>
 				{/each}
 			</div>
+			<div class="divider"></div>
+		{/if}
+
+		{#if canGenerate && onAddToGeneration}
+			<button
+				type="button"
+				class="sel-btn"
+				title="Add to generation"
+				aria-label="Add selected nodes to generation"
+				onclick={onAddToGeneration}
+			>
+				<Sparkles class="h-3.5 w-3.5" />
+			</button>
 			<div class="divider"></div>
 		{/if}
 

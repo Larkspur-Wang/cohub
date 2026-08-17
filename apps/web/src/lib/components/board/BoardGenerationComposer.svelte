@@ -5,9 +5,7 @@ import { featuredTaskArtifact, worldPoint } from "@neta-art/cohub/board";
 import {
 	AudioLines,
 	Image,
-	Link2,
 	LoaderCircle,
-	Plus,
 	Search,
 	Settings2,
 	Video,
@@ -15,6 +13,7 @@ import {
 } from "lucide-svelte";
 import { onDestroy, onMount } from "svelte";
 import type { BoardAssetSource } from "$lib/board/board-asset-source";
+import { referencePortForKind } from "$lib/board/board-content";
 import {
 	type BoardGenerationMediaType,
 	type BoardGenerationReference,
@@ -53,6 +52,7 @@ const {
 	boardId,
 	assetSource,
 	immersive = false,
+	selectionAddRequest = 0,
 	onClose,
 }: {
 	editor: BoardEditor;
@@ -60,6 +60,7 @@ const {
 	boardId: string;
 	assetSource: BoardAssetSource;
 	immersive?: boolean;
+	selectionAddRequest?: number;
 	onClose: () => void;
 } = $props();
 
@@ -77,10 +78,7 @@ let selectedModelId = $state("");
 let parametersByModel = $state<Record<string, Record<string, unknown>>>({});
 let modelOpen = $state(false);
 let settingsOpen = $state(false);
-let referenceOpen = $state(false);
 let modelQuery = $state("");
-let referenceUrl = $state("");
-let referenceType = $state<BoardGenerationMediaType>("image");
 let loadingModels = $state(initialModels.length === 0);
 let resolvingSelection = $state(false);
 let submitting = $state(false);
@@ -89,6 +87,8 @@ let error = $state<string | null>(null);
 let textarea: HTMLTextAreaElement | null = $state(null);
 let resizeFrame: number | null = null;
 let disposed = false;
+let mounted = false;
+let lastSelectionAddRequest = 0;
 
 function readStorage(key: string) {
 	if (!cacheEnabled) return null;
@@ -247,28 +247,6 @@ async function addSelectedReferences() {
 	}
 }
 
-function addUrlReference() {
-	const url = normalizeGenerationReferenceUrl(referenceUrl);
-	if (!url) {
-		error = "Enter an HTTP or HTTPS URL.";
-		return;
-	}
-	if (!references.some((reference) => reference.url === url)) {
-		references = normalizeReferenceRoles([
-			...references,
-			{
-				id: crypto.randomUUID(),
-				type: referenceType,
-				url,
-				label: new URL(url).hostname,
-			},
-		]);
-	}
-	referenceUrl = "";
-	referenceOpen = false;
-	error = null;
-}
-
 function removeReference(id: string) {
 	references = references.filter((reference) => reference.id !== id);
 }
@@ -316,7 +294,9 @@ function restoreDraft() {
 		};
 		if (typeof parsed.prompt === "string") prompt = parsed.prompt;
 		if (typeof parsed.model === "string") selectedModelId = parsed.model;
-		references = parseBoardGenerationReferences(parsed.references);
+		references = parseBoardGenerationReferences(parsed.references).filter(
+			(reference) => editor.itemById(reference.id) !== null,
+		);
 		if (
 			parsed.parametersByModel &&
 			typeof parsed.parametersByModel === "object" &&
@@ -394,6 +374,34 @@ async function submit() {
 		snapshotPrompt,
 		snapshotReferences,
 	);
+	const sources = snapshotReferences.flatMap((reference) => {
+		const item = editor.itemById(reference.id);
+		if (!item) return [];
+		const sourcePort = referencePortForKind(reference.type);
+		return [
+			{
+				nodeId: item.id,
+				kind: reference.type,
+				sourcePortId:
+					item.type === "task"
+						? "artifacts"
+						: item.type === "file"
+							? "file"
+							: reference.type,
+				targetPortId: sourcePort.id,
+			},
+		];
+	});
+	const boardContext = {
+		version: 1,
+		boardId,
+		sources: sources.map((source) => ({
+			nodeId: source.nodeId,
+			kind: source.kind,
+			sourcePortId: source.sourcePortId,
+			targetPortId: source.targetPortId,
+		})),
+	};
 	let taskRunId: string;
 	try {
 		const created = await sdk.generations.create({
@@ -403,6 +411,7 @@ async function submit() {
 			...(Object.keys(snapshotParameters).length > 0
 				? { parameters: snapshotParameters }
 				: {}),
+			meta: { boardContext },
 		});
 		taskRunId = created.taskRunId;
 	} catch (cause) {
@@ -428,7 +437,14 @@ async function submit() {
 			prompt: snapshotPrompt,
 			model: snapshotModel.model,
 		});
-		const id = editor.addTask(taskRunId, snapshot, taskPosition());
+		const id = editor.addTaskWithSources(
+			taskRunId,
+			snapshot,
+			taskPosition(),
+			sources,
+			{ generation: { boardContext } },
+		);
+		if (!id) throw new Error("Board task could not be added.");
 		nodeAdded = true;
 		editor.setSelection([id]);
 	} catch {
@@ -488,11 +504,10 @@ function handlePromptKeydown(event: KeyboardEvent) {
 
 function handleKeydown(event: KeyboardEvent) {
 	if (event.key !== "Escape" || isComposingKeyboardEvent(event)) return;
-	if (modelOpen || settingsOpen || referenceOpen) {
+	if (modelOpen || settingsOpen) {
 		event.preventDefault();
 		modelOpen = false;
 		settingsOpen = false;
-		referenceOpen = false;
 		return;
 	}
 	if (document.activeElement === textarea) {
@@ -504,6 +519,13 @@ function handleKeydown(event: KeyboardEvent) {
 	onClose();
 }
 
+$effect(() => {
+	const request = selectionAddRequest;
+	if (!mounted || !request || request === lastSelectionAddRequest) return;
+	lastSelectionAddRequest = request;
+	void addSelectedReferences();
+});
+
 onMount(() => {
 	restoreDraft();
 	const preferred = selectedModelId || readStorage(modelStorageKey) || "";
@@ -514,6 +536,7 @@ onMount(() => {
 	selectedModelId = initialModel?.model ?? "";
 	references = normalizeReferenceRoles(references, initialModel);
 	void addSelectedReferences();
+	mounted = true;
 	void loadGenerationModels({ refresh: true })
 		.then((loaded) => {
 			if (disposed) return;
@@ -621,7 +644,7 @@ onDestroy(() => {
 						label={selectedModel?.title ?? selectedModel?.model ?? "Model"}
 						expanded={modelOpen}
 						loading={loadingModels && !selectedModel}
-						onclick={() => { modelOpen = !modelOpen; settingsOpen = false; referenceOpen = false; }}
+						onclick={() => { modelOpen = !modelOpen; settingsOpen = false; }}
 					/>
 					{#if modelOpen}
 						<div class="popover model-popover">
@@ -650,35 +673,6 @@ onDestroy(() => {
 					{/if}
 				</div>
 
-				<div class="relative reference-anchor">
-					<button
-						type="button"
-						class="icon-btn"
-						title="Add reference URL"
-						aria-label="Add reference URL"
-						aria-expanded={referenceOpen}
-						onclick={() => { referenceOpen = !referenceOpen; modelOpen = false; settingsOpen = false; }}
-					>
-						<Link2 class="h-3.5 w-3.5" />
-					</button>
-					{#if referenceOpen}
-						<div class="popover reference-popover">
-							<div class="media-segments" role="group" aria-label="Reference type">
-								{#each ["image", "video", "audio"] as type (type)}
-									{@const MediaIcon = mediaIcon(type as BoardGenerationMediaType)}
-									<button type="button" class:active={referenceType === type} title={type} aria-label={type} onclick={() => { referenceType = type as BoardGenerationMediaType; }}>
-										<MediaIcon class="h-3.5 w-3.5" />
-									</button>
-								{/each}
-							</div>
-							<div class="url-row">
-								<input bind:value={referenceUrl} placeholder="https://..." aria-label="Reference URL" onkeydown={(event) => { if (event.key === "Enter") { event.preventDefault(); addUrlReference(); } }} />
-								<button type="button" class="icon-btn" title="Add reference" aria-label="Add reference" onclick={addUrlReference}><Plus class="h-3.5 w-3.5" /></button>
-							</div>
-						</div>
-					{/if}
-				</div>
-
 				{#if parameterEntries.length > 0}
 					<div class="relative settings-anchor">
 						<button
@@ -688,7 +682,7 @@ onDestroy(() => {
 							title="Generation settings"
 							aria-label="Generation settings"
 							aria-expanded={settingsOpen}
-							onclick={() => { settingsOpen = !settingsOpen; modelOpen = false; referenceOpen = false; }}
+							onclick={() => { settingsOpen = !settingsOpen; modelOpen = false; }}
 						>
 							<Settings2 class="h-3.5 w-3.5" />
 						</button>
@@ -841,7 +835,7 @@ onDestroy(() => {
 		padding: 0 7px;
 		color: var(--text-tertiary);
 	}
-	.search-field input, .url-row input {
+	.search-field input {
 		min-width: 0;
 		flex: 1;
 		border: 0;
@@ -866,12 +860,6 @@ onDestroy(() => {
 	.model-option--active { background: var(--brand-bg); color: var(--brand-muted-fg); }
 	.model-option:disabled { cursor: not-allowed; opacity: 0.38; }
 	.empty-row { padding: 14px 8px; text-align: center; font-size: 11px; color: var(--text-tertiary); }
-	.reference-popover { left: 0; width: min(310px, calc(100vw - 32px)); padding: 6px; }
-	.media-segments { display: flex; gap: 2px; margin-bottom: 6px; }
-	.media-segments button { display: flex; width: 28px; height: 26px; align-items: center; justify-content: center; border-radius: 5px; color: var(--text-tertiary); }
-	.media-segments button:hover { background: var(--bg-hover); color: var(--text-primary); }
-	.media-segments button.active { background: var(--brand-bg); color: var(--brand-muted-fg); }
-	.url-row { display: flex; align-items: center; gap: 4px; border: 1px solid var(--border-subtle); border-radius: 6px; padding-left: 8px; }
 	.settings-popover {
 		left: 0;
 		width: min(300px, calc(100vw - 32px));
@@ -910,8 +898,8 @@ onDestroy(() => {
 	}
 	@media (max-width: 520px) {
 		.generation-wrap { width: calc(100% - 16px); }
-		.reference-anchor, .settings-anchor { position: static; }
-		.reference-popover, .settings-popover {
+		.settings-anchor { position: static; }
+		.settings-popover {
 			left: 8px;
 			right: 8px;
 			bottom: 48px;

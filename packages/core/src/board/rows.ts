@@ -24,6 +24,32 @@ function dateString(value: Date | null | undefined): string | null {
 	return value?.toISOString() ?? null;
 }
 
+function portIdFromMetadata(
+	metadata: Record<string, unknown>,
+	key: "sourcePortId" | "targetPortId",
+): string | undefined {
+	const flow = metadata.boardFlow;
+	if (!flow || typeof flow !== "object" || Array.isArray(flow)) return undefined;
+	const value = (flow as Record<string, unknown>)[key];
+	return typeof value === "string" && value ? value : undefined;
+}
+
+function connectionMetadata(connection: BoardConnection): Record<string, unknown> {
+	const existing = connection.metadata.boardFlow;
+	const flow =
+		existing && typeof existing === "object" && !Array.isArray(existing)
+			? { ...(existing as Record<string, unknown>) }
+			: {};
+	delete flow.sourcePortId;
+	delete flow.targetPortId;
+	if (connection.source.portId) flow.sourcePortId = connection.source.portId;
+	if (connection.target.portId) flow.targetPortId = connection.target.portId;
+	const metadata = { ...connection.metadata };
+	if (Object.keys(flow).length > 0) metadata.boardFlow = flow;
+	else delete metadata.boardFlow;
+	return metadata;
+}
+
 /**
  * Map a connection row to its protocol record.
  *
@@ -32,15 +58,19 @@ function dateString(value: Date | null | undefined): string | null {
  * silently rewrite stored data instead of surfacing the difference.
  */
 export function boardConnectionFromRow(row: BoardConnectionRow): BoardConnectionRecord {
+	const sourcePortId = portIdFromMetadata(row.metadata, "sourcePortId");
+	const targetPortId = portIdFromMetadata(row.metadata, "targetPortId");
 	return {
 		id: row.connectionId,
 		boardId: row.boardId,
 		source: {
 			nodeId: row.sourceNodeId,
+			...(sourcePortId ? { portId: sourcePortId } : {}),
 			anchor: row.sourceAnchor as unknown as BoardConnectionAnchor,
 		},
 		target: {
 			nodeId: row.targetNodeId,
+			...(targetPortId ? { portId: targetPortId } : {}),
 			anchor: row.targetAnchor as unknown as BoardConnectionAnchor,
 		},
 		relation: row.relation,
@@ -69,6 +99,6 @@ export function boardConnectionValues(boardId: string, connection: BoardConnecti
 		targetAnchor: connection.target.anchor as unknown as Record<string, unknown>,
 		routing: connection.routing as unknown as Record<string, unknown>,
 		style: connection.style as unknown as Record<string, unknown>,
-		metadata: connection.metadata,
+		metadata: connectionMetadata(connection),
 	};
 }

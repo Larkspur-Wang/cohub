@@ -60,6 +60,8 @@ export const AUTO_BOARD_CONNECTION_ANCHOR: BoardConnectionAnchor = { kind: "auto
 
 export const BoardConnectionEndpointSchema = z.object({
   nodeId: z.string().min(1).max(160),
+  /** Optional semantic port. Older connections omit it and remain valid. */
+  portId: z.string().min(1).max(120).optional(),
   anchor: BoardConnectionAnchorSchema.default(AUTO_BOARD_CONNECTION_ANCHOR),
 });
 
@@ -234,6 +236,8 @@ export function createBoardConnection(input: {
   relation?: string;
   direction?: BoardConnectionDirection;
   label?: string;
+  sourcePortId?: string;
+  targetPortId?: string;
   sourceAnchor?: BoardConnectionAnchor;
   targetAnchor?: BoardConnectionAnchor;
   routing?: Partial<BoardConnectionRoutingConfig>;
@@ -244,10 +248,12 @@ export function createBoardConnection(input: {
     id: input.id,
     source: {
       nodeId: input.sourceNodeId,
+      ...(input.sourcePortId ? { portId: input.sourcePortId } : {}),
       anchor: input.sourceAnchor ?? AUTO_BOARD_CONNECTION_ANCHOR,
     },
     target: {
       nodeId: input.targetNodeId,
+      ...(input.targetPortId ? { portId: input.targetPortId } : {}),
       anchor: input.targetAnchor ?? AUTO_BOARD_CONNECTION_ANCHOR,
     },
     relation: input.relation ?? DEFAULT_BOARD_RELATION,

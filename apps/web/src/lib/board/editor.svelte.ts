@@ -875,6 +875,50 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		return item.id;
 	}
 
+	/** Add a task and its source edges as one undoable Board change. */
+	function addTaskWithSources(
+		taskRunId: string,
+		snapshot: BoardTaskSnapshot,
+		at: WorldPoint,
+		sources: Array<{
+			nodeId: string;
+			sourcePortId: string;
+			targetPortId: string;
+		}>,
+		metadata?: Record<string, unknown>,
+	) {
+		if (options.readonly) return null;
+		const item = createTaskBoardItem(taskRunId, snapshot, at.x, at.y, metadata);
+		const connections = sources
+			.filter((source) => source.nodeId !== item.id && itemById(source.nodeId))
+			.map((source) =>
+				createBoardConnection({
+					id: createBoardItemId(),
+					sourceNodeId: source.nodeId,
+					targetNodeId: item.id,
+					sourcePortId: source.sourcePortId,
+					targetPortId: source.targetPortId,
+					relation: "input",
+					direction: "forward",
+					metadata: {
+						boardFlow: {
+							version: 1,
+							kind: "content",
+							sourcePortId: source.sourcePortId,
+							targetPortId: source.targetPortId,
+						},
+					},
+				}),
+			);
+		setContent(
+			[...synced.items, item],
+			[...synced.connections, ...connections],
+		);
+		selection = [item.id];
+		commitAction();
+		return item.id;
+	}
+
 	function addText(text: string, at: WorldPoint) {
 		addItemAt(createTextBoardItem(text, at.x, at.y, toolStyles.text.color));
 	}
@@ -3051,6 +3095,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		selectAll,
 		addFile,
 		addTask,
+		addTaskWithSources,
 		addText,
 		addGeo,
 		addFrame,

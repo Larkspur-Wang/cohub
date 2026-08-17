@@ -10,6 +10,7 @@ import {
 	LocateFixed,
 	Pencil,
 	RefreshCw,
+	Sparkles,
 	Trash2,
 } from "lucide-svelte";
 import { onDestroy, onMount, untrack } from "svelte";
@@ -23,6 +24,7 @@ const {
 	onOpenFile,
 	onOpenTask,
 	onRegenerateTask,
+	onAddToGeneration,
 	regeneratingNodeId = null,
 	onExport,
 }: {
@@ -32,6 +34,7 @@ const {
 	onOpenFile?: (path: string) => void | Promise<void>;
 	onOpenTask?: (taskRunId: string) => void;
 	onRegenerateTask?: (nodeId: string) => void;
+	onAddToGeneration?: () => void;
 	regeneratingNodeId?: string | null;
 	/** Opens the export dialog; absent until the stage can render one. */
 	onExport?: () => void;
@@ -43,6 +46,12 @@ let left = $state(untrack(() => position.x));
 let top = $state(untrack(() => position.y));
 
 const hasSelection = $derived(editor.selection.length > 0);
+const canGenerate = $derived(
+	editor.selectedItems.some(
+		(item) =>
+			item.type === "image" || item.type === "video" || item.type === "audio",
+	),
+);
 const singleText = $derived(
 	editor.selectedItems.length === 1 && editor.selectedItems[0]?.type === "text",
 );
@@ -72,6 +81,12 @@ const actions = $derived.by<MenuAction[]>(() => {
 	const list: MenuAction[] = [];
 	const file = singleFile;
 	const task = singleTask;
+	if (canGenerate && onAddToGeneration)
+		list.push({
+			label: "Add to generation",
+			icon: Sparkles,
+			run: onAddToGeneration,
+		});
 	if (task && onOpenTask)
 		list.push({
 			label: "Open task",
