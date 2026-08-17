@@ -25,7 +25,9 @@ cohub public upload ./report.pdf reports/latest.pdf
 cohub public upload ./dist demo
 ```
 
-For a directory containing `index.html`, the command returns its public URL. Otherwise it returns a concise upload summary.
+For a directory containing `index.html`, the command returns its public URL. Otherwise it prints the directory's CDN URL prefix so individual file URLs can be formed without another CLI call. The prefix itself is not a browsable directory.
+
+Use `--json` to receive the destination, Space CDN URL prefix, and a complete manifest containing every uploaded file's path, size, and MIME type. Concatenate `urlPrefix` and a file's `path` to form its public URL.
 
 Existing files are never replaced implicitly. When replacement is intended, use:
 

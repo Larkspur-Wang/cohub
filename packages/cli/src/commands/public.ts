@@ -207,6 +207,18 @@ function uploadFailure(errors: Error[]) {
   return new Error(`${first} (${errors.length} files failed)`);
 }
 
+function publicUrlPrefix(
+  destination: string,
+  entry: Pick<PublicFileUploadPlanEntry, "path" | "publicUrl">,
+) {
+  const encodedPath = entry.path.split("/").map(encodeURIComponent).join("/");
+  if (!entry.publicUrl.endsWith(encodedPath)) {
+    throw new Error(`Invalid public URL for ${entry.path}`);
+  }
+  const encodedDestination = destination.split("/").map(encodeURIComponent).join("/");
+  return `${entry.publicUrl.slice(0, -encodedPath.length)}${encodedDestination}`;
+}
+
 async function uploadPublic(
   command: Command,
   source: string,
@@ -252,17 +264,27 @@ async function uploadPublic(
       if (entryErrors.length > 0) throw uploadFailure(entryErrors);
     }
 
-    const entryUrl = entryPlan?.publicUrl ?? null;
+    const firstPlan = plan.entries[0];
+    if (!firstPlan) throw new Error("Upload plan contains no files");
     if (jsonRequested(opts)) {
       outJson({
-        uploaded: upload.files.length,
-        overwrite: Boolean(opts.overwrite),
         destination: upload.destination,
-        url: entryUrl,
+        urlPrefix: publicUrlPrefix("", firstPlan),
+        files: upload.files.map((file) => ({
+          path: file.publicPath,
+          size: file.size,
+          mimeType: file.mimeType,
+        })),
       });
       return;
     }
-    console.log(entryUrl ?? `Uploaded ${upload.files.length} files to ${upload.destination}`);
+    if (entryPlan) {
+      console.log(entryPlan.publicUrl);
+      return;
+    }
+    const fileLabel = upload.files.length === 1 ? "file" : "files";
+    console.log(`Uploaded ${upload.files.length} ${fileLabel} to ${upload.destination}`);
+    console.log(`URL prefix: ${publicUrlPrefix(upload.destination, firstPlan)}`);
   } catch (exception) {
     handleHttp(exception);
   }

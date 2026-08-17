@@ -23,6 +23,28 @@ async function createFixture() {
   return dist;
 }
 
+function publicUrl(path: string) {
+  return `https://cdn.example/p/space-1/${path.split("/").map(encodeURIComponent).join("/")}`;
+}
+
+function createUploadClient() {
+  return {
+    space: () => ({
+      publicFiles: {
+        createUpload: async (input: PublicFileCreateUploadInput) => ({
+          entries: input.entries.map((entry) => ({
+            id: entry.id,
+            path: entry.relativePath,
+            uploadUrl: `https://upload.example/${entry.id}`,
+            publicUrl: publicUrl(entry.relativePath),
+            headers: { "content-type": entry.mimeType ?? "application/octet-stream" },
+          })),
+        }),
+      },
+    }),
+  } as unknown as CohubHttpClient;
+}
+
 test("public commands do not expose removal", () => {
   const program = new Command("cohub");
   const publicCommand = registerPublic(program);
@@ -97,6 +119,69 @@ test("public upload declares explicit overwrites and prints only the entry URL",
   assert.equal(uploadedPaths.at(-1), "demo/index.html");
   assert.deepEqual(logs, ["https://public.example/p/space-1/demo/index.html"]);
   assert.equal(errors.join(""), "Overwrite enabled for demo/\n");
+});
+
+test("public upload prints the CDN prefix for a directory without an entry file", async () => {
+  const dist = await createFixture();
+  await rm(join(dist, "index.html"));
+  const program = new Command("cohub").option("-s, --space <id>");
+  registerPublic(program, {
+    createClient: createUploadClient,
+    fetch: async () => new Response(null, { status: 200 }),
+  });
+
+  const logs: string[] = [];
+  const originalLog = console.log;
+  console.log = (...values: unknown[]) => logs.push(values.join(" "));
+  try {
+    await program.parseAsync(["node", "cohub", "-s", "space-1", "public", "upload", dist, "demo files"]);
+  } finally {
+    console.log = originalLog;
+  }
+
+  assert.deepEqual(logs, [
+    "Uploaded 1 file to demo files/",
+    "URL prefix: https://cdn.example/p/space-1/demo%20files/",
+  ]);
+});
+
+test("public upload JSON combines one URL prefix with the complete file manifest", async () => {
+  const dist = await createFixture();
+  const program = new Command("cohub").option("-s, --space <id>");
+  registerPublic(program, {
+    createClient: createUploadClient,
+    fetch: async () => new Response(null, { status: 200 }),
+  });
+
+  const logs: string[] = [];
+  const originalArgv = process.argv;
+  const originalLog = console.log;
+  process.argv = [...process.argv, "--json"];
+  console.log = (...values: unknown[]) => logs.push(values.join(" "));
+  try {
+    await program.parseAsync(["node", "cohub", "-s", "space-1", "public", "upload", dist, "demo"]);
+  } finally {
+    process.argv = originalArgv;
+    console.log = originalLog;
+  }
+
+  assert.equal(logs.length, 1);
+  assert.deepEqual(JSON.parse(logs[0] as string), {
+    destination: "demo/",
+    urlPrefix: "https://cdn.example/p/space-1/",
+    files: [
+      {
+        path: "demo/assets/demo.mp4",
+        size: 5,
+        mimeType: "video/mp4",
+      },
+      {
+        path: "demo/index.html",
+        size: 15,
+        mimeType: "text/html; charset=utf-8",
+      },
+    ],
+  });
 });
 
 test("public ls follows pagination without exposing cursors", async () => {
