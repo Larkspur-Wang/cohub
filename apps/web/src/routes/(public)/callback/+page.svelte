@@ -8,6 +8,7 @@ import {
 } from "$lib/auth";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import { sdk } from "$lib/sdk";
+import { reportWorkPromotionRegistration } from "$lib/work-promotion";
 
 let error = $state("");
 
@@ -43,6 +44,7 @@ onMount(async () => {
 			console.warn("[callback] Profile probe failed; continuing:", err);
 		}
 
+		await reportWorkPromotionRegistration().catch(() => undefined);
 		markAuthJustCompleted();
 
 		const redirectUri = new URL(redirectPath, window.location.origin);

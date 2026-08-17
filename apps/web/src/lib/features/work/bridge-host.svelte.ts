@@ -9,6 +9,11 @@ import {
 import { PUBLIC_API_ORIGIN } from "$env/static/public";
 import { getAuthToken, signInWithRedirectPath } from "$lib/auth";
 import { authStore } from "$lib/stores/auth.svelte";
+import {
+	getWorkPromotionCheckoutAttribution,
+	reportAttributedWorkPromotionEvent,
+	reportWorkPromotionCheckoutStarted,
+} from "$lib/work-promotion";
 
 /**
  * The subset of a work record the bridge host needs to answer bridge messages.
@@ -96,6 +101,27 @@ export function createWorkBridgeHost(
 			return authStore.userUuid;
 		},
 		requestSignIn: (redirectPath) => signInWithRedirectPath(redirectPath),
+		getPromotionAttribution: () =>
+			getWorkPromotionCheckoutAttribution(config.work.id),
+		onPurchaseRequested: (purchase) => {
+			void reportAttributedWorkPromotionEvent({
+				workId: config.work.id,
+				eventId: purchase.purchaseAttemptId,
+				productKey: purchase.productKey,
+			}).catch(() => {
+				console.warn(
+					"[work-promotions] Failed to report purchase confirmation.",
+				);
+			});
+		},
+		onCheckoutStarted: (purchase) => {
+			reportWorkPromotionCheckoutStarted({
+				eventId: purchase.purchaseAttemptId,
+				productKey: purchase.productKey,
+				value: purchase.value,
+				currency: purchase.currency,
+			});
+		},
 		onStateChange: (next) => {
 			authOpen = next.authOpen;
 			pendingAuth = next.pendingAuth;

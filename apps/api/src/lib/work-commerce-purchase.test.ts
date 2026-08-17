@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   createWorkPurchaseIdempotencyKey,
   normalizePurchaseAttemptId,
+  toPromotionMoney,
 } from "./work-commerce-purchase.js";
 
 test("normalizes valid Work purchase attempt ids", () => {
@@ -15,6 +16,13 @@ test("rejects invalid Work purchase attempt ids", () => {
   assert.equal(normalizePurchaseAttemptId(""), null);
   assert.equal(normalizePurchaseAttemptId("attempt.with.dot"), null);
   assert.equal(normalizePurchaseAttemptId("a".repeat(129)), null);
+});
+
+test("converts Billing minor amounts with the currency exponent", () => {
+  assert.deepEqual(toPromotionMoney(1234, "usd"), { value: 12.34, currency: "USD" });
+  assert.deepEqual(toPromotionMoney(1234, "JPY"), { value: 1234, currency: "JPY" });
+  assert.equal(toPromotionMoney(-1, "USD"), null);
+  assert.equal(toPromotionMoney(100, "invalid"), null);
 });
 
 test("builds stable, context-scoped Work purchase idempotency keys", () => {

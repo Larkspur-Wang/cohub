@@ -8,6 +8,18 @@ export function normalizePurchaseAttemptId(value: unknown): string | null {
   return PURCHASE_ATTEMPT_ID_PATTERN.test(normalized) ? normalized : null;
 }
 
+export function toPromotionMoney(amountMinor: number, rawCurrency: unknown) {
+  const currency = typeof rawCurrency === "string" ? rawCurrency.trim().toUpperCase() : "";
+  if (!Number.isFinite(amountMinor) || amountMinor < 0 || !/^[A-Z]{3}$/.test(currency)) return null;
+  try {
+    const digits = new Intl.NumberFormat("en", { style: "currency", currency })
+      .resolvedOptions().maximumFractionDigits ?? 2;
+    return { value: amountMinor / (10 ** digits), currency };
+  } catch {
+    return null;
+  }
+}
+
 export type WorkPurchaseAttemptIdentity = {
   workId: string;
   buyerUserUuid: string;

@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   decodeWorkPromotionStatsRedisField,
   encodeWorkPromotionStatsRedisField,
+  WORK_PROMOTION_EVENT_KEYS,
   WORK_PROMOTION_STATS_ACTIVE_REDIS_KEY,
   WORK_PROMOTION_STATS_PENDING_INDEX_REDIS_KEY,
 } from "./src/work-promotion-stats.js";
@@ -19,11 +20,14 @@ test("keeps promotion stats Redis keys in one cluster hash slot", () => {
   assert.match(WORK_PROMOTION_STATS_PENDING_INDEX_REDIS_KEY, /\{work-promotion-stats-v1\}/);
 });
 
-test("round-trips promotion stats dimensions", () => {
-  assert.deepEqual(
-    decodeWorkPromotionStatsRedisField(encodeWorkPromotionStatsRedisField(dimensions)),
-    dimensions,
-  );
+test("round-trips every promotion event dimension", () => {
+  for (const eventKey of WORK_PROMOTION_EVENT_KEYS) {
+    const value = { ...dimensions, eventKey };
+    assert.deepEqual(
+      decodeWorkPromotionStatsRedisField(encodeWorkPromotionStatsRedisField(value)),
+      value,
+    );
+  }
 });
 
 test("rejects malformed promotion stats dimensions", () => {

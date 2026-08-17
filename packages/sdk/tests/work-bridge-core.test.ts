@@ -463,6 +463,52 @@ test("purchase confirmation retries with the same attempt id", async () => {
 	}
 });
 
+test("purchase carries host promotion attribution and reports the paywall", async () => {
+	const requestBodies: Array<Record<string, unknown>> = [];
+	const requested: string[] = [];
+	const originalFetch = globalThis.fetch;
+	globalThis.fetch = ((_url: string, init: RequestInit) => {
+		requestBodies.push(JSON.parse(String(init.body)));
+		return Promise.resolve(new Response(JSON.stringify({
+			checkout: {
+				checkoutUsable: false,
+				orderId: "order-1",
+				productKey: "pro-monthly",
+			},
+		}), { status: 200 }));
+	}) as typeof fetch;
+
+	try {
+		const config = makeConfig({
+			getPromotionAttribution: () => ({
+				promotionId: "promotion-1",
+				fbp: "fbp-1",
+			}),
+			onPurchaseRequested: (purchase) => requested.push(purchase.purchaseAttemptId),
+		});
+		const core = createWorkBridgeCore(config);
+		await core.handleMessage(messageEvent({
+			type: "cohub.work.purchase",
+			requestId: "r1",
+			productKey: "pro-monthly",
+			purchaseAttemptId: "attempt-1",
+		}));
+		await core.confirmPurchase();
+
+		assert.deepEqual(requested, ["attempt-1"]);
+		assert.deepEqual(requestBodies, [{
+			productKey: "pro-monthly",
+			purchaseAttemptId: "attempt-1",
+			promotionAttribution: {
+				promotionId: "promotion-1",
+				fbp: "fbp-1",
+			},
+		}]);
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
 test("cancelPurchase replies with null checkout and closes dialog", async () => {
 	const config = makeConfig();
 	const core = createWorkBridgeCore(config);

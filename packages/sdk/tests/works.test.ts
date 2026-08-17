@@ -33,11 +33,16 @@ test("WorksApi creates and records Work promotions", async () => {
     eventKey: "ready",
     eventId: "event-1",
   });
+  await api.recordPromotionRegistration("work-1", "promotion-1", {
+    fbp: "fbp-1",
+  });
 
   assert.equal(requests[0]?.path, "/api/works/work-1/promotions");
   assert.equal(requests[0]?.init?.method, "POST");
   assert.equal(requests[1]?.path, "/api/works/work-1/promotions/promotion-1/events");
   assert.equal(requests[1]?.init?.method, "POST");
+  assert.equal(requests[2]?.path, "/api/works/work-1/promotions/promotion-1/registration");
+  assert.equal(requests[2]?.init?.method, "POST");
 });
 
 test("WorksApi.getBySlug forwards the abort signal", async () => {

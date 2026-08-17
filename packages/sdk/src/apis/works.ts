@@ -1,6 +1,6 @@
 import type { HttpTransport } from "../transport.js";
 import type { RequestSource } from "@cohub/protocol/provenance";
-import type { WorkArtifactDescriptor, WorkContentKind } from "@cohub/protocol";
+import type { WorkArtifactDescriptor, WorkContentKind, WorkPromotionEventKey } from "@cohub/protocol";
 import type { Permission, SpacePublicProfile } from "../types.js";
 
 export type WorkTargetType = "file" | "directory" | "port";
@@ -200,9 +200,19 @@ export type WorkPromotionStatsResponse = {
   summary: {
     landing: number;
     ready: number;
+    registrationCompleted: number;
+    paywallViewed: number;
+    checkoutStarted: number;
     readyRate: number;
   };
-  daily: Array<{ date: string; landing: number; ready: number }>;
+  daily: Array<{
+    date: string;
+    landing: number;
+    ready: number;
+    registrationCompleted: number;
+    paywallViewed: number;
+    checkoutStarted: number;
+  }>;
 };
 
 export type WorkPromotionEventResponse = {
@@ -315,11 +325,12 @@ export class WorksApi {
     workId: string,
     promotionId: string,
     input: {
-      eventKey: "landing" | "ready";
+      eventKey: WorkPromotionEventKey;
       eventId?: string;
       sourceUrl?: string;
       fbp?: string;
       fbc?: string;
+      productKey?: string;
     },
   ) {
     return this.transport.request<WorkPromotionEventResponse>(
@@ -328,6 +339,25 @@ export class WorksApi {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(input),
+      },
+    );
+  }
+
+  recordPromotionRegistration(
+    workId: string,
+    promotionId: string,
+    input?: { sourceUrl?: string; fbp?: string; fbc?: string },
+  ) {
+    return this.transport.request<{
+      reported: boolean;
+      eventId: string | null;
+      browser: WorkPromotionEventResponse["browser"];
+    }>(
+      `/api/works/${workId}/promotions/${promotionId}/registration`,
+      {
+        method: "POST",
+        headers: input ? { "Content-Type": "application/json" } : undefined,
+        body: input ? JSON.stringify(input) : undefined,
       },
     );
   }

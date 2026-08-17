@@ -209,9 +209,12 @@ onMount(() => {
 				{#if statsLoading}
 					<div class="flex min-h-20 items-center"><Loader2 class="h-4 w-4 animate-spin text-text-placeholder" /></div>
 				{:else if selected && stats}
-					<div class="grid grid-cols-3 gap-4">
+					<div class="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">
 						<div><div class="font-mono text-[18px] font-semibold text-text-primary">{stats.summary.landing}</div><div class="text-[10px] text-text-placeholder">Landing</div></div>
 						<div><div class="font-mono text-[18px] font-semibold text-text-primary">{stats.summary.ready}</div><div class="text-[10px] text-text-placeholder">Ready</div></div>
+						<div><div class="font-mono text-[18px] font-semibold text-text-primary">{stats.summary.registrationCompleted}</div><div class="text-[10px] text-text-placeholder">Registered</div></div>
+						<div><div class="font-mono text-[18px] font-semibold text-text-primary">{stats.summary.paywallViewed}</div><div class="text-[10px] text-text-placeholder">Paywall</div></div>
+						<div><div class="font-mono text-[18px] font-semibold text-text-primary">{stats.summary.checkoutStarted}</div><div class="text-[10px] text-text-placeholder">Checkout</div></div>
 						<div><div class="font-mono text-[18px] font-semibold text-text-primary">{(stats.summary.readyRate * 100).toFixed(1)}%</div><div class="text-[10px] text-text-placeholder">Ready rate</div></div>
 					</div>
 					<div class="mt-4 break-all font-mono text-[10px] leading-5 text-text-placeholder">{promotionUrl(selected)}</div>

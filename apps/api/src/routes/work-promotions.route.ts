@@ -1,12 +1,7 @@
 import { Hono } from "hono";
 import { and, asc, eq, gte, sql } from "drizzle-orm";
-import { workPromotions, workPromotionStatsHourly, works } from "@cohub/db";
-import {
-  encodeWorkPromotionStatsRedisField,
-  WORK_PROMOTION_EVENT_KEYS,
-  WORK_PROMOTION_STATS_ACTIVE_REDIS_KEY,
-  type WorkPromotionEventKey,
-} from "@cohub/protocol";
+import { userProfiles, workPromotions, workPromotionStatsHourly, works } from "@cohub/db";
+import { WORK_PROMOTION_EVENT_KEYS, type WorkPromotionEventKey } from "@cohub/protocol";
 import { db } from "../db/index.js";
 import { authzDenied, requireValidId, useAuth } from "../lib/middleware.js";
 import { hasPermission } from "../permissions.js";
@@ -14,6 +9,10 @@ import {
   getWorkPromotionProvider,
   listWorkPromotionProviders,
 } from "../work-promotion-providers.js";
+import {
+  recordResolvedWorkPromotionEvent,
+  resolvePublishedWorkPromotion,
+} from "../work-promotion-events.js";
 
 const router = new Hono();
 const PROVIDER_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
@@ -29,6 +28,32 @@ const EVENT_KEYS = new Set<string>(WORK_PROMOTION_EVENT_KEYS);
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 const STATS_DAYS = 30;
+const EVENT_ID_RE = /^[a-zA-Z0-9_-]{1,128}$/;
+const REGISTRATION_WINDOW_MS = 10 * 60 * 1_000;
+
+type PromotionCounts = {
+  landing: number;
+  ready: number;
+  registrationCompleted: number;
+  paywallViewed: number;
+  checkoutStarted: number;
+};
+
+const emptyPromotionCounts = (): PromotionCounts => ({
+  landing: 0,
+  ready: 0,
+  registrationCompleted: 0,
+  paywallViewed: 0,
+  checkoutStarted: 0,
+});
+
+function promotionCountKey(eventKey: string): keyof PromotionCounts | null {
+  if (eventKey === "landing" || eventKey === "ready") return eventKey;
+  if (eventKey === "registration_completed") return "registrationCompleted";
+  if (eventKey === "paywall_viewed") return "paywallViewed";
+  if (eventKey === "checkout_started") return "checkoutStarted";
+  return null;
+}
 
 function serializePromotion(row: typeof workPromotions.$inferSelect) {
   return {
@@ -50,6 +75,10 @@ function hasControlCharacters(value: string) {
   return false;
 }
 
+function boundedString(value: unknown, maxLength: number) {
+  return typeof value === "string" && value.length <= maxLength ? value : undefined;
+}
+
 function parseParameters(value: unknown): Record<string, string> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const entries = Object.entries(value);
@@ -62,15 +91,6 @@ function parseParameters(value: unknown): Record<string, string> | null {
     parsed[key] = item;
   }
   return parsed;
-}
-
-function toUtcHour(date: Date) {
-  return new Date(Date.UTC(
-    date.getUTCFullYear(),
-    date.getUTCMonth(),
-    date.getUTCDate(),
-    date.getUTCHours(),
-  ));
 }
 
 function toUtcDay(date: Date) {
@@ -167,24 +187,26 @@ router.get("/:workId/promotions/:promotionId/stats", async (c) => {
     )).orderBy(asc(workPromotionStatsHourly.bucketStartAt)),
   ]);
 
-  const totals = { landing: 0, ready: 0 };
-  const daily = new Map<string, { date: string; landing: number; ready: number }>();
+  const totals = emptyPromotionCounts();
+  const daily = new Map<string, { date: string } & PromotionCounts>();
   for (let offset = 0; offset < STATS_DAYS; offset += 1) {
     const date = new Date(startDay.getTime() + offset * DAY_MS).toISOString().slice(0, 10);
-    daily.set(date, { date, landing: 0, ready: 0 });
+    daily.set(date, { date, ...emptyPromotionCounts() });
   }
   for (const row of totalRows) {
-    if (row.eventKey !== "landing" && row.eventKey !== "ready") continue;
+    const key = promotionCountKey(row.eventKey);
+    if (!key) continue;
     const count = Number(row.eventCount);
-    if (Number.isSafeInteger(count) && count > 0) totals[row.eventKey] = count;
+    if (Number.isSafeInteger(count) && count > 0) totals[key] = count;
   }
   for (const row of rows) {
-    if (row.eventKey !== "landing" && row.eventKey !== "ready") continue;
+    const key = promotionCountKey(row.eventKey);
+    if (!key) continue;
     const count = Number(row.eventCount);
     if (!Number.isSafeInteger(count) || count <= 0) continue;
     const date = row.bucketStartAt.toISOString().slice(0, 10);
     const point = daily.get(date);
-    if (point) point[row.eventKey] += count;
+    if (point) point[key] += count;
   }
   return c.json({
     promotion: serializePromotion(promotion),
@@ -202,57 +224,57 @@ router.post("/:workId/promotions/:promotionId/events", async (c) => {
   if (!requireValidId(workId) || !requireValidId(promotionId)) return c.json({ message: "promotion not found" }, 404);
   const body = await c.req.json().catch(() => null) as Record<string, unknown> | null;
   const eventKey = typeof body?.eventKey === "string" ? body.eventKey : "";
-  const eventId = typeof body?.eventId === "string" && requireValidId(body.eventId) ? body.eventId : null;
+  const eventId = typeof body?.eventId === "string" && EVENT_ID_RE.test(body.eventId) ? body.eventId : null;
   if (!EVENT_KEYS.has(eventKey)) return c.json({ message: "event is invalid" }, 400);
-  if (!eventId) return c.json({ message: "eventId must be a UUID" }, 400);
+  if (!eventId) return c.json({ message: "eventId is invalid" }, 400);
 
-  const [row] = await db.select({ promotion: workPromotions, work: works })
-    .from(workPromotions)
-    .innerJoin(works, eq(works.id, workPromotions.workId))
-    .where(and(eq(workPromotions.id, promotionId), eq(workPromotions.workId, workId)))
-    .limit(1);
-  if (row?.work.status !== "published" || !row.work.currentVersionId) {
-    return c.json({ message: "promotion not found" }, 404);
-  }
-  const workVersionId = row.work.currentVersionId;
-  const provider = getWorkPromotionProvider(row.promotion.provider);
-  if (!provider) return c.json({ message: "promotion provider is unavailable" }, 503);
-
-  const bucketStartAt = toUtcHour(new Date());
-  void import("../redis.js").then(({ redisBestEffortCommandClient }) => {
-    if (redisBestEffortCommandClient.status !== "ready") return;
-    return redisBestEffortCommandClient.hincrby(
-      WORK_PROMOTION_STATS_ACTIVE_REDIS_KEY,
-      encodeWorkPromotionStatsRedisField({
-        promotionId,
-        workVersionId,
-        bucketStartAtMs: bucketStartAt.getTime(),
-        eventKey: eventKey as WorkPromotionEventKey,
-      }),
-      1,
-    );
-  }).catch(() => undefined);
-
-  const sourceUrl = typeof body?.sourceUrl === "string" && body.sourceUrl.length <= 2_048
-    ? body.sourceUrl
-    : undefined;
-  const fbp = typeof body?.fbp === "string" && body.fbp.length <= 255 ? body.fbp : undefined;
-  const fbc = typeof body?.fbc === "string" && body.fbc.length <= 255 ? body.fbc : undefined;
-  void provider.deliver(c, {
+  const row = await resolvePublishedWorkPromotion(workId, promotionId);
+  if (!row) return c.json({ message: "promotion not found" }, 404);
+  const sourceUrl = boundedString(body?.sourceUrl, 2_048);
+  const fbp = boundedString(body?.fbp, 255);
+  const fbc = boundedString(body?.fbc, 255);
+  const productKey = boundedString(body?.productKey, 128);
+  const browser = recordResolvedWorkPromotionEvent(c, {
+    promotion: row.promotion,
+    workVersionId: row.work.currentVersionId,
     eventKey: eventKey as WorkPromotionEventKey,
     eventId,
-    workId,
-    promotionId,
     sourceUrl,
     fbp,
     fbc,
+    productKey,
   });
+  if (!browser) return c.json({ message: "promotion provider is unavailable" }, 503);
+  return c.json({ ok: true, eventId, browser });
+});
 
-  return c.json({
-    ok: true,
+router.post("/:workId/promotions/:promotionId/registration", async (c) => {
+  const user = useAuth(c);
+  if (user instanceof Response) return user;
+  const workId = c.req.param("workId");
+  const promotionId = c.req.param("promotionId");
+  if (!requireValidId(workId) || !requireValidId(promotionId)) return c.json({ message: "promotion not found" }, 404);
+  const row = await resolvePublishedWorkPromotion(workId, promotionId);
+  if (!row) return c.json({ message: "promotion not found" }, 404);
+  const [profile] = await db.select({ createdAt: userProfiles.createdAt })
+    .from(userProfiles)
+    .where(eq(userProfiles.userUuid, user.uuid))
+    .limit(1);
+  if (!profile?.createdAt || Date.now() - profile.createdAt.getTime() > REGISTRATION_WINDOW_MS) {
+    return c.json({ reported: false, eventId: null, browser: null });
+  }
+  const body = await c.req.json().catch(() => null) as Record<string, unknown> | null;
+  const eventId = `registration_${user.uuid}`;
+  const browser = recordResolvedWorkPromotionEvent(c, {
+    promotion: row.promotion,
+    workVersionId: row.work.currentVersionId,
+    eventKey: "registration_completed",
     eventId,
-    browser: provider.browserConfig(),
+    sourceUrl: boundedString(body?.sourceUrl, 2_048),
+    fbp: boundedString(body?.fbp, 255),
+    fbc: boundedString(body?.fbc, 255),
   });
+  return c.json({ reported: true, eventId, browser });
 });
 
 export default router;

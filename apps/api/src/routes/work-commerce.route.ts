@@ -26,7 +26,12 @@ import {
 import {
   createWorkPurchaseIdempotencyKey,
   normalizePurchaseAttemptId,
+  toPromotionMoney,
 } from "../lib/work-commerce-purchase.js";
+import {
+  recordResolvedWorkPromotionEvent,
+  resolvePublishedWorkPromotion,
+} from "../work-promotion-events.js";
 
 const router = new Hono();
 
@@ -34,6 +39,26 @@ const router = new Hono();
 const RESOLVE_MAX_PRODUCT_KEYS = 20;
 const RESOLVE_MAX_PRODUCT_KEY_LENGTH = 128;
 const RESOLVE_BILLING_CONCURRENCY = 4;
+
+type PromotionAttributionInput = {
+  promotionId: string;
+  sourceUrl?: string;
+  fbp?: string;
+  fbc?: string;
+};
+
+function parsePromotionAttribution(value: unknown): PromotionAttributionInput | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const promotionId = typeof record.promotionId === "string" ? record.promotionId : "";
+  if (!requireValidId(promotionId)) return null;
+  const sourceUrl = typeof record.sourceUrl === "string" && record.sourceUrl.length <= 2_048
+    ? record.sourceUrl
+    : undefined;
+  const fbp = typeof record.fbp === "string" && record.fbp.length <= 255 ? record.fbp : undefined;
+  const fbc = typeof record.fbc === "string" && record.fbc.length <= 255 ? record.fbc : undefined;
+  return { promotionId, sourceUrl, fbp, fbc };
+}
 
 async function getPublishedWorkOrDeny(workId: string, userUuid?: string | null) {
   const work = await getWorkCommerceContextById(workId);
@@ -225,6 +250,7 @@ router.post("/works/:id/commerce/purchase", async (c) => {
   const body = await c.req.json().catch(() => null) as {
     productKey?: unknown;
     purchaseAttemptId?: unknown;
+    promotionAttribution?: unknown;
   } | null;
   const productKey = typeof body?.productKey === "string" ? body.productKey.trim() : "";
   if (!productKey) return c.json({ message: "productKey is required" }, 400);
@@ -237,6 +263,10 @@ router.post("/works/:id/commerce/purchase", async (c) => {
       message: "purchaseAttemptId must be 1-128 chars of [a-zA-Z0-9_-]",
     }, 400);
   }
+  const promotionAttribution = parsePromotionAttribution(body?.promotionAttribution);
+  const promotion = promotionAttribution
+    ? await resolvePublishedWorkPromotion(resolved.work.workId, promotionAttribution.promotionId)
+    : null;
   try {
     const businessKey = await requireSpaceCommerceBusinessKey(resolved.work.spaceId);
     const sdk = await createSpaceCommerceSdk();
@@ -295,6 +325,11 @@ router.post("/works/:id/commerce/purchase", async (c) => {
           cohub_work_id: resolved.work.workId,
           cohub_purchase_attempt_id: purchaseAttemptId,
           cohub_purchase_idempotency_version: "work-purchase-v1",
+          ...(promotion && promotionAttribution ? {
+            cohub_promotion_id: promotion.promotion.id,
+            ...(promotionAttribution.fbp ? { cohub_promotion_fbp: promotionAttribution.fbp } : {}),
+            ...(promotionAttribution.fbc ? { cohub_promotion_fbc: promotionAttribution.fbc } : {}),
+          } : {}),
           ...(balance ? {
             cohub_balance_amount_minor: balance.amountMinor,
             cohub_balance_benefit_key: balance.benefitKey,
@@ -312,6 +347,26 @@ router.post("/works/:id/commerce/purchase", async (c) => {
         }),
       },
     );
+    const checkoutMoney = toPromotionMoney(amountMinor, product.currency);
+    if (
+      promotion
+      && promotionAttribution
+      && result.checkout?.checkout_usable === true
+      && typeof result.checkout.checkout_url === "string"
+    ) {
+      recordResolvedWorkPromotionEvent(c, {
+        promotion: promotion.promotion,
+        workVersionId: promotion.work.currentVersionId,
+        eventKey: "checkout_started",
+        eventId: purchaseAttemptId,
+        sourceUrl: promotionAttribution.sourceUrl,
+        fbp: promotionAttribution.fbp,
+        fbc: promotionAttribution.fbc,
+        productKey: product.key,
+        value: checkoutMoney?.value,
+        currency: checkoutMoney?.currency,
+      });
+    }
     return c.json({ checkout: {
       providerKey: result.checkout?.provider_key ?? null,
       checkoutUrl: result.checkout?.checkout_url ?? null,
@@ -320,6 +375,8 @@ router.post("/works/:id/commerce/purchase", async (c) => {
       message: result.checkout?.message ?? null,
       orderId: result.order.id,
       productKey: result.order.product_key_snapshot,
+      value: checkoutMoney?.value ?? null,
+      currency: checkoutMoney?.currency ?? null,
     } });
   } catch (error) {
     const response = handleWorkCommerceRouteError(c, error);

@@ -1,6 +1,7 @@
 import { isIP } from "node:net";
 import type { Context } from "hono";
 import { createLogger } from "@cohub/infra/logging";
+import type { WorkPromotionEventKey } from "@cohub/protocol";
 import { config } from "./config.js";
 import { getRequestRemoteAddress, isPrivateNetworkAddress } from "./lib/middleware.js";
 
@@ -11,13 +12,16 @@ export type WorkPromotionBrowserConfig =
   | { provider: "meta"; pixelId: string };
 
 export type WorkPromotionDeliveryEvent = {
-  eventKey: "landing" | "ready";
+  eventKey: WorkPromotionEventKey;
   eventId: string;
   workId: string;
   promotionId: string;
   sourceUrl?: string;
   fbp?: string;
   fbc?: string;
+  productKey?: string;
+  value?: number;
+  currency?: string;
 };
 
 export type WorkPromotionProvider = {
@@ -56,6 +60,13 @@ const genericProvider: WorkPromotionProvider = {
   deliver: async () => undefined,
 };
 
+const META_EVENT_NAMES: Partial<Record<WorkPromotionEventKey, string>> = {
+  ready: "ViewContent",
+  registration_completed: "CompleteRegistration",
+  paywall_viewed: "AddToCart",
+  checkout_started: "InitiateCheckout",
+};
+
 const metaProvider: WorkPromotionProvider = {
   key: "meta",
   configured: () => Boolean(config.metaPromotionPixelId && config.metaPromotionAccessToken),
@@ -63,7 +74,8 @@ const metaProvider: WorkPromotionProvider = {
     ? { provider: "meta", pixelId: config.metaPromotionPixelId }
     : null,
   deliver: async (c, event) => {
-    if (event.eventKey !== "ready" || !config.metaPromotionPixelId || !config.metaPromotionAccessToken) return;
+    const eventName = META_EVENT_NAMES[event.eventKey];
+    if (!eventName || !config.metaPromotionPixelId || !config.metaPromotionAccessToken) return;
     const userAgent = c.req.header("user-agent")?.trim();
     const clientIp = resolveClientIp(c);
     const sourceUrl = resolveSourceUrl(event.sourceUrl);
@@ -72,6 +84,11 @@ const metaProvider: WorkPromotionProvider = {
       ...(userAgent ? { client_user_agent: userAgent } : {}),
       ...(event.fbp ? { fbp: event.fbp } : {}),
       ...(event.fbc ? { fbc: event.fbc } : {}),
+    };
+    const customData = {
+      ...(event.productKey ? { content_ids: [event.productKey], content_type: "product" } : {}),
+      ...(event.value !== undefined ? { value: event.value } : {}),
+      ...(event.currency ? { currency: event.currency } : {}),
     };
     const endpoint = `https://graph.facebook.com/${config.metaPromotionApiVersion}/${encodeURIComponent(config.metaPromotionPixelId)}/events`;
     try {
@@ -83,16 +100,15 @@ const metaProvider: WorkPromotionProvider = {
         },
         body: JSON.stringify({
           data: [{
-            event_name: "ViewContent",
+            event_name: eventName,
             event_time: Math.floor(Date.now() / 1000),
             event_id: event.eventId,
             action_source: "website",
             ...(sourceUrl ? { event_source_url: sourceUrl } : {}),
             user_data: userData,
-            custom_data: {
-              content_ids: [event.workId],
-              content_type: "product",
-            },
+            custom_data: Object.keys(customData).length > 0
+              ? customData
+              : { content_ids: [event.workId], content_type: "product" },
           }],
         }),
         signal: AbortSignal.timeout(3_000),

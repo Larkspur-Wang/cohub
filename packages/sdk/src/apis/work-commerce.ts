@@ -41,6 +41,8 @@ export type WorkCommercePurchaseResponse = {
     message: string | null;
     orderId: string;
     productKey: string;
+    value: number | null;
+    currency: string | null;
   };
 };
 

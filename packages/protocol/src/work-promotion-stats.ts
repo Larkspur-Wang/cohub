@@ -9,7 +9,13 @@ export const WORK_PROMOTION_STATS_FLUSH_JOB = "work.promotion_stats.flush";
 export const WORK_PROMOTION_STATS_FLUSH_SCHEDULER_ID = "work-promotion-stats-flush";
 export const WORK_PROMOTION_STATS_FLUSH_INTERVAL_MS = 30_000;
 
-export const WORK_PROMOTION_EVENT_KEYS = ["landing", "ready"] as const;
+export const WORK_PROMOTION_EVENT_KEYS = [
+  "landing",
+  "ready",
+  "registration_completed",
+  "paywall_viewed",
+  "checkout_started",
+] as const;
 export type WorkPromotionEventKey = typeof WORK_PROMOTION_EVENT_KEYS[number];
 
 export type WorkPromotionStatsRedisField = {

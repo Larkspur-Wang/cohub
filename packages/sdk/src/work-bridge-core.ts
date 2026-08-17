@@ -35,6 +35,11 @@ export type WorkPurchaseRequest = {
 	purchaseAttemptId: string;
 };
 
+export type WorkCheckoutStarted = WorkPurchaseRequest & {
+	value?: number;
+	currency?: string;
+};
+
 /**
  * Reactive dialog state managed by the core. The host (Svelte or React)
  * subscribes via {@link WorkBridgeCoreConfig.onStateChange} and mirrors these
@@ -64,6 +69,13 @@ export type WorkBridgeGetAccessToken = (
  * Used for ownership checks and silent re-authorization cache lookups.
  */
 export type WorkBridgeGetViewerUuid = () => Promise<string | null>;
+
+export type WorkPromotionAttributionContext = {
+	promotionId: string;
+	sourceUrl?: string;
+	fbp?: string;
+	fbc?: string;
+};
 
 export type WorkBridgeAuthorizationContext = {
 	/** The host surface handling this authorization request. */
@@ -103,6 +115,12 @@ export type WorkBridgeCoreConfig = {
 	getViewerUuid: WorkBridgeGetViewerUuid;
 	/** Starts a sign-in flow with a post-login redirect path. */
 	requestSignIn: WorkBridgeRequestSignIn;
+	/** Returns optional host-owned promotion attribution for checkout. */
+	getPromotionAttribution?: () => WorkPromotionAttributionContext | null;
+	/** Called when the host displays the purchase confirmation. */
+	onPurchaseRequested?: (input: WorkPurchaseRequest) => void;
+	/** Called immediately before navigating to a usable checkout. */
+	onCheckoutStarted?: (input: WorkCheckoutStarted) => void;
 	/** Called whenever the dialog state changes, for reactive UI binding. */
 	onStateChange?: (state: WorkBridgeDialogState) => void;
 };
@@ -303,6 +321,7 @@ export function createWorkBridgeCore(
 			);
 			return null;
 		}
+		const promotionAttribution = config.getPromotionAttribution?.() ?? null;
 		const response = await fetch(
 			`${apiOrigin}/api/works/${work.id}/commerce/purchase`,
 			{
@@ -311,7 +330,11 @@ export function createWorkBridgeCore(
 					Authorization: `Bearer ${userToken}`,
 					"Content-Type": "application/json",
 				},
-				body: JSON.stringify({ productKey, purchaseAttemptId }),
+				body: JSON.stringify({
+					productKey,
+					purchaseAttemptId,
+					...(promotionAttribution ? { promotionAttribution } : {}),
+				}),
 			},
 		);
 		if (!response.ok)
@@ -403,6 +426,7 @@ export function createWorkBridgeCore(
 				state.purchaseError = null;
 				state.purchaseOpen = true;
 				notify();
+				config.onPurchaseRequested?.({ ...state.pendingPurchase });
 			}
 			if (data.type === "cohub.work.authorize") {
 				const allowedViewerScopes = clonePermissionScopes(
@@ -515,6 +539,8 @@ export function createWorkBridgeCore(
 					checkoutUsable?: unknown;
 					orderId?: unknown;
 					productKey?: unknown;
+					value?: unknown;
+					currency?: unknown;
 				};
 				if (
 					typeof next.orderId === "string" &&
@@ -528,6 +554,11 @@ export function createWorkBridgeCore(
 				const url = next.checkoutUrl;
 				const usable = next.checkoutUsable === true;
 				if (usable && typeof url === "string" && url) {
+					config.onCheckoutStarted?.({
+						...state.pendingPurchase,
+						...(typeof next.value === "number" ? { value: next.value } : {}),
+						...(typeof next.currency === "string" ? { currency: next.currency } : {}),
+					});
 					window.location.href = url;
 				}
 			}

@@ -538,11 +538,17 @@ export function registerWorks(program: Command): void {
           name: result.promotion.name,
           landing: result.summary.landing,
           ready: result.summary.ready,
+          registered: result.summary.registrationCompleted,
+          paywall: result.summary.paywallViewed,
+          checkout: result.summary.checkoutStarted,
           readyRate: `${(result.summary.readyRate * 100).toFixed(1)}%`,
         }], [
           { key: "name", label: "Name" },
           { key: "landing", label: "Landing" },
           { key: "ready", label: "Ready" },
+          { key: "registered", label: "Registered" },
+          { key: "paywall", label: "Paywall" },
+          { key: "checkout", label: "Checkout" },
           { key: "readyRate", label: "Ready rate" },
         ]);
       } catch (e: unknown) {
