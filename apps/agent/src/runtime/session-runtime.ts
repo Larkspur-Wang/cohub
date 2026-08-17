@@ -17,6 +17,12 @@ import type { ImageToTextConfig } from "@cohub/infra/config-runtime/image-to-tex
 import { ModelUnavailableError } from "@cohub/core/sessions";
 import { prepareAgentImagesForModel } from "./image-to-text.js";
 import type { SpaceModListItem } from "@cohub/core/space-mods";
+import {
+  EMPTY_TOOL_CALL_LOOP_GUARD_STATE,
+  observeToolCallBatch,
+  TOOL_CALL_LOOP_GUARD_PROMPT,
+  TOOL_CALL_LOOP_GUARD_THRESHOLD,
+} from "./tool-call-loop-guard.js";
 
 export type CohubAgentSessionEvent = AgentEvent;
 
@@ -675,11 +681,12 @@ function createStreamFn(getRuntime: () => { modelRegistry: CohubModelRegistry; i
   };
 }
 
-function createUserMessage(text: string, images?: ImageContent[]): AgentMessage {
+function createUserMessage(text: string, images?: ImageContent[], meta?: Record<string, unknown>): AgentMessage {
   return {
     role: "user",
     content: [{ type: "text", text }, ...(images ?? [])],
     timestamp: Date.now(),
+    ...(meta ? { meta } : {}),
   } as AgentMessage;
 }
 
@@ -790,6 +797,7 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
   let retryContext: ToolExecutionContext | null = null;
   let retryDelayMs = AGENT_RETRY_BASE_DELAY_MS;
   let forcedCompactionPending = false;
+  let toolCallLoopGuardState = EMPTY_TOOL_CALL_LOOP_GUARD_STATE;
 
   const clearRetryState = () => {
     retryAttempt = 0;
@@ -868,6 +876,23 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
       if (message.role === "assistant") {
         const assistantMessage = event.message as AssistantMessage;
         lastAssistantMessage = assistantMessage;
+        const toolContext = getCurrentToolExecutionContext();
+        const loopGuard = observeToolCallBatch(toolCallLoopGuardState, {
+          turnId: toolContext?.turnId ?? null,
+          message: assistantMessage,
+        });
+        toolCallLoopGuardState = loopGuard.state;
+        if (loopGuard.shouldIntervene) {
+          logger.warn("[ToolCallLoopGuard] repeated tool-call batch detected", {
+            sessionId: toolContext?.sessionId ?? "unknown",
+            turnId: toolContext?.turnId ?? null,
+            threshold: TOOL_CALL_LOOP_GUARD_THRESHOLD,
+          });
+          agent.steer(createUserMessage(TOOL_CALL_LOOP_GUARD_PROMPT, undefined, {
+            internal: true,
+            source: "tool_call_loop_guard",
+          }));
+        }
         const retryOutcome = getAssistantRetryOutcome(assistantMessage, retryAttempt);
         const sessionId = getCurrentToolExecutionContext()?.sessionId ?? "unknown";
         const turnId = getCurrentToolExecutionContext()?.turnId ?? undefined;
@@ -881,6 +906,9 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
           clearRetryState();
         }
       } else if (message.role === "user" || message.role === "toolResult") {
+        if (message.role === "user") {
+          toolCallLoopGuardState = EMPTY_TOOL_CALL_LOOP_GUARD_STATE;
+        }
         const entryId = options.sessionManager.appendMessage(event.message as never);
         (event.message as unknown as Record<string, unknown>).sessionEntryId = entryId;
       }
