@@ -1,5 +1,21 @@
 [
 	{
+		"version": "2.22",
+		"date": "2026-08-18",
+		"tags": ["v2.22.0"],
+		"highlights": [
+			"**Work promotions**: end-to-end promotion tracking for published works — create immutable UTM-parameterized promotion links, attribute landing/ready/paywall events and conversions (registration, checkout) back to promotions, and view hourly analytics; ships with a Meta pixel provider, CLI `works promotions` commands, SDK APIs, and a web management panel.",
+			"**Sandbox optimistic concurrency**: filesystem writes are now serialized per path and support versioned writes (size + mtime) that reject stale overwrites with a CONFLICT error, plus a new atomic `fs.edit` RPC that applies batched text replacements under the same lock, eliminating lost updates from concurrent tool calls.",
+			"**Typed board generation references**: board nodes now declare typed content capabilities (text, image, video, audio, file, json, collection ports) shared across protocol and web, and the generation composer wires selected board items into generations as typed reference inputs instead of raw URLs.",
+			"**Relative markdown asset resolution**: markdown surfaces now resolve workspace-relative image/video/audio paths into live assets with bounded concurrency, retries, and timeouts, so workspace documents render media without manual URL fixes.",
+			"**Agent tool-call loop guard**: the agent runtime detects repeated identical tool-call batches within a turn and steers the model to stop and reassess, preventing runaway tool loops and wasted tokens."
+		],
+		"fixes": [
+			"Accept modern UUID versions (v6–v8) consistently across agent, API, and CLI validation via shared protocol-level identifier checks.",
+			"Restrict publicly recordable promotion events to safe landing/ready/paywall events, blocking spoofed conversion events from unauthenticated clients."
+		]
+	},
+	{
 		"version": "2.21",
 		"date": "2026-08-17",
 		"tags": ["v2.21.0"],
