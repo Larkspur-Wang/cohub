@@ -3970,14 +3970,33 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 						},
 					};
 					clearIntermediateHandoffIfPersisted(targetSessionId, turnId);
+					if (
+						patchedTurn.executionKind === "direct_generation" &&
+						["completed", "failed", "interrupted", "cancelled"].includes(
+							patchedTurn.status,
+						)
+					) {
+						completeGenerationForTurn(targetSessionId, turnId);
+					}
 				}
-				if (!existingTurn || payload.type === "session.turn.finalized") {
+				const terminalDirectGeneration =
+					(normalizedTurnPatch?.executionKind === "direct_generation" ||
+						existingTurn?.executionKind === "direct_generation") &&
+					["completed", "failed", "interrupted", "cancelled"].includes(
+						normalizedTurnPatch?.status ?? "",
+					);
+				if (
+					!existingTurn ||
+					payload.type === "session.turn.finalized" ||
+					terminalDirectGeneration
+				) {
 					void hydrateTurnOnce({
 						sessionId: targetSessionId,
 						turnId,
 						reason: "turn.event",
 						onHydrated:
-							payload.type === "session.turn.finalized"
+							payload.type === "session.turn.finalized" ||
+							terminalDirectGeneration
 								? () => {
 										completeGenerationForTurn(targetSessionId, turnId);
 										clearIntermediateHandoffIfPersisted(
