@@ -184,7 +184,7 @@ export function serializeProduct(
   boundCreditBenefits: CreditsBenefit[] = [],
   cohubBalance?: CohubBalanceDescriptor | null,
 ): SerializedCommerceProduct {
-  const amountMinor = Number(product.amount ?? product.unit_amount ?? 0);
+  const amountMinor = Number(product.amount ?? 0);
   const amountUsd = amountMinor / 100;
   const creditBenefits = boundCreditBenefits
     .filter((benefit) => benefit.config.token_type === COHUB_CREDIT_TOKEN)

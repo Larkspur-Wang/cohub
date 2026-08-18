@@ -44,7 +44,7 @@ export function configureBillingRuntime(input: {
   redis?: BillingRedisClient | null;
 }) {
   runtimeConfig = input.config ?? {};
-  checkoutLockRedisRef.current = (input.redis as typeof checkoutLockRedisRef.current) ?? null;
+  checkoutLockRedisRef.current = input.redis ?? null;
   defaultBillingOperations = null;
 }
 
@@ -213,33 +213,6 @@ function disabledRedemptionResult(input: {
     message: input.reason,
     redemptionRecordId: null,
     itemCount: 0,
-  };
-}
-
-function checkFeatureLimitFromEntitlement(input: {
-  entitlement: BillingFeatureEntitlement | null;
-  quantity: number;
-  metadataKey: string;
-  fallbackLimit?: number;
-  missingEntitlementPolicy?: "allow" | "deny";
-}): BillingFeatureLimitCheck {
-  const unlimited = input.entitlement?.metadata.unlimited === true;
-  const rawLimit = input.entitlement?.metadata[input.metadataKey];
-  const entitlementLimit =
-    typeof rawLimit === "number" && Number.isFinite(rawLimit) ? rawLimit : null;
-  const limit = unlimited
-    ? null
-    : (entitlementLimit ?? input.fallbackLimit ?? null);
-  const allowed =
-    input.entitlement === null && limit === null
-      ? input.missingEntitlementPolicy !== "deny"
-      : unlimited || (limit !== null && input.quantity <= limit);
-  return {
-    allowed,
-    quantity: input.quantity,
-    limit,
-    unlimited,
-    entitlement: input.entitlement,
   };
 }
 

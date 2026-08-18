@@ -1,4 +1,3 @@
-// @ts-nocheck
 // Optional hosted-billing provider. Requires @talesofai-billing/sdk at runtime.
 
 import {
@@ -6,6 +5,11 @@ import {
   type Benefit,
   type CreditsBenefit,
 } from "@talesofai-billing/sdk/admin/benefits";
+import {
+  discountsFeature,
+  type Discount,
+  type DiscountPreviewResponse,
+} from "@talesofai-billing/sdk/admin/discounts";
 import { businessesFeature } from "@talesofai-billing/sdk/admin/businesses";
 import {
   creditsFeature,
@@ -16,6 +20,7 @@ import {
 import { customersFeature } from "@talesofai-billing/sdk/admin/customers";
 import {
   type CreateOrderResponse,
+  type GetOrderResponse,
   ordersFeature,
 } from "@talesofai-billing/sdk/admin/orders";
 import {
@@ -26,6 +31,7 @@ import { redemptionCodesFeature } from "@talesofai-billing/sdk/admin/redemption-
 import { providersFeature } from "@talesofai-billing/sdk/admin/providers";
 import {
   type CreateSubscriptionResponse,
+  type GetSubscriptionResponse,
   type Subscription,
   type SubscriptionCheckout,
   subscriptionsFeature,
@@ -66,10 +72,10 @@ import {
   type BillingPromotionCodePreviewInput,
   type BillingRedemptionInput,
   type BillingRedemptionResult,
-  type BillingReferralRewardResult,
   type BillingSubscriptionHistoryList,
   type BillingSubscriptionHistoryStatus,
   type BillingUsagePreflight,
+  type BillingUsagePreflightInput,
   type BillingUsageRecordInput,
   type BillingUsageRecordResult,
   type BillingUserRef,
@@ -94,6 +100,7 @@ function createConfiguredSdk(input: BillingClientConfig) {
     .useAdmin(businessesFeature())
     .useAdmin(customersFeature())
     .useAdmin(creditsFeature())
+    .useAdmin(discountsFeature())
     .useAdmin(productsFeature())
     .useAdmin(ordersFeature())
     .useAdmin(redemptionCodesFeature())
@@ -103,56 +110,15 @@ function createConfiguredSdk(input: BillingClientConfig) {
 
 type ConfiguredBillingSdk = ReturnType<typeof createConfiguredSdk>;
 
-type BillingDiscountRaw = {
-  id: string;
-  name: string;
-  effective_status: string;
-  code_preview: string | null;
-  effect: { type: string; percentage_bps?: number };
-  duration: { type: "once" | "forever" };
-  ends_at: string | null;
-  max_redemptions_per_customer: number | null;
-  version: number;
-  metadata: Record<string, unknown>;
-  created_at: string;
-};
-
-type BillingDiscountPreviewRaw =
-  | {
-      eligible: true;
-      reason_code: null;
-      discount: {
-        discount_id: string;
-        name: string;
-        ends_at: string | null;
-      };
-      duration: { type: "once" | "forever" };
-      pricing: {
-        amount: number;
-        discount_amount: number;
-        paid_amount: number;
-        currency: string;
-      };
-    }
-  | {
-      eligible: false;
-      reason_code: string;
-      message: string;
-    };
-
 type FirstPurchaseCampaign = {
   key: string;
   revision: string;
-  discount: BillingDiscountRaw;
+  discount: Discount;
 };
 
 type FirstPurchaseCampaigns = {
   subscription: FirstPurchaseCampaign | null;
   addons: Map<string, FirstPurchaseCampaign>;
-};
-
-type BillingCheckoutInspectResponse = {
-  discount?: { discount_id?: string };
 };
 
 type ResolvedCheckoutDiscount = {
@@ -797,7 +763,7 @@ function normalizePromotionCode(value: string): string {
 }
 
 function discountPricing(
-  pricing: Extract<BillingDiscountPreviewRaw, { eligible: true }>["pricing"],
+  pricing: Extract<DiscountPreviewResponse, { eligible: true }>["pricing"],
 ): BillingDiscountPricing {
   return {
     amountMinor: pricing.amount,
@@ -812,7 +778,7 @@ function discountPricing(
 
 function firstPurchaseRevision(
   key: string,
-  discount: BillingDiscountRaw,
+  discount: Discount,
 ): string {
   return createHash("sha256")
     .update(JSON.stringify([key, discount.id, discount.version]))
@@ -828,7 +794,7 @@ function checkoutSelectionKey(input: BillingCheckoutInput): string {
   return createHash("sha256").update(selection).digest("hex");
 }
 
-function isValidFirstPurchaseDiscount(discount: BillingDiscountRaw): boolean {
+function isValidFirstPurchaseDiscount(discount: Discount): boolean {
   return (
     discount.code_preview === null &&
     discount.effect.type === "percentage" &&
@@ -839,9 +805,9 @@ function isValidFirstPurchaseDiscount(discount: BillingDiscountRaw): boolean {
 }
 
 function newestDiscount(
-  current: BillingDiscountRaw | undefined,
-  candidate: BillingDiscountRaw,
-): BillingDiscountRaw {
+  current: Discount | undefined,
+  candidate: Discount,
+): Discount {
   if (!current) return candidate;
   if (candidate.created_at !== current.created_at) {
     return candidate.created_at > current.created_at ? candidate : current;
@@ -948,7 +914,9 @@ function optionalString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function checkoutDiscountId(value: BillingCheckoutInspectResponse): string | null {
+function checkoutDiscountId(value: {
+  discount?: { discount_id?: string };
+}): string | null {
   return optionalString(value.discount?.discount_id);
 }
 
@@ -1318,7 +1286,7 @@ async function getBillingCache<T>(
 function checkoutResultFromOrder(input: {
   userId: string;
   productKey: string;
-  response: CreateOrderResponse;
+  response: GetOrderResponse | CreateOrderResponse;
   status: BillingPluginStatus;
   reused?: boolean;
 }): BillingCheckoutResult {
@@ -1347,7 +1315,9 @@ function checkoutResultFromOrder(input: {
 function checkoutResultFromSubscription(input: {
   userId: string;
   productKey: string;
-  response: CreateSubscriptionResponse;
+  response: (GetSubscriptionResponse | CreateSubscriptionResponse) & {
+    reused?: boolean;
+  };
   status: BillingPluginStatus;
 }): BillingCheckoutResult {
   const checkout = input.response.checkout;
@@ -1413,75 +1383,6 @@ async function withRedisCheckoutLock<T>(
   return run();
 }
 
-function emptyCreditStatus(): BillingCreditStatus {
-  return {
-    netUsd: 0,
-    groups: [],
-  };
-}
-
-function emptyBalanceActivityList(input: {
-  userId: string;
-  tokenType: string;
-  status: BillingPluginStatus;
-  page: number;
-  limit: number;
-}): BillingBalanceActivityList {
-  return {
-    userId: input.userId,
-    billing: input.status,
-    tokenType: input.tokenType,
-    unit: getCreditUnit(input.tokenType),
-    page: input.page,
-    limit: input.limit,
-    items: [],
-    pagination: {
-      hasMore: false,
-      nextPage: null,
-    },
-  };
-}
-
-function emptyCatalog(input: {
-  userId: string;
-  status: BillingPluginStatus;
-  paymentReason: string | null;
-}): BillingCatalog {
-  return {
-    userId: input.userId,
-    billing: input.status,
-    payment: {
-      available: false,
-      reason: input.paymentReason,
-    },
-    products: [],
-    plans: [],
-    addons: [],
-    currentSubscriptions: [],
-    hasActiveSubscription: false,
-    defaultPlanProductKey: null,
-  };
-}
-
-function emptySubscriptionHistoryList(input: {
-  userId: string;
-  status: BillingPluginStatus;
-  page: number;
-  limit: number;
-}): BillingSubscriptionHistoryList {
-  return {
-    userId: input.userId,
-    billing: input.status,
-    page: input.page,
-    limit: input.limit,
-    items: [],
-    pagination: {
-      hasMore: false,
-      nextPage: null,
-    },
-  };
-}
-
 function disabledCheckoutResult(input: {
   userId: string;
   productKey: string;
@@ -1502,21 +1403,6 @@ function disabledCheckoutResult(input: {
     orderId: null,
     subscriptionId: null,
     reused: false,
-  };
-}
-
-function disabledRedemptionResult(input: {
-  userId: string;
-  status: BillingPluginStatus;
-  reason: string | null;
-}): BillingRedemptionResult {
-  return {
-    userId: input.userId,
-    billing: input.status,
-    redeemed: false,
-    message: input.reason,
-    redemptionRecordId: null,
-    itemCount: 0,
   };
 }
 
@@ -1565,24 +1451,15 @@ export function createTalesofaiBillingOperations(
   const loadFirstPurchaseCampaigns =
     async (): Promise<FirstPurchaseCampaigns> => {
       const listDiscountsByKind = async (kind: "subscription" | "addon") => {
-        const discounts: BillingDiscountRaw[] = [];
+        const discounts: Discount[] = [];
         for (let page = 1; page <= 20; page += 1) {
-          const response = await sdk.http.request<{
-            items: BillingDiscountRaw[];
-            pagination: { has_more: boolean };
-          }>({
-            method: "GET",
-            path: "/discounts",
-            query: {
-              business_key: businessKey,
-              metadata_contains: JSON.stringify({
-                [FIRST_PURCHASE_MARKER]: kind,
-              }),
-              sorting: "-created_at",
-              include_count: false,
-              page,
-              limit: 100,
-            },
+          const response = await sdk.admin.discounts.list({
+            business_key: businessKey,
+            metadata_contains: { [FIRST_PURCHASE_MARKER]: kind },
+            sorting: "-created_at",
+            include_count: false,
+            page,
+            limit: 100,
           });
           discounts.push(...response.items);
           if (!response.pagination.has_more) break;
@@ -1594,9 +1471,9 @@ export function createTalesofaiBillingOperations(
         listDiscountsByKind("addon"),
       ]);
 
-      let subscriptionDiscount: BillingDiscountRaw | undefined;
+      let subscriptionDiscount: Discount | undefined;
       const discounts = [...subscriptionDiscounts, ...addonDiscountsList];
-      const addonDiscounts = new Map<string, BillingDiscountRaw>();
+      const addonDiscounts = new Map<string, Discount>();
       for (const discount of discounts) {
         if (
           discount.effective_status !== "available" ||
@@ -1622,7 +1499,7 @@ export function createTalesofaiBillingOperations(
 
       const toCampaign = (
         key: string,
-        discount: BillingDiscountRaw | undefined,
+        discount: Discount | undefined,
       ): FirstPurchaseCampaign | null => {
         if (!discount) return null;
         return {
@@ -1693,26 +1570,18 @@ export function createTalesofaiBillingOperations(
     userId: string;
     productKey: string;
     selector: { discount_id: string } | { discount_code: string };
-  }): Promise<BillingDiscountPreviewRaw> =>
-    sdk.http.request({
-      method: "POST",
-      path: "/discounts/preview",
-      body: {
-        business_key: businessKey,
-        external_user_id: input.userId,
-        product_key: input.productKey,
-        ...input.selector,
-      },
+  }): Promise<DiscountPreviewResponse> =>
+    sdk.admin.discounts.preview({
+      business_key: businessKey,
+      external_user_id: input.userId,
+      product_key: input.productKey,
+      ...input.selector,
     });
 
   const getPurchaseFacts = async (userId: string) =>
-    sdk.http.request<{
-      facts: { subscription_purchase: { exists: boolean } };
-    }>({
-      method: "GET",
-      path: "/customers/:external_user_id/purchase-facts",
-      pathParams: { external_user_id: userId },
-      query: { business_key: businessKey },
+    sdk.admin.customers.getPurchaseFacts({
+      external_user_id: userId,
+      business_key: businessKey,
     });
 
   const ensuredCustomers = new Map<
@@ -2396,8 +2265,7 @@ export function createTalesofaiBillingOperations(
         if (
           inspected.checkout?.checkout_usable === true &&
           inspected.checkout.checkout_url &&
-          checkoutDiscountId(inspected as BillingCheckoutInspectResponse) ===
-            input.discountId
+          checkoutDiscountId(inspected) === input.discountId
         ) {
           return checkoutResultFromOrder({
             userId: input.userId,
@@ -2438,8 +2306,7 @@ export function createTalesofaiBillingOperations(
         if (
           inspected.checkout?.checkout_usable === true &&
           inspected.checkout.checkout_url &&
-          checkoutDiscountId(inspected as BillingCheckoutInspectResponse) ===
-            input.discountId
+          checkoutDiscountId(inspected) === input.discountId
         ) {
           return checkoutResultFromSubscription({
             userId: input.userId,

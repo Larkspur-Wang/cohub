@@ -1,13 +1,20 @@
-/** Opaque provider payload kept for hosted billing compatibility. */
+/**
+ * Provider credit-summary payload kept for hosted billing compatibility.
+ * The provider may return additional fields; they are preserved on the raw
+ * payload but not part of the public contract.
+ */
 export type BillingCreditSummaryRaw = {
   token_type: string;
   available_balance: number;
   open_overage_balance: number;
   net_balance: number;
-  [key: string]: unknown;
 };
 
-/** Opaque provider benefit grant kept for hosted billing compatibility. */
+/**
+ * Provider benefit grant kept for hosted billing compatibility. The provider
+ * may return additional fields; they are preserved on the raw payload but not
+ * part of the public contract.
+ */
 export type BillingActiveBenefitRaw = {
   grant_id: string;
   benefit_id: string;
@@ -22,13 +29,11 @@ export type BillingActiveBenefitRaw = {
   granted_at: string;
   effective_at: string;
   expires_at: string | null;
-  [key: string]: unknown;
 };
 
-/** Opaque provider consume response kept for hosted billing compatibility. */
+/** Provider consume response kept for hosted billing compatibility. */
 export type BillingConsumeCreditsResponseRaw = {
   overage?: unknown;
-  [key: string]: unknown;
 };
 
 export const COHUB_BILLING_TOKEN_TYPES = {

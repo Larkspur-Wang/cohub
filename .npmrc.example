@@ -1,6 +1,10 @@
-# Optional private registry auth for hosted billing builds.
-# Append these lines to a local .npmrc (or inject in CI). Not required for
-# open-source default installs with billing disabled.
+# Private registry auth for hosted billing. `@talesofai-billing/sdk` is an
+# optional *runtime* dependency (billing simply disables itself when it is
+# absent), but it is a required *build-time* dependency for the billing and
+# space-commerce code paths — typechecking and building `@cohub/billing` and
+# `apps/api` will fail without it.
+#
+# Append these lines to a local .npmrc (or inject in CI).
 #
 # @talesofai-billing:registry=https://git.talesofai.com/api/packages/talesofai/npm/
 # //git.talesofai.com/api/packages/talesofai/npm/:_authToken=${GITEA_NPM_TOKEN}

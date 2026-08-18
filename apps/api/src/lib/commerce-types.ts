@@ -54,25 +54,7 @@ export type Product = {
   billing_interval_count?: number | null;
   currency?: string;
   amount?: number;
-  unit_amount?: number;
-  compare_at_unit_amount?: number | null;
   meta?: Record<string, unknown> | null;
-  is_default_plan?: boolean;
-  [key: string]: unknown;
-};
-
-export type CommerceOrder = {
-  id: string;
-  product_key_snapshot: string;
-  product_name_snapshot: string;
-  status: string;
-  amount_snapshot: number;
-  paid_amount_snapshot: number;
-  created_at: string;
-  paid_at: string | null;
-  external_user_id?: string | null;
-  customer?: { external_user_id?: string | null } | null;
-  [key: string]: unknown;
 };
 
 export type ProductBenefit = {

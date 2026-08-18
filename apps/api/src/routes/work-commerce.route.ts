@@ -134,7 +134,7 @@ router.post("/works/:id/commerce/products/resolve", async (c) => {
       const balance = readCohubBalanceDescriptor(item);
       if (balance && !isCohubBalanceProductValid({
         productKey: item.key,
-        productAmountMinor: Number(item.amount ?? item.unit_amount ?? 0),
+        productAmountMinor: Number(item.amount ?? 0),
         productCurrency: item.currency,
         balance,
         benefit: creditBenefitsMap.get(balance.benefitKey),
@@ -274,7 +274,7 @@ router.post("/works/:id/commerce/purchase", async (c) => {
     if (product.status !== "active" || product.visibility !== "public" || product.billing_type !== "one_time") {
       return c.json({ message: "product is not available" }, 400);
     }
-    const amountMinor = Number(product.amount ?? product.unit_amount ?? 0);
+    const amountMinor = Number(product.amount ?? 0);
     const balance = readCohubBalanceDescriptor(product);
     if (balance) {
       let balanceBenefit = null;

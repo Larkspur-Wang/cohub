@@ -22,7 +22,7 @@ import {
   type SerializedCommerceBuyerProfile,
   type SerializedCommerceProductBenefitBinding,
 } from "../../lib/commerce-serialize.js";
-import type { Benefit, CommerceOrder, CreditsBenefit, Product, ProductBenefit } from "../../lib/commerce-types.js";
+import type { Benefit, CreditsBenefit, Product, ProductBenefit } from "../../lib/commerce-types.js";
 import { createLogger } from "@cohub/infra/logging";
 import type { SpaceCommerceSdk } from "../../lib/space-commerce.js";
 import { fallbackPublicUserProfile, getProfilesByUuids } from "../../user-profiles.js";
@@ -882,7 +882,7 @@ router.get("/:id/commerce/orders", async (c) => {
     });
     const buyerProfiles = await buildOrderBuyerProfiles(result.items);
     return c.json({
-      orders: result.items.map((order: CommerceOrder) => {
+      orders: result.items.map((order) => {
         const userUuid = resolveOrderBuyerUserUuid(order);
         return serializeOrder(order, {
           buyerProfile: userUuid ? (buyerProfiles.get(userUuid) ?? null) : null,
