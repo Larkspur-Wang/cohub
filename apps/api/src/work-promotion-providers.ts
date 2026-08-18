@@ -4,6 +4,7 @@ import { createLogger } from "@cohub/infra/logging";
 import type { WorkPromotionEventKey } from "@cohub/protocol";
 import { config } from "./config.js";
 import { getRequestRemoteAddress, isPrivateNetworkAddress } from "./lib/middleware.js";
+import { buildMetaPromotionPayload } from "./work-promotion-meta-payload.js";
 
 export type WorkPromotionProviderKey = "generic" | "meta";
 
@@ -98,19 +99,15 @@ const metaProvider: WorkPromotionProvider = {
           "Content-Type": "application/json",
           Authorization: `Bearer ${config.metaPromotionAccessToken}`,
         },
-        body: JSON.stringify({
-          data: [{
-            event_name: eventName,
-            event_time: Math.floor(Date.now() / 1000),
-            event_id: event.eventId,
-            action_source: "website",
-            ...(sourceUrl ? { event_source_url: sourceUrl } : {}),
-            user_data: userData,
-            custom_data: Object.keys(customData).length > 0
-              ? customData
-              : { content_ids: [event.workId], content_type: "product" },
-          }],
-        }),
+        body: JSON.stringify(buildMetaPromotionPayload({
+          eventName,
+          eventTime: Math.floor(Date.now() / 1000),
+          event,
+          sourceUrl,
+          userData,
+          customData,
+          testEventCode: config.metaPromotionTestEventCode,
+        })),
         signal: AbortSignal.timeout(3_000),
       });
       if (!response.ok) {

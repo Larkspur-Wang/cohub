@@ -70,6 +70,8 @@ export type AppConfig = {
   metaPromotionApiVersion: string;
   /** Trusted proxy header containing the public client IP for Meta CAPI. */
   metaPromotionClientIpHeader?: string;
+  /** Optional Meta Events Manager test code; omit in normal production traffic. */
+  metaPromotionTestEventCode?: string;
 };
 
 export type SandboxToleration = {
@@ -234,6 +236,7 @@ export const config: AppConfig = {
   metaPromotionAccessToken: process.env.COHUB_META_CAPI_ACCESS_TOKEN?.trim() || undefined,
   metaPromotionApiVersion: process.env.COHUB_META_API_VERSION?.trim() || "v21.0",
   metaPromotionClientIpHeader: process.env.COHUB_META_CLIENT_IP_HEADER?.trim().toLowerCase() || undefined,
+  metaPromotionTestEventCode: process.env.COHUB_META_TEST_EVENT_CODE?.trim() || undefined,
 };
 
 export const sessionsNamespace = getSessionsNamespace(config.env);
