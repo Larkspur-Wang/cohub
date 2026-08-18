@@ -39,6 +39,12 @@ export type SessionComposerSelection =
 	  }
 	| { mode: "create"; modelId: string | null };
 
+export function shouldClearComposerDraftAfterSend(
+	mode: SessionComposerSelection["mode"],
+) {
+	return mode === "agent";
+}
+
 export function resolveComposerSelectionFromTurn(
 	turn: Pick<SessionTurnRecord, "executionKind" | "provider" | "model">,
 	catalog: ModelCatalogItem[] | null | undefined,

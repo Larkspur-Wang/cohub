@@ -154,6 +154,7 @@ import {
 	resolveComposerSelectionFromTurn,
 	resolveLastAgentTurnModel,
 	type SessionComposerSelection,
+	shouldClearComposerDraftAfterSend,
 } from "./session-utils";
 import {
 	createSessionWorkspaceController,
@@ -3027,8 +3028,10 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			});
 			if (result.mode !== "immediate")
 				throw new Error("Expected immediate generation response");
-			composer.clearDraft();
-			clearActiveComposerDraft();
+			if (shouldClearComposerDraftAfterSend("create")) {
+				composer.clearDraft();
+				clearActiveComposerDraft();
+			}
 			const acceptedSessionId = result.session?.id ?? sessionIdAtStart;
 			composerSelection = {
 				mode: "create",
@@ -3046,6 +3049,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			) {
 				generationDraftSessionId = null;
 				await options.router.toSession(acceptedSessionId);
+				preserveComposerInputOnNextDraftKeyChange = true;
 			} else if (acceptedSessionId) {
 				generationDraftSessionId = null;
 				await syncSessionNewer(acceptedSessionId, null);
@@ -3277,8 +3281,10 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			// Clear input immediately so it disappears from the composer at the same
 			// time the optimistic turn appears in the list — avoids the awkward "stuck"
 			// feeling where the message shows in the list but lingers in the input.
-			composer.clearDraft();
-			clearActiveComposerDraft();
+			if (shouldClearComposerDraftAfterSend("agent")) {
+				composer.clearDraft();
+				clearActiveComposerDraft();
+			}
 
 			// Existing chat: optimistic turn before prompt.
 			// New chat: wait for prompt (server creates session); keep sending state.

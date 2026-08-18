@@ -4,6 +4,7 @@ import {
 	mergeComposerTurnSources,
 	resolveComposerSelectionFromTurn,
 	resolveLastAgentTurnModel,
+	shouldClearComposerDraftAfterSend,
 } from "../lib/features/session-chat/session-utils";
 
 const catalog = [
@@ -13,6 +14,11 @@ const catalog = [
 		model: { name: "Agent model" },
 	},
 ];
+
+test("create mode retains the composer draft for repeated generations", () => {
+	assert.equal(shouldClearComposerDraftAfterSend("create"), false);
+	assert.equal(shouldClearComposerDraftAfterSend("agent"), true);
+});
 
 test("mergeComposerTurnSources prefers a full turn over an incomplete index item", () => {
 	assert.deepEqual(
