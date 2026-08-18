@@ -1,5 +1,16 @@
 [
 	{
+		"version": "2.25",
+		"date": "2026-08-18",
+		"tags": ["v2.25.0"],
+		"highlights": [
+			"**Configurable Board backgrounds**: persist solid colors or public image backgrounds with cover, contain, and repeat fitting, position and opacity controls, browser rendering, resilient fallbacks, and consistent headless and image exports",
+			"**Semantic camera focus**: animate the Board camera toward nodes, node groups, frames, or world-space rectangles with fit, padding, zoom bounds, duration, and easing controls; the editor zoom menu also focuses the current selection when available",
+			"**Expanded Board SDK and CLI workflows**: add summary and conflict-aware mutation helpers plus semantic commands for nodes, connections, appearance, playback policy, effects, sequences, and camera focus, with Board path resolution, bounded JSON input, reconnect-aware event watching, and atomic exports",
+			"**Animation resource preparation**: materialize nodes that need live display objects before transforms, filters, and effects run, while caching preparation decisions to preserve far-LOD batching performance"
+		]
+	},
+	{
 		"version": "2.24",
 		"date": "2026-08-19",
 		"tags": ["v2.24.0"],

@@ -4,6 +4,13 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v2.25 — 2026-08-18
+
+- **Configurable Board backgrounds**: persist solid colors or public image backgrounds with cover, contain, and repeat fitting, position and opacity controls, browser rendering, resilient fallbacks, and consistent headless and image exports
+- **Semantic camera focus**: animate the Board camera toward nodes, node groups, frames, or world-space rectangles with fit, padding, zoom bounds, duration, and easing controls; the editor zoom menu also focuses the current selection when available
+- **Expanded Board SDK and CLI workflows**: add summary and conflict-aware mutation helpers plus semantic commands for nodes, connections, appearance, playback policy, effects, sequences, and camera focus, with Board path resolution, bounded JSON input, reconnect-aware event watching, and atomic exports
+- **Animation resource preparation**: materialize nodes that need live display objects before transforms, filters, and effects run, while caching preparation decisions to preserve far-LOD batching performance
+
 ## v2.24 — 2026-08-19
 
 - **Space file previews in the CLI**: `cohub ui preview file://path` opens any Space file in the originating tab, `work://` refs make Work targets explicit, and bare targets resolve a Space file before falling back to Work references; the preview protocol and SDK now carry `UiFilePreviewTarget` with strict relative-path validation
