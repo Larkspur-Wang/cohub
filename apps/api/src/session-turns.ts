@@ -242,6 +242,7 @@ export const toTurnIndexItem = (row: SessionTurnIndexRow): SessionTurnIndexItem 
   id: row.id,
   sessionId: row.sessionId,
   sequence: row.sequence,
+  executionKind: row.executionKind,
   status: row.status,
   intent: row.intent,
   userUuid: row.userUuid ?? null,
