@@ -2982,7 +2982,10 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			composer.clearDraft();
 			clearActiveComposerDraft();
 			const acceptedSessionId = result.session?.id ?? sessionIdAtStart;
-			if (acceptedSessionId && acceptedSessionId !== sessionIdAtStart) {
+			if (
+				acceptedSessionId &&
+				(acceptedSessionId !== sessionIdAtStart || isNewSessionRoute)
+			) {
 				generationDraftSessionId = null;
 				await options.router.toSession(acceptedSessionId);
 			} else if (acceptedSessionId) {

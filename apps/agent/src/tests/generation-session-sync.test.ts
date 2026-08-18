@@ -26,6 +26,32 @@ function generationMessage(input: {
   };
 }
 
+test("projects both request and result when neither role exists", async () => {
+  const appended: Array<{ message: AgentMessage; id?: string }> = [];
+  const sink = {
+    getMessageMetaValues: () => new Set<string>(),
+    appendMessage: (message: AgentMessage, options?: { id?: string }) => {
+      appended.push({ message, id: options?.id });
+      return options?.id ?? "generated";
+    },
+    flush: async () => {},
+  };
+
+  await appendTerminalGenerationMessages([
+    generationMessage({ id: "done-user", role: "user", taskId: "done" }),
+    generationMessage({ id: "done-result", role: "assistant", taskId: "done", status: "completed" }),
+  ], sink);
+
+  assert.deepEqual(
+    appended.map(({ message }) => message.role),
+    ["user", "assistant"],
+  );
+  assert.deepEqual(
+    appended.map(({ id }) => id),
+    ["generation:done:user", "generation:done:assistant"],
+  );
+});
+
 test("appends only terminal generation pairs and deduplicates projected roles", async () => {
   const existing = new Set(["done:user"]);
   const appended: Array<{ message: AgentMessage; id?: string }> = [];

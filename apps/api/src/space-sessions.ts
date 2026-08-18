@@ -1,6 +1,6 @@
 import { createLogger } from "@cohub/infra/logging";
 import { and, asc, desc, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
-import type { Usage } from "@cohub/protocol/core";
+import type { ContentBlock, Usage } from "@cohub/protocol/core";
 import type { PersistMessageInput, RegisterSessionInput, SessionTurnRecord, UpdateSessionInfoInput } from "@cohub/protocol/model";
 import type { ModelThinkingLevel } from "@cohub/protocol";
 import { getOrCreateRequestId } from "@cohub/infra/tracing";
@@ -442,6 +442,24 @@ const getNextSessionSequence = async (sessionId: string) => {
   return (row?.max ?? 0) + 1;
 };
 
+function deriveGenerationRequestTitle(content: ContentBlock[]) {
+  const requestText = content.find((block) => block.type === "text")?.text;
+  if (!requestText) return null;
+
+  try {
+    const request = JSON.parse(requestText) as { type?: unknown; content?: unknown };
+    if (request.type !== "generation.request" || !Array.isArray(request.content)) return null;
+    const text = extractPlainText(request.content as ContentBlock[])
+      .replace(/\s+/g, " ")
+      .replace(/^[:\-\s]+/, "")
+      .trim()
+      .slice(0, 60);
+    return text || null;
+  } catch {
+    return null;
+  }
+}
+
 const updateSessionAfterAppend = async (session: Pick<typeof spaceSessions.$inferSelect, "id" | "spaceId">, message: typeof sessionMessages.$inferSelect) => {
   const activityAt = message.createdAt ?? new Date();
   await db.update(spaceSessions).set({
@@ -516,8 +534,9 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
   const toolUseCount = countToolCallsInContent(content);
   const requestedMessageKind = (input.message.meta as Record<string, unknown> | null | undefined)?.messageKind;
   const isDirectShellCommandResult = requestedMessageKind === "shell_command_result";
+  const isGenerationRequest = messageRole === "user" && requestedMessageKind === "generation_request";
   const isGenerationResult = requestedMessageKind === "generation_result";
-  const messageKind = messageRole !== "assistant" ? messageRole : isUnsuccessful ? "assistant_error" : isGenerationResult ? "generation_result" : isDirectShellCommandResult ? "assistant_final" : (toolUseCount > 0 || input.message.stopReason === "tool_use") ? "assistant_intermediate" : "assistant_final";
+  const messageKind = messageRole !== "assistant" ? isGenerationRequest ? "generation_request" : messageRole : isUnsuccessful ? "assistant_error" : isGenerationResult ? "generation_result" : isDirectShellCommandResult ? "assistant_final" : (toolUseCount > 0 || input.message.stopReason === "tool_use") ? "assistant_intermediate" : "assistant_final";
   const displayErrorMessage = isAborted ? null : input.message.errorMessage ?? null;
   const completedAt = toDateOrNull(input.message.completedAt) ?? new Date();
   const startedAt = toDateOrNull(input.message.startedAt) ?? completedAt;
@@ -552,7 +571,7 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
   if (!messageNode) throw new Error("Failed to persist message");
 
   if (messageRole === "user" && !session.title?.trim()) {
-    const titleText = (text ?? extractPlainText(content)).replace(/\s+/g, " ").replace(/^[:\-\s]+/, "").trim().slice(0, 60);
+    const titleText = (isGenerationRequest ? deriveGenerationRequestTitle(content) : null) ?? (text ?? extractPlainText(content)).replace(/\s+/g, " ").replace(/^[:\-\s]+/, "").trim().slice(0, 60);
     if (titleText) {
       await db.update(spaceSessions).set({ title: titleText, updatedAt: new Date() }).where(eq(spaceSessions.id, input.sessionId));
     }
