@@ -3,7 +3,13 @@ import type {
 	GenerationPolicy,
 	PublicGenerationDeclaration,
 } from "@cohub/protocol/generation";
-import { sdk } from "$lib/sdk";
+import { getCacheUserKey, getCacheUserKeyAsync } from "$lib/cache/keys";
+import { authStore } from "$lib/stores/auth.svelte";
+import {
+	GENERATION_MODELS_CACHE_MAX_AGE_MS,
+	getCachedGenerationModels,
+	loadGenerationModels,
+} from "$lib/stores/generation-models-cache";
 
 type NumericGenerationConstraint = { min?: number; max?: number };
 type BooleanGenerationConstraint = { value?: boolean };
@@ -26,6 +32,11 @@ export function createSessionGenerationPolicyController(options: {
 	getActiveSessionId: () => string | null;
 }) {
 	let modelsCatalog = $state<PublicGenerationDeclaration[] | null>(null);
+	let modelsCatalogUserKey = $state<string | null>(null);
+	let modelsCatalogLoading = $state(false);
+	let modelsCatalogLoaded = $state(false);
+	let modelsCatalogError = $state<string | null>(null);
+	let modelsCatalogRequest = 0;
 	let mode = $state<"auto" | "limited">("auto");
 	let selectedModels = $state<Set<string>>(new Set());
 	let enumSelections = $state<Record<string, Record<string, Set<string>>>>({});
@@ -205,12 +216,39 @@ export function createSessionGenerationPolicyController(options: {
 	}
 
 	async function loadModelsCatalog() {
-		if (modelsCatalog) return;
+		const request = ++modelsCatalogRequest;
+		modelsCatalogLoading = true;
+		modelsCatalogError = null;
+		const userKey = await getCacheUserKeyAsync();
+		if (request !== modelsCatalogRequest) return;
+
+		if (modelsCatalogUserKey !== userKey) {
+			modelsCatalog = null;
+			modelsCatalogLoaded = false;
+		}
+		modelsCatalogUserKey = userKey;
+		const cached = getCachedGenerationModels();
+		if (cached.length > 0) {
+			modelsCatalog = cached;
+			modelsCatalogLoaded = true;
+		}
+
 		try {
-			const response = await sdk.models.listMultimodal();
-			modelsCatalog = response.models;
+			const loaded = await loadGenerationModels({
+				maxAgeMs: GENERATION_MODELS_CACHE_MAX_AGE_MS,
+			});
+			if (request !== modelsCatalogRequest || getCacheUserKey() !== userKey)
+				return;
+			modelsCatalog = loaded;
+			modelsCatalogLoaded = true;
 		} catch (error) {
+			if (request !== modelsCatalogRequest || getCacheUserKey() !== userKey)
+				return;
+			modelsCatalogLoaded = true;
+			modelsCatalogError = "Create models could not be loaded.";
 			console.error("Failed to load generation models catalog:", error);
+		} finally {
+			if (request === modelsCatalogRequest) modelsCatalogLoading = false;
 		}
 	}
 
@@ -387,9 +425,22 @@ export function createSessionGenerationPolicyController(options: {
 		persistActive();
 	}
 
+	function hasCurrentModelsIdentity() {
+		return authStore.loaded && modelsCatalogUserKey === getCacheUserKey();
+	}
+
 	return {
 		get modelsCatalog() {
-			return modelsCatalog;
+			return hasCurrentModelsIdentity() ? modelsCatalog : null;
+		},
+		get modelsCatalogLoading() {
+			return modelsCatalogLoading;
+		},
+		get modelsCatalogLoaded() {
+			return hasCurrentModelsIdentity() && modelsCatalogLoaded;
+		},
+		get modelsCatalogError() {
+			return hasCurrentModelsIdentity() ? modelsCatalogError : null;
 		},
 		get mode() {
 			return mode;

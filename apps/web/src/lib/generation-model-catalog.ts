@@ -45,3 +45,13 @@ export function getGenerationModelPickerItems<
 		.sort((a, b) => b.score - a.score || a.index - b.index)
 		.map((item) => item.model);
 }
+
+export function resolvePreferredGenerationModel<
+	T extends SearchableGenerationModel,
+>(models: readonly T[], preferredModelId: string | null | undefined): T | null {
+	return (
+		models.find((model) => model.model === preferredModelId) ??
+		getGenerationModelPickerItems(models)[0] ??
+		null
+	);
+}

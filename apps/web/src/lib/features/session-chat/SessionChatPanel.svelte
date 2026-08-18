@@ -10,6 +10,7 @@ import { untrack } from "svelte";
 import AccessStateView from "$lib/components/AccessStateView.svelte";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import ChatTimeline from "$lib/components/ChatTimeline.svelte";
+import CreateModelSelectorDialog from "$lib/components/CreateModelSelectorDialog.svelte";
 import NewChatBackground from "$lib/components/NewChatBackground.svelte";
 import SessionComposer from "$lib/components/SessionComposer.svelte";
 import SessionTaskTray from "$lib/components/SessionTaskTray.svelte";
@@ -70,6 +71,7 @@ let composerInput = $state("");
 let shouldAutoFollow = $state(true);
 let showTurnBottomSheet = $state(false);
 let showModelSelector = $state(false);
+let showCreateModelSelector = $state(false);
 let draftDropKind = $state<ChatDraftDropKind | null>(null);
 let draftDropCounter = 0;
 const modelsCatalog = $derived(modelsCatalogStore.items);
@@ -416,6 +418,11 @@ async function handleDraftDrop(event: DragEvent) {
 					onsubmit={host.handleSend}
 					onabort={host.handleAbort}
 					onModelSelect={() => {
+						if (host.composerMode === "create") {
+							void host.loadGenerationModelsCatalog();
+							showCreateModelSelector = true;
+							return;
+						}
 						void host.loadModelsCatalog();
 						void host.loadGenerationModelsCatalog();
 						void modelsStatusStore.load();
@@ -522,6 +529,21 @@ async function handleDraftDrop(event: DragEvent) {
 			}}
 			onJump={(sequence) => {
 				void host.jumpToTurnAndUpdateUrl(sequence);
+			}}
+		/>
+		<CreateModelSelectorDialog
+			open={showCreateModelSelector}
+			models={generationModelsCatalog ?? []}
+			currentModelId={host.createModelId}
+			loading={host.generationModelsLoading}
+			loaded={host.generationModelsLoaded}
+			error={host.generationModelsError}
+			onClose={() => {
+				showCreateModelSelector = false;
+			}}
+			onSelect={host.handleCreateModelSelect}
+			onRetry={() => {
+				void host.loadGenerationModelsCatalog();
 			}}
 		/>
 		<SessionModelSelectorDialog

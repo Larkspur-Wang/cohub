@@ -24,6 +24,7 @@ import {
 import { tick, untrack } from "svelte";
 import { classifyAccessError } from "$lib/access/access-state";
 import type { SessionListForkRecord } from "$lib/cache/db";
+import { getCacheUserKey } from "$lib/cache/keys";
 import { sessionTurnsRepo } from "$lib/cache/repositories/session-turns-repo";
 import { writeTaskRunDetail } from "$lib/cache/repositories/task-runs-repo";
 import { mediaLightbox } from "$lib/components/media-lightbox";
@@ -42,6 +43,7 @@ import { createKeyedRouteRequestGuard } from "$lib/features/space/modules/route-
 import { createSkillController } from "$lib/features/space/modules/skill-controller.svelte";
 import { mergeTaskRunRecord } from "$lib/features/space/modules/task-run-utils";
 import { asRecord } from "$lib/features/space/space-utils";
+import { resolvePreferredGenerationModel } from "$lib/generation-model-catalog";
 import { formatGenerationPolicyLabel } from "$lib/generation-policy-label";
 import {
 	extractGenerationMediaItems,
@@ -69,6 +71,10 @@ import {
 	billingConversion,
 	isBillingAccessBlockedCode,
 } from "$lib/stores/billing-conversion.svelte";
+import {
+	readCreateModelPreference,
+	saveCreateModelPreference,
+} from "$lib/stores/create-model-preference";
 import {
 	readDraftSessionModel,
 	saveDraftSessionModel,
@@ -329,13 +335,20 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	const modelsCatalog = $derived(modelsCatalogStore.items);
 	const visibleModelsCatalog = $derived(modelsCatalogStore.visibleItems);
 	const generationModelsCatalog = $derived(generationPolicy.modelsCatalog);
-	const activeGenerationModel = $derived.by(() => {
+	let createModelId = $state<string | null>(null);
+	let createModelPreferenceRequest = 0;
+	const activeCreateModelDeclaration = $derived.by(() => {
 		const catalog = generationModelsCatalog ?? [];
-		const model =
-			catalog.find((item) => selectedGenerationModels.has(item.model)) ??
-			catalog[0];
+		return resolvePreferredGenerationModel(catalog, createModelId);
+	});
+	const activeGenerationModel = $derived.by(() => {
+		const model = activeCreateModelDeclaration;
 		return model
-			? { provider: "generation", id: model.model, name: model.model }
+			? {
+					provider: "generation",
+					id: model.model,
+					name: model.title?.trim() || model.model,
+				}
 			: null;
 	});
 	const generationPolicyMode = $derived(generationPolicy.mode);
@@ -368,6 +381,34 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	let draftSessionModel = $state<SelectedModel | null>(null);
 	let draftSessionModelManuallySelected = $state(false);
 	let draftThinkingLevel = $state<ModelThinkingLevel | null>(null);
+
+	$effect(() => {
+		const authIdentity = authStore.loaded
+			? `${authStore.isAuthenticated}:${authStore.userUuid ?? authStore.claims?.sub ?? "guest"}`
+			: null;
+		untrack(() => {
+			const request = ++createModelPreferenceRequest;
+			createModelId = null;
+			if (!authIdentity) return;
+			void readCreateModelPreference()
+				.then((preference) => {
+					if (
+						request !== createModelPreferenceRequest ||
+						preference.userKey !== getCacheUserKey()
+					)
+						return;
+					createModelId = preference.modelId;
+				})
+				.catch(() => undefined);
+		});
+	});
+	$effect(() => {
+		const shouldLoad = authStore.loaded && composerMode === "create";
+		const authIdentity = authStore.userUuid ?? authStore.claims?.sub ?? "guest";
+		untrack(() => {
+			if (shouldLoad && authIdentity) void loadGenerationModelsCatalog();
+		});
+	});
 
 	let composerHostEl = $state<HTMLDivElement | null>(null);
 	let chatChromeEl = $state<HTMLDivElement | null>(null);
@@ -2869,10 +2910,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	async function handleDirectGenerationSend() {
 		const prompt = input.trim();
 		if ((!prompt && attachments.length === 0) || sending || !spaceId) return;
-		const catalog = generationModelsCatalog ?? [];
-		const selected =
-			catalog.find((model) => selectedGenerationModels.has(model.model)) ??
-			catalog[0];
+		const selected = activeCreateModelDeclaration;
 		if (!selected) {
 			composer.setError("No generation model is available.");
 			return;
@@ -2961,9 +2999,21 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	}
 
 	function setComposerMode(mode: "agent" | "create") {
-		if (sending) return;
+		if (sending || composerMode === mode) return;
 		composerMode = mode;
+		showModelSelector = false;
 		clearComposerError();
+		if (mode === "agent") void loadModelsCatalog();
+	}
+
+	function handleCreateModelSelect(modelId: string) {
+		const selected = generationModelsCatalog?.find(
+			(model) => model.model === modelId,
+		);
+		if (!selected) return;
+		createModelId = selected.model;
+		void saveCreateModelPreference(selected.model, getCacheUserKey());
+		focusComposerSoon();
 	}
 
 	async function handleSend() {
@@ -4315,6 +4365,9 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		get activeGenerationModel() {
 			return activeGenerationModel;
 		},
+		get createModelId() {
+			return activeCreateModelDeclaration?.model ?? null;
+		},
 		/** Model recorded on the session from server turns (no draft/override). */
 		get activeSessionTurnModel() {
 			return activeSessionLastTurnModel;
@@ -4334,6 +4387,15 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		},
 		get generationModelsCatalog() {
 			return generationModelsCatalog;
+		},
+		get generationModelsLoading() {
+			return generationPolicy.modelsCatalogLoading;
+		},
+		get generationModelsLoaded() {
+			return generationPolicy.modelsCatalogLoaded;
+		},
+		get generationModelsError() {
+			return generationPolicy.modelsCatalogError;
 		},
 		get generationPolicyMode() {
 			return generationPolicyMode;
@@ -4545,6 +4607,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		loadGenerationModelsCatalog,
 		loadPromptTemplates,
 		handleModelSelect,
+		handleCreateModelSelect,
 		setGenerationPolicyMode,
 		setGenerationModelSelected,
 		setGenerationEnumValueSelected,

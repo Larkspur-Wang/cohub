@@ -1,11 +1,24 @@
 import type { PublicGenerationDeclaration } from "@cohub/protocol/generation";
-import { canUseUserScopedCache, getCacheUserKey } from "$lib/cache/keys";
+import {
+	canUseUserScopedCache,
+	getCacheUserKey,
+	getCacheUserKeyAsync,
+} from "$lib/cache/keys";
 import { sdk } from "$lib/sdk";
+import { authStore } from "$lib/stores/auth.svelte";
 import { isValidCachedGenerationModel } from "$lib/stores/generation-models-validation";
 
 const STORAGE_PREFIX = "cohub:generation-models:v1";
+export const GENERATION_MODELS_CACHE_MAX_AGE_MS = 5 * 60 * 1000;
+
+type PersistedGenerationModels = {
+	models: PublicGenerationDeclaration[];
+	updatedAt: number;
+};
+
 let memory: PublicGenerationDeclaration[] | null = null;
 let memoryUserKey: string | null = null;
+let memoryUpdatedAt = 0;
 let activeLoad: {
 	userKey: string;
 	promise: Promise<PublicGenerationDeclaration[]>;
@@ -15,52 +28,93 @@ function storageKey(userKey: string) {
 	return `${STORAGE_PREFIX}:${encodeURIComponent(userKey)}`;
 }
 
-export function getCachedGenerationModels(): PublicGenerationDeclaration[] {
-	const userKey = getCacheUserKey();
-	if (!canUseUserScopedCache(userKey)) return [];
-	if (memoryUserKey !== userKey) {
-		memory = null;
-		memoryUserKey = userKey;
-	}
-	if (memory) return memory;
-	if (typeof localStorage === "undefined") return [];
+function resetMemoryForUser(userKey: string) {
+	if (memoryUserKey === userKey) return;
+	memory = null;
+	memoryUserKey = userKey;
+	memoryUpdatedAt = 0;
+}
+
+function getStorage(userKey: string): Storage | null {
+	if (typeof window === "undefined" || !canUseUserScopedCache(userKey))
+		return null;
 	try {
-		const parsed = JSON.parse(
-			localStorage.getItem(storageKey(userKey)) ?? "null",
+		return window.localStorage;
+	} catch {
+		return null;
+	}
+}
+
+function readPersisted(userKey: string): PersistedGenerationModels | null {
+	const storage = getStorage(userKey);
+	if (!storage) return null;
+	try {
+		const parsed = JSON.parse(storage.getItem(storageKey(userKey)) ?? "null");
+		const rawModels = Array.isArray(parsed) ? parsed : parsed?.models;
+		if (!Array.isArray(rawModels)) return null;
+		const models = rawModels.filter(
+			(item): item is PublicGenerationDeclaration =>
+				isValidCachedGenerationModel(item),
 		);
-		if (Array.isArray(parsed)) {
-			const filtered = parsed.filter(
-				(item): item is PublicGenerationDeclaration =>
-					isValidCachedGenerationModel(item),
-			);
-			if (filtered.length > 0) memory = filtered;
-		}
-	} catch {}
+		if (models.length === 0 && Array.isArray(parsed)) return null;
+		return {
+			models,
+			updatedAt:
+				!Array.isArray(parsed) &&
+				typeof parsed.updatedAt === "number" &&
+				Number.isFinite(parsed.updatedAt)
+					? parsed.updatedAt
+					: 0,
+		};
+	} catch {
+		return null;
+	}
+}
+
+function hydrateMemory(userKey: string) {
+	resetMemoryForUser(userKey);
+	if (memory) return;
+	const persisted = readPersisted(userKey);
+	if (!persisted) return;
+	memory = persisted.models;
+	memoryUpdatedAt = persisted.updatedAt;
+}
+
+export function getCachedGenerationModels(): PublicGenerationDeclaration[] {
+	if (!authStore.loaded) return [];
+	const userKey = getCacheUserKey();
+	hydrateMemory(userKey);
 	return memory ?? [];
 }
 
 export async function loadGenerationModels(options?: {
 	refresh?: boolean;
+	maxAgeMs?: number;
 }): Promise<PublicGenerationDeclaration[]> {
-	const userKey = getCacheUserKey();
-	if (memoryUserKey !== userKey) {
-		memory = null;
-		memoryUserKey = userKey;
-	}
-	if (!options?.refresh && memory) return memory;
+	const userKey = await getCacheUserKeyAsync();
+	hydrateMemory(userKey);
+	const maxAgeMs = options?.maxAgeMs ?? Number.POSITIVE_INFINITY;
+	const fresh = Date.now() - memoryUpdatedAt <= maxAgeMs;
+	if (!options?.refresh && memory && fresh) return memory;
 	if (activeLoad?.userKey === userKey) return activeLoad.promise;
+
 	const promise = sdk.models
 		.listMultimodal()
 		.then((response) => {
-			if (memoryUserKey === userKey) memory = response.models;
-			if (
-				typeof localStorage !== "undefined" &&
-				canUseUserScopedCache(userKey)
-			) {
+			if (getCacheUserKey() !== userKey) return response.models;
+			const updatedAt = Date.now();
+			memoryUserKey = userKey;
+			memory = response.models;
+			memoryUpdatedAt = updatedAt;
+			const storage = getStorage(userKey);
+			if (storage) {
 				try {
-					localStorage.setItem(
+					storage.setItem(
 						storageKey(userKey),
-						JSON.stringify(response.models),
+						JSON.stringify({
+							models: response.models,
+							updatedAt,
+						} satisfies PersistedGenerationModels),
 					);
 				} catch {}
 			}

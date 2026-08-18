@@ -5,7 +5,17 @@ import type {
 	SkillCatalogEntry,
 	VoiceInputClient,
 } from "@neta-art/cohub";
-import { Maximize2, Mic, Minimize2, Plus, X } from "lucide-svelte";
+import {
+	Bot,
+	Check,
+	ChevronDown,
+	Maximize2,
+	Mic,
+	Minimize2,
+	Plus,
+	WandSparkles,
+	X,
+} from "lucide-svelte";
 import { onMount } from "svelte";
 import ComposerModelTrigger from "$lib/components/composer/ComposerModelTrigger.svelte";
 import ComposerSubmitButton from "$lib/components/composer/ComposerSubmitButton.svelte";
@@ -159,6 +169,7 @@ let blurCloseTimer: number | null = null;
 let selectionChangeBound = false;
 let isComposerExpanded = $state(false);
 let hasTextareaOverflow = $state(false);
+let showModeMenu = $state(false);
 let voiceClient: VoiceInputClient | null = null;
 let voicePrefix = "";
 let voiceSuffix = "";
@@ -1396,13 +1407,7 @@ $effect(() => {
 					/>
 
 					<div class="mt-1.5 flex items-center justify-between gap-2">
-						<div class="flex items-center gap-1">
-							{#if onmodechange}
-								<div class="flex h-8 items-center rounded-md border border-border-subtle bg-bg-surface p-0.5" role="group" aria-label="Composer mode">
-									<button type="button" class={`h-7 rounded px-2 text-[11px] transition-colors ${mode === "agent" ? "bg-bg-hover text-text-primary" : "text-text-tertiary hover:text-text-secondary"}`} disabled={disabled || sending} aria-pressed={mode === "agent"} onclick={() => onmodechange?.("agent")}>Agent</button>
-									<button type="button" class={`h-7 rounded px-2 text-[11px] transition-colors ${mode === "create" ? "bg-brand-bg text-brand-muted-fg" : "text-text-tertiary hover:text-text-secondary"}`} disabled={disabled || sending} aria-pressed={mode === "create"} onclick={() => onmodechange?.("create")}>Create</button>
-								</div>
-							{/if}
+						<div class="flex min-w-0 items-center gap-1">
 							{#if onpickattachment}
 								<button
 									type="button"
@@ -1413,6 +1418,58 @@ $effect(() => {
 								>
 									<Plus class="h-[17px] w-[17px]" />
 								</button>
+							{/if}
+
+							{#if onmodechange}
+								<div class="relative shrink-0">
+									<button
+										type="button"
+										class={`flex h-7 items-center gap-1 rounded-full border px-2 text-[11px] leading-none transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand/40 ${mode === "create" ? "border-brand/25 bg-brand-bg text-brand-muted-fg" : "border-border-subtle text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"}`}
+										disabled={disabled || sending}
+										aria-label={`Mode ${mode === "agent" ? "Agent" : "Create"}`}
+										aria-expanded={showModeMenu}
+										aria-haspopup="menu"
+										onclick={() => {
+											showModeMenu = !showModeMenu;
+										}}
+										onkeydown={(event) => {
+											if (event.key === "Escape") showModeMenu = false;
+										}}
+									>
+										{#if mode === "agent"}<Bot class="h-3 w-3" />{:else}<WandSparkles class="h-3 w-3" />{/if}
+										<span>{mode === "agent" ? "Agent" : "Create"}</span>
+										<ChevronDown class="h-3 w-3 opacity-45" />
+									</button>
+									{#if showModeMenu}
+										<button type="button" class="fixed inset-0 z-30 cursor-default" aria-hidden="true" tabindex="-1" onclick={() => { showModeMenu = false; }}></button>
+										<div
+											class="absolute bottom-full left-0 z-40 mb-1.5 w-36 overflow-hidden rounded-md border border-border-subtle bg-bg-primary p-1 shadow-lg"
+											role="menu"
+											tabindex="-1"
+											aria-label="Composer mode"
+											onkeydown={(event) => {
+												if (event.key === "Escape") showModeMenu = false;
+											}}
+										>
+											{#each ["agent", "create"] as item}
+												<button
+													type="button"
+													class={`flex min-h-10 w-full items-center gap-2 rounded px-2 text-left text-[12px] transition-colors hover:bg-bg-hover ${mode === item ? "text-text-primary" : "text-text-secondary"}`}
+													role="menuitemradio"
+													aria-checked={mode === item}
+													onclick={() => {
+														onmodechange?.(item as "agent" | "create");
+														showModeMenu = false;
+													}}
+												>
+													{#if item === "agent"}<Bot class="h-3.5 w-3.5 text-text-tertiary" />{:else}<WandSparkles class="h-3.5 w-3.5 text-text-tertiary" />{/if}
+													<span class="flex-1">{item === "agent" ? "Agent" : "Create"}</span>
+													{#if mode === item}<Check class="h-3.5 w-3.5 text-brand" />{/if}
+												</button>
+											{/each}
+										</div>
+									{/if}
+								</div>
 							{/if}
 
 							{#if onModelSelect}

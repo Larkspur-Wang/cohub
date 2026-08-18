@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { getGenerationModelPickerItems } from "../lib/generation-model-catalog";
+import {
+	getGenerationModelPickerItems,
+	resolvePreferredGenerationModel,
+} from "../lib/generation-model-catalog";
 
 const models = [
 	{ model: "image-fast", title: "Fast Image" },
@@ -34,4 +37,16 @@ test("generation picker preserves catalog data and stable order", () => {
 	const snapshot = structuredClone(models);
 	assert.deepEqual(ids("image"), ["image-fast"]);
 	assert.deepEqual(models, snapshot);
+});
+
+test("generation preference resolves independently and falls back safely", () => {
+	assert.equal(
+		resolvePreferredGenerationModel(models, "video-pro")?.model,
+		"video-pro",
+	);
+	assert.equal(
+		resolvePreferredGenerationModel(models, "missing")?.model,
+		"image-fast",
+	);
+	assert.equal(resolvePreferredGenerationModel([], "image-fast"), null);
 });
