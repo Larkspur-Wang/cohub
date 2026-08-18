@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type {
   BoardCapability,
+  BoardCoordinateSpace,
   BoardRenderCost,
 } from "./board-constants.js";
 import {
@@ -17,6 +18,7 @@ export {
   BOARD_BUILTIN_EFFECT_KINDS,
   DEFAULT_BOARD_RENDER_LIMITS,
   type BoardCapability,
+  type BoardCoordinateSpace,
   type BoardRenderCost,
 } from "./board-constants.js";
 
@@ -77,6 +79,47 @@ export const BoardTargetSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("board") }),
   z.object({ type: z.literal("camera") }),
 ]);
+
+export const BoardCameraStateSchema = z.object({
+  centerX: finiteSchema,
+  centerY: finiteSchema,
+  zoom: finiteSchema.positive(),
+});
+
+export const BoardCameraFocusSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("rect"),
+    rect: z.object({
+      x: finiteSchema,
+      y: finiteSchema,
+      width: finiteSchema.positive(),
+      height: finiteSchema.positive(),
+    }),
+  }),
+  z.object({ type: z.literal("node"), nodeId: idSchema }),
+  z.object({ type: z.literal("nodes"), nodeIds: z.array(idSchema).min(1).max(1_000) }),
+  z.object({ type: z.literal("frame"), frameId: idSchema }),
+]);
+
+export const BoardCameraFocusParamsSchema = z.object({
+  focus: BoardCameraFocusSchema,
+  fit: z.enum(["contain", "cover"]).default("contain"),
+  padding: finiteSchema.nonnegative().default(32),
+  minZoom: finiteSchema.positive().optional(),
+  maxZoom: finiteSchema.positive().optional(),
+}).superRefine((value, context) => {
+  if (
+    value.minZoom !== undefined &&
+    value.maxZoom !== undefined &&
+    value.minZoom > value.maxZoom
+  ) {
+    context.addIssue({
+      code: "custom",
+      message: "minZoom must not exceed maxZoom",
+      path: ["minZoom"],
+    });
+  }
+});
 
 export const BoardAssetRefSchema = z.object({
   type: z.enum(["space-file", "extension"]),
@@ -140,6 +183,9 @@ export const BoardSequenceSchema = z.object({
 });
 
 export type BoardTarget = z.infer<typeof BoardTargetSchema>;
+export type BoardCameraState = z.infer<typeof BoardCameraStateSchema>;
+export type BoardCameraFocus = z.infer<typeof BoardCameraFocusSchema>;
+export type BoardCameraFocusParams = z.infer<typeof BoardCameraFocusParamsSchema>;
 export type BoardAssetRef = z.infer<typeof BoardAssetRefSchema>;
 export type BoardKeyframe = z.infer<typeof BoardKeyframeSchema>;
 export type BoardClip = z.infer<typeof BoardClipSchema>;
@@ -295,7 +341,7 @@ export type BoardDiagnostic = {
   expected?: string;
   received?: unknown;
   allowedValues?: readonly string[];
-  coordinateSpace?: "frame-local" | "world";
+  coordinateSpace?: BoardCoordinateSpace;
 };
 
 export type BoardValidationResult = {

@@ -4,8 +4,16 @@ import type {
 	BoardPlaybackSnapshot,
 	BoardSequence,
 } from "@neta-art/cohub";
-import type { BoardItem } from "@neta-art/cohub/board";
-import { sampleRadius } from "@neta-art/cohub/board";
+import type {
+	BoardCameraFocusParams,
+	BoardItem,
+	BoardViewport,
+} from "@neta-art/cohub/board";
+import {
+	BoardCameraFocusParamsSchema,
+	cameraForFocus,
+	sampleRadius,
+} from "@neta-art/cohub/board";
 import {
 	ColorMatrixFilter,
 	Container,
@@ -52,6 +60,8 @@ type RuntimeNode = {
 
 type RuntimeOptions = {
 	getNode: (nodeId: string) => RuntimeNode | null;
+	getItem?: (nodeId: string) => BoardItem | null;
+	getGeometryVersion?: () => number;
 	getWorld: () => Container | null;
 	getLayers: () => {
 		behind: Container;
@@ -118,6 +128,99 @@ function applyPose(node: Container, base: BasePose, pose: AnimationPose) {
 	node.scale.set(base.scaleX * pose.scaleX, base.scaleY * pose.scaleY);
 	node.rotation = base.rotation + pose.rotation;
 	node.alpha = Math.max(0, Math.min(1, base.alpha * pose.alpha));
+}
+
+export type PreparedCameraFocusClip = {
+	clip: BoardClip;
+	params: BoardCameraFocusParams;
+	previousForwardIndex: number | null;
+};
+
+export function prepareCameraFocusClips(
+	clips: BoardClip[],
+): Map<string, PreparedCameraFocusClip[]> {
+	const result = new Map<string, PreparedCameraFocusClip[]>();
+	for (const clip of clips) {
+		if (clip.kind !== "camera.focus") continue;
+		const parsed = BoardCameraFocusParamsSchema.safeParse(clip.params);
+		if (!parsed.success) continue;
+		const entries = result.get(clip.sequenceId) ?? [];
+		entries.push({ clip, params: parsed.data, previousForwardIndex: null });
+		result.set(clip.sequenceId, entries);
+	}
+	for (const entries of result.values()) {
+		entries.sort(
+			(left, right) =>
+				left.clip.start - right.clip.start ||
+				left.clip.id.localeCompare(right.clip.id),
+		);
+		let previousForwardIndex: number | null = null;
+		for (const [index, entry] of entries.entries()) {
+			entry.previousForwardIndex = previousForwardIndex;
+			if (entry.clip.fill === "forwards" || entry.clip.fill === "both") {
+				previousForwardIndex = index;
+			}
+		}
+	}
+	return result;
+}
+
+export function resolveCameraFocusPose(input: {
+	clips: PreparedCameraFocusClip[];
+	position: number;
+	base: BoardViewport;
+	resolveTarget: (entry: PreparedCameraFocusClip) => BoardViewport | null;
+}): AnimationPose | null {
+	if (input.clips.length === 0) return null;
+	let low = 0;
+	let high = input.clips.length;
+	while (low < high) {
+		const middle = (low + high) >>> 1;
+		if (
+			(input.clips[middle]?.clip.start ?? Number.POSITIVE_INFINITY) <=
+			input.position
+		)
+			low = middle + 1;
+		else high = middle;
+	}
+	const index = low - 1;
+	if (index < 0) return null;
+	const entry = input.clips[index];
+	if (!entry) return null;
+	const resolvePrevious = () =>
+		entry.previousForwardIndex === null
+			? null
+			: input.resolveTarget(input.clips[entry.previousForwardIndex]);
+	const end = entry.clip.start + entry.clip.duration;
+	let current: BoardViewport | null = null;
+	if (input.position <= end) {
+		const previous = resolvePrevious();
+		const target = input.resolveTarget(entry);
+		if (!target) current = previous;
+		else {
+			const from = previous ?? input.base;
+			const progress = clipSampleAt(entry.clip, input.position)?.progress ?? 0;
+			current = {
+				x: from.x + (target.x - from.x) * progress,
+				y: from.y + (target.y - from.y) * progress,
+				zoom: from.zoom + (target.zoom - from.zoom) * progress,
+			};
+		}
+	} else if (entry.clip.fill === "forwards" || entry.clip.fill === "both") {
+		current = input.resolveTarget(entry);
+	} else {
+		current = resolvePrevious();
+	}
+	return current
+		? {
+				x: current.x - input.base.x,
+				y: current.y - input.base.y,
+				scaleX: current.zoom / input.base.zoom,
+				scaleY: current.zoom / input.base.zoom,
+				rotation: 0,
+				alpha: 1,
+			}
+		: null;
 }
 
 function record(value: unknown): Record<string, unknown> | null {
@@ -308,6 +411,16 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 		playback: null,
 		playbackPolicy: null,
 	};
+	let cameraFocusBySequence = new Map<string, PreparedCameraFocusClip[]>();
+	const cameraFocusTargetCache = new Map<
+		string,
+		{
+			geometryVersion: number;
+			width: number;
+			height: number;
+			target: BoardViewport | null;
+		}
+	>();
 	const basePoses = new Map<string, BasePose>();
 	const effectOrigins = new Map<string, number>();
 	const effectVisibility = new Map<string, boolean>();
@@ -840,6 +953,50 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 		return false;
 	}
 
+	function cameraFocusPose(
+		sequenceId: string,
+		position: number,
+		base: BasePose,
+	): AnimationPose | null {
+		return resolveCameraFocusPose({
+			clips: cameraFocusBySequence.get(sequenceId) ?? [],
+			position,
+			base: { x: base.x, y: base.y, zoom: base.scaleX },
+			resolveTarget(entry) {
+				const screen = options.getScreen();
+				const geometryVersion = options.getGeometryVersion?.();
+				const key = `${entry.clip.sequenceId}:${entry.clip.id}`;
+				const cached =
+					geometryVersion === undefined
+						? null
+						: cameraFocusTargetCache.get(key);
+				if (
+					cached &&
+					cached.geometryVersion === geometryVersion &&
+					cached.width === screen.width &&
+					cached.height === screen.height
+				) {
+					return cached.target;
+				}
+				const target = cameraForFocus(
+					entry.params,
+					(id) =>
+						options.getItem?.(id)?.frame ?? options.getNode(id)?.item.frame,
+					screen,
+				);
+				if (geometryVersion !== undefined) {
+					cameraFocusTargetCache.set(key, {
+						geometryVersion,
+						width: screen.width,
+						height: screen.height,
+						target,
+					});
+				}
+				return target;
+			},
+		});
+	}
+
 	function renderFrame(now: number): boolean {
 		restoreAll();
 		const layers = options.getLayers();
@@ -877,7 +1034,7 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 		);
 		let hasSupportedClip = false;
 		const jobs: Array<() => void> = [];
-		if (useRestPose) {
+		if (useRestPose && sequence) {
 			for (const [nodeId, restPose] of sequenceRestPoses(sequence))
 				composePose(poseFor(poses, nodeId), restPose);
 		} else if (
@@ -887,7 +1044,8 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 			!sample?.waiting
 		) {
 			for (const clip of data.clips) {
-				if (clip.sequenceId !== sequence.id) continue;
+				if (clip.sequenceId !== sequence.id || clip.kind === "camera.focus")
+					continue;
 				hasSupportedClip =
 					applyClip(
 						clip,
@@ -900,6 +1058,18 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 						jobs,
 						layers,
 					) || hasSupportedClip;
+			}
+		}
+
+		if (playback && sequence && !sample?.waiting) {
+			const focus = cameraFocusPose(
+				sequence.id,
+				useRestPose ? sequence.duration : position,
+				worldPose,
+			);
+			if (focus) {
+				composePose(cameraPose, focus);
+				hasSupportedClip = true;
 			}
 		}
 
@@ -1007,7 +1177,11 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 	}
 
 	function setData(next: BoardRuntimeData) {
-		if (next.clips !== data.clips) clearResources();
+		if (next.clips !== data.clips) {
+			clearResources();
+			cameraFocusBySequence = prepareCameraFocusClips(next.clips);
+			cameraFocusTargetCache.clear();
+		}
 		data = next;
 		materializationVersion += 1;
 		syncPlayback();
@@ -1077,11 +1251,13 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 		if (sequence) {
 			const poses = ended ? Object.keys(sequence.restPose) : [];
 			for (const nodeId of poses) ids.add(nodeId);
-			if (!ended) {
-				for (const clip of data.clips) {
-					if (clip.sequenceId === sequence.id && clip.target.type === "node")
-						ids.add(clip.target.nodeId);
-				}
+			for (const clip of data.clips) {
+				if (
+					!ended &&
+					clip.sequenceId === sequence.id &&
+					clip.target.type === "node"
+				)
+					ids.add(clip.target.nodeId);
 			}
 		}
 

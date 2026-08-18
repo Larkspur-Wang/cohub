@@ -4,6 +4,7 @@ import {
   type BoardCapability,
   type BoardRenderCost,
 } from "@cohub/protocol/board-constants";
+import { BoardCameraFocusParamsSchema } from "@cohub/protocol";
 import type {
   BoardAssetRef,
   BoardClip,
@@ -81,18 +82,24 @@ function builtinDefinition(capability: BoardCapability): BoardExtensionDefinitio
           diagnostics.push({ severity: "error", code: "INVALID_PARTICLE_COUNT", message: `count must be an integer between 1 and ${DEFAULT_BOARD_LIMITS.particles}`, path: "params.count" });
         }
         if (!bounds || typeof bounds !== "object" || Array.isArray(bounds)) {
-          diagnostics.push({ severity: "error", code: "PARTICLE_BOUNDS_REQUIRED", message: "particles require finite bounds", path: "params.bounds" });
+          diagnostics.push({ severity: "error", code: "PARTICLE_BOUNDS_REQUIRED", message: "particles require finite world bounds", path: "params.bounds", coordinateSpace: "world" });
         } else {
           const value = bounds as Record<string, unknown>;
           if (![value.x, value.y, value.width, value.height].every((item) => typeof item === "number" && Number.isFinite(item)) || (value.width as number) <= 0 || (value.height as number) <= 0) {
-            diagnostics.push({ severity: "error", code: "INVALID_PARTICLE_BOUNDS", message: "particle bounds must have a positive finite size", path: "params.bounds" });
+            diagnostics.push({ severity: "error", code: "INVALID_PARTICLE_BOUNDS", message: "particle bounds must have a positive finite size", path: "params.bounds", coordinateSpace: "world" });
           }
         }
       }
       if (capability.id === "motion.path") {
         const points = params.points;
         if (!Array.isArray(points) || points.length < 2 || points.length > 10_000) {
-          diagnostics.push({ severity: "error", code: "INVALID_MOTION_PATH", message: "motion path must contain 2 to 10000 points", path: "params.points" });
+          diagnostics.push({ severity: "error", code: "INVALID_MOTION_PATH", message: "motion path must contain 2 to 10000 world-offset points", path: "params.points", coordinateSpace: "world-offset" });
+        }
+      }
+      if (capability.id === "camera.focus") {
+        const parsed = BoardCameraFocusParamsSchema.safeParse(params);
+        if (!parsed.success) {
+          diagnostics.push({ severity: "error", code: "INVALID_CAMERA_FOCUS", message: parsed.error.issues[0]?.message ?? "invalid camera focus", path: "params", coordinateSpace: "world" });
         }
       }
       return diagnostics;
@@ -324,6 +331,26 @@ export class BoardExtensionRegistry {
       const cost = { ...ZERO_COST };
       addCost(cost, definition.estimateCost(clip.params, profile));
       events.push({ at: clip.start, direction: 1, cost }, { at: clip.start + clip.duration, direction: -1, cost });
+    }
+    const cameraFocusClips = input.clips
+      .map((clip, index) => ({ clip, index }))
+      .filter(({ clip }) => clip.kind === "camera.focus")
+      .sort((left, right) => left.clip.start - right.clip.start);
+    for (let index = 1; index < cameraFocusClips.length; index += 1) {
+      const previous = cameraFocusClips[index - 1];
+      const currentFocus = cameraFocusClips[index];
+      if (
+        previous &&
+        currentFocus &&
+        currentFocus.clip.start < previous.clip.start + previous.clip.duration
+      ) {
+        diagnostics.push({
+          severity: "error",
+          code: "OVERLAPPING_CAMERA_FOCUS",
+          message: "camera.focus clips must not overlap",
+          path: `clips.${currentFocus.index}.start`,
+        });
+      }
     }
     events.sort((left, right) => left.at - right.at || left.direction - right.direction);
     const current = { ...persistentCost };

@@ -26,7 +26,12 @@
  * the ordering bugs that separation exists to avoid.
  */
 
-import type { BoardNodeInput, BoardOperation, BoardTarget } from "@cohub/protocol";
+import {
+	BoardCameraFocusParamsSchema,
+	type BoardNodeInput,
+	type BoardOperation,
+	type BoardTarget,
+} from "@cohub/protocol";
 import { BoardServiceError, type NormalizedNodePatch } from "./board-ops.js";
 
 /** The node columns this planner owns. Mirrors BoardNodeInput. */
@@ -86,7 +91,19 @@ export function collectTouchedNodeIds(
 			if (parentId) ids.add(parentId);
 			continue;
 		}
-		if (operation.type === "node.delete") ids.add(operation.payload.nodeId);
+		if (operation.type === "node.delete") {
+			ids.add(operation.payload.nodeId);
+			continue;
+		}
+		if (operation.type === "sequence.upsert") {
+			for (const clip of operation.payload.clips) {
+				if (clip.kind !== "camera.focus") continue;
+				const parsed = BoardCameraFocusParamsSchema.safeParse(clip.params);
+				if (parsed.success && parsed.data.focus.type === "frame") {
+					ids.add(parsed.data.focus.frameId);
+				}
+			}
+		}
 	}
 	return [...ids];
 }

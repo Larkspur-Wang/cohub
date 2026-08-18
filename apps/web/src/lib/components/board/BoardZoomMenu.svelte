@@ -8,6 +8,15 @@ const {
 }: { editor: BoardEditor; immersive?: boolean } = $props();
 
 const zoomPercent = $derived(Math.round(editor.camera.zoom * 100));
+const hasFocusableSelection = $derived(editor.hasFocusableSelection);
+const focusLabel = $derived(
+	hasFocusableSelection ? "Zoom to selection" : "Zoom to fit",
+);
+
+function focusContent() {
+	if (hasFocusableSelection) editor.focusSelection({ padding: 48 });
+	else editor.fitView();
+}
 </script>
 
 <div class="board-zoom-menu" class:board-zoom-menu--immersive={immersive}>
@@ -27,7 +36,7 @@ const zoomPercent = $derived(Math.round(editor.camera.zoom * 100));
 		<Plus class="h-3.5 w-3.5" />
 	</button>
 	<div class="divider"></div>
-	<button type="button" class="zoom-btn" title="Zoom to fit" aria-label="Zoom to fit" onclick={() => editor.fitView()}>
+	<button type="button" class="zoom-btn" title={focusLabel} aria-label={focusLabel} onclick={focusContent}>
 		<LocateFixed class="h-3.5 w-3.5" />
 	</button>
 </div>

@@ -1,3 +1,8 @@
+import type {
+	BoardCameraFocus,
+	BoardCameraFocusParams,
+	BoardCameraState,
+} from "@cohub/protocol";
 import type { BoardFrame, BoardViewport } from "@cohub/protocol/board-document";
 
 export type Point = { x: number; y: number };
@@ -21,12 +26,50 @@ export type WorldPoint = {
 	readonly [coordBrand]: "world";
 };
 
+export type BoardScreenPoint = ScreenPoint;
+export type BoardWorldPoint = WorldPoint;
+
+declare const coordinateKindBrand: unique symbol;
+export type BoardWorldOffset = Point & {
+	readonly [coordinateKindBrand]: "world-offset";
+};
+export type BoardScreenOffset = Point & {
+	readonly [coordinateKindBrand]: "screen-offset";
+};
+export type BoardNormalizedPoint = Point & {
+	readonly [coordinateKindBrand]: "normalized";
+};
+export type BoardWorldRect = Rect & {
+	readonly [coordinateKindBrand]: "world-rect";
+};
+
 export function screenPoint(x: number, y: number): ScreenPoint {
 	return { x, y } as ScreenPoint;
 }
 
 export function worldPoint(x: number, y: number): WorldPoint {
 	return { x, y } as WorldPoint;
+}
+
+export function worldOffset(x: number, y: number): BoardWorldOffset {
+	return { x, y } as BoardWorldOffset;
+}
+
+export function screenOffset(x: number, y: number): BoardScreenOffset {
+	return { x, y } as BoardScreenOffset;
+}
+
+export function normalizedPoint(x: number, y: number): BoardNormalizedPoint {
+	return { x: clamp(x, 0, 1), y: clamp(y, 0, 1) } as BoardNormalizedPoint;
+}
+
+export function worldRect(
+	x: number,
+	y: number,
+	width: number,
+	height: number,
+): BoardWorldRect {
+	return { x, y, width, height } as BoardWorldRect;
 }
 
 export const MIN_BOARD_ZOOM = 0.05;
@@ -126,6 +169,26 @@ export function expandRect(rect: Rect, amount: number): Rect {
 		y: rect.y - amount,
 		width: rect.width + amount * 2,
 		height: rect.height + amount * 2,
+	};
+}
+
+export function pointsBounds(points: readonly Point[], minSize = 0): Rect | null {
+	if (points.length === 0) return null;
+	let minX = Number.POSITIVE_INFINITY;
+	let minY = Number.POSITIVE_INFINITY;
+	let maxX = Number.NEGATIVE_INFINITY;
+	let maxY = Number.NEGATIVE_INFINITY;
+	for (const point of points) {
+		minX = Math.min(minX, point.x);
+		minY = Math.min(minY, point.y);
+		maxX = Math.max(maxX, point.x);
+		maxY = Math.max(maxY, point.y);
+	}
+	return {
+		x: minX,
+		y: minY,
+		width: Math.max(minSize, maxX - minX),
+		height: Math.max(minSize, maxY - minY),
 	};
 }
 
@@ -650,6 +713,68 @@ export function panBy(
 	dy: number,
 ): BoardViewport {
 	return { ...viewport, x: viewport.x + dx, y: viewport.y + dy };
+}
+
+export function cameraForState(
+	state: BoardCameraState,
+	surface: Size,
+): BoardViewport {
+	const zoom = clampZoom(state.zoom);
+	return normalizeViewport({
+		x: surface.width / 2 - state.centerX * zoom,
+		y: surface.height / 2 - state.centerY * zoom,
+		zoom,
+	});
+}
+
+export function cameraForRect(
+	content: Rect,
+	surface: Size,
+	options: Pick<BoardCameraFocusParams, "fit" | "padding" | "minZoom" | "maxZoom"> = {
+		fit: "contain",
+		padding: 32,
+	},
+): BoardViewport {
+	const padding = Math.max(0, Number.isFinite(options.padding) ? options.padding : 32);
+	const availableW = Math.max(1, surface.width - padding * 2);
+	const availableH = Math.max(1, surface.height - padding * 2);
+	const fitZoom = options.fit === "cover"
+		? Math.max(availableW / content.width, availableH / content.height)
+		: Math.min(availableW / content.width, availableH / content.height);
+	const minZoom = clampZoom(options.minZoom ?? MIN_BOARD_ZOOM);
+	const maxZoom = clampZoom(options.maxZoom ?? MAX_BOARD_ZOOM);
+	const zoom = Math.min(Math.max(fitZoom, Math.min(minZoom, maxZoom)), Math.max(minZoom, maxZoom));
+	const center = rectCenter(content);
+	return cameraForState({ centerX: center.x, centerY: center.y, zoom }, surface);
+}
+
+export function rectForCameraFocus(
+	focus: BoardCameraFocus,
+	getFrame: (id: string) => BoardFrame | null | undefined,
+): Rect | null {
+	if (focus.type === "rect") return focus.rect;
+	if (focus.type === "node") {
+		const frame = getFrame(focus.nodeId);
+		return frame ? itemBounds(frame) : null;
+	}
+	if (focus.type === "frame") {
+		const frame = getFrame(focus.frameId);
+		return frame ? itemBounds(frame) : null;
+	}
+	const frames = focus.nodeIds.flatMap((id) => {
+		const frame = getFrame(id);
+		return frame ? [frame] : [];
+	});
+	return frames.length === focus.nodeIds.length ? selectionBounds(frames) : null;
+}
+
+export function cameraForFocus(
+	params: BoardCameraFocusParams,
+	getFrame: (id: string) => BoardFrame | null | undefined,
+	surface: Size,
+): BoardViewport | null {
+	const rect = rectForCameraFocus(params.focus, getFrame);
+	return rect ? cameraForRect(rect, surface, params) : null;
 }
 
 /** Compute a viewport that frames the given world rect within the surface. */

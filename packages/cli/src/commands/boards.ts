@@ -175,12 +175,30 @@ function withJson(command: Command): Command {
   return command.option("--json", "Output as JSON");
 }
 
+function capabilityUnits(schema: Record<string, unknown> | undefined): string {
+  const params = schema?.params;
+  if (!params || typeof params !== "object" || Array.isArray(params)) return "";
+  return Object.entries(params).flatMap(([field, value]) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+    const meta = value as { coordinateSpace?: unknown; unit?: unknown };
+    const detail = [meta.coordinateSpace, meta.unit]
+      .filter((item): item is string => typeof item === "string")
+      .join("/");
+    return detail ? [`${field}:${detail}`] : [];
+  }).join(", ");
+}
+
 function registerTransactionCommand(boards: Command, name: "validate" | "apply"): void {
   withJson(boards.command(`${name} <board>`)
     .description(name === "validate" ? "Validate a transaction" : "Apply a transaction")
     .requiredOption("-i, --input <file>", "Transaction JSON file; use - for stdin")
     .option("--tx-id <id>", "Override txId; generated when omitted")
-    .option("--base-version <version>", "Override baseVersion"))
+    .option("--base-version <version>", "Override baseVersion")
+    .addHelpText("after", `
+Input example:
+  {"baseVersion":12,"operations":[{"type":"board.patch","payload":{"patch":{"title":"Launch plan"}}}]}
+
+Prefer semantic commands such as boards background, nodes, effects, or sequences for common edits.`))
     .action(async (target: string, options: InputOptions) => {
       try {
         const transaction = createTransactionInput(
@@ -342,7 +360,10 @@ export function registerBoards(program: Command): Command {
     .description("Create a Board")
     .option("--title <title>", "Board title")
     .option("--mutation-id <id>", "Stable id for safe retries")
-    .option("-i, --input <file>", "Board content JSON file; use - for stdin"))
+    .option("-i, --input <file>", "BoardCreateInput fields; use - for stdin")
+    .addHelpText("after", `
+For normal use, create an empty Board and add content with boards nodes, effects, and sequences.
+--input is intended for bulk creation and accepts BoardCreateInput fields except path and title.`))
     .action(async (path: string, options: JsonOptions & { title?: string; input?: string; mutationId?: string }) => {
       try {
         const content = options.input
@@ -403,11 +424,13 @@ export function registerBoards(program: Command): Command {
         table(result.capabilities.map((capability) => ({
           ...capability,
           renderers: capability.renderers?.join(", ") ?? "",
+          coordinates: capabilityUnits(capability.schema),
         })), [
           { key: "kind", label: "Kind" },
           { key: "id", label: "ID" },
           { key: "version", label: "Version" },
           { key: "renderers", label: "Renderers" },
+          { key: "coordinates", label: "Coordinates / units" },
           { key: "digest", label: "Digest" },
         ]);
         const nodes = (result as Partial<typeof result>).nodes;

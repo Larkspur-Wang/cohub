@@ -40,7 +40,11 @@ export function registerBoardAppearanceCommands(boards: Command): void {
     .option("--fit <mode>", "cover, contain, or repeat", "cover")
     .option("--position <position>", "center, top, bottom, left, or right", "center")
     .option("--opacity <value>", "Image opacity from 0 to 1", "1")
-    .option("--reset", "Restore the default background"))
+    .option("--reset", "Restore the default background")
+    .addHelpText("after", `
+Examples:
+  cohub boards background plan.board --color "#123456"
+  cohub boards background plan.board --image https://example.com/bg.webp --fit cover --opacity 0.8`))
     .action(async (target: string, options: JsonOptions & {
       color?: string;
       image?: string;

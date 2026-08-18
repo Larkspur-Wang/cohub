@@ -25,7 +25,11 @@ export function registerBoardNodeCommands(boards: Command): void {
   const nodes = boards.command("nodes").description("Create and update Board nodes");
   withJson(nodes.command("add <board>")
     .description("Add a node")
-    .requiredOption("-i, --input <file>", "BoardNodeSpec JSON; use - for stdin"))
+    .requiredOption("-i, --input <file>", "BoardNodeSpec JSON; use - for stdin")
+    .addHelpText("after", `
+Frame x/y/width/height use Board world units. Draw points and arrow endpoints are also world input.
+Minimal text node:
+  {"id":"title","type":"text","frame":{"x":120,"y":80,"width":320,"height":48},"text":"Launch plan"}`))
     .action(async (target: string, options: JsonOptions & { input: string }) => {
       try {
         const input = await readBoardJsonObject(options.input, BOARD_DOMAIN_INPUT_MAX_BYTES);
@@ -38,7 +42,13 @@ export function registerBoardNodeCommands(boards: Command): void {
     });
   withJson(nodes.command("patch <board> <node-id>")
     .description("Patch a node")
-    .requiredOption("-i, --input <file>", "Node patch JSON; use - for stdin"))
+    .requiredOption("-i, --input <file>", "BoardNodeInput field patch; use - for stdin")
+    .addHelpText("after", `
+x/y are absolute Board world coordinates.
+Move a node without changing its content:
+  {"x":160,"y":120}
+
+Nested view, style, and data fields replace their complete stored object.`))
     .action(async (target: string, nodeId: string, options: JsonOptions & { input: string }) => {
       try {
         const patch = await readBoardJsonObject(options.input, BOARD_DOMAIN_INPUT_MAX_BYTES);

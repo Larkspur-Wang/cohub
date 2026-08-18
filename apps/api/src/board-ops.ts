@@ -1,6 +1,7 @@
 import {
   BOARD_BUILTIN_CLIP_KINDS,
   BOARD_BUILTIN_EFFECT_KINDS,
+  BoardCameraFocusParamsSchema,
   BoardClipSchema,
   BoardEffectSchema,
   BoardPlaybackPolicySchema,
@@ -358,9 +359,25 @@ function validateBuiltinClip(clip: Omit<BoardClip, "sequenceId">, path: string):
     requireFiniteParam(clip.params.count, `${path}.params.count`, { min: 1, max: DEFAULT_BOARD_RENDER_LIMITS.particles, integer: true });
     requireBounds(clip.params.bounds, `${path}.params.bounds`);
   }
+  if (clip.kind === "camera.focus") {
+    const parsed = BoardCameraFocusParamsSchema.safeParse(clip.params);
+    if (!parsed.success) {
+      throw new BoardServiceError(400, `${path}.params: ${parsed.error.issues[0]?.message ?? "invalid camera focus"}`);
+    }
+  }
   if (clip.kind === "effects.color" && clip.target.type !== "node") {
     throw new BoardServiceError(400, `${path}.target must be a node for effects.color`);
   }
+}
+
+function cameraFocusNodeIds(clip: Pick<BoardClip, "kind" | "params">): string[] {
+  if (clip.kind !== "camera.focus") return [];
+  const parsed = BoardCameraFocusParamsSchema.safeParse(clip.params);
+  if (!parsed.success) return [];
+  const focus = parsed.data.focus;
+  if (focus.type === "node") return [focus.nodeId];
+  if (focus.type === "frame") return [focus.frameId];
+  return focus.type === "nodes" ? focus.nodeIds : [];
 }
 
 function parseEffect(value: unknown) {
@@ -399,6 +416,16 @@ function parseSequence(value: unknown, clipsValue: unknown) {
   for (const clip of clips) {
     if (ids.has(clip.id)) throw new BoardServiceError(400, `duplicate clip id: ${clip.id}`);
     ids.add(clip.id);
+  }
+  const cameraFocusClips = clips
+    .filter((clip) => clip.kind === "camera.focus")
+    .sort((left, right) => left.start - right.start);
+  for (let index = 1; index < cameraFocusClips.length; index += 1) {
+    const previous = cameraFocusClips[index - 1];
+    const current = cameraFocusClips[index];
+    if (previous && current && current.start < previous.start + previous.duration) {
+      throw new BoardServiceError(400, "camera.focus clips must not overlap");
+    }
   }
   return { sequence: sequence.data, clips };
 }
@@ -687,7 +714,10 @@ export function contextualValidation(
       if ([...effects.values()].some((target) => target.type === "node" && target.nodeId === operation.payload.nodeId)) {
         error("NODE_REFERENCED", "delete node effects before deleting the node", `${path}.payload.nodeId`);
       }
-      if ([...sequences.values()].flat().some((clip) => clip.target.type === "node" && clip.target.nodeId === operation.payload.nodeId)) {
+      if ([...sequences.values()].flat().some((clip) =>
+        (clip.target.type === "node" && clip.target.nodeId === operation.payload.nodeId) ||
+        cameraFocusNodeIds(clip).includes(operation.payload.nodeId)
+      )) {
         error("NODE_REFERENCED", "delete node clips before deleting the node", `${path}.payload.nodeId`);
       }
       // A relation to a deleted node is not a relation, so the edit must say what
@@ -769,6 +799,20 @@ export function contextualValidation(
     if (operation.type === "sequence.upsert") {
       for (const [clipIndex, clip] of operation.payload.clips.entries()) {
         targetExists(clip.target, `${path}.payload.clips.${clipIndex}.target`);
+        for (const nodeId of cameraFocusNodeIds(clip)) {
+          if (!nodeIds.has(nodeId)) {
+            error("INVALID_REFERENCE", `camera focus node does not exist: ${nodeId}`, `${path}.payload.clips.${clipIndex}.params.focus`);
+          }
+        }
+        const focus = BoardCameraFocusParamsSchema.safeParse(clip.params);
+        if (
+          clip.kind === "camera.focus" &&
+          focus.success &&
+          focus.data.focus.type === "frame" &&
+          nodes.get(focus.data.focus.frameId)?.type !== "frame"
+        ) {
+          error("INVALID_REFERENCE", `camera focus target is not a frame: ${focus.data.focus.frameId}`, `${path}.payload.clips.${clipIndex}.params.focus.frameId`);
+        }
       }
       sequences.set(
         operation.payload.sequence.id,

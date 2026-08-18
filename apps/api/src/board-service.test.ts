@@ -173,6 +173,37 @@ test("rejects clips outside their sequence", () => {
   );
 });
 
+test("rejects overlapping semantic camera clips", () => {
+  const focus = (id: string, start: number) => ({
+    id,
+    kind: "camera.focus",
+    kindVersion: 1,
+    target: { type: "camera" as const },
+    start,
+    duration: 600,
+    layer: "screen" as const,
+    fill: "forwards" as const,
+    easing: "linear",
+    params: {
+      focus: { type: "rect" as const, rect: { x: 0, y: 0, width: 100, height: 100 } },
+    },
+    keyframes: [],
+    assetRefs: [],
+    seed: id,
+    metadata: {},
+  });
+  assert.throws(
+    () => operation({
+      type: "sequence.upsert",
+      payload: {
+        sequence: { id: "tour", name: "Tour", duration: 2_000, seed: "tour", restPose: {}, metadata: {} },
+        clips: [focus("first", 0), focus("second", 500)],
+      },
+    }),
+    /must not overlap/,
+  );
+});
+
 test("validates Board playback metadata and its final sequence reference", () => {
   assert.throws(
     () => operation({

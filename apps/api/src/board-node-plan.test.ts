@@ -224,7 +224,29 @@ test("touched ids include patch and create parents, for the prefetch", () => {
     op({ type: "node.create", payload: { node: node("a", { parentId: "p1" }) } }),
     op({ type: "node.patch", payload: { nodeId: "b", patch: { parentId: "p2" } } }),
     op({ type: "node.delete", payload: { nodeId: "c" } }),
+    op({
+      type: "sequence.upsert",
+      payload: {
+        sequence: { id: "tour", name: "Tour", duration: 1_000, seed: "tour", restPose: {}, metadata: {} },
+        clips: [{
+          id: "focus",
+          kind: "camera.focus",
+          kindVersion: 1,
+          target: { type: "camera" },
+          start: 0,
+          duration: 500,
+          layer: "screen",
+          fill: "forwards",
+          easing: "linear",
+          params: { focus: { type: "frame", frameId: "frame-1" } },
+          keyframes: [],
+          assetRefs: [],
+          seed: "focus",
+          metadata: {},
+        }],
+      },
+    }),
     op({ type: "board.patch", payload: { patch: { title: "T" } } }),
   ]);
-  assert.deepEqual([...ids].sort(), ["a", "b", "c", "p1", "p2"]);
+  assert.deepEqual([...ids].sort(), ["a", "b", "c", "frame-1", "p1", "p2"]);
 });

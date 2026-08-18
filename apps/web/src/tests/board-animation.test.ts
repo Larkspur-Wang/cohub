@@ -18,7 +18,11 @@ import {
 	samplePathPose,
 	sequencePosition,
 } from "$lib/board/runtime/animation-core";
-import { createBoardAnimationRuntime } from "$lib/board/runtime/pixi-animation";
+import {
+	createBoardAnimationRuntime,
+	prepareCameraFocusClips,
+	resolveCameraFocusPose,
+} from "$lib/board/runtime/pixi-animation";
 
 function makeClip(overrides: Partial<BoardClip> = {}): BoardClip {
 	return {
@@ -102,6 +106,75 @@ test("pose channels compose instead of overwriting one another", () => {
 		rotation: 0.25,
 		alpha: 0.5,
 	});
+});
+
+test("semantic camera focus replaces the previous shot", () => {
+	const first = makeClip({
+		id: "first",
+		kind: "camera.focus",
+		target: { type: "camera" },
+		start: 0,
+		duration: 100,
+		fill: "forwards",
+		params: {
+			focus: { type: "rect", rect: { x: 0, y: 0, width: 100, height: 100 } },
+		},
+	});
+	const second = makeClip({
+		id: "second",
+		kind: "camera.focus",
+		target: { type: "camera" },
+		start: 100,
+		duration: 100,
+		fill: "forwards",
+		params: {
+			focus: { type: "rect", rect: { x: 0, y: 0, width: 100, height: 100 } },
+		},
+	});
+	let resolutions = 0;
+	const pose = resolveCameraFocusPose({
+		clips: prepareCameraFocusClips([first, second]).get("sequence") ?? [],
+		position: 250,
+		base: { x: 0, y: 0, zoom: 1 },
+		resolveTarget: ({ clip }) => {
+			resolutions += 1;
+			return { x: clip.id === "first" ? 100 : 200, y: 0, zoom: 1 };
+		},
+	});
+	assert.equal(pose?.x, 200);
+	assert.equal(pose?.scaleX, 1);
+	assert.equal(resolutions, 1);
+});
+
+test("camera focus sampling skips expired non-filling history", () => {
+	const clips = Array.from({ length: 200 }, (_, index) =>
+		makeClip({
+			id: `shot-${index}`,
+			kind: "camera.focus",
+			target: { type: "camera" },
+			start: index * 10,
+			duration: 5,
+			fill: index === 0 ? "forwards" : "none",
+			params: {
+				focus: {
+					type: "rect",
+					rect: { x: index, y: 0, width: 10, height: 10 },
+				},
+			},
+		}),
+	);
+	let resolutions = 0;
+	const pose = resolveCameraFocusPose({
+		clips: prepareCameraFocusClips(clips).get("sequence") ?? [],
+		position: 3_000,
+		base: { x: 0, y: 0, zoom: 1 },
+		resolveTarget: () => {
+			resolutions += 1;
+			return { x: 100, y: 0, zoom: 1 };
+		},
+	});
+	assert.equal(pose?.x, 100);
+	assert.equal(resolutions, 1);
 });
 
 test("playback and seeded random values can be reconstructed after reconnect", () => {

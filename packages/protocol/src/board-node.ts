@@ -7,6 +7,7 @@ import {
 	BOARD_TEXT_FONT_SIZE,
 	BOARD_TEXT_MAX_FONT_SIZE,
 	BOARD_TEXT_MIN_FONT_SIZE,
+	type BoardCoordinateSpace,
 } from "./board-constants.js";
 import { BoardTaskSnapshotSchema } from "./board-document.js";
 
@@ -56,7 +57,7 @@ export type BoardNodeValidationDiagnostic = {
 	expected?: string;
 	received?: unknown;
 	allowedValues?: readonly string[];
-	coordinateSpace?: "frame-local" | "world";
+	coordinateSpace?: BoardCoordinateSpace;
 };
 
 type BoardJsonSchema = Record<string, unknown>;

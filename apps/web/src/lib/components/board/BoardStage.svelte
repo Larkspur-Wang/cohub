@@ -1340,6 +1340,8 @@ onMount(async () => {
 	});
 	animationRuntime = createBoardAnimationRuntime({
 		getNode: (nodeId) => scene?.getNode(nodeId) ?? null,
+		getItem: (nodeId) => editor.itemById(nodeId),
+		getGeometryVersion: () => editor.geometryVersion,
 		getWorld: () => world,
 		getLayers: () =>
 			effectsBehind && effectsFront && screenEffects

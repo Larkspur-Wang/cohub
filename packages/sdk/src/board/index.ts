@@ -9,6 +9,14 @@
  */
 
 export * from "./animation.js";
+export {
+	BoardCameraFocusParamsSchema,
+	BoardCameraFocusSchema,
+	BoardCameraStateSchema,
+	type BoardCameraFocus,
+	type BoardCameraFocusParams,
+	type BoardCameraState,
+} from "@cohub/protocol";
 export * from "@cohub/protocol/board-connection";
 export * from "@cohub/protocol/board-document";
 export * from "./codec.js";

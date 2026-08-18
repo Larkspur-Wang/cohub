@@ -7,6 +7,7 @@ import type {
 import {
 	anchorPointOnFrame,
 	angleFromCenter,
+	cameraForRect,
 	clampZoom,
 	connectionHitTest,
 	createBoardConnection,
@@ -20,6 +21,7 @@ import {
 	normalizeRotation,
 	normalizeViewport,
 	panBy,
+	pointsBounds,
 	pointToWorld,
 	type Rect,
 	type ResizeHandle,
@@ -37,6 +39,7 @@ import {
 	shapeCapabilities,
 	shapeHitTest,
 	translateArrow,
+	unionRects,
 	type WorldPoint,
 	worldPoint,
 	zoomAround,
@@ -801,6 +804,60 @@ export function createBoardEditor(options: BoardEditorOptions) {
 			return;
 		}
 		animateCamera(fitToContent(content, surfaceSize));
+	}
+
+	function focusRect(
+		rect: Rect,
+		options: {
+			fit?: "contain" | "cover";
+			padding?: number;
+			minZoom?: number;
+			maxZoom?: number;
+			animate?: boolean;
+		} = {},
+	) {
+		if (surfaceSize.width <= 0 || surfaceSize.height <= 0) return;
+		const target = cameraForRect(rect, surfaceSize, {
+			fit: options.fit ?? "contain",
+			padding: options.padding ?? 32,
+			minZoom: options.minZoom,
+			maxZoom: options.maxZoom,
+		});
+		if (options.animate === false) setCamera(target);
+		else animateCamera(target);
+	}
+
+	function focusItems(
+		ids: Iterable<string>,
+		options?: Parameters<typeof focusRect>[1],
+	) {
+		const frames = [...ids].flatMap((id) => {
+			const item = itemById(id);
+			return item ? [item.frame] : [];
+		});
+		const rect = selectionBounds(frames);
+		if (rect) focusRect(rect, options);
+	}
+
+	function focusNode(id: string, options?: Parameters<typeof focusRect>[1]) {
+		focusItems([id], options);
+	}
+
+	function focusSelection(options?: Parameters<typeof focusRect>[1]) {
+		const rects: Rect[] = [];
+		const itemRect = selectionBounds(selectedItems.map((item) => item.frame));
+		if (itemRect) rects.push(itemRect);
+		for (const id of selection) {
+			const connection = connectionById(id);
+			const resolved = connection
+				? resolveConnectionGeometry(connection)
+				: null;
+			const bounds = resolved ? pointsBounds(resolved.path, 1) : null;
+			if (bounds) rects.push(bounds);
+		}
+		const rect = unionRects(rects);
+		if (rect) focusRect(rect, options);
+		else fitView();
 	}
 
 	// ─── Selection ──────────────────────────────────────────────────
@@ -2893,6 +2950,12 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		get selectedItems() {
 			return selectedItems;
 		},
+		get hasFocusableSelection() {
+			return (
+				selectedItems.length > 0 ||
+				selection.some((id) => connectionById(id) !== null)
+			);
+		},
 		get bounds() {
 			return bounds;
 		},
@@ -3100,6 +3163,10 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		zoomOut,
 		resetZoom,
 		fitView,
+		focusRect,
+		focusItems,
+		focusNode,
+		focusSelection,
 		zoomAt,
 		setCamera,
 		viewCenter,
