@@ -34,6 +34,7 @@ import {
 	getComposerKeyAction,
 	isMobileComposerInput,
 } from "$lib/composer-keyboard";
+import { isCreateModeCommand } from "$lib/composer-mode-command";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import {
 	type ResourceMentionTextToken,
@@ -511,6 +512,18 @@ function toggleComposerExpansion() {
 function submitDraft() {
 	if (submitDisabled || !hasDraft) return;
 	closeVoiceInput();
+	if (mode !== "create" && onmodechange && isCreateModeCommand(value)) {
+		value = "";
+		showModeMenu = false;
+		onmodechange("create");
+		requestAnimationFrame(() => {
+			textareaEl?.focus();
+			setTextareaSelection(0);
+			resizeTextarea();
+			refreshMentionState();
+		});
+		return;
+	}
 	onsubmit();
 	textareaEl?.blur();
 	collapseComposer();
@@ -1418,13 +1431,13 @@ $effect(() => {
 								</button>
 							{/if}
 
-							{#if onmodechange}
+							{#if onmodechange && mode === "create"}
 								<div class="relative shrink-0">
 									<button
 										type="button"
 										class="flex h-7 items-center gap-1 rounded-full border border-border-subtle px-2 text-[11px] leading-none text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand/40"
 										disabled={disabled || sending}
-										aria-label={`Mode ${mode === "agent" ? "Agent" : "Create"}`}
+										aria-label="Mode Create"
 										aria-expanded={showModeMenu}
 										aria-haspopup="menu"
 										onclick={() => {
@@ -1434,7 +1447,7 @@ $effect(() => {
 											if (event.key === "Escape") showModeMenu = false;
 										}}
 									>
-										<span>{mode === "agent" ? "Agent" : "Create"}</span>
+										<span>Create</span>
 										<ChevronDown class="h-3 w-3 opacity-45" />
 									</button>
 									{#if showModeMenu}
