@@ -92,3 +92,63 @@ test("billing catalog only includes products for Cohub", async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+test("billing checkout rejects products outside the Cohub catalog", async () => {
+  const originalFetch = globalThis.fetch;
+  const products = [
+    product({
+      id: "product_other_plan",
+      key: "other_plan",
+      appName: "studio",
+    }),
+    {
+      ...product({ id: "product_legacy_addon", key: "legacy_addon" }),
+      billing_type: "one_time",
+      billing_period: "one_time",
+    },
+  ];
+  const requests: string[] = [];
+
+  globalThis.fetch = async (input, init) => {
+    const url = new URL(String(input));
+    const method = init?.method ?? "GET";
+    requests.push(`${method} ${url.pathname}`);
+    if (url.pathname.startsWith("/v1/products/") && method === "GET") {
+      const productKey = decodeURIComponent(
+        url.pathname.split("/").at(-1) ?? "",
+      );
+      const found = products.find((item) => item.key === productKey);
+      return found
+        ? jsonResponse({ product: found })
+        : jsonResponse({ error: { message: "Not found" } }, 404);
+    }
+    throw new Error(`Unexpected request: ${method} ${url}`);
+  };
+
+  try {
+    const operations = createTalesofaiBillingOperations({
+      baseUrl: "https://billing.example.test/v1",
+      businessKey: "cohub",
+      adminApiKey: "test-key",
+    });
+    const planCheckout = await operations.createSubscription({
+      userId: "user_1",
+      productKey: "other_plan",
+    });
+    const addonCheckout = await operations.purchaseAddon({
+      userId: "user_1",
+      productKey: "legacy_addon",
+    });
+
+    assert.equal(planCheckout.checkoutUsable, false);
+    assert.equal(planCheckout.message, "Plan is not available for subscription");
+    assert.equal(addonCheckout.checkoutUsable, false);
+    assert.equal(addonCheckout.message, "Product is not available for purchase");
+    assert.deepEqual(requests, [
+      "GET /v1/products/other_plan",
+      "GET /v1/products/legacy_addon",
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
