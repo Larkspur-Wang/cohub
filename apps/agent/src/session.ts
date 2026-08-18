@@ -26,6 +26,7 @@ import { db } from "./db.js";
 import { createCohubAgentSession, type CohubAgentSession } from "./runtime/session-runtime.js";
 import type { AgentTurnAbortEvent } from "./abort.js";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import { projectGenerationSessionMessage } from "./generation-message-projection.js";
 import type { createSandboxCodingTools } from "./sandbox/tools.js";
 import type { Permission } from "@cohub/core/permissions";
 import type { PromptAccessMode } from "@cohub/core/sessions";
@@ -80,16 +81,14 @@ async function syncGenerationMessagesToSessionFile(sessionId: string, sessionMan
       ? row.meta as Record<string, unknown>
       : {};
     const taskId = typeof meta.generationTaskId === "string" ? meta.generationTaskId : null;
-    if (!taskId || !terminalTaskIds.has(taskId) || projectedMessages.has(`${taskId}:${row.role}`)) continue;
-    const message = {
-      role: row.role === "assistant" ? "assistant" : "user",
-      content: row.content,
-      timestamp: row.createdAt instanceof Date ? row.createdAt.getTime() : Date.now(),
-      meta: { ...meta, generationTaskId: taskId, messageId: row.id, turnId: row.turnId },
-    } as never as AgentMessage;
+    if (!taskId || !terminalTaskIds.has(taskId)) continue;
+    const projectionKey = `${taskId}:${row.role}`;
+    if (projectedMessages.has(projectionKey)) continue;
+
+    const message = projectGenerationSessionMessage(row);
     sessionManager.appendMessage(message, { id: `generation:${taskId}:${row.role}` });
     appended.push(message);
-    projectedMessages.add(`${taskId}:${row.role}`);
+    projectedMessages.add(projectionKey);
     changed = true;
   }
   if (changed) await sessionManager.flush();
