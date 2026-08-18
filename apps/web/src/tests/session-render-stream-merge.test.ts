@@ -850,3 +850,52 @@ test("buildTurnTimelineItems exposes persisted assistant duration metadata", () 
 		1523,
 	);
 });
+
+test("buildTurnTimelineItems uses total duration and cost for direct generation", () => {
+	const items = buildTurnTimelineItems({
+		sessionId: "s1",
+		turns: [
+			{
+				id: "t-create",
+				sessionId: "s1",
+				userUuid: null,
+				sequence: 1,
+				executionKind: "direct_generation",
+				status: "completed",
+				intent: "followup",
+				userContent: [{ type: "text", text: "create" }],
+				userText: "create",
+				assistantContent: [{ type: "text", text: "created" }],
+				assistantText: "created",
+				provider: "generation",
+				model: "image-model",
+				stopReason: null,
+				errorMessage: null,
+				finalUsage: { cost: { total: 0.012 } },
+				totalUsage: { cost: { total: 0.012 } },
+				summary: null,
+				intermediateIndex: null,
+				intermediateSummary: null,
+				meta: null,
+				startedAt: "2026-01-01T00:00:00.000Z",
+				completedAt: "2026-01-01T00:00:08.000Z",
+				durationMs: 8000,
+				createdAt: "2026-01-01T00:00:00.000Z",
+				updatedAt: "2026-01-01T00:00:08.000Z",
+			},
+		],
+	});
+
+	const assistant = items.find(
+		(item) => item.kind === "message" && item.message.role === "assistant",
+	);
+	assert.equal(assistant?.kind, "message");
+	assert.equal(
+		assistant?.kind === "message" ? assistant.message.meta?.durationMs : null,
+		8000,
+	);
+	assert.deepEqual(
+		assistant?.kind === "message" ? assistant.message.meta?.usage : null,
+		{ cost: { total: 0.012 } },
+	);
+});

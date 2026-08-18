@@ -14,6 +14,7 @@ import {
 	getDisplayInputTokens,
 	getUsageCostTotal,
 } from "$lib/format-usage";
+import { getGenerationCostPresentation } from "$lib/generation-cost";
 import {
 	findModelCatalogItem,
 	formatThinkingLevelShort,
@@ -199,10 +200,17 @@ const hasForkCheckpoint = $derived(
 	),
 );
 
+const isTerminalDirectGeneration = $derived(
+	message.meta?.turn?.executionKind === "direct_generation" &&
+		["completed", "failed", "interrupted", "cancelled"].includes(
+			message.meta.turn.status,
+		),
+);
+
 const canFork = $derived(
 	Boolean(
 		onForkTurn &&
-			hasForkCheckpoint &&
+			(hasForkCheckpoint || isTerminalDirectGeneration) &&
 			message.role === "assistant" &&
 			message.meta?.messageKind &&
 			["assistant_final", "assistant_error", "assistant_interrupted"].includes(
@@ -303,6 +311,19 @@ const hasUsage = $derived.by(() => {
 	);
 });
 
+const isDirectGeneration = $derived(
+	message.meta?.turn?.executionKind === "direct_generation",
+);
+
+const visibleCost = $derived(
+	isDirectGeneration
+		? getGenerationCostPresentation({
+				usage: message.meta?.usage,
+				generation: turnMeta?.generation,
+			})
+		: null,
+);
+
 const displayInputTokens = $derived.by(() =>
 	getDisplayInputTokens(message.meta?.usage),
 );
@@ -329,8 +350,10 @@ const tokenDisplay = $derived.by(() => {
 	if (u.totalTokens) return `${formatTokenCount(u.totalTokens)} tokens`;
 	if (u.cacheRead) return `cache ${formatTokenCount(u.cacheRead)}`;
 	if (u.cacheWrite) return `cache write ${formatTokenCount(u.cacheWrite)}`;
-	const costTotal = getUsageCostTotal(u);
-	if (costTotal != null) return formatUsageCost(costTotal);
+	if (!isDirectGeneration) {
+		const costTotal = getUsageCostTotal(u);
+		if (costTotal != null) return formatUsageCost(costTotal);
+	}
 	return "";
 });
 
@@ -506,7 +529,7 @@ function handleCopy() {
           {/if}
 
           <!-- Tokens -->
-          {#if hasUsage}
+          {#if hasUsage && tokenDisplay}
             <span class={getTokenDisplayClass(inputContextPercent)} title={tokenDetailText}>
               {tokenDisplay}
             </span>
@@ -515,6 +538,12 @@ function handleCopy() {
           {#if hasDuration}
             <span class="shrink-0 tabular-nums cursor-default text-text-placeholder/65" title={durationDetailText}>
               {durationDisplay}
+            </span>
+          {/if}
+
+          {#if visibleCost}
+            <span class="shrink-0 tabular-nums cursor-default text-text-placeholder/65" title={visibleCost.detail}>
+              {visibleCost.label}
             </span>
           {/if}
 

@@ -10,6 +10,7 @@ import { assignSessionParticipantSystemLabels } from "@cohub/core/labels/session
 import { readSessionParticipantUserUuids, setSessionParticipantsMeta } from "@cohub/core/sessions";
 
 type SegmentRow = typeof sessionTurnSegments.$inferSelect;
+export const MAX_SESSION_TURN_SEGMENTS = 128;
 type ForkRow = typeof sessionForks.$inferSelect;
 
 const logger = createLogger({ serviceName: "cohub-api" });
@@ -223,7 +224,7 @@ export async function createSessionFork(input: {
     const depth = parentFork ? parentFork.depth + 1 : 1;
 
     const clipped = clipSegments(parentSegments, anchorSequence);
-    if (clipped.length > 128) throw new Error("Fork chain is too deep");
+    if (clipped.length > MAX_SESSION_TURN_SEGMENTS) throw new Error("Fork chain is too deep");
     const childSegments = [
       ...clipped,
       { sourceSessionId: input.childSessionId, fromSequence: anchorSequence + 1, toSequence: null },

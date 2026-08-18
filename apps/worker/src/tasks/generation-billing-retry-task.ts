@@ -4,10 +4,11 @@ import {
   type CohubBillingUsageType,
 } from "@cohub/billing";
 import type { Job } from "bullmq";
-import { GENERATION_BILLING_RETRY_TASK_TYPE } from "@cohub/protocol/generation";
+import { GENERATION_BILLING_RETRY_TASK_TYPE, type GenerationUsageBilling } from "@cohub/protocol/generation";
 import type { TaskPayload } from "@cohub/protocol/task";
 import { parseGenerationBillingRetryData } from "./generation-billing-retry-data.js";
 import { registerTask } from "./registry.js";
+import { updateGenerationTurnBilling } from "./generation-session.js";
 
 /**
  * Retry post-success generation charging. Safe to re-run: recordUsage is
@@ -47,12 +48,22 @@ registerTask(GENERATION_BILLING_RETRY_TASK_TYPE, async (job: Job) => {
     });
   }
 
-  return {
-    status: result.status,
+  const billing = {
+    status: result.status === "overage"
+      ? "overage"
+      : result.status === "disabled" || result.status === "skipped"
+        ? "skipped"
+        : "recorded",
     officialCostUsd: data.officialCostUsd,
     amountUsd,
     discountMultiplier: data.modelDiscount.multiplier,
     usageType: data.usageType,
-    taskRunId: data.taskRunId,
-  };
+    ...(result.status === "disabled"
+      ? { reason: "billing_disabled" }
+      : result.status === "skipped"
+        ? { reason: "zero_amount" }
+        : {}),
+  } satisfies GenerationUsageBilling;
+  await updateGenerationTurnBilling(data.taskRunId, billing);
+  return { ...billing, taskRunId: data.taskRunId };
 });

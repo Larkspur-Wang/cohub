@@ -14,7 +14,7 @@ import {
   updateSpaceSessionInfo,
 } from "../space-sessions.js";
 import { markMessageAsFull, summarizeMessageForHistory } from "../session-content.js";
-import { createSignedTurnUrls, getSessionTurnById, getSessionTurnSequenceById, hydrateTurnAuthorProfiles, listSessionTurnIndex, listSessionTurns, listSessionTurnWindow } from "../session-turns.js";
+import { createSignedTurnUrls, findLatestVisibleAgentEntryId, getSessionTurnById, getSessionTurnSequenceById, hydrateTurnAuthorProfiles, listSessionTurnIndex, listSessionTurns, listSessionTurnWindow } from "../session-turns.js";
 import { clearSessionStreamSnapshot, getSessionStreamSnapshot } from "../session-stream-snapshot.js";
 import { createSessionFork, listSessionForksForSessions } from "../session-forks.js";
 import { dispatchLabelAssignmentsUpdated } from "../realtime-events.js";
@@ -40,18 +40,16 @@ router.post("/:id/turns/:turnId/fork", async (c) => {
 
   const sourceTurn = await getSessionTurnById(session.id, turnId);
   if (!sourceTurn) return c.json({ message: "turn not found" }, 404);
+  if (sourceTurn.executionKind === "direct_generation" && !["completed", "failed", "interrupted", "cancelled"].includes(sourceTurn.status)) {
+    return c.json({ message: "cannot fork a running turn" }, 400);
+  }
   const sourceTurnId = sourceTurn.sourceTurnId ?? sourceTurn.id;
 
   const body = await c.req.json<{ title?: string | null }>().catch((): { title?: string | null } => ({}));
-  const agentMeta = sourceTurn.meta?.agent && typeof sourceTurn.meta.agent === "object" && !Array.isArray(sourceTurn.meta.agent)
-    ? sourceTurn.meta.agent as Record<string, unknown>
-    : null;
-  const anchorEntryId = typeof sourceTurn.meta?.agentSessionEntryId === "string"
-    ? sourceTurn.meta.agentSessionEntryId
-    : typeof agentMeta?.leafEntryId === "string"
-      ? agentMeta.leafEntryId
-      : null;
-  if (!anchorEntryId) return c.json({ message: "session checkpoint missing" }, 400);
+  const anchorEntryId = await findLatestVisibleAgentEntryId(session.id, sourceTurn.sequence);
+  if (!anchorEntryId && sourceTurn.executionKind !== "direct_generation") {
+    return c.json({ message: "session checkpoint missing" }, 400);
+  }
 
   try {
     const { session: childSession, fork } = await createSessionFork({

@@ -1,5 +1,5 @@
 import { createLogger } from "@cohub/infra/logging";
-import { and, asc, desc, eq, gt, gte, inArray, isNull, lt, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import type { ContentBlock, Usage } from "@cohub/protocol/core";
 import type {
   MessageToolCallsFile,
@@ -17,7 +17,7 @@ import { db } from "./db/index.js";
 import { sessionMessages, sessionTurnSegments, sessionTurns, spaceSessions } from "@cohub/db";
 import { addSessionParticipantMeta, summarizeSessionTurnCompactions } from "@cohub/core/sessions";
 import { sanitizePostgresJsonValue, sanitizeContentBlocksForPostgresJson } from "@cohub/core/content/sanitize";
-import { ensureSessionTurnSegments, findSegmentForTurn } from "./session-forks.js";
+import { ensureSessionTurnSegments, findSegmentForTurn, MAX_SESSION_TURN_SEGMENTS } from "./session-forks.js";
 import { fallbackPublicUserProfile, getProfilesByUuids } from "./user-profiles.js";
 import { buildTurnObjectPrefix, assertTurnObjectKeyForTurn, createTurnObjectCdnUrl, writeTurnObjectJson } from "./turn-object-storage.js";
 import { deriveMessagePreviewText } from "./session-content.js";
@@ -445,6 +445,39 @@ export const getSessionTurnById = async (sessionId: string, turnId: string) => {
   const [row] = await db.select().from(sessionTurns).where(and(inArray(sessionTurns.sessionId, sourceIds), eq(sessionTurns.id, turnId))).limit(1);
   if (!row || !findSegmentForTurn(segments, { sourceSessionId: row.sessionId, sequence: row.sequence })) return null;
   return withTimelineSource(toTurnRecord(row), sessionId);
+};
+
+export const findLatestVisibleAgentEntryId = async (sessionId: string, throughSequence: number) => {
+  const segments = await ensureSessionTurnSegments(sessionId);
+  if (segments.length > MAX_SESSION_TURN_SEGMENTS) throw new Error("Fork chain is too deep");
+  const rangePredicates = segments.flatMap((segment) => {
+    const toSequence = Math.min(segment.toSequence ?? throughSequence, throughSequence);
+    if (toSequence < segment.fromSequence) return [];
+    return [and(
+      eq(sessionTurns.sessionId, segment.sourceSessionId),
+      gte(sessionTurns.sequence, segment.fromSequence),
+      lte(sessionTurns.sequence, toSequence),
+    )];
+  });
+  const visibleRange = or(...rangePredicates);
+  if (!visibleRange) return null;
+
+  const [row] = await db.select({ meta: sessionTurns.meta }).from(sessionTurns).where(and(
+    eq(sessionTurns.executionKind, "agent"),
+    visibleRange,
+    or(
+      sql`nullif(${sessionTurns.meta}->>'agentSessionEntryId', '') is not null`,
+      sql`nullif(${sessionTurns.meta}->'agent'->>'leafEntryId', '') is not null`,
+    ),
+  )).orderBy(desc(sessionTurns.sequence)).limit(1);
+  const meta = normalizeRecord(row?.meta);
+  const agentMeta = normalizeRecord(meta?.agent);
+  const entryId = typeof meta?.agentSessionEntryId === "string"
+    ? meta.agentSessionEntryId.trim()
+    : typeof agentMeta?.leafEntryId === "string"
+      ? agentMeta.leafEntryId.trim()
+      : "";
+  return entryId || null;
 };
 
 export const buildIntermediateObjectsForTurn = async (input: { spaceId: string; sessionId: string; turnId: string }) => {

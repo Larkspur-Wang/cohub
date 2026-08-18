@@ -101,6 +101,7 @@ export type GenerationUsageBilling = {
 
 export type GenerationTaskResult = {
   model: string;
+  provider?: string | null;
   output: GenerationContentBlock[];
   requestId?: string;
   cost?: number;

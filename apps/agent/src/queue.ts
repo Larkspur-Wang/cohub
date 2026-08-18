@@ -50,7 +50,7 @@ export type AgentSessionForkJobData = {
   parentSessionId: string;
   anchorTurnId: string;
   anchorSequence: number;
-  anchorEntryId: string;
+  anchorEntryId?: string | null;
   requestId?: string | null;
   trace?: Record<string, unknown>;
 };
@@ -86,7 +86,7 @@ export async function enqueueAgentSessionForkJob(data: AgentSessionForkJobData, 
     requestId: getCurrentRequestId() ?? null,
     trace: injectTrace(),
   }, {
-    jobId: `agent-session-fork-${data.sessionId}-${data.anchorEntryId}`,
+    jobId: `agent-session-fork-${data.sessionId}-${data.anchorEntryId ?? data.anchorTurnId}`,
     attempts: 3,
     backoff: { type: "fixed", delay: 1000 },
     ...defaultJobRetention,

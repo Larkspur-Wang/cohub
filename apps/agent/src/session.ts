@@ -26,7 +26,7 @@ import { db } from "./db.js";
 import { createCohubAgentSession, type CohubAgentSession } from "./runtime/session-runtime.js";
 import type { AgentTurnAbortEvent } from "./abort.js";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import { projectGenerationSessionMessage } from "./generation-message-projection.js";
+import { appendTerminalGenerationMessages } from "./generation-session-sync.js";
 import type { createSandboxCodingTools } from "./sandbox/tools.js";
 import type { Permission } from "@cohub/core/permissions";
 import type { PromptAccessMode } from "@cohub/core/sessions";
@@ -67,32 +67,7 @@ async function syncGenerationMessagesToSessionFile(sessionId: string, sessionMan
     ))
     .orderBy(asc(sessionMessages.sequence));
   if (rows.length === 0) return [];
-  const messages = rows.map((row) => row.message);
-
-  const terminalTaskIds = new Set(messages.flatMap((row) => {
-    const meta = row.meta && typeof row.meta === "object" && !Array.isArray(row.meta) ? row.meta as Record<string, unknown> : {};
-    return meta.messageKind === "generation_result" && (meta.generationStatus === "completed" || meta.generationStatus === "failed") && typeof meta.generationTaskId === "string" ? [meta.generationTaskId] : [];
-  }));
-  let changed = false;
-  const appended: AgentMessage[] = [];
-  const projectedMessages = sessionManager.getMessageMetaValues("generationTaskId");
-  for (const row of messages) {
-    const meta = row.meta && typeof row.meta === "object" && !Array.isArray(row.meta)
-      ? row.meta as Record<string, unknown>
-      : {};
-    const taskId = typeof meta.generationTaskId === "string" ? meta.generationTaskId : null;
-    if (!taskId || !terminalTaskIds.has(taskId)) continue;
-    const projectionKey = `${taskId}:${row.role}`;
-    if (projectedMessages.has(projectionKey)) continue;
-
-    const message = projectGenerationSessionMessage(row);
-    sessionManager.appendMessage(message, { id: `generation:${taskId}:${row.role}` });
-    appended.push(message);
-    projectedMessages.add(projectionKey);
-    changed = true;
-  }
-  if (changed) await sessionManager.flush();
-  return appended;
+  return appendTerminalGenerationMessages(rows.map((row) => row.message), sessionManager);
 }
 
 export function hasSessionUserMessage(handle: SessionHandle, userMessageId: string) {

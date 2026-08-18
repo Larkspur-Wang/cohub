@@ -442,6 +442,7 @@ registerTask(GENERATION_TASK_TYPE, async (job: Job, context) => {
 
     const taskResult = {
       model: data.model,
+      provider: declaration.adapter?.type ?? null,
       output: result.content,
       ...(result.requestId !== undefined ? { requestId: result.requestId } : {}),
       ...(result.cost !== undefined ? { cost: result.cost } : {}),

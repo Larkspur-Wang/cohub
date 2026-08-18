@@ -1,5 +1,6 @@
 import { normalizeContentBlockStrict } from "@cohub/core/content/normalize";
 import type { ContentBlock } from "@cohub/protocol/core";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, TextContent } from "@earendil-works/pi-ai";
 
 export type GenerationSessionMessage = {
@@ -26,10 +27,6 @@ declare module "@earendil-works/pi-agent-core" {
     cohubGenerationUser: CohubGenerationUserMessage;
   }
 }
-
-type ProjectedGenerationMessage = CohubGenerationUserMessage | (AssistantMessage & {
-  meta: Record<string, unknown>;
-});
 
 function recordOrEmpty(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -90,7 +87,7 @@ function normalizeGenerationContent(content: unknown, role: "user" | "assistant"
   return normalized;
 }
 
-export function projectGenerationSessionMessage(row: GenerationSessionMessage): ProjectedGenerationMessage {
+export function projectGenerationSessionMessage(row: GenerationSessionMessage): AgentMessage {
   if (row.role !== "user" && row.role !== "assistant") {
     throw new Error(`Invalid generation message role: ${String(row.role)}`);
   }
@@ -104,12 +101,13 @@ export function projectGenerationSessionMessage(row: GenerationSessionMessage): 
     turnId: row.turnId,
   };
   if (row.role === "user") {
-    return {
+    const message = {
       role: "user",
       content: normalizeGenerationContent(row.content, "user"),
       timestamp,
       meta: projectedMeta,
     } satisfies CohubGenerationUserMessage;
+    return message as unknown as AgentMessage;
   }
 
   const failed = meta.generationStatus === "failed";
@@ -117,7 +115,7 @@ export function projectGenerationSessionMessage(row: GenerationSessionMessage): 
     ? stringOrNull(row.errorMessage) ?? stringOrNull(meta.errorMessage) ?? generationResultErrorMessage(row.content) ?? "Generation failed."
     : null;
 
-  return {
+  const message = {
     role: "assistant",
     content: normalizeGenerationContent(row.content, "assistant"),
     api: "generation",
@@ -136,4 +134,5 @@ export function projectGenerationSessionMessage(row: GenerationSessionMessage): 
     timestamp,
     meta: projectedMeta,
   } satisfies AssistantMessage & { meta: Record<string, unknown> };
+  return message;
 }

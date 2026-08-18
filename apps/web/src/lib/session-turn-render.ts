@@ -76,6 +76,7 @@ function dedupeRenderableTurnsByClientMessageId(turns: SessionTurnRecord[]) {
 }
 
 function getFinalMessageDurationMs(turn: SessionTurnRecord) {
+	if (turn.executionKind === "direct_generation") return turn.durationMs;
 	const raw = turn.meta?.finalMessageDurationMs;
 	return typeof raw === "number" && raw > 0 ? raw : null;
 }

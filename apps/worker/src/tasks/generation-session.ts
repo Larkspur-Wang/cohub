@@ -1,7 +1,7 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { sessionMessages, sessionTurns, spaceSessions, taskRuns } from "@cohub/db";
 import { buildGenerationResultMessage } from "@cohub/protocol/generation";
-import type { GenerationContentBlock, GenerationTaskResult } from "@cohub/protocol/generation";
+import type { GenerationContentBlock, GenerationTaskResult, GenerationUsageBilling } from "@cohub/protocol/generation";
 import type { TaskPayload } from "@cohub/protocol/task";
 import type { SessionTurnRecord } from "@cohub/protocol/model";
 import { sanitizeContentBlocksForPostgresJson } from "@cohub/core/content/sanitize";
@@ -11,7 +11,7 @@ import { dispatchSessionUpdated, dispatchTurnUpdated } from "../realtime-events.
 
 const toIso = (value: Date | null | undefined) => value?.toISOString() ?? null;
 
-function toTurnRecord(row: typeof sessionTurns.$inferSelect): SessionTurnRecord {
+export function toTurnRecord(row: typeof sessionTurns.$inferSelect): SessionTurnRecord {
   return {
     id: row.id, sessionId: row.sessionId, userUuid: row.userUuid ?? null, sequence: row.sequence,
     executionKind: row.executionKind, status: row.status, intent: row.intent,
@@ -60,6 +60,7 @@ export async function finalizeGenerationSession(input: { taskRunId: string; payl
   const output = buildGenerationResultMessage({
     taskId: input.taskRunId,
     model: input.result.model || request.model,
+    provider: input.result.provider ?? null,
     parameters: request.parameters,
     status: "completed",
     result: input.result.output,
@@ -67,17 +68,35 @@ export async function finalizeGenerationSession(input: { taskRunId: string; payl
   const content = sanitizeContentBlocksForPostgresJson(output.content);
   const text = textFromContent(content);
   const completedAt = new Date();
+  const completedAtIso = completedAt.toISOString();
+  const generationMeta = {
+    generationTaskId: input.taskRunId,
+    generation: {
+      ...(input.result.requestId ? { requestId: input.result.requestId } : {}),
+      ...(typeof input.result.cost === "number" ? { officialCostUsd: input.result.cost } : {}),
+      ...(input.result.billing ? { billing: input.result.billing } : {}),
+    },
+  };
+  const billingRecorded = input.result.billing?.status === "recorded" || input.result.billing?.status === "overage";
+  const chargedCost = billingRecorded ? input.result.billing?.amountUsd : null;
+  const usage = typeof chargedCost === "number"
+    ? { cost: { total: chargedCost } }
+    : null;
 
   const updatedTurn = await db.transaction(async (tx) => {
     const [turn] = await tx.update(sessionTurns).set({
       status: "completed",
       assistantContent: content,
       assistantText: text,
+      provider: input.result.provider ?? null,
       model: input.result.model || request.model,
+      finalUsage: usage,
+      totalUsage: usage,
       summary: { text, finishReason: "completed" },
       completedAt,
+      durationMs: sql<number>`greatest(0, floor(extract(epoch from (${completedAtIso}::timestamptz - ${sessionTurns.startedAt})) * 1000)::int)`,
       updatedAt: completedAt,
-      meta: sql`coalesce(${sessionTurns.meta}, '{}'::jsonb) || ${JSON.stringify({ generationTaskId: input.taskRunId })}::jsonb`,
+      meta: sql`coalesce(${sessionTurns.meta}, '{}'::jsonb) || ${JSON.stringify(generationMeta)}::jsonb`,
     }).where(and(eq(sessionTurns.id, turnId), eq(sessionTurns.sessionId, sessionId), eq(sessionTurns.executionKind, "direct_generation"), inArray(sessionTurns.status, ["queued", "running"]))).returning();
     if (!turn) return { turn: null, session: null };
 
@@ -96,6 +115,28 @@ export async function finalizeGenerationSession(input: { taskRunId: string; payl
   await wakeAgentSession(input.payload.spaceId ?? "", sessionId, "generation_complete").catch(() => undefined);
 }
 
+export async function updateGenerationTurnBilling(taskRunId: string, billing: GenerationUsageBilling) {
+  const [task] = await db.select({ spaceId: taskRuns.spaceId, sessionId: taskRuns.sessionId, turnId: taskRuns.turnId })
+    .from(taskRuns)
+    .where(eq(taskRuns.id, taskRunId))
+    .limit(1);
+  if (!task?.spaceId || !task.sessionId || !task.turnId) return null;
+  const billingRecorded = billing.status === "recorded" || billing.status === "overage";
+  const usage = billingRecorded ? { cost: { total: billing.amountUsd } } : null;
+  const [turn] = await db.update(sessionTurns).set({
+    finalUsage: usage,
+    totalUsage: usage,
+    meta: sql`coalesce(${sessionTurns.meta}, '{}'::jsonb) || jsonb_build_object('generation', coalesce(${sessionTurns.meta}->'generation', '{}'::jsonb) || jsonb_build_object('billing', ${JSON.stringify(billing)}::jsonb))`,
+    updatedAt: new Date(),
+  }).where(and(
+    eq(sessionTurns.id, task.turnId),
+    eq(sessionTurns.sessionId, task.sessionId),
+    eq(sessionTurns.executionKind, "direct_generation"),
+  )).returning();
+  if (turn) await dispatchTurnUpdated({ spaceId: task.spaceId, turn: toTurnRecord(turn) });
+  return turn ?? null;
+}
+
 export async function failGenerationSession(input: { taskRunId: string; payload: TaskPayload; error: unknown }) {
   const sessionId = input.payload.sessionId;
   const turnId = input.payload.turnId;
@@ -111,9 +152,10 @@ export async function failGenerationSession(input: { taskRunId: string; payload:
   });
   const content = sanitizeContentBlocksForPostgresJson(output.content);
   const completedAt = new Date();
+  const completedAtIso = completedAt.toISOString();
   const text = textFromContent(content);
   const updatedTurn = await db.transaction(async (tx) => {
-    const [turn] = await tx.update(sessionTurns).set({ status: "failed", assistantContent: content, assistantText: text, model: request.model, errorMessage: message, summary: { text, finishReason: "failed" }, completedAt, updatedAt: completedAt }).where(and(eq(sessionTurns.id, turnId), eq(sessionTurns.sessionId, sessionId), eq(sessionTurns.executionKind, "direct_generation"), inArray(sessionTurns.status, ["queued", "running"]))).returning();
+    const [turn] = await tx.update(sessionTurns).set({ status: "failed", assistantContent: content, assistantText: text, model: request.model, errorMessage: message, summary: { text, finishReason: "failed" }, completedAt, durationMs: sql<number>`greatest(0, floor(extract(epoch from (${completedAtIso}::timestamptz - ${sessionTurns.startedAt})) * 1000)::int)`, updatedAt: completedAt }).where(and(eq(sessionTurns.id, turnId), eq(sessionTurns.sessionId, sessionId), eq(sessionTurns.executionKind, "direct_generation"), inArray(sessionTurns.status, ["queued", "running"]))).returning();
     if (!turn) return { turn: null, session: null };
 
     const [existing] = await tx.select({ id: sessionMessages.id }).from(sessionMessages).where(and(eq(sessionMessages.sessionId, sessionId), eq(sessionMessages.idempotencyKey, `generation:${input.taskRunId}:result`))).limit(1);

@@ -719,7 +719,7 @@ export const listSessionMessages = async (spaceSessionId: string, options?: { cu
   return db.select().from(sessionMessages).where(and(eq(sessionMessages.sessionId, spaceSessionId), gt(sessionMessages.sequence, cursor))).orderBy(asc(sessionMessages.sequence)).limit(limit);
 };
 
-export const enqueueSessionFork = async (input: { spaceId: string; sessionId: string; parentSessionId: string; anchorTurnId: string; anchorSequence: number; anchorEntryId: string }) => {
+export const enqueueSessionFork = async (input: { spaceId: string; sessionId: string; parentSessionId: string; anchorTurnId: string; anchorSequence: number; anchorEntryId?: string | null }) => {
   const traceCarrier = injectTrace();
   await enqueueAgentSessionForkJob({
     ...input,
