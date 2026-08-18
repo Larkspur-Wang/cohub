@@ -14,6 +14,7 @@ export type {
   UiCommandError,
   UiCommandRecord,
   UiCommandStatus,
+  UiFilePreviewTarget,
   UiPreviewTarget,
   UiSurfaceRequest,
   UiWorkPreviewTarget,

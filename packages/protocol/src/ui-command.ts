@@ -14,6 +14,7 @@ export const UI_COMMAND_PAYLOAD_MAX_BYTES = 32 * 1024;
 export const UI_COMMAND_MAX_BYTES = 40 * 1024;
 export const UI_COMMAND_LABEL_MAX_LENGTH = 200;
 export const UI_COMMAND_LAUNCH_MAX_LENGTH = 2_048;
+export const UI_COMMAND_PATH_MAX_LENGTH = 2_048;
 /** Becomes part of a Redis key. */
 export const UI_COMMAND_ID_MAX_LENGTH = 64;
 export const UI_COMMAND_ERROR_CODE_MAX_LENGTH = 64;
@@ -55,7 +56,12 @@ export type UiWorkPreviewTarget = {
   launch?: { search?: string; hash?: string };
 };
 
-export type UiPreviewTarget = UiWorkPreviewTarget;
+export type UiFilePreviewTarget = {
+  kind: "file";
+  path: string;
+};
+
+export type UiPreviewTarget = UiWorkPreviewTarget | UiFilePreviewTarget;
 
 export type UiSurfaceRequest = {
   method: string;
@@ -163,9 +169,32 @@ export const parseUiCommand = (input: unknown): ParsedUiCommand => {
 
   const preview = input.preview;
   if (!isRecord(preview)) return { command: null, error: "command.preview is required" };
-  if (preview.kind !== "work") {
-    return { command: null, error: "command.preview.kind must be one of: work" };
+  if (preview.kind !== "work" && preview.kind !== "file") {
+    return { command: null, error: "command.preview.kind must be one of: work, file" };
   }
+
+  if (preview.kind === "file") {
+    const path = asTrimmed(preview.path);
+    if (!path) return { command: null, error: "command.preview.path is required" };
+    if (
+      path.length > UI_COMMAND_PATH_MAX_LENGTH ||
+      path.startsWith("/") ||
+      path.includes("\0") ||
+      path.includes("\\") ||
+      path.split("/").some((segment) => segment === "..")
+    ) {
+      return { command: null, error: "command.preview.path must be a relative Space file path" };
+    }
+    const command: UiCommand = {
+      type: "preview.show",
+      preview: { kind: "file", path },
+    };
+    if (input.request !== undefined && input.request !== null) {
+      return { command: null, error: "command.request is only supported for Work previews" };
+    }
+    return { command, error: null };
+  }
+
   const workId = asTrimmed(preview.workId);
   if (!workId) return { command: null, error: "command.preview.workId is required" };
   if (!isUuid(workId)) {

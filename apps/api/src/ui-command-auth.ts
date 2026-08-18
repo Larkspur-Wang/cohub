@@ -8,6 +8,7 @@ export function canWorkSessionSettleUiCommand(
     record &&
       record.actorUserId === input.actorUserId &&
       record.command.type === "preview.show" &&
+      record.command.preview.kind === "work" &&
       record.command.preview.workId === input.workId &&
       record.command.request !== undefined,
   );

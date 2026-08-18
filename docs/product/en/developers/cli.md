@@ -114,12 +114,14 @@ commands.
 
 ### Drive the Cohub UI
 
-An Agent running in a Space can show a Work preview in the Cohub tab the chat
+An Agent running in a Space can show a file or Work preview in the Cohub tab the chat
 started from, and call methods the Work exposes.
 
 ```bash
-cohub ui preview <workId|url|cohub://works/...|username/space/work>
-cohub ui preview <work> --call selection.get
+cohub ui preview <workId|url|cohub://works/...|username/space/work|file://path>
+cohub ui preview file://src/main.ts
+cohub ui preview work://alice/studio/launch
+cohub ui preview <work-or-file> --call selection.get
 cohub ui preview <work> --call board.focus --data '{"nodeId":"n1"}'
 ```
 

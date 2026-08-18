@@ -26,7 +26,7 @@ function renderHelp(command: Command): string {
 test("showing and calling a Work preview is one command", () => {
   const { ui, preview } = createProgram();
   assert.deepEqual(ui.commands.map((command) => command.name()), ["preview"]);
-  assert.deepEqual(preview.registeredArguments.map((arg) => arg.name()), ["work"]);
+  assert.deepEqual(preview.registeredArguments.map((arg) => arg.name()), ["work-or-file"]);
 });
 
 test("ui preview exposes call, targeting, and retry options", () => {
@@ -53,6 +53,7 @@ test("help states the routing limit and who decides what is callable", () => {
   assert.match(uiHelp, /originated/i);
 
   const previewHelp = renderHelp(preview);
+  assert.match(previewHelp, /file:\/\//i);
   assert.match(previewHelp, /idempotent/i);
   assert.match(previewHelp, /Work author/i);
   assert.match(previewHelp, /default: 600000/);

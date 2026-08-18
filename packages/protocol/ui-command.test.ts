@@ -50,11 +50,24 @@ describe("parseUiCommand", () => {
     });
   });
 
+  it("accepts a relative file preview without a Work request", () => {
+    assert.deepEqual(show({ kind: "file", path: "boards/roadmap.board" }).command, {
+      type: "preview.show",
+      preview: { kind: "file", path: "boards/roadmap.board" },
+    });
+    assert.match(
+      show({ kind: "file", path: "main.ts" }, { method: "selection.get" }).error ?? "",
+      /only supported for Work previews/,
+    );
+  });
+
   const cyclic: Record<string, unknown> = {};
   cyclic.self = cyclic;
 
   for (const [expected, preview, request] of [
-    [/command\.preview\.kind/, { kind: "file", workId: WORK_ID }],
+    [/command\.preview\.path is required/, { kind: "file" }],
+    [/relative Space file path/, { kind: "file", path: "../etc/passwd" }],
+    [/relative Space file path/, { kind: "file", path: "src\u0000main.ts" }],
     [/workId is required/, { kind: "work" }],
     // A slug or url must be resolved to an id before a command exists.
     [/must be a Work id/, { kind: "work", workId: "alice/studio/launch" }],

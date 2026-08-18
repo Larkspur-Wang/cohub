@@ -329,17 +329,21 @@ through `client.work.realtime` in the SDK rather than as CLI commands.
 
 ## Drive the Cohub UI
 
-Show a Work preview in the Cohub tab that started the current work, and call
+Show a file or Work preview in the Cohub tab that started the current work, and call
 methods the Work exposes.
 
 ```bash
-cohub ui preview <workId|url|cohub://works/...|username/space/work>
-cohub ui preview <work> --call selection.get
+cohub ui preview <workId|url|cohub://works/...|username/space/work|file://path>
+cohub ui preview file://src/main.ts
+cohub ui preview work://alice/studio/launch
+cohub ui preview <work-or-file> --call selection.get
 cohub ui preview <work> --call board.focus --data '{"nodeId":"n1"}'
 cohub ui preview <work> --call report.build --input payload.json --json
 ```
 
-`ui preview` accepts the same Work references as `works get`. Showing a preview is
+`ui preview` accepts `file://` Space-relative paths, `work://` Work references, and
+legacy bare targets. A bare target checks the current Space for a file first, then
+falls back to the same Work references as `works get`. Showing a preview is
 idempotent: repeating it re-activates the same tab and refreshes any launch state
 carried by the reference. With `--call`, the command waits for the Work to announce readiness, invokes the method,
 and waits for the Work to complete the same UI command with `client.ui.reportResult()`.

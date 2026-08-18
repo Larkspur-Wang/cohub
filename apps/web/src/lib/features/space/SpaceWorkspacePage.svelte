@@ -2384,6 +2384,13 @@ onMount(() => {
 			};
 		}
 
+		if (command.preview.kind === "file") {
+			// Route through the file domain so .board files keep their native Board
+			// preview instead of being opened as generic text.
+			await fileWorkspace.openSpaceFile(command.preview.path);
+			return { status: "applied" };
+		}
+
 		previewWorkspace.openWork({
 			workId: command.preview.workId,
 			label: command.preview.label,

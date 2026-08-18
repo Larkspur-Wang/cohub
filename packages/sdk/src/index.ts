@@ -221,6 +221,7 @@ export type {
   UiCommand,
   UiCommandDispatchedPayload,
   UiCommandError,
+  UiFilePreviewTarget,
   UiCommandRecord,
   UiCommandStatus,
   UiPreviewShowCommand,

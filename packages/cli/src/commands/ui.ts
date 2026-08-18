@@ -1,5 +1,10 @@
 import { readFileSync } from "node:fs";
-import type { CohubHttpClient, UiCommandRecord, UiSurfaceRequest } from "@neta-art/cohub";
+import {
+  HttpError,
+  type CohubHttpClient,
+  type UiCommandRecord,
+  type UiSurfaceRequest,
+} from "@neta-art/cohub";
 import {
   parseWorkRef,
   UI_COMMAND_DEFAULT_TIMEOUT_MS,
@@ -9,6 +14,45 @@ import type { Command } from "commander";
 import { createClient } from "../client.js";
 import { error, handleHttp, json as outJson, jsonRequested, ok } from "../output.js";
 import { getWorkByRef } from "../work-ref.js";
+
+const FILE_SCHEME = "file://";
+const WORK_SCHEME = "work://";
+
+type PreviewTarget =
+  | { kind: "file"; path: string }
+  | { kind: "work"; workId: string; label: string; launch: { search?: string; hash?: string } };
+
+function optionalSpaceId(command: Command): string | undefined {
+  let current: Command | null = command;
+  while (current) {
+    const opts = current.opts() as Record<string, unknown>;
+    if (typeof opts.space === "string" && opts.space.trim()) return opts.space.trim();
+    current = current.parent ?? null;
+  }
+  return process.env.COHUB_SPACE_ID?.trim() || undefined;
+}
+
+function parseFilePath(value: string): string {
+  const path = value.slice(FILE_SCHEME.length).trim();
+  if (
+    !path ||
+    path.startsWith("/") ||
+    path.includes("\0") ||
+    path.split("/").some((segment) => segment === "..") ||
+    path.includes("\\")
+  ) {
+    return error("Invalid file path", "Use a relative Space path after file://.");
+  }
+  return path;
+}
+
+function hasFileScheme(value: string): boolean {
+  return value.toLowerCase().startsWith(FILE_SCHEME);
+}
+
+function hasWorkScheme(value: string): boolean {
+  return value.toLowerCase().startsWith(WORK_SCHEME);
+}
 
 type PreviewOptions = {
   call?: string;
@@ -53,10 +97,12 @@ function parseTimeout(value: string | undefined): number {
   return parsed;
 }
 
-async function resolveWorkTarget(client: CohubHttpClient, ref: string) {
-  const parsed = parseWorkRef(ref);
-  const detail = await getWorkByRef(client, ref);
+async function resolveWorkTarget(client: CohubHttpClient, ref: string): Promise<PreviewTarget> {
+  const normalized = hasWorkScheme(ref) ? ref.slice(WORK_SCHEME.length) : ref;
+  const parsed = parseWorkRef(normalized);
+  const detail = await getWorkByRef(client, normalized);
   return {
+    kind: "work",
     workId: detail.work.id,
     label: detail.work.slug,
     launch: {
@@ -64,6 +110,26 @@ async function resolveWorkTarget(client: CohubHttpClient, ref: string) {
       ...(parsed.hash ? { hash: parsed.hash } : {}),
     },
   };
+}
+
+async function resolvePreviewTarget(
+  client: CohubHttpClient,
+  command: Command,
+  value: string,
+): Promise<PreviewTarget> {
+  if (hasFileScheme(value)) return { kind: "file", path: parseFilePath(value) };
+  if (hasWorkScheme(value)) return resolveWorkTarget(client, value);
+
+  const spaceId = optionalSpaceId(command);
+  if (spaceId) {
+    try {
+      await client.space(spaceId).files.read(value);
+      return { kind: "file", path: value };
+    } catch (cause: unknown) {
+      if (!(cause instanceof HttpError) || cause.status !== 404) throw cause;
+    }
+  }
+  return resolveWorkTarget(client, value);
 }
 
 function reportDispatch(record: UiCommandRecord): void {
@@ -76,7 +142,7 @@ function reportDispatch(record: UiCommandRecord): void {
 
 function reportOutcome(record: UiCommandRecord, called: boolean): void {
   if (record.status === "applied") {
-    ok(called ? "Work preview shown and method called" : "Work preview shown");
+    ok(called ? "Work preview shown and method called" : "Preview shown");
     if (record.result !== undefined) {
       console.log(typeof record.result === "string" ? record.result : JSON.stringify(record.result, null, 2));
     }
@@ -99,7 +165,9 @@ Commands reach only the frontend instance that originated the current chat,
 resolved from request provenance. Nothing else can be targeted.
 
 Examples:
-  cohub ui preview <work-id>
+  cohub ui preview <work-or-file>
+  cohub ui preview file://src/main.ts
+  cohub ui preview work://alice/studio/launch
   cohub ui preview alice/studio/launch
   cohub ui preview https://cohub.live/alice/studio/w/launch?view=timeline
   cohub ui preview <work-id> --call selection.get
@@ -108,8 +176,8 @@ Examples:
     );
 
   const preview = ui
-    .command("preview <work>")
-    .description("Show a Work preview tab, optionally calling a method it exposes")
+    .command("preview <work-or-file>")
+    .description("Show a file or Work preview tab, optionally calling a Work method")
     .option("--call <method>", "Method the Work registered via client.work.surface.handle()")
     .option("--data <json>", "Inline JSON input for --call")
     .option("-i, --input <file>", "JSON input file for --call; use - for stdin")
@@ -132,7 +200,10 @@ Examples:
       const timeoutMs = parseTimeout(opts.timeoutMs);
       const client = createClient();
       try {
-        const target = await resolveWorkTarget(client, work);
+        const target = await resolvePreviewTarget(client, preview, work);
+        if (target.kind === "file" && opts.call) {
+          return error("Unsupported option", "--call only applies to Work previews.");
+        }
         const request: UiSurfaceRequest | undefined = opts.call
           ? { method: opts.call, ...(callInput === undefined ? {} : { input: callInput }) }
           : undefined;
@@ -140,12 +211,15 @@ Examples:
         const input = {
           command: {
             type: "preview.show" as const,
-            preview: {
-              kind: "work" as const,
-              workId: target.workId,
-              label: target.label,
-              ...(target.launch.search || target.launch.hash ? { launch: target.launch } : {}),
-            },
+            preview:
+              target.kind === "file"
+                ? target
+                : {
+                    kind: "work" as const,
+                    workId: target.workId,
+                    label: target.label,
+                    ...(target.launch.search || target.launch.hash ? { launch: target.launch } : {}),
+                  },
             ...(request ? { request } : {}),
           },
           ...(opts.client ? { targetClientId: opts.client } : {}),
@@ -168,6 +242,8 @@ Examples:
     "after",
     `
 Notes:
+  - Use file:// and work:// to make the target explicit.
+  - A plain target checks the current Space for a file before resolving a Work.
   - Showing a preview is idempotent; repeating it re-activates the same tab.
   - --call waits for the Work to announce readiness, then invokes the method.
   - Which methods exist is up to the Work author.

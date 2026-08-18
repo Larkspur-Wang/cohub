@@ -97,7 +97,8 @@ test("accepted commands never evict a call that is still being delivered", async
 	const releases: Array<() => void> = [];
 	let slowCalls = 0;
 	const off = registerUiCommandHost(async (command) => {
-		if (command.preview.workId !== SLOW_WORK) return { status: "pending" };
+		if (command.preview.kind !== "work" || command.preview.workId !== SLOW_WORK)
+			return { status: "pending" };
 		slowCalls += 1;
 		await new Promise<void>((resolve) => releases.push(resolve));
 		return { status: "pending" };

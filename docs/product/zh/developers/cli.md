@@ -117,8 +117,10 @@ Realtime rooms 使用已发布 Work 的 runtime 身份。请在 Work 内使用
 Work 自己暴露的方法。
 
 ```bash
-cohub ui preview <workId|url|cohub://works/...|username/space/work>
-cohub ui preview <work> --call selection.get
+cohub ui preview <workId|url|cohub://works/...|username/space/work|file://path>
+cohub ui preview file://src/main.ts
+cohub ui preview work://alice/studio/launch
+cohub ui preview <work-or-file> --call selection.get
 cohub ui preview <work> --call board.focus --data '{"nodeId":"n1"}'
 ```
 
