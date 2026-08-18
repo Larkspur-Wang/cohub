@@ -66,6 +66,7 @@ import {
 	dispatchWorksChanged,
 	parseWorkVersionPublished,
 	upsertWorkSnapshot,
+	WORKS_CHANGED_EVENT,
 } from "$lib/features/work/work-realtime";
 // SettingsOverlay removed — settings merged inline into detail page
 import { isComposingKeyboardEvent } from "$lib/keyboard";
@@ -2218,6 +2219,15 @@ onMount(() => {
 	spacePresence.start();
 	sessionChat.loadSessionScrollAnchors();
 	window.addEventListener("keydown", handleSessionVimKeydown);
+	const handleWorksChanged = (event: Event) => {
+		const detail = (
+			event as CustomEvent<{ spaceId?: string; work?: { id?: string } }>
+		).detail;
+		if (detail?.spaceId !== spaceId || typeof detail.work?.id !== "string")
+			return;
+		workPreview.refreshIfOpen(detail.work.id);
+	};
+	window.addEventListener(WORKS_CHANGED_EVENT, handleWorksChanged);
 	const offSessionListCacheUpdated = onSessionListCacheUpdated(
 		({ spaceId: updatedSpaceId, sessions }) => {
 			if (updatedSpaceId !== spaceId) return;
@@ -2402,6 +2412,7 @@ onMount(() => {
 		if (activeSessionId)
 			sessionChat.captureCurrentScrollAnchor(activeSessionId);
 		window.removeEventListener("keydown", handleSessionVimKeydown);
+		window.removeEventListener(WORKS_CHANGED_EVENT, handleWorksChanged);
 		offSessionListCacheUpdated();
 		offBoardTxApplied();
 		offBoardPlaybackChanged();

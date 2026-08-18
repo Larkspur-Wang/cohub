@@ -4,6 +4,7 @@ import {
 	type WorkComposerChip,
 } from "@cohub/protocol/work-surface";
 import type { WorkDetailResponse } from "@neta-art/cohub";
+import { isNewerWorkSnapshot } from "$lib/features/work/work-realtime";
 import { workDisplayTitle } from "$lib/work-page-meta";
 import { createRequestDedupe } from "./request-dedupe";
 
@@ -16,6 +17,7 @@ export type InlineWorkPreview = {
 	detail: WorkDetailResponse | null;
 	loading: boolean;
 	error: string | null;
+	refreshError: string | null;
 	launch: WorkPreviewLaunchState | null;
 	composerChip: WorkComposerChip | null;
 };
@@ -49,6 +51,7 @@ export function createWorkPreviewController(
 	const requests = createRequestDedupe();
 	const invokers = new Map<string, WorkSurfaceInvoker>();
 	const detailSettled = new Map<string, Promise<void>>();
+	const loadTokens = new Map<string, number>();
 
 	const loadWork =
 		options.loadWork ??
@@ -82,24 +85,63 @@ export function createWorkPreviewController(
 		);
 	}
 
-	async function loadDetail(workId: string) {
+	async function loadDetail(
+		workId: string,
+		loadOptions: { force?: boolean; remount?: boolean } = {},
+	) {
 		const requestSpaceId = options.getSpaceId();
-		patch(workId, { loading: true, error: null });
+		const token = (loadTokens.get(workId) ?? 0) + 1;
+		loadTokens.set(workId, token);
+		patch(workId, { loading: true, error: null, refreshError: null });
 		const settle = (async () => {
 			try {
-				const detail = await requests.run(`work:${workId}`, () =>
-					loadDetailFor(workId),
+				const detail = await requests.run(
+					`work:${workId}`,
+					() => loadDetailFor(workId),
+					{ force: loadOptions.force },
 				);
-				if (options.getSpaceId() !== requestSpaceId) return;
-				if (!previews.some((item) => item.workId === workId)) return;
+				const current = previews.find((item) => item.workId === workId);
+				if (
+					options.getSpaceId() !== requestSpaceId ||
+					loadTokens.get(workId) !== token ||
+					!current
+				)
+					return;
+				const changed = isNewerWorkSnapshot(
+					current.detail?.work ?? null,
+					detail.work,
+				);
+				if (current.detail && !changed) {
+					patch(workId, { loading: false, refreshError: null });
+					return;
+				}
 				patch(workId, {
 					detail,
 					loading: false,
 					error: null,
+					refreshError: null,
 					label: workDisplayTitle(detail.work.meta, detail.work.slug),
+					...(loadOptions.remount && changed
+						? { mountKey: ++nextMountKey }
+						: {}),
 				});
 			} catch (cause) {
-				if (options.getSpaceId() !== requestSpaceId) return;
+				if (
+					options.getSpaceId() !== requestSpaceId ||
+					loadTokens.get(workId) !== token
+				)
+					return;
+				const current = previews.find((item) => item.workId === workId);
+				if (current?.detail) {
+					patch(workId, {
+						loading: false,
+						refreshError:
+							cause instanceof Error
+								? cause.message
+								: "Failed to refresh this Work.",
+					});
+					return;
+				}
 				patch(workId, {
 					loading: false,
 					error:
@@ -141,6 +183,7 @@ export function createWorkPreviewController(
 				error: null,
 				launch: input.launch ?? null,
 				composerChip: null,
+				refreshError: null,
 			},
 		];
 		activeWorkId = input.workId;
@@ -178,7 +221,12 @@ export function createWorkPreviewController(
 
 	function retry(workId: string) {
 		if (!previews.some((item) => item.workId === workId)) return;
-		void loadDetail(workId);
+		void loadDetail(workId, { force: true, remount: true });
+	}
+
+	function refreshIfOpen(workId: string) {
+		if (!previews.some((item) => item.workId === workId)) return;
+		void loadDetail(workId, { force: true, remount: true });
 	}
 
 	function setComposerChip(workId: string, chip: WorkComposerChip | null) {
@@ -275,6 +323,7 @@ export function createWorkPreviewController(
 		requests.clear();
 		invokers.clear();
 		detailSettled.clear();
+		loadTokens.clear();
 	}
 
 	return {
@@ -292,6 +341,7 @@ export function createWorkPreviewController(
 		closeWork,
 		closeAll,
 		retry,
+		refreshIfOpen,
 		registerSurface,
 		setComposerChip,
 		callSurface,

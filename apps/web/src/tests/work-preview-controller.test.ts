@@ -9,7 +9,15 @@ import { createWorkPreviewController } from "../lib/features/space/modules/work-
 const WORK_ID = "123e4567-e89b-42d3-a456-426614174000";
 
 const detailFor = (kind: "web" | "port" | "file" | "board" | null) => ({
-	work: { id: WORK_ID, slug: "launch", meta: null, status: "published" },
+	work: {
+		id: WORK_ID,
+		slug: "launch",
+		meta: null,
+		status: "published",
+		latestVersion: 1,
+		currentVersionId: "version-1",
+		updatedAt: "2026-07-20T00:00:00.000Z",
+	},
 	space: null,
 	owner: null,
 	publicUrl: "https://cohub.run/alice/studio/w/launch",
@@ -53,6 +61,125 @@ test("reopening a closed Work gets a fresh surface mount", () => {
 	controller.closeWork(WORK_ID);
 	controller.openWork({ workId: WORK_ID });
 	assert.notEqual(controller.preview?.mountKey, firstMountKey);
+});
+
+test("refreshing an open Work reloads its detail and remounts the surface", async () => {
+	let detail = detailFor("web");
+	let loads = 0;
+	const controller = createWorkPreviewController({
+		getSpaceId: () => "space-1",
+		loadWork: async () => {
+			loads += 1;
+			return detail as never;
+		},
+	});
+
+	controller.openWork({ workId: WORK_ID });
+	await settle();
+	const firstMountKey = controller.preview?.mountKey;
+	const firstLoads = loads;
+	const nextWork = {
+		...detail.work,
+		latestVersion: detail.work.latestVersion + 1,
+		currentVersionId: "version-2",
+		updatedAt: "2026-07-20T01:00:00.000Z",
+	};
+	detail = {
+		...detail,
+		work: nextWork,
+		content: { kind: "web", url: "https://work.example/v2.html" },
+	};
+
+	controller.refreshIfOpen(WORK_ID);
+	await settle();
+	assert.equal(loads, firstLoads + 1);
+	assert.notEqual(controller.preview?.mountKey, firstMountKey);
+	assert.equal(
+		controller.preview?.detail?.content?.url,
+		"https://work.example/v2.html",
+	);
+});
+
+test("a stale refresh response cannot replace the current Work detail", async () => {
+	let detail = detailFor("web");
+	const controller = createWorkPreviewController({
+		getSpaceId: () => "space-1",
+		loadWork: async () => detail as never,
+	});
+
+	controller.openWork({ workId: WORK_ID });
+	await settle();
+	const current = {
+		...detail,
+		work: {
+			...detail.work,
+			latestVersion: 2,
+			currentVersionId: "version-2",
+			updatedAt: "2026-07-20T01:00:00.000Z",
+		},
+		content: { kind: "web" as const, url: "https://work.example/v2.html" },
+	};
+	detail = current;
+	controller.refreshIfOpen(WORK_ID);
+	await settle();
+
+	const stale = {
+		...detail,
+		work: {
+			...detail.work,
+			latestVersion: 1,
+			currentVersionId: "version-1",
+			updatedAt: "2026-07-20T00:00:00.000Z",
+		},
+		content: { kind: "web" as const, url: "https://work.example/v1.html" },
+	};
+	detail = stale;
+	controller.refreshIfOpen(WORK_ID);
+	await settle();
+
+	assert.equal(controller.preview?.detail?.work.latestVersion, 2);
+	assert.equal(
+		controller.preview?.detail?.content?.url,
+		"https://work.example/v2.html",
+	);
+	assert.equal(controller.preview?.loading, false);
+});
+
+test("a failed background refresh keeps the current Work detail", async () => {
+	let shouldFail = false;
+	const controller = createWorkPreviewController({
+		getSpaceId: () => "space-1",
+		loadWork: async () => {
+			if (shouldFail) throw new Error("Network unavailable");
+			return detailFor("web") as never;
+		},
+	});
+
+	controller.openWork({ workId: WORK_ID });
+	await settle();
+	shouldFail = true;
+	controller.refreshIfOpen(WORK_ID);
+	await settle();
+
+	assert.equal(controller.preview?.detail?.work.latestVersion, 1);
+	assert.equal(controller.preview?.error, null);
+	assert.equal(controller.preview?.refreshError, "Network unavailable");
+	assert.equal(controller.preview?.loading, false);
+});
+
+test("refreshing a closed Work does not load it", async () => {
+	let loads = 0;
+	const controller = createWorkPreviewController({
+		getSpaceId: () => "space-1",
+		loadWork: async () => {
+			loads += 1;
+			return detailFor("web") as never;
+		},
+	});
+
+	controller.refreshIfOpen(WORK_ID);
+	await settle();
+	assert.equal(loads, 0);
 });
 
 test("opening the panel happens after preview state is committed", () => {

@@ -158,6 +158,18 @@ const isDisabled = $derived(detail?.work.status === "disabled");
 				<span>Refreshing…</span>
 			</div>
 		{/if}
+		{#if preview.refreshError && detail}
+			<div class="absolute bottom-2 left-2 right-2 z-10 flex items-center gap-2 rounded-md border border-error-soft/30 bg-bg-content/95 px-2.5 py-1.5 text-[11px] text-error-soft shadow-sm">
+				<span class="min-w-0 flex-1 truncate">{preview.refreshError}</span>
+				<button
+					type="button"
+					class="shrink-0 text-text-secondary underline underline-offset-2 hover:text-text-primary"
+					onclick={() => onRetry(preview.workId)}
+				>
+					Retry
+				</button>
+			</div>
+		{/if}
 	</div>
 </div>
 
