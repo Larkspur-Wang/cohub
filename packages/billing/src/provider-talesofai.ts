@@ -1763,9 +1763,9 @@ export function createTalesofaiBillingOperations(
 
     const promise = (async () => {
       try {
+        // Ensuring an identity must not change its operator-managed status.
         const customer = await sdk.admin.customers.create({
           external_user_id: input.userId,
-          status: "active",
         });
         const value = { userId: customer.external_user_id };
         cacheEnsuredCustomer(value);
@@ -2231,7 +2231,8 @@ export function createTalesofaiBillingOperations(
       if (
         product.status !== "active" ||
         product.visibility !== "public" ||
-        product.billing_type !== expectedBillingType
+        product.billing_type !== expectedBillingType ||
+        !isCohubCatalogProduct(product)
       ) {
         return null;
       }
@@ -3037,9 +3038,9 @@ async function ensureBusinessCustomer(
   userId: string,
 ): Promise<void> {
   try {
+    // Ensuring an identity must not change its operator-managed status.
     await sdk.admin.customers.create({
       external_user_id: userId,
-      status: "active",
     });
   } catch (error) {
     if (!(error instanceof ApiError) || error.status !== 409) throw error;
