@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Job } from "bullmq";
-import { matchesSpaceFsVersion, spaceFsVersionMatches } from "@cohub/protocol/fs";
+import { spaceFsVersionMatches } from "@cohub/protocol/fs";
 import type { RpcEventPayload, RpcMethod, RpcRequestMap } from "@cohub/protocol/sandbox";
 import { SandboxRpcError, type SandboxConnection } from "@cohub/sandbox-client";
 import { getAgentTracer, wrapToolCall } from "@cohub/infra/tracing/agent";

@@ -6,14 +6,12 @@ import type {
 	VoiceInputClient,
 } from "@neta-art/cohub";
 import {
-	Bot,
 	Check,
 	ChevronDown,
 	Maximize2,
 	Mic,
 	Minimize2,
 	Plus,
-	WandSparkles,
 	X,
 } from "lucide-svelte";
 import { onMount } from "svelte";
@@ -1424,7 +1422,7 @@ $effect(() => {
 								<div class="relative shrink-0">
 									<button
 										type="button"
-										class={`flex h-7 items-center gap-1 rounded-full border px-2 text-[11px] leading-none transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand/40 ${mode === "create" ? "border-brand/25 bg-brand-bg text-brand-muted-fg" : "border-border-subtle text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"}`}
+										class="flex h-7 items-center gap-1 rounded-full border border-border-subtle px-2 text-[11px] leading-none text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand/40"
 										disabled={disabled || sending}
 										aria-label={`Mode ${mode === "agent" ? "Agent" : "Create"}`}
 										aria-expanded={showModeMenu}
@@ -1436,7 +1434,6 @@ $effect(() => {
 											if (event.key === "Escape") showModeMenu = false;
 										}}
 									>
-										{#if mode === "agent"}<Bot class="h-3 w-3" />{:else}<WandSparkles class="h-3 w-3" />{/if}
 										<span>{mode === "agent" ? "Agent" : "Create"}</span>
 										<ChevronDown class="h-3 w-3 opacity-45" />
 									</button>
@@ -1462,7 +1459,6 @@ $effect(() => {
 														showModeMenu = false;
 													}}
 												>
-													{#if item === "agent"}<Bot class="h-3.5 w-3.5 text-text-tertiary" />{:else}<WandSparkles class="h-3.5 w-3.5 text-text-tertiary" />{/if}
 													<span class="flex-1">{item === "agent" ? "Agent" : "Create"}</span>
 													{#if mode === item}<Check class="h-3.5 w-3.5 text-brand" />{/if}
 												</button>
