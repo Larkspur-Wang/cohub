@@ -10,7 +10,7 @@
 
 import type { BoardDocument, BoardItem } from "@cohub/protocol/board-document";
 import type { BoardConnection } from "@cohub/protocol/board-connection";
-import { Container, Graphics, type Texture } from "pixi.js";
+import { Container, Graphics, Sprite, TilingSprite, type Texture } from "pixi.js";
 import type { BoardShapeColors } from "../core/palette.js";
 import { buildFallbackShapeColors } from "../core/palette.js";
 import { imageAssetKey } from "../image-key.js";
@@ -42,6 +42,12 @@ export type BoardExportSceneInput = {
   assetKey?: (item: BoardItem) => string | null;
   /** Opaque paper behind the content, or null for transparency. */
   background?: number | null;
+  backgroundImage?: {
+    texture: Texture;
+    fit: "cover" | "contain" | "repeat";
+    position: "center" | "top" | "bottom" | "left" | "right";
+    opacity: number;
+  };
 };
 
 export type BoardExportScene = {
@@ -96,12 +102,31 @@ export function createBoardExportScene(input: BoardExportSceneInput): BoardExpor
   const { context, missing } = buildContext(input);
   const root = new Container({ label: "board-export-root" });
 
+  const outputWidth = input.world.width * input.scale;
+  const outputHeight = input.world.height * input.scale;
   if (input.background != null) {
     root.addChild(
       new Graphics()
-        .rect(0, 0, input.world.width * input.scale, input.world.height * input.scale)
+        .rect(0, 0, outputWidth, outputHeight)
         .fill({ color: input.background, alpha: 1 }),
     );
+  }
+  if (input.backgroundImage) {
+    const { texture, fit, position, opacity } = input.backgroundImage;
+    if (fit === "repeat") {
+      root.addChild(new TilingSprite({ texture, width: outputWidth, height: outputHeight, alpha: opacity }));
+    } else {
+      const sprite = new Sprite({ texture, alpha: opacity });
+      const scale = fit === "cover"
+        ? Math.max(outputWidth / texture.width, outputHeight / texture.height)
+        : Math.min(outputWidth / texture.width, outputHeight / texture.height);
+      sprite.width = texture.width * scale;
+      sprite.height = texture.height * scale;
+      const x = position === "left" ? 0 : position === "right" ? outputWidth - sprite.width : (outputWidth - sprite.width) / 2;
+      const y = position === "top" ? 0 : position === "bottom" ? outputHeight - sprite.height : (outputHeight - sprite.height) / 2;
+      sprite.position.set(x, y);
+      root.addChild(sprite);
+    }
   }
 
   // One render group: the whole export is a single transform, so the camera

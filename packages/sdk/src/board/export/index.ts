@@ -12,6 +12,7 @@
 
 import type { BoardDocument, BoardItem } from "@cohub/protocol/board-document";
 import { type ICanvas, Rectangle, type Renderer, type Texture } from "pixi.js";
+import { parseBoardCssColor } from "../render/css-color.js";
 import type { BoardShapeColors } from "../core/palette.js";
 import {
   BOARD_EXPORT_ITEM_WARN_THRESHOLD,
@@ -54,6 +55,12 @@ export type BoardExportOptions = {
   textures?: Map<string, Texture>;
   /** Preview-key strategy supplied by the host; defaults to still images only. */
   assetKey?: (item: BoardItem) => string | null;
+  backgroundImage?: {
+    texture: Texture;
+    fit: "cover" | "contain" | "repeat";
+    position: "center" | "top" | "bottom" | "left" | "right";
+    opacity: number;
+  };
   maxEdge?: number;
   maxPixels?: number;
 };
@@ -72,10 +79,12 @@ export type BoardExportResult = {
 function resolveBackground(
   background: BoardExportBackground | undefined,
   palette: BoardRenderPalette,
+  document: BoardDocument,
 ): number | null {
   if (background === "transparent") return null;
   if (typeof background === "number") return background;
-  return palette.bg;
+  const declared = document.appearance.background.color;
+  return declared ? (parseBoardCssColor(declared) ?? palette.bg) : palette.bg;
 }
 
 /**
@@ -114,7 +123,8 @@ export function renderBoardExport(
     colors: options.colors,
     textures: options.textures,
     assetKey: options.assetKey,
-    background: resolveBackground(options.background, palette),
+    background: resolveBackground(options.background, palette, document),
+    backgroundImage: options.backgroundImage,
   });
 
   try {

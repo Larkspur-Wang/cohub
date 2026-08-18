@@ -1,5 +1,6 @@
 import { BOARD_FONT_STACK } from "@cohub/protocol/board-constants";
-import { Container, DOMAdapter, Graphics, Text } from "pixi.js";
+import { Container, Graphics, Text } from "pixi.js";
+import { parseBoardCssColor } from "../css-color.js";
 import { getBoardResolution } from "../text-resolution.js";
 import type { BoardItem } from "@cohub/protocol/board-document";
 import type { BoardRenderPalette } from "./board-renderer-registry.js";
@@ -18,7 +19,7 @@ export function emphasisColor(
 	palette: BoardRenderPalette,
 ): number {
 	if (item.style?.accentColor) {
-		const normalized = parseCssColor(item.style.accentColor);
+		const normalized = parseBoardCssColor(item.style.accentColor);
 		if (normalized != null) return normalized;
 	}
 	switch (item.style?.emphasis) {
@@ -30,28 +31,6 @@ export function emphasisColor(
 			return palette.legendary;
 		default:
 			return palette.brand;
-	}
-}
-
-/**
- * Normalise any CSS color to a number by letting a 2D context parse it.
- *
- * Goes through `DOMAdapter` rather than `document` so a headless export resolves
- * accent colors exactly as the browser does; without it, custom accents would
- * silently fall back to the emphasis palette only when exporting.
- */
-function parseCssColor(value: string): number | null {
-	try {
-		const canvas = DOMAdapter.get().createCanvas(1, 1);
-		const context = canvas.getContext("2d") as
-			| { fillStyle: string | CanvasGradient | CanvasPattern }
-			| null;
-		if (!context) return null;
-		context.fillStyle = value;
-		const match = /^#([0-9a-f]{6})$/i.exec(String(context.fillStyle));
-		return match?.[1] ? Number.parseInt(match[1], 16) : null;
-	} catch {
-		return null;
 	}
 }
 

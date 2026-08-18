@@ -15,6 +15,7 @@ import { isDarkTheme } from "$lib/theme-registry";
  * fallback hint; the resolved palette and shape colors carry the actual theme.
  */
 export {
+	type BoardBackgroundLoadState,
 	type BoardThemeBackground,
 	resolveBoardBackground,
 } from "$lib/board/board-theme-background";

@@ -1,4 +1,5 @@
 import { Container, Graphics, RenderTexture, TilingSprite } from "pixi.js";
+import { parseBoardCssColor } from "../css-color.js";
 import type {
 	BoardThemeContext,
 	BoardThemeRenderer,
@@ -50,21 +51,25 @@ function sync(parts: GridParts, context: BoardThemeContext) {
 	const { app, document, viewport, palette } = context;
 	const width = app.screen.width;
 	const height = app.screen.height;
+	const declaredBackground = document.appearance.background;
+	const bgColor = declaredBackground.color
+		? (parseBoardCssColor(declaredBackground.color) ?? palette.bg)
+		: palette.bg;
 	const bgAlpha = context.hasImageBackground ? 0 : 1;
 
 	if (
 		parts.lastWidth !== width ||
 		parts.lastHeight !== height ||
-		parts.lastBg !== palette.bg ||
+		parts.lastBg !== bgColor ||
 		parts.lastBgAlpha !== bgAlpha
 	) {
 		parts.fill.clear();
 		parts.fill
 			.rect(0, 0, width, height)
-			.fill({ color: palette.bg, alpha: bgAlpha });
+			.fill({ color: bgColor, alpha: bgAlpha });
 		parts.lastWidth = width;
 		parts.lastHeight = height;
-		parts.lastBg = palette.bg;
+		parts.lastBg = bgColor;
 		parts.lastBgAlpha = bgAlpha;
 	}
 

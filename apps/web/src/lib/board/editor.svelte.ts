@@ -626,6 +626,13 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		localRev += 1;
 	}
 
+	function setAppearance(appearance: BoardDocument["appearance"]) {
+		if (JSON.stringify(synced.appearance) === JSON.stringify(appearance))
+			return;
+		synced = { ...synced, appearance };
+		localRev += 1;
+	}
+
 	/** Replace items and connections together, as one atomic change. */
 	function setContent(
 		nextItems: BoardItem[],
@@ -701,15 +708,18 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		requestCommit();
 	}
 
+	function commitAppearance(appearance: BoardDocument["appearance"]) {
+		setAppearance(appearance);
+		commitAction();
+	}
+
 	function undo() {
 		const ops = undoStack.at(-1);
 		if (!ops) return;
 		undoStack = undoStack.slice(0, -1);
 		redoStack = [...redoStack, ops];
 		const next = applyBoardOps(document, invertBoardOps(ops));
-		// Both halves, atomically: a step can span nodes and relations (deleting a
-		// connected node is one step), and writing only the items would silently drop
-		// the relation half of the undo.
+		setAppearance(next.appearance);
 		setContent(next.items, next.connections);
 		undoBaseline = document;
 		requestCommit();
@@ -721,6 +731,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		redoStack = redoStack.slice(0, -1);
 		undoStack = [...undoStack, ops];
 		const next = applyBoardOps(document, ops);
+		setAppearance(next.appearance);
 		setContent(next.items, next.connections);
 		undoBaseline = document;
 		requestCommit();
@@ -2857,6 +2868,9 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		get items() {
 			return items;
 		},
+		get appearance() {
+			return synced.appearance;
+		},
 		get connections() {
 			return synced.connections;
 		},
@@ -3050,6 +3064,8 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		set surfaceSize(value: { width: number; height: number }) {
 			surfaceSize = value;
 		},
+		previewAppearance: setAppearance,
+		setAppearance: commitAppearance,
 		set activeColor(value: string) {
 			const id = styledToolId();
 			if (!id || !isBoardColorId(value)) return;

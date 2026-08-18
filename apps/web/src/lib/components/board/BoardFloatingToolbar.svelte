@@ -18,6 +18,7 @@ import {
 	MousePointer2,
 	Pencil,
 	Redo2,
+	SlidersHorizontal,
 	Square,
 	SquareRoundCorner,
 	Triangle,
@@ -32,11 +33,15 @@ const {
 	immersive = false,
 	generationOpen = false,
 	onToggleGeneration,
+	appearanceOpen = false,
+	onToggleAppearance,
 }: {
 	editor: BoardEditor;
 	immersive?: boolean;
 	generationOpen?: boolean;
 	onToggleGeneration?: () => void;
+	appearanceOpen?: boolean;
+	onToggleAppearance?: () => void;
 } = $props();
 
 let styleOpen = $state(false);
@@ -202,6 +207,17 @@ function toolTitle(tool: ToolDef) {
 			onclick={onToggleGeneration}
 		>
 			<Blend class="h-4 w-4" />
+		</button>
+		<button
+			type="button"
+			class="tool-btn"
+			class:tool-btn--active={appearanceOpen}
+			title="Board appearance"
+			aria-label="Board appearance"
+			aria-pressed={appearanceOpen}
+			onclick={onToggleAppearance}
+		>
+			<SlidersHorizontal class="h-4 w-4" />
 		</button>
 
 		<div class="divider history-divider"></div>

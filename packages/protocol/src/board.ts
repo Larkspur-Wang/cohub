@@ -207,7 +207,7 @@ type BoardOperationBase = {
   inverse?: Record<string, unknown>;
 };
 export type BoardOperation =
-  | (BoardOperationBase & { type: "board.patch"; payload: { patch: { title?: string; metadata?: Record<string, unknown> } } })
+  | (BoardOperationBase & { type: "board.patch"; payload: { patch: { title?: string; metadata?: Record<string, unknown>; metadataPatch?: Record<string, unknown> } } })
   | (BoardOperationBase & { type: "node.create"; payload: { node: BoardNodeInput } })
   | (BoardOperationBase & { type: "node.patch"; payload: { nodeId: string; patch: Partial<BoardNodeInput> } })
   | (BoardOperationBase & { type: "node.delete"; payload: { nodeId: string; reason?: BoardDeleteReason } })

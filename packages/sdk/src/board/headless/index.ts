@@ -251,9 +251,15 @@ export async function createBoardHeadlessRenderer(
 
 export type BoardHeadlessExportFormat = "png" | "jpeg" | "webp";
 
-export type BoardHeadlessExportOptions = Omit<BoardExportOptions, "textures"> & {
+export type BoardHeadlessExportOptions = Omit<BoardExportOptions, "textures" | "backgroundImage"> & {
   /** Textures from `decodeImage`, keyed by image key. */
   textures?: Map<string, BoardHeadlessTexture>;
+  backgroundImage?: {
+    texture: BoardHeadlessTexture;
+    fit: "cover" | "contain" | "repeat";
+    position: "center" | "top" | "bottom" | "left" | "right";
+    opacity: number;
+  };
   format?: BoardHeadlessExportFormat;
   /** JPEG/WebP quality, 0–1. Ignored for PNG. */
   quality?: number;
@@ -280,10 +286,18 @@ export function exportBoardImageBytes(
   document: BoardDocument,
   options: BoardHeadlessExportOptions = {},
 ): BoardHeadlessExportResult | null {
-  const { format = "png", quality = 0.92, textures, ...rest } = options;
+  const { format = "png", quality = 0.92, textures, backgroundImage, ...rest } = options;
   const result = renderBoardExport(headless.renderer, document, {
     ...rest,
     ...(textures ? { textures: textures as unknown as Map<string, Texture> } : {}),
+    ...(backgroundImage
+      ? {
+          backgroundImage: {
+            ...backgroundImage,
+            texture: backgroundImage.texture as unknown as Texture,
+          },
+        }
+      : {}),
   });
   if (!result) return null;
   const canvas = result.canvas as unknown as {

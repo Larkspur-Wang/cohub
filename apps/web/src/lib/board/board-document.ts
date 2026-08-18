@@ -390,6 +390,14 @@ export function diffBoardDocuments(
 
 	const ops: BoardOperation[] = [];
 
+	if (!sameJson(before.appearance, after.appearance)) {
+		ops.push({
+			type: "board.patch",
+			payload: { patch: { metadataPatch: { appearance: after.appearance } } },
+			inverse: { patch: { metadataPatch: { appearance: before.appearance } } },
+		});
+	}
+
 	// The server validates in operation order, and the two referential rules are
 	// mirror images: a relation may not outlive its node, and may not precede it.
 	// So relation removals come first, node changes next, relation additions last.
@@ -599,10 +607,13 @@ export function applyBoardOps(
 	let appearance = document.appearance;
 	for (const op of ops) {
 		if (op.type === "board.patch") {
-			const parsed = BoardAppearanceSchema.safeParse(
-				op.payload.patch.metadata?.appearance,
-			);
-			appearance = parsed.success ? parsed.data : DEFAULT_BOARD_APPEARANCE;
+			const candidate =
+				op.payload.patch.metadataPatch?.appearance ??
+				op.payload.patch.metadata?.appearance;
+			if (candidate !== undefined) {
+				const parsed = BoardAppearanceSchema.safeParse(candidate);
+				if (parsed.success) appearance = parsed.data;
+			}
 			continue;
 		}
 		if (op.type === "node.create") {

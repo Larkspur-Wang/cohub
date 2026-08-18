@@ -16,6 +16,7 @@ import {
   type BoardValidationResult,
   validateBoardNodeInput,
 } from "@cohub/protocol";
+import { BoardAppearanceSchema } from "@cohub/protocol/board-document";
 import {
   BoardConnectionPatchSchema,
   BoardConnectionSchema,
@@ -134,7 +135,7 @@ function cleanRecord(value: unknown, fieldName: string): Record<string, unknown>
 }
 
 function cleanBoardMetadata(value: unknown): Record<string, unknown> {
-  const metadata = cleanRecord(value, "board.metadata");
+  let metadata = cleanRecord(value, "board.metadata");
   if (metadata.playback !== undefined) {
     const parsed = BoardPlaybackPolicySchema.safeParse(metadata.playback);
     if (!parsed.success) {
@@ -144,7 +145,18 @@ function cleanBoardMetadata(value: unknown): Record<string, unknown> {
         "INVALID_PLAYBACK_POLICY",
       );
     }
-    return { ...metadata, playback: parsed.data };
+    metadata = { ...metadata, playback: parsed.data };
+  }
+  if (metadata.appearance !== undefined) {
+    const parsed = BoardAppearanceSchema.safeParse(metadata.appearance);
+    if (!parsed.success) {
+      throw new BoardServiceError(
+        400,
+        parsed.error.issues[0]?.message ?? "invalid Board appearance metadata",
+        "INVALID_BOARD_APPEARANCE",
+      );
+    }
+    metadata = { ...metadata, appearance: parsed.data };
   }
   return metadata;
 }
@@ -400,12 +412,13 @@ export function normalizeBoardOperation(operation: BoardOperation): BoardOperati
   switch (operation.type) {
     case "board.patch": {
       if (!isRecord(operation.payload.patch)) throw new BoardServiceError(400, "board.patch requires patch");
-      const patch: { title?: string; metadata?: Record<string, unknown> } = {};
+      const patch: { title?: string; metadata?: Record<string, unknown>; metadataPatch?: Record<string, unknown> } = {};
       if ("title" in operation.payload.patch) {
         if (typeof operation.payload.patch.title !== "string" || !operation.payload.patch.title.trim()) throw new BoardServiceError(400, "board title is required");
         patch.title = operation.payload.patch.title.trim().slice(0, 255);
       }
       if ("metadata" in operation.payload.patch) patch.metadata = cleanBoardMetadata(operation.payload.patch.metadata);
+      if ("metadataPatch" in operation.payload.patch) patch.metadataPatch = cleanBoardMetadata(operation.payload.patch.metadataPatch);
       if (Object.keys(patch).length === 0) throw new BoardServiceError(400, "board.patch is empty");
       return { ...base, type: "board.patch", payload: { patch } };
     }
@@ -641,6 +654,9 @@ export function contextualValidation(
     const path = `operations.${index}`;
     if (operation.type === "board.patch") {
       boardMetadata = operation.payload.patch.metadata ?? boardMetadata;
+      if (operation.payload.patch.metadataPatch) {
+        boardMetadata = { ...boardMetadata, ...operation.payload.patch.metadataPatch };
+      }
       continue;
     }
     if (operation.type === "node.create") {

@@ -31,6 +31,7 @@ import {
   exportBoardImageBytes,
 } from "@neta-art/cohub/board/headless";
 import { createClient } from "./client.js";
+import { downloadPublicImage } from "./safe-remote-image.js";
 
 export const BOARD_EXPORT_FORMATS: BoardHeadlessExportFormat[] = ["png", "jpeg", "webp"];
 
@@ -131,7 +132,7 @@ export async function loadBoardTextures(
   const textures = new Map<string, BoardHeadlessTexture>();
   const failed: string[] = [];
   const pending = [...selection.keys];
-  const concurrency = Math.max(1, Math.min(options.concurrency ?? 6, 16));
+  const concurrency = Math.max(1, Math.min(options.concurrency ?? 4, 16));
   const client = createClient();
 
   async function worker() {
@@ -147,7 +148,7 @@ export async function loadBoardTextures(
         const { bytes, mimeType } =
           source.kind === "file"
             ? await readSpaceFileBytes(client, spaceId, source.value)
-            : await readUrlBytes(source.value);
+            : await downloadPublicImage(source.value);
         const texture = await headless.decodeImage(bytes, mimeType);
         textures.set(key, texture);
       } catch {
@@ -167,15 +168,6 @@ async function readSpaceFileBytes(
 ): Promise<{ bytes: Uint8Array; mimeType: string }> {
   const { blob, mimeType } = await client.space(spaceId).files.download(path);
   return { bytes: new Uint8Array(await blob.arrayBuffer()), mimeType };
-}
-
-async function readUrlBytes(url: string): Promise<{ bytes: Uint8Array; mimeType: string }> {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  return {
-    bytes: new Uint8Array(await response.arrayBuffer()),
-    mimeType: response.headers.get("content-type") ?? "image/png",
-  };
 }
 
 export type BoardExportRunOptions = {
@@ -221,6 +213,7 @@ export async function runBoardExport(
   try {
     const warnings: string[] = [];
     let textures: Map<string, BoardHeadlessTexture> | undefined;
+    let backgroundTexture: BoardHeadlessTexture | undefined;
     let omittedKeys = new Set<string>();
     if (options.withImages) {
       const loaded = await loadBoardTextures(headless, options.spaceId, plan.items);
@@ -234,6 +227,23 @@ export async function runBoardExport(
       if (loaded.omitted.length > 0) {
         warnings.push(
           `${loaded.omitted.length} previews were drawn as placeholders to stay within the export texture limit.`,
+        );
+      }
+    }
+
+    const declaredBackground = document.appearance.background;
+    if (
+      options.withImages &&
+      options.background === "paper" &&
+      declaredBackground.kind === "image" &&
+      declaredBackground.imageUrl
+    ) {
+      try {
+        const { bytes, mimeType } = await downloadPublicImage(declaredBackground.imageUrl);
+        backgroundTexture = await headless.decodeImage(bytes, mimeType);
+      } catch {
+        warnings.push(
+          "The board background image could not be loaded; the fallback color was exported.",
         );
       }
     }
@@ -252,6 +262,14 @@ export async function runBoardExport(
       colorScheme: options.colorScheme,
       background: options.background,
       textures,
+      backgroundImage: backgroundTexture
+        ? {
+            texture: backgroundTexture,
+            fit: declaredBackground.fit ?? "cover",
+            position: declaredBackground.position ?? "center",
+            opacity: declaredBackground.opacity ?? 1,
+          }
+        : undefined,
       ...(options.withImages
         ? {
             assetKey: (item: BoardItem) => {

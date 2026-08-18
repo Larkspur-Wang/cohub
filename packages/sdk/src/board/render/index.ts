@@ -9,6 +9,7 @@
  */
 
 export * from "./connection-layer.js";
+export * from "./css-color.js";
 export * from "./media-interaction.js";
 export * from "./palette.js";
 export * from "./renderers/board-renderer-registry.js";

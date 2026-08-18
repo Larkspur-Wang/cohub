@@ -171,6 +171,26 @@ describe("headless board export", { skip: available ? false : "@napi-rs/canvas i
     assert.ok(opaquePixels > 1_000, "expected the task card to paint visible pixels");
   });
 
+  test("exports a background image", async () => {
+    const { createCanvas, loadImage } = await import("@napi-rs/canvas");
+    const source = createCanvas(2, 2);
+    const sourceContext = source.getContext("2d");
+    sourceContext.fillStyle = "#2266aa";
+    sourceContext.fillRect(0, 0, 2, 2);
+    const texture = await headless.decodeImage(source.toBuffer("image/png"), "image/png");
+    const result = exportBoardImageBytes(headless, document, {
+      scale: 1,
+      backgroundImage: { texture, fit: "cover", position: "center", opacity: 1 },
+    });
+    assert.ok(result);
+    const output = await loadImage(result.bytes);
+    const canvas = createCanvas(result.plan.width, result.plan.height);
+    const context = canvas.getContext("2d");
+    context.drawImage(output, 0, 0);
+    assert.deepEqual([...context.getImageData(1, 1, 1, 1).data], [34, 102, 170, 255]);
+    texture.destroy(true);
+  });
+
   test("scale multiplies the output size", () => {
     const single = exportBoardImageBytes(headless, document, { scale: 1 });
     const double = exportBoardImageBytes(headless, document, { scale: 2 });

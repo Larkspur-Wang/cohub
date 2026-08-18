@@ -19,6 +19,7 @@ import {
 } from "$lib/board/board-generation";
 import type { BoardStageExportBridge } from "$lib/board/board-image-export";
 import { playableBoardMedia } from "$lib/board/board-media-playback";
+import type { BoardBackgroundLoadState } from "$lib/board/board-theme";
 import { defaultBoardTool } from "$lib/board/board-tool";
 import {
 	type BoardViewPreference,
@@ -30,6 +31,7 @@ import {
 import { createBoardEditor } from "$lib/board/editor.svelte";
 import type { BoardRuntimeProps } from "$lib/board/runtime/board-runtime";
 import { canUseUserScopedCache, getCacheUserKey } from "$lib/cache/keys";
+import BoardAppearancePopover from "$lib/components/board/BoardAppearancePopover.svelte";
 import BoardCollaboratorOverlay from "$lib/components/board/BoardCollaboratorOverlay.svelte";
 import BoardConnectionToolbar from "$lib/components/board/BoardConnectionToolbar.svelte";
 import BoardContextMenu from "$lib/components/board/BoardContextMenu.svelte";
@@ -88,6 +90,8 @@ let contextMenu = $state<{ x: number; y: number } | null>(null);
 let exportBridge = $state<BoardStageExportBridge | null>(null);
 let exportOpen = $state(false);
 let generationOpen = $state(false);
+let appearanceOpen = $state(false);
+let backgroundLoadState = $state<BoardBackgroundLoadState | null>(null);
 let generationSelectionRequest = $state(0);
 let playingId = $state<string | null>(null);
 let regeneratingNodeId = $state<string | null>(null);
@@ -737,6 +741,7 @@ onDestroy(() => {
 			onPointerPresence={(cursor) => { if (!readonly) awareness.setCursor(cursor); }}
 			onSurfaceChange={handleSurfaceChange}
 			onExportReady={(bridge) => { exportBridge = bridge; }}
+			onBackgroundLoadStateChange={(state) => { backgroundLoadState = state; }}
 		/>
 
 		{#if !readonly}
@@ -790,8 +795,19 @@ onDestroy(() => {
 				{editor}
 				{immersive}
 				{generationOpen}
-				onToggleGeneration={() => { generationOpen = !generationOpen; }}
+				{appearanceOpen}
+				onToggleGeneration={() => { generationOpen = !generationOpen; appearanceOpen = false; }}
+				onToggleAppearance={() => { appearanceOpen = !appearanceOpen; generationOpen = false; }}
 			/>
+			{#if appearanceOpen}
+				<div class="board-appearance-anchor">
+					<BoardAppearancePopover
+						{editor}
+						loadState={backgroundLoadState}
+						onClose={() => { appearanceOpen = false; }}
+					/>
+				</div>
+			{/if}
 		{/if}
 		<BoardZoomMenu {editor} {immersive} />
 
@@ -823,6 +839,27 @@ onDestroy(() => {
 <style>
 	.board-panel--immersive {
 		position: relative;
+	}
+
+	.board-appearance-anchor {
+		position: absolute;
+		left: 50%;
+		bottom: 68px;
+		z-index: 30;
+		transform: translateX(-50%);
+	}
+
+	@media (pointer: coarse) {
+		.board-appearance-anchor {
+			left: 12px;
+			right: 12px;
+			bottom: 74px;
+			transform: none;
+		}
+		.board-appearance-anchor :global(.appearance-popover) {
+			width: min(360px, 100%);
+			margin-inline: auto;
+		}
 	}
 
 	.board-regeneration-notice {

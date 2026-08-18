@@ -25,9 +25,104 @@ import {
 	renderBoardExport,
 } from "@neta-art/cohub/board/export";
 import type { BoardRenderPalette } from "@neta-art/cohub/board/render";
-import type { Renderer, Texture } from "pixi.js";
+import { type Renderer, Texture } from "pixi.js";
 
 export type BoardImageFormat = "png" | "jpeg" | "webp";
+
+const MAX_BACKGROUND_BYTES = 32 * 1024 * 1024;
+const BACKGROUND_MIME_TYPES = new Set([
+	"image/avif",
+	"image/gif",
+	"image/jpeg",
+	"image/png",
+	"image/webp",
+]);
+
+type ExportBackgroundTexture = {
+	texture: Texture;
+	dispose: () => void;
+};
+
+async function rejectResponse(
+	response: Response,
+	message: string,
+): Promise<never> {
+	if (response.body) await response.body.cancel().catch(() => undefined);
+	throw new Error(message);
+}
+
+export async function readBoundedImageBlob(
+	response: Response,
+	mimeType: string,
+	maxBytes = MAX_BACKGROUND_BYTES,
+): Promise<Blob> {
+	const declaredLength = Number(response.headers.get("content-length") ?? 0);
+	if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+		return rejectResponse(
+			response,
+			`Remote background exceeds the ${maxBytes} byte download limit`,
+		);
+	}
+	if (!response.body) return new Blob([], { type: mimeType });
+
+	const reader = response.body.getReader();
+	const chunks: Uint8Array[] = [];
+	let total = 0;
+	try {
+		for (;;) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			total += value.byteLength;
+			if (total > maxBytes) {
+				throw new Error(
+					`Remote background exceeds the ${maxBytes} byte download limit`,
+				);
+			}
+			chunks.push(value);
+		}
+	} catch (error) {
+		await reader.cancel().catch(() => undefined);
+		throw error;
+	} finally {
+		reader.releaseLock();
+	}
+
+	const bytes = new Uint8Array(total);
+	let offset = 0;
+	for (const chunk of chunks) {
+		bytes.set(chunk, offset);
+		offset += chunk.byteLength;
+	}
+	return new Blob([bytes], { type: mimeType });
+}
+
+async function loadExportBackgroundTexture(
+	url: string,
+): Promise<ExportBackgroundTexture> {
+	const response = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+	if (!response.ok) return rejectResponse(response, `HTTP ${response.status}`);
+	const mimeType = response.headers
+		.get("content-type")
+		?.split(";", 1)[0]
+		?.trim()
+		.toLowerCase();
+	if (!mimeType || !BACKGROUND_MIME_TYPES.has(mimeType)) {
+		return rejectResponse(
+			response,
+			"Remote background must be a supported raster image",
+		);
+	}
+	const blob = await readBoundedImageBlob(response, mimeType);
+	const bitmap = await createImageBitmap(blob);
+	const texture = Texture.from(bitmap);
+	return {
+		texture,
+		dispose: () => {
+			texture.destroy(true);
+			bitmap.close();
+		},
+	};
+}
 
 const MIME: Record<BoardImageFormat, string> = {
 	png: "image/png",
@@ -123,42 +218,70 @@ export async function exportBoardImage(
 		const key = bridge.assetKey(item);
 		return key && omittedKeys.has(key) ? null : key;
 	};
-	// Draw *and* encode inside the texture scope: releasing a reference can evict
-	// immediately, and the canvas is only read when it becomes a blob.
-	return bridge.withTextures(assets.items, async (textures) => {
-		const result = renderBoardExport(renderer, document, {
-			palette: theme.palette,
-			colors: theme.colors,
-			colorScheme: theme.colorScheme,
-			...exportOptions,
-			region,
-			textures,
-			assetKey: cappedAssetKey,
-		});
-		if (!result) return null;
-
-		const canvas = result.canvas as unknown as HTMLCanvasElement;
-		const blob = await canvasToBlob(
-			canvas,
-			MIME[format],
-			format === "png" ? undefined : quality,
-		);
-		if (!blob) throw new Error("This browser could not encode the export.");
-		const warnings = describe(result.warnings);
-		if (assets.omittedKeys.length > 0) {
-			warnings.push(
-				`${assets.omittedKeys.length} previews were drawn as placeholders to stay within the export texture limit.`,
-			);
+	const declaredBackground = document.appearance.background;
+	const backgroundUrl =
+		exportOptions.background !== "transparent" &&
+		declaredBackground.kind === "image"
+			? declaredBackground.imageUrl
+			: undefined;
+	let backgroundTexture: ExportBackgroundTexture | null = null;
+	let backgroundWarning: string | null = null;
+	if (backgroundUrl) {
+		try {
+			backgroundTexture = await loadExportBackgroundTexture(backgroundUrl);
+		} catch {
+			backgroundWarning =
+				"The board background image could not be loaded; the fallback color was exported.";
 		}
-		return {
-			blob,
-			width: result.plan.width,
-			height: result.plan.height,
-			scale: result.plan.scale,
-			format,
-			warnings,
-		};
-	});
+	}
+
+	try {
+		return await bridge.withTextures(assets.items, async (textures) => {
+			const result = renderBoardExport(renderer, document, {
+				palette: theme.palette,
+				colors: theme.colors,
+				colorScheme: theme.colorScheme,
+				...exportOptions,
+				region,
+				textures,
+				assetKey: cappedAssetKey,
+				backgroundImage: backgroundTexture
+					? {
+							texture: backgroundTexture.texture,
+							fit: declaredBackground.fit ?? "cover",
+							position: declaredBackground.position ?? "center",
+							opacity: declaredBackground.opacity ?? 1,
+						}
+					: undefined,
+			});
+			if (!result) return null;
+
+			const canvas = result.canvas as unknown as HTMLCanvasElement;
+			const blob = await canvasToBlob(
+				canvas,
+				MIME[format],
+				format === "png" ? undefined : quality,
+			);
+			if (!blob) throw new Error("This browser could not encode the export.");
+			const warnings = describe(result.warnings);
+			if (backgroundWarning) warnings.push(backgroundWarning);
+			if (assets.omittedKeys.length > 0) {
+				warnings.push(
+					`${assets.omittedKeys.length} previews were drawn as placeholders to stay within the export texture limit.`,
+				);
+			}
+			return {
+				blob,
+				width: result.plan.width,
+				height: result.plan.height,
+				scale: result.plan.scale,
+				format,
+				warnings,
+			};
+		});
+	} finally {
+		backgroundTexture?.dispose();
+	}
 }
 
 /** Filename for an export, with a sortable timestamp so repeats do not collide. */

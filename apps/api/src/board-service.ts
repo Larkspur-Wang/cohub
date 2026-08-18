@@ -451,6 +451,9 @@ export async function applyBoardTransaction(input: {
         operationRows.push({ type: operation.type, payload: operation.payload, inverse: { patch: { title, metadata } } });
         title = operation.payload.patch.title ?? title;
         metadata = operation.payload.patch.metadata ?? metadata;
+        if (operation.payload.patch.metadataPatch) {
+          metadata = { ...metadata, ...operation.payload.patch.metadataPatch };
+        }
         continue;
       }
       if (operation.type === "effect.upsert") {

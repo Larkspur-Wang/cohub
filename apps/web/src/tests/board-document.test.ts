@@ -66,6 +66,34 @@ test("diff marks interactive deletes with a structured reason", () => {
 		assert.equal(op.payload.reason, "user-delete");
 });
 
+test("appearance diffs use a metadata merge patch", () => {
+	const before = doc([]);
+	const after = {
+		...before,
+		appearance: {
+			...before.appearance,
+			background: {
+				kind: "image" as const,
+				imageUrl: "https://cdn.example/background.png",
+				fit: "cover" as const,
+				opacity: 0.8,
+			},
+		},
+	};
+	const ops = diffBoardDocuments(before, after);
+	assert.deepEqual(ops, [
+		{
+			type: "board.patch",
+			payload: { patch: { metadataPatch: { appearance: after.appearance } } },
+			inverse: { patch: { metadataPatch: { appearance: before.appearance } } },
+		},
+	]);
+	assert.deepEqual(
+		applyBoardOps(after, invertBoardOps(ops)).appearance,
+		before.appearance,
+	);
+});
+
 test("document patches preserve items and sync appearance", () => {
 	const document = doc([textItem("a", "keep")]);
 	const appearance = {

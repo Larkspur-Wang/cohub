@@ -14,6 +14,7 @@ export { BOARD_DOCUMENT_KIND, BOARD_EXTENSION };
 export {
 	BOARD_REMOTE_URL_MAX_LENGTH,
 	BoardRemoteUrlSchema,
+	isPublicBoardRemoteAddress,
 	normalizeBoardRemoteUrl,
 } from "./board-url.js";
 
@@ -45,7 +46,10 @@ export const BoardAppearanceSchema = z.object({
 				.enum(["solid", "dots", "grid", "image", "shader", "custom"])
 				.default("dots"),
 			color: z.string().optional(),
-			imageUrl: z.string().url().optional(),
+			imageUrl: BoardRemoteUrlSchema.optional(),
+			fit: z.enum(["cover", "contain", "repeat"]).optional(),
+			position: z.enum(["center", "top", "bottom", "left", "right"]).optional(),
+			opacity: z.number().finite().min(0).max(1).optional(),
 		})
 		.default({ kind: "solid" }),
 	grid: z

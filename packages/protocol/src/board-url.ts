@@ -80,6 +80,12 @@ function isBlockedIpv6(host: string): boolean {
 	return parts[0] === "2001" && parts[1] === "0db8";
 }
 
+export function isPublicBoardRemoteAddress(value: string): boolean {
+	const address = value.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
+	if (parseIpv4(address)) return !isBlockedIpv4(address);
+	return address.includes(":") && !isBlockedIpv6(address);
+}
+
 function isBlockedHost(hostname: string): boolean {
 	const host = hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
 	if (
@@ -90,8 +96,10 @@ function isBlockedHost(hostname: string): boolean {
 	) {
 		return true;
 	}
-	if (parseIpv4(host)) return isBlockedIpv4(host);
-	return host.includes(":") && isBlockedIpv6(host);
+	if (parseIpv4(host) || host.includes(":")) {
+		return !isPublicBoardRemoteAddress(host);
+	}
+	return false;
 }
 
 /**

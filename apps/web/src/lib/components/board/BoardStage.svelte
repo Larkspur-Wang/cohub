@@ -53,6 +53,7 @@ import {
 } from "$lib/board/board-media-playback";
 import { createBoardScene } from "$lib/board/board-scene";
 import {
+	type BoardBackgroundLoadState,
 	type BoardThemeBackground,
 	type BoardThemeSnapshot,
 	boardThemeKey,
@@ -93,6 +94,7 @@ const {
 	onOpenFile,
 	onPlayMedia,
 	onExportReady,
+	onBackgroundLoadStateChange,
 }: {
 	editor: BoardEditor;
 	runtime: BoardRuntimeData;
@@ -129,6 +131,9 @@ const {
 	 * keeps the caller from holding a reference past the stage's lifetime.
 	 */
 	onExportReady?: (bridge: BoardStageExportBridge | null) => void;
+	onBackgroundLoadStateChange?: (
+		state: BoardBackgroundLoadState | null,
+	) => void;
 } = $props();
 
 let host: HTMLDivElement | null = $state(null);
@@ -141,6 +146,8 @@ let screenEffects: Container | null = null;
 let background: Container | null = null;
 let backgroundThemeId: string | null = null;
 let boardBackdrop: BoardThemeBackground | null = $state(null);
+let backdropUrl: string | null = $state(null);
+let backdropLoadState: BoardBackgroundLoadState | null = $state(null);
 let farLayer: Graphics | null = null;
 let overlay: Graphics | null = null;
 let scene: ReturnType<typeof createBoardScene> | null = null;
@@ -439,13 +446,28 @@ function sameBackdrop(
 	return (
 		left?.url === right?.url &&
 		left?.tileWidth === right?.tileWidth &&
-		left?.tileHeight === right?.tileHeight
+		left?.tileHeight === right?.tileHeight &&
+		left?.fit === right?.fit &&
+		left?.position === right?.position &&
+		left?.opacity === right?.opacity
 	);
 }
 
 function backdropSize(value: BoardThemeBackground): string {
+	if (value.fit === "cover" || value.fit === "contain") return value.fit;
 	if (!value.tileWidth || !value.tileHeight) return "auto";
 	return `${value.tileWidth * editor.camera.zoom}px ${value.tileHeight * editor.camera.zoom}px`;
+}
+
+function backdropPosition(value: BoardThemeBackground): string {
+	if (value.fit === "repeat" || value.fit === undefined) {
+		return `${editor.camera.x}px ${editor.camera.y}px`;
+	}
+	return value.position ?? "center";
+}
+
+function backgroundCssColor(): string | undefined {
+	return editor.document.appearance.background.color;
 }
 
 function syncBackground(theme: BoardThemeSnapshot) {
@@ -455,13 +477,19 @@ function syncBackground(theme: BoardThemeSnapshot) {
 		theme.background,
 	);
 	if (!sameBackdrop(boardBackdrop, nextBackdrop)) boardBackdrop = nextBackdrop;
+	const nextUrl = nextBackdrop?.url ?? null;
+	if (backdropUrl !== nextUrl) backdropUrl = nextUrl;
 	const themeRenderer = getBoardThemeRenderer(editor.document);
 	const context = {
 		app,
 		document: editor.document,
 		viewport: editor.camera,
 		palette: theme.palette,
-		hasImageBackground: Boolean(nextBackdrop),
+		hasImageBackground: Boolean(
+			nextBackdrop &&
+				backdropLoadState?.url === nextBackdrop.url &&
+				backdropLoadState.status === "ready",
+		),
 	};
 	if (!background || backgroundThemeId !== themeRenderer.id) {
 		background?.destroy({ children: true });
@@ -1311,6 +1339,37 @@ $effect(() => {
 	animationRuntime?.setData(runtime);
 });
 
+function setBackdropLoadState(state: BoardBackgroundLoadState | null) {
+	backdropLoadState = state;
+	onBackgroundLoadStateChange?.(state);
+}
+
+$effect(() => {
+	const url = backdropUrl;
+	const current = untrack(() => backdropLoadState);
+	if (!url) {
+		if (current) setBackdropLoadState(null);
+		return;
+	}
+	if (current?.url === url) return;
+
+	setBackdropLoadState({ url, status: "loading" });
+	let disposed = false;
+	const image = new globalThis.Image();
+	image.onload = () => {
+		if (!disposed) setBackdropLoadState({ url, status: "ready" });
+	};
+	image.onerror = () => {
+		if (!disposed) setBackdropLoadState({ url, status: "error" });
+	};
+	image.src = url;
+	return () => {
+		disposed = true;
+		image.onload = null;
+		image.onerror = null;
+	};
+});
+
 $effect(() => {
 	animationRuntime?.setActive(active);
 	if (!active) {
@@ -1382,6 +1441,7 @@ onDestroy(() => {
 	app?.destroy(true);
 	app = null;
 	onExportReady?.(null);
+	onBackgroundLoadStateChange?.(null);
 });
 </script>
 
@@ -1394,6 +1454,7 @@ onDestroy(() => {
 	data-drawer-swipe-ignore
 	style:cursor={cursor}
 	style:touch-action="none"
+	style:background-color={backgroundCssColor()}
 	use:pointerDropZone={{
 		resolve: (payload) => {
 			if (readonly) return null;
@@ -1422,14 +1483,15 @@ onDestroy(() => {
 	ondragleave={() => { dropActive = false; }}
 	ondrop={handleDrop}
 >
-	{#if boardBackdrop}
+	{#if boardBackdrop && backdropLoadState?.url === boardBackdrop.url && backdropLoadState.status === "ready"}
 		<div
 			aria-hidden="true"
 			class="pointer-events-none absolute inset-0 z-0"
 			style:background-image={`url(${JSON.stringify(boardBackdrop.url)})`}
-			style:background-position={`${editor.camera.x}px ${editor.camera.y}px`}
-			style:background-repeat="repeat"
+			style:background-position={backdropPosition(boardBackdrop)}
+			style:background-repeat={boardBackdrop.fit === "repeat" || boardBackdrop.fit === undefined ? "repeat" : "no-repeat"}
 			style:background-size={backdropSize(boardBackdrop)}
+			style:opacity={boardBackdrop.opacity ?? 1}
 		></div>
 	{/if}
 </div>
