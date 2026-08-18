@@ -37,6 +37,27 @@ class FakeDb {
 	}
 }
 
+/** Transaction succeeds but its requests never settle — store ops time out. */
+class HangingTransactionDb extends FakeDb {
+	override transaction(): IDBTransaction {
+		return {
+			objectStore() {
+				return {
+					get() {
+						return {};
+					},
+					put() {
+						return {};
+					},
+					delete() {
+						return {};
+					},
+				};
+			},
+		} as unknown as IDBTransaction;
+	}
+}
+
 const pendingOpens: PendingOpen[] = [];
 const originalIndexedDb = globalThis.indexedDB;
 const originalWarn = console.warn;
@@ -193,4 +214,24 @@ test("idbGet returns null quickly while open is degraded", async () => {
 		elapsed < 50,
 		`idbGet should fail-fast while degraded, took ${elapsed}ms`,
 	);
+});
+
+test("store-op timeout warns are throttled", async () => {
+	installHangingIndexedDb();
+	__resetCacheDbStateForTests({
+		opTimeoutMs: 40,
+		storeOpLogThrottleMs: 60_000,
+	});
+
+	const warnings: unknown[][] = [];
+	console.warn = (...args: unknown[]) => {
+		warnings.push(args);
+	};
+
+	const first = idbGet("session_details", "k");
+	completeNextOpen(new HangingTransactionDb());
+	assert.equal(await first, null);
+	assert.equal(await idbGet("session_details", "k"), null);
+
+	assert.equal(warnings.length, 1, "store-op timeout warn should be throttled");
 });

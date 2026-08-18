@@ -316,6 +316,9 @@ let idbOpenTimeoutMs = IDB_OPEN_TIMEOUT_MS;
 let idbOpenDegradedMs = IDB_OPEN_DEGRADED_MS;
 /** At most one open-timeout warn per throttle window while degraded. */
 let idbOpenLogThrottleMs = 60_000;
+/** At most one store-op timeout warn per throttle window. */
+let idbStoreOpLogThrottleMs = 60_000;
+let lastStoreOpTimeoutLogAt = 0;
 /** Extreme-path self-heal: repeated hard failures wipe only `cohub-web-cache`. */
 const IDB_FAILURE_WINDOW_MS = 30_000;
 /** Count only real store ops after open; concurrent first-open races must not wipe cache. */
@@ -354,6 +357,13 @@ function noteOpenTimedOut(error: CacheTimeoutError) {
 		"[cache] IndexedDB open timed out; continuing without persistence",
 		error,
 	);
+}
+
+function noteStoreOpTimedOut(label: string, error: CacheTimeoutError) {
+	const now = Date.now();
+	if (now - lastStoreOpTimeoutLogAt < idbStoreOpLogThrottleMs) return;
+	lastStoreOpTimeoutLogAt = now;
+	console.warn(`[cache] ${label}`, error);
 }
 
 function clearOpenDegraded() {
@@ -781,12 +791,14 @@ export function __resetCacheDbStateForTests(options?: {
 	openTimeoutMs?: number;
 	openDegradedMs?: number;
 	openLogThrottleMs?: number;
+	storeOpLogThrottleMs?: number;
 }) {
 	dbConnection = null;
 	dbPromise = null;
 	watchedOpenPromise = null;
 	openDegradedUntil = 0;
 	lastOpenTimeoutLogAt = 0;
+	lastStoreOpTimeoutLogAt = 0;
 	recentIdbFailureAt = [];
 	lastIdbRecoveryAt = 0;
 	idbRecoveryInFlight = null;
@@ -794,6 +806,7 @@ export function __resetCacheDbStateForTests(options?: {
 	idbOpenTimeoutMs = options?.openTimeoutMs ?? IDB_OPEN_TIMEOUT_MS;
 	idbOpenDegradedMs = options?.openDegradedMs ?? IDB_OPEN_DEGRADED_MS;
 	idbOpenLogThrottleMs = options?.openLogThrottleMs ?? 60_000;
+	idbStoreOpLogThrottleMs = options?.storeOpLogThrottleMs ?? 60_000;
 }
 
 export async function deleteCacheDatabase() {
@@ -848,7 +861,7 @@ async function withObjectStore<T>(
 	} catch (error) {
 		noteIdbFailure(error, label);
 		if (error instanceof CacheTimeoutError) {
-			console.warn(`[cache] ${label}`, error);
+			noteStoreOpTimedOut(label, error);
 			return null;
 		}
 		throw error;
@@ -903,7 +916,7 @@ export async function idbRunTransaction<T>(
 	} catch (error) {
 		noteIdbFailure(error, label);
 		if (error instanceof CacheTimeoutError) {
-			console.warn(`[cache] ${label}`, error);
+			noteStoreOpTimedOut(label, error);
 			return null;
 		}
 		throw error;
