@@ -4,6 +4,19 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v2.24 — 2026-08-19
+
+- **Space file previews in the CLI**: `cohub ui preview file://path` opens any Space file in the originating tab, `work://` refs make Work targets explicit, and bare targets resolve a Space file before falling back to Work references; the preview protocol and SDK now carry `UiFilePreviewTarget` with strict relative-path validation
+- **Live Work preview refresh**: open Work previews update in place when the Work changes, using version-aware merging and load tokens that discard stale responses; a failed refresh keeps the existing content and shows a non-blocking Retry banner instead of blanking the panel
+- **Composer create-mode command**: typing `:create` in the composer switches directly into create mode rather than sending a message
+- **Suspended previews on compact navigation**: switching between a Space session and its previews on mobile now suspends preview tabs without disposing runtimes, so Board editors, file viewers, and Work surfaces stay mounted and restore instantly
+- **Typed billing provider refactor**: the hosted billing integration moved off hand-rolled raw payloads and `@ts-nocheck` onto the typed Talesofai billing SDK (discounts, customers, purchase facts), restoring real compile-time type checking across the provider
+
+### Bug Fixes
+
+- SDK HttpError status is preserved across the SvelteKit error boundary, so a missing Space returns 404 instead of a generic 500
+- Billing customer ensure no longer overwrites operator-managed status, and checkout reuse is scoped to the requested discount
+
 ## v2.23 — 2026-08-18
 
 - **Direct generation mode**: create-space prompts now accept `mode: "create"` with a `generation` payload, executing multimodal generations as first-class session turns (`execution_kind = "direct_generation"`) with idempotent `clientMessageId` deduplication, queued-to-terminal status transitions, realtime turn/session events, and `generation.request`/`generation.result` messages projected into agent session files; pending generations act as timeline barriers so agent turns stay ordered behind them.

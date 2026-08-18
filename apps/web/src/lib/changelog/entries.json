@@ -1,5 +1,21 @@
 [
 	{
+		"version": "2.24",
+		"date": "2026-08-19",
+		"tags": ["v2.24.0"],
+		"highlights": [
+			"**Space file previews in the CLI**: `cohub ui preview file://path` opens any Space file in the originating tab, `work://` refs make Work targets explicit, and bare targets resolve a Space file before falling back to Work references; the preview protocol and SDK now carry `UiFilePreviewTarget` with strict relative-path validation",
+			"**Live Work preview refresh**: open Work previews update in place when the Work changes, using version-aware merging and load tokens that discard stale responses; a failed refresh keeps the existing content and shows a non-blocking Retry banner instead of blanking the panel",
+			"**Composer create-mode command**: typing `:create` in the composer switches directly into create mode rather than sending a message",
+			"**Suspended previews on compact navigation**: switching between a Space session and its previews on mobile now suspends preview tabs without disposing runtimes, so Board editors, file viewers, and Work surfaces stay mounted and restore instantly",
+			"**Typed billing provider refactor**: the hosted billing integration moved off hand-rolled raw payloads and `@ts-nocheck` onto the typed Talesofai billing SDK (discounts, customers, purchase facts), restoring real compile-time type checking across the provider"
+		],
+		"fixes": [
+			"SDK HttpError status is preserved across the SvelteKit error boundary, so a missing Space returns 404 instead of a generic 500",
+			"Billing customer ensure no longer overwrites operator-managed status, and checkout reuse is scoped to the requested discount"
+		]
+	},
+	{
 		"version": "2.23",
 		"date": "2026-08-18",
 		"tags": ["v2.23.0"],
