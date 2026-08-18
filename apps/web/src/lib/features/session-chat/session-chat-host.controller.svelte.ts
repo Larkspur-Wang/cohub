@@ -150,7 +150,9 @@ import {
 	normalizeTurnDuplicates,
 	preserveSessionTurnRefs,
 	reconcileOptimisticTurn,
+	resolveComposerSelectionFromTurn,
 	resolveLastAgentTurnModel,
+	type SessionComposerSelection,
 } from "./session-utils";
 import {
 	createSessionWorkspaceController,
@@ -336,6 +338,11 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	const modelsCatalog = $derived(modelsCatalogStore.items);
 	const visibleModelsCatalog = $derived(modelsCatalogStore.visibleItems);
 	const generationModelsCatalog = $derived(generationPolicy.modelsCatalog);
+	let composerSelection = $state<SessionComposerSelection>({
+		mode: "agent",
+		model: null,
+	});
+	const composerMode = $derived(composerSelection.mode);
 	let createModelId = $state<string | null>(null);
 	let createModelPreferenceRequest = 0;
 	const activeSessionLastGenerationModelId = $derived.by(() => {
@@ -350,7 +357,9 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		return turns.at(-1)?.model ?? null;
 	});
 	const activeCreateModelId = $derived(
-		activeSessionLastGenerationModelId ?? createModelId,
+		composerSelection.mode === "create" && composerSelection.modelId
+			? composerSelection.modelId
+			: (activeSessionLastGenerationModelId ?? createModelId),
 	);
 	const activeCreateModelDeclaration = $derived.by(() => {
 		const catalog = generationModelsCatalog ?? [];
@@ -387,7 +396,6 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	const skills = $derived(skillsCtrl.items);
 	const skillsLoaded = $derived(skillsCtrl.loaded);
 	let showModelSelector = $state(false);
-	let composerMode = $state<"agent" | "create">("agent");
 	let restoredComposerModeKey: string | null = null;
 	let generationDraftSessionId = $state<string | null>(null);
 	let sessionModelById = $state<Record<string, SelectedModel | null>>({});
@@ -437,11 +445,12 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		if (restoredComposerModeKey === modeKey) return;
 		untrack(() => {
 			restoredComposerModeKey = modeKey;
-			if (latestTurn?.executionKind === "direct_generation") {
-				composerMode = "create";
-				return;
+			if (activeSessionId && latestTurn) {
+				composerSelection = resolveComposerSelectionFromTurn(
+					latestTurn,
+					visibleModelsCatalog,
+				);
 			}
-			if (activeSessionId && latestTurn) composerMode = "agent";
 		});
 	});
 
@@ -529,7 +538,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 				.at(-1);
 			return getRequestedThinkingLevel(lastPersistedTurn?.meta);
 		});
-	const activeSessionModel = $derived.by(() => {
+	const restoredSessionModel = $derived.by(() => {
 		if (!activeSessionId) return draftSessionModel ?? firstCatalogModel;
 		return (
 			sessionModelById[activeSessionId] ??
@@ -537,6 +546,11 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			firstCatalogModel
 		);
 	});
+	const activeSessionModel = $derived(
+		composerSelection.mode === "agent" && composerSelection.model
+			? composerSelection.model
+			: restoredSessionModel,
+	);
 	// Explicit choices remain sticky across turns. Effective model defaults are
 	// never promoted into a request, and a pending null explicitly resets to default.
 	const activeSessionThinkingLevel = $derived.by<ModelThinkingLevel | null>(
@@ -1630,6 +1644,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			name: catalogItem?.model.name as string | undefined,
 		} satisfies SelectedModel;
 		const thinkingLevel = model.thinkingLevel ?? null;
+		composerSelection = { mode: "agent", model: selected };
 		if (!activeSessionId) {
 			draftSessionModel = selected;
 			draftSessionModelManuallySelected = true;
@@ -3010,6 +3025,10 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			composer.clearDraft();
 			clearActiveComposerDraft();
 			const acceptedSessionId = result.session?.id ?? sessionIdAtStart;
+			composerSelection = {
+				mode: "create",
+				modelId: result.turn.model ?? selected.model,
+			};
 			if (acceptedSessionId) {
 				startGenerationRequest(acceptedSessionId, {
 					spaceId,
@@ -3037,7 +3056,10 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 
 	function setComposerMode(mode: "agent" | "create") {
 		if (sending || composerMode === mode) return;
-		composerMode = mode;
+		composerSelection =
+			mode === "create"
+				? { mode, modelId: activeCreateModelId }
+				: { mode: "agent", model: restoredSessionModel };
 		showModelSelector = false;
 		clearComposerError();
 		if (mode === "agent") void loadModelsCatalog();
@@ -3048,6 +3070,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			(model) => model.model === modelId,
 		);
 		if (!selected) return;
+		composerSelection = { mode: "create", modelId: selected.model };
 		createModelId = selected.model;
 		void saveCreateModelPreference(selected.model, getCacheUserKey());
 		focusComposerSoon();

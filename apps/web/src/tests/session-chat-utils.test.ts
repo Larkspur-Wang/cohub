@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { resolveLastAgentTurnModel } from "../lib/features/session-chat/session-utils";
+import {
+	resolveComposerSelectionFromTurn,
+	resolveLastAgentTurnModel,
+} from "../lib/features/session-chat/session-utils";
 
 const catalog = [
 	{
@@ -9,6 +12,41 @@ const catalog = [
 		model: { name: "Agent model" },
 	},
 ];
+
+test("resolveComposerSelectionFromTurn keeps create mode and model together", () => {
+	assert.deepEqual(
+		resolveComposerSelectionFromTurn(
+			{
+				executionKind: "direct_generation",
+				provider: "generation",
+				model: "image-model",
+			},
+			catalog,
+		),
+		{ mode: "create", modelId: "image-model" },
+	);
+});
+
+test("resolveComposerSelectionFromTurn keeps agent mode and model together", () => {
+	assert.deepEqual(
+		resolveComposerSelectionFromTurn(
+			{
+				executionKind: "agent",
+				provider: "cohub",
+				model: "agent-model",
+			},
+			catalog,
+		),
+		{
+			mode: "agent",
+			model: {
+				provider: "cohub",
+				id: "agent-model",
+				name: "Agent model",
+			},
+		},
+	);
+});
 
 test("resolveLastAgentTurnModel ignores a newer direct generation turn", () => {
 	const model = resolveLastAgentTurnModel(
