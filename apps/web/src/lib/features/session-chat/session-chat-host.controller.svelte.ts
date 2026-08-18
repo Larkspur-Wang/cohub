@@ -147,6 +147,7 @@ import {
 	getTurnClientMessageId,
 	isOptimisticTurn,
 	isSameClientMessageTurn,
+	mergeComposerTurnSources,
 	normalizeTurnDuplicates,
 	preserveSessionTurnRefs,
 	reconcileOptimisticTurn,
@@ -346,7 +347,10 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	let createModelId = $state<string | null>(null);
 	let createModelPreferenceRequest = 0;
 	const activeSessionLastGenerationModelId = $derived.by(() => {
-		const turns = [...(activeSessionState?.turns ?? []), ...activeTurnIndex]
+		const turns = mergeComposerTurnSources(
+			activeSessionState?.turns ?? [],
+			activeTurnIndex,
+		)
 			.filter(
 				(turn) =>
 					turn.executionKind === "direct_generation" &&
@@ -435,12 +439,10 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	});
 	$effect(() => {
 		const sessionKey = activeSessionId ?? "new";
-		const latestTurn = [
-			...(activeSessionState?.turns ?? []),
-			...activeTurnIndex,
-		]
-			.sort((a, b) => a.sequence - b.sequence)
-			.at(-1);
+		const latestTurn = mergeComposerTurnSources(
+			activeSessionState?.turns ?? [],
+			activeTurnIndex,
+		).at(-1);
 		const modeKey = `${sessionKey}:${latestTurn?.id ?? "none"}:${latestTurn?.executionKind ?? "agent"}`;
 		if (restoredComposerModeKey === modeKey) return;
 		untrack(() => {
@@ -526,7 +528,10 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	);
 	const activeSessionLastTurnModel = $derived.by(() =>
 		resolveLastAgentTurnModel(
-			[...(activeSessionState?.turns ?? []), ...activeTurnIndex],
+			mergeComposerTurnSources(
+				activeSessionState?.turns ?? [],
+				activeTurnIndex,
+			),
 			visibleModelsCatalog,
 		),
 	);

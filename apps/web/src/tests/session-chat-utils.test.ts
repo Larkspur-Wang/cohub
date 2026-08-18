@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+	mergeComposerTurnSources,
 	resolveComposerSelectionFromTurn,
 	resolveLastAgentTurnModel,
 } from "../lib/features/session-chat/session-utils";
@@ -12,6 +13,39 @@ const catalog = [
 		model: { name: "Agent model" },
 	},
 ];
+
+test("mergeComposerTurnSources prefers a full turn over an incomplete index item", () => {
+	assert.deepEqual(
+		mergeComposerTurnSources(
+			[
+				{
+					id: "turn-1",
+					sequence: 1,
+					executionKind: "direct_generation",
+					provider: "generation",
+					model: "image-model",
+				},
+			],
+			[
+				{
+					id: "turn-1",
+					sequence: 1,
+					provider: null,
+					model: "image-model",
+				},
+			],
+		),
+		[
+			{
+				id: "turn-1",
+				sequence: 1,
+				executionKind: "direct_generation",
+				provider: "generation",
+				model: "image-model",
+			},
+		],
+	);
+});
 
 test("resolveComposerSelectionFromTurn keeps create mode and model together", () => {
 	assert.deepEqual(

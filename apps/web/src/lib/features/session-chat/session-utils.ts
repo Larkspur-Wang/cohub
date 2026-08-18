@@ -16,6 +16,22 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 		: null;
 }
 
+type ComposerTurnSource = Pick<
+	SessionTurnRecord,
+	"id" | "sequence" | "executionKind" | "provider" | "model"
+>;
+
+export function mergeComposerTurnSources(
+	turns: ComposerTurnSource[],
+	turnIndex: ComposerTurnSource[],
+): ComposerTurnSource[] {
+	const byId = new Map(turnIndex.map((turn) => [turn.id, turn]));
+	for (const turn of turns) {
+		byId.set(turn.id, { ...byId.get(turn.id), ...turn });
+	}
+	return [...byId.values()].sort((a, b) => a.sequence - b.sequence);
+}
+
 export type SessionComposerSelection =
 	| {
 			mode: "agent";
