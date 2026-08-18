@@ -330,6 +330,10 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 	let active = true;
 	let destroyed = false;
 	let reducedMotion = false;
+	let materializationVersion = 0;
+	let materializationCacheVersion = -1;
+	let materializationCacheMode = "";
+	let materializationCache = new Set<string>();
 	const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
 
 	function nodeWithBase(nodeId: string) {
@@ -1005,6 +1009,7 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 	function setData(next: BoardRuntimeData) {
 		if (next.clips !== data.clips) clearResources();
 		data = next;
+		materializationVersion += 1;
 		syncPlayback();
 		start();
 	}
@@ -1027,6 +1032,63 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 		// Animated transforms are transient. Scene renderers must receive containers
 		// at their persisted poses or the next frame will compound pulse/float values.
 		restoreSceneState();
+	}
+
+	/**
+	 * Nodes that need live containers for the next animation frame. The scene's
+	 * far LOD can batch everything else, but transforms, filters and effect
+	 * resources need an actual display object to update.
+	 */
+	function nodeIdsToMaterialize(now = Date.now()): Set<string> {
+		const playback = sharedPlayback ?? autoplayPlayback;
+		const sequence = playback
+			? (data.sequences.find(
+					(item) =>
+						item.id === playback.sequenceId &&
+						item.revision === playback.sequenceRevision,
+				) ?? null)
+			: null;
+		const loop =
+			playback === autoplayPlayback && Boolean(data.playbackPolicy?.loop);
+		const ended = Boolean(
+			sequence &&
+				playback &&
+				(reducedMotion ||
+					playback.status === "stopped" ||
+					playbackSampleAt(playback, sequence.duration, now, loop).ended),
+		);
+		const mode = sequence ? (ended ? "rest" : "active") : "effects";
+		if (
+			materializationCacheVersion === materializationVersion &&
+			materializationCacheMode === mode
+		)
+			return materializationCache;
+
+		const ids = new Set<string>();
+		for (const effect of data.effects) {
+			if (
+				effect.enabled &&
+				effect.lifecycle !== "manual" &&
+				effect.target.type === "node"
+			)
+				ids.add(effect.target.nodeId);
+		}
+
+		if (sequence) {
+			const poses = ended ? Object.keys(sequence.restPose) : [];
+			for (const nodeId of poses) ids.add(nodeId);
+			if (!ended) {
+				for (const clip of data.clips) {
+					if (clip.sequenceId === sequence.id && clip.target.type === "node")
+						ids.add(clip.target.nodeId);
+				}
+			}
+		}
+
+		materializationCache = ids;
+		materializationCacheVersion = materializationVersion;
+		materializationCacheMode = mode;
+		return ids;
 	}
 
 	function invalidatePoses() {
@@ -1057,6 +1119,7 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 		setData,
 		setActive,
 		start,
+		nodeIdsToMaterialize,
 		prepareSceneSync,
 		invalidatePoses,
 		destroy() {

@@ -252,6 +252,7 @@ test("persistent effects resume after their target is materialized", () => {
 			playback: null,
 			playbackPolicy: null,
 		});
+		assert.deepEqual(runtime.nodeIdsToMaterialize(), new Set(["node"]));
 		runFrame();
 		assert.equal(callbacks.size, 0);
 

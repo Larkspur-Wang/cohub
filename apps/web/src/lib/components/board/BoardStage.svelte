@@ -30,6 +30,7 @@ import {
 	getBoardThemeRenderer,
 	textZoomBucket,
 } from "@neta-art/cohub/board/render";
+import "pixi.js/prepare";
 import { Application, Container, Graphics, type Renderer } from "pixi.js";
 import { onDestroy, onMount, untrack } from "svelte";
 import { goto } from "$app/navigation";
@@ -159,6 +160,10 @@ let resizeFrame = 0;
 // board draws nothing. Each scene sync schedules exactly one render for the
 // next animation frame, coalescing bursts of updates into a single draw.
 let renderFrame = 0;
+let preparedAnimationSig = "";
+let preparingAnimationSig = "";
+const animationContainerIds = new WeakMap<Container, number>();
+let nextAnimationContainerId = 1;
 // Culling cache: the visible-id set is recomputed only when the camera or the
 // item structure (ids/order) actually changes. During a drag the camera is
 // static and only the (pinned, always-rendered) selection moves, so this cache
@@ -568,9 +573,12 @@ function syncStage() {
 		previewItems.get(id) ?? editor.itemById(id);
 	const context = buildContext(palette, getDisplayItem);
 	const visibleIds = computeVisibleIds();
+	const animationIds =
+		animationRuntime?.nodeIdsToMaterialize() ?? new Set<string>();
 	const pinnedIds = new Set(editor.selection);
 	for (const id of previewItems.keys()) pinnedIds.add(id);
 	if (editor.editingId) pinnedIds.add(editor.editingId);
+	for (const id of animationIds) pinnedIds.add(id);
 
 	// Global render signals that affect every card equally (asset readiness,
 	// theme, text zoom-bucket, file availability). Selection and hover are tracked
@@ -598,6 +606,50 @@ function syncStage() {
 		geometryVersion: editor.geometryVersion,
 		gestureActive: editor.gestureActive,
 	});
+
+	// Upload the live animation targets before playback needs their first frame.
+	// Commit the signature only after success so a later sync can retry failures.
+	const targets = [...animationIds]
+		.map((id) => {
+			const container = scene?.getNode(id)?.container;
+			if (!container) return null;
+			let containerId = animationContainerIds.get(container);
+			if (!containerId) {
+				containerId = nextAnimationContainerId++;
+				animationContainerIds.set(container, containerId);
+			}
+			return { id, container, containerId };
+		})
+		.filter(
+			(
+				target,
+			): target is { id: string; container: Container; containerId: number } =>
+				target !== null,
+		);
+	const animationSig = `${globalSig}|${targets
+		.map((target) => `${target.id}:${target.containerId}`)
+		.join(",")}`;
+	if (targets.length === 0) {
+		preparedAnimationSig = "";
+	} else if (
+		animationSig !== preparedAnimationSig &&
+		animationSig !== preparingAnimationSig &&
+		animationRuntime
+	) {
+		preparingAnimationSig = animationSig;
+		void app?.renderer.prepare
+			.upload(targets.map((target) => target.container))
+			.then(() => {
+				if (preparingAnimationSig !== animationSig) return;
+				preparedAnimationSig = animationSig;
+				preparingAnimationSig = "";
+			})
+			.catch((error: unknown) => {
+				if (preparingAnimationSig !== animationSig) return;
+				preparingAnimationSig = "";
+				console.debug("Board animation GPU prepare failed", error);
+			});
+	}
 	animationRuntime?.invalidatePoses();
 
 	const single = editor.selection.length === 1 ? editor.selectedItems[0] : null;
@@ -1425,6 +1477,8 @@ onDestroy(() => {
 	// Stop animation and restore transient poses before releasing scene resources.
 	animationRuntime?.destroy();
 	animationRuntime = null;
+	preparedAnimationSig = "";
+	preparingAnimationSig = "";
 	const context = buildContext(getPalette(), (id) => editor.itemById(id));
 	scene?.destroy(context);
 	scene = null;
