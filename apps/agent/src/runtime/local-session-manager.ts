@@ -320,6 +320,18 @@ export class SessionManager {
     return [...this.entries];
   }
 
+  getMessageMetaValues(key: string, role?: string): Set<string> {
+    const values = new Set<string>();
+    for (const entry of this.getBranch()) {
+      if (entry.type !== "message") continue;
+      if (role && entry.message.role !== role) continue;
+      const meta = (entry.message as unknown as { meta?: unknown }).meta;
+      const value = meta && typeof meta === "object" && !Array.isArray(meta) ? (meta as Record<string, unknown>)[key] : null;
+      if (typeof value === "string") values.add(`${value}:${entry.message.role}`);
+    }
+    return values;
+  }
+
   getCustomEntries(customType: string): CustomEntry[] {
     return this.getBranch().filter(
       (entry): entry is CustomEntry => entry.type === "custom" && entry.customType === customType,

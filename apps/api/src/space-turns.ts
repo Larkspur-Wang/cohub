@@ -154,6 +154,7 @@ export async function listSpaceTurns(input: {
       id: sessionTurns.id,
       sessionId: sessionTurns.sessionId,
       sequence: sessionTurns.sequence,
+      executionKind: sessionTurns.executionKind,
       status: sessionTurns.status,
       intent: sessionTurns.intent,
       userUuid: sessionTurns.userUuid,

@@ -5,7 +5,7 @@ import { taskRuns } from "@cohub/db";
 import type { TaskPayload } from "@cohub/protocol/task";
 
 export type TaskQueueJobOptions = { [key: string]: unknown; jobId?: string; delay?: number };
-export type TaskEnqueueOptions = Omit<TaskQueueJobOptions, "scheduledAt"> & { scheduledAt?: Date | null };
+export type TaskEnqueueOptions = Omit<TaskQueueJobOptions, "scheduledAt"> & { scheduledAt?: Date | null; taskRunId?: string };
 
 type TasksDb = PostgresJsDatabase<typeof schema>;
 
@@ -21,9 +21,9 @@ export async function enqueueTaskRun<Job = unknown>(input: EnqueueTaskRunInput<J
   const requestedJobId = typeof input.options?.jobId === "string" && input.options.jobId.trim()
     ? input.options.jobId.trim()
     : null;
-  const taskRunId = crypto.randomUUID();
+  const taskRunId = input.options?.taskRunId?.trim() || crypto.randomUUID();
   const queueJobId = requestedJobId ?? taskRunId;
-  const { scheduledAt, jobId: _ignoredJobId, ...jobOptions } = input.options ?? {};
+  const { scheduledAt, jobId: _ignoredJobId, taskRunId: _ignoredTaskRunId, ...jobOptions } = input.options ?? {};
   const delay = typeof jobOptions.delay === "number" ? jobOptions.delay : 0;
   const scheduledAtValue = scheduledAt ?? (delay > 0 ? new Date(Date.now() + delay) : null);
 

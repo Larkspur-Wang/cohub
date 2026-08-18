@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { REALTIME_OUTBOUND_CHANNEL, type RealtimeTaskRecord } from "@cohub/protocol/realtime";
+import { REALTIME_OUTBOUND_CHANNEL, type RealtimeSessionRecord, type RealtimeTaskRecord } from "@cohub/protocol/realtime";
+import type { spaceSessions } from "@cohub/db";
 import type { SessionTurnRecord } from "@cohub/protocol/model";
 import type { TaskRunStatus } from "@cohub/protocol/task";
 import { redisCommandClient } from "./redis.js";
@@ -104,6 +105,28 @@ export const dispatchTaskUpdated = (input: {
   task: Parameters<typeof toRealtimeTaskRecord>[0];
   changed: string[];
 }) => publishTaskEvent({ type: "task.updated", task: input.task, changed: input.changed });
+
+export async function dispatchSessionUpdated(input: { session: typeof spaceSessions.$inferSelect; changed: string[] }) {
+  const session: RealtimeSessionRecord = {
+    id: input.session.id,
+    spaceId: input.session.spaceId,
+    userUuid: input.session.userUuid ?? null,
+    title: input.session.title,
+    source: input.session.source,
+    status: input.session.status,
+    externalSessionId: input.session.externalSessionId,
+    latestMessageText: input.session.latestMessageText ?? null,
+    lastMessageAt: toIsoOrNull(input.session.lastMessageAt),
+    lastMessageId: input.session.lastMessageId,
+    createdAt: toIso(input.session.createdAt),
+    updatedAt: toIso(input.session.updatedAt),
+  };
+  await redisCommandClient.publish(REALTIME_OUTBOUND_CHANNEL, JSON.stringify({
+    id: randomUUID(), timestamp: Date.now(), domain: "session", type: "session.updated",
+    spaceId: session.spaceId, sessionId: session.id,
+    payload: { session, changed: input.changed },
+  }));
+}
 
 async function dispatchTurnEvent(input: {
   type: "session.turn.created" | "session.turn.updated";

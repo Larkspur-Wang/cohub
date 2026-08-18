@@ -34,6 +34,7 @@ export type {
   MessageToolCallsFile,
   SessionTurnAuthorProfile,
   SessionTurnCompactionSummary,
+  SessionTurnExecutionKind,
   SessionTurnIntent,
   SessionTurnIntermediateIndex,
   SessionTurnIntermediateSummary,

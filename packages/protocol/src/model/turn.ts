@@ -12,6 +12,7 @@ export type SessionTurnStatus =
   | "merged"
   | "cancelled";
 export type SessionTurnIntent = "steer" | "followup" | "compact";
+export type SessionTurnExecutionKind = "agent" | "direct_generation";
 
 export type SessionTurnSummary = {
   text?: string | null;
@@ -162,6 +163,7 @@ export type SessionTurnIndexItem = {
   sourceTurnId?: string;
   sequence: number;
   status: SessionTurnStatus;
+  executionKind?: SessionTurnExecutionKind;
   /** Present on current turn index payloads; older caches may omit it. */
   intent?: SessionTurnIntent;
   userUuid?: string | null;
@@ -207,6 +209,7 @@ export type SessionTurnRecord = {
   sourceTurnId?: string;
   userUuid: string | null;
   sequence: number;
+  executionKind?: SessionTurnExecutionKind;
   status: SessionTurnStatus;
   intent: SessionTurnIntent;
   userContent: ContentBlock[];

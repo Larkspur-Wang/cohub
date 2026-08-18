@@ -7,6 +7,7 @@ import { db } from "../db.js";
 import { taskRuns } from "@cohub/db";
 import { dispatchTaskCreated, dispatchTaskUpdated } from "../realtime-events.js";
 import { createLogger } from "@cohub/infra/logging";
+import { failGenerationSession } from "./generation-session.js";
 
 
 const logger = createLogger({ serviceName: "cohub-worker" });
@@ -150,6 +151,11 @@ export const registerTask = (type: string, handler: TaskHandler) => {
 
       return result;
     } catch (error) {
+      if (job.name === "generation") {
+        await failGenerationSession({ taskRunId, payload, error }).catch((sessionError) => {
+          logger.warn("[GenerationSession] failed to persist failure", sessionError);
+        });
+      }
       await recordJobFailure(job, error, {
         reason: "task_failed",
         meta: {

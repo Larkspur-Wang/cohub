@@ -66,6 +66,39 @@ function isViewportAttachment(block: ContentBlock): block is TextBlock {
 	return isViewportContentBlock(block);
 }
 
+function generationMediaForBlocks(blocks: TextBlock[]) {
+	const media: Array<{ type: "video" | "audio"; url: string; index: number }> =
+		[];
+	for (const block of blocks) {
+		if (block._meta?.attachmentKind !== "generation-output") continue;
+		try {
+			const parsed = JSON.parse(block.text) as {
+				type?: unknown;
+				result?: unknown;
+			};
+			if (parsed.type !== "generation.result" || !Array.isArray(parsed.result))
+				continue;
+			for (const [index, item] of parsed.result.entries()) {
+				if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+				const record = item as {
+					type?: unknown;
+					source?: { type?: unknown; url?: unknown };
+				};
+				if (
+					(record.type !== "video" && record.type !== "audio") ||
+					record.source?.type !== "url" ||
+					typeof record.source.url !== "string"
+				)
+					continue;
+				media.push({ type: record.type, url: record.source.url, index });
+			}
+		} catch {
+			// Keep malformed or legacy generation text readable as normal markdown.
+		}
+	}
+	return media;
+}
+
 const userTextBlocks = $derived(
 	content.filter(
 		(block): block is TextBlock =>
@@ -220,7 +253,20 @@ const segments = $derived.by(() => {
 	{#each segments as segment, index (`${segment.type}:${index}`)}
 		<div class={index === 0 ? "" : "mt-2"}>
 			{#if segment.type === 'text'}
+				{@const generationMedia = isStreaming ? [] : generationMediaForBlocks(segment.blocks)}
 				<MarkdownView blocks={segment.blocks} variant="chat" {isStreaming} onStart={onMarkdownSegmentStart} onRendered={onMarkdownSegmentRendered} {onOpenFile} />
+				{#if generationMedia.length > 0}
+					<div class="mt-3 space-y-2">
+						{#each generationMedia as media (media.url)}
+							{#if media.type === "video"}
+								<!-- svelte-ignore a11y_media_has_caption: generated media does not provide caption tracks. -->
+								<video src={media.url} controls playsinline preload="metadata" class="max-h-[min(60vh,32rem)] max-w-full rounded-lg border border-border-subtle" aria-label={`Generated video ${media.index + 1}`}></video>
+							{:else}
+								<audio src={media.url} controls preload="metadata" class="w-full" aria-label={`Generated audio ${media.index + 1}`}></audio>
+							{/if}
+						{/each}
+					</div>
+				{/if}
 			{:else if segment.type === 'thinking'}
 				<ThinkingBlocks blocks={segment.blocks} expanded={thinkingExpanded} {isStreaming} onToggle={onToggleThinking} />
 			{:else if segment.type === 'image'}

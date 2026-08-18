@@ -618,6 +618,7 @@ async function prepareHandle(input: {
   actorUserId: string;
   requestedModel?: { provider: string; id: string };
   requestedThinkingLevel?: string | null;
+  beforeTurnSequence?: number | null;
 }) {
   const [modelRegistry, imageToTextConfig] = await Promise.all([
     getModelRegistryForUser(input.actorUserId),
@@ -634,6 +635,7 @@ async function prepareHandle(input: {
     imageToTextConfig,
     tools,
     model: input.requestedModel,
+    beforeTurnSequence: input.beforeTurnSequence,
     sessionHandles,
   });
 
@@ -894,6 +896,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
         actorUserId,
         requestedModel: resolveRequestedModel(ownerMeta),
         requestedThinkingLevel: resolveRequestedThinkingLevel(ownerMeta),
+        beforeTurnSequence: batch.ownerTurn.sequence,
       });
       const activeHandle = handle;
       try {

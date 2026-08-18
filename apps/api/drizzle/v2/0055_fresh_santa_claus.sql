@@ -1,0 +1,1 @@
+ALTER TABLE "v2"."session_turns" ADD COLUMN "execution_kind" varchar(32) DEFAULT 'agent' NOT NULL;

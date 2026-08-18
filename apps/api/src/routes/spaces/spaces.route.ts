@@ -8,7 +8,7 @@ import {
   parseSpaceSlug,
   validatePublicIdentifierAssignment,
 } from "@cohub/protocol/public-identifiers";
-import { normalizeGenerationPolicy } from "@cohub/protocol/generation";
+import { normalizeGenerationPolicy, type GenerationContentBlock } from "@cohub/protocol/generation";
 import * as cronParser from "cron-parser";
 import { db } from "../../db/index.js";
 import { getPostgresErrorConstraint, isPostgresUniqueViolation } from "../../db/postgres-error.js";
@@ -40,6 +40,7 @@ import {
   sanitizeSpaceBootstrapSource,
 } from "../../space-bootstrap-source.js";
 import { getSpaceSandboxBySpaceId, markSandboxSpecPendingRestart, recoverSpaceSandbox, resizeSpaceSandboxToSpec } from "../../space-sandboxes.js";
+import { createGenerationSessionExecution, GenerationSessionExecutionError } from "../../generation-session-execution.js";
 import {
   createInitialSpaceSession,
   getSpaceById,
@@ -184,6 +185,7 @@ async function promoteQueuedTurnToSteer(input: {
 
     const [target] = await tx.select().from(sessionTurns).where(and(eq(sessionTurns.id, input.turnId), eq(sessionTurns.sessionId, input.sessionId))).for("update").limit(1);
     if (target?.status !== "queued") throw new Error("turn is not queued");
+    if (target.executionKind !== "agent") throw new Error("direct generation turns cannot be steered");
     if (target.intent !== "followup") throw new Error("only follow-up turns can be steered");
 
     const [maxSequenceRow] = await tx.select({ max: sql<number>`coalesce(max(${sessionTurns.sequence}), 0)::int` }).from(sessionTurns).where(eq(sessionTurns.sessionId, input.sessionId));
@@ -201,7 +203,7 @@ async function promoteQueuedTurnToSteer(input: {
       updatedAt: now,
     }).where(eq(sessionTurns.id, target.id));
 
-    const [activeTurn] = await tx.select({ id: sessionTurns.id, status: sessionTurns.status, meta: sessionTurns.meta }).from(sessionTurns).where(and(eq(sessionTurns.sessionId, input.sessionId), inArray(sessionTurns.status, ["running", "abort_requested"]))).orderBy(desc(sessionTurns.sequence)).limit(1);
+    const [activeTurn] = await tx.select({ id: sessionTurns.id, status: sessionTurns.status, meta: sessionTurns.meta }).from(sessionTurns).where(and(eq(sessionTurns.sessionId, input.sessionId), eq(sessionTurns.executionKind, "agent"), inArray(sessionTurns.status, ["running", "abort_requested"]))).orderBy(desc(sessionTurns.sequence)).limit(1);
     if (activeTurn && activeTurn.id !== target.id) {
       await tx.update(sessionTurns).set({
         status: "abort_requested",
@@ -212,7 +214,7 @@ async function promoteQueuedTurnToSteer(input: {
           abortActorUserId: input.actorUserId,
         }),
         updatedAt: now,
-      }).where(and(eq(sessionTurns.id, activeTurn.id), inArray(sessionTurns.status, ["running", "abort_requested"])));
+      }).where(and(eq(sessionTurns.id, activeTurn.id), eq(sessionTurns.executionKind, "agent"), inArray(sessionTurns.status, ["running", "abort_requested"])));
     }
 
     return { targetId: target.id, activeTurnId: activeTurn?.id ?? null, activeTurnStatus: activeTurn?.status ?? null, affectedTurnIds: [target.id, ...(activeTurn?.id && activeTurn.id !== target.id ? [activeTurn.id] : [])] };
@@ -297,6 +299,13 @@ async function cancelQueuedTurn(input: {
 }
 
 type SpacePromptInput = {
+  mode?: "agent" | "create";
+  generation?: {
+    model?: string | null;
+    content?: GenerationContentBlock[];
+    parameters?: Record<string, unknown>;
+    meta?: Record<string, unknown>;
+  } | null;
   sessionId?: string | null;
   title?: string | null;
   source?: string | null;
@@ -1822,6 +1831,43 @@ router.post("/:id/prompt", async (c) => {
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
 
   const body = await c.req.json<SpacePromptInput>().catch(() => null);
+  if (body?.mode === "create") {
+    const generation = body.generation;
+    if (!generation?.model || !Array.isArray(generation.content) || generation.content.length === 0) {
+      return c.json({ message: "generation.model and generation.content are required" }, 400);
+    }
+    if (!(await hasPermission(user, "generation.create", { spaceId }))) return authzDenied(c);
+    if (!(await hasPermission(user, "session.prompt.readonly", { spaceId }))) return authzDenied(c);
+    if (body.sessionId) {
+      if (!requireValidId(body.sessionId)) return c.json({ message: "invalid sessionId" }, 400);
+      const existingSession = await getSpaceSessionById(body.sessionId);
+      if (existingSession && !(await hasPermission(user, "session.prompt.readonly", { spaceId, sessionId: body.sessionId }))) return authzDenied(c);
+    }
+    try {
+      const execution = await createGenerationSessionExecution({
+        spaceId,
+        userId: user.uuid,
+        sessionId: body.sessionId ?? null,
+        clientMessageId: body.clientMessageId ?? null,
+        model: generation.model,
+        content: generation.content,
+        parameters: generation.parameters,
+        meta: generation.meta,
+        source: body.source ?? "web",
+      });
+      const [session, turn] = await Promise.all([
+        getSpaceSessionById(execution.sessionId),
+        getSessionTurnById(execution.sessionId, execution.turnId),
+      ]);
+      if (!session || !turn) return c.json({ message: "generation session projection unavailable" }, 500);
+      return c.json({ mode: "immediate", session, turn, execution: { kind: "direct_generation", taskRunId: execution.taskRunId } }, 202);
+    } catch (error) {
+      if (error instanceof BillingAccessBlockedError) return billingBlockedResponse(c, error);
+      if (error instanceof GenerationSessionExecutionError) return c.json({ code: error.code, message: error.message }, error.status);
+      logger.error("[prompt] direct generation failed", { spaceId, userId: user.uuid, error });
+      return c.json({ code: "generation_unavailable", message: "Generation is temporarily unavailable." }, 503);
+    }
+  }
   if (!validatePromptContentBlocks(body?.content)) {
     return c.json({ message: "content must be a non-empty ContentBlock array" }, 400);
   }

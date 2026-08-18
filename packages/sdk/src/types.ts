@@ -1121,11 +1121,18 @@ export type UserSessionsResponse = {
 export type PromptAccessMode = "read_only" | "full_access";
 
 export type CreateSpacePromptInput = {
+  mode?: "agent" | "create";
+  generation?: {
+    model: string;
+    content: GenerationContentBlock[];
+    parameters?: Record<string, unknown>;
+    meta?: Record<string, unknown>;
+  } | null;
   sessionId?: string | null;
   title?: string | null;
   /** Optional channel; falls back to X-Cohub-Source-Via. */
   source?: string | null;
-  content: ContentBlock[];
+  content?: ContentBlock[];
   model?: string | null;
   provider?: string | null;
   /** Optional thinking level override for this turn. Omit to inherit session default. */
@@ -1144,7 +1151,7 @@ export type CreateSpacePromptInput = {
 };
 
 export type CreateSpacePromptResponse =
-  | (SessionTurnResponse & { mode: "immediate" })
+  | (SessionTurnResponse & { mode: "immediate"; execution?: { kind: "direct_generation"; taskRunId: string } })
   | {
       mode: "delay" | "at";
       taskRunId: string;

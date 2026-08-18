@@ -23,13 +23,23 @@ const billingUsageGate = createBillingUsageGate({
 const agentTurnQueue = createBullmqQueue<{
   spaceId: string;
   sessionId: string;
-  reason?: "prompt" | "steer" | "drain" | "retry" | "recovery";
+  reason?: "prompt" | "steer" | "drain" | "retry" | "recovery" | "generation_complete" | "generation_failed";
   requestId?: string | null;
   trace?: Record<string, unknown>;
 }>(COHUB_AGENT_TURNS_QUEUE, {
   redisUrl: config.bullmqRedisUrl,
   telemetryServiceName: "cohub-worker-agent-turns",
 });
+
+export async function wakeAgentSession(spaceId: string, sessionId: string, reason: "generation_complete" | "generation_failed" = "generation_complete") {
+  await agentTurnQueue.add(AGENT_TURN_JOB_NAME, { spaceId, sessionId, reason }, {
+    jobId: `agent-generation-wakeup-${sessionId}-${crypto.randomUUID()}`,
+    attempts: 2,
+    backoff: { type: "fixed", delay: 1000 },
+    removeOnComplete: true,
+    removeOnFail: defaultJobRetention.removeOnFail,
+  });
+}
 
 export function getSessionDomainServices(input: {
   promptTemplateService: PromptTemplateService;

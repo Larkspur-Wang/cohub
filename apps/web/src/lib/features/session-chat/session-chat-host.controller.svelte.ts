@@ -8,6 +8,7 @@ import {
 	buildViewportContentBlock,
 } from "@cohub/protocol";
 import type { ContentBlock } from "@cohub/protocol/core";
+import type { GenerationContentBlock } from "@cohub/protocol/generation";
 import type {
 	SessionTurnIndexItem,
 	SessionTurnRecord,
@@ -34,6 +35,7 @@ import {
 	buildComposerTextContentBlock,
 	type ComposerFileAttachment,
 	type ComposerImageAttachment,
+	type ComposerTextAttachment,
 } from "$lib/composer-attachments";
 import { createPromptTemplateController } from "$lib/features/space/modules/prompt-template-controller.svelte";
 import { createKeyedRouteRequestGuard } from "$lib/features/space/modules/route-request-guard";
@@ -327,6 +329,15 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	const modelsCatalog = $derived(modelsCatalogStore.items);
 	const visibleModelsCatalog = $derived(modelsCatalogStore.visibleItems);
 	const generationModelsCatalog = $derived(generationPolicy.modelsCatalog);
+	const activeGenerationModel = $derived.by(() => {
+		const catalog = generationModelsCatalog ?? [];
+		const model =
+			catalog.find((item) => selectedGenerationModels.has(item.model)) ??
+			catalog[0];
+		return model
+			? { provider: "generation", id: model.model, name: model.model }
+			: null;
+	});
 	const generationPolicyMode = $derived(generationPolicy.mode);
 	const selectedGenerationModels = $derived(generationPolicy.selectedModels);
 	const generationPolicyLabel = $derived(
@@ -348,6 +359,8 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	const skills = $derived(skillsCtrl.items);
 	const skillsLoaded = $derived(skillsCtrl.loaded);
 	let showModelSelector = $state(false);
+	let composerMode = $state<"agent" | "create">("agent");
+	let generationDraftSessionId = $state<string | null>(null);
 	let sessionModelById = $state<Record<string, SelectedModel | null>>({});
 	let sessionThinkingLevelById = $state<
 		Record<string, ModelThinkingLevel | null>
@@ -2853,7 +2866,111 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		return targetSessionState;
 	}
 
+	async function handleDirectGenerationSend() {
+		const prompt = input.trim();
+		if ((!prompt && attachments.length === 0) || sending || !spaceId) return;
+		const catalog = generationModelsCatalog ?? [];
+		const selected =
+			catalog.find((model) => selectedGenerationModels.has(model.model)) ??
+			catalog[0];
+		if (!selected) {
+			composer.setError("No generation model is available.");
+			return;
+		}
+		const sessionIdAtStart =
+			activeSessionId ??
+			generationDraftSessionId ??
+			(isNewSessionRoute ? crypto.randomUUID() : null);
+		if (!activeSessionId && isNewSessionRoute)
+			generationDraftSessionId = sessionIdAtStart;
+		const clientMessageId = crypto.randomUUID();
+		composer.sending = true;
+		composer.clearError();
+		try {
+			const imageAttachments = attachments.filter(
+				(attachment): attachment is ComposerImageAttachment =>
+					attachment.kind === "image",
+			);
+			const fileAttachments = attachments.filter(
+				(attachment): attachment is ComposerFileAttachment =>
+					attachment.kind === "file",
+			);
+			if (fileAttachments.length > 0)
+				throw new Error(
+					"Create mode supports text and image attachments only.",
+				);
+			const imageUpload = await uploadComposerImageDurables(
+				spaceId,
+				sessionIdAtStart,
+				imageAttachments,
+			);
+			const imageUrls = [...imageUpload.urls.values()];
+			if (imageUrls.length !== imageAttachments.length)
+				throw new Error("Failed to upload an image attachment.");
+			const textAttachments = attachments.filter(
+				(attachment): attachment is ComposerTextAttachment =>
+					attachment.kind === "text",
+			);
+			const content: GenerationContentBlock[] = [
+				...(prompt
+					? [{ type: "text", text: prompt } satisfies GenerationContentBlock]
+					: []),
+				...textAttachments.map(
+					(attachment) =>
+						({
+							type: "text",
+							text: attachment.text,
+						}) satisfies GenerationContentBlock,
+				),
+				...imageUrls.map(
+					(url) =>
+						({
+							type: "image",
+							source: { type: "url", url },
+						}) satisfies GenerationContentBlock,
+				),
+			];
+			const result = await sdk.space(spaceId).prompt({
+				mode: "create",
+				...(sessionIdAtStart ? { sessionId: sessionIdAtStart } : {}),
+				generation: { model: selected.model, content },
+				clientMessageId,
+				accessMode: "full_access",
+				intent: "followup",
+				schedule: { mode: "immediate" },
+			});
+			if (result.mode !== "immediate")
+				throw new Error("Expected immediate generation response");
+			composer.clearDraft();
+			clearActiveComposerDraft();
+			const acceptedSessionId = result.session?.id ?? sessionIdAtStart;
+			if (acceptedSessionId && acceptedSessionId !== sessionIdAtStart) {
+				generationDraftSessionId = null;
+				await options.router.toSession(acceptedSessionId);
+			} else if (acceptedSessionId) {
+				generationDraftSessionId = null;
+				await syncSessionNewer(acceptedSessionId, null);
+			}
+		} catch (error) {
+			composer.setError(
+				error instanceof Error ? error.message : "Generation could not start.",
+			);
+		} finally {
+			composer.sending = false;
+		}
+	}
+
+	function setComposerMode(mode: "agent" | "create") {
+		if (sending) return;
+		composerMode = mode;
+		clearComposerError();
+	}
+
 	async function handleSend() {
+		if (composerMode === "create") {
+			await handleDirectGenerationSend();
+			return;
+		}
 		if (
 			(!activeSessionState?.session && !isNewSessionRoute) ||
 			(!input.trim() && attachments.length === 0) ||
@@ -3797,9 +3914,18 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	}
 	const sessionTaskNotices = $derived.by<SessionTaskNotice[]>(() => {
 		if (!activeSessionId) return [];
+		const directGenerationTurnIds = new Set(
+			(activeSessionState?.turns ?? [])
+				.filter((turn) => turn.executionKind === "direct_generation")
+				.map((turn) => turn.id),
+		);
 		return [
 			...Object.values(generationTaskRunById)
-				.filter((run) => run.sessionId === activeSessionId)
+				.filter(
+					(run) =>
+						run.sessionId === activeSessionId &&
+						!directGenerationTurnIds.has(run.turnId ?? ""),
+				)
 				.map(toGenerationTaskNotice),
 			...Object.values(backgroundBashTaskRunById)
 				.filter((run) => run.sessionId === activeSessionId)
@@ -4186,6 +4312,9 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		get activeSessionModel() {
 			return activeSessionModel;
 		},
+		get activeGenerationModel() {
+			return activeGenerationModel;
+		},
 		/** Model recorded on the session from server turns (no draft/override). */
 		get activeSessionTurnModel() {
 			return activeSessionLastTurnModel;
@@ -4199,6 +4328,9 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		},
 		get generationPolicyLabel() {
 			return generationPolicyLabel;
+		},
+		get composerMode() {
+			return composerMode;
 		},
 		get generationModelsCatalog() {
 			return generationModelsCatalog;
@@ -4376,6 +4508,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		renameActiveSession,
 		dispose,
 		handleSend,
+		setComposerMode,
 		handleAbort,
 		handleForkTurn,
 		handleSteerFollowup,

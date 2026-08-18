@@ -1,0 +1,2 @@
+DROP INDEX "v2"."v2_uq_session_turns_direct_generation_client_message";--> statement-breakpoint
+CREATE UNIQUE INDEX "v2_uq_session_turns_direct_generation_client_message" ON "v2"."session_turns" USING btree ("session_id","user_uuid",("meta"->>'clientMessageId')) WHERE "v2"."session_turns"."execution_kind" = 'direct_generation' and "v2"."session_turns"."meta"->>'clientMessageId' is not null;

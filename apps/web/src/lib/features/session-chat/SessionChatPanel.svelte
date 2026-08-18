@@ -397,10 +397,13 @@ async function handleDraftDrop(event: DragEvent) {
 					streamError={host.composerNotice}
 					showBillingAction={host.composerShowsBillingAction}
 					attachments={host.attachments}
+					mode={host.composerMode}
+					onmodechange={host.setComposerMode}
 					viewportContexts={host.viewportContexts}
-					currentModel={host.activeSessionModel}
-					thinkingLevelLabel={host.activeSessionThinkingLevelLabel}
-					generationPolicyLabel={host.generationPolicyLabel}
+					currentModel={host.composerMode === "create" ? host.activeGenerationModel : host.activeSessionModel}
+					thinkingLevelLabel={host.composerMode === "agent" ? host.activeSessionThinkingLevelLabel : null}
+					generationPolicyLabel={host.composerMode === "agent" ? host.generationPolicyLabel : null}
+					placeholder={host.composerMode === "create" ? "Describe what to create..." : "Send a message..."}
 					currentSpaceId={host.spaceId}
 					mobileAutoFocusOnMount={isNewSessionRoute && !activeSessionId}
 					promptTemplates={host.promptTemplates}

@@ -481,6 +481,7 @@ export type RealtimeTurnRecord = Partial<Pick<
   | "id"
   | "sessionId"
   | "sequence"
+  | "executionKind"
   | "status"
   | "intent"
   | "userUuid"

@@ -39,7 +39,7 @@ export type {
 export type AgentTurnJobData = {
   spaceId: string;
   sessionId: string;
-  reason?: "prompt" | "steer" | "drain" | "retry" | "recovery";
+  reason?: "prompt" | "steer" | "drain" | "retry" | "recovery" | "generation_complete" | "generation_failed";
   requestId?: string | null;
   trace?: Record<string, unknown>;
 };

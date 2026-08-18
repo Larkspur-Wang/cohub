@@ -87,6 +87,7 @@ export const toRealtimeTurnRecord = (turn: SessionTurnRecord): RealtimeTurnRecor
   id: turn.id,
   sessionId: turn.sessionId,
   sequence: turn.sequence,
+  executionKind: turn.executionKind,
   status: turn.status,
   intent: turn.intent,
   userUuid: turn.userUuid,

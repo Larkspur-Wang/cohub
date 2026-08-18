@@ -5,6 +5,7 @@ import type {
   MessageToolCallsFile,
   SessionTurnIndexItem,
   SessionTurnIntent,
+  SessionTurnExecutionKind,
   SessionTurnRecord,
   SessionTurnStatus,
   StoredIntermediateMessage,
@@ -178,6 +179,7 @@ const toTurnRecord = (row: typeof sessionTurns.$inferSelect): SessionTurnRecord 
   sessionId: row.sessionId,
   userUuid: row.userUuid ?? null,
   sequence: row.sequence,
+  executionKind: row.executionKind,
   status: row.status,
   intent: row.intent,
   userContent: row.userContent,
@@ -218,6 +220,7 @@ export type SessionTurnIndexRow = {
   id: string;
   sessionId: string;
   sequence: number;
+  executionKind?: SessionTurnExecutionKind;
   status: SessionTurnStatus;
   intent: SessionTurnIntent;
   userUuid: string | null;
@@ -285,6 +288,7 @@ export const createSessionTurn = async (input: {
   sessionId: string;
   userUuid: string | null;
   userContent: ContentBlock[];
+  executionKind?: SessionTurnExecutionKind;
   intent?: SessionTurnIntent;
   meta?: Record<string, unknown> | null;
 }) => {
@@ -313,6 +317,7 @@ export const createSessionTurn = async (input: {
       sessionId: input.sessionId,
       userUuid: input.userUuid,
       sequence,
+      executionKind: input.executionKind ?? "agent",
       status: "queued",
       intent: input.intent ?? "steer",
       userContent,
@@ -373,6 +378,7 @@ export const listSessionTurnIndex = async (sessionId: string, options?: { cursor
       id: sessionTurns.id,
       sessionId: sessionTurns.sessionId,
       sequence: sessionTurns.sequence,
+      executionKind: sessionTurns.executionKind,
       status: sessionTurns.status,
       intent: sessionTurns.intent,
       userUuid: sessionTurns.userUuid,
@@ -533,6 +539,24 @@ export const buildIntermediateObjectsForTurn = async (input: { spaceId: string; 
     },
     summary,
   };
+};
+
+export const setGenerationTurnAssistantProjection = async (input: {
+  sessionId: string;
+  turnId: string;
+  content: ContentBlock[];
+  text: string | null;
+  model: string | null;
+  taskId: string;
+}) => {
+  const [row] = await db.update(sessionTurns).set({
+    assistantContent: sanitizeContentBlocksForPostgresJson(input.content),
+    assistantText: input.text,
+    model: input.model,
+    meta: sql`coalesce(${sessionTurns.meta}, '{}'::jsonb) || ${JSON.stringify({ generationTaskId: input.taskId })}::jsonb`,
+    updatedAt: new Date(),
+  }).where(and(eq(sessionTurns.id, input.turnId), eq(sessionTurns.sessionId, input.sessionId), eq(sessionTurns.executionKind, "direct_generation"), inArray(sessionTurns.status, ["queued", "running"]))).returning();
+  return row ? toTurnRecord(row) : null;
 };
 
 export const failSessionTurn = async (input: { sessionId: string; turnId: string; errorMessage: string }) => {

@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { access, stat } from "node:fs/promises";
 import { trace } from "@opentelemetry/api";
+import { and, asc, eq, sql } from "drizzle-orm";
+import { sessionMessages, sessionTurns } from "@cohub/db";
 import { SessionManager } from "./runtime/local-session-manager.js";
 import type { ContentBlock } from "@cohub/protocol/core";
 import { normalizeContentBlocksSafe } from "@cohub/core/content/normalize";
@@ -51,6 +53,48 @@ export type PendingUserMessage = {
   content: ContentBlock[];
   meta?: Record<string, unknown> | null;
 };
+
+async function syncGenerationMessagesToSessionFile(sessionId: string, sessionManager: SessionManager, beforeTurnSequence?: number | null) {
+  const rows = await db.select({ message: sessionMessages }).from(sessionMessages)
+    .innerJoin(sessionTurns, eq(sessionMessages.turnId, sessionTurns.id))
+    .where(and(
+      eq(sessionMessages.sessionId, sessionId),
+      eq(sessionTurns.sessionId, sessionId),
+      eq(sessionTurns.executionKind, "direct_generation"),
+      ...(typeof beforeTurnSequence === "number" ? [sql`${sessionTurns.sequence} < ${beforeTurnSequence}`] : []),
+      sql`${sessionMessages.meta}->>'messageKind' in ('generation_request', 'generation_result')`,
+    ))
+    .orderBy(asc(sessionMessages.sequence));
+  if (rows.length === 0) return [];
+  const messages = rows.map((row) => row.message);
+
+  const terminalTaskIds = new Set(messages.flatMap((row) => {
+    const meta = row.meta && typeof row.meta === "object" && !Array.isArray(row.meta) ? row.meta as Record<string, unknown> : {};
+    return meta.messageKind === "generation_result" && (meta.generationStatus === "completed" || meta.generationStatus === "failed") && typeof meta.generationTaskId === "string" ? [meta.generationTaskId] : [];
+  }));
+  let changed = false;
+  const appended: AgentMessage[] = [];
+  const projectedMessages = sessionManager.getMessageMetaValues("generationTaskId");
+  for (const row of messages) {
+    const meta = row.meta && typeof row.meta === "object" && !Array.isArray(row.meta)
+      ? row.meta as Record<string, unknown>
+      : {};
+    const taskId = typeof meta.generationTaskId === "string" ? meta.generationTaskId : null;
+    if (!taskId || !terminalTaskIds.has(taskId) || projectedMessages.has(`${taskId}:${row.role}`)) continue;
+    const message = {
+      role: row.role === "assistant" ? "assistant" : "user",
+      content: row.content,
+      timestamp: row.createdAt instanceof Date ? row.createdAt.getTime() : Date.now(),
+      meta: { ...meta, generationTaskId: taskId, messageId: row.id, turnId: row.turnId },
+    } as never as AgentMessage;
+    sessionManager.appendMessage(message, { id: `generation:${taskId}:${row.role}` });
+    appended.push(message);
+    projectedMessages.add(`${taskId}:${row.role}`);
+    changed = true;
+  }
+  if (changed) await sessionManager.flush();
+  return appended;
+}
 
 export function hasSessionUserMessage(handle: SessionHandle, userMessageId: string) {
   return handle.sessionManager.hasUserMessage(userMessageId);
@@ -1071,6 +1115,7 @@ export async function loadOrCreateSessionHandle(input: {
   imageToTextConfig?: ImageToTextConfig | null;
   tools: ReturnType<typeof createSandboxCodingTools>;
   model?: { provider: string; id: string };
+  beforeTurnSequence?: number | null;
   sessionHandles: Map<string, SessionHandle>;
 }) {
   const sessionKey = getSessionKey(input.spaceId, input.sessionId);
@@ -1091,6 +1136,13 @@ export async function loadOrCreateSessionHandle(input: {
   if (existing) {
     if (sameSessionFileSignature(existing.sessionFileSignature, fileSignature)) {
       existing.spaceOwnerUserId = spaceOwnerUserId;
+      if (!existing.currentUserMessageId) {
+        const appended = await syncGenerationMessagesToSessionFile(input.sessionId, existing.sessionManager, input.beforeTurnSequence).catch((error) => {
+          logger.warn(`[Session] failed to project generation messages sessionId=${input.sessionId}:`, error);
+          return [] as AgentMessage[];
+        });
+        if (appended.length > 0) existing.session.agent.state.messages.push(...appended);
+      }
       logger.debug(`[Session] reuse sessionId=${input.sessionId} spaceId=${input.spaceId}`);
       return existing;
     }
@@ -1117,6 +1169,10 @@ export async function loadOrCreateSessionHandle(input: {
     setSessionManagerFilePath(tmpManager, existingSessionFile);
     sessionManager = tmpManager;
   }
+
+  await syncGenerationMessagesToSessionFile(input.sessionId, sessionManager, input.beforeTurnSequence).catch((error) => {
+    logger.warn(`[Session] failed to project generation messages sessionId=${input.sessionId}:`, error);
+  });
 
   const resolvedModel = input.model
     ? input.modelRegistry.find(input.model.provider, input.model.id)

@@ -66,6 +66,7 @@ const toSessionTurnRecord = (row: typeof sessionTurns.$inferSelect): SessionTurn
     sessionId: row.sessionId,
     userUuid: row.userUuid ?? null,
     sequence: row.sequence,
+    executionKind: row.executionKind,
     status: row.status,
     intent: row.intent,
     userContent: row.userContent,
@@ -311,7 +312,7 @@ export function createSessionServices(input: {
     const dispatchIntent = promptInput.meta.dispatchIntent === "steer" ? "steer" : "followup";
     const [activeTurn] = await input.db.select({ id: sessionTurns.id })
       .from(sessionTurns)
-      .where(and(eq(sessionTurns.sessionId, promptInput.sessionId), inArray(sessionTurns.status, ["running", "abort_requested"])))
+      .where(and(eq(sessionTurns.sessionId, promptInput.sessionId), eq(sessionTurns.executionKind, "agent"), inArray(sessionTurns.status, ["running", "abort_requested"])))
       .orderBy(desc(sessionTurns.sequence))
       .limit(1);
 
@@ -324,7 +325,7 @@ export function createSessionServices(input: {
         status: "abort_requested",
         meta: sql`coalesce(${sessionTurns.meta}, '{}'::jsonb) || ${JSON.stringify({ abortRequestedAt: new Date().toISOString(), continuedByTurnId: promptInput.turnId })}::jsonb`,
         updatedAt: new Date(),
-      }).where(and(eq(sessionTurns.id, activeTurn.id), eq(sessionTurns.sessionId, promptInput.sessionId), inArray(sessionTurns.status, ["running", "abort_requested"]))).returning();
+      }).where(and(eq(sessionTurns.id, activeTurn.id), eq(sessionTurns.sessionId, promptInput.sessionId), eq(sessionTurns.executionKind, "agent"), inArray(sessionTurns.status, ["running", "abort_requested"]))).returning();
       if (updatedActiveTurn) {
         await Promise.resolve(input.onSessionTurnUpdated?.({
           spaceId: promptInput.spaceId,

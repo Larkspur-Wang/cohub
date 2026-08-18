@@ -3,6 +3,7 @@ import type { BillingPayload } from "../billing.js";
 import type { RequestSource } from "../provenance.js";
 export * from "./catalog.js";
 export * from "./policy.js";
+export * from "./session-messages.js";
 
 export type {
   GenerateRequest,

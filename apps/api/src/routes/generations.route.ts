@@ -62,7 +62,7 @@ router.post("/", async (c) => {
   const request = parsed.data;
   if (!(await hasPermission(user, "generation.create", { spaceId: request.spaceId }))) return authzDenied(c);
 
-  const sessionId = request.sessionId?.trim() || null;
+  let sessionId = request.sessionId?.trim() || null;
   const turnId = request.turnId?.trim() || null;
   const meta = request.meta;
   const requestSource = getRequestSource(c);

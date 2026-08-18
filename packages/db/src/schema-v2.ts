@@ -19,6 +19,7 @@ import {
 import type { ContentBlock } from "@cohub/protocol/core";
 import type { TaskPayload } from "@cohub/protocol/task";
 import type {
+  SessionTurnExecutionKind,
   SessionTurnIntent,
   SessionTurnIntermediateIndex,
   SessionTurnIntermediateSummary,
@@ -877,6 +878,7 @@ export const sessionTurns = v2.table(
     sessionId: uuid("session_id").notNull(),
     userUuid: varchar("user_uuid", { length: 255 }),
     sequence: integer("sequence").notNull(),
+    executionKind: varchar("execution_kind", { length: 32 }).$type<SessionTurnExecutionKind>().notNull().default("agent"),
     status: varchar("status", { length: 20 }).$type<SessionTurnStatus>().notNull().default("queued"),
     intent: varchar("intent", { length: 20 }).$type<SessionTurnIntent>().notNull().default("steer"),
     userContent: jsonb("user_content").notNull().$type<ContentBlock[]>(),
@@ -906,6 +908,12 @@ export const sessionTurns = v2.table(
       table.sequence,
     ),
     userUuidIdx: index("v2_idx_session_turns_user_uuid").on(table.userUuid),
+    directGenerationClientMessageUniqueIdx: uniqueIndex("v2_uq_session_turns_direct_generation_client_message").on(
+      table.sessionId,
+      table.userUuid,
+      sql`(${table.meta}->>'clientMessageId')`,
+    ).where(sql`${table.executionKind} = 'direct_generation' and ${table.meta}->>'clientMessageId' is not null`),
+    directGenerationBarrierIdx: index("v2_idx_session_turns_direct_generation_barrier").on(table.sessionId, table.sequence, table.status).where(sql`${table.executionKind} = 'direct_generation'`),
     createdAtIdx: index("v2_idx_session_turns_created_at").on(table.createdAt),
     userTextSearchIdx: index("v2_idx_session_turns_user_text_trgm").using("gin", table.userText.op("gin_trgm_ops")),
   }),

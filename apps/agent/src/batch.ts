@@ -158,7 +158,7 @@ export async function claimNextTurnBatch(input: Pick<AgentTurnJobData, "sessionI
     const activeRows = await tx.execute(sql`
       select id, session_id, user_uuid, sequence, status, intent, user_content, user_text, meta, updated_at
       from v2.session_turns
-      where session_id = ${input.sessionId} and status in ('running', 'abort_requested')
+      where session_id = ${input.sessionId} and execution_kind = 'agent' and status in ('running', 'abort_requested')
       order by sequence asc
       limit 1
     `);
@@ -171,10 +171,24 @@ export async function claimNextTurnBatch(input: Pick<AgentTurnJobData, "sessionI
       }
     }
 
+    const blockingRows = await tx.execute(sql`
+      select sequence
+      from v2.session_turns
+      where session_id = ${input.sessionId}
+        and execution_kind = 'direct_generation'
+        and status not in ('completed', 'failed', 'cancelled', 'interrupted', 'merged')
+      order by sequence asc
+      limit 1
+    `);
+    const blockingSequenceValue = (blockingRows[0] as Record<string, unknown> | undefined)?.sequence;
+    const parsedBlockingSequence = typeof blockingSequenceValue === "number" ? blockingSequenceValue : typeof blockingSequenceValue === "string" ? Number(blockingSequenceValue) : Number.NaN;
+    const blockingSequence = Number.isFinite(parsedBlockingSequence) ? parsedBlockingSequence : null;
+    const beforeGeneration = blockingSequence === null ? sql`true` : sql`sequence < ${blockingSequence}`;
+
     const steerRows = await tx.execute(sql`
       select id, session_id, user_uuid, sequence, status, intent, user_content, user_text, meta, updated_at
       from v2.session_turns
-      where session_id = ${input.sessionId} and status = 'queued' and intent = 'steer'
+      where session_id = ${input.sessionId} and execution_kind = 'agent' and status = 'queued' and intent = 'steer' and ${beforeGeneration}
       order by updated_at asc, sequence asc
       limit 1
     `);
@@ -187,7 +201,7 @@ export async function claimNextTurnBatch(input: Pick<AgentTurnJobData, "sessionI
     const followupRows = await tx.execute(sql`
       select id, session_id, user_uuid, sequence, status, intent, user_content, user_text, meta, updated_at
       from v2.session_turns
-      where session_id = ${input.sessionId} and status = 'queued' and intent = 'followup'
+      where session_id = ${input.sessionId} and execution_kind = 'agent' and status = 'queued' and intent = 'followup' and ${beforeGeneration}
       order by sequence asc
     `);
     const followups = followupRows.map((row) => normalizeTurn(row as Record<string, unknown>));
@@ -202,7 +216,7 @@ export async function enqueueNextRunnableTurn(input: { spaceId: string; sessionI
   const rows = await db.execute(sql`
     select id
     from v2.session_turns
-    where session_id = ${input.sessionId} and status = 'queued' and intent in ('steer', 'followup')
+    where session_id = ${input.sessionId} and execution_kind = 'agent' and status = 'queued' and intent in ('steer', 'followup')
     order by case when intent = 'steer' then 0 else 1 end, updated_at asc, sequence asc
     limit 1
   `);

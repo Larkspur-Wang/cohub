@@ -1,0 +1,1 @@
+CREATE INDEX "v2_idx_session_turns_direct_generation_barrier" ON "v2"."session_turns" USING btree ("session_id","sequence","status") WHERE "v2"."session_turns"."execution_kind" = 'direct_generation';

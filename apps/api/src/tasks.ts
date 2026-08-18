@@ -12,7 +12,7 @@ import { createLogger } from "@cohub/infra/logging";
 
 
 const logger = createLogger({ serviceName: "cohub-api" });
-type TaskEnqueueOptions = Omit<JobsOptions, "scheduledAt"> & { scheduledAt?: Date | null };
+type TaskEnqueueOptions = Omit<JobsOptions, "scheduledAt"> & { scheduledAt?: Date | null; taskRunId?: string };
 
 const QUEUE_NAME = COHUB_TASKS_QUEUE;
 

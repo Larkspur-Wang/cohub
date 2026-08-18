@@ -35,6 +35,7 @@ import { recordGenerationUsageStatsHourly } from "../generation-usage-stats.js";
 import { redisCommandClient } from "../redis.js";
 import { enqueueTask } from "./enqueue.js";
 import { registerTask } from "./registry.js";
+import { finalizeGenerationSession, markGenerationSessionRunning } from "./generation-session.js";
 
 const loader = createGenerationDeclarationLoader({
   platformConfigRoot: config.platformConfigRoot,
@@ -338,6 +339,9 @@ registerTask(GENERATION_TASK_TYPE, async (job: Job, context) => {
   if (!userId) throw new Error("Invalid generation task payload: userId is required");
   const data = parseGenerationTaskData(payload.data);
   const taskRunId = context?.taskRunId ?? String(job.id ?? "");
+  await markGenerationSessionRunning(taskRunId).catch((error) => {
+    console.warn("[GenerationSession] failed to mark turn running", error);
+  });
 
   try {
     const declaration = await loader.loadGenerationDeclaration(userId, data.model);
@@ -436,7 +440,7 @@ registerTask(GENERATION_TASK_TYPE, async (job: Job, context) => {
       costTotal: result.cost ?? 0,
     });
 
-    return {
+    const taskResult = {
       model: data.model,
       output: result.content,
       ...(result.requestId !== undefined ? { requestId: result.requestId } : {}),
@@ -444,6 +448,8 @@ registerTask(GENERATION_TASK_TYPE, async (job: Job, context) => {
       billing,
       ...(data.meta ? { meta: data.meta } : {}),
     } satisfies GenerationTaskResult;
+    await finalizeGenerationSession({ taskRunId, payload, result: taskResult });
+    return taskResult;
   } catch (error) {
     throw normalizeGenerationError(error);
   }

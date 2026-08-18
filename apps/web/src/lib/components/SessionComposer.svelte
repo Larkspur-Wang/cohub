@@ -67,6 +67,8 @@ type SelectedModel = {
 
 type Props = {
 	value: string;
+	mode?: "agent" | "create";
+	onmodechange?: (mode: "agent" | "create") => void;
 	disabled?: boolean;
 	sending?: boolean;
 	isRunning?: boolean;
@@ -99,6 +101,8 @@ type Props = {
 
 let {
 	value = $bindable(""),
+	mode = "agent",
+	onmodechange,
 	disabled = false,
 	sending = false,
 	isRunning = false,
@@ -1393,6 +1397,12 @@ $effect(() => {
 
 					<div class="mt-1.5 flex items-center justify-between gap-2">
 						<div class="flex items-center gap-1">
+							{#if onmodechange}
+								<div class="flex h-8 items-center rounded-md border border-border-subtle bg-bg-surface p-0.5" role="group" aria-label="Composer mode">
+									<button type="button" class={`h-7 rounded px-2 text-[11px] transition-colors ${mode === "agent" ? "bg-bg-hover text-text-primary" : "text-text-tertiary hover:text-text-secondary"}`} disabled={disabled || sending} aria-pressed={mode === "agent"} onclick={() => onmodechange?.("agent")}>Agent</button>
+									<button type="button" class={`h-7 rounded px-2 text-[11px] transition-colors ${mode === "create" ? "bg-brand-bg text-brand-muted-fg" : "text-text-tertiary hover:text-text-secondary"}`} disabled={disabled || sending} aria-pressed={mode === "create"} onclick={() => onmodechange?.("create")}>Create</button>
+								</div>
+							{/if}
 							{#if onpickattachment}
 								<button
 									type="button"

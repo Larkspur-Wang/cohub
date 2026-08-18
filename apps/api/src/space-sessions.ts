@@ -516,7 +516,8 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
   const toolUseCount = countToolCallsInContent(content);
   const requestedMessageKind = (input.message.meta as Record<string, unknown> | null | undefined)?.messageKind;
   const isDirectShellCommandResult = requestedMessageKind === "shell_command_result";
-  const messageKind = messageRole !== "assistant" ? messageRole : isUnsuccessful ? "assistant_error" : isDirectShellCommandResult ? "assistant_final" : (toolUseCount > 0 || input.message.stopReason === "tool_use") ? "assistant_intermediate" : "assistant_final";
+  const isGenerationResult = requestedMessageKind === "generation_result";
+  const messageKind = messageRole !== "assistant" ? messageRole : isUnsuccessful ? "assistant_error" : isGenerationResult ? "generation_result" : isDirectShellCommandResult ? "assistant_final" : (toolUseCount > 0 || input.message.stopReason === "tool_use") ? "assistant_intermediate" : "assistant_final";
   const displayErrorMessage = isAborted ? null : input.message.errorMessage ?? null;
   const completedAt = toDateOrNull(input.message.completedAt) ?? new Date();
   const startedAt = toDateOrNull(input.message.startedAt) ?? completedAt;
@@ -571,6 +572,7 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
           sessionId: turnRow.sessionId,
           userUuid: turnRow.userUuid ?? null,
           sequence: turnRow.sequence,
+          executionKind: turnRow.executionKind,
           status: turnRow.status as SessionTurnRecord["status"],
           intent: turnRow.intent as SessionTurnRecord["intent"],
           userContent: turnRow.userContent,
@@ -734,6 +736,7 @@ export const enqueueSessionAbort = async (input: { sessionId: string; actorUserI
     .from(sessionTurns)
     .where(and(
       eq(sessionTurns.sessionId, input.sessionId),
+      eq(sessionTurns.executionKind, "agent"),
       inArray(sessionTurns.status, ["running", "abort_requested"]),
     ))
     .orderBy(desc(sessionTurns.sequence))
@@ -751,6 +754,7 @@ export const enqueueSessionAbort = async (input: { sessionId: string; actorUserI
   }).where(and(
     eq(sessionTurns.id, turnId),
     eq(sessionTurns.sessionId, input.sessionId),
+    eq(sessionTurns.executionKind, "agent"),
     inArray(sessionTurns.status, ["running", "abort_requested"]),
   )).returning({ id: sessionTurns.id });
 
