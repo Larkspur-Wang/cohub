@@ -516,7 +516,7 @@ test("buildTurnTimelineItems places waiting status in turn footer at the end", (
 	);
 });
 
-test("buildTurnTimelineItems places starting status in turn footer without process card", () => {
+test("buildTurnTimelineItems labels direct generation startup separately", () => {
 	const items = buildTurnTimelineItems({
 		sessionId: "s1",
 		turns: [
@@ -551,6 +551,7 @@ test("buildTurnTimelineItems places starting status in turn footer without proce
 		streaming: {
 			sessionId: "s1",
 			turnId: "t1",
+			executionKind: "direct_generation",
 			contentBlocks: [],
 			status: "pending",
 		},
@@ -564,7 +565,7 @@ test("buildTurnTimelineItems places starting status in turn footer without proce
 	assert.equal(footer?.kind, "turn_footer");
 	assert.equal(
 		footer?.kind === "turn_footer" ? footer.phase : null,
-		"starting",
+		"starting_generation",
 	);
 	assert.equal(items.at(-1)?.kind, "turn_footer");
 });

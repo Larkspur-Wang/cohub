@@ -201,6 +201,7 @@ function resolveTurnFooterPhase(streaming: {
 	status?: string;
 	contentBlocks: ContentBlock[];
 	intermediateMessages?: StoredIntermediateMessage[];
+	executionKind?: SessionTurnRecord["executionKind"];
 	runtimePhase?: "llm_call_started" | null;
 }): TurnFooterPhase | null {
 	// Fresh thinking/text is the status itself.
@@ -216,7 +217,9 @@ function resolveTurnFooterPhase(streaming: {
 		streaming.status === "pending" &&
 		(streaming.intermediateMessages?.length ?? 0) === 0
 	) {
-		return "starting";
+		return streaming.executionKind === "direct_generation"
+			? "starting_generation"
+			: "starting";
 	}
 
 	// Between tool rounds after intermediate archive: process history exists,
@@ -268,6 +271,7 @@ export function buildTurnTimelineItems(input: {
 		clientMessageId?: string | null;
 		contentBlocks: ContentBlock[];
 		intermediateMessages?: StoredIntermediateMessage[];
+		executionKind?: SessionTurnRecord["executionKind"];
 		truncatedStart?: boolean;
 		status?: string;
 		runtimePhase?: "llm_call_started" | null;
@@ -457,7 +461,13 @@ export function buildTurnTimelineItems(input: {
 				blocks.length > 0
 					? blocks
 					: ([
-							{ type: "thinking", thinking: "Starting agent…" },
+							{
+								type: "thinking",
+								thinking:
+									input.streaming?.executionKind === "direct_generation"
+										? "Starting generation…"
+										: "Starting agent…",
+							},
 						] as ContentBlock[]);
 			items.push({
 				id: renderKey,

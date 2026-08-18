@@ -150,6 +150,7 @@ import {
 	normalizeTurnDuplicates,
 	preserveSessionTurnRefs,
 	reconcileOptimisticTurn,
+	resolveLastAgentTurnModel,
 } from "./session-utils";
 import {
 	createSessionWorkspaceController,
@@ -337,9 +338,23 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	const generationModelsCatalog = $derived(generationPolicy.modelsCatalog);
 	let createModelId = $state<string | null>(null);
 	let createModelPreferenceRequest = 0;
+	const activeSessionLastGenerationModelId = $derived.by(() => {
+		const turns = [...(activeSessionState?.turns ?? []), ...activeTurnIndex]
+			.filter(
+				(turn) =>
+					turn.executionKind === "direct_generation" &&
+					typeof turn.model === "string" &&
+					turn.model.trim(),
+			)
+			.sort((a, b) => a.sequence - b.sequence);
+		return turns.at(-1)?.model ?? null;
+	});
+	const activeCreateModelId = $derived(
+		activeSessionLastGenerationModelId ?? createModelId,
+	);
 	const activeCreateModelDeclaration = $derived.by(() => {
 		const catalog = generationModelsCatalog ?? [];
-		return resolvePreferredGenerationModel(catalog, createModelId);
+		return resolvePreferredGenerationModel(catalog, activeCreateModelId);
 	});
 	const activeGenerationModel = $derived.by(() => {
 		const model = activeCreateModelDeclaration;
@@ -373,6 +388,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	const skillsLoaded = $derived(skillsCtrl.loaded);
 	let showModelSelector = $state(false);
 	let composerMode = $state<"agent" | "create">("agent");
+	let restoredComposerModeKey: string | null = null;
 	let generationDraftSessionId = $state<string | null>(null);
 	let sessionModelById = $state<Record<string, SelectedModel | null>>({});
 	let sessionThinkingLevelById = $state<
@@ -407,6 +423,25 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		const authIdentity = authStore.userUuid ?? authStore.claims?.sub ?? "guest";
 		untrack(() => {
 			if (shouldLoad && authIdentity) void loadGenerationModelsCatalog();
+		});
+	});
+	$effect(() => {
+		const sessionKey = activeSessionId ?? "new";
+		const latestTurn = [
+			...(activeSessionState?.turns ?? []),
+			...activeTurnIndex,
+		]
+			.sort((a, b) => a.sequence - b.sequence)
+			.at(-1);
+		const modeKey = `${sessionKey}:${latestTurn?.id ?? "none"}:${latestTurn?.executionKind ?? "agent"}`;
+		if (restoredComposerModeKey === modeKey) return;
+		untrack(() => {
+			restoredComposerModeKey = modeKey;
+			if (latestTurn?.executionKind === "direct_generation") {
+				composerMode = "create";
+				return;
+			}
+			if (activeSessionId && latestTurn) composerMode = "agent";
 		});
 	});
 
@@ -480,22 +515,12 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			? (turnIndexBySessionId[activeSessionId] ?? EMPTY_TURN_INDEX)
 			: EMPTY_TURN_INDEX,
 	);
-	const activeSessionLastTurnModel = $derived.by(() => {
-		const turns = [...(activeSessionState?.turns ?? []), ...activeTurnIndex]
-			.filter((turn) => typeof turn.model === "string" && turn.model.trim())
-			.sort((a, b) => a.sequence - b.sequence);
-		const lastTurn = turns.at(-1);
-		if (!lastTurn?.model) return null;
-		const provider = lastTurn.provider ?? "cohub";
-		const catalogItem = visibleModelsCatalog?.find(
-			(item) => item.id === lastTurn.model && item.provider === provider,
-		);
-		return {
-			provider,
-			id: lastTurn.model,
-			name: catalogItem?.model.name as string | undefined,
-		} satisfies SelectedModel;
-	});
+	const activeSessionLastTurnModel = $derived.by(() =>
+		resolveLastAgentTurnModel(
+			[...(activeSessionState?.turns ?? []), ...activeTurnIndex],
+			visibleModelsCatalog,
+		),
+	);
 	const activeSessionLastRequestedThinkingLevel =
 		$derived.by<ModelThinkingLevel | null>(() => {
 			const lastPersistedTurn = [...(activeSessionState?.turns ?? [])]
@@ -613,6 +638,9 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 						anchorUserMessageId:
 							activeGenerationState.anchorUserMessageId ?? null,
 						clientMessageId: activeGenerationClientMessageId,
+						executionKind: activeSessionState?.turns.find(
+							(turn) => turn.id === activeGenerationState.turnId,
+						)?.executionKind,
 						intermediateMessages: activeStreamingIntermediateMessages,
 						contentBlocks: activeGenerationState.contentBlocks,
 						finalizedPreview: activeGenerationState.finalizedPreview,

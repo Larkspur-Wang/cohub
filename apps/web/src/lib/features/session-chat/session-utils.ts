@@ -1,5 +1,6 @@
 import type { SessionTurnRecord } from "@cohub/protocol/model";
 import type { SessionRecord, TaskRunRecord } from "@neta-art/cohub";
+import type { ModelCatalogItem } from "$lib/model-catalog";
 import { mergeTurnsById } from "$lib/stores/turn-cache";
 import type { SessionViewState } from "./session-workspace-controller.svelte";
 
@@ -20,6 +21,33 @@ function tailText(value: unknown, limit = 420) {
 	const trimmed = value.trim();
 	if (!trimmed) return null;
 	return trimmed.length > limit ? `…${trimmed.slice(-limit)}` : trimmed;
+}
+
+export function resolveLastAgentTurnModel(
+	turns: Array<
+		Pick<SessionTurnRecord, "sequence" | "executionKind" | "provider" | "model">
+	>,
+	catalog: ModelCatalogItem[] | null | undefined,
+): { provider: string; id: string; name?: string } | null {
+	const lastTurn = [...turns]
+		.filter(
+			(turn) =>
+				turn.executionKind !== "direct_generation" &&
+				typeof turn.model === "string" &&
+				turn.model.trim(),
+		)
+		.sort((a, b) => a.sequence - b.sequence)
+		.at(-1);
+	if (!lastTurn?.model) return null;
+	const provider = lastTurn.provider ?? "cohub";
+	const catalogItem = catalog?.find(
+		(item) => item.id === lastTurn.model && item.provider === provider,
+	);
+	return {
+		provider,
+		id: lastTurn.model,
+		name: catalogItem?.model.name as string | undefined,
+	};
 }
 
 export function getSessionTitle(session: SessionRecord): string {

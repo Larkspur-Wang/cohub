@@ -187,6 +187,8 @@ $effect(() => {
 							? modelName
 								? `waiting ${modelName}…`
 								: 'waiting model…'
+						: item.phase === 'starting_generation'
+							? 'starting generation…'
 							: 'starting agent…'}
 					<div class="px-2 py-1">
 						<GenerationRuntimeStatusRow label={footerLabel} compact />

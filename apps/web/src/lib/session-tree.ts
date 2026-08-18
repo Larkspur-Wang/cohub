@@ -46,7 +46,10 @@ export type ToolState = {
 	output: string;
 };
 
-export type TurnFooterPhase = "starting" | "waiting_model";
+export type TurnFooterPhase =
+	| "starting"
+	| "starting_generation"
+	| "waiting_model";
 
 export type TimelineItem =
 	| {
