@@ -421,9 +421,12 @@ function previewContentOut(node: Element) {
 	immersive={previewImmersiveMode}
 	open={Boolean(activePreviewKind)}
 >
-	{#if activePreviewKind}
+	{#if previewTabs.length > 0}
 		<div
 			class="relative flex h-full min-w-0 flex-col overflow-hidden"
+			hidden={!activePreviewKind}
+			inert={!activePreviewKind}
+			aria-hidden={!activePreviewKind}
 			out:previewContentOut
 		>
 			{#if !isMobile && !previewImmersiveMode}
@@ -446,7 +449,13 @@ function previewContentOut(node: Element) {
 				</PreviewTabs>
 			{/if}
 			<div class="relative min-h-0 flex-1">
-{#if activePreviewKind === "file" && inlineFile}
+{#if inlineFile}
+	<div
+		class="h-full min-h-0"
+		hidden={activePreviewKind !== "file"}
+		inert={activePreviewKind !== "file"}
+		aria-hidden={activePreviewKind !== "file"}
+	>
 		<InlineFilePanel
 		{inlineFile}
 		{previewTabs}
@@ -506,6 +515,7 @@ function previewContentOut(node: Element) {
 		onDeleteFilePath={(path: string) => onDeleteNode(onGetFileActionNode(path))}
 		onVisibleLinesChange={onVisibleLinesChange}
 		/>
+	</div>
 {/if}
 
 {#if inlineBoard}
@@ -539,7 +549,13 @@ function previewContentOut(node: Element) {
 	</div>
 {/if}
 
-{#if activePreviewKind === "port" && inlinePortPreview}
+{#if inlinePortPreview}
+	<div
+		class="h-full min-h-0"
+		hidden={activePreviewKind !== "port"}
+		inert={activePreviewKind !== "port"}
+		aria-hidden={activePreviewKind !== "port"}
+	>
 		<PortPreviewPanel
 		previewTabs={previewTabs}
 		{treeVisible}
@@ -555,9 +571,16 @@ function previewContentOut(node: Element) {
 		onToggleImmersive={onTogglePreviewImmersiveMode}
 		onPublish={() => onOpenWorkPublish("port", inlinePortPreview!.port)}
 		/>
+	</div>
 {/if}
 
-{#if activePreviewKind === "work" && inlineWorkPreview}
+{#if inlineWorkPreview}
+	<div
+		class="h-full min-h-0"
+		hidden={activePreviewKind !== "work"}
+		inert={activePreviewKind !== "work"}
+		aria-hidden={activePreviewKind !== "work"}
+	>
 	<WorkPreviewPanel
 		preview={inlineWorkPreview}
 		{previewTabs}
@@ -572,6 +595,7 @@ function previewContentOut(node: Element) {
 		onRegisterSurface={onRegisterWorkSurface}
 		onComposerChip={onWorkComposerChip}
 	/>
+	</div>
 {/if}
 			</div>
 		</div>

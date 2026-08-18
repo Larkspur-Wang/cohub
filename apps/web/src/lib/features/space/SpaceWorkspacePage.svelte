@@ -869,6 +869,7 @@ $effect(() => {
 });
 
 let appliedPreviewContextKey: string | null = null;
+let appliedPreviewSessionKey: string | null = null;
 const spacePresence = createSpacePresenceController(() => spaceId);
 const danmakuController = createSpaceDanmakuController();
 let danmakuCatchupTimer: ReturnType<typeof setTimeout> | null = null;
@@ -2614,6 +2615,8 @@ $effect(() => {
 	const currentSpaceId = spaceId;
 	const sourceKey = activeFsSourceKey;
 	const preview = routePreviewRef;
+	const sessionKey =
+		routeView === "session" && routeSessionId ? routeSessionId : null;
 	// Retry pending port deep-links when sandbox endpoints arrive.
 	if (preview?.kind === "port") void previewEndpoints[preview.key]?.url;
 	untrack(() => {
@@ -2634,7 +2637,23 @@ $effect(() => {
 			appliedPreviewContextKey = contextKey;
 		}
 
-		// 2) URL is authoritative only when this adapter is triggered by route
+		// 2) Compact session navigation returns to chat without disposing preview
+		// runtimes. Explicit closes have already removed their tabs before the URL
+		// changes, so only a session-key transition can enter this suspended state.
+		const sessionChanged =
+			appliedPreviewSessionKey !== null &&
+			sessionKey !== appliedPreviewSessionKey;
+		appliedPreviewSessionKey = sessionKey;
+		if (
+			isMobile &&
+			sessionChanged &&
+			!preview &&
+			previewWorkspace.suspendForRoute()
+		) {
+			return;
+		}
+
+		// 3) URL is authoritative only when this adapter is triggered by route
 		// context. Internal tab changes are intentionally not dependencies here.
 		const target =
 			preview?.kind === "board" && activeFsReadonly

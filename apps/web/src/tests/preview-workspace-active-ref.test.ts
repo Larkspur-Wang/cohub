@@ -24,6 +24,7 @@ function createHarness() {
 	let activePort: string | null = null;
 	let workIds: string[] = [];
 	let activeWorkId: string | null = null;
+	let boardOpenCount = 0;
 	const urls: Array<Ref | null> = [];
 
 	const drop = (list: string[], key: string) =>
@@ -53,6 +54,7 @@ function createHarness() {
 		},
 		goBackFile: async () => null,
 		openBoard: async (path) => {
+			boardOpenCount += 1;
 			if (!boardPaths.includes(path)) boardPaths = [...boardPaths, path];
 			activeBoardPath = path;
 		},
@@ -104,6 +106,7 @@ function createHarness() {
 			ports: ports.length,
 			works: workIds.length,
 		}),
+		boardOpenCount: () => boardOpenCount,
 		/** Simulate a domain closing a tab on its own schedule. */
 		closeFileOutOfBand: (path: string) => {
 			filePaths = drop(filePaths, path);
@@ -193,6 +196,33 @@ test("a reopened tab does not inherit its previous access order", async () => {
 	controller.close("work", WORK_ID);
 
 	assert.deepEqual(controller.currentRef(), { kind: "port", key: "5173" });
+});
+
+test("compact session navigation suspends tabs without disposing runtimes", async () => {
+	const { controller, counts, boardOpenCount } = createHarness();
+	await controller.openFile("docs/a.md");
+	await controller.openBoard("plans/main.board");
+	controller.openPort("5173", "http://x");
+	controller.openWork({ workId: WORK_ID });
+	const opensBeforeSuspend = boardOpenCount();
+
+	assert.equal(controller.suspendForRoute(), true);
+	assert.equal(controller.suspended, true);
+	assert.equal(controller.currentRef(), null);
+	assert.equal(controller.activeKind, null);
+	assert.deepEqual(counts(), { files: 1, boards: 1, ports: 1, works: 1 });
+
+	controller.applyRoute({ kind: "board", key: "plans/main.board" });
+	assert.equal(controller.suspended, false);
+	assert.deepEqual(controller.currentRef(), {
+		kind: "board",
+		key: "plans/main.board",
+	});
+	assert.equal(
+		boardOpenCount(),
+		opensBeforeSuspend,
+		"restoring a mounted Board must reuse its editor runtime",
+	);
 });
 
 test("closeAll drops every domain tab and the active ref", async () => {

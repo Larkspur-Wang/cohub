@@ -26,6 +26,18 @@ test("port deep-link keys must be trusted numeric ports", () => {
 	assert.equal(parsePreviewParam("port:80@evil"), null);
 });
 
+test("compact session navigation suspends previews instead of closing them", () => {
+	const page = readFileSync(
+		new URL("../lib/features/space/SpaceWorkspacePage.svelte", import.meta.url),
+		"utf8",
+	);
+
+	assert.match(
+		page,
+		/sessionChanged[\s\S]*previewWorkspace\.suspendForRoute\(\)/,
+	);
+});
+
 test("new and existing Space chats share one mounted workspace", () => {
 	const routes = new URL(
 		"../routes/(app)/spaces/[id]/sessions/",
@@ -120,6 +132,18 @@ test("preview kinds share one workspace pane", () => {
 		domain,
 		/\{#if inlineBoard\}[\s\S]*hidden=\{activePreviewKind !== "board"\}[\s\S]*active=\{activePreviewKind === "board"\}/,
 		"inactive Board previews must remain mounted and suspended",
+	);
+	for (const kind of ["file", "port", "work"] as const) {
+		assert.match(
+			domain,
+			new RegExp(`hidden=\\{activePreviewKind !== "${kind}"\\}`),
+			`inactive ${kind} previews must remain mounted`,
+		);
+	}
+	assert.match(
+		domain,
+		/\{#if previewTabs\.length > 0\}[\s\S]*hidden=\{!activePreviewKind\}/,
+		"suspended previews must keep their surface subtree mounted",
 	);
 	assert.match(
 		codeEditor,

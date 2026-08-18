@@ -114,6 +114,8 @@ export function createPreviewWorkspaceController(
 	let accessedAt = $state<Record<string, number>>({});
 	let accessCounter = 0;
 	let navigation = $state(createPreviewNavigationState());
+	/** Compact session navigation hides surfaces without disposing their state. */
+	let suspended = $state(false);
 	const weightLimit = options.weightLimit ?? DEFAULT_WEIGHT_LIMIT;
 	/** Set while closes are already accounted for here — a close this controller
 	 * drives, or a context teardown. Domain "tab closed" reports are then ignored,
@@ -181,7 +183,7 @@ export function createPreviewWorkspaceController(
 	 * rather than a fixed kind order, so closing a tab reveals what the user saw
 	 * last.
 	 */
-	function resolveActiveRef(): WorkspacePreviewRef | null {
+	function resolveMountedActiveRef(): WorkspacePreviewRef | null {
 		const mounted = mountedRefs();
 		if (mounted.length === 0) return null;
 		const committed = activeRef;
@@ -193,20 +195,35 @@ export function createPreviewWorkspaceController(
 		);
 	}
 
+	function resolveActiveRef(): WorkspacePreviewRef | null {
+		return suspended ? null : resolveMountedActiveRef();
+	}
+
 	function currentRef(): WorkspacePreviewRef | null {
 		return resolveActiveRef();
 	}
 
 	/** Commit the active ref and mark it most recently used, in one step. */
 	function commitActive(ref: WorkspacePreviewRef) {
+		suspended = false;
 		activeRef = ref;
 		touch(ref.kind, ref.key);
 	}
 
 	/** Re-derive the active ref after tabs changed underneath us. */
 	function reconcileActive() {
-		activeRef = resolveActiveRef();
+		activeRef = resolveMountedActiveRef();
 		return activeRef;
+	}
+
+	/** Hide the active preview for compact session navigation, keeping every tab. */
+	function suspendForRoute() {
+		const ref = resolveMountedActiveRef();
+		if (!ref) return false;
+		activeRef = ref;
+		suspended = true;
+		beginNavigation(null, "route");
+		return true;
 	}
 
 	function enforceBudget() {
@@ -333,6 +350,12 @@ export function createPreviewWorkspaceController(
 			opts.source ?? (syncUrl ? "user" : "route"),
 		);
 		commitActive(ref);
+		if (hasTab("board", path)) {
+			options.activateBoard(path);
+			if (syncUrl) options.syncUrl(ref, hadPreview);
+			enforceBudget();
+			return;
+		}
 		const pending = options.openBoard(path);
 		if (syncUrl) options.syncUrl(ref, hadPreview);
 		await pending;
@@ -431,6 +454,7 @@ export function createPreviewWorkspaceController(
 		forget(kind, key);
 		const previous = activeRef;
 		const ref = reconcileActive();
+		if (suspended) return;
 		if (previewRefsEqual(previous, ref)) return;
 		navigation = alignPreviewNavigation(navigation, ref);
 		options.syncUrl(ref, true);
@@ -447,6 +471,7 @@ export function createPreviewWorkspaceController(
 	) {
 		const syncUrl = opts.syncUrl ?? true;
 		beginNavigation(null, opts.source ?? (syncUrl ? "user" : "route"));
+		suspended = false;
 		activeRef = null;
 		accessedAt = {};
 		withSuppressedCloseReports(() => {
@@ -494,6 +519,15 @@ export function createPreviewWorkspaceController(
 			commitActive(ref);
 			return { ok: true as const };
 		}
+		if (hasTab(ref.kind, ref.key)) {
+			beginNavigation(ref, "route");
+			commitActive(ref);
+			if (ref.kind === "file") options.activateFile(ref.key);
+			else if (ref.kind === "board") options.activateBoard(ref.key);
+			else if (ref.kind === "port") options.activatePort(ref.key);
+			else options.activateWork(ref.key);
+			return { ok: true as const };
+		}
 		if (ref.kind === "file") {
 			void openFile(ref.key, { syncUrl: false, source: "route" });
 			return { ok: true as const };
@@ -523,6 +557,7 @@ export function createPreviewWorkspaceController(
 	 */
 	function resetForContext(teardown?: () => void) {
 		beginNavigation(null, "restore");
+		suspended = false;
 		activeRef = null;
 		accessedAt = {};
 		if (teardown) withSuppressedCloseReports(teardown);
@@ -544,7 +579,11 @@ export function createPreviewWorkspaceController(
 		get navigation() {
 			return navigation;
 		},
+		get suspended() {
+			return suspended;
+		},
 		resetForContext,
+		suspendForRoute,
 		syncCurrent,
 		currentRef,
 		touch,
