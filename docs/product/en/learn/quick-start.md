@@ -7,7 +7,7 @@ This is the shortest useful loop in Cohub. Aim for one clean pass, not perfectio
 
 ## 1. Sign in and open Cohub
 
-Open [cohub.run](https://cohub.run) and sign in.
+Open [cohub.live](https://cohub.live) and sign in.
 
 If you already have Spaces, the app returns you to recent work. Otherwise create a new Space.
 

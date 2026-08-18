@@ -1,7 +1,7 @@
 # Cohub
 
 <p align="center">
-  <a href="https://cohub.run/">Homepage</a> · <a href="https://neta.art/">Neta Studio</a> · <a href="#quick-start">快速开始</a> · <a href="#docs">文档</a> · <a href="README.md">English</a>
+  <a href="https://cohub.live/">Homepage</a> · <a href="https://neta.art/">Neta Studio</a> · <a href="#quick-start">快速开始</a> · <a href="#docs">文档</a> · <a href="README.md">English</a>
 </p>
 
 <p align="center">
@@ -12,7 +12,7 @@
 ---
 
 <p align="center">
-  <img src="https://public.cohub.run/s/cf327f11-5065-4f3a-bfe5-cdb0a70f3377/cohub/readme/screenshot.4bcbcab1.webp" alt="Cohub Space — 项目聊天与仓库 README 预览" width="800" />
+  <img src="https://public.cohub.live/s/cf327f11-5065-4f3a-bfe5-cdb0a70f3377/cohub/readme/screenshot.4bcbcab1.webp" alt="Cohub Space — 项目聊天与仓库 README 预览" width="800" />
 </p>
 
 我们公司每周在 Cohub Spaces 里消耗 1000 亿 token。
@@ -29,11 +29,11 @@
 
 Cohub 用 Cohub 开发。核心开发流程——需求、Agent 运行、Review、发布——都在一个公开的 Space 里进行。围观产品是如何用产品构建的。
 
-→ [cohub.run/tzwm/cohub](https://cohub.run/tzwm/cohub)
+→ [cohub.live/tzwm/cohub](https://cohub.live/tzwm/cohub)
 
 ## Quick start
 
-**Web** — 打开 [cohub.run](https://cohub.run) 并登录。
+**Web** — 打开 [cohub.live](https://cohub.live) 并登录。
 
 **CLI** —
 
@@ -46,7 +46,7 @@ cohub auth login
 
 ## Docs
 
-产品文档：[cohub.run/docs/zh](https://cohub.run/docs/zh) · [English](https://cohub.run/docs)
+产品文档：[cohub.live/docs/zh](https://cohub.live/docs/zh) · [English](https://cohub.live/docs)
 
 内容源：`docs/product/zh/` · `docs/product/en/`
 

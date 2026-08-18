@@ -27,8 +27,8 @@ const client = createCohubClient({
 
 | Env | API | WebSocket |
 | --- | --- | --- |
-| production | `https://api.cohub.run` | `wss://gateway.cohub.run/ws` |
-| development | `https://api-dev.cohub.run` | `wss://gateway-dev.cohub.run/ws` |
+| production | `https://api.cohub.live` | `wss://gateway.cohub.live/ws` |
+| development | `https://api-dev.cohub.live` | `wss://gateway-dev.cohub.live/ws` |
 
 选择 development：
 
@@ -163,7 +163,7 @@ Work 通过同一个 UI command 调用 `client.ui.reportResult()` 上报最终�
 
 由于已发布的 Work 可以被任意站点嵌入，调用只接受来自明确列出的 Cohub 应用 origin（或 Work
 自身 origin）的请求，回复也只发往该 origin，不做广播。被其他站点嵌入时，Work 仍会注册方法，
-但不会作出任何响应。该列表刻意不采用 `*.cohub.run` 后缀匹配——Work 本身就托管在 Cohub 子域
+但不会作出任何响应。该列表刻意不采用 `*.cohub.live` 后缀匹配——Work 本身就托管在 Cohub 子域
 上。自建部署与本地开发需显式放开：
 
 ```ts

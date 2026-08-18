@@ -7,7 +7,7 @@ description: 创建 Space，与 Agent 对话，处理文件，创建 Save，并�
 
 ## 1. 登录并打开 Cohub
 
-打开 [cohub.run](https://cohub.run) 并登录。
+打开 [cohub.live](https://cohub.live) 并登录。
 
 如果已有 Spaces，应用会带回最近工作；否则创建新 Space。
 

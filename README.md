@@ -1,7 +1,7 @@
 # Cohub
 
 <p align="center">
-  <a href="https://cohub.run/">Homepage</a> · <a href="https://neta.art/">Neta Studio</a> · <a href="#quick-start">quick start</a> · <a href="#docs">docs</a> · <a href="README.zh-CN.md">简体中文</a>
+  <a href="https://cohub.live/">Homepage</a> · <a href="https://neta.art/">Neta Studio</a> · <a href="#quick-start">quick start</a> · <a href="#docs">docs</a> · <a href="README.zh-CN.md">简体中文</a>
 </p>
 
 <p align="center">
@@ -12,7 +12,7 @@
 ---
 
 <p align="center">
-  <img src="https://public.cohub.run/s/cf327f11-5065-4f3a-bfe5-cdb0a70f3377/cohub/readme/screenshot.4bcbcab1.webp" alt="Cohub Space — a project chat with the repo README open in preview" width="800" />
+  <img src="https://public.cohub.live/s/cf327f11-5065-4f3a-bfe5-cdb0a70f3377/cohub/readme/screenshot.4bcbcab1.webp" alt="Cohub Space — a project chat with the repo README open in preview" width="800" />
 </p>
 
 We burn 100 billion tokens per week inside our company within Cohub Spaces.
@@ -29,11 +29,11 @@ We burn 100 billion tokens per week inside our company within Cohub Spaces.
 
 Cohub is developed inside Cohub. The core dev workflow — specs, agent runs, reviews, and shipping — happens in a public Space. Watch how the product is built, by the product.
 
-→ [cohub.run/tzwm/cohub](https://cohub.run/tzwm/cohub)
+→ [cohub.live/tzwm/cohub](https://cohub.live/tzwm/cohub)
 
 ## Quick start
 
-**Web** — open [cohub.run](https://cohub.run) and sign in.
+**Web** — open [cohub.live](https://cohub.live) and sign in.
 
 **CLI** —
 
@@ -46,7 +46,7 @@ cohub auth login
 
 ## Docs
 
-Product docs: [cohub.run/docs](https://cohub.run/docs) · [中文](https://cohub.run/docs/zh)
+Product docs: [cohub.live/docs](https://cohub.live/docs) · [中文](https://cohub.live/docs/zh)
 
 Source of truth: `docs/product/en/` · `docs/product/zh/`
 

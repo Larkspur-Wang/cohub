@@ -27,8 +27,8 @@ Defaults:
 
 | Env | API | WebSocket |
 | --- | --- | --- |
-| production | `https://api.cohub.run` | `wss://gateway.cohub.run/ws` |
-| development | `https://api-dev.cohub.run` | `wss://gateway-dev.cohub.run/ws` |
+| production | `https://api.cohub.live` | `wss://gateway.cohub.live/ws` |
+| development | `https://api-dev.cohub.live` | `wss://gateway-dev.cohub.live/ws` |
 
 Select development:
 
@@ -193,7 +193,7 @@ context are accepted only from an
 explicit list of Cohub app origins (or the Work's own origin), and replies go to
 that origin rather than being broadcast. A Work embedded by any other site
 registers its methods but never answers. The list is deliberately not a
-`*.cohub.run` suffix match, since Works themselves are served from a Cohub
+`*.cohub.live` suffix match, since Works themselves are served from a Cohub
 subdomain. Self-hosted deployments and local development widen it explicitly:
 
 ```ts
