@@ -4,6 +4,21 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v2.23 — 2026-08-18
+
+- **Direct generation mode**: create-space prompts now accept `mode: "create"` with a `generation` payload, executing multimodal generations as first-class session turns (`execution_kind = "direct_generation"`) with idempotent `clientMessageId` deduplication, queued-to-terminal status transitions, realtime turn/session events, and `generation.request`/`generation.result` messages projected into agent session files; pending generations act as timeline barriers so agent turns stay ordered behind them.
+- **Agent/Create composer**: the session composer adds an Agent/Create mode switch and a searchable create-model picker with a persisted per-user model preference; mode and model stay atomic across sends so drafts restore exactly as left.
+- **Generation cost transparency**: message bubbles now show charged, pending, or not-charged cost labels with provider-side cost detail and retry status, and the billing retry worker publishes realtime turn updates when charges land.
+- **Smarter compaction accounting**: image context is now estimated at a flat vision-tile token cost instead of raw base64 length, and compaction effect validation requires a ≥20% reduction (unless force-compacted) so no-op rewrites on image-dominated contexts are skipped.
+- **Meta test event codes**: work promotion delivery now supports optional Meta test event codes for validating pixel integrations before live traffic.
+
+### Bug Fixes
+
+- Compaction context duplication and turn placement for in-turn cuts (#175)
+- Composer mode and model are preserved across sends, restoring create drafts from full turns
+- Direct-generation turns are excluded from steering/abort coordination and finish on terminal turn updates
+- Forked sessions now include visible generation messages with a fork-chain depth guard
+
 ## v2.22 — 2026-08-18
 
 - **Work promotions**: end-to-end promotion tracking for published works — create immutable UTM-parameterized promotion links, attribute landing/ready/paywall events and conversions (registration, checkout) back to promotions, and view hourly analytics; ships with a Meta pixel provider, CLI `works promotions` commands, SDK APIs, and a web management panel.
