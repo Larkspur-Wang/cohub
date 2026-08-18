@@ -4,8 +4,14 @@ import {
 	BOARD_BUILTIN_CAPABILITIES,
 	DEFAULT_BOARD_RENDER_LIMITS,
 } from "@cohub/protocol";
+import { createBoardConnection } from "@cohub/protocol/board-connection";
 import { BoardTransactionError } from "../src/apis/spaces.js";
 import { createBoardExtensionRegistry } from "../src/board/animation.js";
+import {
+	boardAppearanceOperation,
+	boardNodeDeleteOperations,
+	patchBoardAppearance,
+} from "../src/board/mutation.js";
 import { createBattleFixture } from "./fixtures/battle.js";
 
 test("battle fixture compilation is deterministic", () => {
@@ -48,6 +54,21 @@ test("only VERSION_CONFLICT errors are eligible for rebase", () => {
 	assert.equal(new BoardTransactionError("conflict", 409, "VERSION_CONFLICT").isVersionConflict, true);
 	assert.equal(new BoardTransactionError("referenced", 409, "NODE_REFERENCED").isVersionConflict, false);
 	assert.equal(new BoardTransactionError("unknown", 409).isVersionConflict, false);
+});
+
+test("Board mutation builders preserve appearance and cascade relations", () => {
+	const appearance = patchBoardAppearance({
+		theme: "clean",
+		background: { kind: "solid" },
+		grid: { visible: true, size: 32, opacity: 0.2 },
+		mood: "natural",
+	}, { background: { kind: "solid", color: "#123456" } });
+	assert.equal(appearance.grid.visible, true);
+	assert.equal(boardAppearanceOperation(appearance).type, "board.patch");
+	const operations = boardNodeDeleteOperations("a", [
+		createBoardConnection({ id: "c1", sourceNodeId: "a", targetNodeId: "b" }),
+	]);
+	assert.deepEqual(operations.map((operation) => operation.type), ["connection.delete", "node.delete"]);
 });
 
 test("registry reports invalid particle bounds without dropping the clip", () => {

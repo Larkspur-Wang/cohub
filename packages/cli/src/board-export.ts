@@ -17,8 +17,6 @@ import {
   type BoardExportRegion,
   type BoardItem,
   imageAssetKey,
-  isBoardPath,
-  parseBoardManifest,
   planBoardExport,
   selectBoardExportAssets,
 } from "@neta-art/cohub/board";
@@ -30,6 +28,7 @@ import {
   createBoardHeadlessRenderer,
   exportBoardImageBytes,
 } from "@neta-art/cohub/board/headless";
+import { resolveBoardId } from "./board-command-support.js";
 import { createClient } from "./client.js";
 import { downloadPublicImage } from "./safe-remote-image.js";
 
@@ -90,23 +89,13 @@ export async function loadBoardDocument(
   target: string,
 ): Promise<BoardExportSource> {
   const client = createClient();
-  const boardId = isBoardPath(target)
-    ? await resolveManifestBoardId(spaceId, target)
-    : target;
+  const boardId = await resolveBoardId(spaceId, target);
   const bootstrap = await client.space(spaceId).board(boardId).inspect({ include: ["nodes"] });
   return {
     document: boardBootstrapToDocument(bootstrap),
     boardId: bootstrap.board.id,
     title: bootstrap.board.title ?? null,
   };
-}
-
-async function resolveManifestBoardId(spaceId: string, path: string): Promise<string> {
-  const file = await createClient().space(spaceId).files.read(path);
-  if (!("content" in file) || typeof file.content !== "string") {
-    throw new Error(`${path} is not a readable board manifest.`);
-  }
-  return parseBoardManifest(file.content).boardId;
 }
 
 /**

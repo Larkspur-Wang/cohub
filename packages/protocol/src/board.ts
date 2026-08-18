@@ -228,6 +228,18 @@ export type BoardTransaction = {
   operations: BoardOperation[];
 };
 
+export type BoardSummary = {
+  board: BoardRecord;
+  counts: {
+    nodes: number;
+    connections: number;
+    effects: number;
+    sequences: number;
+    clips: number;
+  };
+  playback: BoardPlaybackSnapshot | null;
+};
+
 export type BoardBootstrap = {
   board: BoardRecord;
   nodes: BoardNodeRecord[];

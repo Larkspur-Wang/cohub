@@ -1,16 +1,26 @@
 import { randomUUID } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
+
 import type {
   BoardBootstrap,
   BoardCreateInput,
   BoardInspectInput,
   BoardPlaybackSnapshot,
+  BoardSummary,
   BoardTransactionInput,
   BoardValidationResult,
 } from "@neta-art/cohub";
 import type { BoardExportRegion } from "@neta-art/cohub/board";
 import type { Command } from "commander";
+import {
+  BOARD_CREATE_INPUT_MAX_BYTES,
+  BOARD_TRANSACTION_INPUT_MAX_BYTES,
+  parseBoardJsonObject,
+  readBoardJsonObject,
+  resolveBoardId,
+  writeBoardOutput,
+} from "../board-command-support.js";
 import { BOARD_EXPORT_FORMATS, formatFromPath, runBoardExport } from "../board-export.js";
+import { registerBoardDomainCommands } from "./board-domain.js";
 import { createClient, createRealtimeClient } from "../client.js";
 import { error, handleHttp, json as outJson, jsonRequested, ok, table } from "../output.js";
 import { resolveSpace } from "../space.js";
@@ -21,31 +31,13 @@ type JsonOptions = { json?: boolean };
 type InputOptions = JsonOptions & { input: string; txId?: string; baseVersion?: string };
 type PlaybackOptions = JsonOptions & { commandId?: string };
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
+export const parseJsonObject = parseBoardJsonObject;
 
-export function parseJsonObject(text: string, source = "input"): Record<string, unknown> {
-  if (!text.trim()) throw new Error(`${source} is empty`);
-  let value: unknown;
-  try {
-    value = JSON.parse(text) as unknown;
-  } catch (cause) {
-    throw new Error(`${source} must contain valid JSON`, { cause });
-  }
-  if (!isObject(value)) throw new Error(`${source} must contain a JSON object`);
-  return value;
-}
-
-async function readStdin(): Promise<string> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of process.stdin) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  return Buffer.concat(chunks).toString("utf8");
-}
-
-export async function readJsonObject(source: string): Promise<Record<string, unknown>> {
-  const text = source === "-" ? await readStdin() : await readFile(source, "utf8");
-  return parseJsonObject(text, source === "-" ? "stdin" : source);
+export async function readJsonObject(
+  source: string,
+  maxBytes = BOARD_TRANSACTION_INPUT_MAX_BYTES,
+): Promise<Record<string, unknown>> {
+  return readBoardJsonObject(source, maxBytes);
 }
 
 function parseNumber(value: string, name: string, options: { min?: number; max?: number; integer?: boolean } = {}): number {
@@ -127,6 +119,30 @@ function showBoard(result: BoardBootstrap): void {
   ]);
 }
 
+function showSummary(result: BoardSummary): void {
+  const background = result.board.metadata.appearance as
+    | { background?: { kind?: string } }
+    | undefined;
+  table([{
+    id: result.board.id,
+    title: result.board.title,
+    version: result.board.version,
+    ...result.counts,
+    background: background?.background?.kind ?? "default",
+    updatedAt: result.board.updatedAt,
+  }], [
+    { key: "id", label: "ID" },
+    { key: "title", label: "TITLE" },
+    { key: "version", label: "VERSION" },
+    { key: "nodes", label: "NODES" },
+    { key: "connections", label: "CONNECTIONS" },
+    { key: "effects", label: "EFFECTS" },
+    { key: "sequences", label: "SEQUENCES" },
+    { key: "background", label: "BACKGROUND" },
+    { key: "updatedAt", label: "UPDATED" },
+  ]);
+}
+
 function showValidation(result: BoardValidationResult): void {
   table([{ valid: result.valid, diagnostics: result.diagnostics.length }], [
     { key: "valid", label: "Valid" },
@@ -160,15 +176,20 @@ function withJson(command: Command): Command {
 }
 
 function registerTransactionCommand(boards: Command, name: "validate" | "apply"): void {
-  withJson(boards.command(`${name} <board-id>`)
+  withJson(boards.command(`${name} <board>`)
     .description(name === "validate" ? "Validate a transaction" : "Apply a transaction")
     .requiredOption("-i, --input <file>", "Transaction JSON file; use - for stdin")
     .option("--tx-id <id>", "Override txId; generated when omitted")
     .option("--base-version <version>", "Override baseVersion"))
-    .action(async (boardId: string, options: InputOptions) => {
+    .action(async (target: string, options: InputOptions) => {
       try {
-        const transaction = createTransactionInput(await readJsonObject(options.input), options);
-        const board = createClient().space(resolveSpace(boards)).board(boardId);
+        const transaction = createTransactionInput(
+          await readJsonObject(options.input, BOARD_TRANSACTION_INPUT_MAX_BYTES),
+          options,
+        );
+        const spaceId = resolveSpace(boards);
+        const boardId = await resolveBoardId(spaceId, target);
+        const board = createClient().space(spaceId).board(boardId);
         const result = await board[name](transaction);
         if (jsonRequested(options)) return outJson(result);
         if (name === "validate") showValidation(result as BoardValidationResult);
@@ -198,6 +219,7 @@ type ExportOptions = JsonOptions & {
   format?: string;
   quality?: string;
   images?: boolean;
+  force?: boolean;
 };
 
 /**
@@ -263,7 +285,8 @@ function registerExportCommand(boards: Command): void {
     .option("--background <mode>", "paper or transparent", "paper")
     .option("--format <format>", `Override format (${BOARD_EXPORT_FORMATS.join(", ")})`)
     .option("--quality <q>", "JPEG/WebP quality from 0 to 1", "0.92")
-    .option("--no-images", "Skip image downloads and draw placeholders"))
+    .option("--no-images", "Skip image downloads and draw placeholders")
+    .option("--force", "Replace an existing output file"))
     .action(async (board: string, options: ExportOptions) => {
       try {
         const out = options.out;
@@ -288,7 +311,7 @@ function registerExportCommand(boards: Command): void {
             "The selected region contains no items.",
           );
         }
-        await writeFile(out, result.bytes);
+        await writeBoardOutput(out, result.bytes, Boolean(options.force));
         if (jsonRequested(options)) {
           return outJson({
             path: out,
@@ -318,14 +341,24 @@ export function registerBoards(program: Command): Command {
   withJson(boards.command("create <path>")
     .description("Create a Board")
     .option("--title <title>", "Board title")
+    .option("--mutation-id <id>", "Stable id for safe retries")
     .option("-i, --input <file>", "Board content JSON file; use - for stdin"))
-    .action(async (path: string, options: JsonOptions & { title?: string; input?: string }) => {
+    .action(async (path: string, options: JsonOptions & { title?: string; input?: string; mutationId?: string }) => {
       try {
-        const content = options.input ? await readJsonObject(options.input) : {};
+        const content = options.input
+          ? await readJsonObject(options.input, BOARD_CREATE_INPUT_MAX_BYTES)
+          : {};
         if ("path" in content || "title" in content) {
           throw new Error("create input must not contain path or title; use the command argument and --title");
         }
-        const input = { ...content, path, ...(options.title ? { title: options.title } : {}) } as BoardCreateInput;
+        const input = {
+          ...content,
+          path,
+          mutationId:
+            options.mutationId ??
+            (typeof content.mutationId === "string" ? content.mutationId : randomUUID()),
+          ...(options.title ? { title: options.title } : {}),
+        } as BoardCreateInput;
         const result = await createClient().space(resolveSpace(boards)).boards.create(input);
         if (jsonRequested(options)) return outJson(result);
         ok(`Board created: ${result.board.id}`);
@@ -335,14 +368,20 @@ export function registerBoards(program: Command): Command {
       }
     });
 
-  withJson(boards.command("inspect <board-id>")
+  withJson(boards.command("inspect <board>")
     .alias("get")
     .description("Inspect a Board")
     .option("--include <sections>", "Comma-separated nodes,connections,effects,sequences,clips,playback")
     .option("--viewport <rect>", "Viewport as x,y,width,height"))
-    .action(async (boardId: string, options: JsonOptions & { include?: string; viewport?: string }) => {
+    .action(async (target: string, options: JsonOptions & { include?: string; viewport?: string }) => {
       try {
-        const result = await createClient().space(resolveSpace(boards)).board(boardId).inspect({
+        const spaceId = resolveSpace(boards);
+        const boardId = await resolveBoardId(spaceId, target);
+        const board = createClient().space(spaceId).board(boardId);
+        if (!jsonRequested(options) && !options.include && !options.viewport) {
+          return showSummary(await board.summary());
+        }
+        const result = await board.inspect({
           include: parseInspectSections(options.include),
           viewport: parseViewport(options.viewport),
         });
@@ -353,11 +392,13 @@ export function registerBoards(program: Command): Command {
       }
     });
 
-  withJson(boards.command("capabilities <board-id>")
+  withJson(boards.command("capabilities <board>")
     .description("Show supported capabilities"))
-    .action(async (boardId: string, options: JsonOptions) => {
+    .action(async (target: string, options: JsonOptions) => {
       try {
-        const result = await createClient().space(resolveSpace(boards)).board(boardId).capabilities();
+        const spaceId = resolveSpace(boards);
+        const boardId = await resolveBoardId(spaceId, target);
+        const result = await createClient().space(spaceId).board(boardId).capabilities();
         if (jsonRequested(options)) return outJson(result);
         table(result.capabilities.map((capability) => ({
           ...capability,
@@ -393,17 +434,20 @@ export function registerBoards(program: Command): Command {
 
   registerTransactionCommand(boards, "validate");
   registerTransactionCommand(boards, "apply");
+  registerBoardDomainCommands(boards);
   registerExportCommand(boards);
 
-  withJson(boards.command("play <board-id> <sequence-id>")
+  withJson(boards.command("play <board> <sequence-id>")
     .description("Start shared playback")
     .option("--position <time>", "Initial position in milliseconds")
     .option("--time-scale <scale>", "Playback speed from 0 to 4")
     .option("--seed <seed>", "Deterministic playback seed")
     .option("--command-id <id>", "Idempotency command ID"))
-    .action(async (boardId: string, sequenceId: string, options: PlaybackOptions & { position?: string; timeScale?: string; seed?: string }) => {
+    .action(async (target: string, sequenceId: string, options: PlaybackOptions & { position?: string; timeScale?: string; seed?: string }) => {
       try {
-        const result = await createClient().space(resolveSpace(boards)).board(boardId).play({
+        const spaceId = resolveSpace(boards);
+        const boardId = await resolveBoardId(spaceId, target);
+        const result = await createClient().space(spaceId).board(boardId).play({
           commandId: commandId(options),
           type: "play",
           sequenceId,
@@ -420,12 +464,14 @@ export function registerBoards(program: Command): Command {
     });
 
   const playbackAction = (type: "pause" | "stop") => async (
-    boardId: string,
+    target: string,
     playbackId: string,
     options: PlaybackOptions,
   ) => {
     try {
-      const board = createClient().space(resolveSpace(boards)).board(boardId);
+      const spaceId = resolveSpace(boards);
+      const boardId = await resolveBoardId(spaceId, target);
+      const board = createClient().space(spaceId).board(boardId);
       const id = commandId(options);
       const result = type === "pause"
         ? await board.pause({ commandId: id, type: "pause", playbackId })
@@ -437,17 +483,19 @@ export function registerBoards(program: Command): Command {
     }
   };
 
-  withJson(boards.command("pause <board-id> <playback-id>")
+  withJson(boards.command("pause <board> <playback-id>")
     .description("Pause playback")
     .option("--command-id <id>", "Idempotency command ID"))
     .action(playbackAction("pause"));
 
-  withJson(boards.command("seek <board-id> <playback-id> <position>")
+  withJson(boards.command("seek <board> <playback-id> <position>")
     .description("Seek playback")
     .option("--command-id <id>", "Idempotency command ID"))
-    .action(async (boardId: string, playbackId: string, position: string, options: PlaybackOptions) => {
+    .action(async (target: string, playbackId: string, position: string, options: PlaybackOptions) => {
       try {
-        const result = await createClient().space(resolveSpace(boards)).board(boardId).seek({
+        const spaceId = resolveSpace(boards);
+        const boardId = await resolveBoardId(spaceId, target);
+        const result = await createClient().space(spaceId).board(boardId).seek({
           commandId: commandId(options),
           type: "seek",
           playbackId,
@@ -460,18 +508,31 @@ export function registerBoards(program: Command): Command {
       }
     });
 
-  withJson(boards.command("stop <board-id> <playback-id>")
+  withJson(boards.command("stop <board> <playback-id>")
     .description("Stop playback")
     .option("--command-id <id>", "Idempotency command ID"))
     .action(playbackAction("stop"));
 
-  withJson(boards.command("watch <board-id>")
+  withJson(boards.command("watch <board>")
     .description("Stream Board events"))
-    .action((boardId: string, options: JsonOptions) => {
+    .action(async (target: string, options: JsonOptions) => {
       try {
-        const board = createRealtimeClient().space(resolveSpace(boards)).board(boardId);
+        const spaceId = resolveSpace(boards);
+        const boardId = await resolveBoardId(spaceId, target);
+        const client = createRealtimeClient();
+        const board = client.space(spaceId).board(boardId);
         if (!jsonRequested(options)) process.stderr.write(`Listening for Board ${boardId} events...\n`);
-        board.subscribe({
+        const offConnection = client.onConnection((state) => {
+          if (jsonRequested(options)) {
+            process.stdout.write(`${JSON.stringify({ type: "connection", ...state })}\n`);
+          } else {
+            const detail = state.state === "reconnecting" && state.attempt
+              ? ` (attempt ${state.attempt})`
+              : "";
+            process.stderr.write(`${state.state}${detail}\n`);
+          }
+        });
+        const offBoard = board.subscribe({
           event(event) {
             if (jsonRequested(options)) {
               process.stdout.write(`${JSON.stringify(event)}\n`);
@@ -485,6 +546,11 @@ export function registerBoards(program: Command): Command {
               process.stdout.write(`awareness ${event.payload.actorName}  ${event.payload.update.type}\n`);
             }
           },
+        });
+        process.once("SIGINT", () => {
+          offBoard();
+          offConnection();
+          process.exit(0);
         });
       } catch (cause) {
         handleHttp(cause);

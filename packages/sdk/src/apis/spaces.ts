@@ -100,8 +100,10 @@ import type {
   BoardCapabilities,
   BoardCreateInput,
   BoardInspectInput,
+  BoardOperation,
   BoardPlaybackCommand,
   BoardPlaybackSnapshot,
+  BoardSummary,
   BoardTransaction,
   BoardValidationResult,
   ChannelConfig,
@@ -149,6 +151,11 @@ export class BoardTransactionError extends Error {
 }
 
 export type BoardTransactionInput = Omit<BoardTransaction, "boardId">;
+export type BoardMutationInput = {
+  include?: BoardInspectInput["include"];
+  retries?: number;
+  build: (current: BoardBootstrap) => BoardOperation[] | Promise<BoardOperation[]>;
+};
 
 /**
  * Identifier for a client-authored Board entity (connection id, transaction id).
@@ -1717,12 +1724,39 @@ export class BoardClient {
     return this.boards.capabilities(this.id, customFetch);
   }
 
+  summary(customFetch?: Fetch) {
+    return this.boards.summary(this.id, customFetch);
+  }
+
+  async mutate(input: BoardMutationInput) {
+    const retries = input.retries ?? 1;
+    if (!Number.isSafeInteger(retries) || retries < 0 || retries > 3) {
+      throw new RangeError("Board mutation retries must be an integer from 0 to 3");
+    }
+    for (let attempt = 0; ; attempt += 1) {
+      const current = await this.inspect({ include: input.include ?? [] });
+      const operations = await input.build(current);
+      if (operations.length === 0) return current;
+      try {
+        return await this.apply({
+          txId: randomBoardId(),
+          baseVersion: current.board.version,
+          operations,
+        }, { compact: true });
+      } catch (cause) {
+        if (!(cause instanceof BoardTransactionError) || !cause.isVersionConflict || attempt >= retries) {
+          throw cause;
+        }
+      }
+    }
+  }
+
   validate(transaction: BoardTransactionInput) {
     return this.boards.validate({ ...transaction, boardId: this.id });
   }
 
-  apply(transaction: BoardTransactionInput) {
-    return this.boards.apply({ ...transaction, boardId: this.id });
+  apply(transaction: BoardTransactionInput, options?: { compact?: boolean }) {
+    return this.boards.apply({ ...transaction, boardId: this.id }, options);
   }
 
   updateAwareness(seq: number, update: BoardAwarenessUpdate) {
@@ -1916,6 +1950,13 @@ export class SpaceBoardsApi {
     );
   }
 
+  summary(boardId: string, customFetch?: Fetch) {
+    return this.transport.request<BoardSummary>(
+      `/api/spaces/${this.spaceId}/boards/${boardId}/summary`,
+      { fetch: customFetch },
+    );
+  }
+
   capabilities(boardId: string, customFetch?: Fetch) {
     return this.transport.request<BoardCapabilities>(
       `/api/spaces/${this.spaceId}/boards/${boardId}/capabilities`,
@@ -1934,11 +1975,11 @@ export class SpaceBoardsApi {
     );
   }
 
-  async apply(transaction: BoardTransaction) {
+  async apply(transaction: BoardTransaction, options?: { compact?: boolean }) {
     assertBoardTransactionNodeCreates(transaction.operations);
     try {
       return await this.transport.request<BoardBootstrap>(
-        `/api/spaces/${this.spaceId}/boards/${transaction.boardId}/transactions`,
+        `/api/spaces/${this.spaceId}/boards/${transaction.boardId}/transactions${options?.compact ? "?compact=1" : ""}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },

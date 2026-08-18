@@ -2,6 +2,7 @@
 import {
 	type BoardAppearance,
 	normalizeBoardRemoteUrl,
+	patchBoardAppearance,
 } from "@neta-art/cohub/board";
 import { Image, Palette, RotateCcw, X } from "lucide-svelte";
 import { untrack } from "svelte";
@@ -48,7 +49,7 @@ function patchBackground(
 	background: BoardAppearance["background"],
 	commit = true,
 ) {
-	const appearance = { ...editor.appearance, background };
+	const appearance = patchBoardAppearance(editor.appearance, { background });
 	if (commit) editor.setAppearance(appearance);
 	else editor.previewAppearance(appearance);
 }

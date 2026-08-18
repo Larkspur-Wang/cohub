@@ -160,7 +160,12 @@ export type {
   WorkRoomPublishResult,
   WorkRoomState,
 } from "./apis/work-realtime.js";
-export { BoardClient, BoardTransactionError, SpacePublicFilesApi } from "./apis/spaces.js";
+export {
+  BoardClient,
+  BoardTransactionError,
+  SpacePublicFilesApi,
+  type BoardMutationInput,
+} from "./apis/spaces.js";
 export {
   BoardInputError,
   assertBoardNodes,

@@ -22,6 +22,7 @@ import type {
   BoardPlaybackCommand,
   BoardPlaybackSnapshot,
   BoardSequence,
+  BoardSummary,
   BoardTarget,
   BoardValidationResult,
   RequestSource,
@@ -206,6 +207,52 @@ export async function inspectBoard(
   };
 }
 
+export async function summarizeBoard(
+  spaceId: string,
+  boardId: string,
+): Promise<BoardSummary> {
+  const [summaryRows, playback] = await Promise.all([
+    db.select({
+      id: boards.id,
+      spaceId: boards.spaceId,
+      title: boards.title,
+      version: boards.version,
+      metadata: boards.metadata,
+      createdAt: boards.createdAt,
+      updatedAt: boards.updatedAt,
+      nodes: sql<number>`(select count(*)::int from ${boardNodes} where ${boardNodes.boardId} = ${boardId} and ${boardNodes.deletedAt} is null)`,
+      connections: sql<number>`(select count(*)::int from ${boardConnections} where ${boardConnections.boardId} = ${boardId} and ${boardConnections.deletedAt} is null)`,
+      effects: sql<number>`(select count(*)::int from ${boardEffects} where ${boardEffects.boardId} = ${boardId})`,
+      sequences: sql<number>`(select count(*)::int from ${boardSequences} where ${boardSequences.boardId} = ${boardId})`,
+      clips: sql<number>`(select count(*)::int from ${boardClips} where ${boardClips.boardId} = ${boardId})`,
+    }).from(boards)
+      .where(and(eq(boards.id, boardId), eq(boards.spaceId, spaceId)))
+      .limit(1),
+    db.select().from(boardPlaybackStates).where(eq(boardPlaybackStates.boardId, boardId)).limit(1),
+  ]);
+  const summary = summaryRows[0];
+  if (!summary) throw new BoardServiceError(404, "board not found", "BOARD_NOT_FOUND");
+  return {
+    board: {
+      id: summary.id,
+      spaceId: summary.spaceId,
+      title: summary.title,
+      version: summary.version,
+      metadata: summary.metadata,
+      createdAt: dateString(summary.createdAt),
+      updatedAt: dateString(summary.updatedAt),
+    },
+    counts: {
+      nodes: summary.nodes,
+      connections: summary.connections,
+      effects: summary.effects,
+      sequences: summary.sequences,
+      clips: summary.clips,
+    },
+    playback: playback[0] ? playbackFromRow(playback[0]) : null,
+  };
+}
+
 export async function getBoardCapabilities(spaceId: string, boardId: string): Promise<BoardCapabilities> {
   const [board] = await db.select({ id: boards.id }).from(boards).where(and(eq(boards.id, boardId), eq(boards.spaceId, spaceId))).limit(1);
   if (!board) throw new BoardServiceError(404, "board not found", "BOARD_NOT_FOUND");
@@ -338,6 +385,7 @@ export async function applyBoardTransaction(input: {
   transaction: unknown;
   requestSource?: RequestSource | null;
   broadcast?: boolean;
+  inspect?: BoardInspectInput;
 }): Promise<BoardBootstrap> {
   const transaction = normalizeBoardTransaction(input.transaction);
   const transactionMetadata: Record<string, unknown> = input.requestSource
@@ -659,7 +707,7 @@ export async function applyBoardTransaction(input: {
       }).catch(() => undefined);
     }
   }
-  return inspectBoard(input.spaceId, transaction.boardId);
+  return inspectBoard(input.spaceId, transaction.boardId, input.inspect);
 }
 
 function currentPosition(

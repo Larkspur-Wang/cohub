@@ -21,6 +21,7 @@ import {
   normalizeConnections,
   normalizeNodes,
   NODE_WRITE_CHUNK,
+  summarizeBoard,
   validateBoardTransaction,
 } from "../../board-service.js";
 import { buildBoardCreateIdentity } from "../../board-create-idempotency.js";
@@ -271,6 +272,20 @@ router.get("/:boardId", async (c) => {
   }
 });
 
+router.get("/:boardId/summary", async (c) => {
+  const user = getOptionalAuth(c);
+  const spaceId = c.req.param("id");
+  const boardId = c.req.param("boardId");
+  if (!spaceId || !boardId || !requireValidId(spaceId) || !requireValidId(boardId)) return c.json({ message: "board not found" }, 404);
+  if (!(await hasPermission(user, "file.view", { spaceId }))) return authzDenied(c);
+  try {
+    return c.json(await summarizeBoard(spaceId, boardId));
+  } catch (error) {
+    const response = errorResponse(error);
+    return c.json(errorBody(response), response.status as never);
+  }
+});
+
 router.get("/:boardId/capabilities", async (c) => {
   const user = getOptionalAuth(c);
   const spaceId = c.req.param("id");
@@ -319,6 +334,7 @@ router.post("/:boardId/transactions", async (c) => {
       actorId: user.uuid,
       requestSource: getRequestSource(c),
       transaction,
+      ...(c.req.query("compact") === "1" ? { inspect: { include: [] } } : {}),
     }));
   } catch (error) {
     const response = errorResponse(error);

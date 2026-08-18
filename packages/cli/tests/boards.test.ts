@@ -25,6 +25,14 @@ test("Board commands and every subcommand expose -h", () => {
     "capabilities",
     "validate",
     "apply",
+    "rename",
+    "background",
+    "playback-policy",
+    "nodes",
+    "connect",
+    "disconnect",
+    "effects",
+    "sequences",
     "export",
     "play",
     "pause",
@@ -35,6 +43,9 @@ test("Board commands and every subcommand expose -h", () => {
   assert.match(boards.helpInformation(), /-h, --help/);
   for (const command of boards.commands) {
     assert.match(command.helpInformation(), /-h, --help/, `${command.name()} is missing -h`);
+    for (const child of command.commands) {
+      assert.match(child.helpInformation(), /-h, --help/, `${command.name()} ${child.name()} is missing -h`);
+    }
   }
   const play = boards.commands.find((command) => command.name() === "play");
   assert.ok(play);

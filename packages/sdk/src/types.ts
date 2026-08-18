@@ -57,6 +57,7 @@ export type {
   BoardRecord,
   BoardRenderCost,
   BoardSequence,
+  BoardSummary,
   BoardTarget,
   BoardTransaction,
   BoardValidationResult,

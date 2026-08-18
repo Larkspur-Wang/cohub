@@ -50,6 +50,60 @@ test("space.board and boards.byId bind the Board identity", async () => {
 		operations: [{ type: "board.patch", payload: { patch: { title: "Plan" } } }],
 		boardId: "board-1",
 	});
+	await board.summary();
+	assert.equal(requests[2]?.url, "https://api.example.test/api/spaces/space-1/boards/board-1/summary");
+});
+
+test("Board mutate rebuilds once after a version conflict", async () => {
+	let inspectVersion = 2;
+	let applies = 0;
+	const fetch: Fetch = async (input, init) => {
+		const url = String(input);
+		if (url.includes("/transactions")) {
+			assert.match(url, /\?compact=1$/);
+			applies += 1;
+			if (applies === 1) {
+				inspectVersion = 3;
+				return new Response(JSON.stringify({ code: "VERSION_CONFLICT", message: "changed" }), {
+					status: 409,
+					headers: { "Content-Type": "application/json" },
+				});
+			}
+			return jsonResponse({ board: { version: 4 }, nodes: [], connections: [], effects: [], sequences: [], clips: [], playback: null });
+		}
+		assert.equal(init?.method, undefined);
+		return jsonResponse({
+			board: { id: "board-1", spaceId: "space-1", title: "Plan", version: inspectVersion, metadata: {} },
+			nodes: [], connections: [], effects: [], sequences: [], clips: [], playback: null,
+		});
+	};
+	const board = new CohubHttpClient({ baseUrl: "https://api.example.test", fetch })
+		.space("space-1").board("board-1");
+	const versions: number[] = [];
+	const result = await board.mutate({
+		build(current) {
+			versions.push(current.board.version);
+			return [{ type: "board.patch", payload: { patch: { title: `v${current.board.version}` } } }];
+		},
+	});
+	assert.deepEqual(versions, [2, 3]);
+	assert.equal(applies, 2);
+	assert.equal(result.board.version, 4);
+});
+
+test("Board mutate rejects invalid retry counts before requesting", async () => {
+	let requests = 0;
+	const fetch: Fetch = async () => {
+		requests += 1;
+		return jsonResponse({});
+	};
+	const board = new CohubHttpClient({ baseUrl: "https://api.example.test", fetch })
+		.space("space-1").board("board-1");
+	await assert.rejects(
+		board.mutate({ retries: Number.NaN, build: () => [] }),
+		/retries must be an integer from 0 to 3/,
+	);
+	assert.equal(requests, 0);
 });
 
 test("Board create rejects invalid nodes before making a request", async () => {
