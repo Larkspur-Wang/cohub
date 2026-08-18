@@ -43,7 +43,7 @@ test("composer context alone enables the Work Surface message host", () => {
 test("all Work frames delegate low-risk user-activated capabilities", () => {
 	assert.match(
 		source,
-		/const framePermissions = "clipboard-write; fullscreen; web-share"/,
+		/const framePermissions = "clipboard-read; clipboard-write; fullscreen; web-share"/,
 	);
 	assert.match(source, /<iframe[\s\S]*?allow=\{framePermissions\}/);
 });

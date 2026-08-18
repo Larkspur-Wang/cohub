@@ -150,7 +150,8 @@ $effect(() => {
 const frameSandbox = $derived(
 	`allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals${isBackground ? "" : " allow-pointer-lock"}`,
 );
-const framePermissions = "clipboard-write; fullscreen; web-share";
+const framePermissions =
+	"clipboard-read; clipboard-write; fullscreen; web-share";
 const checkoutState = $derived(readWorkCheckoutState(page.url));
 
 // `work` and `mode` are constant for the lifetime of this surface (a different
