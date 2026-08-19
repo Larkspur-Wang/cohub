@@ -17,14 +17,14 @@ jobs:
     env:
       GITEA_NPM_TOKEN: ${{ secrets.GITEA_NPM_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
-
-      - name: Install pnpm
-        run: npm i -g pnpm@10.32.1
+          cache: pnpm
 
       - name: Configure Talesofai npm auth
         run: |
@@ -46,6 +46,8 @@ jobs:
           publish: pnpm release
           commit: "chore: update versions"
           title: "Version Packages"
+          createGithubReleases: true
+          commitMode: git-cli
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
