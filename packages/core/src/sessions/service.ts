@@ -11,7 +11,7 @@ import { addSessionParticipantMeta, initializeSessionParticipantsMeta } from "./
 import { submitSessionPrompt, type ExpandedPromptTemplate, type ExpandedSkillCommand, expandPromptContent, type SubmitSessionPromptHooks, type SubmitSessionPromptInput, type SubmitSessionPromptOptions } from "./prompt.js";
 
 export type PromptTemplateService = {
-  expand(text: string, options?: { userId?: string | null; spaceId?: string | null }): Promise<ExpandedPromptTemplate | null>;
+  expand(text: string, options?: { userId?: string | null; spaceId?: string | null; sessionId?: string | null }): Promise<ExpandedPromptTemplate | null>;
 };
 
 export type SkillService = {
@@ -366,7 +366,7 @@ export function createSessionServices(input: {
   ) {
     return submitSessionPrompt({
       randomUUID,
-      expandPromptTemplate: ({ text, userId, spaceId }) => input.promptTemplateService.expand(text, { userId, spaceId }),
+      expandPromptTemplate: ({ text, userId, spaceId, sessionId }) => input.promptTemplateService.expand(text, { userId, spaceId, sessionId }),
       expandSkillCommand: skillService
         ? ({ text, userId, spaceId }) => skillService.expand(text, { userId, spaceId })
         : undefined,
@@ -382,9 +382,10 @@ export function createSessionServices(input: {
     content: ContentBlock[];
     userId: string;
     spaceId: string;
+    sessionId?: string | null;
   }) {
     return expandPromptContent({
-      expandPromptTemplate: ({ text, userId, spaceId }) => input.promptTemplateService.expand(text, { userId, spaceId }),
+      expandPromptTemplate: ({ text, userId, spaceId, sessionId }) => input.promptTemplateService.expand(text, { userId, spaceId, sessionId }),
       expandSkillCommand: skillService
         ? ({ text, userId, spaceId }) => skillService.expand(text, { userId, spaceId })
         : undefined,

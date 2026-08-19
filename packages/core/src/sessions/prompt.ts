@@ -201,6 +201,7 @@ export type SessionPromptDependencies = {
     text: string;
     userId: string;
     spaceId: string;
+    sessionId?: string | null;
   }): Promise<ExpandedPromptTemplate | null>;
   expandSkillCommand?(input: {
     text: string;
@@ -288,6 +289,7 @@ export const expandPromptContent = async (
     content: ContentBlock[];
     userId: string;
     spaceId: string;
+    sessionId?: string | null;
   },
 ) => {
   let content = input.content;
@@ -320,6 +322,7 @@ export const expandPromptContent = async (
         text: rawText,
         userId: input.userId,
         spaceId: input.spaceId,
+        sessionId: input.sessionId,
       });
       if (expanded) {
         content = [{ type: "text", text: expanded.renderedText } satisfies ContentBlock];
@@ -386,6 +389,7 @@ export const submitSessionPrompt = async (
     content: input.content,
     userId,
     spaceId: input.spaceId,
+    sessionId: input.sessionId,
   });
   const content = normalizeContentBlocks(expandedContent);
   const accessMode = input.accessMode ?? "full_access";

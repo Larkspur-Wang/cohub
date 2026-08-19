@@ -16,6 +16,7 @@ import {
   type PromptTemplateScope,
 } from "@cohub/infra/config-runtime/prompts";
 import { getSpaceModMountSignature, listEnabledSpaceMods } from "@cohub/core/space-mods";
+import { renderPromptTemplate } from "@cohub/core/sessions";
 import { config } from "./config.js";
 import { db } from "./db.js";
 import { redisCommandClient } from "./redis.js";
@@ -32,6 +33,7 @@ export type ExpandedPromptTemplate = {
 export type LoadPromptTemplatesOptions = {
   userId?: string | null;
   spaceId?: string | null;
+  sessionId?: string | null;
 };
 
 export type PromptTemplateService = {
@@ -236,18 +238,6 @@ function parseCommandArgs(argsString: string): string[] {
   return args;
 }
 
-function substituteArgs(content: string, args: string[]): string {
-  let result = content;
-  result = result.replace(/\$(\d+)/g, (_, num) => args[Number.parseInt(num, 10) - 1] ?? "");
-  result = result.replace(/\$\{@:(\d+)(?::(\d+))?\}/g, (_, startStr, lengthStr) => {
-    const start = Math.max(Number.parseInt(startStr, 10) - 1, 0);
-    if (lengthStr) return args.slice(start, start + Number.parseInt(lengthStr, 10)).join(" ");
-    return args.slice(start).join(" ");
-  });
-  const allArgs = args.join(" ");
-  return result.replace(/\$ARGUMENTS/g, allArgs).replace(/\$@/g, allArgs);
-}
-
 export async function expandPromptTemplate(text: string, options: LoadPromptTemplatesOptions = {}): Promise<ExpandedPromptTemplate | null> {
   if (!text.startsWith("/") || text.startsWith("/skill:")) return null;
   const spaceIndex = text.indexOf(" ");
@@ -257,7 +247,11 @@ export async function expandPromptTemplate(text: string, options: LoadPromptTemp
   if (!template) return null;
   const args = parseCommandArgs(argsString);
   return {
-    renderedText: substituteArgs(template.content, args),
+    renderedText: renderPromptTemplate(template.content, args, {
+      sessionId: options.sessionId,
+      spaceId: options.spaceId,
+      userUuid: options.userId,
+    }),
     template: {
       name: template.name,
       description: template.description,

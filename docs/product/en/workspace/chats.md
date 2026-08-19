@@ -48,6 +48,8 @@ Type `/` to browse prompt templates and skills.
 - Skills often appear as `/skill:name`
 - Skill availability depends on Space, user, platform, and mounted Mods
 
+Prompt templates can reference the current context with `{{cohub.session.id}}`, `{{cohub.space.id}}`, and `{{cohub.user.uuid}}`. Unknown or unavailable variables remain unchanged.
+
 ### Mentions
 
 Use `@space` mentions when the Agent should pull context from another Space you can access. Paste a public Work URL to create a Work mention that the Agent can resolve or download.

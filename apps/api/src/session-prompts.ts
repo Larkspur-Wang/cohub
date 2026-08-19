@@ -38,6 +38,7 @@ export const expandPromptContent = async (input: {
   content: ContentBlock[];
   userId: string;
   spaceId: string;
+  sessionId?: string | null;
 }) => getSessionDomainServices().expandPromptContent(input);
 
 export const submitSessionPrompt = async (

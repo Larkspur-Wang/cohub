@@ -48,6 +48,8 @@ Composer 是你驱动 Agent 的入口。
 - Skills 常以 `/skill:name` 出现
 - 可用性取决于 Space、用户、平台和已挂载 Mods
 
+Prompt templates 可通过 `{{cohub.session.id}}`、`{{cohub.space.id}}` 和 `{{cohub.user.uuid}}` 引用当前上下文。未知或不可用的变量会保留原文。
+
 ### Mentions
 
 当你希望 Agent 拉取另一个你可访问 Space 的上下文时，使用 `@space`。粘贴公开 Work URL 可创建 Work mention，供 Agent 解析或下载。

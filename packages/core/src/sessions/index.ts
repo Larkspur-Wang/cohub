@@ -4,6 +4,7 @@ export * from "./image-to-text.js";
 export * from "./message-turn-id.js";
 export * from "./prompt.js";
 export * from "./prompt-auth.js";
+export * from "./prompt-template.js";
 export * from "./prompt-env.js";
 export * from "./service.js";
 export * from "./session-meta.js";
