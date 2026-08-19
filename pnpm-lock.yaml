@@ -825,6 +825,9 @@ importers:
       '@biomejs/biome':
         specifier: 2.5.3
         version: 2.5.3
+      '@cohub/core':
+        specifier: workspace:*
+        version: link:../core
       '@cohub/protocol':
         specifier: workspace:*
         version: link:../protocol
