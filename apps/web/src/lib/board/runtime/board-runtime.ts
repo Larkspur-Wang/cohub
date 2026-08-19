@@ -51,7 +51,8 @@ export function operationsRequireBoardRuntimeRefresh(
 			operation.type.startsWith("effect.") ||
 			operation.type.startsWith("sequence.") ||
 			(operation.type === "board.patch" &&
-				operation.payload.patch.metadata !== undefined),
+				(operation.payload.patch.metadata !== undefined ||
+					operation.payload.patch.metadataPatch !== undefined)),
 	);
 }
 
