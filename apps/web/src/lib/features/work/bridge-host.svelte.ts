@@ -5,6 +5,7 @@ import {
 	type WorkBridgeCoreWork,
 	type WorkPurchaseRequest,
 	type WorkRuntimeCheckoutState,
+	type WorkRuntimeInvocationContext,
 } from "@neta-art/cohub";
 import { PUBLIC_API_ORIGIN } from "$env/static/public";
 import { getAuthToken, signInWithRedirectPath } from "$lib/auth";
@@ -42,6 +43,7 @@ export type {
 export type WorkBridgeHostConfig = {
 	work: WorkBridgeHostWork;
 	authorizationContext?: WorkBridgeAuthorizationContext;
+	invocation?: WorkRuntimeInvocationContext;
 	/** Sends a reply payload back to the work runtime. */
 	reply: (requestId: string, payload: Record<string, unknown>) => void;
 	/** Reads the current checkout state (typically derived from the page URL). */
@@ -92,6 +94,7 @@ export function createWorkBridgeHost(
 	const core = createWorkBridgeCore({
 		work: config.work,
 		authorizationContext: config.authorizationContext,
+		invocation: config.invocation,
 		apiOrigin: PUBLIC_API_ORIGIN ?? "",
 		reply: config.reply,
 		getCheckoutState: config.getCheckoutState,

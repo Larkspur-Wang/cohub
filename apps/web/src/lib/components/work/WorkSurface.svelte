@@ -1,6 +1,10 @@
 <script lang="ts">
 import type { WorkComposerChip } from "@cohub/protocol/work-surface";
-import type { WorkContent, WorkRecord } from "@neta-art/cohub";
+import type {
+	WorkContent,
+	WorkRecord,
+	WorkRuntimeInvocationContext,
+} from "@neta-art/cohub";
 import { onMount, untrack } from "svelte";
 import { page } from "$app/state";
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
@@ -55,6 +59,7 @@ type Props = {
 	content?: WorkContent | null;
 	mode?: WorkSurfaceMode;
 	launchState?: WorkLaunchState | null;
+	invocation?: WorkRuntimeInvocationContext;
 	/**
 	 * Receives the surface RPC host once mounted, so a parent can invoke methods
 	 * the Work registered. Only meaningful for embedded (web / port) Works.
@@ -71,6 +76,7 @@ const {
 	content = null,
 	mode = "page",
 	launchState = null,
+	invocation = undefined,
 	onSurfaceHost = undefined,
 	onComposerChip = undefined,
 	onReady = undefined,
@@ -161,6 +167,7 @@ const host = untrack(() =>
 	createWorkBridgeHost({
 		work,
 		authorizationContext: { surface: mode },
+		invocation,
 		reply: (requestId, payload) => {
 			if (!frameOrigin) return;
 			frame?.contentWindow?.postMessage(

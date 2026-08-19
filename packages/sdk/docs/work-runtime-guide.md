@@ -83,9 +83,23 @@ The Work runs inside a Cohub-hosted iframe (`window.parent !== window`). The
 SDK communicates with the parent window via `postMessage` to request tokens
 and context. This is the normal case when a viewer opens a Work through Cohub.
 
-- `client.context()` returns the **real** `space.id`, `work.id`, and current
-  permission scopes from the host.
+- `client.context()` returns the **real** `space.id`, `work.id`, current viewer,
+  and permission scopes from the host.
+- A Work opened through `cohub ui preview` also receives an `invocation`
+  snapshot with the originating `spaceId`, `sessionId`, `turnId`, and
+  `toolCallId` when available. The invocation Space may differ from the Work's
+  own `space.id`.
 - `client.auth.request()` triggers an in-shell consent flow (no popup window).
+
+```js
+const ctx = await client.context();
+console.log(ctx.viewer?.userUuid ?? null);
+console.log(ctx.invocation?.sessionId ?? null);
+```
+
+Invocation fields describe where the preview came from. They are identifiers,
+not authorization: API access remains controlled by the Work session token and
+its scopes.
 
 ### Broker mode (standalone deployment)
 

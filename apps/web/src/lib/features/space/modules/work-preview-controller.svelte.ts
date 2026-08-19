@@ -3,7 +3,10 @@ import {
 	WORK_SURFACE_REQUEST_TIMEOUT_MS,
 	type WorkComposerChip,
 } from "@cohub/protocol/work-surface";
-import type { WorkDetailResponse } from "@neta-art/cohub";
+import type {
+	WorkDetailResponse,
+	WorkRuntimeInvocationContext,
+} from "@neta-art/cohub";
 import { isNewerWorkSnapshot } from "$lib/features/work/work-realtime";
 import { workDisplayTitle } from "$lib/work-page-meta";
 import { createRequestDedupe } from "./request-dedupe";
@@ -19,6 +22,7 @@ export type InlineWorkPreview = {
 	error: string | null;
 	refreshError: string | null;
 	launch: WorkPreviewLaunchState | null;
+	invocation: WorkRuntimeInvocationContext | null;
 	composerChip: WorkComposerChip | null;
 };
 
@@ -41,6 +45,20 @@ type WorkPreviewControllerOptions = {
 	loadWork?: (workId: string) => Promise<WorkDetailResponse>;
 	loadPublicWork?: (workId: string) => Promise<WorkDetailResponse>;
 };
+
+function invocationContextsEqual(
+	left: WorkRuntimeInvocationContext | null,
+	right: WorkRuntimeInvocationContext | null,
+) {
+	return (
+		left?.surface === right?.surface &&
+		left?.source === right?.source &&
+		left?.spaceId === right?.spaceId &&
+		left?.sessionId === right?.sessionId &&
+		left?.turnId === right?.turnId &&
+		left?.toolCallId === right?.toolCallId
+	);
+}
 
 export function createWorkPreviewController(
 	options: WorkPreviewControllerOptions,
@@ -159,6 +177,7 @@ export function createWorkPreviewController(
 		workId: string;
 		label?: string;
 		launch?: WorkPreviewLaunchState | null;
+		invocation?: WorkRuntimeInvocationContext | null;
 	}) {
 		const existing = previews.find((item) => item.workId === input.workId);
 		if (existing) {
@@ -166,7 +185,18 @@ export function createWorkPreviewController(
 			const launchChanged =
 				(existing.launch?.search ?? "") !== (launch?.search ?? "") ||
 				(existing.launch?.hash ?? "") !== (launch?.hash ?? "");
-			if (launchChanged) patch(input.workId, { launch });
+			const invocationChanged =
+				input.invocation !== undefined &&
+				!invocationContextsEqual(existing.invocation, input.invocation);
+			if (launchChanged || invocationChanged) {
+				patch(input.workId, {
+					...(launchChanged ? { launch } : {}),
+					...(input.invocation !== undefined
+						? { invocation: input.invocation }
+						: {}),
+					...(invocationChanged ? { mountKey: ++nextMountKey } : {}),
+				});
+			}
 			activeWorkId = input.workId;
 			options.onOpenPanel?.();
 			if (!existing.detail && !existing.loading) void loadDetail(input.workId);
@@ -182,6 +212,7 @@ export function createWorkPreviewController(
 				loading: true,
 				error: null,
 				launch: input.launch ?? null,
+				invocation: input.invocation ?? null,
 				composerChip: null,
 				refreshError: null,
 			},

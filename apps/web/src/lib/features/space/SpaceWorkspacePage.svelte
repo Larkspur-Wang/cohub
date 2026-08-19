@@ -9,6 +9,7 @@ import type {
 	TaskRunRecord,
 	UserProfile,
 	WorkRecord,
+	WorkRuntimeInvocationContext,
 } from "@neta-art/cohub";
 import type { BoardDocument } from "@neta-art/cohub/board";
 import {
@@ -2391,10 +2392,23 @@ onMount(() => {
 			return { status: "applied" };
 		}
 
+		const invocation: WorkRuntimeInvocationContext = {
+			surface: "preview",
+			source: "ui_command",
+			...(context.source?.spaceId ? { spaceId: context.source.spaceId } : {}),
+			...(context.source?.sessionId
+				? { sessionId: context.source.sessionId }
+				: {}),
+			...(context.source?.turnId ? { turnId: context.source.turnId } : {}),
+			...(context.source?.toolCallId
+				? { toolCallId: context.source.toolCallId }
+				: {}),
+		};
 		previewWorkspace.openWork({
 			workId: command.preview.workId,
 			label: command.preview.label,
 			launch: command.preview.launch ?? null,
+			invocation,
 		});
 		if (!command.request) return { status: "applied" };
 

@@ -147,6 +147,7 @@ const isDisabled = $derived(detail?.work.status === "disabled");
 					owner={detail.owner}
 					content={detail.content}
 					{launchState}
+					invocation={preview.invocation ?? undefined}
 					onSurfaceHost={handleSurfaceHost}
 					onComposerChip={handleComposerChip}
 				/>

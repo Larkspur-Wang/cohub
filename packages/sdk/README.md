@@ -232,8 +232,9 @@ access tokens — no API keys required.
 
 Four runtime-only APIs are available **exclusively inside a published Work**:
 
-- `client.context()` — returns Work identity, Space identity, and current
-  permission scopes. Returns `null` outside a Work runtime.
+- `client.context()` — returns Work identity, Space identity, the current
+  viewer, permission scopes, and optional UI Preview invocation identifiers.
+  Returns `null` outside a Work runtime.
 - `client.auth.request({ scopes, reason })` — shows the viewer a consent dialog
   and caches a token with the approved scopes.
 - `client.work.commerce.*` — entitlement checks, credit consumption,
@@ -250,6 +251,7 @@ const client = createCohubClient({ env: "prod" });
 const ctx = await client.context();
 if (!ctx?.space?.id) throw new Error("Not inside a published Work.");
 
+const sourceSessionId = ctx.invocation?.sessionId ?? null;
 const space = client.space(ctx.space.id);
 
 // Request viewer scopes from a user gesture (button click)

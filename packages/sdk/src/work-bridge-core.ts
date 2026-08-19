@@ -1,6 +1,9 @@
 import type { Permission } from "./types.js";
 import type { WorkRecord } from "./apis/works.js";
-import type { WorkRuntimeCheckoutState } from "./work-runtime.js";
+import type {
+	WorkRuntimeCheckoutState,
+	WorkRuntimeInvocationContext,
+} from "./work-runtime.js";
 import {
 	clearGrantedWorkScopes,
 	hasGrantedWorkScopes,
@@ -101,6 +104,8 @@ export type WorkBridgeCoreConfig = {
 	work: WorkBridgeCoreWork;
 	/** Trusted host context used to decide whether the publisher may authorize silently. */
 	authorizationContext?: WorkBridgeAuthorizationContext;
+	/** Optional snapshot describing what opened this Work runtime. */
+	invocation?: WorkRuntimeInvocationContext;
 	/** @deprecated Use authorizationContext with a background surface. */
 	isBackground?: boolean;
 	/** Base origin for Cohub API requests (e.g. "https://cohub.live"). */
@@ -360,6 +365,7 @@ export function createWorkBridgeCore(
 		try {
 			if (data.type === "cohub.work.context") {
 				const workScopes = clonePermissionScopes(work.workScopes);
+				const viewerUuid = await getViewerUuid();
 				reply(data.requestId, {
 					type: "cohub.work.context.result",
 					context: {
@@ -369,6 +375,10 @@ export function createWorkBridgeCore(
 							url: typeof location !== "undefined" ? location.href : "",
 						},
 						space: { id: work.spaceId },
+						viewer: viewerUuid ? { userUuid: viewerUuid } : null,
+						...(config.invocation
+							? { invocation: { ...config.invocation } }
+							: {}),
 						permissions: {
 							scopes: workScopes,
 							workScopes,

@@ -50,6 +50,34 @@ test("opening a work loads its detail and adopts the published title as the tab 
 	assert.equal(controller.preview?.label, "launch");
 });
 
+test("reopening a Work from another invocation updates context and remounts", () => {
+	const controller = createController();
+	controller.openWork({
+		workId: WORK_ID,
+		invocation: {
+			surface: "preview",
+			source: "ui_command",
+			spaceId: "space-a",
+			sessionId: "session-a",
+		},
+	});
+	const firstMountKey = controller.preview?.mountKey;
+
+	controller.openWork({
+		workId: WORK_ID,
+		invocation: {
+			surface: "preview",
+			source: "ui_command",
+			spaceId: "space-b",
+			sessionId: "session-b",
+		},
+	});
+
+	assert.notEqual(controller.preview?.mountKey, firstMountKey);
+	assert.equal(controller.preview?.invocation?.spaceId, "space-b");
+	assert.equal(controller.preview?.invocation?.sessionId, "session-b");
+});
+
 test("reopening a closed Work gets a fresh surface mount", () => {
 	const controller = createController();
 	controller.openWork({ workId: WORK_ID });

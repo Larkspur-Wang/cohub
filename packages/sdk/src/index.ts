@@ -25,7 +25,7 @@ export { buildSpaceInvitePath, buildSpacePath } from "./apis/invitations.js";
 export type { BuildSpaceInvitePathInput, BuildSpacePathInput } from "./apis/invitations.js";
 export type { ReferenceResourceSelector } from "./apis/references.js";
 export { ParentBridgeTransport, PopupBrokerTransport, WorkRuntimeApi, createSlugWorkIdResolver, createWorkRuntime, resolveWorkTransport } from "./work-runtime.js";
-export type { WorkIdResolver, WorkRuntimeModeConfig, WorkRuntimeRequestOptions, WorkRuntimeTransport } from "./work-runtime.js";
+export type { WorkIdResolver, WorkRuntimeInvocationContext, WorkRuntimeModeConfig, WorkRuntimeRequestOptions, WorkRuntimeTransport } from "./work-runtime.js";
 export { createWorkBridgeCore } from "./work-bridge-core.js";
 export type { WorkBridgeAuthorizationContext, WorkBridgeCore, WorkBridgeCoreConfig, WorkBridgeCoreWork, WorkBridgeDialogState, WorkAuthorizeRequest, WorkCheckoutStarted, WorkPurchaseRequest, WorkBridgeGetAccessToken, WorkBridgeGetViewerUuid, WorkBridgeRequestSignIn, WorkPromotionAttributionContext } from "./work-bridge-core.js";
 export { clearGrantedWorkScopes, hasGrantedWorkScopes, setGrantedWorkScopes } from "./work-grant-cache.js";

@@ -67,8 +67,17 @@ afterEach(() => {
 
 // --- Tests ------------------------------------------------------------------
 
-test("context message replies with work metadata", async () => {
-	const config = makeConfig();
+test("context message replies with work, viewer, and invocation metadata", async () => {
+	const config = makeConfig({
+		invocation: {
+			surface: "preview",
+			source: "ui_command",
+			spaceId: "source-space",
+			sessionId: "source-session",
+			turnId: "source-turn",
+			toolCallId: "source-tool-call",
+		},
+	});
 	const core = createWorkBridgeCore(config);
 
 	await core.handleMessage(
@@ -84,6 +93,28 @@ test("context message replies with work metadata", async () => {
 	assert.equal(work.id, "work_123");
 	assert.equal(work.slug, "my-work");
 	assert.deepEqual(context.space, { id: "space_1" });
+	assert.deepEqual(context.viewer, { userUuid: "viewer-uuid" });
+	assert.deepEqual(context.invocation, {
+		surface: "preview",
+		source: "ui_command",
+		spaceId: "source-space",
+		sessionId: "source-session",
+		turnId: "source-turn",
+		toolCallId: "source-tool-call",
+	});
+});
+
+test("context message returns a null viewer when unauthenticated", async () => {
+	const config = makeConfig({ viewerUuid: null });
+	const core = createWorkBridgeCore(config);
+
+	await core.handleMessage(
+		messageEvent({ type: "cohub.work.context", requestId: "anonymous" }),
+	);
+
+	const context = config.replies[0].payload.context as Record<string, unknown>;
+	assert.equal(context.viewer, null);
+	assert.equal("invocation" in context, false);
 });
 
 test("token message mints a session token via API", async () => {

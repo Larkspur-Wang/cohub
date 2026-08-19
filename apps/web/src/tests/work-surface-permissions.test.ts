@@ -63,6 +63,18 @@ test("Work authorization receives the mounted surface mode", () => {
 	assert.match(source, /authorizationContext: \{ surface: mode \}/);
 });
 
+test("Work previews pass invocation context through the runtime bridge", () => {
+	assert.match(
+		previewSource,
+		/invocation=\{preview\.invocation \?\? undefined\}/,
+	);
+	assert.match(source, /createWorkBridgeHost\(\{[\s\S]*?invocation,/);
+	assert.match(
+		workspaceSource,
+		/invocation: WorkRuntimeInvocationContext[\s\S]*?sessionId: context\.source\.sessionId/,
+	);
+});
+
 test("New Chat Work composer context reaches the workspace coordinator", () => {
 	assert.match(workBackgroundSource, /onComposerChip=\{\(chip\) =>/);
 	assert.match(backgroundSource, /onComposerChip=\{onWorkComposerChip\}/);

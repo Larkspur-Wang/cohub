@@ -1,3 +1,4 @@
+import type { WorkRuntimeInvocationContext } from "@neta-art/cohub";
 import {
 	alignPreviewNavigation,
 	beginPreviewNavigation,
@@ -65,6 +66,7 @@ type PreviewWorkspaceOptions = {
 		workId: string;
 		label?: string;
 		launch?: { search?: string; hash?: string } | null;
+		invocation?: WorkRuntimeInvocationContext | null;
 	}) => void;
 	activateWork: (workId: string) => void;
 	closeWork: (workId?: string | null) => void;
@@ -399,6 +401,7 @@ export function createPreviewWorkspaceController(
 			workId: string;
 			label?: string;
 			launch?: { search?: string; hash?: string } | null;
+			invocation?: WorkRuntimeInvocationContext | null;
 		},
 		opts: { syncUrl?: boolean; source?: PreviewNavigationSource } = {},
 	) {

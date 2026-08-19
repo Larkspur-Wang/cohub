@@ -1,9 +1,19 @@
 import type { Permission } from "./types.js";
 
+export type WorkRuntimeInvocationContext = {
+  surface: "page" | "preview" | "background" | "broker";
+  source?: "ui_command" | "user" | "route";
+  spaceId?: string;
+  sessionId?: string;
+  turnId?: string;
+  toolCallId?: string;
+};
+
 export type WorkRuntimeContext = {
   work: { id: string; slug: string; url?: string | null };
   space: { id: string; name?: string | null };
   viewer?: { userUuid: string } | null;
+  invocation?: WorkRuntimeInvocationContext;
   permissions?: { scopes: Permission[]; workScopes: Permission[]; viewerScopes: Permission[] };
 };
 
