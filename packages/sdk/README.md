@@ -80,20 +80,16 @@ Use `space.boards` for collection operations and bind an ID with
 `space.board(boardId)` for entity operations:
 
 ```ts
-import { createBoardNode } from "@neta-art/cohub";
-
 const created = await space.boards.create({
   path: "boards/plan.board",
   title: "Plan",
-  nodes: [
-    createBoardNode({
-      id: "goal",
-      type: "geo",
-      frame: { x: 80, y: 80, width: 240, height: 120 },
-      text: "Ship",
-      color: "green",
-    }),
-  ],
+  items: [{
+    id: "goal",
+    type: "geo",
+    frame: { x: 80, y: 80, width: 240, height: 120, rotation: 0 },
+    props: { shape: "rounded", text: "Ship" },
+    style: { color: "green" },
+  }],
 });
 
 const board = space.board(created.board.id);
@@ -102,22 +98,21 @@ const board = space.board(created.board.id);
 // Machine-readable types, enums and coordinate spaces for dynamic clients.
 const capabilities = await board.capabilities();
 
-const snapshot = await board.inspect({
-  include: ["nodes", "effects", "sequences", "clips", "playback"],
-});
+const snapshot = await board.authoring();
 
-await board.apply({
-  txId: crypto.randomUUID(),
+await board.mutateSemantic({
   baseVersion: snapshot.board.version,
-  operations: [
-    { type: "board.patch", payload: { patch: { title: "Updated plan" } } },
-  ],
+  commands: [{
+    type: "item.patch",
+    itemId: "goal",
+    patch: { props: { text: "Updated plan" } },
+  }],
 });
 
 await board.play({
   commandId: crypto.randomUUID(),
   type: "play",
-  sequenceId: "ambient",
+  compositionId: "ambient",
 });
 ```
 
@@ -156,40 +151,36 @@ graphics stack:
 ```ts
 import {
   BoardDocumentSchema,
-  clip,
-  compileSequence,
+  compileComposition,
   createBoardExtensionRegistry,
   itemBounds,
   planBoardExport,
-  timeline,
 } from "@neta-art/cohub/board";
 
-const sequence = compileSequence({
+const composition = compileComposition({
   id: "ambient",
   name: "Ambient",
-  seed: "ambient-v1",
-  timeline: clip({
-    kind: "motion.keyframes",
-    target: { type: "node", nodeId: "image" },
-    duration: 1_000,
+  duration: 1_000,
+  tracks: [{
+    id: "image-translation",
+    target: { type: "item", itemId: "image" },
+    channel: "transform.translation",
+    fill: "both",
     keyframes: [
-      { at: 0, value: { y: 0 } },
-      { at: 500, value: { y: -8 } },
-      { at: 1_000, value: { y: 0 } },
+      { time: 0, value: { x: 0, y: 0 } },
+      { time: 500, value: { x: 0, y: -8 } },
+      { time: 1_000, value: { x: 0, y: 0 } },
     ],
-  }),
+  }],
+  playback: { loop: true, endBehavior: "hold", reducedMotion: { mode: "base" } },
 });
 
 await space.boards.create({
   path: "boards/ambient.board",
   metadata: {
-    playback: {
-      sequenceId: sequence.sequence.id,
-      delayMs: 500,
-      loop: true,
-    },
+    playback: { compositionId: composition.id, delayMs: 500 },
   },
-  sequences: [sequence],
+  compositions: [composition],
 });
 ```
 

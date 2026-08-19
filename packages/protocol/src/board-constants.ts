@@ -41,7 +41,6 @@ export const DEFAULT_BOARD_RENDER_LIMITS: BoardRenderCost = {
 };
 
 export const BOARD_BUILTIN_CLIP_KINDS = [
-  "motion.keyframes",
   "motion.path",
   "draw.reveal",
   "draw.handwrite",
@@ -50,9 +49,6 @@ export const BOARD_BUILTIN_CLIP_KINDS = [
   "effects.trail",
   "effects.impact",
   "effects.flash",
-  "effects.color",
-  "camera.pan",
-  "camera.zoom",
   "camera.focus",
   "camera.shake",
 ] as const;
@@ -109,16 +105,10 @@ export const BOARD_MONO_FONT_STACK =
 
 function clipSchema(id: (typeof BOARD_BUILTIN_CLIP_KINDS)[number]) {
   switch (id) {
-    case "motion.keyframes":
-      return { params: { x: { coordinateSpace: "world-offset", unit: "board" }, y: { coordinateSpace: "world-offset", unit: "board" } } };
     case "motion.path":
       return { params: { points: { coordinateSpace: "world-offset", unit: "board" } } };
     case "effects.particles":
       return { params: { bounds: { coordinateSpace: "world", unit: "board" } } };
-    case "camera.pan":
-      return { params: { x: { coordinateSpace: "screen-offset", unit: "css-px" }, y: { coordinateSpace: "screen-offset", unit: "css-px" } } };
-    case "camera.zoom":
-      return { params: { scale: { unit: "ratio" } } };
     case "camera.focus":
       return {
         params: {

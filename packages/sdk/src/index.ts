@@ -167,13 +167,6 @@ export {
   type BoardMutationInput,
 } from "./apis/spaces.js";
 export {
-  BoardInputError,
-  assertBoardNodes,
-  createBoardNode,
-  validateBoardNodes,
-} from "./board/nodes.js";
-export type { BoardNodeFrameInput, BoardNodeSpec } from "./board/nodes.js";
-export {
   BOARD_COLOR_IDS,
   BOARD_GEO_KINDS,
   BOARD_NATIVE_NODE_TYPES,
@@ -188,7 +181,14 @@ export type {
   BoardNodeValidationDiagnostic,
 } from "@cohub/protocol";
 export {
+  BOARD_ANIMATION_CHANNEL_CAPABILITIES,
+  BoardAuthoringItemSchema,
+  BoardCompositionInputSchema,
+  BoardCompositionSchema,
+  BoardEffectSchema,
+  BoardItemPatchSchema,
   BoardPlaybackPolicySchema,
+  parseBoardCompositionInput,
   parseBoardPlaybackPolicy,
 } from "@cohub/protocol";
 export * from "./board/animation.js";

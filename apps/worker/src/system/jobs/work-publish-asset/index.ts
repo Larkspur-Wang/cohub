@@ -829,7 +829,8 @@ function collectBoardDependencyPaths(snapshot: BoardSnapshot): string[] {
       paths.add(node.view.coverPath);
     }
   }
-  for (const owner of [...snapshot.effects, ...snapshot.clips]) {
+  const clips = snapshot.compositions.flatMap((composition) => composition.timeline.clips);
+  for (const owner of [...snapshot.effects, ...clips]) {
     for (const ref of owner.assetRefs) {
       if (ref.type === "space-file") paths.add(ref.ref);
     }

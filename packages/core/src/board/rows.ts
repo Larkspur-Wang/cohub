@@ -8,7 +8,13 @@
  * that restores subtly different data.
  */
 
-import type { boardConnections } from "@cohub/db";
+import type {
+	boardClips,
+	boardCompositions,
+	boardConnections,
+	boardEffects,
+	boardTracks,
+} from "@cohub/db";
 import type {
 	BoardConnection,
 	BoardConnectionAnchor,
@@ -16,6 +22,12 @@ import type {
 	BoardConnectionRecord,
 	BoardConnectionRoutingConfig,
 	BoardConnectionStyle,
+	BoardAnimationTarget,
+	BoardAssetRef,
+	BoardComposition,
+	BoardEffect,
+	BoardProceduralClip,
+	BoardTrack,
 } from "@cohub/protocol";
 
 type BoardConnectionRow = typeof boardConnections.$inferSelect;
@@ -86,6 +98,101 @@ export function boardConnectionFromRow(row: BoardConnectionRow): BoardConnection
 }
 
 /** Flatten a connection into its row columns (identity-owned fields excluded). */
+export function boardEffectFromRow(row: typeof boardEffects.$inferSelect): BoardEffect {
+	return {
+		id: row.id,
+		boardId: row.boardId,
+		target: row.targetType === "item" && row.targetId
+			? { type: "item", itemId: row.targetId }
+			: { type: "board" },
+		kind: row.kind,
+		kindVersion: row.kindVersion,
+		enabled: row.enabled,
+		lifecycle: row.lifecycle as BoardEffect["lifecycle"],
+		timeOrigin: row.timeOrigin as BoardEffect["timeOrigin"],
+		layer: row.layer as BoardEffect["layer"],
+		seed: row.seed,
+		params: row.params,
+		assetRefs: row.assetRefs as BoardAssetRef[],
+		metadata: row.metadata,
+		revision: row.revision,
+	};
+}
+
+export function boardTrackFromRow(row: typeof boardTracks.$inferSelect): BoardTrack {
+	return {
+		id: row.id,
+		target: row.target as BoardAnimationTarget,
+		channel: row.channel,
+		channelVersion: row.channelVersion,
+		interpolation: row.interpolation as BoardTrack["interpolation"],
+		fill: row.fill as BoardTrack["fill"],
+		keyframes: row.keyframes as BoardTrack["keyframes"],
+		metadata: row.metadata,
+	};
+}
+
+export function boardClipFromRow(row: typeof boardClips.$inferSelect): BoardProceduralClip {
+	return {
+		id: row.id,
+		kind: row.kind,
+		kindVersion: row.kindVersion,
+		target: row.target as BoardAnimationTarget,
+		start: row.start,
+		duration: row.duration,
+		layer: row.layer as BoardProceduralClip["layer"],
+		fill: row.fill as BoardProceduralClip["fill"],
+		easing: row.easing as BoardProceduralClip["easing"],
+		params: row.params,
+		assetRefs: row.assetRefs as BoardAssetRef[],
+		seed: row.seed,
+		metadata: row.metadata,
+	};
+}
+
+export function boardCompositionsFromRows(
+	rows: Array<typeof boardCompositions.$inferSelect>,
+	trackRows: Array<typeof boardTracks.$inferSelect>,
+	clipRows: Array<typeof boardClips.$inferSelect>,
+): BoardComposition[] {
+	const tracks = new Map<string, BoardTrack[]>();
+	for (const row of trackRows) {
+		const list = tracks.get(row.compositionId) ?? [];
+		list.push(boardTrackFromRow(row));
+		tracks.set(row.compositionId, list);
+	}
+	const clips = new Map<string, BoardProceduralClip[]>();
+	for (const row of clipRows) {
+		const list = clips.get(row.compositionId) ?? [];
+		list.push(boardClipFromRow(row));
+		clips.set(row.compositionId, list);
+	}
+	return rows.map((row) => ({
+		id: row.id,
+		name: row.name,
+		timeline: {
+			duration: row.duration,
+			tracks: tracks.get(row.id) ?? [],
+			clips: clips.get(row.id) ?? [],
+			markers: row.markers as BoardComposition["timeline"]["markers"],
+		},
+		playback: row.playback as BoardComposition["playback"],
+		metadata: row.metadata,
+		revision: row.revision,
+	}));
+}
+
+export function boardCompositionInputFromRows(
+	row: typeof boardCompositions.$inferSelect,
+	tracks: Array<typeof boardTracks.$inferSelect>,
+	clips: Array<typeof boardClips.$inferSelect>,
+): Omit<BoardComposition, "revision"> {
+	const [value] = boardCompositionsFromRows([row], tracks, clips);
+	if (!value) throw new Error("failed to reconstruct Board composition");
+	const { revision: _revision, ...composition } = value;
+	return composition;
+}
+
 export function boardConnectionValues(boardId: string, connection: BoardConnection) {
 	return {
 		boardId,

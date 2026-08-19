@@ -7,13 +7,15 @@ import {
   boardConnections,
   boardEffects,
   boardNodes,
-  boardSequences,
+  boardCompositions,
+  boardTracks,
   boards,
 } from "@cohub/db";
 import {
   isBoardPath,
   parseBoardManifest,
   serializeBoardManifest,
+  upgradeBoardSnapshot,
 } from "@cohub/protocol";
 import { db } from "../db.js";
 import { captureBoardSnapshots } from "./board-snapshot.js";
@@ -69,7 +71,7 @@ export async function restoreBoardCheckpointSnapshots(input: {
     }
     const source = snapshotBySourceId.get(manifest.boardId);
     if (!source) continue;
-    const snapshot = source.snapshot;
+    const snapshot = upgradeBoardSnapshot(source.snapshot) as unknown as Record<string, unknown>;
     const sourceBoard = snapshot.board && typeof snapshot.board === "object" && !Array.isArray(snapshot.board)
       ? snapshot.board as Record<string, unknown>
       : {};
@@ -168,8 +170,8 @@ export async function restoreBoardCheckpointSnapshots(input: {
             ? effect.target as Record<string, unknown>
             : null;
           const targetType = typeof target?.type === "string" ? target.type : String(effect.targetType ?? "board");
-          const targetId = targetType === "node" && typeof target?.nodeId === "string"
-            ? target.nodeId
+          const targetId = targetType === "item" && typeof target?.itemId === "string"
+            ? target.itemId
             : typeof effect.targetId === "string" ? effect.targetId : null;
           return {
           id: String(effect.id),
@@ -192,39 +194,61 @@ export async function restoreBoardCheckpointSnapshots(input: {
         };
         }));
 
-        const sequences = records(snapshot.sequences);
-        if (sequences.length) await tx.insert(boardSequences).values(sequences.map((sequence) => ({
-          id: String(sequence.id),
-          boardId,
-          name: String(sequence.name),
-          duration: Number(sequence.duration),
-          seed: String(sequence.seed),
-          restPose: sequence.restPose as Record<string, unknown> ?? {},
-          metadata: sequence.metadata as Record<string, unknown> ?? {},
-          revision: Number(sequence.revision ?? 0),
-          createdAt: now,
-          updatedAt: now,
-        })));
-
-        const clips = records(snapshot.clips);
-        if (clips.length) await tx.insert(boardClips).values(clips.map((clip) => ({
-          id: String(clip.id),
-          boardId,
-          sequenceId: String(clip.sequenceId),
-          kind: String(clip.kind),
-          kindVersion: Number(clip.kindVersion),
-          target: clip.target as Record<string, unknown>,
-          start: Number(clip.start),
-          duration: Number(clip.duration),
-          layer: String(clip.layer),
-          fill: String(clip.fill),
-          easing: String(clip.easing),
-          params: clip.params as Record<string, unknown> ?? {},
-          keyframes: records(clip.keyframes),
-          assetRefs: records(clip.assetRefs),
-          seed: String(clip.seed),
-          metadata: clip.metadata as Record<string, unknown> ?? {},
-        })));
+        const compositions = records(snapshot.compositions);
+        if (compositions.length) {
+          await tx.insert(boardCompositions).values(compositions.map((composition) => {
+            const timeline = composition.timeline as Record<string, unknown> ?? {};
+            return {
+              id: String(composition.id),
+              boardId,
+              name: String(composition.name),
+              duration: Number(timeline.duration),
+              playback: composition.playback as Record<string, unknown> ?? {},
+              markers: records(timeline.markers),
+              metadata: composition.metadata as Record<string, unknown> ?? {},
+              revision: Number(composition.revision ?? 0),
+              createdAt: now,
+              updatedAt: now,
+            };
+          }));
+          const tracks = compositions.flatMap((composition) => {
+            const timeline = composition.timeline as Record<string, unknown> ?? {};
+            return records(timeline.tracks).map((track) => ({
+              id: String(track.id),
+              boardId,
+              compositionId: String(composition.id),
+              target: track.target as Record<string, unknown>,
+              channel: String(track.channel),
+              channelVersion: Number(track.channelVersion),
+              interpolation: String(track.interpolation),
+              fill: String(track.fill),
+              keyframes: records(track.keyframes),
+              metadata: track.metadata as Record<string, unknown> ?? {},
+            }));
+          });
+          if (tracks.length) await tx.insert(boardTracks).values(tracks);
+          const clips = compositions.flatMap((composition) => {
+            const timeline = composition.timeline as Record<string, unknown> ?? {};
+            return records(timeline.clips).map((clip) => ({
+              id: String(clip.id),
+              boardId,
+              compositionId: String(composition.id),
+              kind: String(clip.kind),
+              kindVersion: Number(clip.kindVersion),
+              target: clip.target as Record<string, unknown>,
+              start: Number(clip.start),
+              duration: Number(clip.duration),
+              layer: String(clip.layer),
+              fill: String(clip.fill),
+              easing: String(clip.easing),
+              params: clip.params as Record<string, unknown> ?? {},
+              assetRefs: records(clip.assetRefs),
+              seed: String(clip.seed),
+              metadata: clip.metadata as Record<string, unknown> ?? {},
+            }));
+          });
+          if (clips.length) await tx.insert(boardClips).values(clips);
+        }
       });
 
       const temporaryPath = `${absolutePath}.cohub-restore-${boardId}.tmp`;

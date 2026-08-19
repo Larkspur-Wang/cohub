@@ -30,7 +30,6 @@ import {
 	BoardCameraFocusParamsSchema,
 	type BoardNodeInput,
 	type BoardOperation,
-	type BoardTarget,
 } from "@cohub/protocol";
 import { BoardServiceError, type NormalizedNodePatch } from "./board-ops.js";
 
@@ -95,8 +94,8 @@ export function collectTouchedNodeIds(
 			ids.add(operation.payload.nodeId);
 			continue;
 		}
-		if (operation.type === "sequence.upsert") {
-			for (const clip of operation.payload.clips) {
+		if (operation.type === "composition.apply") {
+			for (const clip of operation.payload.composition.timeline.clips) {
 				if (clip.kind !== "camera.focus") continue;
 				const parsed = BoardCameraFocusParamsSchema.safeParse(clip.params);
 				if (parsed.success && parsed.data.focus.type === "frame") {
@@ -150,13 +149,12 @@ export function planNodeWrites(
 		return { fields: fields as PlannedNodeFields, deleted };
 	};
 
-	const assertTargetExists = (target: BoardTarget) => {
-		if (target.type !== "node") return;
-		const current = currentOf(target.nodeId);
+	const assertTargetExists = (nodeId: string) => {
+		const current = currentOf(nodeId);
 		if (!current || current.deleted) {
 			throw new BoardServiceError(
 				400,
-				`target node does not exist: ${target.nodeId}`,
+				`target item does not exist: ${nodeId}`,
 				"INVALID_REFERENCE",
 			);
 		}
@@ -173,8 +171,7 @@ export function planNodeWrites(
 					"NODE_EXISTS",
 				);
 			}
-			if (node.parentId)
-				assertTargetExists({ type: "node", nodeId: node.parentId });
+			if (node.parentId) assertTargetExists(node.parentId);
 			// A soft-deleted row is revived in place rather than re-inserted.
 			live.set(node.nodeId, { fields: node, deleted: false });
 			if (!isNew.has(node.nodeId))
@@ -195,8 +192,7 @@ export function planNodeWrites(
 				throw new BoardServiceError(404, "board node not found", "NODE_NOT_FOUND");
 			}
 			const patch = operation.payload.patch as NormalizedNodePatch;
-			if (patch.parentId)
-				assertTargetExists({ type: "node", nodeId: patch.parentId });
+			if (patch.parentId) assertTargetExists(patch.parentId);
 			const previousFields = current.fields;
 			const inversePatch: Record<string, unknown> = {};
 			for (const key of Object.keys(patch)) {

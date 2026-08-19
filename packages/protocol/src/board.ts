@@ -10,6 +10,12 @@ import {
   type BoardConnectionPatch,
   type BoardConnectionRecord,
 } from "./board-connection.js";
+import { BoardCompositionInputSchema } from "./board-composition.js";
+import { BoardAuthoringItemSchema } from "./board-authoring.js";
+import type {
+  BOARD_ANIMATION_CHANNEL_CAPABILITIES,
+  BoardComposition,
+} from "./board-composition.js";
 import type { BoardNodeContract } from "./board-node.js";
 
 export {
@@ -30,7 +36,8 @@ export const BOARD_CHECKPOINT_KIND = "cohub.board.checkpoint" as const;
 export const BOARD_SNAPSHOT_KIND = "cohub.board.snapshot" as const;
 export const BOARD_CLIPBOARD_KIND = "cohub.board.clipboard" as const;
 export const BOARD_CLIPBOARD_MIME = "application/x-cohub-board" as const;
-export const BOARD_PROTOCOL_VERSION = 1 as const;
+export const BOARD_MANIFEST_VERSION = 1 as const;
+export const BOARD_PROTOCOL_VERSION = 2 as const;
 
 const idSchema = z.string().min(1).max(160);
 const extensionIdSchema = z.string().regex(/^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+$/).max(160);
@@ -39,7 +46,7 @@ const finiteSchema = z.number().finite();
 
 export const BoardManifestSchema = z.object({
   kind: z.literal(BOARD_MANIFEST_KIND),
-  version: z.literal(BOARD_PROTOCOL_VERSION),
+  version: z.literal(BOARD_MANIFEST_VERSION),
   boardId: z.string().uuid(),
   title: z.string().min(1).max(255),
 });
@@ -73,13 +80,6 @@ export function serializeBoardManifest(manifest: BoardManifest): string {
   return `${JSON.stringify(BoardManifestSchema.parse(manifest), null, 2)}\n`;
 }
 
-export const BoardTargetSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("node"), nodeId: idSchema }),
-  z.object({ type: z.literal("effect"), effectId: idSchema }),
-  z.object({ type: z.literal("board") }),
-  z.object({ type: z.literal("camera") }),
-]);
-
 export const BoardCameraStateSchema = z.object({
   centerX: finiteSchema,
   centerY: finiteSchema,
@@ -96,8 +96,8 @@ export const BoardCameraFocusSchema = z.discriminatedUnion("type", [
       height: finiteSchema.positive(),
     }),
   }),
-  z.object({ type: z.literal("node"), nodeId: idSchema }),
-  z.object({ type: z.literal("nodes"), nodeIds: z.array(idSchema).min(1).max(1_000) }),
+  z.object({ type: z.literal("item"), itemId: idSchema }),
+  z.object({ type: z.literal("items"), itemIds: z.array(idSchema).min(1).max(1_000) }),
   z.object({ type: z.literal("frame"), frameId: idSchema }),
 ]);
 
@@ -127,36 +127,12 @@ export const BoardAssetRefSchema = z.object({
   digest: z.string().min(16).max(160).optional(),
 });
 
-export const BoardKeyframeSchema = z.object({
-  at: finiteSchema.nonnegative(),
-  value: z.unknown(),
-  easing: z.string().min(1).max(80).optional(),
-});
-
-export const BoardClipSchema = z.object({
-  id: idSchema,
-  sequenceId: idSchema,
-  kind: extensionIdSchema,
-  kindVersion: z.number().int().positive(),
-  target: BoardTargetSchema,
-  start: finiteSchema.nonnegative(),
-  duration: finiteSchema.positive(),
-  layer: z.enum(["behind", "content", "front", "screen"]).default("content"),
-  fill: z.enum(["none", "backwards", "forwards", "both"]).default("none"),
-  easing: z.string().min(1).max(80).default("linear"),
-  params: jsonObjectSchema.default({}),
-  keyframes: z.array(BoardKeyframeSchema).default([]),
-  assetRefs: z.array(BoardAssetRefSchema).default([]),
-  seed: z.string().min(1).max(160),
-  metadata: jsonObjectSchema.default({}),
-});
-
 export const BoardEffectSchema = z.object({
   id: idSchema,
   boardId: z.string().uuid(),
   target: z.discriminatedUnion("type", [
-    z.object({ type: z.literal("node"), nodeId: idSchema }),
-    z.object({ type: z.literal("board") }),
+    z.object({ type: z.literal("item"), itemId: idSchema }).strict(),
+    z.object({ type: z.literal("board") }).strict(),
   ]),
   kind: extensionIdSchema,
   kindVersion: z.number().int().positive(),
@@ -171,26 +147,11 @@ export const BoardEffectSchema = z.object({
   revision: z.number().int().nonnegative(),
 });
 
-export const BoardSequenceSchema = z.object({
-  id: idSchema,
-  boardId: z.string().uuid(),
-  name: z.string().min(1).max(255),
-  duration: finiteSchema.nonnegative(),
-  seed: z.string().min(1).max(160),
-  restPose: jsonObjectSchema.default({}),
-  metadata: jsonObjectSchema.default({}),
-  revision: z.number().int().nonnegative(),
-});
-
-export type BoardTarget = z.infer<typeof BoardTargetSchema>;
 export type BoardCameraState = z.infer<typeof BoardCameraStateSchema>;
 export type BoardCameraFocus = z.infer<typeof BoardCameraFocusSchema>;
 export type BoardCameraFocusParams = z.infer<typeof BoardCameraFocusParamsSchema>;
 export type BoardAssetRef = z.infer<typeof BoardAssetRefSchema>;
-export type BoardKeyframe = z.infer<typeof BoardKeyframeSchema>;
-export type BoardClip = z.infer<typeof BoardClipSchema>;
 export type BoardEffect = z.infer<typeof BoardEffectSchema>;
-export type BoardSequence = z.infer<typeof BoardSequenceSchema>;
 
 export type BoardRecord = {
   id: string;
@@ -262,8 +223,8 @@ export type BoardOperation =
   | (BoardOperationBase & { type: "connection.delete"; payload: { connectionId: string; reason?: BoardDeleteReason } })
   | (BoardOperationBase & { type: "effect.upsert"; payload: { effect: Omit<BoardEffect, "boardId" | "revision"> } })
   | (BoardOperationBase & { type: "effect.delete"; payload: { effectId: string } })
-  | (BoardOperationBase & { type: "sequence.upsert"; payload: { sequence: Omit<BoardSequence, "boardId" | "revision">; clips: Array<Omit<BoardClip, "sequenceId">> } })
-  | (BoardOperationBase & { type: "sequence.delete"; payload: { sequenceId: string } });
+  | (BoardOperationBase & { type: "composition.apply"; payload: { composition: Omit<BoardComposition, "revision"> } })
+  | (BoardOperationBase & { type: "composition.delete"; payload: { compositionId: string } });
 
 export type BoardTransaction = {
   txId: string;
@@ -274,14 +235,27 @@ export type BoardTransaction = {
   operations: BoardOperation[];
 };
 
+export type BoardMutationReceipt = {
+  mutationId: string;
+  status: "applied" | "validated";
+  replayed: boolean;
+  board: { id: string; version: number };
+  changed: {
+    items: string[];
+    connections: string[];
+    effects: string[];
+    compositions: string[];
+    board: boolean;
+  };
+};
+
 export type BoardSummary = {
   board: BoardRecord;
   counts: {
     nodes: number;
     connections: number;
     effects: number;
-    sequences: number;
-    clips: number;
+    compositions: number;
   };
   playback: BoardPlaybackSnapshot | null;
 };
@@ -291,8 +265,7 @@ export type BoardBootstrap = {
   nodes: BoardNodeRecord[];
   connections: BoardConnectionRecord[];
   effects: BoardEffect[];
-  sequences: BoardSequence[];
-  clips: BoardClip[];
+  compositions: BoardComposition[];
   playback: BoardPlaybackSnapshot | null;
 };
 
@@ -309,19 +282,16 @@ export const BoardCreateInputSchema = z.object({
   mutationId: z.string().max(128).optional(),
   title: z.string().min(1).max(255).optional(),
   metadata: jsonObjectSchema.optional(),
-  nodes: z.array(BoardNodeInputSchema).max(50_000).optional(),
+  items: z.array(BoardAuthoringItemSchema).max(50_000).optional(),
   connections: z.array(BoardConnectionSchema).max(50_000).optional(),
   effects: z.array(BoardEffectSchema.omit({ boardId: true, revision: true })).optional(),
-  sequences: z.array(z.object({
-    sequence: BoardSequenceSchema.omit({ boardId: true, revision: true }),
-    clips: z.array(BoardClipSchema.omit({ sequenceId: true })),
-  })).optional(),
+  compositions: z.array(BoardCompositionInputSchema).optional(),
 });
 
 export type BoardCreateInput = z.infer<typeof BoardCreateInputSchema>;
 
 export const BoardInspectInputSchema = z.object({
-  include: z.array(z.enum(["nodes", "connections", "effects", "sequences", "clips", "playback"])).optional(),
+  include: z.array(z.enum(["nodes", "connections", "effects", "compositions", "playback"])).optional(),
   viewport: z.object({
     x: finiteSchema,
     y: finiteSchema,
@@ -351,18 +321,18 @@ export type BoardValidationResult = {
 };
 
 export type BoardCapabilities = {
-  protocolVersion: 1;
+  protocolVersion: typeof BOARD_PROTOCOL_VERSION;
   capabilities: BoardCapability[];
   limits: BoardRenderCost;
   nodes: BoardNodeContract;
+  animationChannels: typeof BOARD_ANIMATION_CHANNEL_CAPABILITIES;
 };
 
 /** Persisted on `boards.metadata.playback`: how a Board plays when opened. */
 export const BoardPlaybackPolicySchema = z.object({
-  sequenceId: idSchema,
+  compositionId: idSchema,
   /** Delay before the first local playback after opening the Board, in milliseconds. */
   delayMs: finiteSchema.nonnegative().default(0),
-  loop: z.boolean().default(false),
 });
 
 export type BoardPlaybackPolicy = z.infer<typeof BoardPlaybackPolicySchema>;
@@ -376,8 +346,8 @@ export type BoardPlaybackStatus = "playing" | "paused" | "stopped";
 export type BoardPlaybackSnapshot = {
   boardId: string;
   playbackId: string;
-  sequenceId: string;
-  sequenceRevision: number;
+  compositionId: string;
+  compositionRevision: number;
   playbackRevision: number;
   status: BoardPlaybackStatus;
   position: number;
@@ -390,7 +360,7 @@ export const BoardPlaybackCommandSchema = z.discriminatedUnion("type", [
   z.object({
     commandId: idSchema,
     type: z.literal("play"),
-    sequenceId: idSchema,
+    compositionId: idSchema,
     position: finiteSchema.nonnegative().optional(),
     timeScale: finiteSchema.positive().max(4).optional(),
     shared: z.boolean().optional(),

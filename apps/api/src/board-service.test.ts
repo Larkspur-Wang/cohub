@@ -5,6 +5,7 @@ import {
   BoardInspectInputSchema,
   BoardPlaybackCommandSchema,
   type BoardOperation,
+  type BoardProceduralClip,
 } from "@cohub/protocol";
 import {
   BoardServiceError,
@@ -23,6 +24,17 @@ const boardId = "11111111-1111-4111-8111-111111111111";
 function operation(value: BoardOperation) {
   return normalizeBoardOperation(value);
 }
+
+test("raw transactions reject empty operations while semantic no-op transactions allow them", () => {
+  const value = {
+    txId: "noop",
+    boardId,
+    baseVersion: 4,
+    operations: [],
+  };
+  assert.throws(() => normalizeBoardTransaction(value), /operations are required/);
+  assert.deepEqual(normalizeBoardTransaction(value, { allowEmpty: true }).operations, []);
+});
 
 test("normalizes Board metadata and title", () => {
   assert.deepEqual(operation({
@@ -104,7 +116,7 @@ test("allows ordinary metadata while rejecting executable source", () => {
 test("validates Board create input before side effects", () => {
   assert.equal(BoardCreateInputSchema.safeParse({ path: "battle.board", title: 42 }).success, false);
   assert.equal(BoardCreateInputSchema.safeParse({ path: "battle.board", effects: {} }).success, false);
-  assert.equal(BoardCreateInputSchema.safeParse({ path: "battle.board", sequences: {} }).success, false);
+  assert.equal(BoardCreateInputSchema.safeParse({ path: "battle.board", compositions: {} }).success, false);
   assert.equal(BoardCreateInputSchema.safeParse({ path: "battle.board" }).success, true);
   assert.equal(BoardCreateInputSchema.safeParse({ path: "battle.board", mutationId: "mutation-1" }).success, true);
   assert.equal(BoardCreateInputSchema.safeParse({ path: "battle.board", mutationId: "x".repeat(129) }).success, false);
@@ -145,28 +157,37 @@ test("rejects unsupported node types and non-semantic colors", () => {
   );
 });
 
-test("rejects clips outside their sequence", () => {
+test("rejects clips outside their composition timeline", () => {
   assert.throws(
     () => operation({
-      type: "sequence.upsert",
+      type: "composition.apply",
       payload: {
-        sequence: { id: "fight", name: "Fight", duration: 100, seed: "seed", restPose: {}, metadata: {} },
-        clips: [{
-          id: "impact",
-          kind: "effects.impact",
-          kindVersion: 1,
-          target: { type: "board" },
-          start: 90,
-          duration: 20,
-          layer: "front",
-          fill: "none",
-          easing: "linear",
-          params: {},
-          keyframes: [],
-          assetRefs: [],
-          seed: "impact",
+        composition: {
+          id: "fight",
+          name: "Fight",
+          timeline: {
+            duration: 100,
+            tracks: [],
+            markers: [],
+            clips: [{
+              id: "impact",
+              kind: "effects.impact",
+              kindVersion: 1,
+              target: { type: "board" },
+              start: 90,
+              duration: 20,
+              layer: "front",
+              fill: "none",
+              easing: "linear",
+              params: {},
+              assetRefs: [],
+              seed: "impact",
+              metadata: {},
+            }],
+          },
+          playback: { loop: false, endBehavior: "hold", reducedMotion: { mode: "base" } },
           metadata: {},
-        }],
+        },
       },
     }),
     (error) => error instanceof BoardServiceError && error.status === 400,
@@ -183,21 +204,30 @@ test("rejects overlapping semantic camera clips", () => {
     duration: 600,
     layer: "screen" as const,
     fill: "forwards" as const,
-    easing: "linear",
+    easing: "linear" as const,
     params: {
       focus: { type: "rect" as const, rect: { x: 0, y: 0, width: 100, height: 100 } },
     },
-    keyframes: [],
     assetRefs: [],
     seed: id,
     metadata: {},
   });
   assert.throws(
     () => operation({
-      type: "sequence.upsert",
+      type: "composition.apply",
       payload: {
-        sequence: { id: "tour", name: "Tour", duration: 2_000, seed: "tour", restPose: {}, metadata: {} },
-        clips: [focus("first", 0), focus("second", 500)],
+        composition: {
+          id: "tour",
+          name: "Tour",
+          timeline: {
+            duration: 2_000,
+            tracks: [],
+            markers: [],
+            clips: [focus("first", 0), focus("second", 500)],
+          },
+          playback: { loop: false, endBehavior: "hold", reducedMotion: { mode: "base" } },
+          metadata: {},
+        },
       },
     }),
     /must not overlap/,
@@ -212,8 +242,8 @@ test("validates Board playback metadata and its final sequence reference", () =>
         patch: {
           metadata: {
             playback: {
-              sequenceId: "ambient",
-              loop: "forever",
+              compositionId: "ambient",
+              delayMs: "forever",
             },
           },
         },
@@ -233,26 +263,23 @@ test("validates Board playback metadata and its final sequence reference", () =>
           patch: {
             metadata: {
               playback: {
-                sequenceId: "ambient",
+                compositionId: "ambient",
                 delayMs: 250,
-                loop: true,
               },
             },
           },
         },
       },
       {
-        type: "sequence.upsert",
+        type: "composition.apply",
         payload: {
-          sequence: {
+          composition: {
             id: "ambient",
             name: "Ambient",
-            duration: 1_000,
-            seed: "ambient",
-            restPose: {},
+            timeline: { duration: 1_000, tracks: [], clips: [], markers: [] },
+            playback: { loop: true, endBehavior: "hold", reducedMotion: { mode: "base" } },
             metadata: {},
           },
-          clips: [],
         },
       },
     ],
@@ -263,7 +290,7 @@ test("validates Board playback metadata and its final sequence reference", () =>
     nodeIds: [],
     connections: [],
     effects: [],
-    sequences: [],
+    compositions: [],
   };
   assert.deepEqual(errorsOf(contextualValidation(transaction, context)), []);
 
@@ -278,16 +305,54 @@ test("validates Board playback metadata and its final sequence reference", () =>
   );
 });
 
-test("requires bounded deterministic particle clips", () => {
-  const sequence = {
-    id: "fight",
-    name: "Fight",
-    duration: 1_000,
-    seed: "seed",
-    restPose: {},
+test("screens every free-form Composition field for embedded code", () => {
+  const base = {
+    id: "unsafe",
+    name: "Unsafe",
+    timeline: {
+      duration: 100,
+      tracks: [],
+      clips: [],
+      markers: [],
+    },
+    playback: { loop: false, endBehavior: "hold" as const, reducedMotion: { mode: "base" as const } },
     metadata: {},
   };
-  const particleClip = {
+  assert.throws(
+    () => operation({
+      type: "composition.apply",
+      payload: { composition: { ...base, metadata: { shaderSource: "void main(){}" } } },
+    }),
+    (error) => error instanceof BoardServiceError && error.code === "UNTRUSTED_CODE",
+  );
+  assert.throws(
+    () => operation({
+      type: "composition.apply",
+      payload: {
+        composition: {
+          ...base,
+          timeline: {
+            ...base.timeline,
+            tracks: [{
+              id: "track",
+              target: { type: "item", itemId: "title" },
+              channel: "extension.demo.value",
+              channelVersion: 1,
+              interpolation: "step",
+              fill: "none",
+              keyframes: [{ time: 0, value: { wgsl: "unsafe" } }],
+              metadata: {},
+            }],
+          },
+        },
+      },
+    }),
+    (error) => error instanceof BoardServiceError && error.code === "UNTRUSTED_CODE",
+  );
+});
+
+test("requires bounded deterministic particle clips", () => {
+  const particleClip: BoardProceduralClip = {
     id: "sparks",
     kind: "effects.particles",
     kindVersion: 1,
@@ -298,13 +363,19 @@ test("requires bounded deterministic particle clips", () => {
     fill: "none" as const,
     easing: "linear",
     params: { count: 420 },
-    keyframes: [],
     assetRefs: [],
     seed: "sparks",
     metadata: {},
   };
+  const composition = (clip: BoardProceduralClip) => ({
+    id: "fight",
+    name: "Fight",
+    timeline: { duration: 1_000, tracks: [], clips: [clip], markers: [] },
+    playback: { loop: false, endBehavior: "hold" as const, reducedMotion: { mode: "base" as const } },
+    metadata: {},
+  });
   assert.throws(
-    () => operation({ type: "sequence.upsert", payload: { sequence, clips: [particleClip] } }),
+    () => operation({ type: "composition.apply", payload: { composition: composition(particleClip) } }),
     (error) => error instanceof BoardServiceError && error.status === 400,
   );
 
@@ -313,13 +384,12 @@ test("requires bounded deterministic particle clips", () => {
     boardId,
     baseVersion: 0,
     operations: [{
-      type: "sequence.upsert",
+      type: "composition.apply",
       payload: {
-        sequence,
-        clips: [{
+        composition: composition({
           ...particleClip,
           params: { count: 420, bounds: { x: -200, y: -100, width: 400, height: 200 } },
-        }],
+        }),
       },
     }],
   });
@@ -337,7 +407,7 @@ test("contextual validation simulates operation order and references", () => {
         payload: {
           effect: {
             id: "pulse",
-            target: { type: "node", nodeId: "created-first" },
+            target: { type: "item", itemId: "created-first" },
             kind: "effects.pulse",
             kindVersion: 1,
             enabled: true,
@@ -380,7 +450,7 @@ test("contextual validation simulates operation order and references", () => {
     nodeIds: [],
     connections: [],
     effects: [],
-    sequences: [],
+    compositions: [],
   });
   assert.equal(validation.valid, false);
   assert.deepEqual(
@@ -461,7 +531,7 @@ test("validates a node patch after merging it with current state", () => {
     nodes: [current],
     connections: [],
     effects: [],
-    sequences: [],
+    compositions: [],
   });
   assert.equal(validation.valid, false);
   assert.equal(validation.diagnostics[0]?.code, "INVALID_BOARD_NODE");
@@ -473,7 +543,7 @@ function effectInput(id: string, nodeId: string) {
     id,
     kind: "effects.pulse",
     kindVersion: 1,
-    target: { type: "node" as const, nodeId },
+    target: { type: "item" as const, itemId: nodeId },
     params: {},
     lifecycle: "persistent" as const,
     timeOrigin: "board" as const,
@@ -503,7 +573,7 @@ test("an effect may target a node created earlier in the same transaction", () =
     nodeIds: [],
     connections: [],
     effects: [],
-    sequences: [],
+    compositions: [],
   });
   assert.deepEqual(errorsOf(validation), []);
 });
@@ -523,7 +593,7 @@ test("a node becomes deletable once the effect referencing it is deleted", () =>
     nodeIds: ["pinned"],
     connections: [],
     effects: [effectInput("fx", "pinned")],
-    sequences: [],
+    compositions: [],
   });
   assert.deepEqual(errorsOf(validation), []);
   // The same two operations in the opposite order are still correctly refused.
@@ -542,9 +612,9 @@ test("a node becomes deletable once the effect referencing it is deleted", () =>
       nodeIds: ["pinned"],
       connections: [],
       effects: [effectInput("fx", "pinned")],
-      sequences: [],
+      compositions: [],
     })),
-    ["NODE_REFERENCED"],
+    ["ITEM_REFERENCED"],
   );
 });
 
@@ -611,7 +681,7 @@ test("deleting a connected node is accepted when the relation is removed first",
     nodeIds: ["a", "b"],
     connections: [connectionInput("c1", "a", "b")],
     effects: [],
-    sequences: [],
+    compositions: [],
   });
   assert.deepEqual(errorsOf(validation), []);
 });
@@ -634,7 +704,7 @@ test("deleting a connected node is refused when the relation is left behind", ()
     nodeIds: ["a", "b"],
     connections: [connectionInput("c1", "a", "b")],
     effects: [],
-    sequences: [],
+    compositions: [],
   });
   assert.deepEqual(errorsOf(validation), ["NODE_REFERENCED"]);
 });
@@ -654,7 +724,7 @@ test("a relation may name a node created earlier in the same transaction", () =>
     nodeIds: ["b"],
     connections: [],
     effects: [],
-    sequences: [],
+    compositions: [],
   });
   assert.deepEqual(errorsOf(validation), []);
 });

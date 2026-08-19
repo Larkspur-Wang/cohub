@@ -1,84 +1,28 @@
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import {
   boardClips,
+  boardCompositions,
   boardConnections,
   boardEffects,
   boardNodes,
-  boardSequences,
+  boardTracks,
   boards,
 } from "@cohub/db";
 import {
   BOARD_PROTOCOL_VERSION,
   BOARD_SNAPSHOT_KIND,
-  type BoardAssetRef,
-  type BoardClip,
-  type BoardEffect,
-  type BoardSequence,
   type BoardSnapshot,
-  type BoardTarget,
 } from "@cohub/protocol";
-import { boardConnectionFromRow } from "@cohub/core/board";
+import {
+  boardCompositionsFromRows,
+  boardConnectionFromRow,
+  boardEffectFromRow,
+} from "@cohub/core/board";
 import { db } from "../db.js";
 
-function dateString(value: Date | null | undefined): string | null {
-  return value?.toISOString() ?? null;
-}
+const dateString = (value: Date | null | undefined) => value?.toISOString() ?? null;
 
-function effectFromRow(row: typeof boardEffects.$inferSelect): BoardEffect {
-  return {
-    id: row.id,
-    boardId: row.boardId,
-    target: row.targetType === "node" && row.targetId
-      ? { type: "node", nodeId: row.targetId }
-      : { type: "board" },
-    kind: row.kind,
-    kindVersion: row.kindVersion,
-    enabled: row.enabled,
-    lifecycle: row.lifecycle as BoardEffect["lifecycle"],
-    timeOrigin: row.timeOrigin as BoardEffect["timeOrigin"],
-    layer: row.layer as BoardEffect["layer"],
-    seed: row.seed,
-    params: row.params,
-    assetRefs: row.assetRefs as BoardAssetRef[],
-    metadata: row.metadata,
-    revision: row.revision,
-  };
-}
-
-function sequenceFromRow(row: typeof boardSequences.$inferSelect): BoardSequence {
-  return {
-    id: row.id,
-    boardId: row.boardId,
-    name: row.name,
-    duration: row.duration,
-    seed: row.seed,
-    restPose: row.restPose,
-    metadata: row.metadata,
-    revision: row.revision,
-  };
-}
-
-function clipFromRow(row: typeof boardClips.$inferSelect): BoardClip {
-  return {
-    id: row.id,
-    sequenceId: row.sequenceId,
-    kind: row.kind,
-    kindVersion: row.kindVersion,
-    target: row.target as BoardTarget,
-    start: row.start,
-    duration: row.duration,
-    layer: row.layer as BoardClip["layer"],
-    fill: row.fill as BoardClip["fill"],
-    easing: row.easing,
-    params: row.params,
-    keyframes: row.keyframes as BoardClip["keyframes"],
-    assetRefs: row.assetRefs as BoardAssetRef[],
-    seed: row.seed,
-    metadata: row.metadata,
-  };
-}
-
-/** Capture immutable semantic Board state without coupling it to a storage lifecycle. */
+/** Capture one repeatable-read snapshot; published Works and Checkpoints share it. */
 export async function captureBoardSnapshots(input: {
   spaceId: string;
   boardIds?: string[];
@@ -93,7 +37,7 @@ export async function captureBoardSnapshots(input: {
     const snapshots: BoardSnapshot[] = [];
 
     for (const board of sourceBoards) {
-      const [nodes, connections, effects, sequences, clips] = await Promise.all([
+      const [nodes, connections, effects, compositions, tracks, clips] = await Promise.all([
         tx.select().from(boardNodes)
           .where(and(eq(boardNodes.boardId, board.id), isNull(boardNodes.deletedAt)))
           .orderBy(boardNodes.orderKey),
@@ -101,10 +45,9 @@ export async function captureBoardSnapshots(input: {
           .where(and(eq(boardConnections.boardId, board.id), isNull(boardConnections.deletedAt)))
           .orderBy(boardConnections.connectionId),
         tx.select().from(boardEffects).where(eq(boardEffects.boardId, board.id)),
-        tx.select().from(boardSequences).where(eq(boardSequences.boardId, board.id)),
-        tx.select().from(boardClips)
-          .where(eq(boardClips.boardId, board.id))
-          .orderBy(boardClips.sequenceId, boardClips.start),
+        tx.select().from(boardCompositions).where(eq(boardCompositions.boardId, board.id)),
+        tx.select().from(boardTracks).where(eq(boardTracks.boardId, board.id)).orderBy(boardTracks.compositionId, boardTracks.id),
+        tx.select().from(boardClips).where(eq(boardClips.boardId, board.id)).orderBy(boardClips.compositionId, boardClips.start),
       ]);
       snapshots.push({
         kind: BOARD_SNAPSHOT_KIND,
@@ -125,10 +68,8 @@ export async function captureBoardSnapshots(input: {
           updatedAt: dateString(node.updatedAt),
         })),
         connections: connections.map(boardConnectionFromRow),
-        effects: effects.map(effectFromRow),
-        sequences: sequences.map(sequenceFromRow),
-        clips: clips.map(clipFromRow),
-        // Shared playback position is transient; persisted playback policy lives in board.metadata.
+        effects: effects.map(boardEffectFromRow),
+        compositions: boardCompositionsFromRows(compositions, tracks, clips),
         playback: null,
       });
     }

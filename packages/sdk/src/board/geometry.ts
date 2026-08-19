@@ -753,19 +753,19 @@ export function rectForCameraFocus(
 	getFrame: (id: string) => BoardFrame | null | undefined,
 ): Rect | null {
 	if (focus.type === "rect") return focus.rect;
-	if (focus.type === "node") {
-		const frame = getFrame(focus.nodeId);
+	if (focus.type === "item") {
+		const frame = getFrame(focus.itemId);
 		return frame ? itemBounds(frame) : null;
 	}
 	if (focus.type === "frame") {
 		const frame = getFrame(focus.frameId);
 		return frame ? itemBounds(frame) : null;
 	}
-	const frames = focus.nodeIds.flatMap((id) => {
+	const frames = focus.itemIds.flatMap((id) => {
 		const frame = getFrame(id);
 		return frame ? [frame] : [];
 	});
-	return frames.length === focus.nodeIds.length ? selectionBounds(frames) : null;
+	return frames.length === focus.itemIds.length ? selectionBounds(frames) : null;
 }
 
 export function cameraForFocus(

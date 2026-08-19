@@ -9,8 +9,8 @@
       "default": "./dist/index.js"
     },
     "./board": {
-      "types": "./dist/board/rows.d.ts",
-      "default": "./dist/board/rows.js"
+      "types": "./dist/board/index.d.ts",
+      "default": "./dist/board/index.js"
     },
     "./permissions": {
       "types": "./dist/permissions/index.d.ts",

@@ -28,11 +28,11 @@ test("Board commands and every subcommand expose -h", () => {
     "rename",
     "background",
     "playback-policy",
-    "nodes",
     "connect",
     "disconnect",
+    "items",
     "effects",
-    "sequences",
+    "compositions",
     "export",
     "play",
     "pause",
@@ -57,7 +57,7 @@ test("Board JSON and inspect inputs are parsed without rewriting payload data", 
   assert.deepEqual(value, {
     nodes: [{ type: "custom.node", data: { raw: true } }],
   });
-  assert.deepEqual(parseInspectSections("nodes, clips,nodes"), ["nodes", "clips"]);
+  assert.deepEqual(parseInspectSections("nodes, compositions,nodes"), ["nodes", "compositions"]);
   // `connections` is a real section server-side; the CLI validates against its own
   // list, so it has to stay in step or a legal request is rejected before it is sent.
   assert.deepEqual(parseInspectSections("connections"), ["connections"]);

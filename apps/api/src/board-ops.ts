@@ -1,13 +1,18 @@
 import {
   BOARD_BUILTIN_CLIP_KINDS,
   BOARD_BUILTIN_EFFECT_KINDS,
+  BOARD_NATIVE_NODE_TYPES,
   BoardCameraFocusParamsSchema,
-  BoardClipSchema,
   BoardEffectSchema,
+  BoardNodeInputSchema,
   BoardPlaybackPolicySchema,
-  BoardSequenceSchema,
   DEFAULT_BOARD_RENDER_LIMITS,
-  type BoardClip,
+  estimateBuiltinBoardClipCost,
+  parseBoardCompositionInput,
+  validateBuiltinBoardClip,
+  validateBuiltinBoardEffect,
+  type BoardProceduralClip,
+  type BoardComposition,
   type BoardDiagnostic,
   type BoardEffect,
   type BoardNodeInput,
@@ -190,7 +195,22 @@ export function normalizeNode(
   if (input.nodeId.length > MAX_NODE_ID_LENGTH) throw new BoardServiceError(400, "nodeId is too long");
   if (typeof input.type !== "string" || !input.type.trim()) throw new BoardServiceError(400, "node type is required");
   if (input.type.length > MAX_NODE_TYPE_LENGTH) throw new BoardServiceError(400, "node type is too long");
-  const diagnostics = validateSemantics ? validateBoardNodeInput(input, path) : [];
+  const diagnostics = validateSemantics
+    ? (BOARD_NATIVE_NODE_TYPES as readonly string[]).includes(input.type)
+      ? validateBoardNodeInput(input, path)
+      : /^(?:extension\.)?[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+$/.test(input.type) && BoardNodeInputSchema.safeParse(input).success
+        ? []
+        : [{
+            severity: "error" as const,
+            code: "INVALID_BOARD_NODE" as const,
+            message: /^(?:extension\.)?[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+$/.test(input.type)
+              ? `${path}: invalid extension node envelope`
+              : `${path}.type is not supported`,
+            path: /^(?:extension\.)?[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+$/.test(input.type)
+              ? path
+              : `${path}.type`,
+          }]
+    : [];
   if (diagnostics.length > 0) {
     const first = diagnostics[0];
     throw new BoardServiceError(
@@ -319,65 +339,14 @@ function normalizeNodePatch(input: unknown): NormalizedNodePatch {
   return patch;
 }
 
-function requireFiniteParam(value: unknown, path: string, options: { min?: number; max?: number; integer?: boolean } = {}): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) throw new BoardServiceError(400, `${path} must be finite`);
-  if (options.integer && !Number.isSafeInteger(value)) throw new BoardServiceError(400, `${path} must be an integer`);
-  if (options.min != null && value < options.min) throw new BoardServiceError(400, `${path} must be at least ${options.min}`);
-  if (options.max != null && value > options.max) throw new BoardServiceError(400, `${path} must be at most ${options.max}`);
-  return value;
-}
-
-function requireBounds(value: unknown, path: string): { x: number; y: number; width: number; height: number } {
-  if (!isRecord(value)) throw new BoardServiceError(400, `${path} is required`);
-  return {
-    x: requireFiniteParam(value.x, `${path}.x`),
-    y: requireFiniteParam(value.y, `${path}.y`),
-    width: requireFiniteParam(value.width, `${path}.width`, { min: 1 }),
-    height: requireFiniteParam(value.height, `${path}.height`, { min: 1 }),
-  };
-}
-
-function validateBuiltinClip(clip: Omit<BoardClip, "sequenceId">, path: string): void {
-  if (!BUILTIN_CLIP_KINDS.has(clip.kind)) return;
-  if ((clip.kind.startsWith("motion.") || clip.kind.startsWith("draw.") || clip.kind === "text.reveal" || clip.kind === "effects.trail") && clip.target.type !== "node") {
-    throw new BoardServiceError(400, `${path}.target must be a node for ${clip.kind}`);
-  }
-  if (clip.kind.startsWith("camera.") && clip.target.type !== "camera") {
-    throw new BoardServiceError(400, `${path}.target must be the camera for ${clip.kind}`);
-  }
-  if (clip.kind === "motion.path") {
-    if (!Array.isArray(clip.params.points) || clip.params.points.length < 2 || clip.params.points.length > 10_000) {
-      throw new BoardServiceError(400, `${path}.params.points must contain 2 to 10000 points`);
-    }
-    for (const [index, point] of clip.params.points.entries()) {
-      if (!isRecord(point)) throw new BoardServiceError(400, `${path}.params.points.${index} must be an object`);
-      requireFiniteParam(point.x, `${path}.params.points.${index}.x`);
-      requireFiniteParam(point.y, `${path}.params.points.${index}.y`);
-    }
-  }
-  if (clip.kind === "effects.particles") {
-    requireFiniteParam(clip.params.count, `${path}.params.count`, { min: 1, max: DEFAULT_BOARD_RENDER_LIMITS.particles, integer: true });
-    requireBounds(clip.params.bounds, `${path}.params.bounds`);
-  }
-  if (clip.kind === "camera.focus") {
-    const parsed = BoardCameraFocusParamsSchema.safeParse(clip.params);
-    if (!parsed.success) {
-      throw new BoardServiceError(400, `${path}.params: ${parsed.error.issues[0]?.message ?? "invalid camera focus"}`);
-    }
-  }
-  if (clip.kind === "effects.color" && clip.target.type !== "node") {
-    throw new BoardServiceError(400, `${path}.target must be a node for effects.color`);
-  }
-}
-
-function cameraFocusNodeIds(clip: Pick<BoardClip, "kind" | "params">): string[] {
+function cameraFocusNodeIds(clip: Pick<BoardProceduralClip, "kind" | "params">): string[] {
   if (clip.kind !== "camera.focus") return [];
   const parsed = BoardCameraFocusParamsSchema.safeParse(clip.params);
   if (!parsed.success) return [];
   const focus = parsed.data.focus;
-  if (focus.type === "node") return [focus.nodeId];
+  if (focus.type === "item") return [focus.itemId];
   if (focus.type === "frame") return [focus.frameId];
-  return focus.type === "nodes" ? focus.nodeIds : [];
+  return focus.type === "items" ? focus.itemIds : [];
 }
 
 function parseEffect(value: unknown) {
@@ -388,36 +357,43 @@ function parseEffect(value: unknown) {
   for (const ref of parsed.data.assetRefs) {
     if (ref.type === "extension" && !ref.digest) throw new BoardServiceError(400, "extension assets require a digest");
   }
-  if (BUILTIN_EFFECT_KINDS.has(parsed.data.kind) && parsed.data.target.type !== "node") {
-    throw new BoardServiceError(400, `effect target must be a node for ${parsed.data.kind}`);
-  }
+  const [diagnostic] = validateBuiltinBoardEffect(parsed.data);
+  if (diagnostic) throw new BoardServiceError(400, diagnostic.message, diagnostic.code, [diagnostic]);
   return parsed.data;
 }
 
-function parseSequence(value: unknown, clipsValue: unknown) {
-  const sequence = BoardSequenceSchema.omit({ boardId: true, revision: true }).safeParse(value);
-  if (!sequence.success) throw new BoardServiceError(400, sequence.error.issues[0]?.message ?? "invalid sequence");
-  if (!Array.isArray(clipsValue)) throw new BoardServiceError(400, "sequence clips must be an array");
-  const clips = clipsValue.map((clip, index) => {
-    const parsed = BoardClipSchema.omit({ sequenceId: true }).safeParse(clip);
-    if (!parsed.success) throw new BoardServiceError(400, `clips.${index}: ${parsed.error.issues[0]?.message ?? "invalid clip"}`);
-    assertSafeJson(parsed.data.params, `clips.${index}.params`);
-    assertSafeJson(parsed.data.metadata, `clips.${index}.metadata`);
-    for (const ref of parsed.data.assetRefs) {
-      if (ref.type === "extension" && !ref.digest) throw new BoardServiceError(400, `clips.${index}: extension assets require a digest`);
-    }
-    if (parsed.data.start + parsed.data.duration > sequence.data.duration) {
-      throw new BoardServiceError(400, `clips.${index} exceeds sequence duration`);
-    }
-    validateBuiltinClip(parsed.data, `clips.${index}`);
-    return parsed.data;
-  });
-  const ids = new Set<string>();
-  for (const clip of clips) {
-    if (ids.has(clip.id)) throw new BoardServiceError(400, `duplicate clip id: ${clip.id}`);
-    ids.add(clip.id);
+function parseComposition(value: unknown): Omit<BoardComposition, "revision"> {
+  if (jsonBytes(value) > MAX_TRANSACTION_BYTES) {
+    throw new BoardServiceError(413, "composition is too large");
   }
-  const cameraFocusClips = clips
+  let composition: Omit<BoardComposition, "revision">;
+  try {
+    composition = parseBoardCompositionInput(value);
+  } catch (error) {
+    throw new BoardServiceError(400, error instanceof Error ? error.message : "invalid composition");
+  }
+  assertSafeJson(composition.metadata, "composition.metadata");
+  for (const [index, marker] of composition.timeline.markers.entries()) {
+    assertSafeJson(marker.metadata, `composition.timeline.markers.${index}.metadata`);
+  }
+  for (const [index, track] of composition.timeline.tracks.entries()) {
+    assertSafeJson(track.metadata, `composition.timeline.tracks.${index}.metadata`);
+    for (const [keyframeIndex, keyframe] of track.keyframes.entries()) {
+      assertSafeJson(keyframe.value, `composition.timeline.tracks.${index}.keyframes.${keyframeIndex}.value`);
+    }
+  }
+  for (const [index, clip] of composition.timeline.clips.entries()) {
+    assertSafeJson(clip.params, `composition.timeline.clips.${index}.params`);
+    assertSafeJson(clip.metadata, `composition.timeline.clips.${index}.metadata`);
+    for (const ref of clip.assetRefs) {
+      if (ref.type === "extension" && !ref.digest) {
+        throw new BoardServiceError(400, `composition.timeline.clips.${index}: extension assets require a digest`);
+      }
+    }
+    const [diagnostic] = validateBuiltinBoardClip(clip, `composition.timeline.clips.${index}`);
+    if (diagnostic) throw new BoardServiceError(400, diagnostic.message, diagnostic.code, [diagnostic]);
+  }
+  const cameraFocusClips = composition.timeline.clips
     .filter((clip) => clip.kind === "camera.focus")
     .sort((left, right) => left.start - right.start);
   for (let index = 1; index < cameraFocusClips.length; index += 1) {
@@ -427,7 +403,7 @@ function parseSequence(value: unknown, clipsValue: unknown) {
       throw new BoardServiceError(400, "camera.focus clips must not overlap");
     }
   }
-  return { sequence: sequence.data, clips };
+  return composition;
 }
 
 export function normalizeBoardOperation(operation: BoardOperation): BoardOperation {
@@ -503,27 +479,34 @@ export function normalizeBoardOperation(operation: BoardOperation): BoardOperati
       if (!effectId) throw new BoardServiceError(400, "effect.delete requires effectId");
       return { ...base, type: "effect.delete", payload: { effectId } };
     }
-    case "sequence.upsert": {
-      const parsed = parseSequence(operation.payload.sequence, operation.payload.clips);
-      return { ...base, type: "sequence.upsert", payload: parsed };
-    }
-    case "sequence.delete": {
-      const sequenceId = optionalString(operation.payload.sequenceId, "sequenceId", 160);
-      if (!sequenceId) throw new BoardServiceError(400, "sequence.delete requires sequenceId");
-      return { ...base, type: "sequence.delete", payload: { sequenceId } };
+    case "composition.apply":
+      return {
+        ...base,
+        type: "composition.apply",
+        payload: { composition: parseComposition(operation.payload.composition) },
+      };
+    case "composition.delete": {
+      const compositionId = optionalString(operation.payload.compositionId, "compositionId", 160);
+      if (!compositionId) throw new BoardServiceError(400, "composition.delete requires compositionId");
+      return { ...base, type: "composition.delete", payload: { compositionId } };
     }
   }
   throw new BoardServiceError(400, "unsupported board operation");
 }
 
-export function normalizeBoardTransaction(value: unknown): BoardTransaction {
+export function normalizeBoardTransaction(
+  value: unknown,
+  options: { allowEmpty?: boolean } = {},
+): BoardTransaction {
   if (!isRecord(value)) throw new BoardServiceError(400, "invalid board transaction");
   if (jsonBytes(value) > MAX_TRANSACTION_BYTES) throw new BoardServiceError(413, "transaction is too large");
   const txId = optionalString(value.txId, "txId", 160);
   const boardId = optionalString(value.boardId, "boardId", 160);
   if (!txId || !boardId) throw new BoardServiceError(400, "txId and boardId are required");
   if (!Number.isSafeInteger(value.baseVersion) || (value.baseVersion as number) < 0) throw new BoardServiceError(400, "baseVersion must be a non-negative integer");
-  if (!Array.isArray(value.operations) || value.operations.length === 0) throw new BoardServiceError(400, "operations are required");
+  if (!Array.isArray(value.operations) || (!options.allowEmpty && value.operations.length === 0)) {
+    throw new BoardServiceError(400, "operations are required");
+  }
   if (value.operations.length > MAX_BOARD_OPERATIONS) throw new BoardServiceError(413, "too many operations");
   return {
     txId,
@@ -541,43 +524,12 @@ function addCost(target: BoardRenderCost, source: Partial<BoardRenderCost>, mult
   }
 }
 
-function clipCost(clip: Omit<BoardClip, "sequenceId">): Partial<BoardRenderCost> {
-  switch (clip.kind) {
-    case "effects.particles": {
-      const count = clip.params.count as number;
-      return {
-        particles: count,
-        vertices: count * 4,
-        dynamicVertices: count * 4,
-        drawCalls: 1,
-        bufferBytes: count * 48,
-        simulationSteps: count,
-      };
-    }
-    case "effects.trail":
-      return { vertices: 32, dynamicVertices: 32, drawCalls: 1, bufferBytes: 1_024, simulationSteps: 16 };
-    case "effects.impact":
-    case "effects.flash":
-      return { vertices: 64, drawCalls: 1 };
-    case "effects.color":
-      return { drawCalls: 1, filterPasses: 1 };
-    case "draw.reveal":
-    case "draw.handwrite":
-      return { drawCalls: 1, dynamicVertices: 1 };
-    case "motion.path":
-      return { simulationSteps: Array.isArray(clip.params.points) ? clip.params.points.length : 0 };
-    case "motion.keyframes":
-      return { simulationSteps: clip.keyframes.length };
-    default:
-      return {};
-  }
-}
-
-function sequencePeakCost(clips: Array<Omit<BoardClip, "sequenceId">>): BoardRenderCost {
+function compositionPeakCost(composition: Omit<BoardComposition, "revision">): BoardRenderCost {
+  const clips = composition.timeline.clips;
   const events: Array<{ at: number; direction: 1 | -1; cost: BoardRenderCost }> = [];
   for (const clip of clips) {
     const cost = { ...ZERO_BOARD_COST };
-    addCost(cost, clipCost(clip));
+    addCost(cost, estimateBuiltinBoardClipCost(clip));
     events.push({ at: clip.start, direction: 1, cost });
     events.push({ at: clip.start + clip.duration, direction: -1, cost });
   }
@@ -599,7 +551,7 @@ export type BoardValidationContext = {
   /** Existing connections, so deletes and patches can be checked in order. */
   connections: Iterable<Pick<BoardConnection, "id" | "source" | "target">>;
   effects: Iterable<Pick<BoardEffect, "id" | "target">>;
-  sequences: Iterable<{ id: string; clips: BoardClip[] }>;
+  compositions: Iterable<BoardComposition>;
   metadata?: Record<string, unknown>;
 };
 
@@ -618,19 +570,23 @@ export function structuralValidation(transaction: BoardTransaction): BoardValida
       }
       continue;
     }
-    if (operation.type !== "sequence.upsert") continue;
-    for (const [clipIndex, clip] of operation.payload.clips.entries()) {
+    if (operation.type !== "composition.apply") continue;
+    for (const [clipIndex, clip] of operation.payload.composition.timeline.clips.entries()) {
       if (!BUILTIN_CLIP_KINDS.has(clip.kind)) {
         diagnostics.push({
           severity: "warning",
           code: "UNKNOWN_CLIP",
           message: `No built-in renderer is registered for ${clip.kind}@${clip.kindVersion}`,
-          path: `operations.${index}.payload.clips.${clipIndex}`,
+          path: `operations.${index}.payload.composition.timeline.clips.${clipIndex}`,
         });
       }
     }
-    const sequenceCost = sequencePeakCost(operation.payload.clips);
-    for (const key of Object.keys(peakCost) as Array<keyof BoardRenderCost>) peakCost[key] = Math.max(peakCost[key], sequenceCost[key]);
+    const compositionCost = compositionPeakCost(operation.payload.composition);
+    compositionCost.simulationSteps += operation.payload.composition.timeline.tracks.reduce(
+      (total, track) => total + track.keyframes.length,
+      0,
+    );
+    for (const key of Object.keys(peakCost) as Array<keyof BoardRenderCost>) peakCost[key] = Math.max(peakCost[key], compositionCost[key]);
   }
   for (const key of Object.keys(DEFAULT_BOARD_RENDER_LIMITS) as Array<keyof BoardRenderCost>) {
     if (peakCost[key] <= DEFAULT_BOARD_RENDER_LIMITS[key]) continue;
@@ -663,13 +619,13 @@ export function contextualValidation(
     [...context.connections].map((connection) => [connection.id, connection]),
   );
   const effects = new Map([...context.effects].map((effect) => [effect.id, effect.target]));
-  const sequences = new Map([...context.sequences].map((sequence) => [sequence.id, sequence.clips]));
+  const compositions = new Map([...context.compositions].map((composition) => [composition.id, composition]));
   let boardMetadata = context.metadata ?? {};
   const error = (code: string, message: string, path: string) => {
     diagnostics.push({ severity: "error", code, message, path });
   };
-  const targetExists = (target: BoardClip["target"], path: string) => {
-    if (target.type === "node" && !nodeIds.has(target.nodeId)) error("INVALID_REFERENCE", `target node does not exist: ${target.nodeId}`, path);
+  const targetExists = (target: BoardProceduralClip["target"], path: string) => {
+    if (target.type === "item" && !nodeIds.has(target.itemId)) error("INVALID_REFERENCE", `target item does not exist: ${target.itemId}`, path);
     if (target.type === "effect" && !effects.has(target.effectId)) error("INVALID_REFERENCE", `target effect does not exist: ${target.effectId}`, path);
   };
 
@@ -711,14 +667,17 @@ export function contextualValidation(
     }
     if (operation.type === "node.delete") {
       if (!nodeIds.has(operation.payload.nodeId)) error("NODE_NOT_FOUND", `node does not exist: ${operation.payload.nodeId}`, `${path}.payload.nodeId`);
-      if ([...effects.values()].some((target) => target.type === "node" && target.nodeId === operation.payload.nodeId)) {
-        error("NODE_REFERENCED", "delete node effects before deleting the node", `${path}.payload.nodeId`);
+      if ([...effects.values()].some((target) => target.type === "item" && target.itemId === operation.payload.nodeId)) {
+        error("ITEM_REFERENCED", "delete item effects before deleting the item", `${path}.payload.nodeId`);
       }
-      if ([...sequences.values()].flat().some((clip) =>
-        (clip.target.type === "node" && clip.target.nodeId === operation.payload.nodeId) ||
-        cameraFocusNodeIds(clip).includes(operation.payload.nodeId)
+      if ([...compositions.values()].some((composition) =>
+        composition.timeline.tracks.some((track) => track.target.type === "item" && track.target.itemId === operation.payload.nodeId) ||
+        composition.timeline.clips.some((clip) =>
+          (clip.target.type === "item" && clip.target.itemId === operation.payload.nodeId) ||
+          cameraFocusNodeIds(clip).includes(operation.payload.nodeId)
+        )
       )) {
-        error("NODE_REFERENCED", "delete node clips before deleting the node", `${path}.payload.nodeId`);
+        error("ITEM_REFERENCED", "delete item animation before deleting the item", `${path}.payload.nodeId`);
       }
       // A relation to a deleted node is not a relation, so the edit must say what
       // happens to it. Requiring it in the same transaction is what keeps delete
@@ -782,26 +741,33 @@ export function contextualValidation(
     }
     if (operation.type === "effect.upsert") {
       const { effect } = operation.payload;
-      if (effect.target.type === "node" && !nodeIds.has(effect.target.nodeId)) {
-        error("INVALID_REFERENCE", `target node does not exist: ${effect.target.nodeId}`, `${path}.payload.effect.target`);
+      if (effect.target.type === "item" && !nodeIds.has(effect.target.itemId)) {
+        error("INVALID_REFERENCE", `target item does not exist: ${effect.target.itemId}`, `${path}.payload.effect.target`);
       }
       effects.set(effect.id, effect.target);
       continue;
     }
     if (operation.type === "effect.delete") {
       if (!effects.has(operation.payload.effectId)) error("EFFECT_NOT_FOUND", `effect does not exist: ${operation.payload.effectId}`, `${path}.payload.effectId`);
-      if ([...sequences.values()].flat().some((clip) => clip.target.type === "effect" && clip.target.effectId === operation.payload.effectId)) {
-        error("EFFECT_REFERENCED", "effect is referenced by a sequence", `${path}.payload.effectId`);
+      if ([...compositions.values()].some((composition) =>
+        composition.timeline.tracks.some((track) => track.target.type === "effect" && track.target.effectId === operation.payload.effectId) ||
+        composition.timeline.clips.some((clip) => clip.target.type === "effect" && clip.target.effectId === operation.payload.effectId)
+      )) {
+        error("EFFECT_REFERENCED", "effect is referenced by a composition", `${path}.payload.effectId`);
       }
       effects.delete(operation.payload.effectId);
       continue;
     }
-    if (operation.type === "sequence.upsert") {
-      for (const [clipIndex, clip] of operation.payload.clips.entries()) {
-        targetExists(clip.target, `${path}.payload.clips.${clipIndex}.target`);
-        for (const nodeId of cameraFocusNodeIds(clip)) {
-          if (!nodeIds.has(nodeId)) {
-            error("INVALID_REFERENCE", `camera focus node does not exist: ${nodeId}`, `${path}.payload.clips.${clipIndex}.params.focus`);
+    if (operation.type === "composition.apply") {
+      const composition = { ...operation.payload.composition, revision: 0 };
+      for (const [trackIndex, track] of composition.timeline.tracks.entries()) {
+        targetExists(track.target, `${path}.payload.composition.timeline.tracks.${trackIndex}.target`);
+      }
+      for (const [clipIndex, clip] of composition.timeline.clips.entries()) {
+        targetExists(clip.target, `${path}.payload.composition.timeline.clips.${clipIndex}.target`);
+        for (const itemId of cameraFocusNodeIds(clip)) {
+          if (!nodeIds.has(itemId)) {
+            error("INVALID_REFERENCE", `camera focus item does not exist: ${itemId}`, `${path}.payload.composition.timeline.clips.${clipIndex}.params.focus`);
           }
         }
         const focus = BoardCameraFocusParamsSchema.safeParse(clip.params);
@@ -811,30 +777,24 @@ export function contextualValidation(
           focus.data.focus.type === "frame" &&
           nodes.get(focus.data.focus.frameId)?.type !== "frame"
         ) {
-          error("INVALID_REFERENCE", `camera focus target is not a frame: ${focus.data.focus.frameId}`, `${path}.payload.clips.${clipIndex}.params.focus.frameId`);
+          error("INVALID_REFERENCE", `camera focus target is not a frame: ${focus.data.focus.frameId}`, `${path}.payload.composition.timeline.clips.${clipIndex}.params.focus.frameId`);
         }
       }
-      sequences.set(
-        operation.payload.sequence.id,
-        operation.payload.clips.map((clip) => ({
-          ...clip,
-          sequenceId: operation.payload.sequence.id,
-        })),
-      );
+      compositions.set(composition.id, composition);
       continue;
     }
-    if (operation.type === "sequence.delete") {
-      if (!sequences.has(operation.payload.sequenceId)) error("SEQUENCE_NOT_FOUND", `sequence does not exist: ${operation.payload.sequenceId}`, `${path}.payload.sequenceId`);
-      sequences.delete(operation.payload.sequenceId);
+    if (operation.type === "composition.delete") {
+      if (!compositions.has(operation.payload.compositionId)) error("COMPOSITION_NOT_FOUND", `composition does not exist: ${operation.payload.compositionId}`, `${path}.payload.compositionId`);
+      compositions.delete(operation.payload.compositionId);
     }
   }
 
   const playbackPolicy = BoardPlaybackPolicySchema.safeParse(boardMetadata.playback);
-  if (playbackPolicy.success && !sequences.has(playbackPolicy.data.sequenceId)) {
+  if (playbackPolicy.success && !compositions.has(playbackPolicy.data.compositionId)) {
     error(
       "INVALID_REFERENCE",
-      `playback sequence does not exist: ${playbackPolicy.data.sequenceId}`,
-      "board.metadata.playback.sequenceId",
+      `playback composition does not exist: ${playbackPolicy.data.compositionId}`,
+      "board.metadata.playback.compositionId",
     );
   }
 

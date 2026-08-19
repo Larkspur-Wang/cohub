@@ -4,6 +4,7 @@ import type {
   BoardBootstrap,
   BoardCreateInput,
   BoardInspectInput,
+  BoardMutationReceipt,
   BoardPlaybackSnapshot,
   BoardSummary,
   BoardTransactionInput,
@@ -25,7 +26,7 @@ import { createClient, createRealtimeClient } from "../client.js";
 import { error, handleHttp, json as outJson, jsonRequested, ok, table } from "../output.js";
 import { resolveSpace } from "../space.js";
 
-const INSPECT_SECTIONS = ["nodes", "connections", "effects", "sequences", "clips", "playback"] as const;
+const INSPECT_SECTIONS = ["nodes", "connections", "effects", "compositions", "playback"] as const;
 type InspectSection = (typeof INSPECT_SECTIONS)[number];
 type JsonOptions = { json?: boolean };
 type InputOptions = JsonOptions & { input: string; txId?: string; baseVersion?: string };
@@ -104,8 +105,7 @@ function showBoard(result: BoardBootstrap): void {
       nodes: result.nodes.length,
       connections: result.connections.length,
       effects: result.effects.length,
-      sequences: result.sequences.length,
-      clips: result.clips.length,
+      compositions: result.compositions.length,
     },
   ], [
     { key: "id", label: "ID" },
@@ -114,8 +114,7 @@ function showBoard(result: BoardBootstrap): void {
     { key: "nodes", label: "Nodes" },
     { key: "connections", label: "Connections" },
     { key: "effects", label: "Effects" },
-    { key: "sequences", label: "Sequences" },
-    { key: "clips", label: "Clips" },
+    { key: "compositions", label: "Compositions" },
   ]);
 }
 
@@ -137,7 +136,7 @@ function showSummary(result: BoardSummary): void {
     { key: "nodes", label: "NODES" },
     { key: "connections", label: "CONNECTIONS" },
     { key: "effects", label: "EFFECTS" },
-    { key: "sequences", label: "SEQUENCES" },
+    { key: "compositions", label: "COMPOSITIONS" },
     { key: "background", label: "BACKGROUND" },
     { key: "updatedAt", label: "UPDATED" },
   ]);
@@ -164,7 +163,7 @@ function showValidation(result: BoardValidationResult): void {
 function showPlayback(result: BoardPlaybackSnapshot): void {
   table([result], [
     { key: "playbackId", label: "Playback ID" },
-    { key: "sequenceId", label: "Sequence" },
+    { key: "compositionId", label: "Composition" },
     { key: "status", label: "Status" },
     { key: "position", label: "Position" },
     { key: "timeScale", label: "Time Scale" },
@@ -198,7 +197,7 @@ function registerTransactionCommand(boards: Command, name: "validate" | "apply")
 Input example:
   {"baseVersion":12,"operations":[{"type":"board.patch","payload":{"patch":{"title":"Launch plan"}}}]}
 
-Prefer semantic commands such as boards background, nodes, effects, or sequences for common edits.`))
+Prefer semantic commands such as boards background, nodes, effects, or compositions for common edits.`))
     .action(async (target: string, options: InputOptions) => {
       try {
         const transaction = createTransactionInput(
@@ -212,8 +211,8 @@ Prefer semantic commands such as boards background, nodes, effects, or sequences
         if (jsonRequested(options)) return outJson(result);
         if (name === "validate") showValidation(result as BoardValidationResult);
         else {
-          ok(`Board updated to version ${(result as BoardBootstrap).board.version}`);
-          showBoard(result as BoardBootstrap);
+          const receipt = result as BoardMutationReceipt;
+          ok(`Board updated to version ${receipt.board.version}`);
         }
       } catch (cause) {
         handleHttp(cause);
@@ -362,7 +361,7 @@ export function registerBoards(program: Command): Command {
     .option("--mutation-id <id>", "Stable id for safe retries")
     .option("-i, --input <file>", "BoardCreateInput fields; use - for stdin")
     .addHelpText("after", `
-For normal use, create an empty Board and add content with boards nodes, effects, and sequences.
+For normal use, create an empty Board and add content with boards nodes, effects, and compositions.
 --input is intended for bulk creation and accepts BoardCreateInput fields except path and title.`))
     .action(async (path: string, options: JsonOptions & { title?: string; input?: string; mutationId?: string }) => {
       try {
@@ -392,7 +391,7 @@ For normal use, create an empty Board and add content with boards nodes, effects
   withJson(boards.command("inspect <board>")
     .alias("get")
     .description("Inspect a Board")
-    .option("--include <sections>", "Comma-separated nodes,connections,effects,sequences,clips,playback")
+    .option("--include <sections>", "Comma-separated nodes,connections,effects,compositions,playback")
     .option("--viewport <rect>", "Viewport as x,y,width,height"))
     .action(async (target: string, options: JsonOptions & { include?: string; viewport?: string }) => {
       try {
@@ -460,20 +459,20 @@ For normal use, create an empty Board and add content with boards nodes, effects
   registerBoardDomainCommands(boards);
   registerExportCommand(boards);
 
-  withJson(boards.command("play <board> <sequence-id>")
+  withJson(boards.command("play <board> <composition-id>")
     .description("Start shared playback")
     .option("--position <time>", "Initial position in milliseconds")
     .option("--time-scale <scale>", "Playback speed from 0 to 4")
     .option("--seed <seed>", "Deterministic playback seed")
     .option("--command-id <id>", "Idempotency command ID"))
-    .action(async (target: string, sequenceId: string, options: PlaybackOptions & { position?: string; timeScale?: string; seed?: string }) => {
+    .action(async (target: string, compositionId: string, options: PlaybackOptions & { position?: string; timeScale?: string; seed?: string }) => {
       try {
         const spaceId = resolveSpace(boards);
         const boardId = await resolveBoardId(spaceId, target);
         const result = await createClient().space(spaceId).board(boardId).play({
           commandId: commandId(options),
           type: "play",
-          sequenceId,
+          compositionId,
           shared: true,
           ...(options.position === undefined ? {} : { position: parseNumber(options.position, "position", { min: 0 }) }),
           ...(options.timeScale === undefined ? {} : { timeScale: parseNumber(options.timeScale, "timeScale", { min: Number.EPSILON, max: 4 }) }),
@@ -564,7 +563,7 @@ For normal use, create an empty Board and add content with boards nodes, effects
             if (event.type === "board.transaction.applied") {
               process.stdout.write(`version ${event.payload.version}  transaction ${event.payload.txId}  operations ${event.payload.operations.length}\n`);
             } else if (event.type === "board.playback.changed") {
-              process.stdout.write(`${event.payload.status}  sequence ${event.payload.sequenceId}  position ${event.payload.position}\n`);
+              process.stdout.write(`${event.payload.status}  composition ${event.payload.compositionId}  position ${event.payload.position}\n`);
             } else {
               process.stdout.write(`awareness ${event.payload.actorName}  ${event.payload.update.type}\n`);
             }

@@ -1,5 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { boardNodes, boards } from "@cohub/db";
 import {
   BOARD_EXTENSION,
@@ -20,11 +21,18 @@ import {
   normalizeBoardTransaction,
   normalizeConnections,
   normalizeNodes,
+  MAX_NODES_BYTES,
+  MAX_TRANSACTION_BYTES,
   NODE_WRITE_CHUNK,
   summarizeBoard,
   validateBoardTransaction,
 } from "../../board-service.js";
 import { buildBoardCreateIdentity } from "../../board-create-idempotency.js";
+import {
+  applySemanticBoardMutation,
+  inspectBoardAuthoring,
+} from "../../board-authoring-service.js";
+import { boardAuthoringItemToNode } from "@cohub/core/board";
 import { db } from "../../db/index.js";
 import { authzDenied, getOptionalAuth, requireValidId, useAuth } from "../../lib/middleware.js";
 import { getRequestSource } from "../../lib/request-source.js";
@@ -40,6 +48,14 @@ import { buildFileMutationChanges } from "../../space-fs-change.js";
 import { dispatchSpaceFsChanged } from "../../space-events.js";
 
 const router = new Hono();
+const createBodyLimit = bodyLimit({
+  maxSize: MAX_NODES_BYTES,
+  onError: (c) => c.json({ message: `Board input exceeds ${MAX_NODES_BYTES} bytes` }, 413),
+});
+const mutationBodyLimit = bodyLimit({
+  maxSize: MAX_TRANSACTION_BYTES,
+  onError: (c) => c.json({ message: `Board mutation exceeds ${MAX_TRANSACTION_BYTES} bytes` }, 413),
+});
 
 type BoardManifestWrite = Awaited<ReturnType<typeof createSpaceFileExclusive>>;
 
@@ -116,7 +132,7 @@ function errorBody(response: ReturnType<typeof errorResponse>) {
   };
 }
 
-router.post("/", async (c) => {
+router.post("/", createBodyLimit, async (c) => {
   const user = useAuth(c);
   if (user instanceof Response) return user;
   const spaceId = c.req.param("id");
@@ -141,7 +157,10 @@ router.post("/", async (c) => {
   let nodes: ReturnType<typeof normalizeNodes>;
   let operations: BoardOperation[];
   try {
-    nodes = normalizeNodes(body.nodes ?? []);
+    nodes = (body.items ?? []).map((item, index) => boardAuthoringItemToNode(item, {
+      orderKey: String(index).padStart(8, "0"),
+    }));
+    nodes = normalizeNodes(nodes);
     // Connections are applied as operations rather than inserted alongside the
     // nodes, so they go through the same referential validation as any later edit:
     // a create cannot smuggle in an edge to a node it did not also create.
@@ -152,7 +171,10 @@ router.post("/", async (c) => {
         : []),
       ...connections.map((connection): BoardOperation => ({ type: "connection.create", payload: { connection } })),
       ...(body.effects ?? []).map((effect): BoardOperation => ({ type: "effect.upsert", payload: { effect } })),
-      ...(body.sequences ?? []).map(({ sequence, clips }): BoardOperation => ({ type: "sequence.upsert", payload: { sequence, clips } })),
+      ...(body.compositions ?? []).map((composition): BoardOperation => ({
+        type: "composition.apply",
+        payload: { composition },
+      })),
     ].map(normalizeBoardOperation);
   } catch (error) {
     const response = errorResponse(error);
@@ -176,9 +198,10 @@ router.post("/", async (c) => {
   if (identity) {
     try {
       const existing = await inspectBoard(spaceId, boardId);
-      return c.json(operations.length > 0 && existing.board.version === 0
-        ? await applyInitialOperations()
-        : existing);
+      if (operations.length > 0 && existing.board.version === 0) {
+        await applyInitialOperations();
+      }
+      return c.json(await inspectBoard(spaceId, boardId));
     } catch (error) {
       if (!(error instanceof BoardServiceError) || error.code !== "BOARD_NOT_FOUND") {
         const response = errorResponse(error);
@@ -216,9 +239,8 @@ router.post("/", async (c) => {
       }
     });
 
-    const result = operations.length
-      ? await applyInitialOperations()
-      : await inspectBoard(spaceId, boardId);
+    if (operations.length) await applyInitialOperations();
+    const result = await inspectBoard(spaceId, boardId);
 
     // Board rows are the authoritative state: publish after the transaction
     // commits so clients retry their load on this event, even when the sandbox
@@ -272,6 +294,46 @@ router.get("/:boardId", async (c) => {
   }
 });
 
+router.get("/:boardId/authoring", async (c) => {
+  const user = getOptionalAuth(c);
+  const spaceId = c.req.param("id");
+  const boardId = c.req.param("boardId");
+  if (!spaceId || !boardId || !requireValidId(spaceId) || !requireValidId(boardId)) {
+    return c.json({ message: "board not found" }, 404);
+  }
+  if (!(await hasPermission(user, "file.view", { spaceId }))) return authzDenied(c);
+  try {
+    return c.json(await inspectBoardAuthoring(spaceId, boardId));
+  } catch (error) {
+    const response = errorResponse(error);
+    return c.json(errorBody(response), response.status as never);
+  }
+});
+
+router.post("/:boardId/mutations", mutationBodyLimit, async (c) => {
+  const user = useAuth(c);
+  if (user instanceof Response) return user;
+  const spaceId = c.req.param("id");
+  const boardId = c.req.param("boardId");
+  if (!spaceId || !boardId || !requireValidId(spaceId) || !requireValidId(boardId)) {
+    return c.json({ message: "board not found" }, 404);
+  }
+  if (!(await hasPermission(user, "file.edit", { spaceId }))) return authzDenied(c);
+  const body = await c.req.json<unknown>().catch(() => null);
+  try {
+    return c.json(await applySemanticBoardMutation({
+      spaceId,
+      boardId,
+      actorId: user.uuid,
+      requestSource: getRequestSource(c),
+      mutation: body,
+    }));
+  } catch (error) {
+    const response = errorResponse(error);
+    return c.json(errorBody(response), response.status as never);
+  }
+});
+
 router.get("/:boardId/summary", async (c) => {
   const user = getOptionalAuth(c);
   const spaceId = c.req.param("id");
@@ -300,7 +362,7 @@ router.get("/:boardId/capabilities", async (c) => {
   }
 });
 
-router.post("/:boardId/validate", async (c) => {
+router.post("/:boardId/validate", mutationBodyLimit, async (c) => {
   const user = useAuth(c);
   if (user instanceof Response) return user;
   const spaceId = c.req.param("id");
@@ -318,7 +380,7 @@ router.post("/:boardId/validate", async (c) => {
   }
 });
 
-router.post("/:boardId/transactions", async (c) => {
+router.post("/:boardId/transactions", mutationBodyLimit, async (c) => {
   const user = useAuth(c);
   if (user instanceof Response) return user;
   const spaceId = c.req.param("id");
@@ -334,7 +396,6 @@ router.post("/:boardId/transactions", async (c) => {
       actorId: user.uuid,
       requestSource: getRequestSource(c),
       transaction,
-      ...(c.req.query("compact") === "1" ? { inspect: { include: [] } } : {}),
     }));
   } catch (error) {
     const response = errorResponse(error);

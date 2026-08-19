@@ -122,6 +122,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.3",
+    "@cohub/core": "workspace:*",
     "@cohub/protocol": "workspace:*",
     "@napi-rs/canvas": "^1.0.2",
     "@types/node": "26.1.1",

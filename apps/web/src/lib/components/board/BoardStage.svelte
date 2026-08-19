@@ -603,6 +603,9 @@ function syncStage() {
 	});
 
 	animationRuntime?.invalidatePoses();
+	// Composition time zero must be applied before Pixi's first draw. The same
+	// evaluator drives later frames, so scene sync and playback cannot diverge.
+	animationRuntime?.applyCurrentState();
 
 	const single = editor.selection.length === 1 ? editor.selectedItems[0] : null;
 	let arrowEndpoints: Array<{ x: number; y: number }> | undefined;

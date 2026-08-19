@@ -1,8 +1,8 @@
 import type {
-	BoardClip,
+	BoardComposition,
 	BoardEffect,
 	BoardPlaybackSnapshot,
-	BoardSequence,
+	BoardProceduralClip,
 } from "@neta-art/cohub";
 import type {
 	BoardCameraFocusParams,
@@ -15,9 +15,7 @@ import {
 	sampleRadius,
 } from "@neta-art/cohub/board";
 import {
-	ColorMatrixFilter,
 	Container,
-	type Filter,
 	Graphics,
 	Mesh,
 	MeshGeometry,
@@ -34,13 +32,13 @@ import {
 	type AnimationPose,
 	clipSampleAt,
 	composePose,
+	compositionItemPoses,
+	compositionItemTargetIds,
 	createPose,
 	hashUnit,
 	playbackSampleAt,
-	sampleKeyframePose,
 	samplePathPose,
-	sequencePosition,
-	sequenceRestPoses,
+	timelinePosition,
 } from "$lib/board/runtime/animation-core";
 import type { BoardRuntimeData } from "$lib/board/runtime/board-runtime";
 
@@ -92,16 +90,6 @@ type RevealResource = {
 	originalRenderable: boolean;
 };
 
-type FilterResource = {
-	filter: ColorMatrixFilter;
-};
-
-type FilterRestore = {
-	container: Container;
-	filters: Filter[] | null;
-	filterArea: Rectangle | undefined;
-};
-
 const finite = (value: unknown): value is number =>
 	typeof value === "number" && Number.isFinite(value);
 
@@ -131,22 +119,24 @@ function applyPose(node: Container, base: BasePose, pose: AnimationPose) {
 }
 
 export type PreparedCameraFocusClip = {
-	clip: BoardClip;
+	clip: BoardProceduralClip;
 	params: BoardCameraFocusParams;
 	previousForwardIndex: number | null;
 };
 
 export function prepareCameraFocusClips(
-	clips: BoardClip[],
+	compositions: BoardComposition[],
 ): Map<string, PreparedCameraFocusClip[]> {
 	const result = new Map<string, PreparedCameraFocusClip[]>();
-	for (const clip of clips) {
-		if (clip.kind !== "camera.focus") continue;
-		const parsed = BoardCameraFocusParamsSchema.safeParse(clip.params);
-		if (!parsed.success) continue;
-		const entries = result.get(clip.sequenceId) ?? [];
-		entries.push({ clip, params: parsed.data, previousForwardIndex: null });
-		result.set(clip.sequenceId, entries);
+	for (const composition of compositions) {
+		for (const clip of composition.timeline.clips) {
+			if (clip.kind !== "camera.focus") continue;
+			const parsed = BoardCameraFocusParamsSchema.safeParse(clip.params);
+			if (!parsed.success) continue;
+			const entries = result.get(composition.id) ?? [];
+			entries.push({ clip, params: parsed.data, previousForwardIndex: null });
+			result.set(composition.id, entries);
+		}
 	}
 	for (const entries of result.values()) {
 		entries.sort(
@@ -240,7 +230,7 @@ function boundsParam(value: unknown): Rectangle {
 }
 
 function layerForClip(
-	clip: BoardClip,
+	clip: BoardProceduralClip,
 	layers: NonNullable<ReturnType<RuntimeOptions["getLayers"]>>,
 ): Container {
 	if (clip.layer === "screen") return layers.screen;
@@ -405,9 +395,9 @@ function particleLimit(): number {
 
 export function createBoardAnimationRuntime(options: RuntimeOptions) {
 	let data: BoardRuntimeData = {
+		boardId: "",
 		effects: [],
-		sequences: [],
-		clips: [],
+		compositions: [],
 		playback: null,
 		playbackPolicy: null,
 	};
@@ -432,8 +422,6 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 	const particleResources = new Map<string, ParticleResource>();
 	const trailResources = new Map<string, TrailResource>();
 	const revealResources = new Map<string, RevealResource>();
-	const filterResources = new Map<string, FilterResource>();
-	const filterRestores = new Map<string, FilterRestore>();
 	let worldPose: BasePose | null = null;
 	let frameId = 0;
 	let sharedPlayback: BoardPlaybackSnapshot | null = null;
@@ -460,16 +448,7 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 		return { ...entry, base };
 	}
 
-	function restoreFilters() {
-		for (const restoreState of filterRestores.values()) {
-			restoreState.container.filters = restoreState.filters;
-			restoreState.container.filterArea = restoreState.filterArea;
-		}
-		filterRestores.clear();
-	}
-
 	function restoreSceneState() {
-		restoreFilters();
 		for (const [nodeId, pose] of basePoses) {
 			const node = options.getNode(nodeId)?.container;
 			if (node) restore(node, pose);
@@ -505,13 +484,11 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 			resource.shader.destroy();
 			resource.geometry.destroy();
 		}
-		for (const resource of filterResources.values()) resource.filter.destroy();
 		impactResources.clear();
 		flashResources.clear();
 		particleResources.clear();
 		trailResources.clear();
 		revealResources.clear();
-		filterResources.clear();
 	}
 
 	function poseFor(poses: Map<string, AnimationPose>, nodeId: string) {
@@ -531,10 +508,10 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 		if (
 			!effect.enabled ||
 			effect.lifecycle === "manual" ||
-			effect.target.type !== "node"
+			effect.target.type !== "item"
 		)
 			return false;
-		const entry = nodeWithBase(effect.target.nodeId);
+		const entry = nodeWithBase(effect.target.itemId);
 		if (!entry) return false;
 		const visible = entry.container.visible;
 		const wasVisible = effectVisibility.get(effect.id) ?? false;
@@ -552,7 +529,7 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 			? Math.max(100, effect.params.period)
 			: 1_800;
 		const phase = (((now - origin) % period) / period) * Math.PI * 2;
-		const pose = poseFor(poses, effect.target.nodeId);
+		const pose = poseFor(poses, effect.target.itemId);
 		if (effect.kind === "effects.pulse") {
 			const amount = finite(effect.params.amount) ? effect.params.amount : 0.04;
 			composePose(pose, { scale: 1 + Math.sin(phase) * amount });
@@ -569,7 +546,7 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 	}
 
 	function impactResource(
-		clip: BoardClip,
+		clip: BoardProceduralClip,
 		layers: NonNullable<ReturnType<RuntimeOptions["getLayers"]>>,
 	) {
 		let graphics = impactResources.get(clip.id);
@@ -587,7 +564,7 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 	}
 
 	function updateImpact(
-		clip: BoardClip,
+		clip: BoardProceduralClip,
 		progress: number,
 		layers: NonNullable<ReturnType<RuntimeOptions["getLayers"]>>,
 	) {
@@ -607,7 +584,7 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 	}
 
 	function updateFlash(
-		clip: BoardClip,
+		clip: BoardProceduralClip,
 		progress: number,
 		layers: NonNullable<ReturnType<RuntimeOptions["getLayers"]>>,
 	) {
@@ -636,7 +613,7 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 	}
 
 	function createParticles(
-		clip: BoardClip,
+		clip: BoardProceduralClip,
 		layers: NonNullable<ReturnType<RuntimeOptions["getLayers"]>>,
 	): ParticleResource {
 		const requested = finite(clip.params.count)
@@ -672,7 +649,7 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 	}
 
 	function updateParticles(
-		clip: BoardClip,
+		clip: BoardProceduralClip,
 		localTime: number,
 		playback: BoardPlaybackSnapshot,
 		layers: NonNullable<ReturnType<RuntimeOptions["getLayers"]>>,
@@ -724,43 +701,37 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 
 	function nodeTimelinePose(
 		nodeId: string,
-		sequence: BoardSequence,
+		sequence: BoardComposition,
 		position: number,
 		loop: boolean,
 	): AnimationPose {
 		const pose = createPose();
-		const samplePosition = sequencePosition(position, sequence.duration, loop);
-		for (const clip of data.clips) {
-			if (
-				clip.sequenceId !== sequence.id ||
-				clip.target.type !== "node" ||
-				clip.target.nodeId !== nodeId
-			)
+		const samplePosition = timelinePosition(
+			position,
+			sequence.timeline.duration,
+			loop,
+		);
+		for (const clip of sequence.timeline.clips) {
+			if (clip.target.type !== "item" || clip.target.itemId !== nodeId)
 				continue;
-			if (clip.kind !== "motion.keyframes" && clip.kind !== "motion.path")
-				continue;
+			if (clip.kind !== "motion.path") continue;
 			const sample = clipSampleAt(clip, samplePosition);
 			if (!sample) continue;
-			composePose(
-				pose,
-				clip.kind === "motion.path"
-					? samplePathPose(clip, sample.localTime)
-					: sampleKeyframePose(clip, sample.localTime),
-			);
+			composePose(pose, samplePathPose(clip, sample.localTime));
 		}
 		return pose;
 	}
 
 	function updateTrail(
-		clip: BoardClip,
-		sequence: BoardSequence,
+		clip: BoardProceduralClip,
+		sequence: BoardComposition,
 		position: number,
 		progress: number,
 		loop: boolean,
 		layers: NonNullable<ReturnType<RuntimeOptions["getLayers"]>>,
 	) {
-		if (clip.target.type !== "node") return;
-		const entry = nodeWithBase(clip.target.nodeId);
+		if (clip.target.type !== "item") return;
+		const entry = nodeWithBase(clip.target.itemId);
 		if (!entry) return;
 		let resource = trailResources.get(clip.id);
 		if (!resource) {
@@ -785,7 +756,7 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 			const samplePosition =
 				position - history * (1 - index / (resource.points.length - 1));
 			const pose = nodeTimelinePose(
-				clip.target.nodeId,
+				clip.target.itemId,
 				sequence,
 				samplePosition,
 				loop,
@@ -801,9 +772,12 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 		resource.rope.visible = progress > 0 && progress < 1;
 	}
 
-	function updateDrawReveal(clip: BoardClip, progress: number): boolean {
-		if (clip.target.type !== "node") return false;
-		const entry = options.getNode(clip.target.nodeId);
+	function updateDrawReveal(
+		clip: BoardProceduralClip,
+		progress: number,
+	): boolean {
+		if (clip.target.type !== "item") return false;
+		const entry = options.getNode(clip.target.itemId);
 		if (entry?.item.type !== "draw") return false;
 		let resource = revealResources.get(clip.id);
 		if (!resource) {
@@ -833,37 +807,9 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 		return true;
 	}
 
-	function applyColorFilter(clip: BoardClip, progress: number) {
-		if (clip.target.type !== "node") return;
-		const entry = nodeWithBase(clip.target.nodeId);
-		if (!entry) return;
-		let resource = filterResources.get(clip.id);
-		if (!resource) {
-			resource = { filter: new ColorMatrixFilter() };
-			filterResources.set(clip.id, resource);
-		}
-		if (!filterRestores.has(clip.target.nodeId)) {
-			filterRestores.set(clip.target.nodeId, {
-				container: entry.container,
-				filters: entry.container.filters ? [...entry.container.filters] : null,
-				filterArea: entry.container.filterArea?.clone(),
-			});
-		}
-		const filter = resource.filter;
-		filter.reset();
-		if (finite(clip.params.brightness))
-			filter.brightness(1 + (clip.params.brightness - 1) * progress, false);
-		if (finite(clip.params.saturation))
-			filter.saturate((clip.params.saturation - 1) * progress, true);
-		if (finite(clip.params.hue)) filter.hue(clip.params.hue * progress, true);
-		filter.alpha = progress;
-		entry.container.filters = [...(entry.container.filters ?? []), filter];
-		entry.container.filterArea = entry.container.getBounds().rectangle;
-	}
-
 	function applyClip(
-		clip: BoardClip,
-		sequence: BoardSequence,
+		clip: BoardProceduralClip,
+		sequence: BoardComposition,
 		position: number,
 		playback: BoardPlaybackSnapshot,
 		loop: boolean,
@@ -875,16 +821,9 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 		const sample = clipSampleAt(clip, position);
 		if (!sample) return false;
 		const { localTime, progress } = sample;
-		if (clip.kind === "motion.keyframes" && clip.target.type === "node") {
+		if (clip.kind === "motion.path" && clip.target.type === "item") {
 			composePose(
-				poseFor(poses, clip.target.nodeId),
-				sampleKeyframePose(clip, localTime),
-			);
-			return true;
-		}
-		if (clip.kind === "motion.path" && clip.target.type === "node") {
-			composePose(
-				poseFor(poses, clip.target.nodeId),
+				poseFor(poses, clip.target.itemId),
 				samplePathPose(clip, localTime),
 			);
 			return true;
@@ -893,11 +832,11 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 			(clip.kind === "draw.reveal" ||
 				clip.kind === "draw.handwrite" ||
 				clip.kind === "text.reveal") &&
-			clip.target.type === "node"
+			clip.target.type === "item"
 		) {
 			if (clip.kind !== "text.reveal" && updateDrawReveal(clip, progress))
 				return true;
-			composePose(poseFor(poses, clip.target.nodeId), {
+			composePose(poseFor(poses, clip.target.itemId), {
 				alpha: progress,
 				scale: 0.96 + progress * 0.04,
 			});
@@ -921,19 +860,6 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 			jobs.push(() => updateFlash(clip, progress, layers));
 			return true;
 		}
-		if (clip.kind === "effects.color") {
-			jobs.push(() => applyColorFilter(clip, progress));
-			return true;
-		}
-		if (clip.kind === "camera.pan") {
-			composePose(cameraPose, sampleKeyframePose(clip, localTime));
-			return true;
-		}
-		if (clip.kind === "camera.zoom") {
-			const value = sampleKeyframePose(clip, localTime);
-			composePose(cameraPose, value ?? { scale: 1 });
-			return true;
-		}
 		if (clip.kind === "camera.shake") {
 			const amount = finite(clip.params.amount) ? clip.params.amount : 8;
 			const frequency = finite(clip.params.frequency)
@@ -954,18 +880,18 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 	}
 
 	function cameraFocusPose(
-		sequenceId: string,
+		compositionId: string,
 		position: number,
 		base: BasePose,
 	): AnimationPose | null {
 		return resolveCameraFocusPose({
-			clips: cameraFocusBySequence.get(sequenceId) ?? [],
+			clips: cameraFocusBySequence.get(compositionId) ?? [],
 			position,
 			base: { x: base.x, y: base.y, zoom: base.scaleX },
 			resolveTarget(entry) {
 				const screen = options.getScreen();
 				const geometryVersion = options.getGeometryVersion?.();
-				const key = `${entry.clip.sequenceId}:${entry.clip.id}`;
+				const key = `${compositionId}:${entry.clip.id}`;
 				const cached =
 					geometryVersion === undefined
 						? null
@@ -997,7 +923,7 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 		});
 	}
 
-	function renderFrame(now: number): boolean {
+	function renderFrame(now: number, commitRender = true): boolean {
 		restoreAll();
 		const layers = options.getLayers();
 		const world = options.getWorld();
@@ -1015,37 +941,59 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 
 		const playback = sharedPlayback ?? autoplayPlayback;
 		const sequence = playback
-			? (data.sequences.find(
+			? (data.compositions.find(
 					(item) =>
-						item.id === playback.sequenceId &&
-						item.revision === playback.sequenceRevision,
+						item.id === playback.compositionId &&
+						item.revision === playback.compositionRevision,
 				) ?? null)
 			: null;
-		const loop =
-			playback === autoplayPlayback && Boolean(data.playbackPolicy?.loop);
+		const loop = sequence?.playback.loop ?? false;
 		const sample =
 			playback && sequence
-				? playbackSampleAt(playback, sequence.duration, now, loop)
+				? playbackSampleAt(playback, sequence.timeline.duration, now, loop)
 				: null;
 		const position = sample?.position ?? 0;
 		const ended = sample?.ended ?? false;
-		const useRestPose = Boolean(
-			sequence && (reducedMotion || playback?.status === "stopped" || ended),
-		);
+		let evaluationTime: number | null = null;
+		if (sequence) {
+			if (reducedMotion) {
+				const fallback = sequence.playback.reducedMotion;
+				evaluationTime =
+					fallback.mode === "time"
+						? fallback.time
+						: fallback.mode === "marker"
+							? (sequence.timeline.markers.find(
+									(marker) => marker.id === fallback.markerId,
+								)?.time ?? null)
+							: null;
+			} else if (sample?.waiting) evaluationTime = 0;
+			else if (playback?.status === "stopped" || ended) {
+				evaluationTime =
+					sequence.playback.endBehavior === "hold"
+						? sequence.timeline.duration
+						: null;
+			} else evaluationTime = position;
+		}
+		if (sequence && evaluationTime !== null) {
+			for (const [itemId, pose] of compositionItemPoses(
+				sequence,
+				evaluationTime,
+			)) {
+				composePose(poseFor(poses, itemId), pose);
+			}
+		}
 		let hasSupportedClip = false;
 		const jobs: Array<() => void> = [];
-		if (useRestPose && sequence) {
-			for (const [nodeId, restPose] of sequenceRestPoses(sequence))
-				composePose(poseFor(poses, nodeId), restPose);
-		} else if (
+		if (
 			playback &&
 			playback.status !== "stopped" &&
 			sequence &&
+			!reducedMotion &&
+			!ended &&
 			!sample?.waiting
 		) {
-			for (const clip of data.clips) {
-				if (clip.sequenceId !== sequence.id || clip.kind === "camera.focus")
-					continue;
+			for (const clip of sequence.timeline.clips) {
+				if (clip.kind === "camera.focus") continue;
 				hasSupportedClip =
 					applyClip(
 						clip,
@@ -1061,12 +1009,8 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 			}
 		}
 
-		if (playback && sequence && !sample?.waiting) {
-			const focus = cameraFocusPose(
-				sequence.id,
-				useRestPose ? sequence.duration : position,
-				worldPose,
-			);
+		if (playback && sequence && evaluationTime !== null && !reducedMotion) {
+			const focus = cameraFocusPose(sequence.id, evaluationTime, worldPose);
 			if (focus) {
 				composePose(cameraPose, focus);
 				hasSupportedClip = true;
@@ -1079,7 +1023,7 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 		}
 		applyPose(world, worldPose, cameraPose);
 		for (const job of jobs) job();
-		options.render();
+		if (commitRender) options.render();
 
 		const playbackActive =
 			!reducedMotion &&
@@ -1091,8 +1035,7 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 			hasContinuousEffect ||
 			Boolean(
 				playbackActive &&
-					(hasSupportedClip ||
-						Object.keys(sequence?.restPose ?? {}).length > 0),
+					(hasSupportedClip || (sequence?.timeline.tracks.length ?? 0) > 0),
 			)
 		);
 	}
@@ -1150,36 +1093,41 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 		if (!active) return;
 		const policy = data.playbackPolicy;
 		const sequence = policy
-			? (data.sequences.find((item) => item.id === policy.sequenceId) ?? null)
+			? (data.compositions.find((item) => item.id === policy.compositionId) ??
+				null)
 			: null;
-		if (!policy || !sequence || (policy.loop && sequence.duration <= 0)) {
+		if (
+			!policy ||
+			!sequence ||
+			(sequence.playback.loop && sequence.timeline.duration <= 0)
+		) {
 			clearAutoplayTimer();
 			autoplayKey = null;
 			autoplayPlayback = null;
 			return;
 		}
-		const key = `${sequence.id}:${sequence.revision}:${policy.delayMs}:${policy.loop}`;
+		const key = `${sequence.id}:${sequence.revision}:${policy.delayMs}:${sequence.playback.loop}`;
 		if (key === autoplayKey && autoplayPlayback) return;
 		autoplayKey = key;
 		autoplayPlayback = {
-			boardId: sequence.boardId,
+			boardId: data.boardId,
 			playbackId: crypto.randomUUID(),
-			sequenceId: sequence.id,
-			sequenceRevision: sequence.revision,
+			compositionId: sequence.id,
+			compositionRevision: sequence.revision,
 			playbackRevision: 0,
 			status: "playing",
 			position: 0,
 			effectiveAt: Date.now() + policy.delayMs,
 			timeScale: 1,
-			seed: sequence.seed,
+			seed: sequence.id,
 		};
 		scheduleAutoplayStart();
 	}
 
 	function setData(next: BoardRuntimeData) {
-		if (next.clips !== data.clips) {
+		if (next.compositions !== data.compositions) {
 			clearResources();
-			cameraFocusBySequence = prepareCameraFocusClips(next.clips);
+			cameraFocusBySequence = prepareCameraFocusClips(next.compositions);
 			cameraFocusTargetCache.clear();
 		}
 		data = next;
@@ -1216,20 +1164,20 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 	function nodeIdsToMaterialize(now = Date.now()): Set<string> {
 		const playback = sharedPlayback ?? autoplayPlayback;
 		const sequence = playback
-			? (data.sequences.find(
+			? (data.compositions.find(
 					(item) =>
-						item.id === playback.sequenceId &&
-						item.revision === playback.sequenceRevision,
+						item.id === playback.compositionId &&
+						item.revision === playback.compositionRevision,
 				) ?? null)
 			: null;
-		const loop =
-			playback === autoplayPlayback && Boolean(data.playbackPolicy?.loop);
+		const loop = sequence?.playback.loop ?? false;
 		const ended = Boolean(
 			sequence &&
 				playback &&
 				(reducedMotion ||
 					playback.status === "stopped" ||
-					playbackSampleAt(playback, sequence.duration, now, loop).ended),
+					playbackSampleAt(playback, sequence.timeline.duration, now, loop)
+						.ended),
 		);
 		const mode = sequence ? (ended ? "rest" : "active") : "effects";
 		if (
@@ -1243,28 +1191,27 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 			if (
 				effect.enabled &&
 				effect.lifecycle !== "manual" &&
-				effect.target.type === "node"
+				effect.target.type === "item"
 			)
-				ids.add(effect.target.nodeId);
+				ids.add(effect.target.itemId);
 		}
 
 		if (sequence) {
-			const poses = ended ? Object.keys(sequence.restPose) : [];
-			for (const nodeId of poses) ids.add(nodeId);
-			for (const clip of data.clips) {
-				if (
-					!ended &&
-					clip.sequenceId === sequence.id &&
-					clip.target.type === "node"
-				)
-					ids.add(clip.target.nodeId);
-			}
+			const poses = ended
+				? compositionItemPoses(sequence, sequence.timeline.duration).keys()
+				: compositionItemPoses(sequence, 0).keys();
+			for (const itemId of poses) ids.add(itemId);
+			for (const itemId of compositionItemTargetIds(sequence)) ids.add(itemId);
 		}
 
 		materializationCache = ids;
 		materializationCacheVersion = materializationVersion;
 		materializationCacheMode = mode;
 		return ids;
+	}
+
+	function applyCurrentState(now = Date.now()) {
+		if (!destroyed && active && !document.hidden) renderFrame(now, false);
 	}
 
 	function invalidatePoses() {
@@ -1297,6 +1244,7 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 		start,
 		nodeIdsToMaterialize,
 		prepareSceneSync,
+		applyCurrentState,
 		invalidatePoses,
 		destroy() {
 			destroyed = true;

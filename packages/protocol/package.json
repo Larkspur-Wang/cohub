@@ -22,6 +22,22 @@
       "types": "./dist/board-connection.d.ts",
       "default": "./dist/board-connection.js"
     },
+    "./board-authoring": {
+      "types": "./dist/board-authoring.d.ts",
+      "default": "./dist/board-authoring.js"
+    },
+    "./board-capability-registry": {
+      "types": "./dist/board-capability-registry.d.ts",
+      "default": "./dist/board-capability-registry.js"
+    },
+    "./board-codec": {
+      "types": "./dist/board-codec.d.ts",
+      "default": "./dist/board-codec.js"
+    },
+    "./board-composition": {
+      "types": "./dist/board-composition.d.ts",
+      "default": "./dist/board-composition.js"
+    },
     "./board-document": {
       "types": "./dist/board-document.d.ts",
       "default": "./dist/board-document.js"

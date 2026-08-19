@@ -4,10 +4,7 @@ import type {
 	SpacePendingDiffFileResponse,
 } from "@neta-art/cohub";
 import { HttpError } from "@neta-art/cohub";
-import {
-	boardItemToNode,
-	createEmptyBoardDocument,
-} from "$lib/board/board-document";
+
 import { ensureBoardExtension } from "$lib/board/board-file";
 import {
 	deleteFilePendingDraft,
@@ -1508,9 +1505,7 @@ export function createFileWorkspaceController(
 				path,
 				title: fileName,
 				mutationId: crypto.randomUUID(),
-				nodes: createEmptyBoardDocument().items.map((item, index, all) =>
-					boardItemToNode(item, index, all.length),
-				),
+				items: [],
 			});
 			await patchFsDirectory(parentPath, (entries) => [
 				...entries,

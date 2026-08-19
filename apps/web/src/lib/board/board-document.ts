@@ -1,4 +1,5 @@
 import { parseBoardManifest } from "@cohub/protocol";
+import { boardAuthoringItemToNode } from "@cohub/protocol/board-codec";
 import type { BoardNodeInput, BoardOperation } from "@neta-art/cohub";
 import {
 	BOARD_DOCUMENT_KIND,
@@ -96,13 +97,26 @@ export { parseBoardManifest };
  * core/order-key), not of its array index, which is what keeps a delete from
  * re-keying the rest of the board.
  */
-function boardItemToNodeWithKey(
+function boardItemToNodeWithKeyLegacy(
 	item: BoardItem,
 	orderKey: string,
 ): BoardNodeInput {
+	if (!isUnknownItem(item))
+		throw new Error(`Unexpected known item fallback: ${item.type}`);
 	const source = sourceForItem(item);
-	const base = {
+	const rawData: Record<string, unknown> = {};
+	for (const [key, value] of Object.entries(item.raw)) {
+		if (!(ITEM_BASE_KEYS as readonly string[]).includes(key))
+			rawData[key] = value;
+	}
+	const data = { ...(source?.data ?? {}), ...rawData };
+	delete data.locked;
+	delete data.metadata;
+	if (item.locked) data.locked = true;
+	if (item.metadata) data.metadata = item.metadata;
+	return {
 		nodeId: item.id,
+		type: unknownRealType(item),
 		parentId: source?.parentId ?? null,
 		orderKey,
 		x: item.frame.x,
@@ -110,182 +124,125 @@ function boardItemToNodeWithKey(
 		width: item.frame.width,
 		height: item.frame.height,
 		rotation: item.frame.rotation,
-		style: item.style ?? source?.style ?? {},
-	};
-	const preservedRef = {
 		refKind: source?.refKind ?? null,
 		refPath: source?.refPath ?? null,
 		refUrl: source?.refUrl ?? null,
+		view: source?.view ?? {},
+		style: source?.style ?? {},
+		data,
 	};
-	const preservedView = source?.view ?? {};
-	const dataWith = (
-		fields: Record<string, unknown>,
-		remove: readonly string[] = [],
-	) => {
-		const data = { ...(source?.data ?? {}), ...fields };
-		for (const key of remove) delete data[key];
-		delete data.locked;
-		delete data.metadata;
-		if (item.locked) data.locked = true;
-		if (item.metadata) data.metadata = item.metadata;
-		return data;
-	};
+}
 
-	// Unknown items (unrecognised or malformed) are reproduced from their
-	// preserved record before any type-specific handling. The node type comes from
-	// the real type stored in `raw`, not the reserved "unknown" discriminant.
-	if (isUnknownItem(item)) {
-		const rawData: Record<string, unknown> = {};
-		for (const [key, value] of Object.entries(item.raw)) {
-			if (!(ITEM_BASE_KEYS as readonly string[]).includes(key))
-				rawData[key] = value;
-		}
-		return {
-			...base,
-			...preservedRef,
-			type: unknownRealType(item),
-			view: preservedView,
-			data: dataWith(rawData),
-		};
-	}
+function authoringItemFromBoardItem(item: BoardItem) {
+	if (isUnknownItem(item)) return null;
+	const base = {
+		id: item.id,
+		frame: item.frame,
+		...(item.locked ? { locked: true } : {}),
+		...(item.metadata ? { metadata: item.metadata } : {}),
+	};
 	switch (item.type) {
 		case "text":
 			return {
 				...base,
-				...preservedRef,
-				type: "text",
-				view: preservedView,
-				data: dataWith(
-					{
-						text: item.text,
-						color: item.color,
-						fontSize: item.fontSize,
-					},
-					["autoSize"],
-				),
+				type: "text" as const,
+				props: { text: item.text, fontSize: item.fontSize },
+				style: { color: item.color },
 			};
 		case "geo":
 			return {
 				...base,
-				...preservedRef,
-				type: "geo",
-				view: preservedView,
-				data: dataWith({
-					geo: item.geo,
-					text: item.text,
-					color: item.color,
-					fillOpacity: item.fillOpacity,
-				}),
+				type: "geo" as const,
+				props: { shape: item.geo, text: item.text },
+				style: { color: item.color, fillOpacity: item.fillOpacity },
 			};
 		case "draw":
 			return {
 				...base,
-				...preservedRef,
-				type: "draw",
-				view: preservedView,
-				data: dataWith({
-					points: item.points,
-					color: item.color,
-					size: item.size,
-				}),
+				type: "draw" as const,
+				props: { points: item.points },
+				style: { color: item.color, strokeWidth: item.size },
 			};
 		case "arrow":
 			return {
 				...base,
-				...preservedRef,
-				type: "arrow",
-				view: preservedView,
-				data: dataWith({
+				type: "arrow" as const,
+				props: {
 					start: item.start,
 					end: item.end,
 					bend: item.bend,
-					color: item.color,
-					size: item.size,
 					arrowStart: item.arrowStart,
 					arrowEnd: item.arrowEnd,
 					label: item.label,
-				}),
+				},
+				style: { color: item.color, strokeWidth: item.size },
 			};
 		case "frame":
 			return {
 				...base,
-				...preservedRef,
-				type: "frame",
-				view: preservedView,
-				data: dataWith({ label: item.label, color: item.color }),
+				type: "frame" as const,
+				props: { label: item.label },
+				style: { color: item.color },
 			};
-		case "image": {
-			const data = dataWith({});
-			delete data.crop;
-			if (item.crop) data.crop = item.crop;
+		case "image":
 			return {
 				...base,
-				type: "image",
-				refKind: "space_file",
-				refPath: item.ref.path,
-				refUrl: null,
-				view: { ...preservedView, ...(item.snapshot ?? {}) },
-				data,
+				type: "image" as const,
+				props: item.crop ? { crop: item.crop } : {},
+				source: {
+					kind: "space-file" as const,
+					path: item.ref.path,
+					...(item.snapshot ? { snapshot: item.snapshot } : {}),
+				},
 			};
-		}
 		case "video":
-			return {
-				...base,
-				type: "video",
-				refKind: "space_file",
-				refPath: item.ref.path,
-				refUrl: null,
-				view: { ...preservedView, ...(item.snapshot ?? {}) },
-				data: dataWith({}),
-			};
 		case "audio":
-			return {
-				...base,
-				type: "audio",
-				refKind: "space_file",
-				refPath: item.ref.path,
-				refUrl: null,
-				view: { ...preservedView, ...(item.snapshot ?? {}) },
-				data: dataWith({}),
-			};
 		case "file":
 			return {
 				...base,
-				type: "file",
-				refKind: "space_file",
-				refPath: item.ref.path,
-				// A cover URL is display data, never a node ref: the server rejects
-				// network URLs in refUrl, and the ref must stay the workspace file.
-				refUrl: null,
-				view: { ...preservedView, ...(item.snapshot ?? {}) },
-				data: dataWith({}),
+				type: item.type,
+				props: {},
+				source: {
+					kind: "space-file" as const,
+					path: item.ref.path,
+					...(item.snapshot ? { snapshot: item.snapshot } : {}),
+				},
 			};
 		case "task":
 			return {
 				...base,
-				type: "task",
-				refKind: null,
-				refPath: null,
-				refUrl: null,
-				view: { ...preservedView, ...item.snapshot },
-				data: dataWith({ taskRunId: item.taskRunId }),
+				type: "task" as const,
+				props: { taskRunId: item.taskRunId, snapshot: item.snapshot },
 			};
-		default: {
-			const fallback = item as { type: string; raw?: Record<string, unknown> };
-			const rawData: Record<string, unknown> = {};
-			for (const [key, value] of Object.entries(fallback.raw ?? {})) {
-				if (!(ITEM_BASE_KEYS as readonly string[]).includes(key))
-					rawData[key] = value;
-			}
-			return {
-				...base,
-				...preservedRef,
-				type: fallback.type,
-				view: preservedView,
-				data: dataWith(rawData),
-			};
-		}
 	}
+}
+
+function boardItemToNodeWithKey(
+	item: BoardItem,
+	orderKey: string,
+): BoardNodeInput {
+	const authoring = authoringItemFromBoardItem(item);
+	if (authoring) {
+		const compiled = boardAuthoringItemToNode(authoring, { orderKey });
+		const source = sourceForItem(item);
+		if (!source) return compiled;
+		return {
+			...compiled,
+			parentId: source.parentId,
+			refKind: compiled.refKind ?? source.refKind ?? null,
+			refPath: compiled.refPath ?? source.refPath ?? null,
+			refUrl: compiled.refUrl ?? source.refUrl ?? null,
+			view: { ...source.view, ...compiled.view },
+			style: { ...source.style, ...compiled.style },
+			data: (() => {
+				const data = { ...source.data, ...compiled.data };
+				if (!item.locked) delete data.locked;
+				if (!item.metadata) delete data.metadata;
+				return data;
+			})(),
+		};
+	}
+	return boardItemToNodeWithKeyLegacy(item, orderKey);
 }
 
 /**

@@ -225,10 +225,16 @@ test("touched ids include patch and create parents, for the prefetch", () => {
     op({ type: "node.patch", payload: { nodeId: "b", patch: { parentId: "p2" } } }),
     op({ type: "node.delete", payload: { nodeId: "c" } }),
     op({
-      type: "sequence.upsert",
+      type: "composition.apply",
       payload: {
-        sequence: { id: "tour", name: "Tour", duration: 1_000, seed: "tour", restPose: {}, metadata: {} },
-        clips: [{
+        composition: {
+          id: "tour",
+          name: "Tour",
+          timeline: {
+            duration: 1_000,
+            tracks: [],
+            markers: [],
+            clips: [{
           id: "focus",
           kind: "camera.focus",
           kindVersion: 1,
@@ -238,12 +244,15 @@ test("touched ids include patch and create parents, for the prefetch", () => {
           layer: "screen",
           fill: "forwards",
           easing: "linear",
-          params: { focus: { type: "frame", frameId: "frame-1" } },
-          keyframes: [],
-          assetRefs: [],
-          seed: "focus",
+              params: { focus: { type: "frame", frameId: "frame-1" } },
+              assetRefs: [],
+              seed: "focus",
+              metadata: {},
+            }],
+          },
+          playback: { loop: false, endBehavior: "hold", reducedMotion: { mode: "base" } },
           metadata: {},
-        }],
+        },
       },
     }),
     op({ type: "board.patch", payload: { patch: { title: "T" } } }),

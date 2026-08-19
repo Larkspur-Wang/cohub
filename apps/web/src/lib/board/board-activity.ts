@@ -112,13 +112,20 @@ function touchedFrames(
 			operation.type === "node.delete"
 				? [operation.payload.nodeId]
 				: operation.type === "effect.upsert"
-					? operation.payload.effect.target.type === "node"
-						? [operation.payload.effect.target.nodeId]
+					? operation.payload.effect.target.type === "item"
+						? [operation.payload.effect.target.itemId]
 						: []
-					: operation.type === "sequence.upsert"
-						? operation.payload.clips.flatMap((clip) =>
-								clip.target.type === "node" ? [clip.target.nodeId] : [],
-							)
+					: operation.type === "composition.apply"
+						? [
+								...operation.payload.composition.timeline.tracks.flatMap(
+									(track) =>
+										track.target.type === "item" ? [track.target.itemId] : [],
+								),
+								...operation.payload.composition.timeline.clips.flatMap(
+									(clip) =>
+										clip.target.type === "item" ? [clip.target.itemId] : [],
+								),
+							]
 						: [];
 		for (const nodeId of nodeIds) {
 			const current = base(nodeId);

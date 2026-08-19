@@ -87,23 +87,21 @@ Examples:
 
   withJson(boards.command("playback-policy <board>")
     .description("Configure automatic Board playback")
-    .option("--sequence <id>", "Sequence to play")
+    .option("--composition <id>", "Composition to play")
     .option("--delay <ms>", "Delay before playback", "0")
-    .option("--loop", "Loop the sequence")
     .option("--clear", "Remove the playback policy"))
     .action(async (target: string, options: JsonOptions & {
-      sequence?: string;
+      composition?: string;
       delay: string;
-      loop?: boolean;
       clear?: boolean;
     }) => {
       try {
-        if (options.clear === Boolean(options.sequence)) throw new Error("Use --sequence or --clear");
+        if (options.clear === Boolean(options.composition)) throw new Error("Use --composition or --clear");
         const delayMs = finite(options.delay, "delay");
         if (delayMs < 0) throw new Error("delay must be non-negative");
         const policy: BoardPlaybackPolicy | null = options.clear
           ? null
-          : { sequenceId: options.sequence as string, delayMs, loop: Boolean(options.loop) };
+          : { compositionId: options.composition as string, delayMs };
         const board = await resolvedBoard(boards, target);
         showUpdated(await board.mutate({
           build: (current) => [boardPlaybackPolicyOperation(current.board.metadata, policy)],

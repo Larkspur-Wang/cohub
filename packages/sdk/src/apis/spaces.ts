@@ -1,4 +1,5 @@
 import type { SpacePublicEndpoints } from "@cohub/protocol/ports";
+import { BoardAuthoringItemSchema } from "@cohub/protocol";
 import type {
   PublicFileCreateUploadInput,
   PublicFileCreateUploadResponse,
@@ -20,10 +21,6 @@ import {
 } from "@cohub/protocol/realtime/types";
 import type { BoardAwarenessUpdate } from "@cohub/protocol/realtime";
 import { ensureRealtimeConnected } from "../realtime.js";
-import {
-  assertBoardNodes,
-  assertBoardTransactionNodeCreates,
-} from "../board/nodes.js";
 import type { WebsocketClient, WebsocketEventPayload } from "../websocket.js";
 import { HttpError, type HttpTransport, type Fetch } from "../transport.js";
 import {
@@ -96,13 +93,16 @@ import type {
   SpaceConfigInput,
   SpaceConfigResponse,
   SpaceConfigUpdateResponse,
+  BoardAuthoringSnapshot,
   BoardBootstrap,
   BoardCapabilities,
   BoardCreateInput,
   BoardInspectInput,
+  BoardMutationReceipt,
   BoardOperation,
   BoardPlaybackCommand,
   BoardPlaybackSnapshot,
+  BoardSemanticMutation,
   BoardSummary,
   BoardTransaction,
   BoardValidationResult,
@@ -1728,6 +1728,17 @@ export class BoardClient {
     return this.boards.summary(this.id, customFetch);
   }
 
+  authoring(customFetch?: Fetch) {
+    return this.boards.authoring(this.id, customFetch);
+  }
+
+  mutateSemantic(input: Omit<BoardSemanticMutation, "mutationId"> & { mutationId?: string }) {
+    return this.boards.mutateSemantic(this.id, {
+      ...input,
+      mutationId: input.mutationId ?? randomBoardId(),
+    });
+  }
+
   async mutate(input: BoardMutationInput) {
     const retries = input.retries ?? 1;
     if (!Number.isSafeInteger(retries) || retries < 0 || retries > 3) {
@@ -1736,13 +1747,21 @@ export class BoardClient {
     for (let attempt = 0; ; attempt += 1) {
       const current = await this.inspect({ include: input.include ?? [] });
       const operations = await input.build(current);
-      if (operations.length === 0) return current;
+      if (operations.length === 0) {
+        return {
+          mutationId: randomBoardId(),
+          status: "validated" as const,
+          replayed: false,
+          board: { id: current.board.id, version: current.board.version },
+          changed: { items: [], connections: [], effects: [], compositions: [], board: false },
+        } satisfies BoardMutationReceipt;
+      }
       try {
         return await this.apply({
           txId: randomBoardId(),
           baseVersion: current.board.version,
           operations,
-        }, { compact: true });
+        });
       } catch (cause) {
         if (!(cause instanceof BoardTransactionError) || !cause.isVersionConflict || attempt >= retries) {
           throw cause;
@@ -1755,8 +1774,8 @@ export class BoardClient {
     return this.boards.validate({ ...transaction, boardId: this.id });
   }
 
-  apply(transaction: BoardTransactionInput, options?: { compact?: boolean }) {
-    return this.boards.apply({ ...transaction, boardId: this.id }, options);
+  apply(transaction: BoardTransactionInput) {
+    return this.boards.apply({ ...transaction, boardId: this.id });
   }
 
   updateAwareness(seq: number, update: BoardAwarenessUpdate) {
@@ -1928,7 +1947,7 @@ export class SpaceBoardsApi {
   }
 
   create(input: BoardCreateInput) {
-    assertBoardNodes(input.nodes ?? []);
+    for (const item of input.items ?? []) BoardAuthoringItemSchema.parse(item);
     return this.transport.request<BoardBootstrap>(
       `/api/spaces/${this.spaceId}/boards`,
       {
@@ -1947,6 +1966,24 @@ export class SpaceBoardsApi {
     return this.transport.request<BoardBootstrap>(
       `/api/spaces/${this.spaceId}/boards/${boardId}${query ? `?${query}` : ""}`,
       { fetch: customFetch },
+    );
+  }
+
+  authoring(boardId: string, customFetch?: Fetch) {
+    return this.transport.request<BoardAuthoringSnapshot>(
+      `/api/spaces/${this.spaceId}/boards/${boardId}/authoring`,
+      { fetch: customFetch },
+    );
+  }
+
+  mutateSemantic(boardId: string, mutation: BoardSemanticMutation) {
+    return this.transport.request<BoardMutationReceipt>(
+      `/api/spaces/${this.spaceId}/boards/${boardId}/mutations`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(mutation),
+      },
     );
   }
 
@@ -1975,11 +2012,10 @@ export class SpaceBoardsApi {
     );
   }
 
-  async apply(transaction: BoardTransaction, options?: { compact?: boolean }) {
-    assertBoardTransactionNodeCreates(transaction.operations);
+  async apply(transaction: BoardTransaction) {
     try {
-      return await this.transport.request<BoardBootstrap>(
-        `/api/spaces/${this.spaceId}/boards/${transaction.boardId}/transactions${options?.compact ? "?compact=1" : ""}`,
+      return await this.transport.request<BoardMutationReceipt>(
+        `/api/spaces/${this.spaceId}/boards/${transaction.boardId}/transactions`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },

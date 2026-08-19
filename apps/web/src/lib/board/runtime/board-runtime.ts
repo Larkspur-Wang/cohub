@@ -25,8 +25,9 @@ export type BoardRuntimeViewState = {
 
 export type BoardRuntimeData = Pick<
 	BoardBootstrap,
-	"effects" | "sequences" | "clips" | "playback"
+	"effects" | "compositions" | "playback"
 > & {
+	boardId: string;
 	playbackPolicy: BoardPlaybackPolicy | null;
 };
 
@@ -34,9 +35,9 @@ export function boardRuntimeDataFromBootstrap(
 	bootstrap: BoardBootstrap,
 ): BoardRuntimeData {
 	return {
+		boardId: bootstrap.board.id,
 		effects: bootstrap.effects,
-		sequences: bootstrap.sequences,
-		clips: bootstrap.clips,
+		compositions: bootstrap.compositions,
 		playback: bootstrap.playback,
 		playbackPolicy: parseBoardPlaybackPolicy(bootstrap.board.metadata),
 	};
@@ -49,7 +50,7 @@ export function operationsRequireBoardRuntimeRefresh(
 	return operations.some(
 		(operation) =>
 			operation.type.startsWith("effect.") ||
-			operation.type.startsWith("sequence.") ||
+			operation.type.startsWith("composition.") ||
 			(operation.type === "board.patch" &&
 				(operation.payload.patch.metadata !== undefined ||
 					operation.payload.patch.metadataPatch !== undefined)),

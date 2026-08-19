@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { BoardClient, BoardTransactionError } from "../src/apis/spaces.js";
-import { BoardInputError } from "../src/board/nodes.js";
 import { CohubHttpClient } from "../src/http.js";
 import { HttpTransport, type Fetch } from "../src/transport.js";
 import type { WebsocketClient, WebsocketEventPayload } from "../src/websocket.js";
@@ -60,7 +59,7 @@ test("Board mutate rebuilds once after a version conflict", async () => {
 	const fetch: Fetch = async (input, init) => {
 		const url = String(input);
 		if (url.includes("/transactions")) {
-			assert.match(url, /\?compact=1$/);
+			assert.doesNotMatch(url, /\?compact=1$/);
 			applies += 1;
 			if (applies === 1) {
 				inspectVersion = 3;
@@ -69,12 +68,18 @@ test("Board mutate rebuilds once after a version conflict", async () => {
 					headers: { "Content-Type": "application/json" },
 				});
 			}
-			return jsonResponse({ board: { version: 4 }, nodes: [], connections: [], effects: [], sequences: [], clips: [], playback: null });
+			return jsonResponse({
+				mutationId: "mutation-1",
+				status: "applied",
+				replayed: false,
+				board: { id: "board-1", version: 4 },
+				changed: { items: [], connections: [], effects: [], compositions: [], board: true },
+			});
 		}
 		assert.equal(init?.method, undefined);
 		return jsonResponse({
 			board: { id: "board-1", spaceId: "space-1", title: "Plan", version: inspectVersion, metadata: {} },
-			nodes: [], connections: [], effects: [], sequences: [], clips: [], playback: null,
+			nodes: [], connections: [], effects: [], compositions: [], playback: null,
 		});
 	};
 	const board = new CohubHttpClient({ baseUrl: "https://api.example.test", fetch })
@@ -106,7 +111,7 @@ test("Board mutate rejects invalid retry counts before requesting", async () => 
 	assert.equal(requests, 0);
 });
 
-test("Board create rejects invalid nodes before making a request", async () => {
+test("Board create rejects invalid semantic items before making a request", async () => {
 	let requests = 0;
 	const fetch: Fetch = async () => {
 		requests += 1;
@@ -116,25 +121,14 @@ test("Board create rejects invalid nodes before making a request", async () => {
 	await assert.rejects(
 		async () => client.space("space-1").boards.create({
 			path: "bad.board",
-			nodes: [{
-				nodeId: "bad",
-				type: "rect",
-				parentId: null,
-				orderKey: null,
-				x: 0,
-				y: 0,
-				width: 100,
-				height: 80,
-				rotation: 0,
-				refKind: null,
-				refPath: null,
-				refUrl: null,
-				view: {},
-				style: {},
-				data: {},
+			items: [{
+				id: "bad",
+				type: "text",
+				frame: { x: 0, y: 0, width: 100, height: 80, rotation: 0 },
+				props: { text: "bad", fontSize: 1 },
 			}],
 		}),
-		(error) => error instanceof BoardInputError,
+		(error) => error instanceof Error && /fontSize/.test(error.message),
 	);
 	assert.equal(requests, 0);
 });

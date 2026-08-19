@@ -551,23 +551,49 @@ export const boardEffects = v2.table(
   }),
 );
 
-export const boardSequences = v2.table(
-  "board_sequences",
+export const boardCompositions = v2.table(
+  "board_compositions",
   {
     id: text("id").notNull(),
     boardId: uuid("board_id").notNull().references(() => boards.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     duration: doublePrecision("duration").notNull(),
-    seed: text("seed").notNull(),
-    restPose: jsonb("rest_pose").$type<Record<string, unknown>>().notNull().default({}),
+    playback: jsonb("playback").$type<Record<string, unknown>>().notNull().default({}),
+    markers: jsonb("markers").$type<Array<Record<string, unknown>>>().notNull().default([]),
     metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
     revision: integer("revision").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
-    primary: uniqueIndex("v2_uq_board_sequences_board_id").on(table.boardId, table.id),
-    boardIdx: index("v2_idx_board_sequences_board_id").on(table.boardId),
+    primary: uniqueIndex("v2_uq_board_compositions_board_id").on(table.boardId, table.id),
+    boardIdx: index("v2_idx_board_compositions_board_id").on(table.boardId),
+  }),
+);
+
+/**
+ * Timeline children stay normalized so Track/Clip revision CAS and incremental
+ * collaboration can be added without another storage migration. Composition
+ * apply is intentionally aggregate-level in protocol v2; writes can become
+ * incremental behind that stable command.
+ */
+export const boardTracks = v2.table(
+  "board_tracks",
+  {
+    id: text("id").notNull(),
+    boardId: uuid("board_id").notNull().references(() => boards.id, { onDelete: "cascade" }),
+    compositionId: text("composition_id").notNull(),
+    target: jsonb("target").$type<Record<string, unknown>>().notNull(),
+    channel: varchar("channel", { length: 160 }).notNull(),
+    channelVersion: integer("channel_version").notNull(),
+    interpolation: varchar("interpolation", { length: 20 }).notNull(),
+    fill: varchar("fill", { length: 20 }).notNull(),
+    keyframes: jsonb("keyframes").$type<Array<Record<string, unknown>>>().notNull(),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+  },
+  (table) => ({
+    primary: uniqueIndex("v2_uq_board_tracks_composition_id").on(table.boardId, table.compositionId, table.id),
+    compositionIdx: index("v2_idx_board_tracks_composition_id").on(table.boardId, table.compositionId),
   }),
 );
 
@@ -576,7 +602,7 @@ export const boardClips = v2.table(
   {
     id: text("id").notNull(),
     boardId: uuid("board_id").notNull().references(() => boards.id, { onDelete: "cascade" }),
-    sequenceId: text("sequence_id").notNull(),
+    compositionId: text("composition_id").notNull(),
     kind: varchar("kind", { length: 160 }).notNull(),
     kindVersion: integer("kind_version").notNull(),
     target: jsonb("target").$type<Record<string, unknown>>().notNull(),
@@ -586,14 +612,13 @@ export const boardClips = v2.table(
     fill: varchar("fill", { length: 20 }).notNull(),
     easing: varchar("easing", { length: 80 }).notNull(),
     params: jsonb("params").$type<Record<string, unknown>>().notNull().default({}),
-    keyframes: jsonb("keyframes").$type<Array<Record<string, unknown>>>().notNull().default([]),
     assetRefs: jsonb("asset_refs").$type<Array<Record<string, unknown>>>().notNull().default([]),
     seed: text("seed").notNull(),
     metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
   },
   (table) => ({
-    primary: uniqueIndex("v2_uq_board_clips_sequence_id").on(table.boardId, table.sequenceId, table.id),
-    timelineIdx: index("v2_idx_board_clips_timeline").on(table.boardId, table.sequenceId, table.start),
+    primary: uniqueIndex("v2_uq_board_clips_composition_id").on(table.boardId, table.compositionId, table.id),
+    timelineIdx: index("v2_idx_board_clips_timeline").on(table.boardId, table.compositionId, table.start),
   }),
 );
 
@@ -604,17 +629,21 @@ export const boardTransactions = v2.table(
     boardId: uuid("board_id").notNull().references(() => boards.id, { onDelete: "cascade" }),
     txId: text("tx_id").notNull(),
     baseVersion: integer("base_version").notNull(),
-    resultVersion: integer("result_version").notNull(),
+    /** Null for a validated no-op mutation that did not advance Board version. */
+    resultVersion: integer("result_version"),
     actorId: varchar("actor_id", { length: 255 }).notNull(),
     clientId: text("client_id"),
     undoGroupId: text("undo_group_id"),
     operations: jsonb("operations").$type<Array<Record<string, unknown>>>().notNull(),
+    receipt: jsonb("receipt").$type<Record<string, unknown>>().notNull(),
     metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
     boardTxUniqueIdx: uniqueIndex("v2_uq_board_transactions_board_tx").on(table.boardId, table.txId),
-    boardVersionUniqueIdx: uniqueIndex("v2_uq_board_transactions_board_version").on(table.boardId, table.resultVersion),
+    boardVersionUniqueIdx: uniqueIndex("v2_uq_board_transactions_board_version")
+      .on(table.boardId, table.resultVersion)
+      .where(sql`${table.resultVersion} is not null`),
   }),
 );
 
@@ -658,8 +687,8 @@ export const boardPlaybackStates = v2.table(
   {
     boardId: uuid("board_id").primaryKey().references(() => boards.id, { onDelete: "cascade" }),
     playbackId: uuid("playback_id").notNull(),
-    sequenceId: text("sequence_id").notNull(),
-    sequenceRevision: integer("sequence_revision").notNull(),
+    compositionId: text("composition_id").notNull(),
+    compositionRevision: integer("composition_revision").notNull(),
     playbackRevision: integer("playback_revision").notNull(),
     status: varchar("status", { length: 20 }).notNull(),
     position: doublePrecision("position").notNull(),

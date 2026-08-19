@@ -1,23 +1,17 @@
 import {
-  BoardClipSchema,
   BoardEffectSchema,
-  BoardSequenceSchema,
-  type BoardClip,
+  parseBoardCompositionInput,
   type BoardEffect,
-  type BoardNodeInput,
   type BoardOperation,
   type BoardPlaybackPolicy,
-  type BoardSequence,
+  type BoardComposition,
 } from "@cohub/protocol";
-import type { BoardConnection } from "@cohub/protocol/board-connection";
 import {
   BoardAppearanceSchema,
   type BoardAppearance,
 } from "@cohub/protocol/board-document";
 
 const EffectInputSchema = BoardEffectSchema.omit({ boardId: true, revision: true });
-const SequenceInputSchema = BoardSequenceSchema.omit({ boardId: true, revision: true });
-const ClipInputSchema = BoardClipSchema.omit({ sequenceId: true });
 
 export function patchBoardAppearance(
   current: BoardAppearance,
@@ -57,38 +51,6 @@ export function boardPlaybackPolicyOperation(
   return { type: "board.patch", payload: { patch: { metadata: next } } };
 }
 
-export function boardNodeCreateOperation(node: BoardNodeInput): BoardOperation {
-  return { type: "node.create", payload: { node } };
-}
-
-export function boardNodePatchOperation(
-  nodeId: string,
-  patch: Partial<Omit<BoardNodeInput, "nodeId">>,
-): BoardOperation {
-  return { type: "node.patch", payload: { nodeId, patch } };
-}
-
-export function boardNodeDeleteOperations(
-  nodeId: string,
-  connections: readonly BoardConnection[],
-): BoardOperation[] {
-  const deletes = connections
-    .filter(
-      (connection) =>
-        connection.source.nodeId === nodeId || connection.target.nodeId === nodeId,
-    )
-    .map(
-      (connection): BoardOperation => ({
-        type: "connection.delete",
-        payload: { connectionId: connection.id, reason: "node-cascade" },
-      }),
-    );
-  return [
-    ...deletes,
-    { type: "node.delete", payload: { nodeId, reason: "node-cascade" } },
-  ];
-}
-
 export function boardEffectUpsertOperation(
   effect: Omit<BoardEffect, "boardId" | "revision">,
 ): BoardOperation {
@@ -102,19 +64,17 @@ export function boardEffectDeleteOperation(effectId: string): BoardOperation {
   return { type: "effect.delete", payload: { effectId } };
 }
 
-export function boardSequenceUpsertOperation(input: {
-  sequence: Omit<BoardSequence, "boardId" | "revision">;
-  clips: Array<Omit<BoardClip, "sequenceId">>;
-}): BoardOperation {
+export function boardCompositionApplyOperation(
+  composition: Omit<BoardComposition, "revision">,
+): BoardOperation {
   return {
-    type: "sequence.upsert",
-    payload: {
-      sequence: SequenceInputSchema.parse(input.sequence),
-      clips: input.clips.map((clip) => ClipInputSchema.parse(clip)),
-    },
+    type: "composition.apply",
+    payload: { composition: parseBoardCompositionInput(composition) },
   };
 }
 
-export function boardSequenceDeleteOperation(sequenceId: string): BoardOperation {
-  return { type: "sequence.delete", payload: { sequenceId } };
+export function boardCompositionDeleteOperation(
+  compositionId: string,
+): BoardOperation {
+  return { type: "composition.delete", payload: { compositionId } };
 }

@@ -71,9 +71,9 @@ test("runtime operations require an atomic bootstrap refresh", () => {
 		type: "effect.delete",
 		payload: { effectId: "effect-1" },
 	} as BoardOperation;
-	const sequenceOperation = {
-		type: "sequence.delete",
-		payload: { sequenceId: "sequence-1" },
+	const compositionOperation = {
+		type: "composition.delete",
+		payload: { compositionId: "composition-1" },
 	} as BoardOperation;
 	assert.equal(operationsRequireBoardRuntimeRefresh([boardOperation]), false);
 	assert.equal(operationsRequireBoardRuntimeRefresh([metadataOperation]), true);
@@ -82,7 +82,10 @@ test("runtime operations require an atomic bootstrap refresh", () => {
 		true,
 	);
 	assert.equal(operationsRequireBoardRuntimeRefresh([effectOperation]), true);
-	assert.equal(operationsRequireBoardRuntimeRefresh([sequenceOperation]), true);
+	assert.equal(
+		operationsRequireBoardRuntimeRefresh([compositionOperation]),
+		true,
+	);
 });
 
 // ─── Schema: forward-compatible parsing ─────────────────────────────
