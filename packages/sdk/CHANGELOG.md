@@ -1,5 +1,19 @@
 # @neta-art/cohub
 
+## 6.0.0
+
+### Major Changes
+
+- 1db3791: Replace Board sequences with atomic animation compositions built from typed tracks, keyframes, procedural clips, markers, and explicit playback policies. Board mutations now return durable idempotency receipts, and the CLI exposes composition-first authoring commands.
+
+### Minor Changes
+
+- 342f6d5: Expose the current viewer and optional UI Preview invocation identifiers through `client.context()` for embedded Works.
+
+### Patch Changes
+
+- 19d15a2: Document and expose viewer-authorized `taskrun.view` access for published Works.
+
 ## 5.10.0
 
 ### Minor Changes

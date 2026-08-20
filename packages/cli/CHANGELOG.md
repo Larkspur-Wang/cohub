@@ -1,5 +1,19 @@
 # @neta-art/cohub-cli
 
+## 4.0.0
+
+### Major Changes
+
+- 1db3791: Replace Board sequences with atomic animation compositions built from typed tracks, keyframes, procedural clips, markers, and explicit playback policies. Board mutations now return durable idempotency receipts, and the CLI exposes composition-first authoring commands.
+
+### Patch Changes
+
+- 19d15a2: Document and expose viewer-authorized `taskrun.view` access for published Works.
+- Updated dependencies [1db3791]
+- Updated dependencies [19d15a2]
+- Updated dependencies [342f6d5]
+  - @neta-art/cohub@6.0.0
+
 ## 3.12.0
 
 ### Minor Changes
