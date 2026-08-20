@@ -197,6 +197,7 @@ but **not active** until the viewer approves them through a consent dialog
 triggered by `client.auth.request()`. These are **action** permissions.
 
 ```
+taskrun.view              — read Task Runs the viewer can already access
 session.prompt.readonly   — send read-only prompts (no side effects)
 session.prompt.fullaccess — send prompts with full access (write, create sessions)
 generation.create         — create generation tasks (image/video/audio)
@@ -213,7 +214,8 @@ user.usage.read           — read the viewer's aggregated usage
 `session.prompt.fullaccess` lets you **send** a prompt, but does **not** let
 you **read** the result — that needs `session.view` (a work scope).
 `generation.create` lets you **create** a generation task, but reading its
-result needs `taskrun.view` (a work scope).
+result needs `taskrun.view`, either from the publishing Space's work scopes or
+from viewer authorization checked against the requested Space or Session.
 
 ### Complete API → scope mapping
 

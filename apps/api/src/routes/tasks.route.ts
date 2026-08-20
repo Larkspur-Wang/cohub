@@ -3,7 +3,11 @@ import { db } from "../db/index.js";
 import { taskRuns } from "@cohub/db";
 import { eq, and, desc, inArray, lt, or } from "drizzle-orm";
 import { getOptionalAuth, useAuth, requireValidId, authzDenied } from "../lib/middleware.js";
-import { hasPermission } from "../permissions.js";
+import {
+  canAccessOwnTaskRuns,
+  canAccessUnscopedTaskRun,
+  hasPermission,
+} from "../permissions.js";
 import { taskQueue } from "../tasks.js";
 import { fallbackPublicUserProfile, getProfilesByUuids } from "../user-profiles.js";
 import { sanitizeTaskRunPricingForViewer } from "../task-run-privacy.js";
@@ -162,6 +166,7 @@ router.get("/", async (c) => {
   }
 
   if (!userId) return c.json({ message: "unauthorized" }, 401);
+  if (!(await canAccessOwnTaskRuns(user))) return authzDenied(c);
 
   const conditions = [eq(taskRuns.userUuid, userId)];
   applyTaskFilters({ conditions, taskRunIds, sessionId, cronJobId, taskType, status, cursor: cursorValue });
@@ -192,7 +197,7 @@ router.get("/:taskId", async (c) => {
     if (!(await hasPermission(user, "taskrun.view", { spaceId: run.spaceId, sessionId: run.sessionId ?? undefined }))) {
       return authzDenied(c);
     }
-  } else if (!user || run.userUuid !== user.uuid) {
+  } else if (!(await canAccessUnscopedTaskRun(user, run.userUuid))) {
     return authzDenied(c);
   }
 

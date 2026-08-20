@@ -53,6 +53,24 @@ export function asAccountIdentity(user: { uuid?: string | null } | null | undefi
   return uuid ? { uuid } : null;
 }
 
+/** Account owners may access their own Task Runs; Works need explicit viewer consent. */
+export async function canAccessOwnTaskRuns(user: AuthUserProfile | null) {
+  const workSession = getUserWorkSession(user);
+  if (workSession) return hasActiveViewerGrantPermission(workSession, "taskrun.view");
+  return Boolean(user?.uuid);
+}
+
+export async function canAccessUnscopedTaskRun(
+  user: AuthUserProfile | null,
+  ownerUserUuid: string | null,
+) {
+  return Boolean(
+    user &&
+      ownerUserUuid === user.uuid &&
+      (await canAccessOwnTaskRuns(user)),
+  );
+}
+
 const loadActiveViewerGrantScopes = async (workSession: CachedWorkSessionPrincipal) => {
   if (!workSession.workViewerGrantId) return [] as Permission[];
   const [grant] = await db
@@ -81,10 +99,24 @@ const resolveWorkSessionScopes = async (workSession: CachedWorkSessionPrincipal)
   return normalizePermissionScopes([...workSession.workScopes, ...viewerScopes]);
 };
 
-const hasWorkSessionScopedPermission = async (workSession: CachedWorkSessionPrincipal, permission: Permission, spaceId: string) => {
-  if (workSession.spaceId !== spaceId) return false;
-  if (scopeListHasPermission(workSession.workScopes, permission)) return true;
-  return hasActiveViewerGrantPermission(workSession, permission);
+const hasWorkSessionScopedPermission = async (
+  workSession: CachedWorkSessionPrincipal,
+  permission: Permission,
+  context: { spaceId: string; sessionId?: string },
+) => {
+  if (
+    workSession.spaceId === context.spaceId &&
+    scopeListHasPermission(workSession.workScopes, permission)
+  ) {
+    return true;
+  }
+  if (!(await hasActiveViewerGrantPermission(workSession, permission))) return false;
+  return hasSharedPermission({
+    store: permissionStore,
+    user: { uuid: workSession.userUuid },
+    permission,
+    context,
+  });
 };
 
 export async function hasPermission(
@@ -103,7 +135,7 @@ export async function hasPermission(
   }
 
   const workSession = getUserWorkSession(user);
-  if (workSession) return hasWorkSessionScopedPermission(workSession, permission, context.spaceId);
+  if (workSession) return hasWorkSessionScopedPermission(workSession, permission, context);
   const previewSession = getUserPreviewSession(user);
   if (previewSession) return hasPreviewSessionPermission(previewSession, permission, context.spaceId);
   const execution = getUserExecution(user);
@@ -155,7 +187,7 @@ export async function filterSessionsByPermission(
 ): Promise<SpaceSessionRow[]> {
   const workSession = getUserWorkSession(user);
   if (workSession) {
-    return await hasWorkSessionScopedPermission(workSession, permission, spaceId) ? sessions : [];
+    return await hasWorkSessionScopedPermission(workSession, permission, { spaceId }) ? sessions : [];
   }
   const previewSession = getUserPreviewSession(user);
   if (previewSession) return hasPreviewSessionPermission(previewSession, permission, spaceId) ? sessions : [];
@@ -184,9 +216,12 @@ export async function filterSpaceIdsByPermission(
 
   const workSession = getUserWorkSession(user);
   if (workSession) {
-    return (await hasWorkSessionScopedPermission(workSession, permission, workSession.spaceId))
-      ? spaceIds.filter((id) => id === workSession.spaceId)
-      : [];
+    const allowed = await Promise.all(
+      spaceIds.map((spaceId) =>
+        hasWorkSessionScopedPermission(workSession, permission, { spaceId }),
+      ),
+    );
+    return spaceIds.filter((_, index) => allowed[index]);
   }
 
   const previewSession = getUserPreviewSession(user);

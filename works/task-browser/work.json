@@ -1,0 +1,11 @@
+{
+  "key": "task-browser",
+  "title": "Tasks",
+  "targetType": "directory",
+  "targetRef": "works/task-browser/dist",
+  "workScopes": ["taskrun.view"],
+  "allowedViewerScopes": ["taskrun.view"],
+  "presentation": {
+    "hideCohubBar": true
+  }
+}

@@ -56,6 +56,7 @@ const PRIVATE_WORK_HTTP_CACHE = "private, no-store";
 const SANDBOX_PUBLIC_PORT_SET = new Set<number>(SANDBOX_PUBLIC_PORTS as readonly number[]);
 const ALLOWED_WORK_SCOPES = new Set<Permission>(["space.view", "session.view", "file.view", "taskrun.view"]);
 const ALLOWED_VIEWER_SCOPES = new Set<Permission>([
+  "taskrun.view",
   "session.prompt.readonly",
   "session.prompt.fullaccess",
   "generation.create",

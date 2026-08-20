@@ -32,6 +32,7 @@ import {
 	replaceState,
 } from "$app/navigation";
 import { page } from "$app/state";
+import { env as publicEnv } from "$env/dynamic/public";
 import {
 	type AccessState,
 	isBlockingAccessState,
@@ -212,6 +213,7 @@ type ActiveFsSource =
 const props = $props();
 const data = $derived((props as Props).data);
 const spaceId = $derived(data.spaceId);
+const taskBrowserWorkId = publicEnv.PUBLIC_TASK_BROWSER_WORK_ID?.trim() || null;
 const routeView = $derived(data.view);
 const routeSessionId = $derived(data.sessionId ?? null);
 const isNewSessionRoute = $derived(
@@ -563,6 +565,21 @@ const previewWorkspace = createPreviewWorkspaceController({
 		}, 3000);
 	},
 });
+function openTaskBrowser() {
+	if (!taskBrowserWorkId) return;
+	const sessionId = sessionChat.activeSessionId;
+	previewWorkspace.openWork({
+		workId: taskBrowserWorkId,
+		label: "Tasks",
+		invocation: {
+			surface: "preview",
+			source: "user",
+			spaceId,
+			...(sessionId ? { sessionId } : {}),
+		},
+	});
+}
+
 const inlineFileCopied = $derived(fileWorkspace.inlineFileCopied);
 const openWorkPublish = (
 	targetType: "file" | "directory" | "port",
@@ -3105,6 +3122,7 @@ const headerActions = {
         {newChatBackground}
         newChatBackgroundSpaceId={spaceId}
         onNewChatBackgroundComposerChip={handleNewChatBackgroundComposerChip}
+        onOpenTaskBrowser={taskBrowserWorkId ? openTaskBrowser : undefined}
         {shouldShowNewChatProfile}
         {newChatProfileExpanded}
         bind:newChatProfileViewportEl

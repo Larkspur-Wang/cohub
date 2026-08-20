@@ -1,0 +1,29 @@
+{
+  "name": "@cohub/work-task-browser",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite dev",
+    "lint": "biome lint src/*.ts vite.config.ts",
+    "lint:fix": "biome lint --write src/*.ts vite.config.ts",
+    "test": "node --import tsx --test 'src/**/*.test.ts'",
+    "typecheck": "svelte-check --tsconfig ./tsconfig.json"
+  },
+  "dependencies": {
+    "@fontsource/geist": "^5.2.9",
+    "@fontsource/geist-mono": "^5.2.8",
+    "@neta-art/cohub": "workspace:*",
+    "lucide-svelte": "^1.0.1",
+    "svelte": "^5.56.5"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.3",
+    "@sveltejs/vite-plugin-svelte": "^7.2.0",
+    "svelte-check": "^4.7.2",
+    "tsx": "4.23.1",
+    "typescript": "6.0.3",
+    "vite": "^8.1.4"
+  }
+}

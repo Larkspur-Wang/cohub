@@ -267,11 +267,14 @@ Work permissions come in **two disjoint sets**:
 
 - **Work scopes** (read, no consent): `space.view`, `session.view`,
   `file.view`, `taskrun.view` — granted at publish time.
-- **Viewer scopes** (action, consent-required): `session.prompt.fullaccess`,
-  `generation.create`, `user.space.list`, `user.session.list`,
-  `user.usage.read` — approved per-viewer via `auth.request()`.
+- **Viewer scopes** (consent-required): `taskrun.view`,
+  `session.prompt.fullaccess`, `generation.create`, `user.space.list`,
+  `user.session.list`, `user.usage.read` — approved per-viewer via
+  `auth.request()`.
 
-> **Read operations need work scopes. Action operations need viewer scopes.
+Viewer-granted `taskrun.view` is checked against the viewer's own access to the
+requested Space or Session. Other read operations need work scopes; action
+operations need viewer scopes.
 They never substitute for each other.** For example, `session.prompt.fullaccess`
 lets you send a prompt but does NOT let you read the reply — that needs
 `session.view` (a work scope). Similarly, `generation.create` lets you create

@@ -1,0 +1,3 @@
+CREATE INDEX "v2_idx_task_runs_generation_space_session_created" ON "v2"."task_runs" USING btree ("space_id","session_id","created_at","id") WHERE "v2"."task_runs"."task_type" = 'generation';--> statement-breakpoint
+CREATE INDEX "v2_idx_task_runs_generation_space_created" ON "v2"."task_runs" USING btree ("space_id","created_at","id") WHERE "v2"."task_runs"."task_type" = 'generation';--> statement-breakpoint
+CREATE INDEX "v2_idx_task_runs_generation_user_created" ON "v2"."task_runs" USING btree ("user_uuid","created_at","id") WHERE "v2"."task_runs"."task_type" = 'generation';

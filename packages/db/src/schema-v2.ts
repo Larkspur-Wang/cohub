@@ -1364,6 +1364,15 @@ export const taskRuns = v2.table(
       table.createdAt,
       table.id,
     ),
+    generationSpaceSessionCreatedIdx: index("v2_idx_task_runs_generation_space_session_created")
+      .on(table.spaceId, table.sessionId, table.createdAt, table.id)
+      .where(sql`${table.taskType} = 'generation'`),
+    generationSpaceCreatedIdx: index("v2_idx_task_runs_generation_space_created")
+      .on(table.spaceId, table.createdAt, table.id)
+      .where(sql`${table.taskType} = 'generation'`),
+    generationUserCreatedIdx: index("v2_idx_task_runs_generation_user_created")
+      .on(table.userUuid, table.createdAt, table.id)
+      .where(sql`${table.taskType} = 'generation'`),
     cronJobStatusCreatedIdx: index("v2_idx_task_runs_cron_job_status_created").on(
       table.cronJobId,
       table.status,

@@ -33,6 +33,11 @@ export const WORK_VIEWER_SCOPE_OPTIONS: {
 	description: string;
 }[] = [
 	{
+		scope: "taskrun.view",
+		label: "View viewer task runs",
+		description: "Read task runs the viewer can access.",
+	},
+	{
 		scope: "session.prompt.readonly",
 		label: "Prompt read-only",
 		description: "Allow viewer-authorized read access to prompts.",
