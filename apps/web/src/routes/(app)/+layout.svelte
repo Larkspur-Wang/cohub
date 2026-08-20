@@ -38,6 +38,7 @@ import {
 	beginMobileSessionViewTransition,
 	resolveMobileSessionNavTransition,
 } from "$lib/navigation-transition";
+import { activateSpaceStyle, deactivateSpaceStyle } from "$lib/space-style";
 import { authStore } from "$lib/stores/auth.svelte";
 import { initSpacePinRealtime } from "$lib/stores/space-pins.svelte";
 import { turnNotifications } from "$lib/stores/turn-notifications.svelte";
@@ -75,9 +76,20 @@ const currentLayoutSpaceId = $derived(
 		params: { id: page.params.id },
 	}),
 );
-
 let showHelpPanel = $state(false);
 let authReady = $state(false);
+
+$effect(() => {
+	if (!authReady) return;
+	const spaceId = currentLayoutSpaceId;
+	if (!spaceId) {
+		deactivateSpaceStyle();
+		return;
+	}
+	activateSpaceStyle(spaceId);
+	return () => deactivateSpaceStyle(spaceId);
+});
+
 let gesturePhase = $state<DrawerGesturePhase>("idle");
 let gestureDirection = $state<DrawerGestureDirection>(null);
 let activeTouchId = $state<number | null>(null);

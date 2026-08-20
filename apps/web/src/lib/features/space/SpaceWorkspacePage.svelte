@@ -97,12 +97,7 @@ import {
 	buildSpaceSessionRoute,
 	buildSpaceTaskRoute,
 } from "$lib/space-routes";
-import {
-	activateSpaceStyle,
-	deactivateSpaceStyle,
-	isSpaceStylePath,
-	refreshSpaceStyle,
-} from "$lib/space-style";
+import { isSpaceStylePath, refreshSpaceStyle } from "$lib/space-style";
 import { authStore } from "$lib/stores/auth.svelte";
 import { insertComposerSnippet } from "$lib/stores/composer-insert";
 import {
@@ -2487,7 +2482,6 @@ onMount(() => {
 		rightSidebarResizeCleanup?.();
 		immersiveChatResizeCleanup?.();
 		previewLayout.dispose();
-		deactivateSpaceStyle();
 		deactivateSpaceConfig();
 	};
 });
@@ -2499,7 +2493,6 @@ function resetSpaceScopedState(currentSpaceId: string) {
 	if (danmakuCatchupTimer) clearTimeout(danmakuCatchupTimer);
 	danmakuCatchupTimer = null;
 	danmakuController.clear();
-	activateSpaceStyle(currentSpaceId);
 	// Chat-scoped state (sessions/turns/tasks/scroll/generation/share) lives on host.
 	sessionChat.enterSpace(currentSpaceId);
 	space = null;
