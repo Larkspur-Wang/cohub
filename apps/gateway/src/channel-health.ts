@@ -87,6 +87,14 @@ export function classifyChannelError(raw: unknown): {
     };
   }
 
+  if (text.includes("disallowed intent") || /\b4014\b/.test(text)) {
+    return {
+      reasonCode: "permission",
+      message: "Missing permissions",
+      detail,
+    };
+  }
+
   if (
     text.includes("unauthorized") ||
     text.includes("401") ||
@@ -108,7 +116,6 @@ export function classifyChannelError(raw: unknown): {
     text.includes("missing permission") ||
     text.includes("missing access") ||
     text.includes("missing intents") ||
-    text.includes("disallowed intent") ||
     text.includes("forbidden")
   ) {
     return {

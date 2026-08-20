@@ -25,20 +25,32 @@ const OP_INVALID_SESSION = 9;
 const OP_HELLO = 10;
 const OP_HEARTBEAT_ACK = 11;
 
-const INTENT_GUILD_MESSAGES = 1 << 9;
-const INTENT_DIRECT_MESSAGE = 1 << 12;
 const INTENT_GROUP_AND_C2C = 1 << 25;
-const DEFAULT_INTENTS = INTENT_GUILD_MESSAGES | INTENT_DIRECT_MESSAGE | INTENT_GROUP_AND_C2C;
+const INTENT_PUBLIC_GUILD_MESSAGES = 1 << 30;
+export const QQ_GATEWAY_INTENTS = INTENT_GROUP_AND_C2C | INTENT_PUBLIC_GUILD_MESSAGES;
 const RECONNECT_BASE_MS = 1_000;
 const RECONNECT_MAX_MS = 30_000;
 const RECONNECT_CONFIG_ERROR_MS = 5 * 60_000;
+
+export class QQGatewayCloseError extends Error {
+  constructor(
+    public readonly code: number,
+    public readonly reason: string,
+  ) {
+    super(`WebSocket closed: code=${code}${reason ? ` reason=${reason}` : ""}`);
+    this.name = "QQGatewayCloseError";
+  }
+}
 
 export function resolveQQReconnectDelay(error: unknown, reconnectAttempts: number, random = Math.random): number {
   const exponentialDelay = Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * 2 ** reconnectAttempts);
   if (error instanceof QQApiError && error.retryAfterMs != null) {
     return Math.max(RECONNECT_BASE_MS, error.retryAfterMs);
   }
-  if (error instanceof QQApiError && error.status >= 400 && error.status < 500) {
+  if (
+    (error instanceof QQApiError && error.status >= 400 && error.status < 500) ||
+    (error instanceof QQGatewayCloseError && error.code === 4014)
+  ) {
     return RECONNECT_CONFIG_ERROR_MS;
   }
   return Math.floor(random() * exponentialDelay);
@@ -114,10 +126,11 @@ export class QQWebSocketTransport {
     });
 
     ws.on("close", (code, reason) => {
-      logger.warn(`[QQ:${this.options.channelId}] WebSocket closed`, { code, reason: reason.toString() });
+      const closeError = new QQGatewayCloseError(code, reason.toString().trim());
+      logger.warn(`[QQ:${this.options.channelId}] WebSocket closed`, { code, reason: closeError.reason });
       if (!this.destroyed) {
-        void markChannelDegraded(this.options.channelId, `WebSocket closed: code=${code}`).catch(() => undefined);
-        this.scheduleReconnect();
+        void markChannelDegraded(this.options.channelId, closeError).catch(() => undefined);
+        this.scheduleReconnect(closeError);
       }
     });
 
@@ -220,7 +233,7 @@ export class QQWebSocketTransport {
       op: OP_IDENTIFY,
       d: {
         token: `QQBot ${accessToken}`,
-        intents: DEFAULT_INTENTS,
+        intents: QQ_GATEWAY_INTENTS,
         shard: [0, 1],
       },
     }));
