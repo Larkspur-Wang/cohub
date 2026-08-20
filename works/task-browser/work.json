@@ -2,7 +2,7 @@
   "key": "task-browser",
   "title": "Tasks",
   "targetType": "directory",
-  "targetRef": "works/task-browser/dist",
+  "targetRef": "dist",
   "workScopes": ["taskrun.view"],
   "allowedViewerScopes": ["taskrun.view"],
   "presentation": {

@@ -15,7 +15,7 @@ import {
   RefreshCw,
   Volume2,
   X,
-} from "lucide-svelte";
+} from "@lucide/svelte";
 import { onMount } from "svelte";
 import { detailOutputSource } from "./media";
 import { taskBrowserScopes, type TaskBrowserScope } from "./scope";
@@ -284,7 +284,6 @@ onMount(() => {
           {#if authorizing}<LoaderCircle class="spin" />{/if}
           Authorize
         </button>
-        {#if error}<small>{error}</small>{/if}
       </div>
     {:else if error && tasks.length === 0}
       <div class="center-state error-state">
