@@ -4,6 +4,19 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v2.26 — 2026-08-20
+
+- **Semantic composition protocol**: Replace Board animation sequences with atomic compositions built from typed tracks, keyframes, procedural clips, markers, and explicit playback policies. Board mutations now return durable idempotency receipts with replay-safe retries, and the CLI gains composition-first authoring commands (`boards items`, `boards effects`, `boards compositions`) backed by a new semantic mutation API.
+- **Board protocol refactor**: Consolidate Board authoring, composition, codec, capability-registry, and snapshot-upgrade logic into a dedicated `@cohub/protocol` package with typed Zod schemas, rename nodes to items across the wire format, and ship a database migration that transparently upgrades legacy sequences, clips, and effects to the new composition model.
+- **Multimodal task browser**: Ship a new repository-managed Work (Svelte) for browsing multimodal generation tasks, and expose viewer-authorized `taskrun.view` access so published Works can read task runs on the viewer's behalf.
+- **UI preview runtime context**: Extend `client.context()` for embedded Works with the current viewer identity and invocation details (surface, source, space/session/turn/tool-call IDs), letting previews adapt to who opened them and from where.
+- **Prompt template context variables**: Add `{{cohub.session.id}}`, `{{cohub.space.id}}`, and `{{cohub.user.uuid}}` system variables to prompt templates across API and worker, rendered through a shared `renderPromptTemplate` utility.
+
+### Bug Fixes
+
+- Preserve animated node rendering in the Board stage by removing the conflicting Pixi texture-upload path
+- Refresh the autoplay policy in live Board previews so animations honor the current reduced-motion setting
+
 ## v2.25 — 2026-08-18
 
 - **Configurable Board backgrounds**: persist solid colors or public image backgrounds with cover, contain, and repeat fitting, position and opacity controls, browser rendering, resilient fallbacks, and consistent headless and image exports
