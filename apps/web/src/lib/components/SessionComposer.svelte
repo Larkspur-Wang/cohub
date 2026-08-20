@@ -1520,7 +1520,7 @@ $effect(() => {
 							<button
 								type="button"
 								class={`voice-record-button relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full border transition-all disabled:cursor-not-allowed disabled:opacity-50 ${isVoiceRecording ? 'border-brand/45 bg-brand text-brand-contrast-fg shadow-sm' : isVoiceStarting ? 'border-border-subtle bg-bg-hover-strong text-text-secondary' : 'border-transparent text-text-tertiary hover:bg-bg-hover hover:text-text-primary'}`}
-								disabled={disabled || sending || showAbort || isVoiceStarting}
+								disabled={disabled || sending || isVoiceStarting}
 								title={isVoiceRecording ? "Stop voice input" : "Start voice input"}
 								aria-label={isVoiceRecording ? "Stop voice input" : "Start voice input"}
 								aria-pressed={isVoiceRecording}
