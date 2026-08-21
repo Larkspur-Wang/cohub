@@ -362,14 +362,12 @@ export function createSessionScrollController() {
 	}
 
 	/**
-	 * Cached user-turn geometry, ascending by document position. Re-measures
-	 * synchronously once when the timeline belongs to a different session.
+	 * Cached user-turn geometry, ascending by document position. Empty when
+	 * the cache belongs to another session — measurement paths refresh it and
+	 * bump the version; readers never measure so effects stay write-free.
 	 */
 	function getTurnAnchorGeometry(sessionId: string) {
-		if (turnGeometrySessionId !== sessionId) {
-			measureTurnMarkerPositions();
-		}
-		return turnAnchorGeometry;
+		return turnGeometrySessionId === sessionId ? turnAnchorGeometry : [];
 	}
 
 	function stopVimScroll() {

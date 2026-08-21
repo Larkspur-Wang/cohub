@@ -940,7 +940,9 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		beginAnchorRestoreWait();
 		const anchor = getSessionScrollAnchor(targetId);
 		if (!anchor) {
-			restoreSessionScrollToBottom(targetId);
+			// Deferred: the bottom restore cancels this restore by writing state
+			// this effect reads — running it synchronously would self-invalidate.
+			void tick().then(() => restoreSessionScrollToBottom(targetId));
 			return;
 		}
 		if (!isSessionScrollAnchorTurnLoaded(anchor, state.turns)) {
@@ -3638,17 +3640,11 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	/**
 	 * Safety net only: turn merges, markdown renders, and resizes re-run the
 	 * reactive restore path. Ticks back off so a stuck restore costs a handful
-	 * of cheap checks instead of a polling loop.
+	 * of cheap checks instead of a polling loop. Expiry is evaluated inside
+	 * the timer only — never synchronously from an effect.
 	 */
 	function scheduleAnchorRestoreRetry() {
 		if (anchorRestoreRetryTimer || anchorRestoreWaitStartedAt === 0) return;
-		if (
-			Date.now() - anchorRestoreWaitStartedAt >=
-			SESSION_SCROLL_RESTORE_TIMEOUT_MS
-		) {
-			expireAnchorRestore();
-			return;
-		}
 		const delay =
 			SESSION_SCROLL_RESTORE_RETRY_DELAYS_MS[
 				Math.min(
@@ -3659,6 +3655,13 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		anchorRestoreRetryStep += 1;
 		anchorRestoreRetryTimer = setTimeout(() => {
 			anchorRestoreRetryTimer = null;
+			if (
+				Date.now() - anchorRestoreWaitStartedAt >=
+				SESSION_SCROLL_RESTORE_TIMEOUT_MS
+			) {
+				expireAnchorRestore();
+				return;
+			}
 			maybeCompleteAnchorRestore();
 			scheduleAnchorRestoreRetry();
 		}, delay);
