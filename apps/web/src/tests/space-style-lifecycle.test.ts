@@ -15,7 +15,19 @@ test("Space custom styles stay mounted while opening Space settings", () => {
 	assert.match(appLayout, /const spaceId = currentLayoutSpaceId;/);
 	assert.match(appLayout, /if \(!authReady\) return;/);
 	assert.match(appLayout, /activateSpaceStyle\(spaceId\)/);
-	assert.match(appLayout, /deactivateSpaceStyle\(spaceId\)/);
+	assert.match(appLayout, /deactivateSpaceStyle\(\)/);
+	assert.doesNotMatch(
+		appLayout,
+		/return \(\) => deactivateSpaceStyle\(spaceId\)/,
+	);
 	assert.doesNotMatch(workspacePage, /activateSpaceStyle/);
 	assert.doesNotMatch(workspacePage, /deactivateSpaceStyle/);
+});
+
+test("Space custom style activation is idempotent for route data updates", () => {
+	const styleSource = readFileSync(
+		new URL("../lib/space-style.ts", import.meta.url),
+		"utf8",
+	);
+	assert.match(styleSource, /if \(activeSpaceId === spaceId\) return;/);
 });

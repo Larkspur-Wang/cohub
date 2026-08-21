@@ -198,6 +198,9 @@ async function loadSpaceStyle(
 
 export function activateSpaceStyle(spaceId: string) {
 	if (typeof document === "undefined") return;
+	// Layout effects can rerun while the current route data is updating. Keep
+	// activation idempotent so those updates do not refetch the same stylesheet.
+	if (activeSpaceId === spaceId) return;
 	clearRetryTimer();
 	activeSpaceId = spaceId;
 	activeVersion += 1;

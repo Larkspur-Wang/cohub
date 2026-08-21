@@ -87,7 +87,6 @@ $effect(() => {
 		return;
 	}
 	activateSpaceStyle(spaceId);
-	return () => deactivateSpaceStyle(spaceId);
 });
 
 let gesturePhase = $state<DrawerGesturePhase>("idle");
