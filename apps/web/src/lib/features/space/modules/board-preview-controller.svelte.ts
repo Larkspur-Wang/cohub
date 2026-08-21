@@ -662,6 +662,22 @@ export function createBoardPreviewController(
 		);
 	}
 
+	function hasConsecutiveRemoteEvents(
+		boardId: string,
+		events: PendingRemoteEvent[],
+	): boolean {
+		const localVersion = syncVersionByBoardId[boardId] ?? null;
+		if (localVersion == null) return false;
+		const versions = events
+			.filter((event) => event.version > localVersion)
+			.map((event) => event.version)
+			.sort((a, b) => a - b);
+		return (
+			versions.length > 1 &&
+			versions.every((version, index) => version === localVersion + index + 1)
+		);
+	}
+
 	/** Full authoring refresh used for version gaps or missing projections. */
 	function requestRemoteRefresh(boardId: string) {
 		if (!hasBoardId(boardId)) return;
@@ -801,6 +817,13 @@ export function createBoardPreviewController(
 
 				let needsBootstrap = pendingRemoteBootstrap.has(boardId);
 				pendingRemoteBootstrap.delete(boardId);
+
+				// A burst of contiguous events is cheaper and safer to reconcile from
+				// one authoritative snapshot than by issuing one read per version.
+				// Keep the single-event path incremental for the common low-volume case.
+				const shouldBatch =
+					!needsBootstrap && hasConsecutiveRemoteEvents(boardId, events);
+				if (shouldBatch) needsBootstrap = true;
 
 				// Events that failed contiguous semantic projection are retried after a
 				// full authoring snapshot.
