@@ -1,9 +1,6 @@
 ---
 "@neta-art/cohub": major
 "@neta-art/cohub-cli": major
-"@cohub/protocol": major
-"@cohub/core": minor
-"@cohub/api": minor
 ---
 
 Board semantic authoring protocol
