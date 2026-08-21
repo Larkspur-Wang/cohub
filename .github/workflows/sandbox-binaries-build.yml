@@ -6,11 +6,12 @@ name: Sandbox Binaries Build and Release
 # are attached to a GitHub Release; on other runs they are uploaded as artifacts.
 
 on:
-  workflow_call:
-    inputs:
-      source_sha:
-        required: false
-        type: string
+  push:
+    tags:
+      - 'v*.*.*'
+    paths:
+      - 'apps/sandbox/**'
+      - '.github/workflows/sandbox-binaries-build.yml'
   pull_request:
     paths:
       - 'apps/sandbox/**'
@@ -40,12 +41,10 @@ jobs:
             goarch: arm64
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ inputs.source_sha || github.sha }}
+        uses: actions/checkout@v4
 
       - name: Setup Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@v5
         with:
           go-version: '1.24'
           cache-dependency-path: apps/sandbox/go.sum
@@ -92,7 +91,7 @@ jobs:
           sha256sum "${BASE}.tar.gz" > "${BASE}.tar.gz.sha256"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ env.BINARY_NAME }}-${{ matrix.goos }}-${{ matrix.goarch }}
           path: |
@@ -109,7 +108,7 @@ jobs:
       contents: write
     steps:
       - name: Download artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v4
         with:
           path: artifacts
 
@@ -123,7 +122,7 @@ jobs:
           ls -la release
 
       - name: Publish to GitHub Release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             release/*.tar.gz
@@ -143,7 +142,7 @@ jobs:
       OSS_REGION: us-west-1
     steps:
       - name: Download artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v4
         with:
           path: artifacts
 

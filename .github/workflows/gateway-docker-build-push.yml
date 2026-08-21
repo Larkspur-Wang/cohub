@@ -1,21 +1,21 @@
 name: Gateway Docker Build and Push
 
 on:
-  workflow_call:
-    inputs:
-      source_sha:
-        required: false
-        type: string
-      skip_preflight:
-        required: false
-        type: boolean
-        default: false
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*.*.*'
+    paths:
+      - 'apps/gateway/**'
+      - 'packages/**'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   REGISTRY: git.talesofai.com
   NAMESPACE: ${{ secrets.GITEA_OWNER }}
   IMAGE_NAME: cohub-gateway
@@ -31,9 +31,7 @@ jobs:
       image_version: ${{ steps.meta.outputs.version }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ inputs.source_sha || github.sha }}
+        uses: actions/checkout@v4
 
       - name: Validate service tag
         if: ${{ startsWith(github.ref, 'refs/tags/') }}
@@ -46,18 +44,15 @@ jobs:
           fi
 
       - name: Setup pnpm
-        if: ${{ !inputs.skip_preflight }}
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@v4
 
       - name: Setup Node.js
-        if: ${{ !inputs.skip_preflight }}
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@v4
         with:
           node-version: '24'
           cache: 'pnpm'
 
       - name: Configure Talesofai npm auth
-        if: ${{ !inputs.skip_preflight }}
         run: |
           if [ -z "$GITEA_NPM_TOKEN" ]; then
             echo "GITEA_NPM_TOKEN not set; installing without private billing packages"
@@ -67,26 +62,22 @@ jobs:
           fi
 
       - name: Install dependencies
-        if: ${{ !inputs.skip_preflight }}
         run: pnpm install --frozen-lockfile
 
       - name: Build dependency closure
-        if: ${{ !inputs.skip_preflight }}
         run: pnpm --filter @cohub/gateway... build
 
       - name: Lint
-        if: ${{ !inputs.skip_preflight }}
         run: pnpm --filter @cohub/gateway lint
 
       - name: Typecheck
-        if: ${{ !inputs.skip_preflight }}
         run: pnpm --filter @cohub/gateway typecheck
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@v3
 
       - name: Login to Docker Registry
-        uses: docker/login-action@v4
+        uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ secrets.GITEA_USERNAME }}
@@ -94,17 +85,17 @@ jobs:
 
       - name: Extract metadata
         id: meta
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=main-{{sha}},enable=${{ github.ref == 'refs/heads/main' }}
+            type=ref,event=branch,suffix=-{{sha}}
             type=sha,format=short
-            type=raw,value=${{ github.ref_name }},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=ref,event=tag
+            type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: ./apps/gateway/Dockerfile
@@ -119,13 +110,13 @@ jobs:
 
   deploy-dev:
     needs: build-and-push
-    if: ${{ (inputs.skip_preflight || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' }}
+    if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     env:
       IMAGE_TAG: ${{ needs.build-and-push.outputs.image_version }}
     steps:
       - name: Setup kubectl
-        uses: azure/setup-kubectl@v5
+        uses: azure/setup-kubectl@v3
         with:
           version: 'v1.30.0'
 
@@ -144,11 +135,11 @@ jobs:
 
   deploy-prod:
     needs: build-and-push
-    if: ${{ (inputs.skip_preflight || github.event_name == 'workflow_dispatch') && startsWith(github.ref, 'refs/tags/v') }}
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-latest
     steps:
       - name: Setup kubectl
-        uses: azure/setup-kubectl@v5
+        uses: azure/setup-kubectl@v3
         with:
           version: 'v1.30.0'
 
