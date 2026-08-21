@@ -618,7 +618,7 @@ async function syncUserProfileFromLogto(input: {
         error,
       });
       if (stored) return stored;
-      // No matching cache yet: store non-username fields from Logto so /api/me still works.
+      // No matching cache yet: store non-username fields from Logto so /api/me still apps.
     }
   }
 

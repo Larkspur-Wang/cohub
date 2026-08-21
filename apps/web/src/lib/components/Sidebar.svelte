@@ -70,13 +70,13 @@ import {
 	type LabelAssignableCohubResource,
 	setCohubResourceDragData,
 } from "$lib/drag/cohub-resource-drag";
-import { withSidebarMainPreview } from "$lib/features/space/modules/workspace-preview-route";
 import {
-	createWorkMutationBuffer,
-	upsertWorkSnapshot,
-	WORKS_CHANGED_EVENT,
-	type WorksChangedDetail,
-} from "$lib/features/work/work-realtime";
+	APPS_CHANGED_EVENT,
+	type AppsChangedDetail,
+	createAppMutationBuffer,
+	upsertAppSnapshot,
+} from "$lib/features/app/app-realtime";
+import { withSidebarMainWindow } from "$lib/features/space/modules/window-route";
 import { extractGenerationPromptPreview } from "$lib/generation-task-media";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { hydrateLabelItemsById } from "$lib/labels/label-resource-hydrator";
@@ -98,6 +98,7 @@ import {
 } from "$lib/session-sort";
 import {
 	buildSessionsRoute,
+	buildSpaceAppRoute,
 	buildSpaceCheckpointNewRoute,
 	buildSpaceCheckpointRoute,
 	buildSpaceCronjobNewRoute,
@@ -107,8 +108,8 @@ import {
 	buildSpaceSessionRoute,
 	buildSpaceSettingsRoute,
 	buildSpaceTaskRoute,
-	buildSpaceWorkRoute,
 } from "$lib/space-routes";
+import { clearGrantedAppScopes } from "$lib/stores/app-grant-cache";
 import { authStore } from "$lib/stores/auth.svelte";
 import { billingCatalogStore } from "$lib/stores/billing-catalog.svelte";
 import { insertComposerSnippet } from "$lib/stores/composer-insert";
@@ -190,7 +191,6 @@ import {
 	setCachedTaskRuns,
 } from "$lib/stores/task-runs-cache";
 import { uiState } from "$lib/stores/ui.svelte";
-import { clearGrantedWorkScopes } from "$lib/stores/work-grant-cache";
 import { formatCompactAbsoluteTime } from "$lib/time-format";
 import { clearActivityCache } from "$lib/user-activity";
 import { resolveWorkspaceRouteContext } from "$lib/workspace-route";
@@ -350,7 +350,7 @@ let works = $state<WorkRecord[]>([]);
  * Realtime mutations seen while a full list request is in flight, replayed onto
  * the response so a publish mid-load cannot hide the Space's other Works.
  */
-const worksBuffer = createWorkMutationBuffer();
+const worksBuffer = createAppMutationBuffer();
 let loadingCronjobs = $state(false);
 let refreshingCheckpoints = $state(false);
 let loadingCronjobsSpaceId = $state<string | null>(null);
@@ -381,7 +381,7 @@ const workspaceRoute = $derived(
 );
 const currentSpaceId = $derived(workspaceRoute.spaceId);
 const activeSessionId = $derived(workspaceRoute.sessionId);
-const activeWorkId = $derived(workspaceRoute.workId);
+const activeWorkId = $derived(workspaceRoute.appId);
 const activeCheckpointId = $derived(workspaceRoute.checkpointId);
 const activeCronjobId = $derived(workspaceRoute.cronjobId);
 const activeTaskId = $derived(workspaceRoute.taskId);
@@ -2425,12 +2425,12 @@ function openSpacePalette() {
 	);
 }
 
-function withSidebarPreview(pathname: string) {
-	return withSidebarMainPreview(pathname, { isMobile });
+function mainRouteWithWindow(pathname: string) {
+	return withSidebarMainWindow(pathname, { isMobile });
 }
 
 function buildPreferredSessionRoute(spaceId: string, sessionId: string) {
-	return withSidebarPreview(buildSpaceSessionRoute(spaceId, sessionId));
+	return mainRouteWithWindow(buildSpaceSessionRoute(spaceId, sessionId));
 }
 
 async function handleNavigateToSession(sessionId: string) {
@@ -2447,34 +2447,36 @@ async function handleNavigateToCheckpoint(checkpointId: string) {
 	onClose?.();
 	if (!currentSpaceId) return;
 	await goto(
-		withSidebarPreview(buildSpaceCheckpointRoute(currentSpaceId, checkpointId)),
+		mainRouteWithWindow(
+			buildSpaceCheckpointRoute(currentSpaceId, checkpointId),
+		),
 	);
 }
 
 async function handleNavigateToNewCheckpoint() {
 	onClose?.();
 	if (!currentSpaceId) return;
-	await goto(withSidebarPreview(buildSpaceCheckpointNewRoute(currentSpaceId)));
+	await goto(mainRouteWithWindow(buildSpaceCheckpointNewRoute(currentSpaceId)));
 }
 
 async function handleNavigateToCronjob(cronjobId: string) {
 	onClose?.();
 	if (!currentSpaceId) return;
 	await goto(
-		withSidebarPreview(buildSpaceCronjobRoute(currentSpaceId, cronjobId)),
+		mainRouteWithWindow(buildSpaceCronjobRoute(currentSpaceId, cronjobId)),
 	);
 }
 
 async function handleNavigateToNewCronjob() {
 	onClose?.();
 	if (!currentSpaceId) return;
-	await goto(withSidebarPreview(buildSpaceCronjobNewRoute(currentSpaceId)));
+	await goto(mainRouteWithWindow(buildSpaceCronjobNewRoute(currentSpaceId)));
 }
 
 async function handleNavigateToTask(taskId: string) {
 	onClose?.();
 	if (!currentSpaceId) return;
-	await goto(withSidebarPreview(buildSpaceTaskRoute(currentSpaceId, taskId)));
+	await goto(mainRouteWithWindow(buildSpaceTaskRoute(currentSpaceId, taskId)));
 }
 
 function getCurrentSpaceOwnerUsername() {
@@ -2486,23 +2488,23 @@ function getCurrentSpaceOwnerUsername() {
 	);
 }
 
-async function handleNavigateToWork(workId: string) {
+async function handleNavigateToWork(appId: string) {
 	onClose?.();
 	if (!currentSpaceId) return;
-	await goto(withSidebarPreview(buildSpaceWorkRoute(currentSpaceId, workId)));
+	await goto(mainRouteWithWindow(buildSpaceAppRoute(currentSpaceId, appId)));
 }
 
 function handleWorksChanged(event: Event) {
-	const detail = (event as CustomEvent<WorksChangedDetail>).detail;
+	const detail = (event as CustomEvent<AppsChangedDetail>).detail;
 	if (!currentSpaceId || detail?.spaceId !== currentSpaceId) return;
-	if (detail.work) {
-		worksBuffer.upsert(detail.work);
-		works = upsertWorkSnapshot(works, detail.work);
+	if (detail.app) {
+		worksBuffer.upsert(detail.app);
+		works = upsertAppSnapshot(works, detail.app);
 		return;
 	}
-	if (detail.deletedWorkId) {
-		worksBuffer.remove(detail.deletedWorkId);
-		works = works.filter((work) => work.id !== detail.deletedWorkId);
+	if (detail.deletedAppId) {
+		worksBuffer.remove(detail.deletedAppId);
+		works = works.filter((app) => app.id !== detail.deletedAppId);
 		return;
 	}
 	void loadWorksForSpace(currentSpaceId, true);
@@ -2512,7 +2514,7 @@ async function handleCreateNewSession() {
 	if (!currentSpaceId || creatingSession) return;
 	createSessionError = "";
 	try {
-		await goto(withSidebarPreview(buildSpaceNewSessionRoute(currentSpaceId)), {
+		await goto(mainRouteWithWindow(buildSpaceNewSessionRoute(currentSpaceId)), {
 			keepFocus: true,
 			noScroll: true,
 		});
@@ -2961,7 +2963,7 @@ async function handleLogout() {
 	const userUuid = authStore.userUuid;
 	if (userUuid) clearActivityCache(userUuid);
 	if (userUuid) clearRecentSpace(userUuid);
-	if (userUuid) clearGrantedWorkScopes(userUuid);
+	if (userUuid) clearGrantedAppScopes(userUuid);
 	authStore.reset();
 	try {
 		await logtoClient.signOut(`${window.location.origin}/`);
@@ -3073,7 +3075,7 @@ onMount(() => {
 			window.addEventListener("keydown", handleGlobalSidebarKeydown);
 		}
 		window.addEventListener(
-			WORKS_CHANGED_EVENT,
+			APPS_CHANGED_EVENT,
 			handleWorksChanged as EventListener,
 		);
 		void (async () => {
@@ -3161,7 +3163,7 @@ onMount(() => {
 				window.removeEventListener("keydown", handleGlobalSidebarKeydown);
 			}
 			window.removeEventListener(
-				WORKS_CHANGED_EVENT,
+				APPS_CHANGED_EVENT,
 				handleWorksChanged as EventListener,
 			);
 			window.removeEventListener(
@@ -3780,7 +3782,7 @@ $effect(() => {
 	{:else}
 		<div class="space-y-[2px]">
 			{#each works.slice(0, sidebarFlyoutPreviewLimit) as work (work.id)}
-				{@const manageHref = currentSpaceId ? buildSpaceWorkRoute(currentSpaceId, work.id) : "#"}
+				{@const manageHref = currentSpaceId ? buildSpaceAppRoute(currentSpaceId, work.id) : "#"}
 				{@const isActive = activeWork?.id === work.id}
 				<a href={manageHref} class="sidebar-flyout-item flex items-center gap-2 rounded-[var(--sidebar-item-radius)] px-1.5 py-1.5 text-[13px] {isActive ? 'bg-[var(--sidebar-item-active-bg)] font-medium text-[var(--sidebar-item-active-fg)]' : 'text-text-tertiary hover:bg-[var(--sidebar-item-hover-bg)] hover:text-text-secondary'}" onclick={(e) => { e.preventDefault(); void handleNavigateToWork(work.id); }}>
 					<div class="min-w-0 flex-1"><div class="truncate font-mono leading-tight">{work.slug}</div></div>
@@ -3932,7 +3934,7 @@ $effect(() => {
               {/snippet}
               {@render chatsSection(false)}
             </SidebarFlyout>
-            <SidebarFlyout label="Works" active={Boolean(activeWork)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
+            <SidebarFlyout label="Apps" active={Boolean(activeWork)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
               {#snippet trigger()}
                 <Rocket class="h-4 w-4" />
               {/snippet}
@@ -4186,7 +4188,7 @@ $effect(() => {
               {:else}
                 <div class="space-y-[2px] mt-1">
                   {#each works as work (work.id)}
-                    {@const manageHref = currentSpaceId ? buildSpaceWorkRoute(currentSpaceId, work.id) : "#"}
+                    {@const manageHref = currentSpaceId ? buildSpaceAppRoute(currentSpaceId, work.id) : "#"}
                     {@const isActive = activeWork?.id === work.id}
                     <a
                       href={manageHref}
@@ -4201,7 +4203,7 @@ $effect(() => {
                 </div>
               {/if}
             {:else if activeWork}
-              {@const manageHref = currentSpaceId ? buildSpaceWorkRoute(currentSpaceId, activeWork.id) : "#"}
+              {@const manageHref = currentSpaceId ? buildSpaceAppRoute(currentSpaceId, activeWork.id) : "#"}
               <a
                 href={manageHref}
                 class="mt-1 flex items-center gap-2 rounded-[var(--sidebar-item-radius)] bg-[var(--sidebar-item-active-bg)] px-1.5 py-1.5 text-[13px] font-medium text-[var(--sidebar-item-active-fg)] transition-colors duration-100"

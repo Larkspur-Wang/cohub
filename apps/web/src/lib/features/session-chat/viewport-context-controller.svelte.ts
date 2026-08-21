@@ -1,4 +1,5 @@
 import {
+	type ViewportAppContext,
 	type ViewportBoardContext,
 	type ViewportContext,
 	type ViewportFileContext,
@@ -6,7 +7,6 @@ import {
 	type ViewportSelectedNode,
 	type ViewportVisibleLines,
 	type ViewportVisibleRect,
-	type ViewportWorkContext,
 	viewportContextId,
 } from "@cohub/protocol";
 
@@ -30,9 +30,9 @@ export type ActiveViewportSource =
 	| { kind: "file"; path: string }
 	| { kind: "board"; path: string; boardId?: string | null }
 	| { kind: "port"; port: string; url?: string | null }
-	| ({ kind: "work"; workId: string } & Omit<
-			ViewportWorkContext,
-			"kind" | "workId"
+	| ({ kind: "app"; appId: string } & Omit<
+			ViewportAppContext,
+			"kind" | "appId"
 	  >)
 	| null;
 
@@ -124,11 +124,11 @@ function buildPortContext(
 }
 
 function buildWorkContext(
-	source: Extract<ActiveViewportSource, { kind: "work" }>,
-): ViewportWorkContext {
+	source: Extract<ActiveViewportSource, { kind: "app" }>,
+): ViewportAppContext {
 	return {
-		kind: "work",
-		workId: source.workId,
+		kind: "app",
+		appId: source.appId,
 		key: source.key,
 		label: source.label,
 		content: source.content,
@@ -144,9 +144,9 @@ function isSameActiveSource(
 	if (prev.kind === "port" && next.kind === "port") {
 		return prev.port === next.port && (prev.url ?? null) === (next.url ?? null);
 	}
-	if (prev.kind === "work" && next.kind === "work") {
+	if (prev.kind === "app" && next.kind === "app") {
 		return (
-			prev.workId === next.workId &&
+			prev.appId === next.appId &&
 			prev.key === next.key &&
 			prev.label === next.label &&
 			prev.content === next.content
@@ -155,8 +155,8 @@ function isSameActiveSource(
 	if (
 		prev.kind !== "port" &&
 		next.kind !== "port" &&
-		prev.kind !== "work" &&
-		next.kind !== "work"
+		prev.kind !== "app" &&
+		next.kind !== "app"
 	) {
 		return prev.path === next.path;
 	}
@@ -169,7 +169,7 @@ export function activeViewportSourceId(
 ): string | null {
 	if (!source) return null;
 	if (source.kind === "port") return `port:${source.port}`;
-	if (source.kind === "work") return `work:${source.workId}:${source.key}`;
+	if (source.kind === "app") return `app:${source.appId}:${source.key}`;
 	return `${source.kind}:${source.path}`;
 }
 
@@ -216,7 +216,7 @@ export function createViewportContextController() {
 				boardObservation?.path === source.path ? boardObservation : null;
 			return buildBoardContext(source, observation);
 		}
-		if (source.kind === "work") return buildWorkContext(source);
+		if (source.kind === "app") return buildWorkContext(source);
 		return buildPortContext(source.port, source.url);
 	});
 

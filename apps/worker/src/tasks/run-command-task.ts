@@ -154,7 +154,7 @@ async function notifyRunCommandCompletion(input: {
               actorUserId: input.payload.userId,
               spaceId: input.payload.spaceId,
               scopes,
-              workScopes: scopes,
+              appScopes: scopes,
               exp: backgroundTaskAuthExp(typeof input.payload.data?.timeout === "number" ? input.payload.data.timeout : undefined),
             })
           : null;

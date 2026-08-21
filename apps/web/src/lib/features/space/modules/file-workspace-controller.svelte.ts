@@ -43,8 +43,8 @@ import {
 	rewriteFsPathPrefix,
 	updateNodeState,
 } from "./file-workspace-utils";
-import type { PreviewSyncStatus } from "./preview-sync-status";
-import { workspaceFilePreviewKind } from "./preview-tabs";
+import type { WindowSyncStatus } from "./window-sync-status";
+import { workspaceFilePreviewKind } from "./windows";
 
 export type { ActiveFsSource, FileViewMode };
 
@@ -63,7 +63,7 @@ export type FileWorkspaceInlineFile = {
 	position: WorkspaceFilePosition | null;
 	loading: boolean;
 	saving: boolean;
-	syncStatus: PreviewSyncStatus;
+	syncStatus: WindowSyncStatus;
 	saveError: string | null;
 	error: string | null;
 	tooLarge: boolean;

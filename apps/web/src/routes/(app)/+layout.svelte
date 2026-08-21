@@ -15,8 +15,8 @@ import Sidebar from "$lib/components/Sidebar.svelte";
 import TurnNotificationStack from "$lib/components/TurnNotificationStack.svelte";
 import { createDeferredMount } from "$lib/deferred-mount.svelte";
 import { pointerDrag } from "$lib/drag/pointer-drag.svelte";
+import { startDesktopCommandListener } from "$lib/features/desktop-command/bus";
 import GlobalMarkCapture from "$lib/features/preview-mark/ui/GlobalMarkCapture.svelte";
-import { startUiCommandListener } from "$lib/features/ui-command/bus";
 import {
 	type DrawerGestureDirection,
 	type DrawerGesturePhase,
@@ -560,7 +560,7 @@ onMount(() => {
 		void enableVConsole();
 	}
 
-	let stopUiCommands: (() => void) | null = null;
+	let stopDesktopCommands: (() => void) | null = null;
 
 	void authStore.ensureLoaded().finally(() => {
 		authReady = true;
@@ -568,7 +568,7 @@ onMount(() => {
 		if (authStore.isAuthenticated) {
 			turnNotifications.start();
 			// Listen in the shell, not a page, so delivery never depends on route.
-			stopUiCommands = startUiCommandListener();
+			stopDesktopCommands = startDesktopCommandListener();
 		}
 		initSpacePinRealtime();
 	});
@@ -583,7 +583,7 @@ onMount(() => {
 	return () => {
 		delete window.cohubDisableVConsole;
 		delete window.cohubEnableVConsole;
-		stopUiCommands?.();
+		stopDesktopCommands?.();
 		turnNotifications.stop();
 		vConsoleRequestId += 1;
 		vConsole?.destroy();

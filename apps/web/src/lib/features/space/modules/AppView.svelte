@@ -1,0 +1,380 @@
+<script lang="ts">
+import type { AppRecord } from "@neta-art/cohub";
+import {
+	Check,
+	Copy,
+	ExternalLink,
+	Loader2,
+	PanelRight,
+	Pencil,
+	Power,
+	Rocket,
+	Trash2,
+} from "lucide-svelte";
+import { onDestroy, onMount } from "svelte";
+import CenteredLoading from "$lib/components/CenteredLoading.svelte";
+import {
+	APPS_CHANGED_EVENT,
+	type AppsChangedDetail,
+} from "$lib/features/app/app-realtime";
+import { formatDateTime } from "../space-utils";
+import AppPromotions from "./AppPromotions.svelte";
+import AppViewStats from "./AppViewStats.svelte";
+import { createWorkDetailController } from "./app-detail-controller.svelte";
+import {
+	APP_SCOPE_OPTIONS,
+	APP_VIEWER_SCOPE_OPTIONS,
+	appStatusTone,
+} from "./app-utils";
+
+type Props = {
+	spaceId: string;
+	routeWorkId: string | null;
+	ownerUsername: string | null;
+	spaceSlug: string | null;
+	canEditSpace: boolean;
+	onDetailLoaded?: (work: AppRecord | null) => void;
+	/** Show this app in the workspace window pane, beside the detail page. */
+	onPreviewApp?: (app: AppRecord) => void;
+};
+
+let {
+	spaceId,
+	routeWorkId,
+	ownerUsername,
+	spaceSlug,
+	canEditSpace,
+	onDetailLoaded,
+	onPreviewApp,
+}: Props = $props();
+
+const appDetailController = createWorkDetailController({
+	getSpaceId: () => spaceId,
+	getRouteWorkId: () => routeWorkId,
+	getOwnerUsername: () => ownerUsername,
+	getSpaceSlug: () => spaceSlug,
+	getCanViewStats: () => canEditSpace,
+	onDetailLoaded: (work) => onDetailLoaded?.(work),
+});
+
+const appDetail = $derived(appDetailController.detail);
+const appDetailLoading = $derived(appDetailController.loading);
+const appDetailError = $derived(appDetailController.error);
+const workActionInProgress = $derived(appDetailController.actionInProgress);
+const workDeleteInProgress = $derived(appDetailController.deleteInProgress);
+const workFormSubmitting = $derived(appDetailController.formSubmitting);
+const workFormError = $derived(appDetailController.formError);
+const workCopiedId = $derived(appDetailController.copiedId);
+const workCopiedPublicRoute = $derived(appDetailController.copiedPublicRoute);
+const appVersions = $derived(appDetailController.versions);
+const appVersionsLoading = $derived(appDetailController.versionsLoading);
+const appVersionsError = $derived(appDetailController.versionsError);
+const workPublishSubmitting = $derived(appDetailController.publishSubmitting);
+const workPublishError = $derived(appDetailController.publishError);
+const workHideCohubBar = $derived(
+	appDetail?.meta?.presentation?.hideCohubBar === true,
+);
+const workCanToggleHideCohubBar = $derived(
+	appDetailController.hideCohubBarAllowed ||
+		appDetailController.formHideCohubBar,
+);
+const workStats = $derived(appDetailController.stats);
+const workStatsLoading = $derived(appDetailController.statsLoading);
+const workStatsError = $derived(appDetailController.statsError);
+
+$effect(() => {
+	appDetailController.syncRoute();
+});
+
+onMount(() => {
+	const handleWorksChanged = (event: Event) => {
+		const detail = (event as CustomEvent<AppsChangedDetail>).detail;
+		if (detail?.spaceId !== spaceId) return;
+		if (detail.app || detail.version || detail.deletedAppId) {
+			appDetailController.applyWorksChanged(detail);
+			return;
+		}
+		appDetailController.refresh();
+	};
+	window.addEventListener(APPS_CHANGED_EVENT, handleWorksChanged);
+	return () =>
+		window.removeEventListener(APPS_CHANGED_EVENT, handleWorksChanged);
+});
+
+onDestroy(() => {
+	appDetailController.dispose();
+});
+</script>
+
+{#snippet CopyIdMetaItem(id: string, copied: boolean, onCopy: () => void, label = "Copy ID")}
+	<button
+		type="button"
+		class="inline-flex min-h-6 min-w-0 max-w-full items-center gap-1.5 font-mono text-[11px] text-text-placeholder transition-colors hover:text-text-secondary"
+		onclick={onCopy}
+		title={label}
+	>
+		<span class="truncate">{id}</span>
+		{#if copied}
+			<Check class="h-3 w-3 shrink-0 text-success-soft" />
+		{:else}
+			<Copy class="h-3 w-3 shrink-0" />
+		{/if}
+	</button>
+{/snippet}
+
+<div class="flex-1 min-h-0 overflow-y-auto px-4 py-5 sm:px-6 lg:px-8">
+  <div class="max-w-5xl">
+  {#if appDetailLoading && appDetail?.id !== routeWorkId}
+    <CenteredLoading label="Loading work…" size="panel" />
+  {:else if appDetailError}
+    <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{appDetailError}</div>
+  {:else if appDetail && appDetail.id === routeWorkId}
+    {@const publicRoute = appDetailController.publicRoute(appDetail)}
+    <div class="space-y-6 sm:space-y-8">
+      <header class="flex flex-col gap-4 border-b border-border-subtle/70 pb-5 lg:flex-row lg:items-start lg:justify-between">
+        <div class="min-w-0 space-y-3">
+          <div>
+            <h1 class="font-mono text-[24px] font-semibold tracking-tight text-text-primary break-all sm:text-[30px]">{appDetail.slug}</h1>
+            <div class="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+              <span class="inline-flex items-center gap-1.5 text-[11px] font-medium {appStatusTone(appDetail.status)}">
+                <span class="h-1.5 w-1.5 rounded-full {appDetail.status === 'published' ? 'bg-status-running' : appDetail.status === 'disabled' ? 'bg-status-error' : 'bg-text-placeholder'}"></span>
+                {appDetail.status}
+              </span>
+              <span class="inline-flex items-center gap-1.5 text-[11px] font-medium text-text-tertiary">
+                <span class="h-1.5 w-1.5 rounded-full {appDetail.visibility === 'public' ? 'bg-brand' : 'bg-text-placeholder'}"></span>
+                {appDetail.visibility === 'public' ? 'public' : 'space access'}
+              </span>
+              {@render CopyIdMetaItem(appDetail.id, workCopiedId, () => void appDetailController.copyId(appDetail!.id), 'Copy work ID')}
+              <span class="font-mono text-[11px] text-text-placeholder">{appDetail.targetType}:{appDetail.targetRef}</span>
+            </div>
+          </div>
+        </div>
+        <div class="flex shrink-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+          {#if onPreviewApp && appDetail.status === 'published'}
+            <button type="button" class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] bg-brand-muted px-3 py-2 text-[12px] font-medium text-brand transition-colors hover:bg-brand-muted-hover sm:w-auto" onclick={() => onPreviewApp?.(appDetail!)}>
+              <PanelRight class="h-3.5 w-3.5" />
+              <span>Open</span>
+            </button>
+          {/if}
+          {#if publicRoute && appDetail.status === 'published'}
+            <a href={publicRoute} target="_blank" rel="noopener" class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] bg-bg-elevated px-3 py-2 text-[12px] font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary sm:w-auto">
+              <ExternalLink class="h-3.5 w-3.5" />
+              <span>New tab</span>
+            </a>
+          {/if}
+          <button type="button" class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] bg-bg-elevated px-3 py-2 text-[12px] font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary sm:w-auto" onclick={() => { appDetailController.syncFormFromDetail(); appDetailController.editMode = !appDetailController.editMode; }}>
+            <Pencil class="h-3.5 w-3.5" />
+            <span>{appDetailController.editMode ? 'Close edit' : 'Edit'}</span>
+          </button>
+          <button type="button" class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] bg-bg-elevated px-3 py-2 text-[12px] font-medium transition-colors hover:bg-bg-hover disabled:opacity-50 sm:w-auto {appDetail.status === 'published' ? 'text-status-running' : 'text-text-secondary'}" onclick={() => appDetailController.toggleStatus(appDetail!.status === 'published' ? 'disabled' : 'published')} disabled={workActionInProgress}>
+            {#if workActionInProgress}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else if appDetail.status === 'published'}<Power class="h-3.5 w-3.5" />{:else}<Rocket class="h-3.5 w-3.5" />{/if}
+            <span>{appDetail.status === 'published' ? 'Disable' : 'Publish'}</span>
+          </button>
+          <button type="button" class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] px-3 py-2 text-[12px] font-medium text-text-tertiary transition-colors hover:bg-bg-hover hover:text-error-soft disabled:opacity-50 sm:w-auto" onclick={appDetailController.deleteWork} disabled={workActionInProgress || workDeleteInProgress}>
+            {#if workDeleteInProgress}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Trash2 class="h-3.5 w-3.5" />{/if}
+            <span>{workDeleteInProgress ? 'Deleting…' : 'Delete'}</span>
+          </button>
+        </div>
+      </header>
+
+      {#if canEditSpace && !appDetailController.editMode}
+        <AppViewStats
+          stats={workStats}
+          loading={workStatsLoading}
+          error={workStatsError}
+          onRetry={() => void appDetailController.loadStats(appDetail.id)}
+        />
+        {#if publicRoute && appDetail.status === 'published'}
+          <AppPromotions appId={appDetail.id} publicRoute={publicRoute} />
+        {/if}
+      {/if}
+
+      {#if appDetailController.editMode}
+        <form onsubmit={appDetailController.submitUpdate} class="space-y-6">
+          <section class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
+            <div class="min-w-0 space-y-5">
+              <div class="space-y-1.5">
+                <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary" for="work-edit-slug">Slug</label>
+                <input id="work-edit-slug" type="text" bind:value={appDetailController.formSlug} class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 font-mono text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none" />
+              </div>
+              <div class="grid gap-4 sm:grid-cols-[160px_minmax(0,1fr)]">
+                <div class="space-y-1.5">
+                  <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary" for="work-edit-target-type">Target</label>
+                  <select id="work-edit-target-type" bind:value={appDetailController.formTargetType} class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none">
+                    <option value="file">File</option>
+                    <option value="directory">Directory</option>
+                    <option value="port">Port</option>
+                  </select>
+                </div>
+                <div class="space-y-1.5">
+                  <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary" for="work-edit-target-ref">Reference</label>
+                  <input id="work-edit-target-ref" type="text" bind:value={appDetailController.formTargetRef} class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 font-mono text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none" />
+                </div>
+              </div>
+              <div class="grid gap-4 sm:grid-cols-2">
+                <div class="space-y-1.5">
+                  <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary" for="work-edit-status">Status</label>
+                  <select id="work-edit-status" bind:value={appDetailController.formStatus} class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none">
+                    <option value="published">Published</option>
+                    <option value="disabled">Disabled</option>
+                  </select>
+                </div>
+                <div class="space-y-1.5">
+                  <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary" for="work-edit-visibility">Access</label>
+                  <select id="work-edit-visibility" bind:value={appDetailController.formVisibility} class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none">
+                    <option value="public">Anyone with the link</option>
+                    <option value="space">Use space access</option>
+                  </select>
+                  <div class="text-[11px] leading-5 text-text-placeholder">Space access follows this Space's permissions.</div>
+                </div>
+              </div>
+              <div class="space-y-1.5">
+                <div class="text-[10px] font-medium uppercase tracking-wider text-text-tertiary">Presentation</div>
+                <label class="flex min-h-11 gap-3 rounded-[6px] border border-border-subtle bg-bg-elevated/25 px-3 py-2.5 text-text-secondary transition-colors hover:border-border-default hover:bg-bg-elevated/40" class:opacity-60={!workCanToggleHideCohubBar}>
+                  <input type="checkbox" bind:checked={appDetailController.formHideCohubBar} disabled={!workCanToggleHideCohubBar || appDetailController.hideCohubBarLoading} class="mt-0.5" />
+                  <span class="min-w-0">
+                    <span class="block text-[12px] text-text-primary">Hide Cohub bar</span>
+                    <span class="block text-[11px] leading-5 text-text-placeholder">Remove the Cohub footer from the public page.</span>
+                  </span>
+                </label>
+                {#if appDetailController.hideCohubBarLoading}
+                  <div class="text-[11px] text-text-tertiary">Checking availability…</div>
+                {:else if !appDetailController.hideCohubBarAllowed}
+                  <div class="text-[11px] text-text-tertiary">Included with Pro and Max.</div>
+                {/if}
+              </div>
+            </div>
+            <aside class="space-y-5 text-[13px]">
+              <div class="space-y-3">
+                <div class="text-[10px] font-medium uppercase tracking-[0.18em] text-text-placeholder">App can</div>
+                {#each APP_SCOPE_OPTIONS as option (option.scope)}
+                  <label class="flex gap-3 rounded-[6px] bg-bg-elevated/30 px-3 py-2.5 text-text-secondary">
+                    <input type="checkbox" bind:checked={appDetailController.formScopes[option.scope]} class="mt-0.5" />
+                    <span class="min-w-0"><span class="block text-[12px] text-text-primary">{option.label}</span><span class="block text-[11px] leading-5 text-text-placeholder">{option.description}</span></span>
+                  </label>
+                {/each}
+              </div>
+              <div class="space-y-3">
+                <div class="text-[10px] font-medium uppercase tracking-[0.18em] text-text-placeholder">Viewers can allow</div>
+                {#each APP_VIEWER_SCOPE_OPTIONS as option (option.scope)}
+                  <label class="flex gap-3 rounded-[6px] bg-bg-elevated/30 px-3 py-2.5 text-text-secondary">
+                    <input type="checkbox" bind:checked={appDetailController.formViewerScopes[option.scope]} class="mt-0.5" />
+                    <span class="min-w-0"><span class="block text-[12px] text-text-primary">{option.label}</span><span class="block text-[11px] leading-5 text-text-placeholder">{option.description}</span></span>
+                  </label>
+                {/each}
+              </div>
+            </aside>
+          </section>
+          {#if workFormError}
+            <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{workFormError}</div>
+          {/if}
+          <div class="sticky bottom-0 z-10 -mx-4 -mb-5 flex flex-col-reverse gap-2 border-t border-border-subtle/70 bg-bg-primary/95 px-4 py-4 backdrop-blur sm:-mx-6 sm:-mb-5 sm:flex-row sm:justify-end sm:px-6 lg:-mx-8 lg:px-8">
+            <button type="button" class="inline-flex min-h-10 items-center justify-center rounded-[5px] border border-border-subtle px-3 py-2 text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary" onclick={() => { appDetailController.editMode = false; appDetailController.syncFormFromDetail(); }}>Cancel</button>
+            <button type="submit" class="inline-flex min-h-10 items-center justify-center gap-2 rounded-[5px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover disabled:opacity-50" disabled={workFormSubmitting}>
+              {#if workFormSubmitting}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Check class="h-3.5 w-3.5" />{/if}
+              <span>Save changes</span>
+            </button>
+          </div>
+        </form>
+      {:else}
+        <section class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px] lg:gap-8">
+          <div class="min-w-0 space-y-6">
+            <section class="space-y-3">
+              <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                <div class="min-w-0">
+                  <div class="text-[10px] font-medium uppercase tracking-[0.18em] text-text-placeholder">Target</div>
+                  <div class="mt-1 font-mono text-[11px] text-text-placeholder">Current v{appDetail.latestVersion || 0}</div>
+                </div>
+                {#if appDetail.status === 'published'}
+                  <button type="button" class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover disabled:opacity-50 sm:w-auto" onclick={() => void appDetailController.publishVersion()} disabled={workPublishSubmitting}>
+                    {#if workPublishSubmitting}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Rocket class="h-3.5 w-3.5" />{/if}
+                    <span>{workPublishSubmitting ? 'Updating…' : 'Update version'}</span>
+                  </button>
+                {/if}
+              </div>
+              <div class="relative overflow-hidden rounded-[8px] bg-bg-elevated/40 ring-1 ring-border-subtle/60">
+                <div class="absolute left-0 top-0 h-full w-[3px] bg-brand"></div>
+                <div class="px-5 py-4 pl-6">
+                  <div class="font-mono text-[13px] text-text-primary break-all">{appDetail.targetRef}</div>
+                  <div class="mt-2 text-[12px] text-text-tertiary">{appDetail.targetType}</div>
+                </div>
+              </div>
+              {#if workPublishError}
+                <div class="rounded-[6px] border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] font-mono text-error-soft break-all">{workPublishError}</div>
+              {/if}
+            </section>
+            <section class="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_140px]">
+              <div class="rounded-[7px] bg-bg-elevated/30 px-3 py-2.5">
+                <div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">App permissions</div>
+                <div class="mt-1 text-[13px] text-text-primary">{appDetail.workScopes.length ? appDetail.workScopes.join(', ') : 'None'}</div>
+              </div>
+              <div class="rounded-[7px] bg-bg-elevated/30 px-3 py-2.5">
+                <div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">Viewer grants</div>
+                <div class="mt-1 text-[13px] text-text-primary">{appDetail.allowedViewerScopes.length ? appDetail.allowedViewerScopes.join(', ') : 'None'}</div>
+              </div>
+              <div class="rounded-[7px] bg-bg-elevated/30 px-3 py-2.5">
+                <div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">Cohub bar</div>
+                <div class="mt-1 inline-flex items-center gap-1.5 text-[13px] text-text-primary">
+                  <span class="h-1.5 w-1.5 rounded-full {workHideCohubBar ? 'bg-text-placeholder' : 'bg-status-running'}"></span>
+                  <span>{workHideCohubBar ? 'Hidden' : 'Shown'}</span>
+                </div>
+              </div>
+            </section>
+          </div>
+          <aside class="space-y-5 text-[13px]">
+            {#if publicRoute && appDetail.status === 'published'}
+              <div class="space-y-2">
+                <div class="flex items-center justify-between gap-3">
+                  <div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">Public path</div>
+                  <button type="button" class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[5px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary" onclick={() => void appDetailController.copyPublicRoute(publicRoute)} title={workCopiedPublicRoute ? 'Copied' : 'Copy public link'} aria-label={workCopiedPublicRoute ? 'Copied' : 'Copy public link'}>
+                    {#if workCopiedPublicRoute}<Check class="h-3.5 w-3.5 text-success-soft" />{:else}<Copy class="h-3.5 w-3.5" />{/if}
+                  </button>
+                </div>
+                <div class="rounded-[6px] bg-bg-elevated/30 px-3 py-2 font-mono text-[12px] text-text-secondary break-all">{publicRoute}</div>
+              </div>
+              <div class="h-px bg-border-subtle/70"></div>
+            {/if}
+            <div class="space-y-3">
+              <div class="text-[10px] font-medium uppercase tracking-[0.18em] text-text-placeholder">Metadata</div>
+              <div class="grid grid-cols-[76px_minmax(0,1fr)] gap-x-3 gap-y-2 text-[12px]">
+                <div class="text-text-placeholder">Created</div><div class="text-text-secondary">{formatDateTime(appDetail.createdAt)}</div>
+                <div class="text-text-placeholder">Updated</div><div class="text-text-secondary">{formatDateTime(appDetail.updatedAt)}</div>
+                <div class="text-text-placeholder">Published</div><div class="text-text-secondary">{formatDateTime(appDetail.publishedAt)}</div>
+                <div class="text-text-placeholder">Owner</div><div class="font-mono text-text-secondary break-all">{appDetail.userUuid}</div>
+              </div>
+            </div>
+          </aside>
+        </section>
+        <section class="border-t border-border-subtle/70 pt-6">
+          <div class="mb-3 flex items-center justify-between gap-3">
+            <div class="text-[10px] font-medium uppercase tracking-[0.18em] text-text-placeholder">Versions</div>
+            {#if appVersionsLoading}<Loader2 class="h-3.5 w-3.5 animate-spin text-text-placeholder" />{/if}
+          </div>
+          {#if appVersionsError}
+            <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{appVersionsError}</div>
+          {:else if appVersionsLoading && appVersions.length === 0}
+            <CenteredLoading label="Loading versions…" size="panel" />
+          {:else if appVersions.length}
+            <div class="divide-y divide-border-subtle/60">
+              {#each appVersions as version (version.id)}
+                <div class="py-3 text-[12px] sm:grid sm:grid-cols-[96px_minmax(0,1fr)_180px] sm:items-center sm:gap-3 sm:py-2.5">
+                  <div class="flex items-center gap-2 px-1">
+                    <span class="font-mono text-text-primary">v{version.version}</span>
+                    {#if version.id === appDetail.currentVersionId}<span class="rounded-full bg-brand-muted px-2 py-0.5 text-[10px] font-medium text-brand">Current</span>{/if}
+                  </div>
+                  <div class="mt-1 truncate font-mono text-text-tertiary sm:mt-0" title={`${version.targetType}:${version.targetRef}`}>{version.targetType}:{version.targetRef}</div>
+                  <div class="mt-1 font-mono text-text-placeholder sm:mt-0">{formatDateTime(version.createdAt)}</div>
+                </div>
+              {/each}
+            </div>
+          {:else}
+            <div class="py-6 text-[13px] text-text-tertiary">Publish creates v1.</div>
+          {/if}
+        </section>
+      {/if}
+    </div>
+  {:else}
+    <div class="text-[12px] text-text-tertiary">App not found.</div>
+  {/if}
+  </div>
+</div>

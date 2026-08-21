@@ -1,9 +1,9 @@
 import type {
+	AppDetailResponse,
 	PublicUserPageResponse,
-	WorkDetailResponse,
 } from "@neta-art/cohub";
 import { PUBLIC_API_ORIGIN } from "$env/static/public";
-import type { PublicWorkPath } from "$lib/work-pwa";
+import type { PublicWorkPath } from "$lib/app-pwa";
 
 function apiUrl(path: string) {
 	const base = (PUBLIC_API_ORIGIN ?? "").replace(/\/$/, "");
@@ -18,13 +18,13 @@ async function readJson(response: Response): Promise<unknown> {
 	return response.json().catch(() => null);
 }
 
-function asWorkDetail(value: unknown): WorkDetailResponse | null {
+function asWorkDetail(value: unknown): AppDetailResponse | null {
 	if (!isRecord(value)) return null;
 	if (!isRecord(value.work) || typeof value.work.id !== "string") return null;
 	if (!isRecord(value.space) || typeof value.space.id !== "string") return null;
 	if (!isRecord(value.owner) || typeof value.owner.userUuid !== "string")
 		return null;
-	return value as WorkDetailResponse;
+	return value as AppDetailResponse;
 }
 
 function asPublicUserPage(value: unknown): PublicUserPageResponse | null {
@@ -46,13 +46,13 @@ export type PublicApiFailure = {
  * Public work detail for SSR / manifest.
  * Web Workers do not talk to Postgres — this always goes through the API.
  */
-export async function loadPublicWorkDetail(
+export async function loadPublicAppDetail(
 	path: PublicWorkPath | null,
 	fetcher: typeof fetch,
-): Promise<{ ok: true; detail: WorkDetailResponse } | PublicApiFailure> {
+): Promise<{ ok: true; detail: AppDetailResponse } | PublicApiFailure> {
 	if (!path) return { ok: false, status: 0 };
 	const url = apiUrl(
-		`/api/works/by-slug/${encodeURIComponent(path.username)}/${encodeURIComponent(path.spaceSlug)}/${encodeURIComponent(path.workSlug)}`,
+		`/api/works/by-slug/${encodeURIComponent(path.username)}/${encodeURIComponent(path.spaceSlug)}/${encodeURIComponent(path.appSlug)}`,
 	);
 	const response = await fetcher(url).catch(() => null);
 	if (!response) return { ok: false, status: 502 };

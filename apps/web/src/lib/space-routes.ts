@@ -60,8 +60,8 @@ export const buildSpaceCronjobRoute = (spaceId: string, cronjobId: string) =>
 export const buildSpaceCronjobNewRoute = (spaceId: string) =>
 	`/spaces/${spaceId}/cronjobs/new`;
 
-export const buildSpaceWorkRoute = (spaceId: string, workId: string) =>
-	`/spaces/${spaceId}/works/${workId}`;
+export const buildSpaceAppRoute = (spaceId: string, appId: string) =>
+	`/spaces/${spaceId}/apps/${appId}`;
 
 export const buildSpaceTaskRoute = (spaceId: string, taskId: string) =>
 	`/spaces/${spaceId}/tasks/${taskId}`;

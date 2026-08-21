@@ -6,7 +6,7 @@ const authenticatedPrincipals: AuthPrincipalType[] = [
   "user",
   "execution",
   "preview_session",
-  "work_session",
+  "app_session",
 ];
 
 for (const principalType of authenticatedPrincipals) {

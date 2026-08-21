@@ -131,10 +131,10 @@ test("maybeEnqueueSpaceHookTask accepts published Work versions", async () => {
   const result = await maybeEnqueueSpaceHookTask({
     event: {
       id: "event-work-3",
-      type: "work.version.published",
+      type: "app.version.published",
       spaceId: "space-1",
       payload: {
-        work: { id: "work-1" },
+        app: { id: "app-1" },
         version: { id: "version-3", version: 3 },
         actor: { userId: "user-1" },
       },

@@ -11,8 +11,8 @@ import {
 import { onDestroy } from "svelte";
 import type { PreviewCaptureTarget } from "$lib/features/preview-mark";
 import PreviewMarkHost from "$lib/features/preview-mark/ui/PreviewMarkHost.svelte";
-import PreviewFloatChrome from "$lib/features/space/modules/PreviewFloatChrome.svelte";
-import type { PreviewTab } from "$lib/features/space/modules/preview-tabs";
+import WindowFloatChrome from "$lib/features/space/modules/WindowFloatChrome.svelte";
+import type { Window } from "$lib/features/space/modules/windows";
 
 const {
 	port,
@@ -20,10 +20,10 @@ const {
 	status = "unknown",
 	observedAt,
 	immersive = false,
-	previewTabs = [],
+	windows = [],
 	filesVisible = false,
-	onActivatePreview,
-	onClosePreview,
+	onActivateWindow,
+	onCloseWindow,
 	onToggleFiles,
 	onExitFloat,
 	onPublish,
@@ -33,10 +33,10 @@ const {
 	status?: SpacePortStatus | "unknown";
 	observedAt?: number;
 	immersive?: boolean;
-	previewTabs?: PreviewTab[];
+	windows?: Window[];
 	filesVisible?: boolean;
-	onActivatePreview?: (kind: PreviewTab["kind"], key: string) => void;
-	onClosePreview?: (kind: PreviewTab["kind"], key: string) => void;
+	onActivateWindow?: (kind: Window["kind"], key: string) => void;
+	onCloseWindow?: (kind: Window["kind"], key: string) => void;
 	onToggleFiles?: () => void | Promise<void>;
 	onExitFloat?: () => void | Promise<void>;
 	onPublish?: () => void;
@@ -196,17 +196,17 @@ onDestroy(() => {
 {/snippet}
 
 <div class="port-preview relative flex h-full min-w-0 flex-col bg-bg-content" class:port-preview--immersive={immersive}>
-	{#if immersive && onActivatePreview && onClosePreview && onExitFloat}
-		<PreviewFloatChrome
-			tabs={previewTabs}
+	{#if immersive && onActivateWindow && onCloseWindow && onExitFloat}
+		<WindowFloatChrome
+			tabs={windows}
 			{filesVisible}
-			onActivate={onActivatePreview}
-			onClose={onClosePreview}
+			onActivate={onActivateWindow}
+			onClose={onCloseWindow}
 			onToggleFiles={onToggleFiles}
 			onExit={onExitFloat}
 		>
 			{#snippet context()}{@render PortActions()}{/snippet}
-		</PreviewFloatChrome>
+		</WindowFloatChrome>
 	{:else}
 		<div class="preview-chrome flex h-11 shrink-0 items-center gap-2 border-b border-border-subtle bg-bg-surface px-3">
 			<div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border-subtle bg-bg-primary text-text-secondary">

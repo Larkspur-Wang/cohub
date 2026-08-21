@@ -1,13 +1,13 @@
 <script lang="ts">
+import type { AppComposerChip } from "@cohub/protocol/app-surface";
 import type {
 	SpacePublicEndpoint,
 	SpacePublicEndpoints,
 } from "@cohub/protocol/ports";
-import type { WorkComposerChip } from "@cohub/protocol/work-surface";
 import type {
+	AppRecord,
 	SpacePendingDiffFileResponse,
 	SpaceRecord,
-	WorkRecord,
 } from "@neta-art/cohub";
 import type { BoardDocument } from "@neta-art/cohub/board";
 import { fade } from "svelte/transition";
@@ -15,11 +15,11 @@ import type {
 	BoardAutomationActivity,
 	BoardCollaboratorProfile,
 } from "$lib/board/board-activity";
+import AppPublishDialog from "$lib/components/AppPublishDialog.svelte";
 import type { FileViewMode } from "$lib/components/file-diff-view";
 import PreviewExpandMenu from "$lib/components/PreviewExpandMenu.svelte";
-import WorkPublishDialog from "$lib/components/WorkPublishDialog.svelte";
-import WorkspacePreviewPane from "$lib/components/WorkspacePreviewPane.svelte";
-import type { WorkSurfaceHost } from "$lib/features/work/surface-host";
+import WorkspaceWindowsPane from "$lib/components/WorkspaceWindowsPane.svelte";
+import type { AppSurfaceHost } from "$lib/features/app/surface-host";
 import { DURATION_PANEL, svelteEaseIn } from "$lib/motion.svelte";
 import type { SpaceFsNode } from "$lib/space-fs";
 import { patchCachedSpaceList } from "$lib/stores/space-list-cache";
@@ -27,17 +27,17 @@ import { cacheSpaceRecordSoon } from "$lib/stores/space-record-cache";
 import type { LocalUploadEntry } from "$lib/upload-entries";
 import type { ResolveWorkspaceAsset } from "$lib/workspace-assets";
 import type { WorkspaceFileLinkTarget } from "$lib/workspace-file-links";
-import BoardPreviewPanel from "./BoardPreviewPanel.svelte";
-import type { InlineBoardPanelState } from "./board-preview-controller.svelte";
+import AppWindow from "./AppWindow.svelte";
+import type { InlineWorkPreview } from "./app-window-controller.svelte";
+import BoardWindow from "./BoardWindow.svelte";
+import type { InlineBoardPanelState } from "./board-window-controller.svelte";
 import FilesSidebarPanel from "./FilesSidebarPanel.svelte";
 import type { FileWorkspaceInlineFile } from "./file-workspace-controller.svelte";
 import InlineFilePanel from "./InlineFilePanel.svelte";
-import PortPreviewPanel from "./PortPreviewPanel.svelte";
-import PreviewTabs from "./PreviewTabs.svelte";
-import type { PreviewTab } from "./preview-tabs";
-import { workspaceFilePreviewKind } from "./preview-tabs";
-import WorkPreviewPanel from "./WorkPreviewPanel.svelte";
-import type { InlineWorkPreview } from "./work-preview-controller.svelte";
+import PortWindow from "./PortWindow.svelte";
+import Windows from "./Windows.svelte";
+import type { Window } from "./windows";
+import { workspaceFilePreviewKind } from "./windows";
 
 type PanHandlers = {
 	start: (event: MouseEvent) => void;
@@ -89,7 +89,7 @@ export type SpaceFileDomainProps = {
 	inlineWorkPreview: InlineWorkPreview | null;
 	inlineWorkTabs: InlineWorkPreview[];
 	activeInlineWorkId: string | null;
-	activePreviewKind: "file" | "board" | "port" | "work" | null;
+	activeWindowKind: "file" | "board" | "port" | "app" | null;
 	inlinePortEndpoint: SpacePublicEndpoint | null;
 	previewEndpoints: SpacePublicEndpoints;
 	inlineFileDownloadUrl: string;
@@ -110,7 +110,7 @@ export type SpaceFileDomainProps = {
 	inlineFileIsAudio: boolean;
 	inlineFileIsPdf: boolean;
 	inlineFileDataUrl: string | null;
-	inlineFileWork: WorkRecord | null;
+	inlineFileApp: AppRecord | null;
 	fileActionMenuOpenPath: string | null;
 	inlineFileZoom: number;
 	inlineFilePanX: number;
@@ -153,11 +153,11 @@ export type SpaceFileDomainProps = {
 	onCloseInlineBoardTab: (path: string) => void;
 	onActivateInlinePort: (port: string) => void;
 	onCloseInlinePortTab: (port: string) => void;
-	onActivateInlineWork: (workId: string) => void;
-	onCloseInlineWorkTab: (workId: string) => void;
-	onRetryInlineWork: (workId: string) => void;
-	onRegisterWorkSurface: (workId: string, host: WorkSurfaceHost | null) => void;
-	onWorkComposerChip: (workId: string, chip: WorkComposerChip | null) => void;
+	onActivateInlineWork: (appId: string) => void;
+	onCloseInlineWorkTab: (appId: string) => void;
+	onRetryInlineWork: (appId: string) => void;
+	onRegisterAppSurface: (appId: string, host: AppSurfaceHost | null) => void;
+	onAppComposerChip: (appId: string, chip: AppComposerChip | null) => void;
 	onBackInlineFile: () => void | Promise<void>;
 	onDownloadInlineFile: () => void | Promise<void>;
 	onRetryInlineFile?: () => void | Promise<void>;
@@ -244,7 +244,7 @@ let {
 	inlineWorkPreview,
 	inlineWorkTabs,
 	activeInlineWorkId,
-	activePreviewKind,
+	activeWindowKind,
 	inlinePortEndpoint,
 	previewEndpoints,
 	inlineFileDownloadUrl,
@@ -265,7 +265,7 @@ let {
 	inlineFileIsAudio,
 	inlineFileIsPdf,
 	inlineFileDataUrl,
-	inlineFileWork,
+	inlineFileApp,
 	fileActionMenuOpenPath = $bindable(),
 	inlineFileZoom = $bindable(),
 	inlineFilePanX = $bindable(),
@@ -306,8 +306,8 @@ let {
 	onActivateInlineWork,
 	onCloseInlineWorkTab,
 	onRetryInlineWork,
-	onRegisterWorkSurface,
-	onWorkComposerChip,
+	onRegisterAppSurface,
+	onAppComposerChip,
 	onBackInlineFile,
 	onDownloadInlineFile,
 	onRetryInlineFile,
@@ -350,14 +350,14 @@ function handleSpaceUpdated(nextSpace: SpaceRecord) {
 		items.map((item) => (item.id === spaceId ? nextSpace : item)),
 	);
 }
-const previewTabs = $derived([
+const windows = $derived([
 	...inlineFileTabs.map((tab) => ({
 		kind: "file" as const,
 		key: tab.path,
 		label: tab.response?.name ?? tab.path.split("/").pop() ?? tab.path,
 		title: tab.path,
 		syncStatus: tab.syncStatus,
-		active: activePreviewKind === "file" && tab.path === activeInlineFilePath,
+		active: activeWindowKind === "file" && tab.path === activeInlineFilePath,
 	})),
 	...inlineBoardTabs.map((tab) => ({
 		kind: "board" as const,
@@ -369,7 +369,7 @@ const previewTabs = $derived([
 			: tab.saving
 				? ("saving" as const)
 				: ("idle" as const),
-		active: activePreviewKind === "board" && tab.path === activeInlineBoardPath,
+		active: activeWindowKind === "board" && tab.path === activeInlineBoardPath,
 	})),
 	...inlinePortTabs.map((tab) => ({
 		kind: "port" as const,
@@ -377,26 +377,26 @@ const previewTabs = $derived([
 		label: `:${tab.port}`,
 		title: tab.url,
 		syncStatus: "idle" as const,
-		active: activePreviewKind === "port" && tab.port === activeInlinePort,
+		active: activeWindowKind === "port" && tab.port === activeInlinePort,
 	})),
 	...inlineWorkTabs.map((tab) => ({
-		kind: "work" as const,
-		key: tab.workId,
+		kind: "app" as const,
+		key: tab.appId,
 		label: tab.label,
 		title: tab.detail?.publicUrl ?? tab.label,
 		syncStatus: tab.error ? ("error" as const) : ("idle" as const),
-		active: activePreviewKind === "work" && tab.workId === activeInlineWorkId,
+		active: activeWindowKind === "app" && tab.appId === activeInlineWorkId,
 	})),
 ]);
 
-function activatePreviewTab(kind: PreviewTab["kind"], key: string) {
+function activateWindow(kind: Window["kind"], key: string) {
 	if (kind === "file") onActivateInlineFile(key);
 	else if (kind === "board") onActivateInlineBoard(key);
 	else if (kind === "port") onActivateInlinePort(key);
 	else onActivateInlineWork(key);
 }
 
-function closePreviewTab(kind: PreviewTab["kind"], key: string) {
+function closeWindow(kind: Window["kind"], key: string) {
 	if (kind === "file") onCloseInlineFileTab(key);
 	else if (kind === "board") onCloseInlineBoardTab(key);
 	else if (kind === "port") onCloseInlinePortTab(key);
@@ -414,26 +414,26 @@ function previewContentOut(node: Element) {
 }
 </script>
 
-<WorkspacePreviewPane
+<WorkspaceWindowsPane
 	width={previewPanelWidth}
 	ariaLabel="Workspace preview"
 	onResizeStart={onBeginPreviewPanelResize}
 	immersive={previewImmersiveMode}
-	open={Boolean(activePreviewKind)}
+	open={Boolean(activeWindowKind)}
 >
-	{#if previewTabs.length > 0}
+	{#if windows.length > 0}
 		<div
 			class="relative flex h-full min-w-0 flex-col overflow-hidden"
-			hidden={!activePreviewKind}
-			inert={!activePreviewKind}
-			aria-hidden={!activePreviewKind}
+			hidden={!activeWindowKind}
+			inert={!activeWindowKind}
+			aria-hidden={!activeWindowKind}
 			out:previewContentOut
 		>
 			{#if !isMobile && !previewImmersiveMode}
-				<PreviewTabs
-					tabs={previewTabs}
-					onActivate={activatePreviewTab}
-					onClose={closePreviewTab}
+				<Windows
+					tabs={windows}
+					onActivate={activateWindow}
+					onClose={closeWindow}
 					{treeVisible}
 					{onToggleTree}
 				>
@@ -446,23 +446,23 @@ function previewContentOut(node: Element) {
 							onToggleImmersive={onTogglePreviewImmersiveMode}
 						/>
 					{/snippet}
-				</PreviewTabs>
+				</Windows>
 			{/if}
 			<div class="relative min-h-0 flex-1">
 {#if inlineFile}
 	<div
 		class="h-full min-h-0"
-		hidden={activePreviewKind !== "file"}
-		inert={activePreviewKind !== "file"}
-		aria-hidden={activePreviewKind !== "file"}
+		hidden={activeWindowKind !== "file"}
+		inert={activeWindowKind !== "file"}
+		aria-hidden={activeWindowKind !== "file"}
 	>
 		<InlineFilePanel
 		{inlineFile}
-		{previewTabs}
+		{windows}
 		{treeVisible}
 		{onToggleTree}
-		onActivatePreviewTab={activatePreviewTab}
-		onClosePreviewTab={closePreviewTab}
+		onActivateWindow={activateWindow}
+		onCloseWindow={closeWindow}
 		{inlineFileCanGoBack}
 		{inlineFileDownloadUrl}
 		{inlineFileDownloadName}
@@ -485,7 +485,7 @@ function previewContentOut(node: Element) {
 		{inlineFileIsPdf}
 		{inlineFileDataUrl}
 		inlineFileSpaceId={spaceId}
-		{inlineFileWork}
+		{inlineFileApp}
 		previewImmersiveMode={previewImmersiveMode}
 		{isMobile}
 		bind:fileActionMenuOpenPath
@@ -521,19 +521,19 @@ function previewContentOut(node: Element) {
 {#if inlineBoard}
 	<div
 		class="h-full min-h-0"
-		hidden={activePreviewKind !== "board"}
-		inert={activePreviewKind !== "board"}
-		aria-hidden={activePreviewKind !== "board"}
+		hidden={activeWindowKind !== "board"}
+		inert={activeWindowKind !== "board"}
+		aria-hidden={activeWindowKind !== "board"}
 	>
-		<BoardPreviewPanel
+		<BoardWindow
 		board={inlineBoard}
-		previewTabs={previewTabs}
+		windows={windows}
 		spaceId={spaceId}
-		active={activePreviewKind === "board"}
+		active={activeWindowKind === "board"}
 		{treeVisible}
 		{onToggleTree}
-		onActivatePreviewTab={activatePreviewTab}
-		onClosePreviewTab={closePreviewTab}
+		onActivateWindow={activateWindow}
+		onCloseWindow={closeWindow}
 		immersive={previewImmersiveMode}
 		{isMobile}
 		collaborators={boardCollaborators}
@@ -552,16 +552,16 @@ function previewContentOut(node: Element) {
 {#if inlinePortPreview}
 	<div
 		class="h-full min-h-0"
-		hidden={activePreviewKind !== "port"}
-		inert={activePreviewKind !== "port"}
-		aria-hidden={activePreviewKind !== "port"}
+		hidden={activeWindowKind !== "port"}
+		inert={activeWindowKind !== "port"}
+		aria-hidden={activeWindowKind !== "port"}
 	>
-		<PortPreviewPanel
-		previewTabs={previewTabs}
+		<PortWindow
+		windows={windows}
 		{treeVisible}
 		{onToggleTree}
-		onActivatePreviewTab={activatePreviewTab}
-		onClosePreviewTab={closePreviewTab}
+		onActivateWindow={activateWindow}
+		onCloseWindow={closeWindow}
 		port={inlinePortPreview.port}
 		url={inlinePortEndpoint?.url ?? inlinePortPreview.url}
 		status={inlinePortEndpoint?.status ?? "unknown"}
@@ -577,30 +577,30 @@ function previewContentOut(node: Element) {
 {#if inlineWorkPreview}
 	<div
 		class="h-full min-h-0"
-		hidden={activePreviewKind !== "work"}
-		inert={activePreviewKind !== "work"}
-		aria-hidden={activePreviewKind !== "work"}
+		hidden={activeWindowKind !== "app"}
+		inert={activeWindowKind !== "app"}
+		aria-hidden={activeWindowKind !== "app"}
 	>
-	<WorkPreviewPanel
+	<AppWindow
 		preview={inlineWorkPreview}
-		{previewTabs}
+		{windows}
 		{treeVisible}
 		{onToggleTree}
-		onActivatePreviewTab={activatePreviewTab}
-		onClosePreviewTab={closePreviewTab}
+		onActivateWindow={activateWindow}
+		onCloseWindow={closeWindow}
 		immersive={previewImmersiveMode}
 		{isMobile}
 		onToggleImmersive={onTogglePreviewImmersiveMode}
 		onRetry={onRetryInlineWork}
-		onRegisterSurface={onRegisterWorkSurface}
-		onComposerChip={onWorkComposerChip}
+		onRegisterSurface={onRegisterAppSurface}
+		onComposerChip={onAppComposerChip}
 	/>
 	</div>
 {/if}
 			</div>
 		</div>
 	{/if}
-</WorkspacePreviewPane>
+</WorkspaceWindowsPane>
 
 <FilesSidebarPanel
 	{spaceId}
@@ -611,7 +611,7 @@ function previewContentOut(node: Element) {
 		? "Files are not available for this shared session."
 		: fileTreeError}
 	subtitle={activeFsSidebarSubtitle}
-	activePort={spaceHasMinimalAccess || activePreviewKind !== "port"
+	activePort={spaceHasMinimalAccess || activeWindowKind !== "port"
 		? null
 		: activeInlinePort}
 	canWrite={!spaceHasMinimalAccess && canEditFiles && !activeFsReadonly}
@@ -659,7 +659,7 @@ function previewContentOut(node: Element) {
 	onResizeStart={onBeginRightSidebarResize}
 />
 
-<WorkPublishDialog
+<AppPublishDialog
 	open={Boolean(workPublishTarget)}
 	{spaceId}
 	ownerUsername={spaceOwnerUsername}

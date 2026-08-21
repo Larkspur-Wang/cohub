@@ -32,11 +32,11 @@ type HeaderRouteView =
 	| "checkpoint-new"
 	| "cronjob"
 	| "cronjob-new"
-	| "work"
+	| "app"
 	| "task";
 
 type RouteDetailHeader = {
-	view: "checkpoint" | "cronjob" | "work" | "task";
+	view: "checkpoint" | "cronjob" | "app" | "task";
 	id: string;
 	title: string;
 };
@@ -112,7 +112,7 @@ const routeHeaderTitle = $derived.by(() => {
 		return context.activeRouteDetailHeader.title;
 	}
 	if (context.routeView === "cronjob-new") return "New cronjob";
-	if (context.routeView === "work" && context.activeRouteDetailHeader) {
+	if (context.routeView === "app" && context.activeRouteDetailHeader) {
 		return context.activeRouteDetailHeader.title;
 	}
 	if (context.routeView === "task" && context.activeRouteDetailHeader) {

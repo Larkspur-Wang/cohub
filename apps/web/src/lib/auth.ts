@@ -166,8 +166,8 @@ export function clearAuthJustCompleted() {
 const isAuthEndpointPath = (pathname: string) =>
 	pathname === "/callback" ||
 	pathname.startsWith("/callback/") ||
-	pathname === "/work-auth" ||
-	pathname.startsWith("/work-auth/");
+	pathname === "/app-auth" ||
+	pathname.startsWith("/app-auth/");
 
 /**
  * Keep post-login destinations same-app and off auth endpoints.

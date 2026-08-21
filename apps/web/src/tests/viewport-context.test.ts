@@ -67,23 +67,23 @@ test("board context carries boardId and view for agent inspection", () => {
 	);
 });
 
-test("Work context preserves custom chip content for the Agent and timeline", () => {
+test("App context preserves custom chip content for the Agent and timeline", () => {
 	const context = {
-		kind: "work" as const,
-		workId: "550e8400-e29b-41d4-a716-446655440000",
+		kind: "app" as const,
+		appId: "550e8400-e29b-41d4-a716-446655440000",
 		key: "selection",
 		label: "3 selected",
 		content: "Selected records:\n- customer_123\n- customer_456",
 	};
 	const block = buildViewportContentBlock([context]);
 
-	assert.equal(viewportContextId(context), `work:${context.workId}:selection`);
+	assert.equal(viewportContextId(context), `app:${context.appId}:selection`);
 	assert.equal(formatViewportContextLabel(context), context.label);
 	assert.equal(
 		block?.text,
 		[
 			"Viewport:",
-			`- work: \`${context.workId}\` (3 selected)`,
+			`- app: \`${context.appId}\` (3 selected)`,
 			context.content,
 		].join("\n"),
 	);
@@ -133,13 +133,13 @@ test("activeViewportSourceId matches viewportContextId shape", () => {
 	);
 	assert.equal(
 		activeViewportSourceId({
-			kind: "work",
-			workId: "work-1",
+			kind: "app",
+			appId: "work-1",
 			key: "selection",
 			label: "Selected",
 			content: "customer_123",
 		}),
-		"work:work-1:selection",
+		"app:work-1:selection",
 	);
 	assert.equal(activeViewportSourceId(null), null);
 });

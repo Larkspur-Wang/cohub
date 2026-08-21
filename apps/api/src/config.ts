@@ -47,7 +47,7 @@ export type AppConfig = {
   chatAttachmentS3Bucket?: string;
   chatAttachmentPublicBaseUrl?: string;
   spaceUploadS3Bucket?: string;
-  workAssetCdnBaseUrl?: string;
+  appAssetCdnBaseUrl?: string;
   checkpointAssetOssEndpoint?: string;
   checkpointAssetOssPublicEndpoint?: string;
   checkpointAssetOssRegion: string;
@@ -60,8 +60,8 @@ export type AppConfig = {
   previewHostnames: string[];
   /** Public domains for sandbox port hostnames; the first is the primary. */
   sandboxPublicDomains: string[];
-  /** Host suffixes accepted for Work content port URLs (security boundary). */
-  allowedWorkContentHostSuffixes: string[];
+  /** Host suffixes accepted for app content port URLs (security boundary). */
+  allowedAppContentHostSuffixes: string[];
   /** Author email for checkpoint git commits. */
   checkpointGitAuthorEmail: string;
   /** Optional deployment-level Meta promotion provider configuration. */
@@ -211,7 +211,7 @@ export const config: AppConfig = {
   chatAttachmentS3Bucket: process.env.CHAT_ATTACHMENT_S3_BUCKET,
   chatAttachmentPublicBaseUrl: process.env.CHAT_ATTACHMENT_PUBLIC_BASE_URL?.replace(/\/+$/, ""),
   spaceUploadS3Bucket: process.env.SPACE_UPLOAD_S3_BUCKET,
-  workAssetCdnBaseUrl: process.env.WORK_ASSET_CDN_BASE_URL?.replace(/\/+$/, ""),
+  appAssetCdnBaseUrl: process.env.WORK_ASSET_CDN_BASE_URL?.replace(/\/+$/, ""),
   checkpointAssetOssEndpoint: process.env.CHECKPOINT_ASSET_OSS_ENDPOINT ?? process.env.TURN_OBJECT_S3_ENDPOINT ?? "http://127.0.0.1:9000",
   checkpointAssetOssPublicEndpoint: process.env.CHECKPOINT_ASSET_OSS_PUBLIC_ENDPOINT ?? process.env.TURN_OBJECT_S3_PUBLIC_ENDPOINT,
   checkpointAssetOssRegion: process.env.CHECKPOINT_ASSET_OSS_REGION ?? process.env.TURN_OBJECT_S3_REGION ?? "us-west-1",
@@ -227,7 +227,7 @@ export const config: AppConfig = {
     process.env.SANDBOX_PUBLIC_DOMAINS ?? process.env.SANDBOX_PUBLIC_DOMAIN,
     ["cohub.live", "cohub.run"],
   ),
-  allowedWorkContentHostSuffixes: parseDomainList(
+  allowedAppContentHostSuffixes: parseDomainList(
     process.env.WORK_CONTENT_HOST_SUFFIXES,
     [".cohub.live", ".cohub.run"],
   ),

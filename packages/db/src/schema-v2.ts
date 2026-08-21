@@ -40,7 +40,7 @@ export type ReferenceResourceType =
   | "space"
   | "checkpoint"
   | "file"
-  | "work";
+  | "app";
 
 /** The nature of a reference between two resources. */
 export type ReferenceKind =
@@ -256,8 +256,8 @@ export const checkpoints = v2.table(
   }),
 );
 
-export const works = v2.table(
-  "works",
+export const apps = v2.table(
+  "apps",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     spaceId: uuid("space_id").notNull(),
@@ -271,32 +271,32 @@ export const works = v2.table(
     currentVersionId: uuid("current_version_id"),
     latestVersion: integer("latest_version").notNull().default(0),
     publishedAt: timestamp("published_at", { withTimezone: true }),
-    workScopes: jsonb("work_scopes").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    appScopes: jsonb("app_scopes").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
     allowedViewerScopes: jsonb("allowed_viewer_scopes").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
     meta: jsonb("meta").$type<Record<string, unknown>>(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
   (table) => ({
-    spaceIdx: index("v2_idx_works_space_id").on(table.spaceId),
-    userUuidIdx: index("v2_idx_works_user_uuid").on(table.userUuid),
-    statusIdx: index("v2_idx_works_status").on(table.status),
-    visibilityIdx: index("v2_idx_works_visibility").on(table.visibility),
-    statusCheck: check("v2_chk_works_status", sql`${table.status} in ('published', 'disabled')`),
-    visibilityCheck: check("v2_chk_works_visibility", sql`${table.visibility} in ('public', 'space')`),
-    spaceSlugUniqueIdx: uniqueIndex("v2_uq_works_space_slug").on(table.spaceId, table.slug),
+    spaceIdx: index("v2_idx_apps_space_id").on(table.spaceId),
+    userUuidIdx: index("v2_idx_apps_user_uuid").on(table.userUuid),
+    statusIdx: index("v2_idx_apps_status").on(table.status),
+    visibilityIdx: index("v2_idx_apps_visibility").on(table.visibility),
+    statusCheck: check("v2_chk_apps_status", sql`${table.status} in ('published', 'disabled')`),
+    visibilityCheck: check("v2_chk_apps_visibility", sql`${table.visibility} in ('public', 'space')`),
+    spaceSlugUniqueIdx: uniqueIndex("v2_uq_apps_space_slug").on(table.spaceId, table.slug),
     slugFormatCheck: check(
-      "v2_chk_works_slug_format",
+      "v2_chk_apps_slug_format",
       sql`length(${table.slug}) between 1 and 80 and ${table.slug} !~ '[^a-z0-9_-]' and left(${table.slug}, 1) ~ '[a-z0-9]' and right(${table.slug}, 1) ~ '[a-z0-9]'`,
     ),
   }),
 );
 
-export const workVersions = v2.table(
-  "work_versions",
+export const appVersions = v2.table(
+  "app_versions",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    workId: uuid("work_id").notNull(),
+    appId: uuid("app_id").notNull(),
     version: integer("version").notNull(),
     targetType: varchar("target_type", { length: 20 }).notNull(),
     targetRef: text("target_ref").notNull(),
@@ -308,18 +308,18 @@ export const workVersions = v2.table(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (table) => ({
-    workIdx: index("v2_idx_work_versions_work_id").on(table.workId),
-    workVersionUniqueIdx: uniqueIndex("v2_uq_work_versions_work_version").on(table.workId, table.version),
-    contentKindCheck: check("v2_chk_work_versions_content_kind", sql`${table.contentKind} in ('web', 'file', 'board')`),
+    appIdx: index("v2_idx_app_versions_app_id").on(table.appId),
+    appVersionUniqueIdx: uniqueIndex("v2_uq_app_versions_app_version").on(table.appId, table.version),
+    contentKindCheck: check("v2_chk_app_versions_content_kind", sql`${table.contentKind} in ('web', 'file', 'board')`),
   }),
 );
 
-/** Hourly Work view rollups, split by the immutable published version and source. */
-export const workViewStatsHourly = v2.table(
-  "work_view_stats_hourly",
+/** Hourly app view rollups, split by the immutable published version and source. */
+export const appViewStatsHourly = v2.table(
+  "app_view_stats_hourly",
   {
-    workId: uuid("work_id").notNull(),
-    workVersionId: uuid("work_version_id").notNull(),
+    appId: uuid("app_id").notNull(),
+    appVersionId: uuid("app_version_id").notNull(),
     bucketStartAt: timestamp("bucket_start_at", { withTimezone: true }).notNull(),
     source: varchar("source", { length: 20 }).notNull(),
     viewCount: bigint("view_count", { mode: "number" }).notNull().default(0),
@@ -327,29 +327,29 @@ export const workViewStatsHourly = v2.table(
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
   (table) => ({
-    bucketDimensionsUniqueIdx: uniqueIndex("v2_uq_work_view_stats_hourly_bucket_dims").on(
-      table.workId,
-      table.workVersionId,
+    bucketDimensionsUniqueIdx: uniqueIndex("v2_uq_app_view_stats_hourly_bucket_dims").on(
+      table.appId,
+      table.appVersionId,
       table.bucketStartAt,
       table.source,
     ),
-    workBucketIdx: index("v2_idx_work_view_stats_hourly_work_bucket").on(
-      table.workId,
+    appBucketIdx: index("v2_idx_app_view_stats_hourly_app_bucket").on(
+      table.appId,
       table.bucketStartAt,
     ),
-    workVersionIdx: index("v2_idx_work_view_stats_hourly_work_version").on(
-      table.workId,
-      table.workVersionId,
+    appVersionIdx: index("v2_idx_app_view_stats_hourly_app_version").on(
+      table.appId,
+      table.appVersionId,
     ),
   }),
 );
 
-/** Immutable promotion configuration for a published Work. */
-export const workPromotions = v2.table(
-  "work_promotions",
+/** Immutable promotion configuration for a published app. */
+export const appPromotions = v2.table(
+  "app_promotions",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    workId: uuid("work_id").notNull(),
+    appId: uuid("app_id").notNull(),
     name: varchar("name", { length: 120 }).notNull(),
     provider: varchar("provider", { length: 64 }).notNull(),
     parameters: jsonb("parameters").$type<Record<string, string>>().notNull().default(sql`'{}'::jsonb`),
@@ -357,20 +357,20 @@ export const workPromotions = v2.table(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
-    workIdx: index("v2_idx_work_promotions_work_id").on(table.workId),
+    appIdx: index("v2_idx_app_promotions_app_id").on(table.appId),
     providerCheck: check(
-      "v2_chk_work_promotions_provider",
+      "v2_chk_app_promotions_provider",
       sql`length(${table.provider}) between 1 and 64 and ${table.provider} !~ '[^a-z0-9_-]'`,
     ),
   }),
 );
 
 /** Hourly promotion event counts; no visitor-level data is retained. */
-export const workPromotionStatsHourly = v2.table(
-  "work_promotion_stats_hourly",
+export const appPromotionStatsHourly = v2.table(
+  "app_promotion_stats_hourly",
   {
     promotionId: uuid("promotion_id").notNull(),
-    workVersionId: uuid("work_version_id").notNull(),
+    appVersionId: uuid("app_version_id").notNull(),
     bucketStartAt: timestamp("bucket_start_at", { withTimezone: true }).notNull(),
     eventKey: varchar("event_key", { length: 64 }).notNull(),
     eventCount: bigint("event_count", { mode: "number" }).notNull().default(0),
@@ -378,24 +378,24 @@ export const workPromotionStatsHourly = v2.table(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
-    bucketDimensionsUniqueIdx: uniqueIndex("v2_uq_work_promotion_stats_hourly_dims").on(
+    bucketDimensionsUniqueIdx: uniqueIndex("v2_uq_app_promotion_stats_hourly_dims").on(
       table.promotionId,
-      table.workVersionId,
+      table.appVersionId,
       table.bucketStartAt,
       table.eventKey,
     ),
-    promotionBucketIdx: index("v2_idx_work_promotion_stats_hourly_promotion_bucket").on(
+    promotionBucketIdx: index("v2_idx_app_promotion_stats_hourly_promotion_bucket").on(
       table.promotionId,
       table.bucketStartAt,
     ),
   }),
 );
 
-export const workViewerGrants = v2.table(
-  "work_viewer_grants",
+export const appViewerGrants = v2.table(
+  "app_viewer_grants",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    workId: uuid("work_id").notNull(),
+    appId: uuid("app_id").notNull(),
     spaceId: uuid("space_id").notNull(),
     viewerUserUuid: varchar("viewer_user_uuid", { length: 255 }).notNull(),
     scopes: jsonb("scopes").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
@@ -406,10 +406,10 @@ export const workViewerGrants = v2.table(
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
   (table) => ({
-    workIdx: index("v2_idx_work_viewer_grants_work_id").on(table.workId),
-    spaceIdx: index("v2_idx_work_viewer_grants_space_id").on(table.spaceId),
-    viewerIdx: index("v2_idx_work_viewer_grants_viewer_user_uuid").on(table.viewerUserUuid),
-    workViewerUniqueIdx: uniqueIndex("v2_uq_work_viewer_grants_work_viewer").on(table.workId, table.viewerUserUuid),
+    appIdx: index("v2_idx_app_viewer_grants_app_id").on(table.appId),
+    spaceIdx: index("v2_idx_app_viewer_grants_space_id").on(table.spaceId),
+    viewerIdx: index("v2_idx_app_viewer_grants_viewer_user_uuid").on(table.viewerUserUuid),
+    appViewerUniqueIdx: uniqueIndex("v2_uq_app_viewer_grants_app_viewer").on(table.appId, table.viewerUserUuid),
   }),
 );
 

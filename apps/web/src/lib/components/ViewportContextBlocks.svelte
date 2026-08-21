@@ -18,7 +18,7 @@ let openId = $state<string | null>(null);
 function iconFor(kind: ViewportContext["kind"]) {
 	if (kind === "file") return FileText;
 	if (kind === "board") return LayoutGrid;
-	if (kind === "work") return AppWindow;
+	if (kind === "app") return AppWindow;
 	return Radio;
 }
 
@@ -47,14 +47,14 @@ function titleFor(context: ViewportContext) {
 		}
 		return parts.join(" · ");
 	}
-	if (context.kind === "work") return context.content;
+	if (context.kind === "app") return context.content;
 	return context.url
 		? `port ${context.port} · ${context.url}`
 		: `port ${context.port}`;
 }
 
 function metaFor(context: ViewportContext) {
-	if (context.kind === "work") return `Work · ${context.workId}`;
+	if (context.kind === "app") return `App · ${context.appId}`;
 	if (context.kind === "file") return "File context";
 	if (context.kind === "board") return "Board context";
 	return "Port context";

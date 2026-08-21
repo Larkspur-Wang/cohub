@@ -6,7 +6,7 @@ import { parseSpaceSlug, parseUsername } from "@cohub/protocol";
  * Mentions are authored as markdown links with a `cohub://` URI, e.g.
  *   @[Core API](cohub://spaces/<spaceId>)
  *   @[Fork](cohub://spaces/<spaceId>/sessions/<sessionId>)
- *   @[Launch](cohub://works/<username>/<spaceSlug>/<workSlug>)
+ *   @[Launch](cohub://apps/<username>/<spaceSlug>/<appSlug>)
  *
  * Parsing is deterministic against this structured format \u2014 not fuzzy text
  * mining \u2014 so it reliably resolves down to session granularity.
@@ -20,17 +20,17 @@ export type ParsedMention =
       label: string;
     }
   | {
-      type: "work";
+      type: "app";
       username: string;
       spaceSlug: string;
-      workSlug: string;
+      appSlug: string;
       label: string;
     };
 
 const SPACE_MENTION_PATTERN =
   /@\[([^\]\n]+)\]\(cohub:\/\/spaces\/([^/\s)]+)(?:\/sessions\/([^/\s)]+))?\)/g;
-const WORK_MENTION_PATTERN =
-  /@\[([^\]\n]+)\]\(cohub:\/\/works\/([^/\s)]+)\/([^/\s)]+)\/([^/?#\s)]+)(?:[?#][^\s)]*)?\)/g;
+const APP_MENTION_PATTERN =
+  /@\[([^\]\n]+)\]\(cohub:\/\/apps\/([^/\s)]+)\/([^/\s)]+)\/([^/?#\s)]+)(?:[?#][^\s)]*)?\)/g;
 
 const safeDecode = (value: string) => {
   try {
@@ -51,18 +51,18 @@ export const parseMentions = (text: string | null | undefined): ParsedMention[] 
     if (!spaceId) continue;
     mentions.push({ type: "space", spaceId, label: label || spaceId, ...(sessionId ? { sessionId } : {}), index: match.index ?? 0 });
   }
-  for (const match of text.matchAll(WORK_MENTION_PATTERN)) {
+  for (const match of text.matchAll(APP_MENTION_PATTERN)) {
     const label = match[1]?.trim();
     const username = parseUsername(safeDecode(match[2] ?? ""));
     const spaceSlug = parseSpaceSlug(safeDecode(match[3] ?? ""));
-    const workSlug = parseSpaceSlug(safeDecode(match[4] ?? ""));
-    if (!username || !spaceSlug || !workSlug) continue;
+    const appSlug = parseSpaceSlug(safeDecode(match[4] ?? ""));
+    if (!username || !spaceSlug || !appSlug) continue;
     mentions.push({
-      type: "work",
+      type: "app",
       username,
       spaceSlug,
-      workSlug,
-      label: label || workSlug,
+      appSlug,
+      label: label || appSlug,
       index: match.index ?? 0,
     });
   }

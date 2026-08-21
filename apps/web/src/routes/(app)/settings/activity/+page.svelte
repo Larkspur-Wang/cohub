@@ -27,7 +27,7 @@ const ranges = [
 const EMPTY_RANKINGS: UserActivityRankings = {
 	llmModels: [],
 	generationModels: [],
-	works: [],
+	apps: [],
 };
 type HeatmapMode = "llm" | "generation";
 const heatmapModes: Array<{ value: HeatmapMode; label: string }> = [
@@ -264,13 +264,13 @@ onMount(async () => {
 				</section>
 
 				<section class="border-t border-border-subtle pt-7 md:col-span-2 lg:col-span-1 lg:border-0 lg:pt-0">
-					<div class="mb-4 flex items-center justify-between"><h2 class="text-[13px] font-medium text-text-primary">Works</h2><span class="text-[10px] text-text-placeholder">Views</span></div>
-					{#if displayedRankings.works.length}
+					<div class="mb-4 flex items-center justify-between"><h2 class="text-[13px] font-medium text-text-primary">Apps</h2><span class="text-[10px] text-text-placeholder">Views</span></div>
+					{#if displayedRankings.apps.length}
 						<ol class="space-y-3">
-							{#each displayedRankings.works as row, index (row.workId)}
+							{#each displayedRankings.apps as row, index (row.appId)}
 								<li class="grid grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-2 text-[12px]">
 									<span class="font-mono text-[10px] text-text-placeholder">{index + 1}</span>
-									<div class="min-w-0"><a class="block truncate text-text-secondary transition-colors hover:text-brand" href={`/spaces/${row.spaceId}/works/${row.workId}`} title={row.title}>{row.title}</a><div class="truncate text-[10px] text-text-placeholder">{row.spaceName}</div></div>
+									<div class="min-w-0"><a class="block truncate text-text-secondary transition-colors hover:text-brand" href={`/spaces/${row.spaceId}/apps/${row.appId}`} title={row.title}>{row.title}</a><div class="truncate text-[10px] text-text-placeholder">{row.spaceName}</div></div>
 									<span class="font-mono text-text-secondary">{formatCompact(row.viewCount)}</span>
 								</li>
 							{/each}

@@ -319,35 +319,35 @@ function workTitle(meta: unknown, slug: string) {
 async function loadUserWorkRankings(userId: string, startDate: Date, endDate: Date) {
   const rows = await db
     .select({
-      workId: schema.works.id,
-      spaceId: schema.works.spaceId,
+      appId: schema.apps.id,
+      spaceId: schema.apps.spaceId,
       spaceName: schema.spaces.name,
-      slug: schema.works.slug,
-      status: schema.works.status,
-      meta: schema.works.meta,
-      viewCount: sql<number>`sum(${schema.workViewStatsHourly.viewCount})`,
+      slug: schema.apps.slug,
+      status: schema.apps.status,
+      meta: schema.apps.meta,
+      viewCount: sql<number>`sum(${schema.appViewStatsHourly.viewCount})`,
     })
-    .from(schema.works)
-    .innerJoin(schema.spaces, eq(schema.spaces.id, schema.works.spaceId))
-    .innerJoin(schema.workViewStatsHourly, eq(schema.workViewStatsHourly.workId, schema.works.id))
+    .from(schema.apps)
+    .innerJoin(schema.spaces, eq(schema.spaces.id, schema.apps.spaceId))
+    .innerJoin(schema.appViewStatsHourly, eq(schema.appViewStatsHourly.appId, schema.apps.id))
     .where(and(
-      eq(schema.works.userUuid, userId),
-      gte(schema.workViewStatsHourly.bucketStartAt, startDate),
-      lt(schema.workViewStatsHourly.bucketStartAt, endDate),
+      eq(schema.apps.userUuid, userId),
+      gte(schema.appViewStatsHourly.bucketStartAt, startDate),
+      lt(schema.appViewStatsHourly.bucketStartAt, endDate),
     ))
     .groupBy(
-      schema.works.id,
-      schema.works.spaceId,
+      schema.apps.id,
+      schema.apps.spaceId,
       schema.spaces.name,
-      schema.works.slug,
-      schema.works.status,
-      schema.works.meta,
+      schema.apps.slug,
+      schema.apps.status,
+      schema.apps.meta,
     )
-    .orderBy(desc(sql`sum(${schema.workViewStatsHourly.viewCount})`))
+    .orderBy(desc(sql`sum(${schema.appViewStatsHourly.viewCount})`))
     .limit(5);
 
   return rows.map((row) => ({
-    workId: row.workId,
+    appId: row.appId,
     spaceId: row.spaceId,
     spaceName: row.spaceName,
     slug: row.slug,
@@ -413,7 +413,7 @@ router.get("/activity", async (c) => {
 
   const { hourly, summary } = aggregateUsageRows(rows);
   const generation = aggregateGenerationUsageRows(generationRows);
-  const rankings = { ...aggregateUserModelRankings(rows, generationRows), works: workRankings };
+  const rankings = { ...aggregateUserModelRankings(rows, generationRows), apps: workRankings };
   return c.json({ hourly, summary, generation, days, range, rankings });
 });
 

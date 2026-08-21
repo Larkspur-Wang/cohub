@@ -73,7 +73,7 @@ function isRankings(value: unknown): value is UserActivityRankings {
 		!isRecord(value) ||
 		!Array.isArray(value.llmModels) ||
 		!Array.isArray(value.generationModels) ||
-		!Array.isArray(value.works)
+		!Array.isArray(value.apps)
 	)
 		return false;
 	return (
@@ -91,10 +91,10 @@ function isRankings(value: unknown): value is UserActivityRankings {
 				typeof row.model === "string" &&
 				hasFiniteNumbers(row, ["requestCount", "costTotal"]),
 		) &&
-		value.works.every(
+		value.apps.every(
 			(row) =>
 				isRecord(row) &&
-				typeof row.workId === "string" &&
+				typeof row.appId === "string" &&
 				typeof row.spaceId === "string" &&
 				typeof row.spaceName === "string" &&
 				typeof row.title === "string" &&

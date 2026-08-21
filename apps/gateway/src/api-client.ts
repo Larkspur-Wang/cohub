@@ -134,12 +134,12 @@ export const notifySpacePresenceUpdated = async (spaceId: string): Promise<void>
   }
 };
 
-export const authorizeWorkRoom = async (input: {
+export const authorizeAppRoom = async (input: {
   authToken: string;
   roomId: string;
   ticket: string;
 }): Promise<{ room: RealtimeRoomDescriptor; participantId: string; userKey: string }> => {
-  const response = await fetch(`${gatewayConfig.apiBaseUrl}/internal/gateway/authorize-work-room`, {
+  const response = await fetch(`${gatewayConfig.apiBaseUrl}/internal/gateway/authorize-app-room`, {
     method: "POST",
     headers: {
       "content-type": "application/json",

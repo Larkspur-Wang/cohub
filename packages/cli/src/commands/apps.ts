@@ -1,0 +1,585 @@
+import { HttpError, type CohubHttpClient, type Permission, type AppCreateInput, type AppMeta, type AppStatus, type AppTargetType, type AppUpdateInput, type AppViewStatsResponse, type AppVisibility } from "@neta-art/cohub";
+import type { Command } from "commander";
+import { createClient } from "../client.js";
+import { error, handleHttp, json as outJson, jsonRequested, ok, table } from "../output.js";
+import { resolveSpace } from "../space.js";
+import { downloadApp } from "../app-download.js";
+import { getAppByRef, parseAppRef } from "../app-ref.js";
+import { registerAppCommerce } from "./app-commerce.js";
+
+const WORK_STATUSES = ["published", "disabled"] as const;
+const WORK_VISIBILITIES = ["public", "space"] as const;
+
+const collectOption = (value: string, previous: string[] = []): string[] => [...previous, value];
+
+function parseChoice<const T extends readonly string[]>(value: string, name: string, choices: T): T[number] {
+  if ((choices as readonly string[]).includes(value)) return value as T[number];
+  return error(`Invalid ${name}`, `Use one of: ${choices.join(", ")}`);
+}
+
+function parseJsonObject(value: string | undefined, name: string): Record<string, unknown> | undefined {
+  if (!value) return undefined;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
+  } catch {
+    // handled below
+  }
+  return error(`Invalid ${name}`, `${name} must be a JSON object`);
+}
+
+function compactObject<T extends object>(input: T): Partial<T> {
+  return Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined)) as Partial<T>;
+}
+
+function withCohubBarMeta(input: {
+  meta?: AppMeta | null;
+  hideCohubBar?: boolean;
+  showCohubBar?: boolean;
+}): AppMeta | null | undefined {
+  if (!input.hideCohubBar && !input.showCohubBar) return input.meta;
+  const meta = input.meta ? { ...input.meta } : {};
+  const presentation = meta.presentation && typeof meta.presentation === "object" && !Array.isArray(meta.presentation)
+    ? { ...(meta.presentation as Record<string, unknown>) }
+    : {};
+  if (input.hideCohubBar) presentation.hideCohubBar = true;
+  if (input.showCohubBar) delete presentation.hideCohubBar;
+  if (Object.keys(presentation).length > 0) meta.presentation = presentation;
+  else delete meta.presentation;
+  return Object.keys(meta).length > 0 ? meta : null;
+}
+
+function resolveTarget(opts: { file?: string; dir?: string; port?: string }): { targetType: AppTargetType; targetRef: string } | null {
+  const targets = [
+    opts.file ? { targetType: "file" as const, targetRef: opts.file } : null,
+    opts.dir ? { targetType: "directory" as const, targetRef: opts.dir } : null,
+    opts.port ? { targetType: "port" as const, targetRef: opts.port } : null,
+  ].filter((target): target is { targetType: AppTargetType; targetRef: string } => Boolean(target));
+  if (targets.length === 0) return null;
+  if (targets.length > 1) return error("Conflicting target", "Use only one of --file, --dir, or --port");
+  return targets[0] ?? null;
+}
+
+function resolveStatus(opts: { disabled?: boolean; status?: string }): AppStatus {
+  const values = [opts.status, opts.disabled ? "disabled" : undefined].filter(Boolean);
+  if (values.length > 1) return error("Conflicting status", "Use only one of --status or --disabled");
+  return values[0] ? parseChoice(values[0], "status", WORK_STATUSES) : "published";
+}
+
+function resolveVisibility(value: string | undefined): AppVisibility | undefined {
+  return value ? parseChoice(value, "visibility", WORK_VISIBILITIES) : undefined;
+}
+
+function printApp(app: Record<string, unknown>): void {
+  table([app], [
+    { key: "id", label: "ID" },
+    { key: "slug", label: "Slug" },
+    { key: "status", label: "Status" },
+    { key: "visibility", label: "Visibility" },
+    { key: "targetType", label: "Target" },
+    { key: "targetRef", label: "Ref" },
+    { key: "latestVersion", label: "Version" },
+    { key: "publishedAt", label: "Published" },
+  ]);
+}
+
+function printAppUrls(result: { publicUrl?: string | null; content?: { url: string } | null }): void {
+  const lines = [
+    result.publicUrl ? `Public URL: ${result.publicUrl}` : null,
+    result.content?.url ? `Content URL: ${result.content.url}` : null,
+  ].filter((line): line is string => Boolean(line));
+  if (lines.length) console.log(`\n${lines.join("\n")}`);
+}
+
+function promotionUrl(publicUrl: string | null, promotion: { id: string; parameters: Record<string, string> }): string | null {
+  if (!publicUrl) return null;
+  const url = new URL(publicUrl);
+  url.searchParams.set("cohub_campaign", promotion.id);
+  for (const [key, value] of Object.entries(promotion.parameters)) url.searchParams.set(key, value);
+  return url.toString();
+}
+
+function printAppStats(stats: AppViewStatsResponse): void {
+  table([stats.summary], [
+    { key: "totalViews", label: "Total" },
+    { key: "views24h", label: "24h" },
+    { key: "views7d", label: "7d" },
+    { key: "views30d", label: "30d" },
+  ]);
+  if (stats.sources.length) {
+    console.log("");
+    table(stats.sources, [
+      { key: "source", label: "Source" },
+      { key: "views", label: "Views" },
+    ]);
+  }
+}
+
+export async function getAppStatsByRef(client: CohubHttpClient, app: string): Promise<AppViewStatsResponse> {
+  const ref = parseAppRef(app);
+  if ("id" in ref) return client.apps.getStats(ref.id);
+  const detail = await getAppByRef(client, app);
+  return client.apps.getStats(detail.work.id);
+}
+
+async function confirmDelete(opts: { yes?: boolean }): Promise<void> {
+  if (opts.yes) return;
+  if (!process.stdin.isTTY || !process.stdout.isTTY) return error("Confirmation required", "Pass --yes to delete the app.");
+  process.stdout.write("Deleting an app also removes its versions and viewer grants. Continue? [y/N] ");
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) {
+    chunks.push(chunk);
+    break;
+  }
+  const answer = Buffer.concat(chunks).toString().trim().toLowerCase();
+  if (answer !== "y" && answer !== "yes") return error("Cancelled");
+}
+
+async function publishAppVersion(id: string, opts: { json?: boolean }): Promise<void> {
+  const client = createClient();
+  try {
+    const result = await client.apps.publishVersion(id);
+    if (jsonRequested(opts)) return outJson(result);
+    ok(`App version updated: v${result.version.version}`);
+    printApp(result.work);
+  } catch (e: unknown) {
+    handleHttp(e);
+  }
+}
+
+type PublishOptions = {
+  file?: string;
+  dir?: string;
+  port?: string;
+  disabled?: boolean;
+  status?: string;
+  visibility?: string;
+  appScope?: string[];
+  viewerScope?: string[];
+  meta?: string;
+  hideCohubBar?: boolean;
+  showCohubBar?: boolean;
+  json?: boolean;
+};
+
+type UpdateOptions = PublishOptions & {
+  slug?: string;
+  clearAppScopes?: boolean;
+  clearViewerScopes?: boolean;
+};
+
+type ResolveOptions = {
+  owner?: string;
+  spaceSlug?: string;
+  json?: boolean;
+};
+
+export function registerApps(program: Command): void {
+  const appsCmd = program
+    .command("apps")
+    .description("App management")
+    // Legacy spelling; hidden from help but still typed by existing scripts.
+    .alias("works")
+    .hook("preAction", () => {
+      if (process.argv.slice(2).includes("works")) {
+        ok("Deprecated: `cohub works` is now `cohub apps`.");
+      }
+    });
+
+  appsCmd
+    .command("ls")
+    .alias("list")
+    .description("List apps in the target space")
+    .option("--json", "Output as JSON")
+    .action(async (opts: { json?: boolean }) => {
+      const spaceId = resolveSpace(appsCmd);
+      const client = createClient();
+      try {
+        const result = await client.apps.listBySpace(spaceId);
+        if (jsonRequested(opts)) return outJson(result);
+        table(result.works, [
+          { key: "id", label: "ID" },
+          { key: "slug", label: "Slug" },
+          { key: "status", label: "Status" },
+          { key: "visibility", label: "Visibility" },
+          { key: "targetType", label: "Target" },
+          { key: "targetRef", label: "Ref" },
+          { key: "latestVersion", label: "Version" },
+          { key: "publishedAt", label: "Published" },
+        ]);
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
+  appsCmd
+    .command("get <app>")
+    .description("Show app details by id, URL, mention URI, or username/space/app")
+    .option("--json", "Output as JSON")
+    .action(async (app: string, opts: { json?: boolean }) => {
+      const client = createClient();
+      try {
+        const result = await getAppByRef(client, app);
+        if (jsonRequested(opts)) return outJson(result);
+        printApp(result.work);
+        printAppUrls(result);
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
+  appsCmd
+    .command("stats <app>")
+    .description("Show view statistics by id, URL, mention URI, or username/space/app")
+    .option("--json", "Output as JSON")
+    .action(async (app: string, opts: { json?: boolean }) => {
+      const client = createClient();
+      try {
+        const result = await getAppStatsByRef(client, app);
+        if (jsonRequested(opts)) return outJson(result);
+        printAppStats(result);
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
+  appsCmd
+    .command("download <app>")
+    .description("Download a published file or directory app")
+    .option("-o, --output <path>", "Output file or directory")
+    .option("--json", "Output as JSON")
+    .action(async (app: string, opts: { output?: string; json?: boolean }) => {
+      const client = createClient();
+      try {
+        const detail = await getAppByRef(client, app);
+        const result = await downloadApp(detail, opts.output);
+        if (jsonRequested(opts)) return outJson(result);
+        ok(`Downloaded ${result.files} file${result.files === 1 ? "" : "s"} to ${result.output}`);
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
+  appsCmd
+    .command("resolve <appSlug>")
+    .description("Resolve a published app by owner and space slug")
+    .option("--owner <username>", "Owner username")
+    .option("--space-slug <slug>", "Space slug")
+    .option("--json", "Output as JSON")
+    .action(async (appSlug: string, opts: ResolveOptions) => {
+      if (!opts.owner?.trim()) return error("Missing owner username", "Pass --owner <username>.");
+      if (!opts.spaceSlug?.trim()) return error("Missing space slug", "Pass --space-slug <slug>.");
+      const client = createClient();
+      try {
+        const result = await client.apps.getBySlug(opts.owner.trim(), opts.spaceSlug.trim(), appSlug);
+        if (jsonRequested(opts)) return outJson(result);
+        printApp(result.work);
+        printAppUrls(result);
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
+  appsCmd
+    .command("publish <slug>")
+    .description("Create or publish an app in the target space")
+    .option("--file <path>", "Publish a file (HTML page, board, or any other file)")
+    .option("--dir <path>", "Publish a directory site")
+    .option("--port <port>", "Publish a public sandbox port")
+    .option("--disabled", "Create as disabled")
+    .option("--status <status>", "App status: published, disabled")
+    .option("--visibility <visibility>", "App visibility: public, space")
+    .option("--app-scope <scope>", "Scope granted to the app runtime (space.view, session.view, file.view, taskrun.view)", collectOption, [])
+    .option("--viewer-scope <scope>", "Scope viewers may request (taskrun.view, session.prompt.readonly, session.prompt.fullaccess, generation.create, user.space.list, user.session.list, user.usage.read)", collectOption, [])
+    .option("--meta <json>", "App metadata as a JSON object")
+    .option("--hide-cohub-bar", "Hide the Cohub footer bar on the public app page")
+    .option("--show-cohub-bar", "Show the Cohub footer bar on the public app page")
+    .option("--json", "Output as JSON")
+    .action(async (slug: string, opts: PublishOptions) => {
+      if (opts.hideCohubBar && opts.showCohubBar) return error("Conflicting Cohub bar options", "Use either --hide-cohub-bar or --show-cohub-bar.");
+      const target = resolveTarget(opts);
+      if (!target) return error("Missing target", "Use one of --file, --dir, or --port.");
+      const spaceId = resolveSpace(appsCmd);
+      const client = createClient();
+      const status = resolveStatus(opts);
+      const meta = withCohubBarMeta({
+        meta: parseJsonObject(opts.meta, "meta"),
+        hideCohubBar: opts.hideCohubBar,
+        showCohubBar: opts.showCohubBar,
+      });
+      const input: AppCreateInput = {
+        spaceId,
+        slug,
+        status,
+        visibility: resolveVisibility(opts.visibility),
+        targetType: target.targetType,
+        targetRef: target.targetRef,
+        workScopes: opts.appScope as Permission[],
+        allowedViewerScopes: opts.viewerScope as Permission[],
+        meta,
+      };
+      try {
+        const result = await client.apps.create(input);
+        if (jsonRequested(opts)) return outJson(result);
+        ok(`App published: ${result.work.id}`);
+        printApp(result.work);
+      } catch (e: unknown) {
+        if (!(e instanceof HttpError) || e.status !== 409) handleHttp(e);
+        try {
+          const { works } = await client.apps.listBySpace(spaceId);
+          const existingApp = works.find((app) => app.slug === slug);
+          if (!existingApp) return handleHttp(e);
+          const { work } = await client.apps.update(existingApp.id, {
+            status: status === "published" && existingApp.status !== "published" ? existingApp.status : status,
+            visibility: resolveVisibility(opts.visibility),
+            targetType: target.targetType,
+            targetRef: target.targetRef,
+            workScopes: opts.appScope as Permission[],
+            allowedViewerScopes: opts.viewerScope as Permission[],
+            meta,
+          });
+          const publishedVersion = status === "published"
+            ? await client.apps.publishVersion(work.id)
+            : null;
+          const result = publishedVersion ?? { work };
+          if (jsonRequested(opts)) return outJson(result);
+          ok(status === "published" && publishedVersion ? `App version updated: v${publishedVersion.version.version}` : `App updated: ${work.id}`);
+          printApp(result.work);
+        } catch (fallbackError: unknown) {
+          handleHttp(fallbackError);
+        }
+      }
+    });
+
+  appsCmd
+    .command("update <id>")
+    .description("Update app settings")
+    .option("--slug <slug>", "New app slug")
+    .option("--file <path>", "Use a file target (HTML page, board, or any other file)")
+    .option("--dir <path>", "Use a directory site target")
+    .option("--port <port>", "Use a public sandbox port target")
+    .option("--disabled", "Set status to disabled")
+    .option("--status <status>", "App status: published, disabled")
+    .option("--visibility <visibility>", "App visibility: public, space")
+    .option("--app-scope <scope>", "Scope granted to the app runtime (space.view, session.view, file.view, taskrun.view)", collectOption, [])
+    .option("--viewer-scope <scope>", "Scope viewers may request (taskrun.view, session.prompt.readonly, session.prompt.fullaccess, generation.create, user.space.list, user.session.list, user.usage.read)", collectOption, [])
+    .option("--clear-app-scopes", "Clear app runtime scopes")
+    .option("--clear-viewer-scopes", "Clear viewer-requestable scopes")
+    .option("--meta <json>", "App metadata as a JSON object")
+    .option("--hide-cohub-bar", "Hide the Cohub footer bar on the public app page")
+    .option("--show-cohub-bar", "Show the Cohub footer bar on the public app page")
+    .option("--json", "Output as JSON")
+    .action(async (id: string, opts: UpdateOptions) => {
+      if (opts.hideCohubBar && opts.showCohubBar) return error("Conflicting Cohub bar options", "Use either --hide-cohub-bar or --show-cohub-bar.");
+      const target = resolveTarget(opts);
+      if (opts.clearAppScopes && opts.appScope?.length) return error("Conflicting app scopes", "Use either --app-scope or --clear-app-scopes.");
+      if (opts.clearViewerScopes && opts.viewerScope?.length) return error("Conflicting viewer scopes", "Use either --viewer-scope or --clear-viewer-scopes.");
+      const hasMetaUpdate = opts.meta !== undefined || opts.hideCohubBar || opts.showCohubBar;
+      const client = createClient();
+      let meta: AppMeta | null | undefined;
+      if (hasMetaUpdate) {
+        let baseMeta = opts.meta !== undefined ? parseJsonObject(opts.meta, "meta") ?? null : undefined;
+        if (baseMeta === undefined && (opts.hideCohubBar || opts.showCohubBar)) {
+          try {
+            baseMeta = (await client.apps.get(id)).work.meta;
+          } catch (e: unknown) {
+            handleHttp(e);
+          }
+        }
+        meta = withCohubBarMeta({
+          meta: baseMeta,
+          hideCohubBar: opts.hideCohubBar,
+          showCohubBar: opts.showCohubBar,
+        });
+      }
+      const nextStatus = opts.status || opts.disabled ? resolveStatus(opts) : undefined;
+      const currentApp = nextStatus === "published" ? (await client.apps.get(id)).work : null;
+      const input = compactObject<AppUpdateInput>({
+        slug: opts.slug,
+        status: nextStatus === "published" && currentApp?.status !== "published" ? currentApp?.status : nextStatus,
+        visibility: resolveVisibility(opts.visibility),
+        targetType: target?.targetType,
+        targetRef: target?.targetRef,
+        workScopes: opts.clearAppScopes ? [] : opts.appScope?.length ? opts.appScope as Permission[] : undefined,
+        allowedViewerScopes: opts.clearViewerScopes ? [] : opts.viewerScope?.length ? opts.viewerScope as Permission[] : undefined,
+        meta,
+      });
+      if (Object.keys(input).length === 0) return error("Nothing to update", "Pass --slug, --file, --dir, --port, --status, --visibility, --app-scope, --viewer-scope, --clear-app-scopes, --clear-viewer-scopes, --meta, --hide-cohub-bar, or --show-cohub-bar.");
+      try {
+        const updated = await client.apps.update(id, input);
+        const publishedVersion = nextStatus === "published" && currentApp?.status !== "published"
+          ? await client.apps.publishVersion(updated.work.id)
+          : null;
+        const result = publishedVersion ?? updated;
+        if (jsonRequested(opts)) return outJson(result);
+        ok(publishedVersion ? `App published: v${publishedVersion.version.version}` : "App updated");
+        printApp(result.work);
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
+  appsCmd
+    .command("publish-version <id>")
+    .description("Publish or update the current app version")
+    .option("--json", "Output as JSON")
+    .action(publishAppVersion);
+
+  appsCmd
+    .command("release <id>", { hidden: true })
+    .description("Deprecated alias for publish-version")
+    .option("--json", "Output as JSON")
+    .action(publishAppVersion);
+
+  appsCmd
+    .command("versions <id>")
+    .description("List app versions")
+    .option("--json", "Output as JSON")
+    .action(async (id: string, opts: { json?: boolean }) => {
+      const client = createClient();
+      try {
+        const result = await client.apps.listVersions(id);
+        if (jsonRequested(opts)) return outJson(result);
+        table(result.versions, [
+          { key: "version", label: "Version" },
+          { key: "id", label: "ID" },
+          { key: "targetType", label: "Target" },
+          { key: "targetRef", label: "Ref" },
+          { key: "createdAt", label: "Created" },
+        ]);
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
+  const promotionsCmd = appsCmd.command("promotions").description("App promotion links and analytics");
+
+  promotionsCmd
+    .command("list <app>")
+    .alias("ls")
+    .description("List promotion links")
+    .option("--json", "Output as JSON")
+    .action(async (appRef: string, opts: { json?: boolean }) => {
+      const client = createClient();
+      try {
+        const detail = await getAppByRef(client, appRef);
+        const result = await client.apps.listPromotions(detail.work.id);
+        const promotions = result.promotions.map((promotion) => ({
+          ...promotion,
+          url: promotionUrl(detail.publicUrl, promotion),
+        }));
+        if (jsonRequested(opts)) return outJson({ ...result, promotions });
+        table(promotions, [
+          { key: "name", label: "Name" },
+          { key: "provider", label: "Provider" },
+          { key: "id", label: "ID" },
+          { key: "url", label: "URL" },
+        ]);
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
+  promotionsCmd
+    .command("create <app>")
+    .description("Create an immutable promotion link")
+    .requiredOption("--name <name>", "Promotion name")
+    .option("--provider <provider>", "Promotion provider", "generic")
+    .option("--utm-id <value>", "UTM campaign ID")
+    .option("--utm-source <value>", "UTM source")
+    .option("--utm-medium <value>", "UTM medium")
+    .option("--utm-campaign <value>", "UTM campaign")
+    .option("--utm-term <value>", "UTM term")
+    .option("--utm-content <value>", "UTM content")
+    .option("--json", "Output as JSON")
+    .action(async (appRef: string, opts: {
+      name: string;
+      provider: string;
+      utmId?: string;
+      utmSource?: string;
+      utmMedium?: string;
+      utmCampaign?: string;
+      utmTerm?: string;
+      utmContent?: string;
+      json?: boolean;
+    }) => {
+      const client = createClient();
+      try {
+        const detail = await getAppByRef(client, appRef);
+        const parameters = Object.fromEntries(Object.entries({
+          utm_id: opts.utmId,
+          utm_source: opts.utmSource,
+          utm_medium: opts.utmMedium,
+          utm_campaign: opts.utmCampaign,
+          utm_term: opts.utmTerm,
+          utm_content: opts.utmContent,
+        }).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
+        const result = await client.apps.createPromotion(detail.work.id, {
+          name: opts.name,
+          provider: opts.provider,
+          parameters,
+        });
+        const url = promotionUrl(detail.publicUrl, result.promotion);
+        if (jsonRequested(opts)) return outJson({ ...result, url });
+        ok("Promotion created");
+        table([{ ...result.promotion, url }], [
+          { key: "name", label: "Name" },
+          { key: "provider", label: "Provider" },
+          { key: "id", label: "ID" },
+          { key: "url", label: "URL" },
+        ]);
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
+  promotionsCmd
+    .command("stats <app> <promotionId>")
+    .description("Show promotion analytics")
+    .option("--json", "Output as JSON")
+    .action(async (appRef: string, promotionId: string, opts: { json?: boolean }) => {
+      const client = createClient();
+      try {
+        const detail = await getAppByRef(client, appRef);
+        const result = await client.apps.getPromotionStats(detail.work.id, promotionId);
+        if (jsonRequested(opts)) return outJson(result);
+        table([{
+          name: result.promotion.name,
+          landing: result.summary.landing,
+          ready: result.summary.ready,
+          registered: result.summary.registrationCompleted,
+          paywall: result.summary.paywallViewed,
+          checkout: result.summary.checkoutStarted,
+          readyRate: `${(result.summary.readyRate * 100).toFixed(1)}%`,
+        }], [
+          { key: "name", label: "Name" },
+          { key: "landing", label: "Landing" },
+          { key: "ready", label: "Ready" },
+          { key: "registered", label: "Registered" },
+          { key: "paywall", label: "Paywall" },
+          { key: "checkout", label: "Checkout" },
+          { key: "readyRate", label: "Ready rate" },
+        ]);
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
+  registerAppCommerce(appsCmd);
+
+  appsCmd
+    .command("rm <id>")
+    .alias("delete")
+    .description("Delete an app")
+    .option("-y, --yes", "Confirm deletion")
+    .action(async (id: string, opts: { yes?: boolean }) => {
+      await confirmDelete(opts);
+      const client = createClient();
+      try {
+        await client.apps.delete(id);
+        ok("App deleted");
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+}

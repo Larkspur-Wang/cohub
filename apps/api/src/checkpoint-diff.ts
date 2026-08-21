@@ -247,7 +247,7 @@ async function resolveBaseCommit(input: {
     .where(and(eq(checkpoints.id, input.head.parentCheckpointId), eq(checkpoints.spaceId, input.spaceId)))
     .limit(1);
   if (!parent) {
-    // Parent record missing — fall back to empty tree so the endpoint still works.
+    // Parent record missing — fall back to empty tree so the endpoint still apps.
     return { baseCheckpointId: null, baseCommitHash: EMPTY_TREE_HASH };
   }
   return { baseCheckpointId: parent.id, baseCommitHash: parent.commitHash };

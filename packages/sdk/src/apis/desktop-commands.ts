@@ -1,0 +1,154 @@
+import type { HttpTransport } from "../transport.js";
+import {
+  isTerminalDesktopCommandStatus,
+  DESKTOP_COMMAND_DEFAULT_TIMEOUT_MS,
+  DESKTOP_COMMAND_MAX_TIMEOUT_MS,
+  type DesktopCommand,
+  type DesktopCommandError,
+  type DesktopCommandRecord,
+  type DesktopCommandStatus,
+} from "@cohub/protocol/desktop-command";
+
+export type {
+  DesktopCommand,
+  DesktopCommandError,
+  DesktopCommandRecord,
+  DesktopCommandStatus,
+  DesktopAppTarget,
+  DesktopCall,
+  DesktopFileTarget,
+  DesktopOpenCommand,
+  DesktopTarget,
+} from "@cohub/protocol/desktop-command";
+
+// ── Legacy aliases (the `preview.show` wire shape) ────────────────────────────
+
+/** @deprecated Use `DesktopCommand`. */
+export type UiCommand = DesktopCommand;
+/** @deprecated Use `DesktopCommandError`. */
+export type UiCommandError = DesktopCommandError;
+/** @deprecated Use `DesktopCommandRecord`. */
+export type UiCommandRecord = DesktopCommandRecord;
+/** @deprecated Use `DesktopCommandStatus`. */
+export type UiCommandStatus = DesktopCommandStatus;
+
+export type CreateDesktopCommandInput = {
+  command: DesktopCommand;
+  commandId?: string;
+  targetClientId?: string;
+};
+
+export type WaitForDesktopCommandOptions = {
+  timeoutMs?: number;
+  pollIntervalMs?: number;
+  signal?: AbortSignal;
+};
+
+/** @deprecated Use `CreateDesktopCommandInput`. */
+export type CreateUiCommandInput = CreateDesktopCommandInput;
+/** @deprecated Use `WaitForDesktopCommandOptions`. */
+export type WaitForUiCommandOptions = WaitForDesktopCommandOptions;
+
+const DEFAULT_POLL_INTERVAL_MS = 300;
+
+const resolveTimeoutMs = (timeoutMs: number | undefined): number => {
+  const value = timeoutMs ?? DESKTOP_COMMAND_DEFAULT_TIMEOUT_MS;
+  if (!Number.isFinite(value) || value <= 0 || value > DESKTOP_COMMAND_MAX_TIMEOUT_MS) {
+    throw new RangeError(
+      `timeoutMs must be between 1 and ${DESKTOP_COMMAND_MAX_TIMEOUT_MS} milliseconds`,
+    );
+  }
+  return value;
+};
+
+const sleep = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new Error("aborted"));
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new Error("aborted"));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+
+export class DesktopCommandsApi {
+  constructor(private readonly transport: HttpTransport) {}
+
+  create(input: CreateDesktopCommandInput) {
+    // The `/api/ui/commands` path is frozen for existing SDK consumers; the
+    // server accepts both the canonical `desktop.open` command and the legacy
+    // `preview.show` shape.
+    return this.transport.request<{ command: DesktopCommandRecord }>("/api/ui/commands", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+  }
+
+  get(commandId: string) {
+    return this.transport.request<{ command: DesktopCommandRecord }>(
+      `/api/ui/commands/${encodeURIComponent(commandId)}`,
+    );
+  }
+
+  reportResult(
+    commandId: string,
+    input: { status: DesktopCommandStatus; result?: unknown; error?: DesktopCommandError | null },
+  ) {
+    return this.transport.request<{ command: DesktopCommandRecord }>(
+      `/api/ui/commands/${encodeURIComponent(commandId)}/result`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      },
+    );
+  }
+
+  async run(
+    input: CreateDesktopCommandInput,
+    options: WaitForDesktopCommandOptions = {},
+  ): Promise<DesktopCommandRecord> {
+    const { command } = await this.create(input);
+    if (isTerminalDesktopCommandStatus(command.status)) return command;
+    return this.wait(command.commandId, options);
+  }
+
+  async wait(
+    commandId: string,
+    options: WaitForDesktopCommandOptions = {},
+  ): Promise<DesktopCommandRecord> {
+    const timeoutMs = resolveTimeoutMs(options.timeoutMs);
+    const pollIntervalMs = Math.max(50, options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS);
+    const deadline = Date.now() + timeoutMs;
+    let latest = (await this.get(commandId)).command;
+
+    while (!isTerminalDesktopCommandStatus(latest.status)) {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
+      await sleep(Math.min(pollIntervalMs, remaining), options.signal);
+      latest = (await this.get(commandId)).command;
+    }
+    if (isTerminalDesktopCommandStatus(latest.status)) return latest;
+
+    return {
+      ...latest,
+      status: "timeout",
+      error: {
+        code: "timeout",
+        message: "No Cohub desktop reported a result before the timeout.",
+      },
+      settledAt: new Date().toISOString(),
+    };
+  }
+}
+
+/** @deprecated Use `DesktopCommandsApi`. */
+export class UiCommandsApi extends DesktopCommandsApi {}

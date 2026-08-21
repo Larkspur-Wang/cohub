@@ -35,14 +35,14 @@ export function handleSpaceCommerceRouteError(c: Context, error: unknown) {
   return null;
 }
 
-export function handleWorkCommerceRouteError(c: Context, error: unknown) {
+export function handleAppCommerceRouteError(c: Context, error: unknown) {
   if (isBillingApiError(error)) {
     return commerceApiErrorResponse(c, error, { conflictMessage: "Checkout is not available" });
   }
   if (error instanceof SpaceCommerceNotInitializedError) {
     return jsonError(c, {
       status: 409,
-      message: "Commerce is not available for this work yet",
+      message: "Commerce is not available for this app yet",
       code: SPACE_COMMERCE_NOT_INITIALIZED_CODE,
     });
   }

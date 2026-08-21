@@ -49,8 +49,8 @@ test("sanitizeRedirectPath blocks auth endpoints and open redirects", () => {
 	assert.equal(sanitizeRedirectPath("/callback"), "/");
 	assert.equal(sanitizeRedirectPath("/callback?code=x"), "/");
 	assert.equal(sanitizeRedirectPath("/callback/extra"), "/");
-	assert.equal(sanitizeRedirectPath("/work-auth"), "/");
-	assert.equal(sanitizeRedirectPath("/work-auth?next=1"), "/");
+	assert.equal(sanitizeRedirectPath("/app-auth"), "/");
+	assert.equal(sanitizeRedirectPath("/app-auth?next=1"), "/");
 	assert.equal(sanitizeRedirectPath("//evil.example/phish"), "/");
 	assert.equal(sanitizeRedirectPath("https://evil.example/phish"), "/");
 	assert.equal(sanitizeRedirectPath("https://evil.example"), "/");

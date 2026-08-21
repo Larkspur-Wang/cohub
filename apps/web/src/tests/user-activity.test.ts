@@ -102,9 +102,9 @@ test("activity cache stores daily aggregates", () => {
 					costTotal: 0.5,
 				},
 			],
-			works: [
+			apps: [
 				{
-					workId: "work-1",
+					appId: "work-1",
 					spaceId: "space-1",
 					spaceName: "Studio",
 					slug: "launch-film",

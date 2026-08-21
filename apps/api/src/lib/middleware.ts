@@ -4,7 +4,7 @@ import { getConnInfo } from "@hono/node-server/conninfo";
 import type { AuthUserProfile } from "../auth.js";
 import type { ExecutionAuthPrincipal } from "../auth.js";
 import type { PreviewSessionPrincipal } from "../preview-sessions.js";
-import type { WorkSessionPrincipal } from "../work-sessions.js";
+import type { AppSessionPrincipal } from "../app-sessions.js";
 import { isUuidOrShortUuid } from "@cohub/protocol/identifiers";
 
 /** AuthUserProfile with guaranteed uuid (returned after auth checks pass). */
@@ -14,7 +14,7 @@ export type RequestPrincipal =
   | { type: "user"; user: AuthUser }
   | { type: "execution"; execution: ExecutionAuthPrincipal }
   | { type: "preview_session"; previewSession: PreviewSessionPrincipal }
-  | { type: "work_session"; workSession: WorkSessionPrincipal };
+  | { type: "app_session"; appSession: AppSessionPrincipal };
 
 import { config } from "../config.js";
 import { getProfilesByUuids } from "../user-profiles.js";
@@ -36,15 +36,15 @@ const principalToAuthUser = (principal: RequestPrincipal | null | undefined): Au
       execution: principal.execution,
     } as AuthUser & { execution: ExecutionAuthPrincipal };
   }
-  if (principal?.type === "work_session") {
+  if (principal?.type === "app_session") {
     return {
-      uuid: principal.workSession.userUuid,
+      uuid: principal.appSession.userUuid,
       id: undefined,
       nick_name: undefined,
       phone_num: undefined,
       avatar_url: undefined,
-      workSession: principal.workSession,
-    } as AuthUser & { workSession: WorkSessionPrincipal };
+      appSession: principal.appSession,
+    } as AuthUser & { appSession: AppSessionPrincipal };
   }
   if (principal?.type === "preview_session") {
     return {
@@ -96,9 +96,9 @@ export const getExecutionPrincipal = (c: Context): ExecutionAuthPrincipal | null
   return principal?.type === "execution" ? principal.execution : null;
 };
 
-export const getWorkSessionPrincipal = (c: Context): WorkSessionPrincipal | null => {
+export const getAppSessionPrincipal = (c: Context): AppSessionPrincipal | null => {
   const principal = c.get("principal") as RequestPrincipal | null | undefined;
-  return principal?.type === "work_session" ? principal.workSession : null;
+  return principal?.type === "app_session" ? principal.appSession : null;
 };
 
 export const getPreviewSessionPrincipal = (c: Context): PreviewSessionPrincipal | null => {

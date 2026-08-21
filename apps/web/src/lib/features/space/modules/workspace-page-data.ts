@@ -1,4 +1,4 @@
-import { readPreviewFromSearch } from "./workspace-preview-route";
+import { readWindowFromSearch } from "./window-route";
 
 export type WorkspacePageView =
 	| "space"
@@ -11,16 +11,16 @@ export type WorkspacePageView =
 	| "task";
 
 type PreviewFields = {
-	previewKind: "file" | "board" | "port" | "work" | null;
-	previewKey: string | null;
+	windowKind: "file" | "board" | "port" | "app" | null;
+	windowKey: string | null;
 };
 
 export function withWorkspacePreview(
 	searchParams: URLSearchParams,
 ): PreviewFields {
-	const preview = readPreviewFromSearch(searchParams);
+	const ref = readWindowFromSearch(searchParams);
 	return {
-		previewKind: preview?.kind ?? null,
-		previewKey: preview?.key ?? null,
+		windowKind: ref?.kind ?? null,
+		windowKey: ref?.key ?? null,
 	};
 }

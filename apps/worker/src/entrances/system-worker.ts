@@ -23,12 +23,12 @@ import { getRegisteredSystemJobs, getSystemJobHandler } from "../system/registry
 import { SANDBOX_IDLE_REAPER_JOB } from "../system/jobs/sandbox-idle-reaper/types.js";
 import { startSystemReferralRewardRetryLoop } from "../system/referral-reward-retry.js";
 import {
-  WORK_PROMOTION_STATS_FLUSH_INTERVAL_MS,
-  WORK_PROMOTION_STATS_FLUSH_JOB,
-  WORK_PROMOTION_STATS_FLUSH_SCHEDULER_ID,
-  WORK_VIEW_STATS_FLUSH_INTERVAL_MS,
-  WORK_VIEW_STATS_FLUSH_JOB,
-  WORK_VIEW_STATS_FLUSH_SCHEDULER_ID,
+  APP_PROMOTION_STATS_FLUSH_INTERVAL_MS,
+  APP_PROMOTION_STATS_FLUSH_JOB,
+  APP_PROMOTION_STATS_FLUSH_SCHEDULER_ID,
+  APP_VIEW_STATS_FLUSH_INTERVAL_MS,
+  APP_VIEW_STATS_FLUSH_JOB,
+  APP_VIEW_STATS_FLUSH_SCHEDULER_ID,
 } from "@cohub/protocol";
 
 import "../system/jobs/index.js";
@@ -108,10 +108,10 @@ logger.info("[SystemWorker] Registered jobs:", getRegisteredSystemJobs());
 
 try {
   await systemQueue.upsertJobScheduler(
-    WORK_VIEW_STATS_FLUSH_SCHEDULER_ID,
-    { every: WORK_VIEW_STATS_FLUSH_INTERVAL_MS },
+    APP_VIEW_STATS_FLUSH_SCHEDULER_ID,
+    { every: APP_VIEW_STATS_FLUSH_INTERVAL_MS },
     {
-      name: WORK_VIEW_STATS_FLUSH_JOB,
+      name: APP_VIEW_STATS_FLUSH_JOB,
       data: {},
       opts: {
         attempts: 3,
@@ -121,8 +121,8 @@ try {
     },
   );
   logger.info("[SystemWorker] Ensured Work view stats flush schedule", {
-    schedulerId: WORK_VIEW_STATS_FLUSH_SCHEDULER_ID,
-    intervalMs: WORK_VIEW_STATS_FLUSH_INTERVAL_MS,
+    schedulerId: APP_VIEW_STATS_FLUSH_SCHEDULER_ID,
+    intervalMs: APP_VIEW_STATS_FLUSH_INTERVAL_MS,
   });
 } catch (error) {
   logger.error("[SystemWorker] Failed to ensure Work view stats flush schedule", {
@@ -132,10 +132,10 @@ try {
 
 try {
   await systemQueue.upsertJobScheduler(
-    WORK_PROMOTION_STATS_FLUSH_SCHEDULER_ID,
-    { every: WORK_PROMOTION_STATS_FLUSH_INTERVAL_MS },
+    APP_PROMOTION_STATS_FLUSH_SCHEDULER_ID,
+    { every: APP_PROMOTION_STATS_FLUSH_INTERVAL_MS },
     {
-      name: WORK_PROMOTION_STATS_FLUSH_JOB,
+      name: APP_PROMOTION_STATS_FLUSH_JOB,
       data: {},
       opts: {
         attempts: 3,
@@ -145,8 +145,8 @@ try {
     },
   );
   logger.info("[SystemWorker] Ensured Work promotion stats flush schedule", {
-    schedulerId: WORK_PROMOTION_STATS_FLUSH_SCHEDULER_ID,
-    intervalMs: WORK_PROMOTION_STATS_FLUSH_INTERVAL_MS,
+    schedulerId: APP_PROMOTION_STATS_FLUSH_SCHEDULER_ID,
+    intervalMs: APP_PROMOTION_STATS_FLUSH_INTERVAL_MS,
   });
 } catch (error) {
   logger.error("[SystemWorker] Failed to ensure Work promotion stats flush schedule", {

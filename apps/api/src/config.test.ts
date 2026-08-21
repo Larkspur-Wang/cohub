@@ -11,7 +11,7 @@ describe("isHostAllowedBySuffix", () => {
   });
 
   it("matches subdomains", () => {
-    assert.equal(isHostAllowedBySuffix("works.cohub.run", DEFAULT_SUFFIXES), true);
+    assert.equal(isHostAllowedBySuffix("apps.cohub.run", DEFAULT_SUFFIXES), true);
     assert.equal(isHostAllowedBySuffix("s-abc-3000.cohub.live", DEFAULT_SUFFIXES), true);
     assert.equal(isHostAllowedBySuffix("anything.cohub.run", DEFAULT_SUFFIXES), true);
   });

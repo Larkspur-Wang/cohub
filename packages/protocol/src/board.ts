@@ -251,7 +251,7 @@ export type BoardBootstrap = {
   playback: BoardPlaybackSnapshot | null;
 };
 
-/** Immutable semantic Board state shared by Checkpoints and published Works. */
+/** Immutable semantic Board state shared by Checkpoints and published apps. */
 export type BoardSnapshot = {
   kind: typeof BOARD_SNAPSHOT_KIND;
   version: typeof BOARD_PROTOCOL_VERSION;

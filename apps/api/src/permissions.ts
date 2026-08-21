@@ -1,14 +1,14 @@
 import { createBatchDrizzlePermissionStore, hasPermission as hasSharedPermission, isUserLevelPermission, normalizePermissionScopes, resolvePermissionAccess as resolveSharedPermissionAccess, scopeListHasPermission } from "@cohub/core/permissions";
 import { db } from "./db/index.js";
 import type { AuthUserProfile } from "./auth.js";
-import { workViewerGrants, type SpaceRole } from "@cohub/db";
+import { appViewerGrants, type SpaceRole } from "@cohub/db";
 import type { Permission, AccessPolicy, PermissionAccess } from "@cohub/core/permissions";
 import type { PreviewSessionPrincipal } from "./preview-sessions.js";
 import { hasPreviewSessionPermission } from "./preview-sessions.js";
-import type { WorkSessionPrincipal } from "./work-sessions.js";
+import type { AppSessionPrincipal } from "./app-sessions.js";
 import { eq } from "drizzle-orm";
 
-type CachedWorkSessionPrincipal = WorkSessionPrincipal & {
+type CachedAppSessionPrincipal = AppSessionPrincipal & {
   activeViewerGrantScopes?: Promise<Permission[]>;
 };
 
@@ -25,8 +25,8 @@ export async function getSpaceMemberRole(spaceId: string, userId: string): Promi
   return permissionStore.getSpaceMemberRole(spaceId, userId);
 }
 
-const getUserWorkSession = (user: AuthUserProfile | null): CachedWorkSessionPrincipal | null => {
-  const session = (user as (AuthUserProfile & { workSession?: CachedWorkSessionPrincipal }) | null)?.workSession;
+const getUserAppSession = (user: AuthUserProfile | null): CachedAppSessionPrincipal | null => {
+  const session = (user as (AuthUserProfile & { appSession?: CachedAppSessionPrincipal }) | null)?.appSession;
   if (!session || user?.uuid !== session.userUuid) return null;
   return session;
 };
@@ -44,7 +44,7 @@ const getUserPreviewSession = (user: AuthUserProfile | null): PreviewSessionPrin
 };
 
 /**
- * Strip work/preview/execution principal scopes for account-level handlers
+ * Strip app-session/preview/execution principal scopes for account-level handlers
  * (`user.space.list` / `user.session.list` / `user.usage.read`).
  * Gate with the original principal; load data with this identity.
  */
@@ -55,8 +55,8 @@ export function asAccountIdentity(user: { uuid?: string | null } | null | undefi
 
 /** Account owners may access their own Task Runs; Works need explicit viewer consent. */
 export async function canAccessOwnTaskRuns(user: AuthUserProfile | null) {
-  const workSession = getUserWorkSession(user);
-  if (workSession) return hasActiveViewerGrantPermission(workSession, "taskrun.view");
+  const appSession = getUserAppSession(user);
+  if (appSession) return hasActiveViewerGrantPermission(appSession, "taskrun.view");
   return Boolean(user?.uuid);
 }
 
@@ -71,49 +71,49 @@ export async function canAccessUnscopedTaskRun(
   );
 }
 
-const loadActiveViewerGrantScopes = async (workSession: CachedWorkSessionPrincipal) => {
-  if (!workSession.workViewerGrantId) return [] as Permission[];
+const loadActiveViewerGrantScopes = async (appSession: CachedAppSessionPrincipal) => {
+  if (!appSession.appViewerGrantId) return [] as Permission[];
   const [grant] = await db
-    .select({ scopes: workViewerGrants.scopes, expiresAt: workViewerGrants.expiresAt, revokedAt: workViewerGrants.revokedAt })
-    .from(workViewerGrants)
-    .where(eq(workViewerGrants.id, workSession.workViewerGrantId))
+    .select({ scopes: appViewerGrants.scopes, expiresAt: appViewerGrants.expiresAt, revokedAt: appViewerGrants.revokedAt })
+    .from(appViewerGrants)
+    .where(eq(appViewerGrants.id, appSession.appViewerGrantId))
     .limit(1);
   if (!grant || grant.revokedAt) return [];
   if (grant.expiresAt && grant.expiresAt.getTime() <= Date.now()) return [];
-  const tokenScopes = new Set(normalizePermissionScopes(workSession.viewerScopes));
+  const tokenScopes = new Set(normalizePermissionScopes(appSession.viewerScopes));
   return normalizePermissionScopes(grant.scopes as string[]).filter((scope) => tokenScopes.has(scope));
 };
 
-const getActiveViewerGrantScopes = async (workSession: CachedWorkSessionPrincipal) => {
-  workSession.activeViewerGrantScopes ??= loadActiveViewerGrantScopes(workSession);
-  return workSession.activeViewerGrantScopes;
+const getActiveViewerGrantScopes = async (appSession: CachedAppSessionPrincipal) => {
+  appSession.activeViewerGrantScopes ??= loadActiveViewerGrantScopes(appSession);
+  return appSession.activeViewerGrantScopes;
 };
 
-const hasActiveViewerGrantPermission = async (workSession: CachedWorkSessionPrincipal, permission: Permission) => {
-  if (!scopeListHasPermission(workSession.viewerScopes, permission)) return false;
-  return scopeListHasPermission(await getActiveViewerGrantScopes(workSession), permission);
+const hasActiveViewerGrantPermission = async (appSession: CachedAppSessionPrincipal, permission: Permission) => {
+  if (!scopeListHasPermission(appSession.viewerScopes, permission)) return false;
+  return scopeListHasPermission(await getActiveViewerGrantScopes(appSession), permission);
 };
 
-const resolveWorkSessionScopes = async (workSession: CachedWorkSessionPrincipal) => {
-  const viewerScopes = await getActiveViewerGrantScopes(workSession);
-  return normalizePermissionScopes([...workSession.workScopes, ...viewerScopes]);
+const resolveAppSessionScopes = async (appSession: CachedAppSessionPrincipal) => {
+  const viewerScopes = await getActiveViewerGrantScopes(appSession);
+  return normalizePermissionScopes([...appSession.appScopes, ...viewerScopes]);
 };
 
-const hasWorkSessionScopedPermission = async (
-  workSession: CachedWorkSessionPrincipal,
+const hasAppSessionScopedPermission = async (
+  appSession: CachedAppSessionPrincipal,
   permission: Permission,
   context: { spaceId: string; sessionId?: string },
 ) => {
   if (
-    workSession.spaceId === context.spaceId &&
-    scopeListHasPermission(workSession.workScopes, permission)
+    appSession.spaceId === context.spaceId &&
+    scopeListHasPermission(appSession.appScopes, permission)
   ) {
     return true;
   }
-  if (!(await hasActiveViewerGrantPermission(workSession, permission))) return false;
+  if (!(await hasActiveViewerGrantPermission(appSession, permission))) return false;
   return hasSharedPermission({
     store: permissionStore,
-    user: { uuid: workSession.userUuid },
+    user: { uuid: appSession.userUuid },
     permission,
     context,
   });
@@ -124,18 +124,18 @@ export async function hasPermission(
   permission: Permission,
   context: { spaceId: string; sessionId?: string },
 ): Promise<boolean> {
-  // Account-level scopes are not bound to a space. Work sessions need an
-  // explicit viewer grant; publishers cannot pre-grant these via workScopes.
+  // Account-level scopes are not bound to a space. App sessions need an
+  // explicit viewer grant; publishers cannot pre-grant these via appScopes.
   // Handlers then load rows with asAccountIdentity (user membership/policy),
-  // not work-scoped session.view / space.view.
+  // not app-session-scoped session.view / space.view.
   if (isUserLevelPermission(permission)) {
-    const workSession = getUserWorkSession(user);
-    if (workSession) return hasActiveViewerGrantPermission(workSession, permission);
+    const appSession = getUserAppSession(user);
+    if (appSession) return hasActiveViewerGrantPermission(appSession, permission);
     return Boolean(user?.uuid);
   }
 
-  const workSession = getUserWorkSession(user);
-  if (workSession) return hasWorkSessionScopedPermission(workSession, permission, context);
+  const appSession = getUserAppSession(user);
+  if (appSession) return hasAppSessionScopedPermission(appSession, permission, context);
   const previewSession = getUserPreviewSession(user);
   if (previewSession) return hasPreviewSessionPermission(previewSession, permission, context.spaceId);
   const execution = getUserExecution(user);
@@ -156,9 +156,9 @@ export async function resolvePermissionAccess(
   user: AuthUserProfile | null,
   context: { spaceId: string; sessionId?: string },
 ): Promise<PermissionAccess> {
-  const workSession = getUserWorkSession(user);
-  if (workSession && workSession.spaceId === context.spaceId) {
-    return { role: null, permissions: await resolveWorkSessionScopes(workSession) };
+  const appSession = getUserAppSession(user);
+  if (appSession && appSession.spaceId === context.spaceId) {
+    return { role: null, permissions: await resolveAppSessionScopes(appSession) };
   }
   const previewSession = getUserPreviewSession(user);
   if (previewSession?.spaceId === context.spaceId) return { role: null, permissions: normalizePermissionScopes(previewSession.scopes) };
@@ -185,9 +185,9 @@ export async function filterSessionsByPermission(
   sessions: SpaceSessionRow[],
   spacePolicy?: AccessPolicyRow,
 ): Promise<SpaceSessionRow[]> {
-  const workSession = getUserWorkSession(user);
-  if (workSession) {
-    return await hasWorkSessionScopedPermission(workSession, permission, { spaceId }) ? sessions : [];
+  const appSession = getUserAppSession(user);
+  if (appSession) {
+    return await hasAppSessionScopedPermission(appSession, permission, { spaceId }) ? sessions : [];
   }
   const previewSession = getUserPreviewSession(user);
   if (previewSession) return hasPreviewSessionPermission(previewSession, permission, spaceId) ? sessions : [];
@@ -203,7 +203,7 @@ export async function filterSessionsByPermission(
 }
 
 /**
- * Batch form of `hasPermission` for many spaces. Work/preview/execution
+ * Batch form of `hasPermission` for many spaces. App-session/preview/execution
  * principals are scoped to a single space, so they only ever match that one;
  * ordinary users fall through to a 1–2 query membership + policy lookup.
  */
@@ -214,11 +214,11 @@ export async function filterSpaceIdsByPermission(
 ): Promise<string[]> {
   if (spaceIds.length === 0) return [];
 
-  const workSession = getUserWorkSession(user);
-  if (workSession) {
+  const appSession = getUserAppSession(user);
+  if (appSession) {
     const allowed = await Promise.all(
       spaceIds.map((spaceId) =>
-        hasWorkSessionScopedPermission(workSession, permission, { spaceId }),
+        hasAppSessionScopedPermission(appSession, permission, { spaceId }),
       ),
     );
     return spaceIds.filter((_, index) => allowed[index]);

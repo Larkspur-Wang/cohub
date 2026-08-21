@@ -375,7 +375,7 @@ const triggerSandboxPublicNetworkReconcile = (spaceId: string) => {
   void reconcileSandboxPublicNetwork(spaceId)
     .then(async () => {
       await mergeSpaceSandboxMeta(spaceId, {
-        publicNetworkStatus: "ready",
+        publicNetappStatus: "ready",
         publicNetworkLastError: null,
         publicNetworkReconciledAt: new Date().toISOString(),
         publicEndpoints: getSandboxPublicEndpoints(spaceId),
@@ -383,7 +383,7 @@ const triggerSandboxPublicNetworkReconcile = (spaceId: string) => {
     })
     .catch(async (error) => {
       await mergeSpaceSandboxMeta(spaceId, {
-        publicNetworkStatus: "error",
+        publicNetappStatus: "error",
         publicNetworkLastError: error instanceof Error ? error.message : String(error),
         publicEndpoints: getSandboxPublicEndpoints(spaceId),
       }).catch(() => undefined);
@@ -493,7 +493,7 @@ export const reconcileSpaceSandbox = async (input: {
     provisioningStartedAt: nowIso,
     reportTokenHash,
     reportTokenIssuedAt,
-    publicNetworkStatus: "provisioning",
+    publicNetappStatus: "provisioning",
     publicNetworkLastError: null,
     publicEndpoints: getSandboxPublicEndpoints(input.spaceId),
   };

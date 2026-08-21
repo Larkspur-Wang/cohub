@@ -10,10 +10,10 @@ describe("asAccountIdentity", () => {
   it("keeps only the account uuid so work/preview scopes cannot leak into account lists", () => {
     const workish = {
       uuid: "user-1",
-      workSession: {
-        type: "work_session",
+      appSession: {
+        type: "app_session",
         spaceId: "home-space",
-        workScopes: ["session.view"],
+        appScopes: ["session.view"],
       },
     };
     assert.deepEqual(asAccountIdentity(workish), { uuid: "user-1" });
@@ -28,11 +28,11 @@ describe("asAccountIdentity", () => {
     assert.equal(
       await canAccessOwnTaskRuns({
         uuid: "user-1",
-        workSession: {
+        appSession: {
           userUuid: "user-1",
-          workScopes: ["taskrun.view"],
+          appScopes: ["taskrun.view"],
           viewerScopes: [],
-          workViewerGrantId: null,
+          appViewerGrantId: null,
         },
       } as never),
       false,
@@ -40,11 +40,11 @@ describe("asAccountIdentity", () => {
     assert.equal(
       await canAccessOwnTaskRuns({
         uuid: "user-1",
-        workSession: {
+        appSession: {
           userUuid: "user-1",
-          workScopes: [],
+          appScopes: [],
           viewerScopes: ["taskrun.view"],
-          workViewerGrantId: "grant-1",
+          appViewerGrantId: "grant-1",
           activeViewerGrantScopes: Promise.resolve(["taskrun.view"]),
         },
       } as never),
@@ -55,11 +55,11 @@ describe("asAccountIdentity", () => {
   it("applies the same consent gate to unscoped Task details", async () => {
     const workUser = {
       uuid: "user-1",
-      workSession: {
+      appSession: {
         userUuid: "user-1",
-        workScopes: ["taskrun.view"],
+        appScopes: ["taskrun.view"],
         viewerScopes: [],
-        workViewerGrantId: null,
+        appViewerGrantId: null,
       },
     } as never;
     assert.equal(await canAccessUnscopedTaskRun(workUser, "user-1"), false);

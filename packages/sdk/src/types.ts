@@ -122,7 +122,7 @@ export type PublicUserSpaceItem = {
   updatedAt: string | null;
 };
 
-export type PublicUserWorkItem = {
+export type PublicUserAppItem = {
   id: string;
   slug: string;
   title: string;
@@ -138,7 +138,7 @@ export type PublicUserWorkItem = {
 export type PublicUserPageResponse = {
   profile: PublicUserProfile;
   spaces: PublicUserSpaceItem[];
-  works: PublicUserWorkItem[];
+  apps: PublicUserAppItem[];
 };
 
 export type SpacePresenceUser = {
@@ -1606,8 +1606,8 @@ export type UserActivityRankings = {
     requestCount: number;
     costTotal: number;
   }>;
-  works: Array<{
-    workId: string;
+  apps: Array<{
+    appId: string;
     spaceId: string;
     spaceName: string;
     slug: string;
@@ -1720,7 +1720,7 @@ export type ReferenceResourceType =
   | "space"
   | "checkpoint"
   | "file"
-  | "work";
+  | "app";
 
 /**
  * Resource types usable as a query `source`: they resolve to an owning space to
@@ -1778,3 +1778,6 @@ export type ReferenceAggregateResponse = {
   groupBy: ReferenceAggregateGroupBy;
   groups: ReferenceAggregateGroup[];
 };
+
+/** @deprecated Use `PublicUserAppItem`. */
+export type PublicUserWorkItem = PublicUserAppItem;

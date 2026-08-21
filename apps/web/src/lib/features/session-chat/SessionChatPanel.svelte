@@ -3,7 +3,7 @@
  * Full-capability session chat panel.
  * Reads a SessionChatHost view-model — no 80-field prop bag.
  */
-import type { WorkComposerChip } from "@cohub/protocol/work-surface";
+import type { AppComposerChip } from "@cohub/protocol/app-surface";
 import { ArrowDown, FileCode2, ListTree, Plus, Upload } from "lucide-svelte";
 import type { Snippet } from "svelte";
 import { untrack } from "svelte";
@@ -48,8 +48,8 @@ let {
 	newChatBackground?: NewChatBackgroundConfig | null;
 	newChatBackgroundSpaceId?: string | null;
 	onNewChatBackgroundComposerChip?: (
-		workId: string,
-		chip: WorkComposerChip | null,
+		appId: string,
+		chip: AppComposerChip | null,
 	) => void;
 	onOpenTaskBrowser?: () => void;
 	shouldShowNewChatProfile?: boolean;
@@ -309,7 +309,7 @@ async function handleDraftDrop(event: DragEvent) {
 			<NewChatBackground
 				background={newChatBackground}
 				spaceId={newChatBackgroundSpaceId}
-				onWorkComposerChip={onNewChatBackgroundComposerChip}
+				onAppComposerChip={onNewChatBackgroundComposerChip}
 			/>
 			<div class="relative z-10 flex-1 min-h-0 pointer-events-none"></div>
 		{:else if shouldShowNewChatProfile}

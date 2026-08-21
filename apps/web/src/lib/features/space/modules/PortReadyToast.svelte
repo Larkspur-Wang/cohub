@@ -18,7 +18,7 @@ let { port, url, onPreview, onClose }: Props = $props();
 			<div class="truncate text-[11px] text-text-tertiary" title={url}>{url}</div>
 		</div>
 		<div class="flex shrink-0 items-center gap-1">
-			<button type="button" class="port-ready-action primary" onclick={onPreview}>Preview</button>
+			<button type="button" class="port-ready-action primary" onclick={onPreview}>Open</button>
 			<a class="port-ready-action" href={url} target="_blank" rel="noreferrer" onclick={onClose}>
 				<ExternalLink class="h-3 w-3" />
 				<span>Open externally</span>

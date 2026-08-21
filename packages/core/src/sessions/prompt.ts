@@ -27,32 +27,32 @@ export type WebsocketPromptContext = {
   auth?: PromptAuthContext | null;
 };
 
-export type WorkSessionPromptAuthContext = {
-  type: "work_session";
-  workId: string;
+export type AppSessionPromptAuthContext = {
+  type: "app_session";
+  appId: string;
   spaceId: string;
   scopes: string[];
-  workScopes: string[];
+  appScopes: string[];
   viewerScopes: string[];
   exp: number;
-  workViewerGrantId?: string | null;
+  appViewerGrantId?: string | null;
 };
 
 export type DelegatedPromptAuthContext = {
   type: "delegated_prompt";
-  source: "work_session" | string;
+  source: "app_session" | string;
   actorUserId: string;
-  workId?: string | null;
+  appId?: string | null;
   spaceId: string;
   scopes: string[];
-  workScopes: string[];
+  appScopes: string[];
   viewerScopes: string[];
   delegatedAt: string;
   exp: number;
-  workViewerGrantId?: string | null;
+  appViewerGrantId?: string | null;
 };
 
-export type PromptAuthContext = WorkSessionPromptAuthContext | DelegatedPromptAuthContext;
+export type PromptAuthContext = AppSessionPromptAuthContext | DelegatedPromptAuthContext;
 
 export type PublicApiPromptContext = {
   kind: "public_api";

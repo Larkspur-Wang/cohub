@@ -52,17 +52,17 @@ prompt:
   assert.equal(hook.prompt?.intent, "followup");
 });
 
-test("parseSpaceHookDefinition accepts published Work version hooks", () => {
+test("parseSpaceHookDefinition accepts published app version hooks", () => {
   const hook = parseSpaceHookDefinition(
     `
 schema: cohub.space-hook.v1
 on:
-  event: work.version.published
-run: echo "$COHUB_HOOK_WORK_VERSION"
+  event: app.version.published
+run: echo "$COHUB_HOOK_APP_VERSION"
 `,
-    ".cohub/hooks/on-work-published.yml",
+    ".cohub/hooks/on-app-published.yml",
   );
-  assert.equal(hook.event, "work.version.published");
+  assert.equal(hook.event, "app.version.published");
   assert.equal(hook.action, "run");
 });
 
@@ -485,9 +485,9 @@ test("buildSpaceHookEnv always exports optional ids as empty strings when absent
     COHUB_HOOK_SESSION_ID: "session-1",
     COHUB_HOOK_TURN_ID: "turn-1",
     COHUB_HOOK_CHECKPOINT_ID: "",
-    COHUB_HOOK_WORK_ID: "",
-    COHUB_HOOK_WORK_VERSION_ID: "",
-    COHUB_HOOK_WORK_VERSION: "",
+    COHUB_HOOK_APP_ID: "",
+    COHUB_HOOK_APP_VERSION_ID: "",
+    COHUB_HOOK_APP_VERSION: "",
   });
   assert.equal("COHUB_HOOK_TURN_STATUS" in turnEnv, false);
 
@@ -529,25 +529,25 @@ test("buildSpaceHookEnv always exports optional ids as empty strings when absent
   assert.equal(readyEnv.COHUB_HOOK_CHECKPOINT_ID, "");
 });
 
-test("buildSpaceHookEnv exposes published work version ids", () => {
+test("buildSpaceHookEnv exposes published app version ids", () => {
   const env = buildSpaceHookEnv({
     event: {
-      id: "evt-work",
-      type: "work.version.published",
+      id: "evt-app",
+      type: "app.version.published",
       timestamp: Date.parse("2026-07-20T00:00:00.000Z"),
       spaceId: "space-1",
       payload: {
-        work: { id: "work-1" },
+        app: { id: "app-1" },
         version: { id: "version-3", version: 3 },
       },
     },
-    hookPath: ".cohub/hooks/on-work.yml",
-    taskRunId: "task-run-work",
+    hookPath: ".cohub/hooks/on-app.yml",
+    taskRunId: "task-run-app",
     executionUserId: "owner-1",
   });
-  assert.equal(env.COHUB_HOOK_WORK_ID, "work-1");
-  assert.equal(env.COHUB_HOOK_WORK_VERSION_ID, "version-3");
-  assert.equal(env.COHUB_HOOK_WORK_VERSION, "3");
+  assert.equal(env.COHUB_HOOK_APP_ID, "app-1");
+  assert.equal(env.COHUB_HOOK_APP_VERSION_ID, "version-3");
+  assert.equal(env.COHUB_HOOK_APP_VERSION, "3");
 });
 
 test("buildSpaceHookEnv summarizes fs changes without resync/truncated flags", () => {

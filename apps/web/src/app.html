@@ -12,7 +12,7 @@
         var segments = location.pathname.split('/').filter(Boolean);
         var isPublicWorkUrl = segments.length === 4 && segments[2] === 'w';
         var href = isPublicWorkUrl
-          ? `/work.webmanifest?start_url=${encodeURIComponent(location.pathname)}`
+          ? `/app.webmanifest?start_url=${encodeURIComponent(location.pathname)}`
           : '/manifest.webmanifest';
         document.write(`<link rel="manifest" href="${href}" />`);
       })();

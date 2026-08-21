@@ -4,31 +4,31 @@ export { CohubClient, createCohubClient } from "./client.js";
 export { WebsocketClient, createWebsocketClient } from "./websocket.js";
 export { VoiceApi, VoiceInputClient, createVoiceInputClient } from "./voice-input.js";
 export { UsersApi } from "./apis/users.js";
-export { WorksApi } from "./apis/works.js";
-export { UiCommandsApi } from "./apis/ui-commands.js";
-export type { CreateUiCommandInput, WaitForUiCommandOptions } from "./apis/ui-commands.js";
-export { WorkSurfaceApi } from "./work-surface.js";
-export type { WorkSurfaceHandler, WorkSurfaceHandlerContext } from "./work-surface.js";
+export { AppsApi } from "./apis/apps.js";
+export { DesktopCommandsApi } from "./apis/desktop-commands.js";
+export type { CreateDesktopCommandInput, WaitForDesktopCommandOptions } from "./apis/desktop-commands.js";
+export { AppSurfaceApi } from "./app-surface.js";
+export type { AppSurfaceHandler, AppSurfaceHandlerContext } from "./app-surface.js";
 export {
-  formatWorkRef,
-  isWorkId,
-  parseWorkRef,
-  WorkRefParseError,
-} from "./work-ref.js";
-export type { ParsedWorkRef, WorkPublicRef } from "./work-ref.js";
+  formatAppRef,
+  isAppId,
+  parseAppRef,
+  AppRefParseError,
+} from "./app-ref.js";
+export type { ParsedAppRef, AppPublicRef } from "./app-ref.js";
 export { isUuid } from "@cohub/protocol/identifiers";
-export { WorkCommerceApi } from "./apis/work-commerce.js";
-export { WorkRealtimeApi, WorkRoom } from "./apis/work-realtime.js";
+export { AppCommerceApi } from "./apis/app-commerce.js";
+export { AppRealtimeApi, AppRoom } from "./apis/app-realtime.js";
 export { ReferencesApi } from "./apis/references.js";
 export { ReferralsApi } from "./apis/referrals.js";
 export { buildSpaceInvitePath, buildSpacePath } from "./apis/invitations.js";
 export type { BuildSpaceInvitePathInput, BuildSpacePathInput } from "./apis/invitations.js";
 export type { ReferenceResourceSelector } from "./apis/references.js";
-export { ParentBridgeTransport, PopupBrokerTransport, WorkRuntimeApi, createSlugWorkIdResolver, createWorkRuntime, resolveWorkTransport } from "./work-runtime.js";
-export type { WorkIdResolver, WorkRuntimeInvocationContext, WorkRuntimeModeConfig, WorkRuntimeRequestOptions, WorkRuntimeTransport } from "./work-runtime.js";
-export { createWorkBridgeCore } from "./work-bridge-core.js";
-export type { WorkBridgeAuthorizationContext, WorkBridgeCore, WorkBridgeCoreConfig, WorkBridgeCoreWork, WorkBridgeDialogState, WorkAuthorizeRequest, WorkCheckoutStarted, WorkPurchaseRequest, WorkBridgeGetAccessToken, WorkBridgeGetViewerUuid, WorkBridgeRequestSignIn, WorkPromotionAttributionContext } from "./work-bridge-core.js";
-export { clearGrantedWorkScopes, hasGrantedWorkScopes, setGrantedWorkScopes } from "./work-grant-cache.js";
+export { ParentBridgeTransport, PopupBrokerTransport, AppRuntimeApi, createSlugAppIdResolver, createAppRuntime, resolveAppTransport } from "./app-runtime.js";
+export type { AppIdResolver, AppRuntimeInvocationContext, AppRuntimeModeConfig, AppRuntimeRequestOptions, AppRuntimeTransport } from "./app-runtime.js";
+export { createAppBridgeCore } from "./app-bridge-core.js";
+export type { AppBridgeAuthorizationContext, AppBridgeCore, AppBridgeCoreConfig, AppBridgeCoreApp, AppBridgeDialogState, AppAuthorizeRequest, AppCheckoutStarted, AppPurchaseRequest, AppBridgeGetAccessToken, AppBridgeGetViewerUuid, AppBridgeRequestSignIn, AppPromotionAttributionContext } from "./app-bridge-core.js";
+export { clearGrantedAppScopes, hasGrantedAppScopes, setGrantedAppScopes } from "./app-grant-cache.js";
 export { SessionPatchReducer, createSessionPatchReducer } from "./session-patch-reducer.js";
 export {
   SessionGenerationStreamClient,
@@ -129,9 +129,11 @@ export type {
   ChannelEnvelope,
   LabelAssignmentsUpdatedEvent,
   RealtimeServerEvent,
-  RealtimeWorkRecord,
-  RealtimeWorkVersionRecord,
-  WorkVersionPublishedEvent,
+} from "@cohub/protocol/realtime";
+export type {
+  RealtimeAppRecord,
+  RealtimeAppVersionRecord,
+  AppVersionPublishedEvent,
 } from "@cohub/protocol/realtime";
 export type {
   BoardAwarenessUpdatedEvent,
@@ -152,13 +154,13 @@ export type {
   RealtimeRoomMember,
 } from "@cohub/protocol/realtime";
 export type {
-  WorkRoomAdmissionResponse,
-  WorkRoomCreateInput,
-  WorkRoomEvent,
-  WorkRoomEventMap,
-  WorkRoomPublishResult,
-  WorkRoomState,
-} from "./apis/work-realtime.js";
+  AppRoomAdmissionResponse,
+  AppRoomCreateInput,
+  AppRoomEvent,
+  AppRoomEventMap,
+  AppRoomPublishResult,
+  AppRoomState,
+} from "./apis/app-realtime.js";
 export {
   BoardClient,
   SpacePublicFilesApi,
@@ -186,7 +188,7 @@ export {
 } from "@cohub/protocol";
 export * from "./board/animation.js";
 export type { CreatePublicAssetUploadInput, CreatePublicAssetUploadResponse, PublicAssetMimeType, PublicAssetPurpose, PublicAssetUploadProgress, PublicAssetUploadProtocol, UploadChatAttachmentInput, UploadChatImageAttachmentInput, UploadPublicAssetInput } from "./apis/public-assets.js";
-export type { WorkAuthorizeResponse, WorkContent, WorkContentDownload, WorkCreateInput, WorkDetailResponse, WorkExtractedPageMeta, WorkGetResponse, WorkMeta, WorkPresentationMeta, WorkPromotionCreateInput, WorkPromotionEventResponse, WorkPromotionProvider, WorkPromotionProviderStatus, WorkPromotionRecord, WorkPromotionStatsResponse, WorkPublicOwnerRecord, WorkPublicSpaceRecord, WorkRecord, WorkResolveResponse, WorkSessionResponse, WorkStatus, WorkTargetType, WorkUpdateInput, WorkVersionRecord, WorkViewSource, WorkViewStatsResponse, WorkVisibility } from "./apis/works.js";
+export type { AppAuthorizeResponse, AppContent, AppContentDownload, AppCreateInput, AppDetailResponse, AppExtractedPageMeta, AppGetResponse, AppMeta, AppPresentationMeta, AppPromotionCreateInput, AppPromotionEventResponse, AppPromotionProvider, AppPromotionProviderStatus, AppPromotionRecord, AppPromotionStatsResponse, AppPublicOwnerRecord, AppPublicSpaceRecord, AppRecord, AppResolveResponse, AppSessionResponse, AppStatus, AppTargetType, AppUpdateInput, AppVersionRecord, AppViewSource, AppViewStatsResponse, AppVisibility } from "./apis/apps.js";
 export type {
   PublicFileCreateUploadInput,
   PublicFileCreateUploadResponse,
@@ -195,52 +197,178 @@ export type {
   PublicFileUploadEntryInput,
   PublicFileUploadPlanEntry,
   PublicFileUrlResponse,
-  WorkArtifactDescriptor,
-  WorkArtifactDownloadDescriptor,
-  WorkArtifactManifest,
-  WorkArtifactManifestFile,
-  WorkBoardArtifactManifest,
-  WorkBoardAsset,
-  WorkContentKind,
+  AppArtifactDescriptor,
+  AppArtifactDownloadDescriptor,
+  AppArtifactManifest,
+  AppArtifactManifestFile,
+  AppBoardArtifactManifest,
+  AppBoardAsset,
+  AppContentKind,
 } from "@cohub/protocol";
 export {
-  isTerminalUiCommandStatus,
-  isUiSurfaceMethod,
-  parseUiCommand,
-  UI_COMMAND_DEFAULT_TIMEOUT_MS,
-  UI_COMMAND_MAX_TIMEOUT_MS,
-  UI_COMMAND_PAYLOAD_MAX_BYTES,
-  UI_COMMAND_PENDING_TTL_SECONDS,
-  UI_COMMAND_SETTLEMENT_GRACE_SECONDS,
-  UI_COMMAND_TERMINAL_TTL_SECONDS,
-  UI_COMMAND_VERSION,
-} from "@cohub/protocol/ui-command";
+  isTerminalDesktopCommandStatus,
+  isDesktopCallMethod,
+  parseDesktopCommand,
+  DESKTOP_COMMAND_DEFAULT_TIMEOUT_MS,
+  DESKTOP_COMMAND_MAX_TIMEOUT_MS,
+  DESKTOP_COMMAND_PAYLOAD_MAX_BYTES,
+  DESKTOP_COMMAND_PENDING_TTL_SECONDS,
+  DESKTOP_COMMAND_SETTLEMENT_GRACE_SECONDS,
+  DESKTOP_COMMAND_TERMINAL_TTL_SECONDS,
+  DESKTOP_COMMAND_VERSION,
+} from "@cohub/protocol/desktop-command";
 export type {
+  DesktopCommand,
+  DesktopCommandDispatchedPayload,
+  DesktopCommandError,
+  DesktopFileTarget,
+  DesktopCommandRecord,
+  DesktopCommandStatus,
+  DesktopOpenCommand,
+  DesktopTarget,
+  DesktopAppTarget,
+  DesktopCall,
+} from "@cohub/protocol/desktop-command";
+export {
+  buildAppSurfaceRequest,
+  parseAppSurfaceReady,
+  parseAppSurfaceResponse,
+  APP_COMPOSER_CHIP_CONTENT_MAX_BYTES,
+  APP_COMPOSER_CHIP_KEY_MAX_LENGTH,
+  APP_COMPOSER_CHIP_LABEL_MAX_LENGTH,
+  APP_SURFACE_READY_TIMEOUT_MS,
+  APP_SURFACE_REQUEST_TIMEOUT_MS,
+} from "@cohub/protocol/app-surface";
+export type {
+  AppComposerChip,
+  AppSurfaceReadyMessage,
+  AppSurfaceResponseMessage,
+} from "@cohub/protocol/app-surface";
+export type { AppCommerceCheckoutStatus, AppCommerceCreditConsumeResponse, AppCommerceCreditConsumeStatus, AppCommerceEntitlement, AppCommerceEntitlementsResponse, AppCommerceOrder, AppCommerceProductResolveResponse, AppCommercePurchaseResponse } from "./apis/app-commerce.js";
+export type { AppRuntimeCheckoutState, AppRuntimeCheckoutStatus, AppRuntimeContext } from "./app-runtime.js";
+
+// ── Legacy aliases ────────────────────────────────────────────────────────────
+// The work-era names stay exported so existing SDK consumers keep compiling.
+// Wire payloads are unchanged; only the names are deprecated. These aliases
+// are removed in the next breaking SDK version.
+
+// Classes and functions: deprecated aliases are defined next to their
+// canonical implementations.
+export { WorkCommerceApi } from "./apis/app-commerce.js";
+export { WorkRealtimeApi, WorkRoom } from "./apis/app-realtime.js";
+export { UiCommandsApi } from "./apis/desktop-commands.js";
+export { WorkSurfaceApi } from "./app-surface.js";
+export {
+  AppRuntimeApi as WorkRuntimeApi,
+  createAppRuntime as createWorkRuntime,
+  resolveAppTransport as resolveWorkTransport,
+  createSlugAppIdResolver as createSlugWorkIdResolver,
+} from "./app-runtime.js";
+export { createAppBridgeCore as createWorkBridgeCore } from "./app-bridge-core.js";
+export {
+  parseWorkRef,
+  formatWorkRef,
+  isWorkId,
+  WorkRefParseError,
+} from "./app-ref.js";
+
+// Types: deprecated aliases defined beside the canonical shapes.
+export type {
+  ParsedWorkRef,
+  WorkPublicRef,
+} from "./app-ref.js";
+export type {
+  WorkAuthorizeResponse,
+  WorkContent,
+  WorkContentDownload,
+  WorkCreateInput,
+  WorkDetailResponse,
+  WorkExtractedPageMeta,
+  WorkGetResponse,
+  WorkMeta,
+  WorkPresentationMeta,
+  WorkPromotionCreateInput,
+  WorkPromotionEventResponse,
+  WorkPromotionProvider,
+  WorkPromotionProviderStatus,
+  WorkPromotionRecord,
+  WorkPromotionStatsResponse,
+  WorkPublicOwnerRecord,
+  WorkPublicSpaceRecord,
+  WorkRecord,
+  WorkResolveResponse,
+  WorkSessionResponse,
+  WorkStatus,
+  WorkTargetType,
+  WorkUpdateInput,
+  WorkVersionRecord,
+  WorkViewSource,
+  WorkViewStatsResponse,
+  WorkVisibility,
+} from "./apis/apps.js";
+export type {
+  WorkCommerceCheckoutStatus,
+  WorkCommerceCreditConsumeResponse,
+  WorkCommerceCreditConsumeStatus,
+  WorkCommerceEntitlement,
+  WorkCommerceEntitlementsResponse,
+  WorkCommerceOrder,
+  WorkCommerceProductResolveResponse,
+  WorkCommercePurchaseResponse,
+} from "./apis/app-commerce.js";
+export type {
+  CreateUiCommandInput,
+  WaitForUiCommandOptions,
   UiCommand,
-  UiCommandDispatchedPayload,
   UiCommandError,
-  UiFilePreviewTarget,
   UiCommandRecord,
   UiCommandStatus,
-  UiPreviewShowCommand,
-  UiPreviewTarget,
-  UiSurfaceRequest,
-  UiWorkPreviewTarget,
-} from "@cohub/protocol/ui-command";
-export {
-  buildWorkSurfaceRequest,
-  parseWorkSurfaceReady,
-  parseWorkSurfaceResponse,
-  WORK_COMPOSER_CHIP_CONTENT_MAX_BYTES,
-  WORK_COMPOSER_CHIP_KEY_MAX_LENGTH,
-  WORK_COMPOSER_CHIP_LABEL_MAX_LENGTH,
-  WORK_SURFACE_READY_TIMEOUT_MS,
-  WORK_SURFACE_REQUEST_TIMEOUT_MS,
-} from "@cohub/protocol/work-surface";
+} from "./apis/desktop-commands.js";
 export type {
-  WorkComposerChip,
-  WorkSurfaceReadyMessage,
-  WorkSurfaceResponseMessage,
-} from "@cohub/protocol/work-surface";
-export type { WorkCommerceCheckoutStatus, WorkCommerceCreditConsumeResponse, WorkCommerceCreditConsumeStatus, WorkCommerceEntitlement, WorkCommerceEntitlementsResponse, WorkCommerceOrder, WorkCommerceProductResolveResponse, WorkCommercePurchaseResponse } from "./apis/work-commerce.js";
-export type { WorkRuntimeCheckoutState, WorkRuntimeCheckoutStatus, WorkRuntimeContext } from "./work-runtime.js";
+  WorkRoomAdmissionResponse,
+  WorkRoomCreateInput,
+  WorkRoomEvent,
+  WorkRoomEventMap,
+  WorkRoomPublishResult,
+  WorkRoomState,
+} from "./apis/app-realtime.js";
+export type {
+  AppBridgeAuthorizationContext as WorkBridgeAuthorizationContext,
+  AppBridgeCore as WorkBridgeCore,
+  AppBridgeCoreConfig as WorkBridgeCoreConfig,
+  AppBridgeCoreApp as WorkBridgeCoreWork,
+  AppBridgeDialogState as WorkBridgeDialogState,
+  AppAuthorizeRequest as WorkAuthorizeRequest,
+  AppCheckoutStarted as WorkCheckoutStarted,
+  AppPurchaseRequest as WorkPurchaseRequest,
+  AppBridgeGetAccessToken as WorkBridgeGetAccessToken,
+  AppBridgeGetViewerUuid as WorkBridgeGetViewerUuid,
+  AppBridgeRequestSignIn as WorkBridgeRequestSignIn,
+  AppPromotionAttributionContext as WorkPromotionAttributionContext,
+} from "./app-bridge-core.js";
+export type {
+  AppIdResolver as WorkIdResolver,
+  AppRuntimeInvocationContext as WorkRuntimeInvocationContext,
+  AppRuntimeModeConfig as WorkRuntimeModeConfig,
+  AppRuntimeRequestOptions as WorkRuntimeRequestOptions,
+  AppRuntimeTransport as WorkRuntimeTransport,
+  AppRuntimeCheckoutState as WorkRuntimeCheckoutState,
+  AppRuntimeCheckoutStatus as WorkRuntimeCheckoutStatus,
+  AppRuntimeContext as WorkRuntimeContext,
+} from "./app-runtime.js";
+export type { AppSurfaceHandler as WorkSurfaceHandler, AppSurfaceHandlerContext as WorkSurfaceHandlerContext } from "./app-surface.js";
+export type {
+  RealtimeAppRecord as RealtimeWorkRecord,
+  RealtimeAppVersionRecord as RealtimeWorkVersionRecord,
+  AppVersionPublishedEvent as WorkVersionPublishedEvent,
+} from "@cohub/protocol/realtime";
+export type {
+  AppArtifactDescriptor as WorkArtifactDescriptor,
+  AppArtifactDownloadDescriptor as WorkArtifactDownloadDescriptor,
+  AppArtifactManifest as WorkArtifactManifest,
+  AppArtifactManifestFile as WorkArtifactManifestFile,
+  AppBoardArtifactManifest as WorkBoardArtifactManifest,
+  AppBoardAsset as WorkBoardAsset,
+  AppContentKind as WorkContentKind,
+} from "@cohub/protocol";
+export type { PublicUserWorkItem } from "./types.js";

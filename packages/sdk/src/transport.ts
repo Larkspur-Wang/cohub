@@ -4,7 +4,7 @@ import type { CohubEnvironment } from "./environment.js";
 import { resolveApiBaseUrl } from "./environment.js";
 import type { WebsocketClientOptions } from "./websocket.js";
 import type { VoiceInputCreateOptions } from "./voice-input.js";
-import type { WorkRuntimeModeConfig } from "./work-runtime.js";
+import type { AppRuntimeModeConfig } from "./app-runtime.js";
 
 export type Fetch = typeof globalThis.fetch;
 
@@ -73,8 +73,8 @@ export type CohubClientOptions = {
   fetch?: Fetch;
   websocket?: WebsocketClientOptions;
   voice?: VoiceInputCreateOptions;
-  /** Work runtime mode configuration (bridge vs broker). */
-  work?: WorkRuntimeModeConfig;
+  /** App runtime mode configuration (bridge vs broker). */
+  app?: AppRuntimeModeConfig;
   /** Optional X-Cohub-Source-* headers (static or per-request getter). */
   requestSource?: RequestSource | null | (() => RequestSource | null | undefined);
 };

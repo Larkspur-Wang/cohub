@@ -4,7 +4,7 @@ import type { DelegatedPromptAuthContext, PromptAuthContext } from "./prompt.js"
 export function getPromptAuthScopes(auth: unknown, spaceId: string, now = Date.now): Permission[] {
   if (!auth || typeof auth !== "object" || Array.isArray(auth)) return [];
   const context = auth as { type?: unknown; spaceId?: unknown; exp?: unknown; scopes?: unknown };
-  if ((context.type !== "work_session" && context.type !== "delegated_prompt") || context.spaceId !== spaceId || !Array.isArray(context.scopes)) return [];
+  if ((context.type !== "app_session" && context.type !== "delegated_prompt") || context.spaceId !== spaceId || !Array.isArray(context.scopes)) return [];
   if (typeof context.exp !== "number" || !Number.isFinite(context.exp) || context.exp * 1000 <= now()) return [];
   return normalizePermissionScopes(context.scopes);
 }
@@ -14,10 +14,10 @@ export function createDelegatedPromptAuth(input: {
   actorUserId: string;
   spaceId: string;
   scopes: readonly string[];
-  workScopes?: readonly string[];
+  appScopes?: readonly string[];
   viewerScopes?: readonly string[];
-  workId?: string | null;
-  workViewerGrantId?: string | null;
+  appId?: string | null;
+  appViewerGrantId?: string | null;
   delegatedAt?: string;
   exp: number;
 }): DelegatedPromptAuthContext | null {
@@ -27,14 +27,14 @@ export function createDelegatedPromptAuth(input: {
     type: "delegated_prompt",
     source: input.source.trim() || "delegated_prompt",
     actorUserId: input.actorUserId,
-    workId: input.workId ?? null,
+    appId: input.appId ?? null,
     spaceId: input.spaceId,
     scopes,
-    workScopes: normalizePermissionScopes(input.workScopes ?? scopes),
+    appScopes: normalizePermissionScopes(input.appScopes ?? scopes),
     viewerScopes: normalizePermissionScopes(input.viewerScopes ?? []),
     delegatedAt: input.delegatedAt ?? new Date().toISOString(),
     exp: input.exp,
-    workViewerGrantId: input.workViewerGrantId ?? null,
+    appViewerGrantId: input.appViewerGrantId ?? null,
   };
 }
 

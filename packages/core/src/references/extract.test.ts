@@ -14,8 +14,8 @@ const spaceMentionUri = (spaceId: string, sessionId?: string) =>
   sessionId
     ? `cohub://spaces/${spaceId}/sessions/${sessionId}`
     : `cohub://spaces/${spaceId}`;
-const workMentionUri = (username: string, spaceSlug: string, workSlug: string) =>
-  `cohub://works/${username}/${spaceSlug}/${workSlug}`;
+const appMentionUri = (username: string, spaceSlug: string, appSlug: string) =>
+  `cohub://apps/${username}/${spaceSlug}/${appSlug}`;
 
 test("parseMentions extracts space and session mentions", () => {
   const text = `See @[Core](${spaceMentionUri(OTHER_SPACE)}) and @[Fork](${spaceMentionUri(OTHER_SPACE, OTHER_SESSION)}).`;
@@ -25,24 +25,24 @@ test("parseMentions extracts space and session mentions", () => {
   ]);
 });
 
-test("parseMentions extracts work mentions in source order", () => {
-  const workUri = workMentionUri("alice", "studio", "launch");
-  const text = `See @[Launch](${workUri}) before @[Core](${spaceMentionUri(OTHER_SPACE)}).`;
+test("parseMentions extracts app mentions in source order", () => {
+  const appUri = appMentionUri("alice", "studio", "launch");
+  const text = `See @[Launch](${appUri}) before @[Core](${spaceMentionUri(OTHER_SPACE)}).`;
   assert.deepEqual(parseMentions(text), [
     {
-      type: "work",
+      type: "app",
       username: "alice",
       spaceSlug: "studio",
-      workSlug: "launch",
+      appSlug: "launch",
       label: "Launch",
     },
     { type: "space", spaceId: OTHER_SPACE, label: "Core" },
   ]);
 });
 
-test("parseMentions ignores invalid Work public identities", () => {
-  assert.deepEqual(parseMentions(`@[Invalid](${workMentionUri("alice--dev", "studio", "launch")})`), []);
-  assert.deepEqual(parseMentions(`@[Invalid](${workMentionUri("alice", "studio", "bad.slug")})`), []);
+test("parseMentions ignores invalid app public identities", () => {
+  assert.deepEqual(parseMentions(`@[Invalid](${appMentionUri("alice--dev", "studio", "launch")})`), []);
+  assert.deepEqual(parseMentions(`@[Invalid](${appMentionUri("alice", "studio", "bad.slug")})`), []);
 });
 
 test("normalizeFilePath resolves, folds, and keeps absolute paths", () => {
@@ -89,8 +89,8 @@ test("mentions in user content become turn-sourced edges, self-mention kept", ()
   assert.ok(mentions.some((m) => m.targetType === "session" && m.targetId === SESSION));
 });
 
-test("work mentions become stable public-reference edges", () => {
-  const uri = workMentionUri("alice", "studio", "launch");
+test("app mentions become stable public-reference edges", () => {
+  const uri = appMentionUri("alice", "studio", "launch");
   const refs = extractTurnReferences({
     spaceId: SPACE,
     sessionId: SESSION,
@@ -98,14 +98,14 @@ test("work mentions become stable public-reference edges", () => {
     userContent: [{ type: "text", text: `Review @[Launch](${uri}) and @[Launch again](${uri})` }],
   });
   const [mention] = refs.filter((reference) => reference.kind === "mention");
-  assert.equal(mention?.targetType, "work");
+  assert.equal(mention?.targetType, "app");
   assert.equal(mention?.targetId, "alice/studio/launch");
   assert.equal(mention?.count, 2);
   assert.deepEqual(mention?.meta, {
     label: "Launch",
     username: "alice",
     spaceSlug: "studio",
-    workSlug: "launch",
+    appSlug: "launch",
   });
 });
 

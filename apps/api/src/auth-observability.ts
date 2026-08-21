@@ -9,7 +9,7 @@ export type AuthPrincipalType =
   | "user"
   | "execution"
   | "preview_session"
-  | "work_session";
+  | "app_session";
 
 export type AuthTraceOutcome = "anonymous" | "authenticated" | "rejected";
 
