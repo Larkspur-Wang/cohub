@@ -11,7 +11,7 @@ function readJsonObject(pathOrJson: string): Record<string, unknown> {
 }
 
 export function registerCronJobs(program: Command): void {
-  const cmd = program.command("cron-jobs", { hidden: true }).description("Scheduled jobs");
+  const cmd = program.command("cron-jobs").description("Scheduled jobs");
 
   cmd
     .command("ls [spaceId]")

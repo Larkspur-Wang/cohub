@@ -11,7 +11,7 @@ type RegisterTasksDependencies = {
 
 export function registerTasks(program: Command, dependencies: RegisterTasksDependencies = {}): void {
   const getClient = dependencies.createClient ?? createClient;
-  const cmd = program.command("tasks", { hidden: true }).description("Task runs");
+  const cmd = program.command("tasks").description("Task runs");
 
   cmd
     .command("ls")
