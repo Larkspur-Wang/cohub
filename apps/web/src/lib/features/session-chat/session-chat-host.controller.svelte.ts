@@ -169,6 +169,7 @@ import {
 	releaseSpaceGeneration,
 	setSpaceGenerationLastReleaseHandler,
 } from "./space-generation-lease";
+import { findCurrentTurnAnchorSequence } from "./turn-rail-markers";
 import type {
 	SelectedModel,
 	SessionChatAccess,
@@ -490,7 +491,6 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	const timelineClientHeight = $derived(scroll.timelineClientHeight);
 	let showTurnBottomSheet = $state(false);
 	let appliedRouteTurnKey = $state<string | null>(null);
-	let turnMarkerMeasureFrame: number | null = null;
 	let lastTurnIndexRefreshKey = "";
 	let restoringBottomSessionId = $state<string | null>(null);
 	let pendingTailReconcileSessionId = $state<string | null>(null);
@@ -851,8 +851,17 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		}
 		void tick().then(() => {
 			updateCurrentTurnSequence();
-			scheduleTurnMarkerMeasure();
+			scroll.scheduleTurnMarkerMeasureThrottled();
 		});
+	});
+
+	// Every measurement pass or cache clear bumps the version; recompute the
+	// current turn from the (possibly empty) cache right after each bump.
+	// Covers prepends, content reflows above the viewport, and emptied
+	// timelines — none of which reliably fire a scroll event.
+	$effect(() => {
+		void scroll.turnMarkerMeasureVersion;
+		untrack(() => updateCurrentTurnSequence());
 	});
 
 	$effect(() => {
@@ -887,7 +896,6 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 					markLatestTurnViewedIfVisible(ownerSessionId);
 				}
 				updateCurrentTurnSequence();
-				scheduleTurnMarkerMeasure();
 				return;
 			}
 			updateTimelineScrollMetrics();
@@ -896,7 +904,6 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			}
 			updateAutoFollow();
 			updateCurrentTurnSequence();
-			scheduleTurnMarkerMeasure();
 		}
 		container.addEventListener("wheel", beginUserScroll, { passive: true });
 		container.addEventListener("touchstart", beginUserScroll, {
@@ -1007,7 +1014,9 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			if (chromeChanged) scroll.chatChromeHeight = nextChrome;
 			if (composerChanged) scroll.composerHeight = nextComposer;
 			// Rail bottomOffset changes the track geometry; remeasure after layout.
-			if (chromeChanged || composerChanged) scheduleTurnMarkerMeasure();
+			if (chromeChanged || composerChanged) {
+				scroll.scheduleTurnMarkerMeasure();
+			}
 		};
 		updateChromeHeights();
 		const ro = new ResizeObserver(() => updateChromeHeights());
@@ -1043,11 +1052,11 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			}
 			prevHeight = currentHeight;
 			updateTimelineScrollMetrics();
-			scheduleTurnMarkerMeasure();
+			scroll.scheduleTurnMarkerMeasureThrottled();
 		});
 		ro.observe(el);
 		for (const child of Array.from(el.children)) ro.observe(child);
-		scheduleTurnMarkerMeasure();
+		scroll.scheduleTurnMarkerMeasure();
 		return () => ro.disconnect();
 	});
 
@@ -1713,18 +1722,6 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		scroll.updateTimelineScrollMetrics();
 	}
 
-	function measureTurnMarkerPositions() {
-		scroll.measureTurnMarkerPositions(TURN_SCROLL_ANCHOR_OFFSET);
-	}
-
-	function scheduleTurnMarkerMeasure() {
-		if (turnMarkerMeasureFrame != null) return;
-		turnMarkerMeasureFrame = requestAnimationFrame(() => {
-			turnMarkerMeasureFrame = null;
-			measureTurnMarkerPositions();
-		});
-	}
-
 	function markVisibleLatestTurnViewed(
 		sessionId: string,
 		nodes: HTMLElement[],
@@ -1792,7 +1789,6 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			entries.map((entry) => entry.node),
 			containerRect,
 		);
-		updateCurrentTurnSequence();
 	}
 
 	function writeBottomScrollAnchor(sessionId: string) {
@@ -3778,26 +3774,10 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		if (!activeSessionId) return;
 		const list = getSessionScrollList(activeSessionId);
 		if (!list) return;
-		const nodes = Array.from(
-			list.querySelectorAll<HTMLElement>('[data-turn-anchor="user"]'),
-		);
-		if (nodes.length === 0) {
-			if (currentTurnSequence !== null) currentTurnSequence = null;
-			return;
-		}
-		const containerRect = list.getBoundingClientRect();
-		const probeY =
-			containerRect.top + Math.min(160, containerRect.height * 0.35);
-		let best: { sequence: number; distance: number } | null = null;
-		for (const node of nodes) {
-			const sequence = Number(node.dataset.turnSequence);
-			if (!Number.isFinite(sequence)) continue;
-			const rect = node.getBoundingClientRect();
-			const distance =
-				rect.top <= probeY ? probeY - rect.top : rect.top - probeY + 1000;
-			if (!best || distance < best.distance) best = { sequence, distance };
-		}
-		const next = best?.sequence ?? null;
+		const geometry = scroll.getTurnAnchorGeometry(activeSessionId);
+		// Same probe as before: ~35% down the viewport, capped at 160px.
+		const probe = list.scrollTop + Math.min(160, list.clientHeight * 0.35);
+		const next = findCurrentTurnAnchorSequence(geometry, probe);
 		if (currentTurnSequence !== next) currentTurnSequence = next;
 	}
 
@@ -3879,7 +3859,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			scroll.pendingRestoreSessionId = null;
 		}
 		scroll.activeAnchorRestore = null;
-		scheduleTurnMarkerMeasure();
+		scroll.scheduleTurnMarkerMeasure();
 		updateAutoFollow();
 		markLatestTurnViewedIfVisible(restore.sessionId);
 	}
@@ -3941,7 +3921,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	function handleTimelineMarkdownRendered() {
 		if (pendingTimelineMarkdownRenders > 0)
 			scroll.pendingTimelineMarkdownRenders -= 1;
-		scheduleTurnMarkerMeasure();
+		scroll.scheduleTurnMarkerMeasureThrottled();
 		if (activeAnchorRestore?.sessionId === activeSessionId) {
 			// Keep the leave position pinned while content height settles.
 			requestAnimationFrame(() => maybeCompleteAnchorRestore());
@@ -4576,10 +4556,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		viewport.dispose();
 		scroll.stopVimScroll();
 		scroll.clearPendingVimG();
-		if (turnMarkerMeasureFrame != null) {
-			cancelAnimationFrame(turnMarkerMeasureFrame);
-			turnMarkerMeasureFrame = null;
-		}
+		scroll.cancelTurnMarkerMeasure();
 		for (const timer of taskHydrateRetryTimers.values()) clearTimeout(timer);
 		taskHydrateRetryTimers.clear();
 		clearAllPostSendRecovery();

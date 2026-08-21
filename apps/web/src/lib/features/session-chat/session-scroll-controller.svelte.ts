@@ -1,4 +1,7 @@
-import { measureTurnRailMarkers } from "./turn-rail-markers";
+import {
+	measureTurnRailMarkers,
+	type TurnRailMarkerAnchor,
+} from "./turn-rail-markers";
 
 export type ChatTimelineHandle = {
 	preparePrepend: () => void;
@@ -106,6 +109,7 @@ function areNumberRecordsEqual(
 
 const SESSION_SCROLL_ANCHOR_PERSIST_DEBOUNCE_MS = 500;
 const MAX_SESSION_SCROLL_ANCHORS = 200;
+const TURN_MARKER_CONTENT_MEASURE_MS = 150;
 
 export function createSessionScrollController() {
 	let listEl = $state<HTMLDivElement | null>(null);
@@ -115,6 +119,11 @@ export function createSessionScrollController() {
 	let shouldAutoFollow = $state(true);
 	let turnMarkerPositions = $state<Record<number, number>>({});
 	let turnMarkerHeights = $state<Record<number, number>>({});
+	let turnAnchorGeometry: TurnRailMarkerAnchor[] = [];
+	let turnGeometrySessionId: string | null = null;
+	let turnMarkerMeasureVersion = $state(0);
+	let turnMarkerMeasureFrame: number | null = null;
+	let turnMarkerMeasureTimer: ReturnType<typeof setTimeout> | null = null;
 	let timelineScrollTop = $state(0);
 	let timelineScrollHeight = $state(0);
 	let timelineClientHeight = $state(0);
@@ -268,9 +277,14 @@ export function createSessionScrollController() {
 	function clearTurnMarkers() {
 		if (Object.keys(turnMarkerPositions).length > 0) turnMarkerPositions = {};
 		if (Object.keys(turnMarkerHeights).length > 0) turnMarkerHeights = {};
+		turnAnchorGeometry = [];
+		turnGeometrySessionId = null;
+		// Clearing is a cache lifecycle event too: consumers re-derive from the
+		// now-empty cache instead of relying on scattered external resets.
+		turnMarkerMeasureVersion += 1;
 	}
 
-	function measureTurnMarkerPositions(_turnScrollAnchorOffset?: number) {
+	function measureTurnMarkerPositions() {
 		if (!listEl) {
 			clearTurnMarkers();
 			updateTimelineScrollMetrics();
@@ -282,12 +296,20 @@ export function createSessionScrollController() {
 			scrollContainer.querySelectorAll<HTMLElement>(
 				'[data-turn-anchor="user"]',
 			),
-		).map((anchor) => ({
-			sequence: Number(anchor.dataset.turnSequence),
-			absoluteTop: getMessageElementAbsoluteTop(anchor),
-			offsetHeight: anchor.offsetHeight,
-		}));
-		// Jump comfort offset is only for scroll-into-view, not minimap placement.
+		)
+			.map((anchor) => ({
+				sequence: Number(anchor.dataset.turnSequence),
+				absoluteTop: getMessageElementAbsoluteTop(anchor),
+				offsetHeight: anchor.offsetHeight,
+			}))
+			.filter((anchor) => Number.isFinite(anchor.sequence));
+		// Cache document-space geometry so scroll frames can binary-search the
+		// current turn without touching the DOM; it only changes with content.
+		turnGeometrySessionId = scrollContainer.dataset.sessionId ?? null;
+		turnAnchorGeometry = anchors;
+		// Signal "cache refreshed" even when the derived marker values happen to
+		// stay identical (e.g. a uniform shift above the first anchor).
+		turnMarkerMeasureVersion += 1;
 		const { positions, heights } = measureTurnRailMarkers({
 			scrollHeight: scrollContainer.scrollHeight,
 			clientHeight: scrollContainer.clientHeight,
@@ -299,6 +321,55 @@ export function createSessionScrollController() {
 		if (!areNumberRecordsEqual(turnMarkerHeights, heights)) {
 			turnMarkerHeights = heights;
 		}
+	}
+
+	/** Measure on the next frame; coalesces bursts of layout triggers. */
+	function scheduleTurnMarkerMeasure() {
+		if (turnMarkerMeasureTimer) {
+			clearTimeout(turnMarkerMeasureTimer);
+			turnMarkerMeasureTimer = null;
+		}
+		if (turnMarkerMeasureFrame != null) return;
+		turnMarkerMeasureFrame = requestAnimationFrame(() => {
+			turnMarkerMeasureFrame = null;
+			measureTurnMarkerPositions();
+		});
+	}
+
+	/**
+	 * Content grows continuously while streaming. The leading edge keeps
+	 * discrete changes instant; the trailing edge caps steady-state work to
+	 * one measurement pass per window.
+	 */
+	function scheduleTurnMarkerMeasureThrottled() {
+		if (turnMarkerMeasureTimer || turnMarkerMeasureFrame != null) return;
+		scheduleTurnMarkerMeasure();
+		turnMarkerMeasureTimer = setTimeout(() => {
+			turnMarkerMeasureTimer = null;
+			scheduleTurnMarkerMeasure();
+		}, TURN_MARKER_CONTENT_MEASURE_MS);
+	}
+
+	function cancelTurnMarkerMeasure() {
+		if (turnMarkerMeasureFrame != null) {
+			cancelAnimationFrame(turnMarkerMeasureFrame);
+			turnMarkerMeasureFrame = null;
+		}
+		if (turnMarkerMeasureTimer) {
+			clearTimeout(turnMarkerMeasureTimer);
+			turnMarkerMeasureTimer = null;
+		}
+	}
+
+	/**
+	 * Cached user-turn geometry, ascending by document position. Re-measures
+	 * synchronously once when the timeline belongs to a different session.
+	 */
+	function getTurnAnchorGeometry(sessionId: string) {
+		if (turnGeometrySessionId !== sessionId) {
+			measureTurnMarkerPositions();
+		}
+		return turnAnchorGeometry;
 	}
 
 	function stopVimScroll() {
@@ -372,6 +443,7 @@ export function createSessionScrollController() {
 
 	function resetSessionScrollUi() {
 		clearTurnMarkers();
+		cancelTurnMarkerMeasure();
 		if (timelineScrollTop !== 0) timelineScrollTop = 0;
 		if (timelineScrollHeight !== 0) timelineScrollHeight = 0;
 		if (timelineClientHeight !== 0) timelineClientHeight = 0;
@@ -427,6 +499,9 @@ export function createSessionScrollController() {
 			if (!areNumberRecordsEqual(turnMarkerHeights, value)) {
 				turnMarkerHeights = value;
 			}
+		},
+		get turnMarkerMeasureVersion() {
+			return turnMarkerMeasureVersion;
 		},
 		clearTurnMarkers,
 		get timelineScrollTop() {
@@ -486,7 +561,10 @@ export function createSessionScrollController() {
 		getTimelineBottomScrollTop,
 		updateAutoFollow,
 		shouldPinToBottom,
-		measureTurnMarkerPositions,
+		scheduleTurnMarkerMeasure,
+		scheduleTurnMarkerMeasureThrottled,
+		cancelTurnMarkerMeasure,
+		getTurnAnchorGeometry,
 		stopVimScroll,
 		scrollTimelineByLines,
 		clearPendingVimG,
