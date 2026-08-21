@@ -104,6 +104,9 @@ function areNumberRecordsEqual(
 	return true;
 }
 
+const SESSION_SCROLL_ANCHOR_PERSIST_DEBOUNCE_MS = 500;
+const MAX_SESSION_SCROLL_ANCHORS = 200;
+
 export function createSessionScrollController() {
 	let listEl = $state<HTMLDivElement | null>(null);
 	let chatTimelineRef = $state<ChatTimelineHandle | null>(null);
@@ -123,13 +126,17 @@ export function createSessionScrollController() {
 		(SessionScrollAnchor & { sessionId: string }) | null
 	>(null);
 	let pendingTimelineMarkdownRenders = $state(0);
-	let anchorRestoreWaitingForLayout = $state(false);
+	let persistSessionScrollAnchorsTimer: ReturnType<typeof setTimeout> | null =
+		null;
 	let vimScrollFrame: number | null = null;
 	let vimScrollVelocity = 0;
 	let vimScrollStopTimer: ReturnType<typeof setTimeout> | null = null;
 	let vimPendingGTimer: ReturnType<typeof setTimeout> | null = null;
 
 	function loadSessionScrollAnchors(storageKey: string) {
+		// A pending trailing write may hold the freshest anchor for the space we
+		// are leaving; flush it so the reload below cannot drop it.
+		flushPendingSessionScrollAnchorsPersist(storageKey);
 		scrollAnchorBySession = new Map();
 		try {
 			const raw = localStorage.getItem(storageKey);
@@ -137,10 +144,12 @@ export function createSessionScrollController() {
 			const parsed: unknown = JSON.parse(raw);
 			if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
 				return;
-			scrollAnchorBySession = new Map(
-				Object.entries(parsed).filter(
-					(entry): entry is [string, SessionScrollAnchor] =>
-						isSessionScrollAnchor(entry[1]),
+			scrollAnchorBySession = trimSessionScrollAnchors(
+				new Map(
+					Object.entries(parsed).filter(
+						(entry): entry is [string, SessionScrollAnchor] =>
+							isSessionScrollAnchor(entry[1]),
+					),
 				),
 			);
 		} catch {
@@ -149,6 +158,10 @@ export function createSessionScrollController() {
 	}
 
 	function persistSessionScrollAnchorsNow(storageKey: string) {
+		if (persistSessionScrollAnchorsTimer) {
+			clearTimeout(persistSessionScrollAnchorsTimer);
+			persistSessionScrollAnchorsTimer = null;
+		}
 		try {
 			localStorage.setItem(
 				storageKey,
@@ -159,16 +172,46 @@ export function createSessionScrollController() {
 		}
 	}
 
+	/** Persist only after scrolling settles — no writes during the gesture. */
+	function scheduleSessionScrollAnchorsPersist(storageKey: string) {
+		if (persistSessionScrollAnchorsTimer) {
+			clearTimeout(persistSessionScrollAnchorsTimer);
+		}
+		persistSessionScrollAnchorsTimer = setTimeout(() => {
+			persistSessionScrollAnchorsTimer = null;
+			persistSessionScrollAnchorsNow(storageKey);
+		}, SESSION_SCROLL_ANCHOR_PERSIST_DEBOUNCE_MS);
+	}
+
+	function flushPendingSessionScrollAnchorsPersist(storageKey: string) {
+		if (!persistSessionScrollAnchorsTimer) return;
+		clearTimeout(persistSessionScrollAnchorsTimer);
+		persistSessionScrollAnchorsTimer = null;
+		persistSessionScrollAnchorsNow(storageKey);
+	}
+
+	/** Bound growth: stale positions are not worth unbounded storage writes. */
+	function trimSessionScrollAnchors(map: Map<string, SessionScrollAnchor>) {
+		if (map.size <= MAX_SESSION_SCROLL_ANCHORS) return map;
+		const entries = [...map.entries()].sort(
+			(a, b) => a[1].updatedAt - b[1].updatedAt,
+		);
+		const excess = map.size - MAX_SESSION_SCROLL_ANCHORS;
+		for (let i = 0; i < excess; i += 1) map.delete(entries[i][0]);
+		return map;
+	}
+
 	function setSessionScrollAnchor(
 		storageKey: string,
 		sessionId: string,
 		anchor: SessionScrollAnchor,
 	) {
-		// Reassign so `$state.raw` consumers observe the write.
 		const next = new Map(scrollAnchorBySession);
 		next.set(sessionId, anchor);
+		trimSessionScrollAnchors(next);
+		// Reassign so `$state.raw` consumers observe the write.
 		scrollAnchorBySession = next;
-		persistSessionScrollAnchorsNow(storageKey);
+		scheduleSessionScrollAnchorsPersist(storageKey);
 	}
 
 	function getSessionScrollAnchor(sessionId: string) {
@@ -180,7 +223,7 @@ export function createSessionScrollController() {
 		const next = new Map(scrollAnchorBySession);
 		next.delete(sessionId);
 		scrollAnchorBySession = next;
-		persistSessionScrollAnchorsNow(storageKey);
+		scheduleSessionScrollAnchorsPersist(storageKey);
 	}
 
 	function getMessageElementAbsoluteTop(node: HTMLElement) {
@@ -335,7 +378,6 @@ export function createSessionScrollController() {
 		pendingRestoreSessionId = null;
 		activeAnchorRestore = null;
 		pendingTimelineMarkdownRenders = 0;
-		anchorRestoreWaitingForLayout = false;
 		shouldAutoFollow = true;
 	}
 
@@ -431,14 +473,8 @@ export function createSessionScrollController() {
 		set pendingTimelineMarkdownRenders(value: number) {
 			pendingTimelineMarkdownRenders = value;
 		},
-		get anchorRestoreWaitingForLayout() {
-			return anchorRestoreWaitingForLayout;
-		},
 		get vimPendingGActive() {
 			return Boolean(vimPendingGTimer);
-		},
-		set anchorRestoreWaitingForLayout(value: boolean) {
-			anchorRestoreWaitingForLayout = value;
 		},
 		loadSessionScrollAnchors,
 		persistSessionScrollAnchorsNow,
