@@ -5,33 +5,6 @@ export type TurnRailMarkerAnchor = {
 };
 
 /**
- * Find the current turn for a content-space probe point (scrollTop plus the
- * viewport probe offset). Anchors ascend by document position, so the current
- * turn is the closest one at or above the probe — the first one when the
- * probe sits above them all. Replaces the former per-node viewport scan with
- * a binary search over cached geometry.
- */
-export function findCurrentTurnAnchorSequence(
-	anchors: TurnRailMarkerAnchor[],
-	probe: number,
-): number | null {
-	if (anchors.length === 0) return null;
-	let low = 0;
-	let high = anchors.length - 1;
-	let candidate = -1;
-	while (low <= high) {
-		const mid = (low + high) >> 1;
-		if (anchors[mid].absoluteTop <= probe) {
-			candidate = mid;
-			low = mid + 1;
-		} else {
-			high = mid - 1;
-		}
-	}
-	return anchors[candidate >= 0 ? candidate : 0].sequence;
-}
-
-/**
  * Map loaded user-turn anchors onto the custom scroll rail as a content minimap.
  *
  * Tops are document fractions of the timeline content range that starts at the

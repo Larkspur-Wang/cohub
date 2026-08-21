@@ -1,7 +1,4 @@
-import {
-	measureTurnRailMarkers,
-	type TurnRailMarkerAnchor,
-} from "./turn-rail-markers";
+import { measureTurnRailMarkers } from "./turn-rail-markers";
 
 export type ChatTimelineHandle = {
 	preparePrepend: () => void;
@@ -107,10 +104,6 @@ function areNumberRecordsEqual(
 	return true;
 }
 
-const SESSION_SCROLL_ANCHOR_PERSIST_DEBOUNCE_MS = 500;
-const MAX_SESSION_SCROLL_ANCHORS = 200;
-const TURN_MARKER_CONTENT_MEASURE_MS = 150;
-
 export function createSessionScrollController() {
 	let listEl = $state<HTMLDivElement | null>(null);
 	let chatTimelineRef = $state<ChatTimelineHandle | null>(null);
@@ -119,11 +112,6 @@ export function createSessionScrollController() {
 	let shouldAutoFollow = $state(true);
 	let turnMarkerPositions = $state<Record<number, number>>({});
 	let turnMarkerHeights = $state<Record<number, number>>({});
-	let turnAnchorGeometry: TurnRailMarkerAnchor[] = [];
-	let turnGeometrySessionId: string | null = null;
-	let turnMarkerMeasureVersion = $state(0);
-	let turnMarkerMeasureFrame: number | null = null;
-	let turnMarkerMeasureTimer: ReturnType<typeof setTimeout> | null = null;
 	let timelineScrollTop = $state(0);
 	let timelineScrollHeight = $state(0);
 	let timelineClientHeight = $state(0);
@@ -135,17 +123,13 @@ export function createSessionScrollController() {
 		(SessionScrollAnchor & { sessionId: string }) | null
 	>(null);
 	let pendingTimelineMarkdownRenders = $state(0);
-	let persistSessionScrollAnchorsTimer: ReturnType<typeof setTimeout> | null =
-		null;
+	let anchorRestoreWaitingForLayout = $state(false);
 	let vimScrollFrame: number | null = null;
 	let vimScrollVelocity = 0;
 	let vimScrollStopTimer: ReturnType<typeof setTimeout> | null = null;
 	let vimPendingGTimer: ReturnType<typeof setTimeout> | null = null;
 
 	function loadSessionScrollAnchors(storageKey: string) {
-		// A pending trailing write may hold the freshest anchor for the space we
-		// are leaving; flush it so the reload below cannot drop it.
-		flushPendingSessionScrollAnchorsPersist(storageKey);
 		scrollAnchorBySession = new Map();
 		try {
 			const raw = localStorage.getItem(storageKey);
@@ -153,12 +137,10 @@ export function createSessionScrollController() {
 			const parsed: unknown = JSON.parse(raw);
 			if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
 				return;
-			scrollAnchorBySession = trimSessionScrollAnchors(
-				new Map(
-					Object.entries(parsed).filter(
-						(entry): entry is [string, SessionScrollAnchor] =>
-							isSessionScrollAnchor(entry[1]),
-					),
+			scrollAnchorBySession = new Map(
+				Object.entries(parsed).filter(
+					(entry): entry is [string, SessionScrollAnchor] =>
+						isSessionScrollAnchor(entry[1]),
 				),
 			);
 		} catch {
@@ -167,10 +149,6 @@ export function createSessionScrollController() {
 	}
 
 	function persistSessionScrollAnchorsNow(storageKey: string) {
-		if (persistSessionScrollAnchorsTimer) {
-			clearTimeout(persistSessionScrollAnchorsTimer);
-			persistSessionScrollAnchorsTimer = null;
-		}
 		try {
 			localStorage.setItem(
 				storageKey,
@@ -181,46 +159,16 @@ export function createSessionScrollController() {
 		}
 	}
 
-	/** Persist only after scrolling settles — no writes during the gesture. */
-	function scheduleSessionScrollAnchorsPersist(storageKey: string) {
-		if (persistSessionScrollAnchorsTimer) {
-			clearTimeout(persistSessionScrollAnchorsTimer);
-		}
-		persistSessionScrollAnchorsTimer = setTimeout(() => {
-			persistSessionScrollAnchorsTimer = null;
-			persistSessionScrollAnchorsNow(storageKey);
-		}, SESSION_SCROLL_ANCHOR_PERSIST_DEBOUNCE_MS);
-	}
-
-	function flushPendingSessionScrollAnchorsPersist(storageKey: string) {
-		if (!persistSessionScrollAnchorsTimer) return;
-		clearTimeout(persistSessionScrollAnchorsTimer);
-		persistSessionScrollAnchorsTimer = null;
-		persistSessionScrollAnchorsNow(storageKey);
-	}
-
-	/** Bound growth: stale positions are not worth unbounded storage writes. */
-	function trimSessionScrollAnchors(map: Map<string, SessionScrollAnchor>) {
-		if (map.size <= MAX_SESSION_SCROLL_ANCHORS) return map;
-		const entries = [...map.entries()].sort(
-			(a, b) => a[1].updatedAt - b[1].updatedAt,
-		);
-		const excess = map.size - MAX_SESSION_SCROLL_ANCHORS;
-		for (let i = 0; i < excess; i += 1) map.delete(entries[i][0]);
-		return map;
-	}
-
 	function setSessionScrollAnchor(
 		storageKey: string,
 		sessionId: string,
 		anchor: SessionScrollAnchor,
 	) {
+		// Reassign so `$state.raw` consumers observe the write.
 		const next = new Map(scrollAnchorBySession);
 		next.set(sessionId, anchor);
-		trimSessionScrollAnchors(next);
-		// Reassign so `$state.raw` consumers observe the write.
 		scrollAnchorBySession = next;
-		scheduleSessionScrollAnchorsPersist(storageKey);
+		persistSessionScrollAnchorsNow(storageKey);
 	}
 
 	function getSessionScrollAnchor(sessionId: string) {
@@ -232,7 +180,7 @@ export function createSessionScrollController() {
 		const next = new Map(scrollAnchorBySession);
 		next.delete(sessionId);
 		scrollAnchorBySession = next;
-		scheduleSessionScrollAnchorsPersist(storageKey);
+		persistSessionScrollAnchorsNow(storageKey);
 	}
 
 	function getMessageElementAbsoluteTop(node: HTMLElement) {
@@ -277,14 +225,9 @@ export function createSessionScrollController() {
 	function clearTurnMarkers() {
 		if (Object.keys(turnMarkerPositions).length > 0) turnMarkerPositions = {};
 		if (Object.keys(turnMarkerHeights).length > 0) turnMarkerHeights = {};
-		turnAnchorGeometry = [];
-		turnGeometrySessionId = null;
-		// Clearing is a cache lifecycle event too: consumers re-derive from the
-		// now-empty cache instead of relying on scattered external resets.
-		turnMarkerMeasureVersion += 1;
 	}
 
-	function measureTurnMarkerPositions() {
+	function measureTurnMarkerPositions(_turnScrollAnchorOffset?: number) {
 		if (!listEl) {
 			clearTurnMarkers();
 			updateTimelineScrollMetrics();
@@ -296,20 +239,12 @@ export function createSessionScrollController() {
 			scrollContainer.querySelectorAll<HTMLElement>(
 				'[data-turn-anchor="user"]',
 			),
-		)
-			.map((anchor) => ({
-				sequence: Number(anchor.dataset.turnSequence),
-				absoluteTop: getMessageElementAbsoluteTop(anchor),
-				offsetHeight: anchor.offsetHeight,
-			}))
-			.filter((anchor) => Number.isFinite(anchor.sequence));
-		// Cache document-space geometry so scroll frames can binary-search the
-		// current turn without touching the DOM; it only changes with content.
-		turnGeometrySessionId = scrollContainer.dataset.sessionId ?? null;
-		turnAnchorGeometry = anchors;
-		// Signal "cache refreshed" even when the derived marker values happen to
-		// stay identical (e.g. a uniform shift above the first anchor).
-		turnMarkerMeasureVersion += 1;
+		).map((anchor) => ({
+			sequence: Number(anchor.dataset.turnSequence),
+			absoluteTop: getMessageElementAbsoluteTop(anchor),
+			offsetHeight: anchor.offsetHeight,
+		}));
+		// Jump comfort offset is only for scroll-into-view, not minimap placement.
 		const { positions, heights } = measureTurnRailMarkers({
 			scrollHeight: scrollContainer.scrollHeight,
 			clientHeight: scrollContainer.clientHeight,
@@ -321,53 +256,6 @@ export function createSessionScrollController() {
 		if (!areNumberRecordsEqual(turnMarkerHeights, heights)) {
 			turnMarkerHeights = heights;
 		}
-	}
-
-	/** Measure on the next frame; coalesces bursts of layout triggers. */
-	function scheduleTurnMarkerMeasure() {
-		if (turnMarkerMeasureTimer) {
-			clearTimeout(turnMarkerMeasureTimer);
-			turnMarkerMeasureTimer = null;
-		}
-		if (turnMarkerMeasureFrame != null) return;
-		turnMarkerMeasureFrame = requestAnimationFrame(() => {
-			turnMarkerMeasureFrame = null;
-			measureTurnMarkerPositions();
-		});
-	}
-
-	/**
-	 * Content grows continuously while streaming. The leading edge keeps
-	 * discrete changes instant; the trailing edge caps steady-state work to
-	 * one measurement pass per window.
-	 */
-	function scheduleTurnMarkerMeasureThrottled() {
-		if (turnMarkerMeasureTimer || turnMarkerMeasureFrame != null) return;
-		scheduleTurnMarkerMeasure();
-		turnMarkerMeasureTimer = setTimeout(() => {
-			turnMarkerMeasureTimer = null;
-			scheduleTurnMarkerMeasure();
-		}, TURN_MARKER_CONTENT_MEASURE_MS);
-	}
-
-	function cancelTurnMarkerMeasure() {
-		if (turnMarkerMeasureFrame != null) {
-			cancelAnimationFrame(turnMarkerMeasureFrame);
-			turnMarkerMeasureFrame = null;
-		}
-		if (turnMarkerMeasureTimer) {
-			clearTimeout(turnMarkerMeasureTimer);
-			turnMarkerMeasureTimer = null;
-		}
-	}
-
-	/**
-	 * Cached user-turn geometry, ascending by document position. Empty when
-	 * the cache belongs to another session — measurement paths refresh it and
-	 * bump the version; readers never measure so effects stay write-free.
-	 */
-	function getTurnAnchorGeometry(sessionId: string) {
-		return turnGeometrySessionId === sessionId ? turnAnchorGeometry : [];
 	}
 
 	function stopVimScroll() {
@@ -441,13 +329,13 @@ export function createSessionScrollController() {
 
 	function resetSessionScrollUi() {
 		clearTurnMarkers();
-		cancelTurnMarkerMeasure();
 		if (timelineScrollTop !== 0) timelineScrollTop = 0;
 		if (timelineScrollHeight !== 0) timelineScrollHeight = 0;
 		if (timelineClientHeight !== 0) timelineClientHeight = 0;
 		pendingRestoreSessionId = null;
 		activeAnchorRestore = null;
 		pendingTimelineMarkdownRenders = 0;
+		anchorRestoreWaitingForLayout = false;
 		shouldAutoFollow = true;
 	}
 
@@ -498,9 +386,6 @@ export function createSessionScrollController() {
 				turnMarkerHeights = value;
 			}
 		},
-		get turnMarkerMeasureVersion() {
-			return turnMarkerMeasureVersion;
-		},
 		clearTurnMarkers,
 		get timelineScrollTop() {
 			return timelineScrollTop;
@@ -546,8 +431,14 @@ export function createSessionScrollController() {
 		set pendingTimelineMarkdownRenders(value: number) {
 			pendingTimelineMarkdownRenders = value;
 		},
+		get anchorRestoreWaitingForLayout() {
+			return anchorRestoreWaitingForLayout;
+		},
 		get vimPendingGActive() {
 			return Boolean(vimPendingGTimer);
+		},
+		set anchorRestoreWaitingForLayout(value: boolean) {
+			anchorRestoreWaitingForLayout = value;
 		},
 		loadSessionScrollAnchors,
 		persistSessionScrollAnchorsNow,
@@ -559,10 +450,7 @@ export function createSessionScrollController() {
 		getTimelineBottomScrollTop,
 		updateAutoFollow,
 		shouldPinToBottom,
-		scheduleTurnMarkerMeasure,
-		scheduleTurnMarkerMeasureThrottled,
-		cancelTurnMarkerMeasure,
-		getTurnAnchorGeometry,
+		measureTurnMarkerPositions,
 		stopVimScroll,
 		scrollTimelineByLines,
 		clearPendingVimG,
