@@ -1,5 +1,22 @@
 [
 	{
+		"version": "2.27",
+		"date": "2026-08-21",
+		"tags": ["v2.27.0"],
+		"highlights": [
+			"**Board semantic authoring protocol**: Unified the semantic authoring path across API, SDK, CLI, and Web. Semantic mutations now accept `board.patch`, `connection.*`, `effect.*`, and `composition.*` commands alongside `item.*`, all compiled into one atomic transaction with `dryRun` server-side validation, idempotent mutation replay via persisted receipts, and row-diffed composition re-apply that no-ops unchanged tracks.",
+			"**CLI board authoring workflow**: Replaced `boards nodes add/patch/remove` with `boards items create/patch/replace/delete`, added `boards examples` and `boards capabilities` for templates and schemas, and exposed the previously-hidden `tasks` and `cron-jobs` commands.",
+			"**Realtime `board.changed` projection**: SDK board realtime events and subscriptions are now `board.changed`/`changed` with a semantic `changed` projection and no wire operations; checkpoints and published Works persist the same semantic Item snapshot as live authoring, with legacy Sequence/Node compatibility removed.",
+			"**Batched board refreshes**: The Web preview controller now coalesces bursts of contiguous remote board events into a single authoritative snapshot reconciliation instead of issuing one read per version, cutting read amplification and render churn during high-volume updates."
+		],
+		"fixes": [
+			"Restore exact session scroll position when reopening a session.",
+			"Preserve the space theme in settings and deduplicate space theme requests to avoid redundant fetches.",
+			"Keep voice input enabled during follow-up turns in the session composer.",
+			"Use QQ gateway intents allowed for the app so disallowed-intent (4014) closes are classified as permission errors and back off correctly."
+		]
+	},
+	{
 		"version": "2.26",
 		"date": "2026-08-20",
 		"tags": ["v2.26.0"],
