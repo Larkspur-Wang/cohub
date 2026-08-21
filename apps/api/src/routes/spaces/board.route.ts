@@ -4,8 +4,8 @@ import { bodyLimit } from "hono/body-limit";
 import { boardNodes, boards } from "@cohub/db";
 import {
   BOARD_EXTENSION,
+  BoardAuthoringReadInputSchema,
   BoardCreateInputSchema,
-  BoardInspectInputSchema,
   BoardPlaybackCommandSchema,
   isBoardPath,
   serializeBoardManifest,
@@ -18,14 +18,12 @@ import {
   getBoardCapabilities,
   inspectBoard,
   normalizeBoardOperation,
-  normalizeBoardTransaction,
   normalizeConnections,
   normalizeNodes,
   MAX_NODES_BYTES,
   MAX_TRANSACTION_BYTES,
   NODE_WRITE_CHUNK,
   summarizeBoard,
-  validateBoardTransaction,
 } from "../../board-service.js";
 import { buildBoardCreateIdentity } from "../../board-create-idempotency.js";
 import {
@@ -201,7 +199,9 @@ router.post("/", createBodyLimit, async (c) => {
       if (operations.length > 0 && existing.board.version === 0) {
         await applyInitialOperations();
       }
-      return c.json(await inspectBoard(spaceId, boardId));
+      return c.json(await inspectBoardAuthoring(spaceId, boardId, {
+        include: ["items", "connections", "effects", "compositions", "playback"],
+      }));
     } catch (error) {
       if (!(error instanceof BoardServiceError) || error.code !== "BOARD_NOT_FOUND") {
         const response = errorResponse(error);
@@ -240,7 +240,9 @@ router.post("/", createBodyLimit, async (c) => {
     });
 
     if (operations.length) await applyInitialOperations();
-    const result = await inspectBoard(spaceId, boardId);
+    const result = await inspectBoardAuthoring(spaceId, boardId, {
+      include: ["items", "connections", "effects", "compositions", "playback"],
+    });
 
     // Board rows are the authoritative state: publish after the transaction
     // commits so clients retry their load on this event, even when the sandbox
@@ -265,35 +267,6 @@ router.post("/", createBodyLimit, async (c) => {
   }
 });
 
-router.get("/:boardId", async (c) => {
-  const user = getOptionalAuth(c);
-  const spaceId = c.req.param("id");
-  const boardId = c.req.param("boardId");
-  if (!spaceId || !boardId || !requireValidId(spaceId) || !requireValidId(boardId)) return c.json({ message: "board not found" }, 404);
-  if (!(await hasPermission(user, "file.view", { spaceId }))) return authzDenied(c);
-  let viewport: unknown;
-  const viewportParam = c.req.query("viewport");
-  if (viewportParam) {
-    try {
-      viewport = JSON.parse(viewportParam);
-    } catch {
-      return c.json({ message: "viewport must be valid JSON" }, 400);
-    }
-  }
-  const include = c.req.queries("include") ?? [];
-  const parsedInput = BoardInspectInputSchema.safeParse({
-    include: include.length > 0 ? include : undefined,
-    viewport,
-  });
-  if (!parsedInput.success) return c.json({ message: parsedInput.error.issues[0]?.message ?? "invalid inspect input" }, 400);
-  try {
-    return c.json(await inspectBoard(spaceId, boardId, parsedInput.data));
-  } catch (error) {
-    const response = errorResponse(error);
-    return c.json(errorBody(response), response.status as never);
-  }
-});
-
 router.get("/:boardId/authoring", async (c) => {
   const user = getOptionalAuth(c);
   const spaceId = c.req.param("id");
@@ -303,7 +276,29 @@ router.get("/:boardId/authoring", async (c) => {
   }
   if (!(await hasPermission(user, "file.view", { spaceId }))) return authzDenied(c);
   try {
-    return c.json(await inspectBoardAuthoring(spaceId, boardId));
+    const includeValues = c.req.queries("include") ?? [];
+    const hasInclude = new URL(c.req.url).searchParams.has("include") || includeValues.length > 0;
+    const include = hasInclude ? includeValues : undefined;
+    const ids = (name: string) => c.req.query(name)?.split(",").map((id) => id.trim()).filter(Boolean);
+    const itemIds = ids("itemIds");
+    const connectionIds = ids("connectionIds");
+    const effectIds = ids("effectIds");
+    const compositionIds = ids("compositionIds");
+    let viewport: unknown;
+    const viewportParam = c.req.query("viewport");
+    if (viewportParam) {
+      try { viewport = JSON.parse(viewportParam); } catch { return c.json({ message: "viewport must be valid JSON" }, 400); }
+    }
+    const parsed = BoardAuthoringReadInputSchema.safeParse({
+      ...(include !== undefined ? { include } : {}),
+      ...(itemIds?.length ? { itemIds } : {}),
+      ...(connectionIds?.length ? { connectionIds } : {}),
+      ...(effectIds?.length ? { effectIds } : {}),
+      ...(compositionIds?.length ? { compositionIds } : {}),
+      ...(viewport ? { viewport } : {}),
+    });
+    if (!parsed.success) return c.json({ message: parsed.error.issues[0]?.message ?? "invalid authoring input" }, 400);
+    return c.json(await inspectBoardAuthoring(spaceId, boardId, parsed.data));
   } catch (error) {
     const response = errorResponse(error);
     return c.json(errorBody(response), response.status as never);
@@ -362,46 +357,7 @@ router.get("/:boardId/capabilities", async (c) => {
   }
 });
 
-router.post("/:boardId/validate", mutationBodyLimit, async (c) => {
-  const user = useAuth(c);
-  if (user instanceof Response) return user;
-  const spaceId = c.req.param("id");
-  const boardId = c.req.param("boardId");
-  if (!spaceId || !boardId || !requireValidId(spaceId) || !requireValidId(boardId)) return c.json({ message: "board not found" }, 404);
-  if (!(await hasPermission(user, "file.edit", { spaceId }))) return authzDenied(c);
-  const body = await c.req.json<unknown>().catch(() => null);
-  try {
-    const transaction = normalizeBoardTransaction(body);
-    if (transaction.boardId !== boardId) throw new BoardServiceError(400, "transaction boardId does not match route");
-    return c.json(await validateBoardTransaction({ spaceId, value: transaction }));
-  } catch (error) {
-    const response = errorResponse(error);
-    return c.json(errorBody(response), response.status as never);
-  }
-});
 
-router.post("/:boardId/transactions", mutationBodyLimit, async (c) => {
-  const user = useAuth(c);
-  if (user instanceof Response) return user;
-  const spaceId = c.req.param("id");
-  const boardId = c.req.param("boardId");
-  if (!spaceId || !boardId || !requireValidId(spaceId) || !requireValidId(boardId)) return c.json({ message: "board not found" }, 404);
-  if (!(await hasPermission(user, "file.edit", { spaceId }))) return authzDenied(c);
-  const body = await c.req.json<unknown>().catch(() => null);
-  try {
-    const transaction = normalizeBoardTransaction(body);
-    if (transaction.boardId !== boardId) throw new BoardServiceError(400, "transaction boardId does not match route");
-    return c.json(await applyBoardTransaction({
-      spaceId,
-      actorId: user.uuid,
-      requestSource: getRequestSource(c),
-      transaction,
-    }));
-  } catch (error) {
-    const response = errorResponse(error);
-    return c.json(errorBody(response), response.status as never);
-  }
-});
 
 router.post("/:boardId/playback", async (c) => {
   const user = useAuth(c);

@@ -20,8 +20,7 @@
       "@cohub/protocol/ports": ["../protocol/src/ports/index.ts"],
       "@cohub/protocol/provenance": ["../protocol/src/provenance.ts"],
       "@cohub/protocol/board-document": ["../protocol/src/board-document.ts"],
-      "@cohub/protocol/board-constants": ["../protocol/src/board-constants.ts"],
-      "@cohub/core/board": ["../core/src/board/index.ts"]
+      "@cohub/protocol/board-constants": ["../protocol/src/board-constants.ts"]
     }
   },
   "include": ["src"]

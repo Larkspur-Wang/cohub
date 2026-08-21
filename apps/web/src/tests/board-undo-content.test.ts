@@ -5,7 +5,7 @@ import { test } from "node:test";
 /**
  * A guard on the undo/redo write-back.
  *
- * `applyBoardOps` returns a whole document, but the editor has two writers: one
+ * `applyBoardSemanticCommands` returns a whole document, but the editor has two writers: one
  * for items alone and one for items plus relations. Undo and redo shipped using
  * the items-only writer, so replaying a step computed the restored relations and
  * then threw them away — deleting a connected node could not be undone.
@@ -42,8 +42,8 @@ for (const name of ["undo", "redo"]) {
 	test(`${name} writes back relations, not only items`, () => {
 		const body = functionBody(name);
 		assert.ok(
-			body.includes("applyBoardOps"),
-			`${name} should replay operations through applyBoardOps`,
+			body.includes("applyBoardSemanticCommands"),
+			`${name} should replay commands through applyBoardSemanticCommands`,
 		);
 		assert.ok(
 			body.includes("setContent("),

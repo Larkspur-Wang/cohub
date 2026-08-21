@@ -6,7 +6,7 @@ import type { SessionTurnSummary } from "../model/turn.js";
 import type { TaskRunStatus } from "../task/index.js";
 import type { SpaceFsChangedPayload } from "../fs/index.js";
 import type { SpacePortsChangedPayload } from "../ports/index.js";
-import type { BoardOperation, BoardPlaybackSnapshot } from "../board.js";
+import type { BoardMutationReceipt, BoardPlaybackSnapshot } from "../board.js";
 import type { RequestSource } from "../provenance.js";
 import type { UiCommandDispatchedPayload } from "../ui-command.js";
 import type { WorkArtifactDescriptor, WorkContentKind } from "../work.js";
@@ -649,21 +649,21 @@ export type SpacePresenceUpdatedEvent = {
   payload: SpacePresenceSnapshot;
 };
 
-export type BoardTransactionAppliedEvent = {
+export type BoardChangedEvent = {
   id: string;
   timestamp: number;
   domain: "space";
-  type: "board.transaction.applied";
+  type: "board.changed";
   requestId?: string | null;
   spaceId: string;
   sessionId?: string | null;
   payload: {
     boardId: string;
     actorId: string;
-    txId: string;
+    mutationId: string;
     version: number;
-    operations: BoardOperation[];
-    metadata?: Record<string, unknown> & { source?: RequestSource };
+    changed: BoardMutationReceipt["changed"];
+    source?: RequestSource;
   };
 };
 
@@ -851,7 +851,7 @@ export type RealtimeServerEvent =
   | SpaceFsChangedEvent
   | SpacePortsChangedEvent
   | SpacePresenceUpdatedEvent
-  | BoardTransactionAppliedEvent
+  | BoardChangedEvent
   | BoardAwarenessUpdatedEvent
   | BoardPlaybackChangedEvent
   | WorkVersionPublishedEvent

@@ -124,7 +124,7 @@ function connectionsWithin(
   const present = new Set(items.map((item) => item.id));
   return document.connections.filter(
     (connection) =>
-      present.has(connection.source.nodeId) && present.has(connection.target.nodeId),
+      present.has(connection.source.itemId) && present.has(connection.target.itemId),
   );
 }
 

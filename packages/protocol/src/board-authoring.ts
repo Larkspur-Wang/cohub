@@ -1,4 +1,7 @@
 import { z } from "zod";
+import { BoardConnectionPatchSchema, BoardConnectionSchema, type BoardConnection } from "./board-connection.js";
+import { BoardCompositionInputSchema, type BoardComposition, type BoardCompositionInput } from "./board-composition.js";
+import { BoardEffectInputSchema, type BoardEffect, type BoardEffectInput } from "./board-effect.js";
 import {
 	BOARD_STROKE_MAX_SIZE,
 	BOARD_STROKE_MIN_SIZE,
@@ -6,8 +9,8 @@ import {
 	BOARD_TEXT_MAX_FONT_SIZE,
 	BOARD_TEXT_MIN_FONT_SIZE,
 } from "./board-constants.js";
-const BOARD_COLOR_IDS = ["brand", "neutral", "black", "white", "blue", "green", "amber", "violet", "rose"] as const;
-const BOARD_GEO_KINDS = ["rectangle", "rounded", "ellipse", "diamond", "triangle"] as const;
+export const BOARD_AUTHORING_COLOR_IDS = ["brand", "neutral", "black", "white", "blue", "green", "amber", "violet", "rose"] as const;
+export const BOARD_AUTHORING_GEO_KINDS = ["rectangle", "rounded", "ellipse", "diamond", "triangle"] as const;
 
 const idSchema = z.string().min(1).max(160);
 const jsonObjectSchema = z.record(z.string(), z.unknown());
@@ -38,7 +41,7 @@ const cropSchema = z.object({
 }).strict();
 
 export const BoardItemStyleSchema = z.object({
-	color: z.enum(BOARD_COLOR_IDS).optional(),
+	color: z.enum(BOARD_AUTHORING_COLOR_IDS).optional(),
 	strokeWidth: finiteSchema.min(BOARD_STROKE_MIN_SIZE).max(BOARD_STROKE_MAX_SIZE).optional(),
 	fillOpacity: finiteSchema.min(0).max(1).optional(),
 }).strict();
@@ -90,7 +93,7 @@ export const BoardGeoAuthoringItemSchema = z.object({
 	...styledBaseFields,
 	type: z.literal("geo"),
 	props: z.object({
-		shape: z.enum(BOARD_GEO_KINDS).default("rectangle"),
+		shape: z.enum(BOARD_AUTHORING_GEO_KINDS).default("rectangle"),
 		text: z.string().default(""),
 	}).strict(),
 }).strict();
@@ -157,6 +160,10 @@ export const BoardTaskAuthoringItemSchema = z.object({
 	style: z.object({}).strict().optional(),
 }).strict();
 
+export const BOARD_AUTHORING_ITEM_TYPES = [
+	"image", "video", "audio", "file", "task", "text", "geo", "draw", "arrow", "frame",
+] as const;
+
 const builtinItemSchemas = [
 	BoardTextAuthoringItemSchema,
 	BoardGeoAuthoringItemSchema,
@@ -214,22 +221,74 @@ export const BoardItemPatchSchema = z.object({
 }).strict().refine((patch) => Object.keys(patch).length > 0, "item patch is empty");
 export type BoardItemPatch = z.infer<typeof BoardItemPatchSchema>;
 
+const BoardConnectionInputSchema = BoardConnectionSchema;
+const stripServerFields = (value: unknown): unknown => {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+	const { boardId: _boardId, revision: _revision, ...input } = value as Record<string, unknown>;
+	return input;
+};
+const BoardEffectCommandInputSchema = z.preprocess(stripServerFields, BoardEffectInputSchema);
+const BoardCompositionCommandInputSchema = z.preprocess(stripServerFields, BoardCompositionInputSchema);
+
 export const BoardSemanticCommandSchema = z.discriminatedUnion("type", [
+	z.object({ type: z.literal("board.patch"), patch: z.object({
+		title: z.string().min(1).max(255).optional(),
+		metadata: jsonObjectSchema.nullable().optional(),
+		metadataPatch: jsonObjectSchema.optional(),
+	}).strict().refine((patch) => Object.keys(patch).length > 0, "board patch is empty") }).strict(),
 	z.object({ type: z.literal("item.create"), item: BoardAuthoringItemSchema }).strict(),
 	z.object({ type: z.literal("item.patch"), itemId: idSchema, patch: BoardItemPatchSchema }).strict(),
 	z.object({ type: z.literal("item.replace"), itemId: idSchema, item: BoardAuthoringItemSchema }).strict(),
 	z.object({ type: z.literal("item.delete"), itemId: idSchema, cascade: z.boolean().default(false) }).strict(),
+	z.object({ type: z.literal("item.reorder"), itemId: idSchema, index: z.number().int().nonnegative() }).strict(),
+	z.object({ type: z.literal("connection.create"), connection: BoardConnectionInputSchema }).strict(),
+	z.object({ type: z.literal("connection.patch"), connectionId: idSchema, patch: BoardConnectionPatchSchema }).strict(),
+	z.object({ type: z.literal("connection.delete"), connectionId: idSchema }).strict(),
+	z.object({ type: z.literal("effect.apply"), effect: BoardEffectCommandInputSchema }).strict(),
+	z.object({ type: z.literal("effect.delete"), effectId: idSchema }).strict(),
+	z.object({ type: z.literal("composition.apply"), composition: BoardCompositionCommandInputSchema }).strict(),
+	z.object({ type: z.literal("composition.delete"), compositionId: idSchema }).strict(),
 ]);
 export type BoardSemanticCommand = z.infer<typeof BoardSemanticCommandSchema>;
+export type BoardSemanticEffect = Omit<BoardEffect, "boardId" | "revision">;
+export type BoardSemanticComposition = Omit<BoardComposition, "revision">;
 
 export const BoardSemanticMutationSchema = z.object({
 	mutationId: idSchema,
 	baseVersion: z.number().int().nonnegative(),
 	clientId: idSchema.optional(),
 	undoGroupId: idSchema.optional(),
+	/** Validate (including server-side reference checks) without writing. */
+	dryRun: z.boolean().default(false),
 	commands: z.array(BoardSemanticCommandSchema).min(1).max(50_000),
 }).strict();
 export type BoardSemanticMutation = z.infer<typeof BoardSemanticMutationSchema>;
+
+export const BOARD_AUTHORING_ITEM_CAPABILITIES = {
+	types: BOARD_AUTHORING_ITEM_TYPES,
+	colors: BOARD_AUTHORING_COLOR_IDS,
+	shapes: BOARD_AUTHORING_GEO_KINDS,
+	coordinates: {
+		frame: "world" as const,
+		drawPoints: "frame-local" as const,
+		arrowEndpoints: "world" as const,
+	},
+};
+
+export const BoardAuthoringReadInputSchema = z.object({
+	include: z.array(z.enum(["items", "connections", "effects", "compositions", "playback"])).optional(),
+	itemIds: z.array(idSchema).max(50_000).optional(),
+	connectionIds: z.array(idSchema).max(50_000).optional(),
+	effectIds: z.array(idSchema).max(50_000).optional(),
+	compositionIds: z.array(idSchema).max(50_000).optional(),
+	viewport: z.object({
+		x: finiteSchema,
+		y: finiteSchema,
+		width: finiteSchema.positive(),
+		height: finiteSchema.positive(),
+	}).optional(),
+}).strict();
+export type BoardAuthoringReadInput = z.infer<typeof BoardAuthoringReadInputSchema>;
 
 export type BoardAuthoringSnapshot = {
 	board: {
@@ -239,5 +298,9 @@ export type BoardAuthoringSnapshot = {
 		metadata: Record<string, unknown>;
 		updatedAt: string | null;
 	};
-	items: BoardAuthoringItem[];
+	items?: BoardAuthoringItem[];
+	connections?: BoardConnection[];
+	effects?: Array<BoardEffectInput & { revision: number }>;
+	compositions?: Array<BoardCompositionInput & { revision: number }>;
+	playback?: import("./board.js").BoardPlaybackSnapshot | null;
 };

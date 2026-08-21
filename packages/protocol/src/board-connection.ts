@@ -7,7 +7,7 @@
  * force a bounding box to be persisted and kept in sync with both endpoints —
  * a second source of truth that is stale the moment either node moves.
  *
- * The stored form is therefore purely semantic: which nodes, in which direction,
+ * The stored form is therefore purely semantic: which items, in which direction,
  * anchored where, routed how. Every world coordinate is resolved at read time
  * from the live node frames (see the SDK's connection geometry), so a connection
  * can never drift from the nodes it describes.
@@ -59,7 +59,7 @@ export type BoardConnectionAnchor = z.infer<typeof BoardConnectionAnchorSchema>;
 export const AUTO_BOARD_CONNECTION_ANCHOR: BoardConnectionAnchor = { kind: "auto" };
 
 export const BoardConnectionEndpointSchema = z.object({
-  nodeId: z.string().min(1).max(160),
+  itemId: z.string().min(1).max(160),
   /** Optional semantic port. Older connections omit it and remain valid. */
   portId: z.string().min(1).max(120).optional(),
   anchor: BoardConnectionAnchorSchema.default(AUTO_BOARD_CONNECTION_ANCHOR),
@@ -161,7 +161,7 @@ export const BoardConnectionSchema = z.object({
   routing: BoardConnectionRoutingSchema.default(DEFAULT_BOARD_CONNECTION_ROUTING),
   style: BoardConnectionStyleSchema.default(DEFAULT_BOARD_CONNECTION_STYLE),
   metadata: z.record(z.string(), z.unknown()).default({}),
-});
+}).strict();
 
 export type BoardConnection = z.infer<typeof BoardConnectionSchema>;
 
@@ -186,25 +186,25 @@ export const BoardConnectionPatchSchema = BoardConnectionSchema.omit({ id: true 
 
 export type BoardConnectionPatch = z.infer<typeof BoardConnectionPatchSchema>;
 
-/** Both node ids a connection touches, deduped for a self-loop. */
-export function connectionNodeIds(connection: BoardConnection): string[] {
-  return connection.source.nodeId === connection.target.nodeId
-    ? [connection.source.nodeId]
-    : [connection.source.nodeId, connection.target.nodeId];
+/** Both item ids a connection touches, deduped for a self-loop. */
+export function connectionItemIds(connection: BoardConnection): string[] {
+  return connection.source.itemId === connection.target.itemId
+    ? [connection.source.itemId]
+    : [connection.source.itemId, connection.target.itemId];
 }
 
 /** Whether a connection touches the given node. */
-export function connectionTouchesNode(connection: BoardConnection, nodeId: string): boolean {
-  return connection.source.nodeId === nodeId || connection.target.nodeId === nodeId;
+export function connectionTouchesItem(connection: BoardConnection, itemId: string): boolean {
+  return connection.source.itemId === itemId || connection.target.itemId === itemId;
 }
 
-/** The node at the far end of a connection from `nodeId`, or null. */
-export function connectionOtherNodeId(
+/** The item at the far end of a connection from `itemId`, or null. */
+export function connectionOtherItemId(
   connection: BoardConnection,
-  nodeId: string,
+  itemId: string,
 ): string | null {
-  if (connection.source.nodeId === nodeId) return connection.target.nodeId;
-  if (connection.target.nodeId === nodeId) return connection.source.nodeId;
+  if (connection.source.itemId === itemId) return connection.target.itemId;
+  if (connection.target.itemId === itemId) return connection.source.itemId;
   return null;
 }
 
@@ -225,14 +225,14 @@ export function normalizeBoardConnectionStyle(
 /**
  * Build a connection with every default filled in.
  *
- * Callers only state what they mean (which nodes, and optionally the relation),
+ * Callers only state what they mean (which items, and optionally the relation),
  * so a connection created by the editor, an agent or the CLI is byte-identical
  * for the same intent.
  */
 export function createBoardConnection(input: {
   id: string;
-  sourceNodeId: string;
-  targetNodeId: string;
+  sourceItemId: string;
+  targetItemId: string;
   relation?: string;
   direction?: BoardConnectionDirection;
   label?: string;
@@ -247,12 +247,12 @@ export function createBoardConnection(input: {
   return {
     id: input.id,
     source: {
-      nodeId: input.sourceNodeId,
+      itemId: input.sourceItemId,
       ...(input.sourcePortId ? { portId: input.sourcePortId } : {}),
       anchor: input.sourceAnchor ?? AUTO_BOARD_CONNECTION_ANCHOR,
     },
     target: {
-      nodeId: input.targetNodeId,
+      itemId: input.targetItemId,
       ...(input.targetPortId ? { portId: input.targetPortId } : {}),
       anchor: input.targetAnchor ?? AUTO_BOARD_CONNECTION_ANCHOR,
     },

@@ -58,6 +58,7 @@ export function boardNodeToAuthoringItem(node: BoardNodeInput | BoardNodeRecord)
 			const props = { ...node.data };
 			delete props.locked;
 			delete props.metadata;
+			delete props.kindVersion;
 			candidate = { ...base, type: node.type, kindVersion: typeof node.data.kindVersion === "number" ? node.data.kindVersion : 1, props, ...(Object.keys(node.style).length ? { style: node.style } : {}), ...(node.refPath ? { source: { kind: node.refKind ?? "space-file", ref: node.refPath, ...(Object.keys(node.view).length ? { snapshot: node.view } : {}) } } : {}) };
 		}
 	}
@@ -70,7 +71,23 @@ function commonData(item: BoardAuthoringItem) {
 
 export function boardAuthoringItemToNode(value: unknown, options: { orderKey?: string | null } = {}): BoardNodeInput {
 	const item = BoardAuthoringItemSchema.parse(value);
-	const node: BoardNodeInput = { nodeId: item.id, type: item.type, parentId: item.parentId ?? null, orderKey: options.orderKey ?? null, x: item.frame.x, y: item.frame.y, width: item.frame.width, height: item.frame.height, rotation: item.frame.rotation, refKind: null, refPath: null, refUrl: null, view: {}, style: {}, data: commonData(item) };
+	const node: BoardNodeInput = {
+		nodeId: item.id,
+		type: item.type,
+		parentId: item.parentId ?? null,
+		orderKey: options.orderKey ?? null,
+		x: item.frame.x,
+		y: item.frame.y,
+		width: item.frame.width,
+		height: item.frame.height,
+		rotation: item.frame.rotation,
+		refKind: null,
+		refPath: null,
+		refUrl: null,
+		view: {},
+		style: {},
+		data: commonData(item),
+	};
 	const itemStyle = "style" in item ? item.style : undefined;
 	const color = itemStyle && "color" in itemStyle ? itemStyle.color : undefined;
 	const strokeWidth = itemStyle && "strokeWidth" in itemStyle ? itemStyle.strokeWidth : undefined;

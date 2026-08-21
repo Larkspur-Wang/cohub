@@ -1,10 +1,10 @@
+import type { BoardSemanticMutation } from "@cohub/protocol";
 import type { ContentBlock } from "@cohub/protocol/core";
 import type {
 	SessionForkRecord,
 	SessionTurnRecord,
 } from "@cohub/protocol/model";
 import type {
-	BoardOperation,
 	LabelAssignmentListItem,
 	LabelAssignmentPageInfo,
 	LabelAssignmentRecord,
@@ -18,7 +18,7 @@ import type {
 import type { SessionListPageInfo } from "$lib/cache/types";
 
 export const DB_NAME = "cohub-web-cache";
-export const DB_VERSION = 14;
+export const DB_VERSION = 15;
 
 export type SessionListForkRecord = Partial<SessionForkRecord> & {
 	childSessionId: string;
@@ -244,7 +244,7 @@ export type BoardPendingTransactionCacheRecord = {
 	boardId: string;
 	txId: string;
 	baseVersion: number;
-	ops: BoardOperation[];
+	mutation: BoardSemanticMutation;
 	attemptCount: number;
 	createdAt: number;
 	updatedAt: number;
@@ -609,9 +609,12 @@ export async function openCacheDb(): Promise<IDBDatabase | null> {
 		request.onupgradeneeded = (event) => {
 			const db = request.result;
 			if (
-				(event as IDBVersionChangeEvent).oldVersion < 13 &&
+				(event as IDBVersionChangeEvent).oldVersion < 15 &&
 				db.objectStoreNames.contains("board_pending_txs")
 			) {
+				// Pending records used the removed raw operation shape. With no live
+				// Board data to migrate, rebuild this queue rather than allowing stale
+				// records to block every future semantic commit.
 				db.deleteObjectStore("board_pending_txs");
 			}
 			createStore(db, "space_records", [

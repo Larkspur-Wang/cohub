@@ -5,7 +5,6 @@ import type {
 } from "@cohub/protocol/ports";
 import type { WorkComposerChip } from "@cohub/protocol/work-surface";
 import type {
-	BoardOperation,
 	SpacePendingDiffFileResponse,
 	SpaceRecord,
 	WorkRecord,
@@ -172,7 +171,8 @@ export type SpaceFileDomainProps = {
 		boardId: string,
 		path: string,
 		document: BoardDocument,
-		ops: BoardOperation[],
+		before: BoardDocument,
+		commands: import("@neta-art/cohub").BoardSemanticCommand[],
 	) => void | Promise<void>;
 	onRetryInlineBoardSave: (boardId: string) => void | Promise<void>;
 	onBeginPreviewPanelResize: (event: PointerEvent) => void;

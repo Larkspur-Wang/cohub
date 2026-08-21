@@ -14,7 +14,6 @@ import {
 import type {
   BoardBootstrap,
   BoardCapabilities,
-  BoardProceduralClip,
   BoardInspectInput,
   BoardNodeInput,
   BoardOperation,
@@ -23,23 +22,27 @@ import type {
   BoardPlaybackSnapshot,
   BoardSummary,
   BoardAnimationTarget,
-  BoardTrack,
-  BoardValidationResult,
   RequestSource,
 } from "@cohub/protocol";
 import {
   BOARD_ANIMATION_CHANNEL_CAPABILITIES,
+  BOARD_AUTHORING_ITEM_CAPABILITIES,
+  BOARD_AUTHORING_SCHEMAS,
   BOARD_BUILTIN_CAPABILITIES,
   BOARD_PROTOCOL_VERSION,
-  BOARD_NODE_CONTRACT,
   DEFAULT_BOARD_RENDER_LIMITS,
 } from "@cohub/protocol";
 import {
   boardCompositionInputFromRows as compositionInputFromRows,
   boardCompositionsFromRows as compositionsFromRows,
+  boardClipValues as clipValues,
   boardConnectionFromRow as connectionFromRow,
   boardConnectionValues as connectionValues,
   boardEffectFromRow as effectFromRow,
+  boardTrackValues as trackValues,
+  boardJsonEquals,
+  boardMutationChanged,
+  diffBoardCompositionWrite,
 } from "@cohub/core/board";
 import {
   collectTouchedConnectionIds,
@@ -51,8 +54,9 @@ import {
   type ExistingNodeRow,
   planNodeWrites,
 } from "./board-node-plan.js";
+import { collectValidationNodeIds } from "./board-validation-projection.js";
 import { db } from "./db/index.js";
-import { dispatchBoardPlaybackChanged, dispatchBoardTransactionApplied } from "./board-events.js";
+import { dispatchBoardChanged, dispatchBoardPlaybackChanged } from "./board-events.js";
 import {
   BoardServiceError,
   contextualValidation,
@@ -60,7 +64,6 @@ import {
   normalizePlaybackPosition,
   NODE_WRITE_CHUNK,
   type BoardValidationContext,
-  ZERO_BOARD_COST,
 } from "./board-ops.js";
 
 export * from "./board-ops.js";
@@ -69,8 +72,9 @@ const BOARD_CAPABILITIES: BoardCapabilities = {
   protocolVersion: BOARD_PROTOCOL_VERSION,
   capabilities: BOARD_BUILTIN_CAPABILITIES,
   limits: DEFAULT_BOARD_RENDER_LIMITS,
-  nodes: BOARD_NODE_CONTRACT,
+  items: BOARD_AUTHORING_ITEM_CAPABILITIES,
   animationChannels: BOARD_ANIMATION_CHANNEL_CAPABILITIES,
+  authoring: BOARD_AUTHORING_SCHEMAS,
 };
 
 function dateString(value: Date | null | undefined): string | null {
@@ -102,27 +106,44 @@ export async function inspectBoard(
   const included = input.include ? new Set(input.include) : null;
   const wants = (section: NonNullable<BoardInspectInput["include"]>[number]) => !included || included.has(section);
   const viewport = input.viewport;
-  const nodeWhere = viewport
-    ? and(
-        eq(boardNodes.boardId, boardId),
-        isNull(boardNodes.deletedAt),
-        lt(boardNodes.x, viewport.x + viewport.width),
-        gt(sql<number>`${boardNodes.x} + ${boardNodes.width}`, viewport.x),
-        lt(boardNodes.y, viewport.y + viewport.height),
-        gt(sql<number>`${boardNodes.y} + ${boardNodes.height}`, viewport.y),
-      )
-    : and(eq(boardNodes.boardId, boardId), isNull(boardNodes.deletedAt));
+  const nodeWhere = and(
+    eq(boardNodes.boardId, boardId),
+    isNull(boardNodes.deletedAt),
+    ...(input.nodeIds?.length ? [inArray(boardNodes.nodeId, input.nodeIds)] : []),
+    ...(viewport ? [
+      lt(boardNodes.x, viewport.x + viewport.width),
+      gt(sql<number>`${boardNodes.x} + ${boardNodes.width}`, viewport.x),
+      lt(boardNodes.y, viewport.y + viewport.height),
+      gt(sql<number>`${boardNodes.y} + ${boardNodes.height}`, viewport.y),
+    ] : []),
+  );
   const [nodes, connections, effects, compositions, tracks, clips, playback] = await Promise.all([
     wants("nodes") ? db.select().from(boardNodes).where(nodeWhere).orderBy(boardNodes.orderKey) : Promise.resolve([]),
     wants("connections")
       ? db.select().from(boardConnections)
-        .where(and(eq(boardConnections.boardId, boardId), isNull(boardConnections.deletedAt)))
+        .where(and(
+          eq(boardConnections.boardId, boardId),
+          isNull(boardConnections.deletedAt),
+          ...(input.connectionIds?.length ? [inArray(boardConnections.connectionId, input.connectionIds)] : []),
+        ))
         .orderBy(boardConnections.connectionId)
       : Promise.resolve([]),
-    wants("effects") ? db.select().from(boardEffects).where(eq(boardEffects.boardId, boardId)) : Promise.resolve([]),
-    wants("compositions") ? db.select().from(boardCompositions).where(eq(boardCompositions.boardId, boardId)) : Promise.resolve([]),
-    wants("compositions") ? db.select().from(boardTracks).where(eq(boardTracks.boardId, boardId)).orderBy(boardTracks.compositionId, boardTracks.id) : Promise.resolve([]),
-    wants("compositions") ? db.select().from(boardClips).where(eq(boardClips.boardId, boardId)).orderBy(boardClips.compositionId, boardClips.start) : Promise.resolve([]),
+    wants("effects") ? db.select().from(boardEffects).where(and(
+      eq(boardEffects.boardId, boardId),
+      ...(input.effectIds?.length ? [inArray(boardEffects.id, input.effectIds)] : []),
+    )) : Promise.resolve([]),
+    wants("compositions") ? db.select().from(boardCompositions).where(and(
+      eq(boardCompositions.boardId, boardId),
+      ...(input.compositionIds?.length ? [inArray(boardCompositions.id, input.compositionIds)] : []),
+    )) : Promise.resolve([]),
+    wants("compositions") ? db.select().from(boardTracks).where(and(
+      eq(boardTracks.boardId, boardId),
+      ...(input.compositionIds?.length ? [inArray(boardTracks.compositionId, input.compositionIds)] : []),
+    )).orderBy(boardTracks.compositionId, boardTracks.id) : Promise.resolve([]),
+    wants("compositions") ? db.select().from(boardClips).where(and(
+      eq(boardClips.boardId, boardId),
+      ...(input.compositionIds?.length ? [inArray(boardClips.compositionId, input.compositionIds)] : []),
+    )).orderBy(boardClips.compositionId, boardClips.start) : Promise.resolve([]),
     wants("playback") ? db.select().from(boardPlaybackStates).where(eq(boardPlaybackStates.boardId, boardId)).limit(1) : Promise.resolve([]),
   ]);
   // A viewport read culls nodes, so connections are narrowed to the ones whose
@@ -172,7 +193,7 @@ export async function summarizeBoard(
       metadata: boards.metadata,
       createdAt: boards.createdAt,
       updatedAt: boards.updatedAt,
-      nodes: sql<number>`(select count(*)::int from ${boardNodes} where ${boardNodes.boardId} = ${boardId} and ${boardNodes.deletedAt} is null)`,
+      items: sql<number>`(select count(*)::int from ${boardNodes} where ${boardNodes.boardId} = ${boardId} and ${boardNodes.deletedAt} is null)`,
       connections: sql<number>`(select count(*)::int from ${boardConnections} where ${boardConnections.boardId} = ${boardId} and ${boardConnections.deletedAt} is null)`,
       effects: sql<number>`(select count(*)::int from ${boardEffects} where ${boardEffects.boardId} = ${boardId})`,
       compositions: sql<number>`(select count(*)::int from ${boardCompositions} where ${boardCompositions.boardId} = ${boardId})`,
@@ -194,7 +215,7 @@ export async function summarizeBoard(
       updatedAt: dateString(summary.updatedAt),
     },
     counts: {
-      nodes: summary.nodes,
+      items: summary.items,
       connections: summary.connections,
       effects: summary.effects,
       compositions: summary.compositions,
@@ -243,42 +264,6 @@ function createValidationContext(input: {
   };
 }
 
-export async function validateBoardTransaction(input: {
-  spaceId: string;
-  value: unknown;
-}): Promise<BoardValidationResult> {
-  const transaction = normalizeBoardTransaction(input.value);
-  const [board] = await db.select({ id: boards.id, version: boards.version, metadata: boards.metadata }).from(boards)
-    .where(and(eq(boards.id, transaction.boardId), eq(boards.spaceId, input.spaceId))).limit(1);
-  if (!board) throw new BoardServiceError(404, "board not found", "BOARD_NOT_FOUND");
-  const touchedNodeIds = collectTouchedNodeIds(transaction.operations);
-  const [nodes, nodeRows, connections, effects, compositions, tracks, clips] = await Promise.all([
-    db.select({ nodeId: boardNodes.nodeId }).from(boardNodes).where(and(eq(boardNodes.boardId, board.id), isNull(boardNodes.deletedAt))),
-    touchedNodeIds.length
-      ? db.select().from(boardNodes).where(and(
-          eq(boardNodes.boardId, board.id),
-          inArray(boardNodes.nodeId, touchedNodeIds),
-          isNull(boardNodes.deletedAt),
-        ))
-      : Promise.resolve([]),
-    db.select().from(boardConnections).where(and(eq(boardConnections.boardId, board.id), isNull(boardConnections.deletedAt))),
-    db.select().from(boardEffects).where(eq(boardEffects.boardId, board.id)),
-    db.select().from(boardCompositions).where(eq(boardCompositions.boardId, board.id)),
-    db.select().from(boardTracks).where(eq(boardTracks.boardId, board.id)),
-    db.select().from(boardClips).where(eq(boardClips.boardId, board.id)),
-  ]);
-  return contextualValidation(transaction, createValidationContext({
-    boardVersion: board.version,
-    metadata: board.metadata,
-    nodes,
-    nodeInputs: nodeRows.map(nodeInputFromRow),
-    connections,
-    effects,
-    compositions,
-    tracks,
-    clips,
-  }));
-}
 
 function effectValues(boardId: string, effect: BoardOperation & { type: "effect.upsert" }, revision: number, now: Date) {
   const value = effect.payload.effect;
@@ -302,66 +287,6 @@ function effectValues(boardId: string, effect: BoardOperation & { type: "effect.
   };
 }
 
-function trackValues(boardId: string, compositionId: string, track: BoardTrack) {
-  return {
-    id: track.id,
-    boardId,
-    compositionId,
-    target: track.target,
-    channel: track.channel,
-    channelVersion: track.channelVersion,
-    interpolation: track.interpolation,
-    fill: track.fill,
-    keyframes: track.keyframes,
-    metadata: track.metadata,
-  };
-}
-
-function clipValues(boardId: string, compositionId: string, clip: BoardProceduralClip) {
-  return {
-    id: clip.id,
-    boardId,
-    compositionId,
-    kind: clip.kind,
-    kindVersion: clip.kindVersion,
-    target: clip.target,
-    start: clip.start,
-    duration: clip.duration,
-    layer: clip.layer,
-    fill: clip.fill,
-    easing: clip.easing,
-    params: clip.params,
-    assetRefs: clip.assetRefs,
-    seed: clip.seed,
-    metadata: clip.metadata,
-  };
-}
-
-export function mutationChanged(operations: readonly BoardOperation[]): BoardMutationReceipt["changed"] {
-  const items = new Set<string>();
-  const connections = new Set<string>();
-  const effects = new Set<string>();
-  const compositions = new Set<string>();
-  let board = false;
-  for (const operation of operations) {
-    if (operation.type === "board.patch") board = true;
-    else if (operation.type === "node.create") items.add(operation.payload.node.nodeId);
-    else if (operation.type === "node.patch" || operation.type === "node.delete") items.add(operation.payload.nodeId);
-    else if (operation.type === "connection.create") connections.add(operation.payload.connection.id);
-    else if (operation.type === "connection.patch" || operation.type === "connection.delete") connections.add(operation.payload.connectionId);
-    else if (operation.type === "effect.upsert") effects.add(operation.payload.effect.id);
-    else if (operation.type === "effect.delete") effects.add(operation.payload.effectId);
-    else if (operation.type === "composition.apply") compositions.add(operation.payload.composition.id);
-    else if (operation.type === "composition.delete") compositions.add(operation.payload.compositionId);
-  }
-  return {
-    items: [...items],
-    connections: [...connections],
-    effects: [...effects],
-    compositions: [...compositions],
-    board,
-  };
-}
 
 export function receiptFromStoredTransaction(input: {
   boardId: string;
@@ -379,15 +304,20 @@ export function receiptFromStoredTransaction(input: {
     stored.board && typeof stored.board.version === "number" &&
     stored.changed
   ) {
-    return stored as BoardMutationReceipt;
+    return {
+      ...(stored as BoardMutationReceipt),
+      outcome: stored.outcome ?? (stored.status === "applied" ? "applied" : "noop"),
+      replayed: true,
+    };
   }
   const operations = Array.isArray(input.operations) ? input.operations as BoardOperation[] : [];
   return {
     mutationId: input.txId,
     status: input.resultVersion === null ? "validated" : "applied",
+    outcome: input.resultVersion === null ? "noop" : "applied",
     replayed: true,
     board: { id: input.boardId, version: input.resultVersion ?? 0 },
-    changed: mutationChanged(operations),
+    changed: boardMutationChanged(operations),
   };
 }
 
@@ -398,6 +328,8 @@ export async function applyBoardTransaction(input: {
   requestSource?: RequestSource | null;
   broadcast?: boolean;
   allowNoop?: boolean;
+  /** Validate (schema + contextual references) without writing or recording. */
+  dryRun?: boolean;
 }): Promise<BoardMutationReceipt> {
   const transaction = normalizeBoardTransaction(input.transaction, {
     allowEmpty: input.allowNoop,
@@ -406,7 +338,11 @@ export async function applyBoardTransaction(input: {
     ? { source: input.requestSource }
     : {};
   const now = new Date();
-  const result = await db.transaction(async (tx) => {
+  const result: {
+    idempotent: boolean;
+    receipt: BoardMutationReceipt;
+    playback: BoardPlaybackSnapshot | null;
+  } = await db.transaction(async (tx) => {
     const [board] = await tx.select().from(boards)
       .where(and(eq(boards.id, transaction.boardId), eq(boards.spaceId, input.spaceId))).for("update").limit(1);
     if (!board) throw new BoardServiceError(404, "board not found", "BOARD_NOT_FOUND");
@@ -432,6 +368,11 @@ export async function applyBoardTransaction(input: {
       };
     }
 
+    // dryRun must return before any transaction row is inserted: a validated
+    // dry-run must not consume the mutationId, or a later real submit with the
+    // same id would replay the dry-run's empty receipt and never write.
+    // (The full-validation dryRun return lives after contextualValidation.)
+
     if (transaction.operations.length === 0) {
       if (transaction.baseVersion !== board.version) {
         throw new BoardServiceError(
@@ -440,12 +381,29 @@ export async function applyBoardTransaction(input: {
           "VERSION_CONFLICT",
         );
       }
+      // dryRun on a no-op semantic mutation: validation (above) already ran the
+      // version check; nothing to write, nothing to record, no id consumed.
+      if (input.dryRun) {
+        return {
+          idempotent: false,
+          receipt: {
+            mutationId: transaction.txId,
+            status: "validated",
+            outcome: "dry-run",
+            replayed: false,
+            board: { id: transaction.boardId, version: board.version },
+            changed: { items: [], connections: [], effects: [], compositions: [], board: false, orderChanged: false },
+          },
+          playback: null,
+        };
+      }
       const receipt: BoardMutationReceipt = {
         mutationId: transaction.txId,
         status: "validated",
+        outcome: "noop",
         replayed: false,
         board: { id: transaction.boardId, version: board.version },
-        changed: { items: [], connections: [], effects: [], compositions: [], board: false },
+        changed: { items: [], connections: [], effects: [], compositions: [], board: false, orderChanged: false },
       };
       await tx.insert(boardTransactions).values({
         boardId: transaction.boardId,
@@ -464,24 +422,68 @@ export async function applyBoardTransaction(input: {
     }
 
     const touchedNodeIds = collectTouchedNodeIds(transaction.operations);
+    const validationNodeIds = collectValidationNodeIds(transaction.operations);
+    const operationTypes = new Set(transaction.operations.map((operation) => operation.type));
+    const hasNodeDelete = operationTypes.has("node.delete");
+    const hasEffectDelete = operationTypes.has("effect.delete");
+    const hasCompositionOperation = operationTypes.has("composition.apply") || operationTypes.has("composition.delete");
+    const hasBoardPatch = operationTypes.has("board.patch");
+    const hasConnectionOperation = [...operationTypes].some((type) => type.startsWith("connection."));
+    const needsAllCompositions = hasNodeDelete || hasEffectDelete;
+    const needsCompositionHeaders = needsAllCompositions || hasCompositionOperation || hasBoardPatch || Boolean(board.metadata.playback);
+    const validationTouchedConnectionIds = collectTouchedConnectionIds(transaction.operations);
+    const touchedEffectIds = transaction.operations
+      .filter((operation) => operation.type === "effect.upsert" || operation.type === "effect.delete")
+      .map((operation) => operation.type === "effect.upsert" ? operation.payload.effect.id : operation.payload.effectId);
     const [validationNodes, nodeRows, validationConnections, validationEffects, validationCompositions, validationTracks, validationClips] = await Promise.all([
-      tx.select({ nodeId: boardNodes.nodeId }).from(boardNodes).where(and(eq(boardNodes.boardId, board.id), isNull(boardNodes.deletedAt))),
+      validationNodeIds.length
+        ? tx.select({ nodeId: boardNodes.nodeId }).from(boardNodes).where(and(
+            eq(boardNodes.boardId, board.id),
+            inArray(boardNodes.nodeId, validationNodeIds),
+            isNull(boardNodes.deletedAt),
+          ))
+        : Promise.resolve([]),
       touchedNodeIds.length
         ? tx.select().from(boardNodes).where(and(
             eq(boardNodes.boardId, transaction.boardId),
             inArray(boardNodes.nodeId, touchedNodeIds),
           ))
         : Promise.resolve([]),
-      tx.select().from(boardConnections).where(and(eq(boardConnections.boardId, board.id), isNull(boardConnections.deletedAt))),
-      tx.select().from(boardEffects).where(eq(boardEffects.boardId, board.id)),
-      tx.select().from(boardCompositions).where(eq(boardCompositions.boardId, board.id)),
-      tx.select().from(boardTracks).where(eq(boardTracks.boardId, board.id)),
-      tx.select().from(boardClips).where(eq(boardClips.boardId, board.id)),
+      hasNodeDelete
+        ? tx.select().from(boardConnections).where(and(eq(boardConnections.boardId, board.id), isNull(boardConnections.deletedAt)))
+        : hasConnectionOperation && validationTouchedConnectionIds.length
+          ? tx.select().from(boardConnections).where(and(
+              eq(boardConnections.boardId, board.id),
+              inArray(boardConnections.connectionId, validationTouchedConnectionIds),
+              isNull(boardConnections.deletedAt),
+            ))
+          : Promise.resolve([]),
+      hasNodeDelete || hasEffectDelete || hasCompositionOperation
+        ? tx.select().from(boardEffects).where(eq(boardEffects.boardId, board.id))
+        : touchedEffectIds.length
+          ? tx.select().from(boardEffects).where(and(eq(boardEffects.boardId, board.id), inArray(boardEffects.id, touchedEffectIds)))
+          : Promise.resolve([]),
+      needsCompositionHeaders
+        ? tx.select().from(boardCompositions).where(eq(boardCompositions.boardId, board.id))
+        : Promise.resolve([]),
+      needsAllCompositions
+        ? tx.select().from(boardTracks).where(eq(boardTracks.boardId, board.id))
+        : Promise.resolve([]),
+      needsAllCompositions
+        ? tx.select().from(boardClips).where(eq(boardClips.boardId, board.id))
+        : Promise.resolve([]),
     ]);
+    const validationNodeSet = new Set(validationNodes.map((node) => node.nodeId));
+    // Existing connection endpoints are trusted current state. A label/style-only
+    // patch still validates its unchanged endpoints without scanning all nodes.
+    for (const connection of validationConnections) {
+      validationNodeSet.add(connection.sourceNodeId);
+      validationNodeSet.add(connection.targetNodeId);
+    }
     const validation = contextualValidation(transaction, createValidationContext({
       boardVersion: board.version,
       metadata: board.metadata,
-      nodes: validationNodes,
+      nodes: [...validationNodeSet].map((nodeId) => ({ nodeId })),
       nodeInputs: nodeRows
         .filter((row) => row.deletedAt === null)
         .map(nodeInputFromRow),
@@ -502,7 +504,24 @@ export async function applyBoardTransaction(input: {
         [validationError],
       );
     }
-
+    // dryRun must return after full contextual validation but before any write
+    // or transaction row is inserted: version, references, and cascade rules
+    // are all checked (same as a real submit), while the mutationId is not
+    // consumed — a later real submit with the same id writes normally.
+    if (input.dryRun) {
+      return {
+        idempotent: false,
+        receipt: {
+          mutationId: transaction.txId,
+          status: "validated",
+          outcome: "dry-run",
+          replayed: false,
+          board: { id: transaction.boardId, version: board.version },
+          changed: boardMutationChanged(transaction.operations),
+        },
+        playback: null,
+      };
+    }
     const nextVersion = board.version + 1;
     const operationRows: Array<{ type: string; payload: Record<string, unknown>; inverse: Record<string, unknown> | null }> = [];
     let title = board.title;
@@ -559,17 +578,25 @@ export async function applyBoardTransaction(input: {
         continue;
       }
       if (operation.type === "board.patch") {
-        operationRows.push({ type: operation.type, payload: operation.payload, inverse: { patch: { title, metadata } } });
-        title = operation.payload.patch.title ?? title;
-        metadata = operation.payload.patch.metadata ?? metadata;
+        const nextTitle = operation.payload.patch.title ?? title;
+        let nextMetadata = operation.payload.patch.metadata ?? metadata;
         if (operation.payload.patch.metadataPatch) {
-          metadata = { ...metadata, ...operation.payload.patch.metadataPatch };
+          nextMetadata = { ...nextMetadata, ...operation.payload.patch.metadataPatch };
         }
+        if (nextTitle === title && boardJsonEquals(nextMetadata, metadata)) continue;
+        operationRows.push({ type: operation.type, payload: operation.payload, inverse: { patch: { title, metadata } } });
+        title = nextTitle;
+        metadata = nextMetadata;
         continue;
       }
       if (operation.type === "effect.upsert") {
         const [previous] = await tx.select().from(boardEffects)
           .where(and(eq(boardEffects.boardId, transaction.boardId), eq(boardEffects.id, operation.payload.effect.id))).limit(1);
+        const previousEffect = previous ? effectFromRow(previous) : null;
+        if (previousEffect) {
+          const { boardId: _boardId, revision: _revision, ...authored } = previousEffect;
+          if (boardJsonEquals(authored, operation.payload.effect)) continue;
+        }
         const values = effectValues(transaction.boardId, operation, (previous?.revision ?? -1) + 1, now);
         await tx.insert(boardEffects).values({ ...values, createdAt: previous?.createdAt ?? now })
           .onConflictDoUpdate({ target: [boardEffects.boardId, boardEffects.id], set: values });
@@ -603,6 +630,19 @@ export async function applyBoardTransaction(input: {
           tx.select().from(boardClips)
             .where(and(eq(boardClips.boardId, transaction.boardId), eq(boardClips.compositionId, value.id))),
         ]);
+        const writePlan = diffBoardCompositionWrite(
+          previous ? { name: previous.name, duration: previous.duration, playback: previous.playback, markers: previous.markers, metadata: previous.metadata } : null,
+          previousTracks,
+          previousClips,
+          value,
+        );
+        // Unchanged re-apply short-circuit: no row writes, no revision bump, no
+        // playback stop, no board version bump, no realtime broadcast. The
+        // transaction row is still recorded (for idempotent replay) with a
+        // validated receipt, so retries return the same answer.
+        if (!writePlan.changed) {
+          continue;
+        }
         const revision = (previous?.revision ?? -1) + 1;
         const compositionValues = {
           id: value.id,
@@ -617,15 +657,62 @@ export async function applyBoardTransaction(input: {
         };
         await tx.insert(boardCompositions).values({ ...compositionValues, createdAt: previous?.createdAt ?? now })
           .onConflictDoUpdate({ target: [boardCompositions.boardId, boardCompositions.id], set: compositionValues });
-        await Promise.all([
-          tx.delete(boardTracks).where(and(eq(boardTracks.boardId, transaction.boardId), eq(boardTracks.compositionId, value.id))),
-          tx.delete(boardClips).where(and(eq(boardClips.boardId, transaction.boardId), eq(boardClips.compositionId, value.id))),
-        ]);
-        if (value.timeline.tracks.length) {
-          await tx.insert(boardTracks).values(value.timeline.tracks.map((track) => trackValues(transaction.boardId, value.id, track)));
+        const { removedTrackIds, removedClipIds, changedTracks, changedClips } = writePlan;
+        const ROW_WRITE_CHUNK = 500;
+        if (removedTrackIds.length) {
+          for (let offset = 0; offset < removedTrackIds.length; offset += ROW_WRITE_CHUNK) {
+            await tx.delete(boardTracks).where(and(
+              eq(boardTracks.boardId, transaction.boardId),
+              eq(boardTracks.compositionId, value.id),
+              inArray(boardTracks.id, removedTrackIds.slice(offset, offset + ROW_WRITE_CHUNK)),
+            ));
+          }
         }
-        if (value.timeline.clips.length) {
-          await tx.insert(boardClips).values(value.timeline.clips.map((clip) => clipValues(transaction.boardId, value.id, clip)));
+        if (removedClipIds.length) {
+          for (let offset = 0; offset < removedClipIds.length; offset += ROW_WRITE_CHUNK) {
+            await tx.delete(boardClips).where(and(
+              eq(boardClips.boardId, transaction.boardId),
+              eq(boardClips.compositionId, value.id),
+              inArray(boardClips.id, removedClipIds.slice(offset, offset + ROW_WRITE_CHUNK)),
+            ));
+          }
+        }
+        for (let offset = 0; offset < changedTracks.length; offset += ROW_WRITE_CHUNK) {
+          const chunk = changedTracks.slice(offset, offset + ROW_WRITE_CHUNK).map((track) => trackValues(transaction.boardId, value.id, track));
+          await tx.insert(boardTracks).values(chunk)
+            .onConflictDoUpdate({
+              target: [boardTracks.boardId, boardTracks.compositionId, boardTracks.id],
+              set: {
+                target: sql`excluded.target`,
+                channel: sql`excluded.channel`,
+                channelVersion: sql`excluded.channel_version`,
+                interpolation: sql`excluded.interpolation`,
+                fill: sql`excluded.fill`,
+                keyframes: sql`excluded.keyframes`,
+                metadata: sql`excluded.metadata`,
+              },
+            });
+        }
+        for (let offset = 0; offset < changedClips.length; offset += ROW_WRITE_CHUNK) {
+          const chunk = changedClips.slice(offset, offset + ROW_WRITE_CHUNK).map((clip) => clipValues(transaction.boardId, value.id, clip));
+          await tx.insert(boardClips).values(chunk)
+            .onConflictDoUpdate({
+              target: [boardClips.boardId, boardClips.compositionId, boardClips.id],
+              set: {
+                kind: sql`excluded.kind`,
+                kindVersion: sql`excluded.kind_version`,
+                target: sql`excluded.target`,
+                start: sql`excluded.start`,
+                duration: sql`excluded.duration`,
+                layer: sql`excluded.layer`,
+                fill: sql`excluded.fill`,
+                easing: sql`excluded.easing`,
+                params: sql`excluded.params`,
+                assetRefs: sql`excluded.asset_refs`,
+                seed: sql`excluded.seed`,
+                metadata: sql`excluded.metadata`,
+              },
+            });
         }
         const [activePlayback] = await tx.select().from(boardPlaybackStates).where(and(
           eq(boardPlaybackStates.boardId, transaction.boardId),
@@ -686,6 +773,35 @@ export async function applyBoardTransaction(input: {
           },
         },
       });
+    }
+
+    // Every operation short-circuited (e.g. re-applying an identical
+    // composition): the mutation is valid but changed nothing, so record it as a
+    // no-op receipt instead of bumping the board version and broadcasting a
+    // phantom change. Mirrors the semantic no-op path above.
+    if (operationRows.length === 0 && nodePlan.writes.length === 0 && connectionPlan.writes.length === 0) {
+      const receipt: BoardMutationReceipt = {
+        mutationId: transaction.txId,
+        status: "validated",
+        outcome: "noop",
+        replayed: false,
+        board: { id: transaction.boardId, version: board.version },
+        changed: { items: [], connections: [], effects: [], compositions: [], board: false, orderChanged: false },
+      };
+      await tx.insert(boardTransactions).values({
+        boardId: transaction.boardId,
+        txId: transaction.txId,
+        baseVersion: transaction.baseVersion,
+        resultVersion: null,
+        actorId: input.actorId,
+        clientId: transaction.clientId ?? null,
+        undoGroupId: transaction.undoGroupId ?? null,
+        operations: transaction.operations,
+        receipt,
+        metadata: transactionMetadata,
+        createdAt: now,
+      });
+      return { idempotent: false, receipt, playback: null };
     }
 
     // Flush the planned node writes. Every touched node is written as its final
@@ -769,9 +885,10 @@ export async function applyBoardTransaction(input: {
     const receipt: BoardMutationReceipt = {
       mutationId: transaction.txId,
       status: "applied",
+      outcome: "applied",
       replayed: false,
       board: { id: transaction.boardId, version: nextVersion },
-      changed: mutationChanged(transaction.operations),
+      changed: boardMutationChanged(transaction.operations),
     };
     const [storedTransaction] = await tx.insert(boardTransactions).values({
       boardId: transaction.boardId,
@@ -800,19 +917,24 @@ export async function applyBoardTransaction(input: {
     return { idempotent: false, receipt, playback };
   });
 
+  // Broadcast only real changes. A validated/no-op receipt means no board
+  // version was produced: broadcasting it would push a phantom event that a
+  // lagging client would apply as a real delta and desynchronize its sync
+  // version forever.
   if (
     input.broadcast !== false &&
     !result.idempotent &&
+    result.receipt.status === "applied" &&
     transaction.operations.length > 0
   ) {
-    await dispatchBoardTransactionApplied({
+    await dispatchBoardChanged({
       spaceId: input.spaceId,
       boardId: transaction.boardId,
       actorId: input.actorId,
-      txId: transaction.txId,
+      mutationId: transaction.txId,
       version: result.receipt.board.version,
-      operations: transaction.operations,
-      metadata: transactionMetadata,
+      changed: result.receipt.changed,
+      source: input.requestSource,
     }).catch(() => undefined);
     if (result.playback) {
       await dispatchBoardPlaybackChanged({
@@ -907,8 +1029,4 @@ export async function applyBoardPlaybackCommand(input: {
   });
   await dispatchBoardPlaybackChanged({ spaceId: input.spaceId, snapshot }).catch(() => undefined);
   return snapshot;
-}
-
-export function emptyBoardValidation(): BoardValidationResult {
-  return { valid: true, diagnostics: [], peakCost: { ...ZERO_BOARD_COST } };
 }

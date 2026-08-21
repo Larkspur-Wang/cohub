@@ -3,7 +3,6 @@ import type { SpaceFsChangedPayload } from "@cohub/protocol/fs";
 import type { ChannelEnvelope } from "@cohub/protocol/realtime";
 import type { WorkComposerChip } from "@cohub/protocol/work-surface";
 import type {
-	BoardOperation,
 	Permission,
 	SpaceRecord,
 	TaskRunRecord,
@@ -1944,9 +1943,10 @@ async function commitInlineBoard(
 	boardId: string,
 	path: string,
 	document: BoardDocument,
-	ops: BoardOperation[],
+	before: BoardDocument,
+	commands: import("@neta-art/cohub").BoardSemanticCommand[],
 ) {
-	await boardPreview.commitBoard(boardId, path, document, ops);
+	await boardPreview.commitBoard(boardId, path, document, before, commands);
 }
 async function retryInlineBoardSave(boardId: string) {
 	await boardPreview.retryBoardSave(boardId);
@@ -2247,60 +2247,26 @@ onMount(() => {
 			sessionChat.applySessionsSnapshot(sessions);
 		},
 	);
-	const offBoardTxApplied = sdk
-		.space(spaceId)
-		.on("board.transaction.applied", (event) => {
-			const payload = event.payload as {
-				boardId?: unknown;
-				version?: unknown;
-				actorId?: unknown;
-				txId?: unknown;
-				operations?: unknown;
-				metadata?: Record<string, unknown> | null;
-			};
-			if (
-				typeof payload.boardId !== "string" ||
-				!boardPreview.hasBoardId(payload.boardId)
-			)
-				return;
-			// Skip only this client's own committed transactions (already reflected
-			// locally). Keying on txId — not actorId — means the same user's other
-			// tabs/devices still reconcile, so multi-tab editing stays in sync.
-			if (boardPreview.isOwnTransaction(payload.txId)) return;
-			const version =
-				typeof payload.version === "number" ? payload.version : null;
-			const txId = typeof payload.txId === "string" ? payload.txId : null;
-			const ops = Array.isArray(payload.operations)
-				? (payload.operations as import("@neta-art/cohub").BoardOperation[])
-				: null;
-			// Attribution before sync: the focus of a delete only exists in the
-			// document as it stands now, and it is independent of which sync path
-			// (incremental ops vs bootstrap) the event ends up taking.
-			if (
-				txId &&
-				ops &&
-				ops.length > 0 &&
-				typeof payload.actorId === "string"
-			) {
-				boardPreview.noteRemoteTransaction({
-					boardId: payload.boardId,
-					actorId: payload.actorId,
-					txId,
-					operations: ops,
-					metadata: payload.metadata ?? null,
-				});
-			}
-			if (version != null && txId && ops && ops.length > 0) {
-				boardPreview.requestRemoteOps(payload.boardId, {
-					version,
-					txId,
-					ops,
-				});
-				return;
-			}
-			// Missing/empty ops or version → full bootstrap fallback.
-			boardPreview.requestRemoteRefresh(payload.boardId);
+	const offBoardTxApplied = sdk.space(spaceId).on("board.changed", (event) => {
+		const payload =
+			event.payload as import("@neta-art/cohub").BoardChangedEvent["payload"];
+		if (!boardPreview.hasBoardId(payload.boardId)) return;
+		if (boardPreview.isOwnTransaction(payload.mutationId)) return;
+		if (payload.changed.items.length && payload.actorId) {
+			boardPreview.noteRemoteTransaction({
+				boardId: payload.boardId,
+				actorId: payload.actorId,
+				txId: payload.mutationId,
+				itemIds: payload.changed.items,
+				source: payload.source ?? null,
+			});
+		}
+		boardPreview.requestRemoteChange(payload.boardId, {
+			version: payload.version,
+			mutationId: payload.mutationId,
+			changed: payload.changed,
 		});
+	});
 	const offBoardPlaybackChanged = sdk
 		.space(spaceId)
 		.on("board.playback.changed", (event) => {

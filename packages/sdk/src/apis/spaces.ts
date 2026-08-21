@@ -7,17 +7,11 @@ import type {
   PublicFileUrlResponse,
 } from "@cohub/protocol";
 import {
-  createBoardConnection,
-  type BoardConnection,
-  type BoardConnectionDirection,
-  type BoardConnectionRecord,
-} from "@cohub/protocol/board-connection";
-import {
   getRealtimeBoardRoom,
   getRealtimeSpaceRoom,
   type BoardAwarenessUpdatedEvent as ProtocolBoardAwarenessUpdatedEvent,
+  type BoardChangedEvent as ProtocolBoardChangedEvent,
   type BoardPlaybackChangedEvent as ProtocolBoardPlaybackChangedEvent,
-  type BoardTransactionAppliedEvent as ProtocolBoardTransactionAppliedEvent,
 } from "@cohub/protocol/realtime/types";
 import type { BoardAwarenessUpdate } from "@cohub/protocol/realtime";
 import { ensureRealtimeConnected } from "../realtime.js";
@@ -93,19 +87,15 @@ import type {
   SpaceConfigInput,
   SpaceConfigResponse,
   SpaceConfigUpdateResponse,
+  BoardAuthoringReadInput,
   BoardAuthoringSnapshot,
-  BoardBootstrap,
   BoardCapabilities,
   BoardCreateInput,
-  BoardInspectInput,
   BoardMutationReceipt,
-  BoardOperation,
   BoardPlaybackCommand,
   BoardPlaybackSnapshot,
   BoardSemanticMutation,
   BoardSummary,
-  BoardTransaction,
-  BoardValidationResult,
   ChannelConfig,
   ChannelHealth,
 } from "../types.js";
@@ -129,35 +119,6 @@ const getFilenameFromContentDisposition = (value: string | null) => {
 };
 
 /**
- * A board transaction rejected by the server. `status`/`code` let callers
- * distinguish a recoverable version conflict (409 / "VERSION_CONFLICT") from
- * transient failures, so they can rebase and retry instead of surfacing an error.
- */
-export class BoardTransactionError extends Error {
-  constructor(
-    message: string,
-    readonly status?: number,
-    readonly code?: string,
-    readonly body?: unknown,
-    options?: ErrorOptions,
-  ) {
-    super(message, options);
-    this.name = "BoardTransactionError";
-  }
-
-  get isVersionConflict(): boolean {
-    return this.code === "VERSION_CONFLICT";
-  }
-}
-
-export type BoardTransactionInput = Omit<BoardTransaction, "boardId">;
-export type BoardMutationInput = {
-  include?: BoardInspectInput["include"];
-  retries?: number;
-  build: (current: BoardBootstrap) => BoardOperation[] | Promise<BoardOperation[]>;
-};
-
-/**
  * Identifier for a client-authored Board entity (connection id, transaction id).
  *
  * `crypto.randomUUID` is used where available and falls back to a random string
@@ -169,15 +130,15 @@ function randomBoardId(): string {
   if (cryptoRef && typeof cryptoRef.randomUUID === "function") return cryptoRef.randomUUID();
   return `c-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
-export type BoardTransactionAppliedEvent = ProtocolBoardTransactionAppliedEvent;
+export type BoardChangedEvent = ProtocolBoardChangedEvent;
 export type BoardAwarenessUpdatedEvent = ProtocolBoardAwarenessUpdatedEvent;
 export type BoardPlaybackChangedEvent = ProtocolBoardPlaybackChangedEvent;
-export type BoardEventName = "transaction" | "awareness" | "playback";
+export type BoardEventName = "changed" | "awareness" | "playback";
 export type BoardSubscriptionHandlers = {
-  transaction?: (event: BoardTransactionAppliedEvent) => void;
+  changed?: (event: BoardChangedEvent) => void;
   awareness?: (event: BoardAwarenessUpdatedEvent) => void;
   playback?: (event: BoardPlaybackChangedEvent) => void;
-  event?: (event: BoardTransactionAppliedEvent | BoardAwarenessUpdatedEvent | BoardPlaybackChangedEvent) => void;
+  event?: (event: BoardChangedEvent | BoardAwarenessUpdatedEvent | BoardPlaybackChangedEvent) => void;
 };
 
 export type SessionSubscriptionHandlers = {
@@ -192,7 +153,7 @@ export type SessionSubscriptionHandlers = {
 };
 
 export type SessionEventName = "created" | "updated" | "turn.created" | "turn.patch" | "turn.lifecycle" | "turn.updated" | "turn.finalized" | "turn.error" | "message.persisted";
-export type SpaceEventName = SessionEventName | "fs.changed" | "ports.changed" | "presence.updated" | "board.transaction.applied" | "board.playback.changed" | "work.version.published" | "task.created" | "task.updated" | "event";
+export type SpaceEventName = SessionEventName | "fs.changed" | "ports.changed" | "presence.updated" | "board.changed" | "board.playback.changed" | "work.version.published" | "task.created" | "task.updated" | "event";
 
 const toSessionEventName = (type: WebsocketEventPayload["type"]): SessionEventName | null => {
   switch (type) {
@@ -1091,7 +1052,7 @@ export class SpaceEventsApi {
         handler(event);
         return;
       }
-      if (type === "board.transaction.applied" && event.type === "board.transaction.applied") {
+      if (type === "board.changed" && event.type === "board.changed") {
         handler(event);
         return;
       }
@@ -1658,10 +1619,10 @@ class BoardRealtimeClient {
     ]);
     const unsubscribe = this.websocketClient.on("event", (event) => {
       if (event.spaceId !== this.spaceId) return;
-      if (event.type === "board.transaction.applied" && event.payload.boardId === this.boardId) {
-        const transactionEvent = event as BoardTransactionAppliedEvent;
-        handlers.event?.(transactionEvent);
-        handlers.transaction?.(transactionEvent);
+      if (event.type === "board.changed" && event.payload.boardId === this.boardId) {
+        const changedEvent = event as BoardChangedEvent;
+        handlers.event?.(changedEvent);
+        handlers.changed?.(changedEvent);
       }
       if (event.type === "board.awareness.updated" && event.payload.boardId === this.boardId) {
         const awarenessEvent = event as BoardAwarenessUpdatedEvent;
@@ -1682,18 +1643,18 @@ class BoardRealtimeClient {
     };
   }
 
-  on(type: "transaction", handler: (event: BoardTransactionAppliedEvent) => void): () => void;
+  on(type: "changed", handler: (event: BoardChangedEvent) => void): () => void;
   on(type: "awareness", handler: (event: BoardAwarenessUpdatedEvent) => void): () => void;
   on(type: "playback", handler: (event: BoardPlaybackChangedEvent) => void): () => void;
   on(
     type: BoardEventName,
     handler:
-      | ((event: BoardTransactionAppliedEvent) => void)
+      | ((event: BoardChangedEvent) => void)
       | ((event: BoardAwarenessUpdatedEvent) => void)
       | ((event: BoardPlaybackChangedEvent) => void),
   ) {
-    if (type === "transaction") {
-      return this.subscribe({ transaction: handler as (event: BoardTransactionAppliedEvent) => void });
+    if (type === "changed") {
+      return this.subscribe({ changed: handler as (event: BoardChangedEvent) => void });
     }
     if (type === "awareness") {
       return this.subscribe({ awareness: handler as (event: BoardAwarenessUpdatedEvent) => void });
@@ -1716,10 +1677,6 @@ export class BoardClient {
     this.realtime = new BoardRealtimeClient(websocketClient, spaceId, id);
   }
 
-  inspect(input: BoardInspectInput = {}, customFetch?: Fetch) {
-    return this.boards.inspect(this.id, input, customFetch);
-  }
-
   capabilities(customFetch?: Fetch) {
     return this.boards.capabilities(this.id, customFetch);
   }
@@ -1728,54 +1685,21 @@ export class BoardClient {
     return this.boards.summary(this.id, customFetch);
   }
 
-  authoring(customFetch?: Fetch) {
-    return this.boards.authoring(this.id, customFetch);
+  authoring(input: BoardAuthoringReadInput = {}, customFetch?: Fetch) {
+    return this.boards.authoring(this.id, input, customFetch);
   }
 
-  mutateSemantic(input: Omit<BoardSemanticMutation, "mutationId"> & { mutationId?: string }) {
+  mutateSemantic(
+    input: Omit<BoardSemanticMutation, "mutationId" | "dryRun"> & {
+      mutationId?: string;
+      dryRun?: boolean;
+    },
+  ) {
     return this.boards.mutateSemantic(this.id, {
       ...input,
       mutationId: input.mutationId ?? randomBoardId(),
+      dryRun: input.dryRun ?? false,
     });
-  }
-
-  async mutate(input: BoardMutationInput) {
-    const retries = input.retries ?? 1;
-    if (!Number.isSafeInteger(retries) || retries < 0 || retries > 3) {
-      throw new RangeError("Board mutation retries must be an integer from 0 to 3");
-    }
-    for (let attempt = 0; ; attempt += 1) {
-      const current = await this.inspect({ include: input.include ?? [] });
-      const operations = await input.build(current);
-      if (operations.length === 0) {
-        return {
-          mutationId: randomBoardId(),
-          status: "validated" as const,
-          replayed: false,
-          board: { id: current.board.id, version: current.board.version },
-          changed: { items: [], connections: [], effects: [], compositions: [], board: false },
-        } satisfies BoardMutationReceipt;
-      }
-      try {
-        return await this.apply({
-          txId: randomBoardId(),
-          baseVersion: current.board.version,
-          operations,
-        });
-      } catch (cause) {
-        if (!(cause instanceof BoardTransactionError) || !cause.isVersionConflict || attempt >= retries) {
-          throw cause;
-        }
-      }
-    }
-  }
-
-  validate(transaction: BoardTransactionInput) {
-    return this.boards.validate({ ...transaction, boardId: this.id });
-  }
-
-  apply(transaction: BoardTransactionInput) {
-    return this.boards.apply({ ...transaction, boardId: this.id });
   }
 
   updateAwareness(seq: number, update: BoardAwarenessUpdate) {
@@ -1785,113 +1709,6 @@ export class BoardClient {
       boardId: this.id,
       seq,
       update,
-    });
-  }
-
-  playback(command: BoardPlaybackCommand) {
-    return this.boards.playback(this.id, command);
-  }
-
-  /**
-   * Read the Board's relations.
-   *
-   * A dedicated read rather than a filter over `inspect()`: a caller that wants
-   * the graph should not have to fetch every node's geometry to get it.
-   */
-  async connections(customFetch?: Fetch): Promise<BoardConnectionRecord[]> {
-    const bootstrap = await this.boards.inspect(this.id, { include: ["connections"] }, customFetch);
-    return bootstrap.connections;
-  }
-
-  /**
-   * Connections touching a node, in either direction.
-   *
-   * Filtered client-side from the Board's relation set, which is a single read and
-   * bounded by the Board rather than by the node's degree.
-   */
-  async connectionsForNode(nodeId: string, customFetch?: Fetch): Promise<BoardConnectionRecord[]> {
-    const connections = await this.connections(customFetch);
-    return connections.filter(
-      (connection) => connection.source.nodeId === nodeId || connection.target.nodeId === nodeId,
-    );
-  }
-
-  /**
-   * Connect two nodes.
-   *
-   * Wraps the transaction so the common case is one call: the caller supplies the
-   * two nodes and, optionally, the relation. `baseVersion` still has to be the
-   * version the caller last read, because a relation is only meaningful against
-   * the node set it was authored on.
-   */
-  connect(input: {
-    baseVersion: number;
-    sourceNodeId: string;
-    targetNodeId: string;
-    id?: string;
-    relation?: string;
-    direction?: BoardConnectionDirection;
-    label?: string;
-    sourcePortId?: string;
-    targetPortId?: string;
-    txId?: string;
-  }) {
-    const connection = createBoardConnection({
-      id: input.id ?? randomBoardId(),
-      sourceNodeId: input.sourceNodeId,
-      targetNodeId: input.targetNodeId,
-      ...(input.relation === undefined ? {} : { relation: input.relation }),
-      ...(input.direction === undefined ? {} : { direction: input.direction }),
-      ...(input.label === undefined ? {} : { label: input.label }),
-      ...(input.sourcePortId === undefined ? {} : { sourcePortId: input.sourcePortId }),
-      ...(input.targetPortId === undefined ? {} : { targetPortId: input.targetPortId }),
-    });
-    return this.apply({
-      txId: input.txId ?? randomBoardId(),
-      baseVersion: input.baseVersion,
-      operations: [{ type: "connection.create", payload: { connection } }],
-    });
-  }
-
-  /** Remove a connection. The nodes it joined are untouched. */
-  disconnect(input: { baseVersion: number; connectionId: string; txId?: string }) {
-    return this.apply({
-      txId: input.txId ?? randomBoardId(),
-      baseVersion: input.baseVersion,
-      operations: [
-        { type: "connection.delete", payload: { connectionId: input.connectionId } },
-      ],
-    });
-  }
-
-  /**
-   * Delete a node together with every relation that names it.
-   *
-   * The server refuses to orphan a relation, so the cascade is explicit and lands
-   * in one transaction: one undo step restores the node and its edges together.
-   * `connections` is the relation set the caller already read, so this stays a
-   * single round-trip.
-   */
-  deleteNodeWithConnections(input: {
-    baseVersion: number;
-    nodeId: string;
-    connections: readonly BoardConnection[];
-    txId?: string;
-  }) {
-    const incident = input.connections.filter(
-      (connection) =>
-        connection.source.nodeId === input.nodeId || connection.target.nodeId === input.nodeId,
-    );
-    return this.apply({
-      txId: input.txId ?? randomBoardId(),
-      baseVersion: input.baseVersion,
-      operations: [
-        ...incident.map((connection) => ({
-          type: "connection.delete" as const,
-          payload: { connectionId: connection.id, reason: "node-cascade" as const },
-        })),
-        { type: "node.delete", payload: { nodeId: input.nodeId } },
-      ],
     });
   }
 
@@ -1915,18 +1732,18 @@ export class BoardClient {
     return this.realtime.subscribe(handlers);
   }
 
-  on(type: "transaction", handler: (event: BoardTransactionAppliedEvent) => void): () => void;
+  on(type: "changed", handler: (event: BoardChangedEvent) => void): () => void;
   on(type: "awareness", handler: (event: BoardAwarenessUpdatedEvent) => void): () => void;
   on(type: "playback", handler: (event: BoardPlaybackChangedEvent) => void): () => void;
   on(
     type: BoardEventName,
     handler:
-      | ((event: BoardTransactionAppliedEvent) => void)
+      | ((event: BoardChangedEvent) => void)
       | ((event: BoardAwarenessUpdatedEvent) => void)
       | ((event: BoardPlaybackChangedEvent) => void),
   ) {
-    if (type === "transaction") {
-      return this.realtime.on("transaction", handler as (event: BoardTransactionAppliedEvent) => void);
+    if (type === "changed") {
+      return this.realtime.on("changed", handler as (event: BoardChangedEvent) => void);
     }
     if (type === "awareness") {
       return this.realtime.on("awareness", handler as (event: BoardAwarenessUpdatedEvent) => void);
@@ -1946,9 +1763,9 @@ export class SpaceBoardsApi {
     return new BoardClient(this.spaceId, boardId, this.transport, this.websocketClient);
   }
 
-  create(input: BoardCreateInput) {
+  async create(input: BoardCreateInput) {
     for (const item of input.items ?? []) BoardAuthoringItemSchema.parse(item);
-    return this.transport.request<BoardBootstrap>(
+    return this.transport.request<BoardAuthoringSnapshot>(
       `/api/spaces/${this.spaceId}/boards`,
       {
         method: "POST",
@@ -1958,20 +1775,20 @@ export class SpaceBoardsApi {
     );
   }
 
-  inspect(boardId: string, input: BoardInspectInput = {}, customFetch?: Fetch) {
+  authoring(boardId: string, input: BoardAuthoringReadInput = {}, customFetch?: Fetch) {
     const params = new URLSearchParams();
-    for (const section of input.include ?? []) params.append("include", section);
+    if (input.include) {
+      for (const section of input.include) params.append("include", section);
+      if (input.include.length === 0) params.set("include", "");
+    }
+    if (input.itemIds?.length) params.set("itemIds", input.itemIds.join(","));
+    if (input.connectionIds?.length) params.set("connectionIds", input.connectionIds.join(","));
+    if (input.effectIds?.length) params.set("effectIds", input.effectIds.join(","));
+    if (input.compositionIds?.length) params.set("compositionIds", input.compositionIds.join(","));
     if (input.viewport) params.set("viewport", JSON.stringify(input.viewport));
     const query = params.toString();
-    return this.transport.request<BoardBootstrap>(
-      `/api/spaces/${this.spaceId}/boards/${boardId}${query ? `?${query}` : ""}`,
-      { fetch: customFetch },
-    );
-  }
-
-  authoring(boardId: string, customFetch?: Fetch) {
     return this.transport.request<BoardAuthoringSnapshot>(
-      `/api/spaces/${this.spaceId}/boards/${boardId}/authoring`,
+      `/api/spaces/${this.spaceId}/boards/${boardId}/authoring${query ? `?${query}` : ""}`,
       { fetch: customFetch },
     );
   }
@@ -2001,36 +1818,7 @@ export class SpaceBoardsApi {
     );
   }
 
-  validate(transaction: BoardTransaction) {
-    return this.transport.request<BoardValidationResult>(
-      `/api/spaces/${this.spaceId}/boards/${transaction.boardId}/validate`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(transaction),
-      },
-    );
-  }
-
-  async apply(transaction: BoardTransaction) {
-    try {
-      return await this.transport.request<BoardMutationReceipt>(
-        `/api/spaces/${this.spaceId}/boards/${transaction.boardId}/transactions`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(transaction),
-        },
-      );
-    } catch (cause) {
-      if (cause instanceof HttpError) {
-        throw new BoardTransactionError(cause.message, cause.status, cause.code ?? undefined, cause.body, { cause });
-      }
-      throw cause;
-    }
-  }
-
-  playback(boardId: string, command: BoardPlaybackCommand) {
+  private playback(boardId: string, command: BoardPlaybackCommand) {
     return this.transport.request<BoardPlaybackSnapshot>(
       `/api/spaces/${this.spaceId}/boards/${boardId}/playback`,
       {

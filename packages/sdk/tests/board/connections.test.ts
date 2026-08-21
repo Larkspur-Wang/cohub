@@ -30,8 +30,8 @@ function lookup(frames: Record<string, BoardFrame>) {
 
 const connection = createBoardConnection({
 	id: "c1",
-	sourceNodeId: "a",
-	targetNodeId: "b",
+	sourceItemId: "a",
+	targetItemId: "b",
 });
 
 test("auto anchors pick the facing sides of both nodes", () => {
@@ -75,7 +75,7 @@ test("a missing endpoint resolves to null rather than a guess", () => {
 });
 
 test("a self relation resolves to a real loop, not a degenerate point", () => {
-	const self = createBoardConnection({ id: "s", sourceNodeId: "a", targetNodeId: "a" });
+	const self = createBoardConnection({ id: "s", sourceItemId: "a", targetItemId: "a" });
 	const resolved = resolveConnection(self, lookup({ a: frame(0, 0) }));
 	assert.ok(resolved);
 	assert.ok(resolved.path.length >= 3);
@@ -86,8 +86,8 @@ test("a self relation resolves to a real loop, not a degenerate point", () => {
 test("a pinned side is honoured over the geometric choice", () => {
 	const pinned = createBoardConnection({
 		id: "c2",
-		sourceNodeId: "a",
-		targetNodeId: "b",
+		sourceItemId: "a",
+		targetItemId: "b",
 		sourceAnchor: { kind: "side", side: "bottom", offset: 0.5 },
 	});
 	const resolved = resolveConnection(pinned, lookup({ a: frame(0, 0), b: frame(400, 0) }));
@@ -97,8 +97,8 @@ test("a pinned side is honoured over the geometric choice", () => {
 test("waypoints are used verbatim as the path", () => {
 	const routed = createBoardConnection({
 		id: "c3",
-		sourceNodeId: "a",
-		targetNodeId: "b",
+		sourceItemId: "a",
+		targetItemId: "b",
 		routing: { kind: "straight", bend: 0, waypoints: [{ x: 200, y: -180 }] },
 	});
 	const resolved = resolveConnection(routed, lookup({ a: frame(0, 0), b: frame(400, 0) }));
@@ -113,8 +113,8 @@ test("waypoints are used verbatim as the path", () => {
 test("orthogonal routing turns instead of cutting diagonally", () => {
 	const elbow = createBoardConnection({
 		id: "c4",
-		sourceNodeId: "a",
-		targetNodeId: "b",
+		sourceItemId: "a",
+		targetItemId: "b",
 		routing: { kind: "orthogonal", bend: 0, waypoints: [] },
 	});
 	const resolved = resolveConnection(elbow, lookup({ a: frame(0, 0), b: frame(400, 300) }));
@@ -143,7 +143,7 @@ test("hit testing tracks the line, not its bounding box", () => {
 test("direction decides which ends carry a head", () => {
 	const of = (direction: Parameters<typeof createBoardConnection>[0]["direction"]) =>
 		connectionArrowheads(
-			createBoardConnection({ id: "d", sourceNodeId: "a", targetNodeId: "b", direction }),
+			createBoardConnection({ id: "d", sourceItemId: "a", targetItemId: "b", direction }),
 		);
 	assert.deepEqual(of("forward"), { atSource: false, atTarget: true });
 	assert.deepEqual(of("backward"), { atSource: true, atTarget: false });
@@ -153,19 +153,19 @@ test("direction decides which ends carry a head", () => {
 
 test("the index finds a node's relations in both directions", () => {
 	const index = createConnectionIndex([
-		createBoardConnection({ id: "c1", sourceNodeId: "a", targetNodeId: "b" }),
-		createBoardConnection({ id: "c2", sourceNodeId: "c", targetNodeId: "a" }),
-		createBoardConnection({ id: "c3", sourceNodeId: "b", targetNodeId: "c" }),
+		createBoardConnection({ id: "c1", sourceItemId: "a", targetItemId: "b" }),
+		createBoardConnection({ id: "c2", sourceItemId: "c", targetItemId: "a" }),
+		createBoardConnection({ id: "c3", sourceItemId: "b", targetItemId: "c" }),
 	]);
 	assert.deepEqual([...index.byNode("a")].sort(), ["c1", "c2"]);
 	assert.deepEqual([...index.byNode("b")].sort(), ["c1", "c3"]);
 	assert.deepEqual(index.byNode("missing"), []);
-	assert.equal(index.get("c2")?.source.nodeId, "c");
+	assert.equal(index.get("c2")?.source.itemId, "c");
 });
 
 test("a self relation is indexed once, not twice", () => {
 	const index = createConnectionIndex([
-		createBoardConnection({ id: "s", sourceNodeId: "a", targetNodeId: "a" }),
+		createBoardConnection({ id: "s", sourceItemId: "a", targetItemId: "a" }),
 	]);
 	assert.deepEqual(index.byNode("a"), ["s"]);
 });

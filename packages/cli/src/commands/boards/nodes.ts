@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { createBoardConnection } from "@neta-art/cohub/board";
+import { mutateSemantic } from "./context.js";
 import type { Command } from "commander";
 import { handleHttp } from "../../output.js";
 import {
@@ -35,17 +36,15 @@ export function registerBoardNodeCommands(boards: Command): void {
         const board = await resolvedBoard(boards, target);
         const connection = createBoardConnection({
           id: options.id ?? randomUUID(),
-          sourceNodeId: source,
-          targetNodeId: destination,
+          sourceItemId: source,
+          targetItemId: destination,
           relation: options.relation,
           direction: direction as "none" | "forward" | "backward" | "both",
           label: options.label,
           sourcePortId: options.sourcePort,
           targetPortId: options.targetPort,
         });
-        showUpdated(await board.mutate({
-          build: () => [{ type: "connection.create", payload: { connection } }],
-        }), options);
+        showUpdated(await mutateSemantic(board, [{ type: "connection.create", connection }]), options);
       } catch (cause) {
         handleHttp(cause);
       }
@@ -56,9 +55,7 @@ export function registerBoardNodeCommands(boards: Command): void {
     .action(async (target: string, connectionId: string, options: JsonOptions) => {
       try {
         const board = await resolvedBoard(boards, target);
-        showUpdated(await board.mutate({
-          build: () => [{ type: "connection.delete", payload: { connectionId } }],
-        }), options);
+        showUpdated(await mutateSemantic(board, [{ type: "connection.delete", connectionId }]), options);
       } catch (cause) {
         handleHttp(cause);
       }

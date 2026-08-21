@@ -43,7 +43,8 @@ type Props = {
 		boardId: string,
 		path: string,
 		document: Parameters<BoardCommitHandler>[0],
-		ops: Parameters<BoardCommitHandler>[1],
+		before: Parameters<BoardCommitHandler>[1],
+		commands: Parameters<BoardCommitHandler>[2],
 	) => void | Promise<void>;
 	onRetrySave: (boardId: string) => void | Promise<void>;
 	onActivatePreviewTab: (kind: PreviewTab["kind"], key: string) => void;
@@ -140,7 +141,7 @@ const boardRuntimeModulePromise = $derived.by(() => {
 						{activities}
 						{onOpenActivity}
 						syncError={board.saveError}
-						onCommit={(document, ops) => onCommit(board.boardId as string, board.path, document, ops)}
+						onCommit={(document, before, commands) => onCommit(board.boardId as string, board.path, document, before, commands)}
 						onRetrySync={() => onRetrySave(board.boardId as string)}
 						{onViewStateChange}
 						{onOpenFile}

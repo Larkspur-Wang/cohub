@@ -180,7 +180,7 @@ async function regenerateTask(nodeId: string) {
 			{
 				regeneration: {
 					sourceTaskRunId: source.taskRunId,
-					sourceNodeId: source.id,
+					sourceItemId: source.id,
 				},
 			},
 		);
@@ -215,7 +215,8 @@ const editor = createBoardEditor({
 	),
 	key: untrack(() => path),
 	readonly: untrack(() => mode === "view"),
-	onCommit: (document, ops) => onCommit?.(document, ops),
+	onCommit: (document, before, commands) =>
+		onCommit?.(document, before, commands),
 	onViewStateChange: (state) => {
 		onViewStateChange?.({ path, ...state });
 	},

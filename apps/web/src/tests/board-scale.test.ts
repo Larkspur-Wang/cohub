@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { BoardDocument, BoardItem } from "@neta-art/cohub/board";
-import { itemBounds } from "@neta-art/cohub/board";
 import {
-	createEmptyBoardDocument,
-	diffBoardDocuments,
-} from "../lib/board/board-document.ts";
+	boardDocumentToSemanticCommands,
+	itemBounds,
+} from "@neta-art/cohub/board";
+import { createEmptyBoardDocument } from "../lib/board/board-document.ts";
 import { createFileBoardItem } from "../lib/board/board-items.ts";
 import { createSpatialIndex } from "../lib/board/board-spatial.ts";
 
@@ -66,14 +66,14 @@ test("a drag of one node commits one patch, not 10k conversions", () => {
 		),
 	);
 
-	const ops = diffBoardDocuments(before, after);
-	assert.equal(ops.length, 1);
-	assert.equal(ops[0]?.type, "node.patch");
+	const commands = boardDocumentToSemanticCommands(before, after);
+	assert.equal(commands.length, 1);
+	assert.equal(commands[0]?.type, "item.patch");
 });
 
 test("commit diff on an unchanged 10k document is empty", () => {
 	const document = documentWith(buildBoard(NODE_COUNT));
-	assert.deepEqual(diffBoardDocuments(document, document), []);
+	assert.deepEqual(boardDocumentToSemanticCommands(document, document), []);
 });
 
 test("incremental spatial upsert during a gesture touches only dirty nodes", () => {

@@ -40,25 +40,21 @@ async function execute(
   options: MutationOptions,
 ) {
   const board = await resolvedBoard(boards, target);
-  const snapshot = await board.authoring();
+  const snapshot = await board.summary();
   const mutation = {
     mutationId: options.mutationId?.trim() || randomUUID(),
     baseVersion: baseVersion(options.baseVersion, snapshot.board.version),
+    dryRun: Boolean(options.dryRun),
     commands: [command],
   };
-  if (options.dryRun) {
-    const result = {
-      mutationId: mutation.mutationId,
-      status: "prepared",
-      board: { id: snapshot.board.id, version: snapshot.board.version },
-      commands: mutation.commands,
-    };
-    if (jsonRequested(options)) return json(result);
-    ok(`Prepared against Board version ${snapshot.board.version}; no server validation or write performed`);
-    return;
-  }
+  // Server-side validation: schema, version, references, cascade rules — the
+  // same checks the real write would run, just without persisting anything.
   const receipt = await board.mutateSemantic(mutation);
   if (jsonRequested(options)) return json(receipt);
+  if (options.dryRun) {
+    ok(`Validated against Board version ${receipt.board.version}; no changes written`);
+    return;
+  }
   ok(`${receipt.replayed ? "Replayed" : "Applied"} mutation at Board version ${receipt.board.version}`);
 }
 
@@ -66,7 +62,7 @@ function mutationOptions(command: Command) {
   return withJson(command)
     .option("--base-version <version>", "Expected Board version; defaults to latest")
     .option("--mutation-id <id>", "Stable id for safe retries")
-    .option("--dry-run", "Prepare locally without server validation or writing");
+    .option("--dry-run", "Validate on the server (references, version, cascade) without writing");
 }
 
 export function registerBoardItemCommands(boards: Command): void {
@@ -77,8 +73,9 @@ export function registerBoardItemCommands(boards: Command): void {
       try {
         const board = await resolvedBoard(boards, target);
         const snapshot = await board.authoring();
-        if (jsonRequested(options)) return json(snapshot.items);
-        table(snapshot.items.map((item) => ({
+        const items = snapshot.items ?? [];
+        if (jsonRequested(options)) return json(items);
+        table(items.map((item) => ({
           id: item.id,
           type: item.type,
           x: item.frame.x,

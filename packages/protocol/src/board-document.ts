@@ -92,6 +92,7 @@ export const BoardMediaSnapshotSchema = z.object({
 const BoardItemBaseSchema = z.object({
 	id: z.string().min(1),
 	frame: BoardFrameSchema,
+	parentId: z.string().min(1).nullable().optional(),
 	/** When true the shape cannot be moved, resized, or deleted. */
 	locked: z.boolean().optional(),
 	style: BoardItemStyleSchema.optional(),
@@ -342,6 +343,7 @@ export type BoardUnknownItem = {
 	id: string;
 	type: typeof UNKNOWN_BOARD_ITEM_TYPE;
 	frame: z.infer<typeof BoardFrameSchema>;
+	parentId?: string | null;
 	locked?: boolean;
 	style?: z.infer<typeof BoardItemStyleSchema>;
 	metadata?: Record<string, unknown>;
@@ -427,6 +429,7 @@ function makeUnknownItem(raw: unknown): BoardUnknownItem {
 		frame: frameParsed.success
 			? frameParsed.data
 			: { x: 0, y: 0, width: 120, height: 80, rotation: 0 },
+		...(typeof record.parentId === "string" || record.parentId === null ? { parentId: record.parentId as string | null } : {}),
 		...(record.locked === true ? { locked: true } : {}),
 		...(styleParsed.success && record.style ? { style: styleParsed.data } : {}),
 		...(record.metadata && typeof record.metadata === "object"
@@ -521,7 +524,7 @@ export function withResolvedConnections(document: BoardDocument): BoardDocument 
 	const ids = new Set(document.items.map((item) => item.id));
 	const connections = document.connections.filter(
 		(connection) =>
-			ids.has(connection.source.nodeId) && ids.has(connection.target.nodeId),
+			ids.has(connection.source.itemId) && ids.has(connection.target.itemId),
 	);
 	return connections.length === document.connections.length
 		? document

@@ -219,7 +219,7 @@ test("a connection's span is included so a relation is never clipped", () => {
   const withConnection = {
     ...document,
     connections: [
-      createBoardConnection({ id: "c1", sourceNodeId: "a", targetNodeId: "b" }),
+      createBoardConnection({ id: "c1", sourceItemId: "a", targetItemId: "b" }),
     ],
   } as BoardDocument;
   const plan = planBoardExport({
@@ -241,7 +241,7 @@ test("a connection to an excluded node is left out of the plan", () => {
   const withConnection = {
     ...document,
     connections: [
-      createBoardConnection({ id: "c1", sourceNodeId: "a", targetNodeId: "b" }),
+      createBoardConnection({ id: "c1", sourceItemId: "a", targetItemId: "b" }),
     ],
   } as BoardDocument;
   const plan = planBoardExport({

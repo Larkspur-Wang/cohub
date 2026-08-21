@@ -135,11 +135,10 @@ export type {
 } from "@cohub/protocol/realtime";
 export type {
   BoardAwarenessUpdatedEvent,
+  BoardChangedEvent,
   BoardEventName,
   BoardPlaybackChangedEvent,
   BoardSubscriptionHandlers,
-  BoardTransactionAppliedEvent,
-  BoardTransactionInput,
   SessionEventName,
   SessionSubscriptionHandlers,
   SpaceChannelBindingRecord,
@@ -162,31 +161,25 @@ export type {
 } from "./apis/work-realtime.js";
 export {
   BoardClient,
-  BoardTransactionError,
   SpacePublicFilesApi,
-  type BoardMutationInput,
 } from "./apis/spaces.js";
 export {
   BOARD_COLOR_IDS,
   BOARD_GEO_KINDS,
-  BOARD_NATIVE_NODE_TYPES,
-  BOARD_NODE_CONTRACT,
-  validateBoardNodeInput,
 } from "@cohub/protocol";
 export type {
   BoardColorId,
   BoardGeoKind,
-  BoardNativeNodeType,
-  BoardNodeContract,
-  BoardNodeValidationDiagnostic,
 } from "@cohub/protocol";
 export {
   BOARD_ANIMATION_CHANNEL_CAPABILITIES,
   BoardAuthoringItemSchema,
   BoardCompositionInputSchema,
   BoardCompositionSchema,
+  BoardEffectInputSchema,
   BoardEffectSchema,
   BoardItemPatchSchema,
+  parseBoardEffectInput,
   BoardPlaybackPolicySchema,
   parseBoardCompositionInput,
   parseBoardPlaybackPolicy,

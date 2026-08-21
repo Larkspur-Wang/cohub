@@ -12,13 +12,16 @@ import {
   boards,
 } from "@cohub/db";
 import {
+  BOARD_PROTOCOL_VERSION,
+  BOARD_SNAPSHOT_KIND,
+  boardAuthoringItemToNode,
   isBoardPath,
   parseBoardManifest,
   serializeBoardManifest,
-  upgradeBoardSnapshot,
 } from "@cohub/protocol";
 import { db } from "../db.js";
 import { captureBoardSnapshots } from "./board-snapshot.js";
+import { restoreBoardConnectionRows } from "./board-connections.js";
 
 async function listBoardFiles(root: string, directory = root): Promise<string[]> {
   const entries = await readdir(directory, { withFileTypes: true });
@@ -71,7 +74,10 @@ export async function restoreBoardCheckpointSnapshots(input: {
     }
     const source = snapshotBySourceId.get(manifest.boardId);
     if (!source) continue;
-    const snapshot = upgradeBoardSnapshot(source.snapshot) as unknown as Record<string, unknown>;
+    const snapshot = source.snapshot as Record<string, unknown>;
+    if (snapshot.kind !== BOARD_SNAPSHOT_KIND || snapshot.version !== BOARD_PROTOCOL_VERSION) {
+      throw new Error(`Unsupported Board snapshot version: ${String(snapshot.version)}`);
+    }
     const sourceBoard = snapshot.board && typeof snapshot.board === "object" && !Array.isArray(snapshot.board)
       ? snapshot.board as Record<string, unknown>
       : {};
@@ -96,24 +102,13 @@ export async function restoreBoardCheckpointSnapshots(input: {
           updatedAt: now,
         });
 
-        const nodes = records(snapshot.nodes);
-        if (nodes.length) await tx.insert(boardNodes).values(nodes.map((node, index) => ({
+        const items = records(snapshot.items);
+        const nodes = items.map((item, index) => boardAuthoringItemToNode(item, {
+          orderKey: String(index + 1).padStart(8, "0"),
+        }));
+        if (nodes.length) await tx.insert(boardNodes).values(nodes.map((node) => ({
+          ...node,
           boardId,
-          nodeId: String(node.nodeId),
-          type: String(node.type ?? "unknown"),
-          parentId: typeof node.parentId === "string" ? node.parentId : null,
-          orderKey: typeof node.orderKey === "string" ? node.orderKey : String(index).padStart(8, "0"),
-          x: typeof node.x === "number" ? node.x : 0,
-          y: typeof node.y === "number" ? node.y : 0,
-          width: typeof node.width === "number" ? node.width : 240,
-          height: typeof node.height === "number" ? node.height : 160,
-          rotation: typeof node.rotation === "number" ? node.rotation : 0,
-          refKind: typeof node.refKind === "string" ? node.refKind : null,
-          refPath: typeof node.refPath === "string" ? node.refPath : null,
-          refUrl: typeof node.refUrl === "string" ? node.refUrl : null,
-          view: node.view && typeof node.view === "object" ? node.view as Record<string, unknown> : {},
-          style: node.style && typeof node.style === "object" ? node.style as Record<string, unknown> : {},
-          data: node.data && typeof node.data === "object" ? node.data as Record<string, unknown> : {},
           version: source.sourceVersion,
           createdAt: now,
           updatedAt: now,
@@ -123,46 +118,14 @@ export async function restoreBoardCheckpointSnapshots(input: {
         // written alongside the nodes it references. Endpoints missing from the
         // snapshot are dropped rather than restored dangling: the snapshot is the
         // authority for what existed, and an edge to an absent node did not.
-        const restoredNodeIds = new Set(nodes.map((node) => String(node.nodeId)));
-        const connections = records(snapshot.connections).filter((connection) => {
-          const source = connection.source as { nodeId?: unknown } | undefined;
-          const target = connection.target as { nodeId?: unknown } | undefined;
-          return (
-            typeof source?.nodeId === "string" &&
-            typeof target?.nodeId === "string" &&
-            restoredNodeIds.has(source.nodeId) &&
-            restoredNodeIds.has(target.nodeId)
-          );
-        });
-        if (connections.length) await tx.insert(boardConnections).values(connections.map((connection) => {
-          const source = connection.source as { nodeId: string; anchor?: unknown };
-          const target = connection.target as { nodeId: string; anchor?: unknown };
-          const anchor = (value: unknown) =>
-            value && typeof value === "object" && !Array.isArray(value)
-              ? value as Record<string, unknown>
-              : { kind: "auto" };
-          const group = (value: unknown) =>
-            value && typeof value === "object" && !Array.isArray(value)
-              ? value as Record<string, unknown>
-              : {};
-          return {
-            boardId,
-            connectionId: String(connection.id),
-            sourceNodeId: source.nodeId,
-            targetNodeId: target.nodeId,
-            relation: typeof connection.relation === "string" ? connection.relation : "related",
-            direction: typeof connection.direction === "string" ? connection.direction : "forward",
-            label: typeof connection.label === "string" ? connection.label : "",
-            sourceAnchor: anchor(source.anchor),
-            targetAnchor: anchor(target.anchor),
-            routing: group(connection.routing),
-            style: group(connection.style),
-            metadata: group(connection.metadata),
-            revision: Number(connection.revision ?? 0),
-            createdAt: now,
-            updatedAt: now,
-          };
-        }));
+        const restoredNodeIds = new Set(nodes.map((node) => node.nodeId));
+        const connectionRows = restoreBoardConnectionRows(
+          records(snapshot.connections) as Parameters<typeof restoreBoardConnectionRows>[0],
+          boardId,
+          restoredNodeIds,
+          now,
+        );
+        if (connectionRows.length) await tx.insert(boardConnections).values(connectionRows);
 
         const effects = records(snapshot.effects);
         if (effects.length) await tx.insert(boardEffects).values(effects.map((effect) => {

@@ -11,7 +11,7 @@ import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import {
-  boardBootstrapToDocument,
+  boardAuthoringSnapshotToDocument,
   boardImageKeySource,
   type BoardDocument,
   type BoardExportRegion,
@@ -90,11 +90,11 @@ export async function loadBoardDocument(
 ): Promise<BoardExportSource> {
   const client = createClient();
   const boardId = await resolveBoardId(spaceId, target);
-  const bootstrap = await client.space(spaceId).board(boardId).inspect({ include: ["nodes"] });
+  const snapshot = await client.space(spaceId).board(boardId).authoring({ include: ["items", "connections"] });
   return {
-    document: boardBootstrapToDocument(bootstrap),
-    boardId: bootstrap.board.id,
-    title: bootstrap.board.title ?? null,
+    document: boardAuthoringSnapshotToDocument(snapshot),
+    boardId: snapshot.board.id,
+    title: snapshot.board.title ?? null,
   };
 }
 

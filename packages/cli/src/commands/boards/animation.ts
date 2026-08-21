@@ -1,11 +1,5 @@
 import {
-  boardCompositionApplyOperation,
-  boardCompositionDeleteOperation,
-  boardEffectDeleteOperation,
-  boardEffectUpsertOperation,
-} from "@neta-art/cohub/board";
-import {
-  BoardEffectSchema,
+  parseBoardEffectInput,
   parseBoardCompositionInput,
   type BoardComposition,
   type BoardEffect,
@@ -17,6 +11,7 @@ import {
 } from "../../board-command-support.js";
 import { handleHttp, json, jsonRequested, table } from "../../output.js";
 import {
+  mutateSemantic,
   type JsonOptions,
   resolvedBoard,
   showUpdated,
@@ -29,9 +24,10 @@ export function registerBoardAnimationCommands(boards: Command): void {
     .action(async (target: string, options: JsonOptions) => {
       try {
         const board = await resolvedBoard(boards, target);
-        const result = await board.inspect({ include: ["effects"] });
-        if (jsonRequested(options)) return json(result.effects);
-        table(result.effects, [
+        const result = await board.authoring({ include: ["effects"] });
+        const effects = result.effects ?? [];
+        if (jsonRequested(options)) return json(effects);
+        table(effects, [
           { key: "id", label: "ID" },
           { key: "kind", label: "KIND" },
           { key: "enabled", label: "ENABLED" },
@@ -43,13 +39,19 @@ export function registerBoardAnimationCommands(boards: Command): void {
     });
   withJson(effects.command("apply <board>")
     .description("Atomically create or replace an effect")
-    .requiredOption("-i, --input <file>", "Board effect JSON; use - for stdin"))
+    .requiredOption("-i, --input <file>", "Board effect JSON; use - for stdin")
+    .addHelpText("after", `
+Create a template:
+  cohub boards examples effect pulse > effect.json
+
+Discover supported effect kinds:
+  cohub boards capabilities <board> --json`))
     .action(async (target: string, options: JsonOptions & { input: string }) => {
       try {
         const input = await readBoardJsonObject(options.input, BOARD_DOMAIN_INPUT_MAX_BYTES);
-        const effect = BoardEffectSchema.omit({ boardId: true, revision: true }).parse(input) as Omit<BoardEffect, "boardId" | "revision">;
+        const effect = parseBoardEffectInput(input) as Omit<BoardEffect, "boardId" | "revision">;
         const board = await resolvedBoard(boards, target);
-        showUpdated(await board.mutate({ build: () => [boardEffectUpsertOperation(effect)] }), options);
+        showUpdated(await mutateSemantic(board, [{ type: "effect.apply", effect }]), options);
       } catch (cause) {
         handleHttp(cause);
       }
@@ -58,7 +60,7 @@ export function registerBoardAnimationCommands(boards: Command): void {
     .action(async (target: string, effectId: string, options: JsonOptions) => {
       try {
         const board = await resolvedBoard(boards, target);
-        showUpdated(await board.mutate({ build: () => [boardEffectDeleteOperation(effectId)] }), options);
+        showUpdated(await mutateSemantic(board, [{ type: "effect.delete", effectId }]), options);
       } catch (cause) {
         handleHttp(cause);
       }
@@ -72,9 +74,10 @@ export function registerBoardAnimationCommands(boards: Command): void {
     .action(async (target: string, options: JsonOptions) => {
       try {
         const board = await resolvedBoard(boards, target);
-        const result = await board.inspect({ include: ["compositions"] });
-        if (jsonRequested(options)) return json(result.compositions);
-        table(result.compositions.map((composition) => ({
+        const result = await board.authoring({ include: ["compositions"] });
+        const compositions = result.compositions ?? [];
+        if (jsonRequested(options)) return json(compositions);
+        table(compositions.map((composition) => ({
           id: composition.id,
           name: composition.name,
           duration: composition.timeline.duration,
@@ -98,8 +101,8 @@ export function registerBoardAnimationCommands(boards: Command): void {
     .action(async (target: string, compositionId: string, options: JsonOptions) => {
       try {
         const board = await resolvedBoard(boards, target);
-        const result = await board.inspect({ include: ["compositions"] });
-        const composition = result.compositions.find((item) => item.id === compositionId);
+        const result = await board.authoring({ include: ["compositions"] });
+        const composition = (result.compositions ?? []).find((item) => item.id === compositionId);
         if (!composition) throw new Error(`Composition not found: ${compositionId}`);
         if (jsonRequested(options)) return json(composition);
         table([{
@@ -129,6 +132,8 @@ export function registerBoardAnimationCommands(boards: Command): void {
 Property changes use timeline.tracks with registered channels and keyframes.
 Procedural behavior such as text reveal, particles, and camera focus uses timeline.clips.
 Run boards capabilities to discover channels and clip schemas.
+Create an editable template with:
+  cohub boards examples composition fade > intro.json
 
 Minimal fade composition:
   {"id":"intro","name":"Intro","timeline":{"duration":800,"tracks":[{"id":"title-opacity","target":{"type":"item","itemId":"title"},"channel":"style.opacity","fill":"both","keyframes":[{"time":0,"value":0},{"time":800,"value":1,"easing":"ease-out-cubic"}]}],"clips":[],"markers":[]},"playback":{"loop":false,"endBehavior":"hold","reducedMotion":{"mode":"base"}}}`))
@@ -137,9 +142,7 @@ Minimal fade composition:
         const input = await readBoardJsonObject(options.input, BOARD_DOMAIN_INPUT_MAX_BYTES);
         const composition = parseBoardCompositionInput(input) as Omit<BoardComposition, "revision">;
         const board = await resolvedBoard(boards, target);
-        showUpdated(await board.mutate({
-          build: () => [boardCompositionApplyOperation(composition)],
-        }), options);
+        showUpdated(await mutateSemantic(board, [{ type: "composition.apply", composition }]), options);
       } catch (cause) {
         handleHttp(cause);
       }
@@ -149,9 +152,7 @@ Minimal fade composition:
     .action(async (target: string, compositionId: string, options: JsonOptions) => {
       try {
         const board = await resolvedBoard(boards, target);
-        showUpdated(await board.mutate({
-          build: () => [boardCompositionDeleteOperation(compositionId)],
-        }), options);
+        showUpdated(await mutateSemantic(board, [{ type: "composition.delete", compositionId }]), options);
       } catch (cause) {
         handleHttp(cause);
       }

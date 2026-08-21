@@ -1,9 +1,17 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import {
+  BoardAuthoringItemSchema,
+  BoardCompositionInputSchema,
+  BoardCreateInputSchema,
+  BoardEffectSchema,
+} from "@cohub/protocol";
 import { Command } from "commander";
 import {
-  createTransactionInput,
-  parseInspectSections,
+  BOARD_EXAMPLE_KEYS,
+  boardExample,
+} from "../src/commands/boards/examples.js";
+import {
   parseJsonObject,
   parseViewport,
   registerBoards,
@@ -23,8 +31,7 @@ test("Board commands and every subcommand expose -h", () => {
     "create",
     "inspect",
     "capabilities",
-    "validate",
-    "apply",
+    "examples",
     "rename",
     "background",
     "playback-policy",
@@ -52,15 +59,27 @@ test("Board commands and every subcommand expose -h", () => {
   assert.doesNotMatch(play.helpInformation(), /--loop/);
 });
 
+test("every Board example is valid semantic input", () => {
+  const effectInput = BoardEffectSchema.omit({ boardId: true, revision: true });
+  for (const key of BOARD_EXAMPLE_KEYS) {
+    const [kind, type] = key.split(":");
+    const value = boardExample(kind as string, type);
+    const schema = kind === "create"
+      ? BoardCreateInputSchema.omit({ path: true, mutationId: true })
+      : kind === "item"
+        ? BoardAuthoringItemSchema
+        : kind === "effect"
+          ? effectInput
+          : BoardCompositionInputSchema;
+    assert.equal(schema.safeParse(value).success, true, key);
+  }
+});
+
 test("Board JSON and inspect inputs are parsed without rewriting payload data", () => {
   const value = parseJsonObject('{"nodes":[{"type":"custom.node","data":{"raw":true}}]}');
   assert.deepEqual(value, {
     nodes: [{ type: "custom.node", data: { raw: true } }],
   });
-  assert.deepEqual(parseInspectSections("nodes, compositions,nodes"), ["nodes", "compositions"]);
-  // `connections` is a real section server-side; the CLI validates against its own
-  // list, so it has to stay in step or a legal request is rejected before it is sent.
-  assert.deepEqual(parseInspectSections("connections"), ["connections"]);
   assert.deepEqual(parseViewport("-10,20,1280,720"), {
     x: -10,
     y: 20,
@@ -68,23 +87,6 @@ test("Board JSON and inspect inputs are parsed without rewriting payload data", 
     height: 720,
   });
   assert.throws(() => parseJsonObject("[]"), /JSON object/);
-  assert.throws(() => parseInspectSections("nodes,unknown"), /Unknown Board section/);
   assert.throws(() => parseViewport("0,0,0,100"), /greater than zero/);
   assert.throws(() => parseViewport("0,0,,100"), /finite number/);
-});
-
-test("transaction input generates identity and rejects a conflicting boardId", () => {
-  const transaction = createTransactionInput({
-    baseVersion: 4,
-    clientId: "cli-test",
-    operations: [{ type: "board.patch", payload: { patch: { title: "Plan" } } }],
-  }, {});
-  assert.equal(transaction.baseVersion, 4);
-  assert.equal(transaction.clientId, "cli-test");
-  assert.match(transaction.txId, /^[0-9a-f-]{36}$/);
-  assert.throws(() => createTransactionInput({
-    boardId: "other-board",
-    baseVersion: 4,
-    operations: [],
-  }, {}), /must not contain boardId/);
 });

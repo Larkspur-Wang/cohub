@@ -98,7 +98,7 @@ const board = space.board(created.board.id);
 // Machine-readable types, enums and coordinate spaces for dynamic clients.
 const capabilities = await board.capabilities();
 
-const snapshot = await board.authoring();
+const snapshot = await board.authoring({ include: ["items"] });
 
 await board.mutateSemantic({
   baseVersion: snapshot.board.version,
@@ -116,13 +116,14 @@ await board.play({
 });
 ```
 
-A bound `BoardClient` injects its `boardId` into validation and transaction
-requests. Realtime subscriptions are also scoped to that Board:
+A bound `BoardClient` injects its `boardId` into semantic mutation requests.
+Realtime subscriptions use the same semantic resource projection:
 
 ```ts
 const stop = board.subscribe({
-  transaction(event) {
+  changed(event) {
     console.log("version", event.payload.version);
+    console.log("items", event.payload.changed.items);
   },
   playback(event) {
     console.log("playback", event.payload.status);
@@ -132,7 +133,7 @@ const stop = board.subscribe({
 stop();
 ```
 
-Task nodes keep a small, replaceable display snapshot beside their stable `taskRunId`. The SDK can build that projection from an authoritative TaskRun without copying the full payload, result or inline media into a Board:
+Task Items keep a small, replaceable display snapshot beside their stable `taskRunId`. The SDK can build that projection from an authoritative TaskRun without copying the full payload, result or inline media into a Board:
 
 ```ts
 import { taskRunToBoardTaskSnapshot } from "@neta-art/cohub/board";

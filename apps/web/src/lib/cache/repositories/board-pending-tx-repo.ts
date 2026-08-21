@@ -1,4 +1,4 @@
-import type { BoardOperation } from "@neta-art/cohub";
+import type { BoardSemanticMutation } from "@cohub/protocol";
 import {
 	type BoardPendingTransactionCacheRecord,
 	idbDelete,
@@ -12,7 +12,7 @@ export type BoardPendingTransaction = {
 	boardId: string;
 	txId: string;
 	baseVersion: number;
-	ops: BoardOperation[];
+	mutation: BoardSemanticMutation;
 };
 
 export async function writeBoardPendingTransaction(
@@ -33,7 +33,7 @@ export async function writeBoardPendingTransaction(
 		boardId: input.boardId,
 		txId: input.txId,
 		baseVersion: input.baseVersion,
-		ops: input.ops,
+		mutation: input.mutation,
 		attemptCount: 0,
 		createdAt: now,
 		updatedAt: now,

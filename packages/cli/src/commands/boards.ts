@@ -1,20 +1,14 @@
 import { randomUUID } from "node:crypto";
 
 import type {
-  BoardBootstrap,
   BoardCreateInput,
-  BoardInspectInput,
-  BoardMutationReceipt,
   BoardPlaybackSnapshot,
   BoardSummary,
-  BoardTransactionInput,
-  BoardValidationResult,
 } from "@neta-art/cohub";
 import type { BoardExportRegion } from "@neta-art/cohub/board";
 import type { Command } from "commander";
 import {
   BOARD_CREATE_INPUT_MAX_BYTES,
-  BOARD_TRANSACTION_INPUT_MAX_BYTES,
   parseBoardJsonObject,
   readBoardJsonObject,
   resolveBoardId,
@@ -26,20 +20,10 @@ import { createClient, createRealtimeClient } from "../client.js";
 import { error, handleHttp, json as outJson, jsonRequested, ok, table } from "../output.js";
 import { resolveSpace } from "../space.js";
 
-const INSPECT_SECTIONS = ["nodes", "connections", "effects", "compositions", "playback"] as const;
-type InspectSection = (typeof INSPECT_SECTIONS)[number];
 type JsonOptions = { json?: boolean };
-type InputOptions = JsonOptions & { input: string; txId?: string; baseVersion?: string };
 type PlaybackOptions = JsonOptions & { commandId?: string };
 
 export const parseJsonObject = parseBoardJsonObject;
-
-export async function readJsonObject(
-  source: string,
-  maxBytes = BOARD_TRANSACTION_INPUT_MAX_BYTES,
-): Promise<Record<string, unknown>> {
-  return readBoardJsonObject(source, maxBytes);
-}
 
 function parseNumber(value: string, name: string, options: { min?: number; max?: number; integer?: boolean } = {}): number {
   if (!value.trim()) throw new Error(`${name} must be a finite number`);
@@ -51,15 +35,7 @@ function parseNumber(value: string, name: string, options: { min?: number; max?:
   return parsed;
 }
 
-export function parseInspectSections(value?: string): InspectSection[] | undefined {
-  if (!value) return undefined;
-  const sections = value.split(",").map((item) => item.trim()).filter(Boolean);
-  const unknown = sections.filter((section) => !INSPECT_SECTIONS.includes(section as InspectSection));
-  if (unknown.length > 0) throw new Error(`Unknown Board section: ${unknown.join(", ")}`);
-  return [...new Set(sections)] as InspectSection[];
-}
-
-export function parseViewport(value?: string): BoardInspectInput["viewport"] {
+export function parseViewport(value?: string): { x: number; y: number; width: number; height: number } | undefined {
   if (!value) return undefined;
   const parts = value.split(",").map((part) => part.trim());
   if (parts.length !== 4) throw new Error("viewport must be x,y,width,height");
@@ -75,46 +51,11 @@ export function parseViewport(value?: string): BoardInspectInput["viewport"] {
   return { x, y, width, height };
 }
 
-export function createTransactionInput(
-  input: Record<string, unknown>,
-  options: { txId?: string; baseVersion?: string },
-): BoardTransactionInput {
-  if ("boardId" in input) throw new Error("transaction input must not contain boardId");
-  if (!Array.isArray(input.operations)) throw new Error("transaction input must contain an operations array");
-  const rawBaseVersion = options.baseVersion ?? input.baseVersion;
-  if (rawBaseVersion === undefined) throw new Error("baseVersion is required in input or --base-version");
-  const baseVersion = parseNumber(String(rawBaseVersion), "baseVersion", { min: 0, integer: true });
-  const rawTxId = options.txId ?? input.txId;
-  if (rawTxId !== undefined && (typeof rawTxId !== "string" || !rawTxId.trim())) {
-    throw new Error("txId must be a non-empty string");
-  }
-  return {
-    ...input,
-    txId: typeof rawTxId === "string" ? rawTxId : randomUUID(),
-    baseVersion,
-    operations: input.operations,
-  } as BoardTransactionInput;
-}
-
-function showBoard(result: BoardBootstrap): void {
-  table([
-    {
-      id: result.board.id,
-      title: result.board.title,
-      version: result.board.version,
-      nodes: result.nodes.length,
-      connections: result.connections.length,
-      effects: result.effects.length,
-      compositions: result.compositions.length,
-    },
-  ], [
+function showCreated(result: { board: { id: string; title: string; version: number } }): void {
+  table([result.board], [
     { key: "id", label: "ID" },
     { key: "title", label: "Title" },
     { key: "version", label: "Version" },
-    { key: "nodes", label: "Nodes" },
-    { key: "connections", label: "Connections" },
-    { key: "effects", label: "Effects" },
-    { key: "compositions", label: "Compositions" },
   ]);
 }
 
@@ -133,31 +74,13 @@ function showSummary(result: BoardSummary): void {
     { key: "id", label: "ID" },
     { key: "title", label: "TITLE" },
     { key: "version", label: "VERSION" },
-    { key: "nodes", label: "NODES" },
+    { key: "items", label: "ITEMS" },
     { key: "connections", label: "CONNECTIONS" },
     { key: "effects", label: "EFFECTS" },
     { key: "compositions", label: "COMPOSITIONS" },
     { key: "background", label: "BACKGROUND" },
     { key: "updatedAt", label: "UPDATED" },
   ]);
-}
-
-function showValidation(result: BoardValidationResult): void {
-  table([{ valid: result.valid, diagnostics: result.diagnostics.length }], [
-    { key: "valid", label: "Valid" },
-    { key: "diagnostics", label: "Diagnostics" },
-  ]);
-  if (result.diagnostics.length > 0) {
-    console.log();
-    table(result.diagnostics, [
-      { key: "severity", label: "Severity" },
-      { key: "code", label: "Code" },
-      { key: "path", label: "Path" },
-      { key: "message", label: "Message" },
-    ]);
-  }
-  console.log();
-  table([result.peakCost], Object.keys(result.peakCost).map((key) => ({ key, label: key })));
 }
 
 function showPlayback(result: BoardPlaybackSnapshot): void {
@@ -185,39 +108,6 @@ function capabilityUnits(schema: Record<string, unknown> | undefined): string {
       .join("/");
     return detail ? [`${field}:${detail}`] : [];
   }).join(", ");
-}
-
-function registerTransactionCommand(boards: Command, name: "validate" | "apply"): void {
-  withJson(boards.command(`${name} <board>`)
-    .description(name === "validate" ? "Validate a transaction" : "Apply a transaction")
-    .requiredOption("-i, --input <file>", "Transaction JSON file; use - for stdin")
-    .option("--tx-id <id>", "Override txId; generated when omitted")
-    .option("--base-version <version>", "Override baseVersion")
-    .addHelpText("after", `
-Input example:
-  {"baseVersion":12,"operations":[{"type":"board.patch","payload":{"patch":{"title":"Launch plan"}}}]}
-
-Prefer semantic commands such as boards background, nodes, effects, or compositions for common edits.`))
-    .action(async (target: string, options: InputOptions) => {
-      try {
-        const transaction = createTransactionInput(
-          await readJsonObject(options.input, BOARD_TRANSACTION_INPUT_MAX_BYTES),
-          options,
-        );
-        const spaceId = resolveSpace(boards);
-        const boardId = await resolveBoardId(spaceId, target);
-        const board = createClient().space(spaceId).board(boardId);
-        const result = await board[name](transaction);
-        if (jsonRequested(options)) return outJson(result);
-        if (name === "validate") showValidation(result as BoardValidationResult);
-        else {
-          const receipt = result as BoardMutationReceipt;
-          ok(`Board updated to version ${receipt.board.version}`);
-        }
-      } catch (cause) {
-        handleHttp(cause);
-      }
-    });
 }
 
 function commandId(options: PlaybackOptions): string {
@@ -359,14 +249,16 @@ export function registerBoards(program: Command): Command {
     .description("Create a Board")
     .option("--title <title>", "Board title")
     .option("--mutation-id <id>", "Stable id for safe retries")
-    .option("-i, --input <file>", "BoardCreateInput fields; use - for stdin")
+    .option("-i, --input <file>", "Semantic Board seed JSON; use - for stdin")
     .addHelpText("after", `
-For normal use, create an empty Board and add content with boards nodes, effects, and compositions.
---input is intended for bulk creation and accepts BoardCreateInput fields except path and title.`))
+Create an empty Board, or provide items, connections, effects, compositions, and metadata in --input.
+Generate an editable seed:
+  cohub boards examples create > board.json
+  cohub boards create plan.board -i board.json`))
     .action(async (path: string, options: JsonOptions & { title?: string; input?: string; mutationId?: string }) => {
       try {
         const content = options.input
-          ? await readJsonObject(options.input, BOARD_CREATE_INPUT_MAX_BYTES)
+          ? await readBoardJsonObject(options.input, BOARD_CREATE_INPUT_MAX_BYTES)
           : {};
         if ("path" in content || "title" in content) {
           throw new Error("create input must not contain path or title; use the command argument and --title");
@@ -382,7 +274,7 @@ For normal use, create an empty Board and add content with boards nodes, effects
         const result = await createClient().space(resolveSpace(boards)).boards.create(input);
         if (jsonRequested(options)) return outJson(result);
         ok(`Board created: ${result.board.id}`);
-        showBoard(result);
+        showCreated(result);
       } catch (cause) {
         handleHttp(cause);
       }
@@ -390,30 +282,29 @@ For normal use, create an empty Board and add content with boards nodes, effects
 
   withJson(boards.command("inspect <board>")
     .alias("get")
-    .description("Inspect a Board")
-    .option("--include <sections>", "Comma-separated nodes,connections,effects,compositions,playback")
-    .option("--viewport <rect>", "Viewport as x,y,width,height"))
-    .action(async (target: string, options: JsonOptions & { include?: string; viewport?: string }) => {
+    .description("Show Board metadata and semantic resource counts")
+    .addHelpText("after", `
+Inspect content with:
+  cohub boards items list <board> --json
+  cohub boards effects list <board> --json
+  cohub boards compositions list <board> --json`))
+    .action(async (target: string, options: JsonOptions) => {
       try {
         const spaceId = resolveSpace(boards);
         const boardId = await resolveBoardId(spaceId, target);
-        const board = createClient().space(spaceId).board(boardId);
-        if (!jsonRequested(options) && !options.include && !options.viewport) {
-          return showSummary(await board.summary());
-        }
-        const result = await board.inspect({
-          include: parseInspectSections(options.include),
-          viewport: parseViewport(options.viewport),
-        });
+        const result = await createClient().space(spaceId).board(boardId).summary();
         if (jsonRequested(options)) return outJson(result);
-        showBoard(result);
+        showSummary(result);
       } catch (cause) {
         handleHttp(cause);
       }
     });
 
   withJson(boards.command("capabilities <board>")
-    .description("Show supported capabilities"))
+    .description("Show authoring schemas and runtime capabilities")
+    .addHelpText("after", `
+Use --json for complete Item, patch, mutation, effect, Composition, and create JSON Schemas.
+Use boards examples for editable starter JSON.`))
     .action(async (target: string, options: JsonOptions) => {
       try {
         const spaceId = resolveSpace(boards);
@@ -432,30 +323,25 @@ For normal use, create an empty Board and add content with boards nodes, effects
           { key: "coordinates", label: "Coordinates / units" },
           { key: "digest", label: "Digest" },
         ]);
-        const nodes = (result as Partial<typeof result>).nodes;
-        if (nodes) {
-          console.log();
-          table([{
-            types: nodes.types.join(", "),
-            colors: nodes.colors.join(", "),
-            geos: nodes.geos.join(", "),
-            drawPoints: nodes.coordinates.drawPoints,
-            arrowEndpoints: nodes.coordinates.arrowEndpoints,
-          }], [
-            { key: "types", label: "Node types" },
-            { key: "colors", label: "Colors" },
-            { key: "geos", label: "Geo kinds" },
-            { key: "drawPoints", label: "Draw points" },
-            { key: "arrowEndpoints", label: "Arrow endpoints" },
-          ]);
-        }
+        console.log();
+        table([{
+          types: result.items.types.join(", "),
+          colors: result.items.colors.join(", "),
+          shapes: result.items.shapes.join(", "),
+          drawPoints: result.items.coordinates.drawPoints,
+          arrowEndpoints: result.items.coordinates.arrowEndpoints,
+        }], [
+          { key: "types", label: "Item types" },
+          { key: "colors", label: "Colors" },
+          { key: "shapes", label: "Shapes" },
+          { key: "drawPoints", label: "Draw points" },
+          { key: "arrowEndpoints", label: "Arrow endpoints" },
+        ]);
       } catch (cause) {
         handleHttp(cause);
       }
     });
 
-  registerTransactionCommand(boards, "validate");
-  registerTransactionCommand(boards, "apply");
   registerBoardDomainCommands(boards);
   registerExportCommand(boards);
 
@@ -560,11 +446,11 @@ For normal use, create an empty Board and add content with boards nodes, effects
               process.stdout.write(`${JSON.stringify(event)}\n`);
               return;
             }
-            if (event.type === "board.transaction.applied") {
-              process.stdout.write(`version ${event.payload.version}  transaction ${event.payload.txId}  operations ${event.payload.operations.length}\n`);
+            if (event.type === "board.changed") {
+              process.stdout.write(`version ${event.payload.version}  mutation ${event.payload.mutationId}\n`);
             } else if (event.type === "board.playback.changed") {
               process.stdout.write(`${event.payload.status}  composition ${event.payload.compositionId}  position ${event.payload.position}\n`);
-            } else {
+            } else if (event.type === "board.awareness.updated") {
               process.stdout.write(`awareness ${event.payload.actorName}  ${event.payload.update.type}\n`);
             }
           },

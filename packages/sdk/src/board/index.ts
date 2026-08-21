@@ -13,13 +13,16 @@ export {
 	BoardCameraFocusParamsSchema,
 	BoardCameraFocusSchema,
 	BoardCameraStateSchema,
+	isBoardPath,
+	parseBoardManifest,
+	serializeBoardManifest,
 	type BoardCameraFocus,
 	type BoardCameraFocusParams,
 	type BoardCameraState,
 } from "@cohub/protocol";
 export * from "@cohub/protocol/board-connection";
 export * from "@cohub/protocol/board-document";
-export * from "./codec.js";
+export * from "./semantic-document.js";
 export * from "./core/arrow-geometry.js";
 export * from "./core/connections.js";
 export * from "./core/draw-geometry.js";
@@ -57,4 +60,5 @@ export * from "./image-key.js";
 export * from "./media.js";
 export * from "./media-playback.js";
 export * from "./mutation.js";
+export * from "./semantic-mutation.js";
 export * from "./task.js";

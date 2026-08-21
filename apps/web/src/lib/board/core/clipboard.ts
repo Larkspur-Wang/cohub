@@ -62,8 +62,8 @@ export function encodeClipboard(
 		items: items.map((item) => shiftItem(item, -origin.x, -origin.y)),
 		connections: connections.filter(
 			(connection) =>
-				copied.has(connection.source.nodeId) &&
-				copied.has(connection.target.nodeId),
+				copied.has(connection.source.itemId) &&
+				copied.has(connection.target.itemId),
 		),
 		origin,
 	};
@@ -145,8 +145,8 @@ export function parseClipboard(raw: unknown): BoardClipboardPayload | null {
 			if (seenConnectionIds.has(connection.id)) return null;
 			seenConnectionIds.add(connection.id);
 			if (
-				!ids.has(connection.source.nodeId) ||
-				!ids.has(connection.target.nodeId)
+				!ids.has(connection.source.itemId) ||
+				!ids.has(connection.target.itemId)
 			)
 				continue;
 			connections.push(connection);
@@ -182,8 +182,8 @@ export function materializeClipboard(
 		return { ...shifted, id: nextId, locked: false };
 	});
 	const connections = (payload.connections ?? []).flatMap((connection) => {
-		const source = idMap.get(connection.source.nodeId);
-		const target = idMap.get(connection.target.nodeId);
+		const source = idMap.get(connection.source.itemId);
+		const target = idMap.get(connection.target.itemId);
 		if (!source || !target) return [];
 		return [
 			{

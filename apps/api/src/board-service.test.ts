@@ -25,6 +25,36 @@ function operation(value: BoardOperation) {
   return normalizeBoardOperation(value);
 }
 
+test("stored transaction receipts always replay and legacy empty receipts rebuild", async () => {
+  const { receiptFromStoredTransaction } = await import("./board-service.js");
+  const complete = receiptFromStoredTransaction({
+    boardId,
+    txId: "tx-complete",
+    resultVersion: 4,
+    operations: [],
+    receipt: {
+      mutationId: "tx-complete",
+      status: "applied",
+      outcome: "applied",
+      replayed: false,
+      board: { id: boardId, version: 4 },
+      changed: { items: [], connections: [], effects: [], compositions: [], board: false, orderChanged: false },
+    },
+  });
+  assert.equal(complete.replayed, true);
+  const rebuilt = receiptFromStoredTransaction({
+    boardId,
+    txId: "tx-legacy",
+    resultVersion: 3,
+    operations: [{ type: "node.delete", payload: { nodeId: "title" } }],
+    receipt: {},
+  });
+  assert.equal(rebuilt.replayed, true);
+  assert.equal(rebuilt.status, "applied");
+  assert.equal(rebuilt.board.version, 3);
+  assert.deepEqual(rebuilt.changed.items, ["title"]);
+});
+
 test("raw transactions reject empty operations while semantic no-op transactions allow them", () => {
   const value = {
     txId: "noop",
@@ -48,12 +78,16 @@ test("normalizes Board metadata and title", () => {
   });
 });
 
-test("validates selective viewport inspection", () => {
+test("validates selective viewport and id-projected inspection", () => {
   assert.deepEqual(BoardInspectInputSchema.parse({
     include: ["nodes", "effects"],
+    nodeIds: ["title"],
+    effectIds: ["pulse"],
     viewport: { x: -100, y: -50, width: 200, height: 100 },
   }), {
     include: ["nodes", "effects"],
+    nodeIds: ["title"],
+    effectIds: ["pulse"],
     viewport: { x: -100, y: -50, width: 200, height: 100 },
   });
   assert.equal(BoardInspectInputSchema.safeParse({
@@ -548,7 +582,6 @@ function effectInput(id: string, nodeId: string) {
     lifecycle: "persistent" as const,
     timeOrigin: "board" as const,
     seed: "seed-1",
-    revision: 0,
   };
 }
 
@@ -656,8 +689,8 @@ test("a node write chunk cannot exceed Postgres's bind parameter limit", () => {
 
 const connectionInput = (id: string, source: string, target: string) => ({
   id,
-  source: { nodeId: source, anchor: { kind: "auto" as const } },
-  target: { nodeId: target, anchor: { kind: "auto" as const } },
+  source: { itemId: source, anchor: { kind: "auto" as const } },
+  target: { itemId: target, anchor: { kind: "auto" as const } },
   relation: "related",
   direction: "forward" as const,
   label: "",

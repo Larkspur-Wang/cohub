@@ -1,6 +1,6 @@
 import type {
 	BoardComposition,
-	BoardEffect,
+	BoardEffectInput,
 	BoardPlaybackSnapshot,
 	BoardProceduralClip,
 } from "@neta-art/cohub";
@@ -402,6 +402,51 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 		playbackPolicy: null,
 	};
 	let cameraFocusBySequence = new Map<string, PreparedCameraFocusClip[]>();
+	let compositionByRevision = new Map<string, BoardComposition>();
+	let compositionById = new Map<string, BoardComposition>();
+	let motionClipsByComposition = new Map<
+		string,
+		Map<string, BoardProceduralClip[]>
+	>();
+	let targetIdsByComposition = new Map<string, Set<string>>();
+	let activeEffects: BoardRuntimeData["effects"] = [];
+
+	const compositionKey = (
+		composition: Pick<BoardComposition, "id" | "revision">,
+	) => `${composition.id}:${composition.revision}`;
+	const playbackComposition = (playback: BoardPlaybackSnapshot | null) =>
+		playback
+			? (compositionByRevision.get(
+					`${playback.compositionId}:${playback.compositionRevision}`,
+				) ?? null)
+			: null;
+	function rebuildRuntimeIndexes(next: BoardRuntimeData) {
+		compositionByRevision = new Map();
+		compositionById = new Map();
+		motionClipsByComposition = new Map();
+		targetIdsByComposition = new Map();
+		for (const composition of next.compositions) {
+			const key = compositionKey(composition);
+			compositionByRevision.set(key, composition as BoardComposition);
+			compositionById.set(composition.id, composition as BoardComposition);
+			const byItem = new Map<string, BoardProceduralClip[]>();
+			for (const clip of composition.timeline.clips) {
+				if (clip.kind !== "motion.path" || clip.target.type !== "item")
+					continue;
+				const clips = byItem.get(clip.target.itemId) ?? [];
+				clips.push(clip);
+				byItem.set(clip.target.itemId, clips);
+			}
+			motionClipsByComposition.set(key, byItem);
+			targetIdsByComposition.set(
+				key,
+				compositionItemTargetIds(composition as BoardComposition),
+			);
+		}
+		activeEffects = next.effects.filter(
+			(effect) => effect.enabled && effect.lifecycle !== "manual",
+		);
+	}
 	const cameraFocusTargetCache = new Map<
 		string,
 		{
@@ -501,7 +546,7 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 	}
 
 	function applyEffect(
-		effect: BoardEffect,
+		effect: BoardEffectInput & { revision: number },
 		now: number,
 		poses: Map<string, AnimationPose>,
 	): boolean {
@@ -711,10 +756,9 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 			sequence.timeline.duration,
 			loop,
 		);
-		for (const clip of sequence.timeline.clips) {
-			if (clip.target.type !== "item" || clip.target.itemId !== nodeId)
-				continue;
-			if (clip.kind !== "motion.path") continue;
+		const clips =
+			motionClipsByComposition.get(compositionKey(sequence))?.get(nodeId) ?? [];
+		for (const clip of clips) {
 			const sample = clipSampleAt(clip, samplePosition);
 			if (!sample) continue;
 			composePose(pose, samplePathPose(clip, sample.localTime));
@@ -933,20 +977,14 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 		const cameraPose = createPose();
 		let hasContinuousEffect = false;
 		if (!reducedMotion) {
-			for (const effect of data.effects) {
+			for (const effect of activeEffects) {
 				hasContinuousEffect =
 					applyEffect(effect, now, poses) || hasContinuousEffect;
 			}
 		}
 
 		const playback = sharedPlayback ?? autoplayPlayback;
-		const sequence = playback
-			? (data.compositions.find(
-					(item) =>
-						item.id === playback.compositionId &&
-						item.revision === playback.compositionRevision,
-				) ?? null)
-			: null;
+		const sequence = playbackComposition(playback);
 		const loop = sequence?.playback.loop ?? false;
 		const sample =
 			playback && sequence
@@ -1093,8 +1131,7 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 		if (!active) return;
 		const policy = data.playbackPolicy;
 		const sequence = policy
-			? (data.compositions.find((item) => item.id === policy.compositionId) ??
-				null)
+			? (compositionById.get(policy.compositionId) ?? null)
 			: null;
 		if (
 			!policy ||
@@ -1130,6 +1167,12 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 			cameraFocusBySequence = prepareCameraFocusClips(next.compositions);
 			cameraFocusTargetCache.clear();
 		}
+		if (
+			next.compositions !== data.compositions ||
+			next.effects !== data.effects
+		) {
+			rebuildRuntimeIndexes(next);
+		}
 		data = next;
 		materializationVersion += 1;
 		syncPlayback();
@@ -1163,13 +1206,7 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 	 */
 	function nodeIdsToMaterialize(now = Date.now()): Set<string> {
 		const playback = sharedPlayback ?? autoplayPlayback;
-		const sequence = playback
-			? (data.compositions.find(
-					(item) =>
-						item.id === playback.compositionId &&
-						item.revision === playback.compositionRevision,
-				) ?? null)
-			: null;
+		const sequence = playbackComposition(playback);
 		const loop = sequence?.playback.loop ?? false;
 		const ended = Boolean(
 			sequence &&
@@ -1187,7 +1224,7 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 			return materializationCache;
 
 		const ids = new Set<string>();
-		for (const effect of data.effects) {
+		for (const effect of activeEffects) {
 			if (
 				effect.enabled &&
 				effect.lifecycle !== "manual" &&
@@ -1201,7 +1238,10 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 				? compositionItemPoses(sequence, sequence.timeline.duration).keys()
 				: compositionItemPoses(sequence, 0).keys();
 			for (const itemId of poses) ids.add(itemId);
-			for (const itemId of compositionItemTargetIds(sequence)) ids.add(itemId);
+			for (const itemId of targetIdsByComposition.get(
+				compositionKey(sequence),
+			) ?? [])
+				ids.add(itemId);
 		}
 
 		materializationCache = ids;

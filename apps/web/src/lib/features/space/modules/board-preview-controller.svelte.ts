@@ -1,24 +1,25 @@
 import type {
-	BoardBootstrap,
-	BoardOperation,
+	BoardAuthoringSnapshot,
+	BoardSemanticMutation,
+} from "@cohub/protocol";
+import type {
 	BoardPlaybackSnapshot,
 	SpaceFsFileResponse,
 	SpaceFsPreparingFile,
 } from "@neta-art/cohub";
-import { BoardTransactionError, HttpError } from "@neta-art/cohub";
-import type { BoardDocument } from "@neta-art/cohub/board";
+import { HttpError } from "@neta-art/cohub";
+import {
+	applyBoardAuthoringSnapshot,
+	type BoardDocument,
+	boardAuthoringSnapshotToDocument,
+} from "@neta-art/cohub/board";
 import {
 	BOARD_AUTOMATION_ACTIVITY_MS,
 	type BoardAutomationActivity,
 	createBoardAutomationActivity,
 	mergeBoardAutomationActivity,
 } from "$lib/board/board-activity";
-import {
-	applyBoardOps,
-	boardBootstrapToDocument,
-	parseBoardManifest,
-	toWireOperations,
-} from "$lib/board/board-document";
+import { parseBoardManifest } from "$lib/board/board-document";
 import { resolveBoardManifestText } from "$lib/board/board-manifest-text";
 import {
 	boardPathMatchesTarget,
@@ -27,8 +28,7 @@ import {
 } from "$lib/board/board-sync-policy";
 import {
 	type BoardRuntimeData,
-	boardRuntimeDataFromBootstrap,
-	operationsRequireBoardRuntimeRefresh,
+	boardRuntimeDataFromAuthoring,
 } from "$lib/board/runtime/board-runtime";
 import {
 	deleteBoardPendingTransaction,
@@ -82,20 +82,15 @@ export function createBoardPreviewController(
 	const manifestRefreshRequested = new Set<string>();
 	/** Conflict-recovery attempts per document, to bound rebase retries. */
 	let conflictAttemptsByBoardId: Record<string, number> = {};
-	/**
-	 * Remote events deferred while a save is in flight. Never dropped: drained in
-	 * version order after the commit settles. When the queued sequence is
-	 * contiguous with the local baseline we apply ops incrementally; any gap
-	 * falls back to a full bootstrap.
-	 */
+	/** Remote semantic changes deferred while a save is in flight. */
 	type PendingRemoteEvent = {
 		boardId: string;
 		version: number;
-		txId: string;
-		ops: BoardOperation[];
+		mutationId: string;
+		changed: import("@cohub/protocol").BoardMutationReceipt["changed"];
 	};
 	let pendingRemoteEvents: PendingRemoteEvent[] = [];
-	/** Documents that need a full bootstrap (version gap / missing ops). */
+	/** Documents that need a full authoring snapshot (version gap / missing projection). */
 	let pendingRemoteBootstrap = new Set<string>();
 	/** Documents currently inside drainRemoteRefresh — serialise per document. */
 	const drainingDocuments = new Set<string>();
@@ -146,8 +141,8 @@ export function createBoardPreviewController(
 		boardId: string;
 		actorId: string;
 		txId: string;
-		operations: BoardOperation[];
-		metadata?: Record<string, unknown> | null;
+		itemIds?: string[];
+		source?: import("@cohub/protocol").RequestSource | null;
 	}) {
 		const board = boards.find((item) => item.boardId === input.boardId);
 		if (!board?.document) return;
@@ -184,13 +179,22 @@ export function createBoardPreviewController(
 
 	/** A transaction was rejected as a version conflict (409) and can be rebased. */
 	function isVersionConflict(error: unknown): boolean {
-		if (error instanceof BoardTransactionError) return error.isVersionConflict;
-		if (error instanceof HttpError) return error.code === "VERSION_CONFLICT";
-		return false;
+		return error instanceof HttpError && error.code === "VERSION_CONFLICT";
 	}
 
 	function inspect(boardId: string) {
-		return sdk.space(options.getSpaceId()).boards.inspect(boardId);
+		return sdk
+			.space(options.getSpaceId())
+			.board(boardId)
+			.authoring({
+				include: [
+					"items",
+					"connections",
+					"effects",
+					"compositions",
+					"playback",
+				],
+			});
 	}
 
 	function isCurrent(token: number, path: string, sourceKey: string) {
@@ -298,8 +302,8 @@ export function createBoardPreviewController(
 					? {
 							path,
 							boardId: bootstrap.board.id,
-							document: boardBootstrapToDocument(bootstrap),
-							runtime: boardRuntimeDataFromBootstrap(bootstrap),
+							document: boardAuthoringSnapshotToDocument(bootstrap),
+							runtime: boardRuntimeDataFromAuthoring(bootstrap),
 							loading: false,
 							saving: false,
 							error: null,
@@ -447,14 +451,11 @@ export function createBoardPreviewController(
 						if (!tx) break;
 						await markBoardPendingTransactionAttempt(tx);
 						try {
+							const mutation = tx.mutation;
 							const result = await sdk
 								.space(options.getSpaceId())
-								.boards.apply({
-									txId: tx.txId,
-									boardId,
-									baseVersion: tx.baseVersion,
-									operations: toWireOperations(tx.ops),
-								});
+								.board(boardId)
+								.mutateSemantic(mutation);
 							syncVersionByBoardId = {
 								...syncVersionByBoardId,
 								[boardId]: result.board.version,
@@ -523,8 +524,8 @@ export function createBoardPreviewController(
 			item.boardId === boardId
 				? {
 						...item,
-						document: boardBootstrapToDocument(bootstrap),
-						runtime: boardRuntimeDataFromBootstrap(bootstrap),
+						document: boardAuthoringSnapshotToDocument(bootstrap),
+						runtime: boardRuntimeDataFromAuthoring(bootstrap),
 						saving: false,
 						saveError: null,
 					}
@@ -558,15 +559,16 @@ export function createBoardPreviewController(
 		boardId: string,
 		path: string,
 		document: BoardDocument,
-		ops: BoardOperation[],
+		_before: BoardDocument,
+		commands: import("@neta-art/cohub").BoardSemanticCommand[],
 	) {
 		if (options.getReadonly?.()) return;
 		const savingPath =
 			boards.find((item) => item.boardId === boardId)?.path ?? path;
 		const txId = crypto.randomUUID();
-		// A recovery re-commit with no resulting ops still must clear the stale
-		// pending txs (their changes are already reflected server-side).
-		if (ops.length === 0) {
+		// A recovery re-commit with no resulting commands still must clear stale
+		// pending mutations (their changes are already reflected server-side).
+		if (commands.length === 0) {
 			if (pendingRecoveryCleanup.has(boardId))
 				await cleanupStaleTransactions(boardId, txId);
 			return;
@@ -580,12 +582,18 @@ export function createBoardPreviewController(
 		try {
 			const baseVersion = syncVersionByBoardId[boardId];
 			if (baseVersion == null) throw new Error("Board version is unavailable");
+			const mutation: BoardSemanticMutation = {
+				mutationId: txId,
+				baseVersion,
+				dryRun: false,
+				commands,
+			};
 			await writeBoardPendingTransaction({
 				spaceId: options.getSpaceId(),
 				boardId,
 				txId,
 				baseVersion,
-				ops,
+				mutation,
 			});
 			// Register before apply/realtime can race back, so our own echo is
 			// skipped and does not wipe editor undo history via a remote load.
@@ -654,10 +662,7 @@ export function createBoardPreviewController(
 		);
 	}
 
-	/**
-	 * Full-document remote refresh (bootstrap). Used as a fallback when ops are
-	 * missing or the version sequence has a gap.
-	 */
+	/** Full authoring refresh used for version gaps or missing projections. */
 	function requestRemoteRefresh(boardId: string) {
 		if (!hasBoardId(boardId)) return;
 		pendingRemoteBootstrap.add(boardId);
@@ -665,47 +670,109 @@ export function createBoardPreviewController(
 		void drainRemoteRefresh(boardId);
 	}
 
-	/**
-	 * Prefer incremental ops application. Falls back to bootstrap on gaps.
-	 */
-	function requestRemoteOps(
+	function requestRemoteChange(
 		boardId: string,
-		event: { version: number; txId: string; ops: BoardOperation[] },
+		event: Omit<PendingRemoteEvent, "boardId">,
 	) {
 		if (!hasBoardId(boardId)) return;
-		pendingRemoteEvents.push({
-			boardId,
-			version: event.version,
-			txId: event.txId,
-			ops: event.ops,
-		});
+		pendingRemoteEvents.push({ boardId, ...event });
 		if (isBusy(boardId)) return;
 		void drainRemoteRefresh(boardId);
 	}
 
-	function applyRemoteOpsLocally(
-		boardId: string,
-		version: number,
-		ops: BoardOperation[],
-	): boolean {
-		const board = boards.find((item) => item.boardId === boardId);
+	async function applyRemoteChange(
+		event: PendingRemoteEvent,
+	): Promise<boolean> {
+		const board = boards.find((item) => item.boardId === event.boardId);
 		if (!board || board.saving || !board.document) return false;
-		const localVersion = syncVersionByBoardId[boardId] ?? null;
+		const localVersion = syncVersionByBoardId[event.boardId] ?? null;
 		if (localVersion == null) return false;
-		if (version <= localVersion) return true; // already applied / stale
-		if (version !== localVersion + 1) return false; // gap → bootstrap
-		// Runtime revisions are assigned by the server and are not represented in
-		// the document codec. Refresh the full bootstrap rather than advancing the
-		// version while silently retaining stale effects or sequences.
-		if (operationsRequireBoardRuntimeRefresh(ops)) return false;
-		const nextDoc = applyBoardOps(board.document, ops);
+		if (event.version <= localVersion) return true;
+		if (event.version !== localVersion + 1) return false;
+		const include = [
+			...(event.changed.items.length || event.changed.orderChanged
+				? (["items"] as const)
+				: []),
+			...(event.changed.connections.length ? (["connections"] as const) : []),
+			...(event.changed.effects.length ? (["effects"] as const) : []),
+			...(event.changed.compositions.length ? (["compositions"] as const) : []),
+			...(event.changed.effects.length || event.changed.compositions.length
+				? (["playback"] as const)
+				: []),
+		];
+		const snapshot = await sdk
+			.space(options.getSpaceId())
+			.board(event.boardId)
+			.authoring({
+				include,
+				...(event.changed.items.length && !event.changed.orderChanged
+					? { itemIds: event.changed.items }
+					: {}),
+				...(event.changed.connections.length
+					? { connectionIds: event.changed.connections }
+					: {}),
+				...(event.changed.effects.length
+					? { effectIds: event.changed.effects }
+					: {}),
+				...(event.changed.compositions.length
+					? { compositionIds: event.changed.compositions }
+					: {}),
+			});
+		// A projected snapshot is safe only for the exact event version. If a later
+		// mutation committed before this read, fall back to a complete authoring
+		// snapshot so no intervening changed IDs are skipped.
+		if (snapshot.board.version !== event.version) return false;
+		const nextDocument = applyBoardAuthoringSnapshot(
+			board.document,
+			snapshot,
+			event.changed,
+		);
+		const mergeRecords = <T extends { id: string }>(
+			existing: T[],
+			incoming: T[] | undefined,
+			changedIds: string[],
+		): T[] => {
+			if (incoming === undefined && changedIds.length === 0) return existing;
+			const received = new Map(
+				(incoming ?? []).map((record) => [record.id, record]),
+			);
+			const changed = new Set(changedIds);
+			const merged = existing
+				.filter((record) => !changed.has(record.id) || received.has(record.id))
+				.map((record) => received.get(record.id) ?? record);
+			const present = new Set(merged.map((record) => record.id));
+			return [
+				...merged,
+				...[...received.values()].filter((record) => !present.has(record.id)),
+			];
+		};
+		const nextRuntime =
+			event.changed.effects.length || event.changed.compositions.length
+				? boardRuntimeDataFromAuthoring({
+						...snapshot,
+						effects: mergeRecords(
+							board.runtime?.effects ?? [],
+							snapshot.effects,
+							event.changed.effects,
+						),
+						compositions: mergeRecords(
+							board.runtime?.compositions ?? [],
+							snapshot.compositions,
+							event.changed.compositions,
+						),
+						playback:
+							"playback" in snapshot
+								? (snapshot.playback ?? null)
+								: (board.runtime?.playback ?? null),
+					})
+				: board.runtime;
 		syncVersionByBoardId = {
 			...syncVersionByBoardId,
-			[boardId]: version,
+			[event.boardId]: event.version,
 		};
 		boards = boards.map((item) =>
-			item.boardId === boardId
-				? { ...item, document: nextDoc, error: null }
+			item.boardId === event.boardId
+				? { ...item, document: nextDocument, runtime: nextRuntime, error: null }
 				: item,
 		);
 		return true;
@@ -735,13 +802,27 @@ export function createBoardPreviewController(
 				let needsBootstrap = pendingRemoteBootstrap.has(boardId);
 				pendingRemoteBootstrap.delete(boardId);
 
-				// Events that failed contiguous apply are put back after bootstrap.
+				// Events that failed contiguous semantic projection are retried after a
+				// full authoring snapshot.
 				let remainder: PendingRemoteEvent[] = [];
 				if (!needsBootstrap) {
 					for (let i = 0; i < events.length; i += 1) {
 						const event = events[i];
 						if (!event) continue;
-						const ok = applyRemoteOpsLocally(boardId, event.version, event.ops);
+						let ok = false;
+						try {
+							ok = await applyRemoteChange(event);
+						} catch (error) {
+							needsBootstrap = true;
+							remainder = events.slice(i);
+							setError(
+								boardId,
+								error instanceof Error
+									? error.message
+									: "Failed to sync Board change",
+							);
+							break;
+						}
 						if (!ok) {
 							needsBootstrap = true;
 							remainder = events.slice(i);
@@ -863,7 +944,7 @@ export function createBoardPreviewController(
 		);
 	}
 
-	function applyBootstrap(boardId: string, bootstrap: BoardBootstrap) {
+	function applyBootstrap(boardId: string, bootstrap: BoardAuthoringSnapshot) {
 		const board = boards.find((item) => item.boardId === boardId);
 		if (!board || board.saving) return;
 		const currentVersion = syncVersionByBoardId[boardId] ?? null;
@@ -876,8 +957,8 @@ export function createBoardPreviewController(
 			item.boardId === boardId
 				? {
 						...item,
-						document: boardBootstrapToDocument(bootstrap),
-						runtime: boardRuntimeDataFromBootstrap(bootstrap),
+						document: boardAuthoringSnapshotToDocument(bootstrap),
+						runtime: boardRuntimeDataFromAuthoring(bootstrap),
 						loading: false,
 						saveError: null,
 					}
@@ -908,7 +989,7 @@ export function createBoardPreviewController(
 		refreshBoardManifest,
 		reconcileOpenBoards,
 		requestRemoteRefresh,
-		requestRemoteOps,
+		requestRemoteChange,
 		noteRemoteTransaction,
 		isOwnTransaction,
 		renamePath,

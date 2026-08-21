@@ -6,17 +6,23 @@ import type {
 } from "./board-constants.js";
 import {
   BoardConnectionSchema,
+  type BoardConnection,
   type BoardConnectionInput,
   type BoardConnectionPatch,
   type BoardConnectionRecord,
 } from "./board-connection.js";
 import { BoardCompositionInputSchema } from "./board-composition.js";
-import { BoardAuthoringItemSchema } from "./board-authoring.js";
+import {
+  type BOARD_AUTHORING_ITEM_CAPABILITIES,
+  type BoardAuthoringItem,
+  BoardAuthoringItemSchema,
+  BoardItemPatchSchema,
+  BoardSemanticMutationSchema,
+} from "./board-authoring.js";
 import type {
   BOARD_ANIMATION_CHANNEL_CAPABILITIES,
   BoardComposition,
 } from "./board-composition.js";
-import type { BoardNodeContract } from "./board-node.js";
 
 export {
   BOARD_BUILTIN_CAPABILITIES,
@@ -40,7 +46,6 @@ export const BOARD_MANIFEST_VERSION = 1 as const;
 export const BOARD_PROTOCOL_VERSION = 2 as const;
 
 const idSchema = z.string().min(1).max(160);
-const extensionIdSchema = z.string().regex(/^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+$/).max(160);
 const jsonObjectSchema = z.record(z.string(), z.unknown());
 const finiteSchema = z.number().finite();
 
@@ -121,37 +126,12 @@ export const BoardCameraFocusParamsSchema = z.object({
   }
 });
 
-export const BoardAssetRefSchema = z.object({
-  type: z.enum(["space-file", "extension"]),
-  ref: z.string().min(1).max(4096),
-  digest: z.string().min(16).max(160).optional(),
-});
-
-export const BoardEffectSchema = z.object({
-  id: idSchema,
-  boardId: z.string().uuid(),
-  target: z.discriminatedUnion("type", [
-    z.object({ type: z.literal("item"), itemId: idSchema }).strict(),
-    z.object({ type: z.literal("board") }).strict(),
-  ]),
-  kind: extensionIdSchema,
-  kindVersion: z.number().int().positive(),
-  enabled: z.boolean().default(true),
-  lifecycle: z.enum(["persistent", "when-visible", "manual"]),
-  timeOrigin: z.enum(["board", "visible", "activation"]),
-  layer: z.enum(["behind", "front", "screen"]).default("front"),
-  seed: z.string().min(1).max(160),
-  params: jsonObjectSchema.default({}),
-  assetRefs: z.array(BoardAssetRefSchema).default([]),
-  metadata: jsonObjectSchema.default({}),
-  revision: z.number().int().nonnegative(),
-});
+export { BoardAssetRefSchema, BoardEffectInputSchema, BoardEffectSchema, parseBoardEffectInput, type BoardAssetRef, type BoardEffect, type BoardEffectInput } from "./board-effect.js";
+import { BoardEffectInputSchema, type BoardEffect, type BoardEffectInput } from "./board-effect.js";
 
 export type BoardCameraState = z.infer<typeof BoardCameraStateSchema>;
 export type BoardCameraFocus = z.infer<typeof BoardCameraFocusSchema>;
 export type BoardCameraFocusParams = z.infer<typeof BoardCameraFocusParamsSchema>;
-export type BoardAssetRef = z.infer<typeof BoardAssetRefSchema>;
-export type BoardEffect = z.infer<typeof BoardEffectSchema>;
 
 export type BoardRecord = {
   id: string;
@@ -238,6 +218,7 @@ export type BoardTransaction = {
 export type BoardMutationReceipt = {
   mutationId: string;
   status: "applied" | "validated";
+  outcome: "applied" | "noop" | "dry-run";
   replayed: boolean;
   board: { id: string; version: number };
   changed: {
@@ -246,13 +227,14 @@ export type BoardMutationReceipt = {
     effects: string[];
     compositions: string[];
     board: boolean;
+    orderChanged: boolean;
   };
 };
 
 export type BoardSummary = {
   board: BoardRecord;
   counts: {
-    nodes: number;
+    items: number;
     connections: number;
     effects: number;
     compositions: number;
@@ -270,11 +252,25 @@ export type BoardBootstrap = {
 };
 
 /** Immutable semantic Board state shared by Checkpoints and published Works. */
-export type BoardSnapshot = BoardBootstrap & {
+export type BoardSnapshot = {
   kind: typeof BOARD_SNAPSHOT_KIND;
   version: typeof BOARD_PROTOCOL_VERSION;
   capturedAt: string;
+  board: BoardRecord;
+  items: BoardAuthoringItem[];
+  connections: BoardConnection[];
+  effects: Array<BoardEffectInput & { revision: number }>;
+  compositions: BoardComposition[];
+  playback: BoardPlaybackSnapshot | null;
 };
+
+const stripBoardServerFields = (value: unknown): unknown => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const { boardId: _boardId, revision: _revision, ...input } = value as Record<string, unknown>;
+  return input;
+};
+const BoardCreateEffectInputSchema = z.preprocess(stripBoardServerFields, BoardEffectInputSchema);
+const BoardCreateCompositionInputSchema = z.preprocess(stripBoardServerFields, BoardCompositionInputSchema);
 
 export const BoardCreateInputSchema = z.object({
   path: z.string().min(1),
@@ -284,14 +280,56 @@ export const BoardCreateInputSchema = z.object({
   metadata: jsonObjectSchema.optional(),
   items: z.array(BoardAuthoringItemSchema).max(50_000).optional(),
   connections: z.array(BoardConnectionSchema).max(50_000).optional(),
-  effects: z.array(BoardEffectSchema.omit({ boardId: true, revision: true })).optional(),
-  compositions: z.array(BoardCompositionInputSchema).optional(),
+  effects: z.array(BoardCreateEffectInputSchema).max(50_000).optional(),
+  compositions: z.array(BoardCreateCompositionInputSchema).max(50_000).optional(),
 });
 
 export type BoardCreateInput = z.infer<typeof BoardCreateInputSchema>;
 
+const jsonSchema = (schema: z.ZodType) => z.toJSONSchema(schema) as Record<string, unknown>;
+type BoardAuthoringSchemas = {
+  item: Record<string, unknown>;
+  itemPatch: Record<string, unknown>;
+  mutation: Record<string, unknown>;
+  composition: Record<string, unknown>;
+  effect: Record<string, unknown>;
+  create: Record<string, unknown>;
+};
+
+const authoringSchemaFactories = {
+  item: () => jsonSchema(BoardAuthoringItemSchema),
+  itemPatch: () => jsonSchema(BoardItemPatchSchema),
+  mutation: () => jsonSchema(BoardSemanticMutationSchema),
+  composition: () => jsonSchema(BoardCompositionInputSchema),
+  effect: () => jsonSchema(BoardEffectInputSchema),
+  create: () => jsonSchema(BoardCreateInputSchema),
+} satisfies { [K in keyof BoardAuthoringSchemas]: () => Record<string, unknown> };
+
+/**
+ * JSON Schemas for the semantic authoring surface. Each property is enumerable
+ * for Object.keys/JSON.stringify, but generated only when that property is
+ * requested. This keeps protocol imports cheap while capabilities still returns
+ * the complete machine-readable schema object.
+ */
+export const BOARD_AUTHORING_SCHEMAS = {} as BoardAuthoringSchemas;
+for (const key of Object.keys(authoringSchemaFactories) as Array<keyof BoardAuthoringSchemas>) {
+  let cached: Record<string, unknown> | undefined;
+  Object.defineProperty(BOARD_AUTHORING_SCHEMAS, key, {
+    enumerable: true,
+    configurable: false,
+    get() {
+      cached ??= authoringSchemaFactories[key]();
+      return cached;
+    },
+  });
+}
+
 export const BoardInspectInputSchema = z.object({
   include: z.array(z.enum(["nodes", "connections", "effects", "compositions", "playback"])).optional(),
+  nodeIds: z.array(idSchema).max(50_000).optional(),
+  connectionIds: z.array(idSchema).max(50_000).optional(),
+  effectIds: z.array(idSchema).max(50_000).optional(),
+  compositionIds: z.array(idSchema).max(50_000).optional(),
   viewport: z.object({
     x: finiteSchema,
     y: finiteSchema,
@@ -324,8 +362,9 @@ export type BoardCapabilities = {
   protocolVersion: typeof BOARD_PROTOCOL_VERSION;
   capabilities: BoardCapability[];
   limits: BoardRenderCost;
-  nodes: BoardNodeContract;
+  items: typeof BOARD_AUTHORING_ITEM_CAPABILITIES;
   animationChannels: typeof BOARD_ANIMATION_CHANNEL_CAPABILITIES;
+  authoring: typeof BOARD_AUTHORING_SCHEMAS;
 };
 
 /** Persisted on `boards.metadata.playback`: how a Board plays when opened. */

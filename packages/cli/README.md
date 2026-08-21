@@ -157,38 +157,16 @@ cohub -s <spaceId> boards capabilities <boardId>
 cohub -s <spaceId> boards watch <boardId> --json
 ```
 
-Pass nodes, effects, and sequences as JSON when creating a Board. The path and
-title stay explicit in the command. Inspect `boards capabilities --json` for the
-supported node types, enums, and coordinate spaces.
+Pass semantic items, effects, and compositions as JSON when creating a Board. The path and title stay explicit in the command. Generate editable templates instead of guessing fields:
 
-```json
-{
-  "nodes": [
-    {
-      "nodeId": "goal",
-      "type": "geo",
-      "parentId": null,
-      "orderKey": null,
-      "x": 80,
-      "y": 80,
-      "width": 240,
-      "height": 120,
-      "rotation": 0,
-      "refKind": null,
-      "refPath": null,
-      "refUrl": null,
-      "view": {},
-      "style": {},
-      "data": {
-        "geo": "rectangle",
-        "text": "Ship",
-        "color": "green",
-        "fillOpacity": 0.12
-      }
-    }
-  ]
-}
+```bash
+cohub boards examples create > board-content.json
+cohub boards examples item geo > item.json
+cohub boards examples effect pulse > effect.json
+cohub boards examples composition fade > intro.json
 ```
+
+Inspect `boards capabilities --json` for supported Item types, animation channels, effect kinds, and coordinate spaces.
 
 ```bash
 cohub -s <spaceId> boards create boards/plan.board \
@@ -196,32 +174,26 @@ cohub -s <spaceId> boards create boards/plan.board \
   --input board-content.json
 ```
 
-Transactions are JSON objects without `boardId`; the bound Board supplies it.
-`txId` is generated when omitted, while `baseVersion` must be provided in the
-input or with `--base-version`:
-
-```json
-{
-  "baseVersion": 3,
-  "operations": [
-    {
-      "type": "board.patch",
-      "payload": { "patch": { "title": "Updated plan" } }
-    }
-  ]
-}
-```
+Generate editable semantic JSON templates instead of authoring storage transactions:
 
 ```bash
-cohub -s <spaceId> boards validate <boardId> --input transaction.json
-cat transaction.json | cohub -s <spaceId> boards apply <boardId> --input - --json
-cohub -s <spaceId> boards play <boardId> <sequenceId>
+cohub boards examples item text > item.json
+cohub boards items create <boardId> --input item.json
+
+cohub boards examples composition fade > intro.json
+cohub boards compositions apply <boardId> --input intro.json
+
+cohub boards examples effect pulse > effect.json
+cohub boards effects apply <boardId> --input effect.json
+```
+
+Use `--mutation-id` or `--command-id` when a script needs a stable idempotency key across retries.
+
+```bash
+cohub -s <spaceId> boards play <boardId> <compositionId>
 cohub -s <spaceId> boards seek <boardId> <playbackId> 400
 cohub -s <spaceId> boards stop <boardId> <playbackId>
 ```
-
-Pass `--tx-id` or `--command-id` when a script needs a stable idempotency key
-across retries.
 
 ## Search
 

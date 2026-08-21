@@ -6,6 +6,7 @@
     "types": ["node"],
     "declaration": true,
     "declarationMap": false,
+    "stripInternal": true,
     "ignoreDeprecations": "6.0"
   },
   "include": ["src"]

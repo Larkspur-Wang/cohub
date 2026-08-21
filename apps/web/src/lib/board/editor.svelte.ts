@@ -1,4 +1,4 @@
-import type { BoardOperation } from "@neta-art/cohub";
+import type { BoardSemanticCommand } from "@cohub/protocol";
 import type {
 	BoardFileSnapshot,
 	BoardMediaSnapshot,
@@ -7,6 +7,8 @@ import type {
 import {
 	anchorPointOnFrame,
 	angleFromCenter,
+	applyBoardSemanticCommands,
+	boardDocumentToSemanticCommands,
 	cameraForRect,
 	clampZoom,
 	connectionHitTest,
@@ -46,12 +48,7 @@ import {
 } from "@neta-art/cohub/board";
 import { untrack } from "svelte";
 import { createCommitQueue } from "$lib/board/board-commit-queue";
-import {
-	applyBoardOps,
-	diffBoardDocuments,
-	invertBoardOps,
-	reconcileExternal,
-} from "$lib/board/board-document";
+import { reconcileExternal } from "$lib/board/board-document";
 import { appendBoardDrawSample } from "$lib/board/board-draw-input";
 import { createBoardItemId } from "$lib/board/board-id";
 import {
@@ -221,12 +218,12 @@ export type BoardInteraction =
 	 */
 	| {
 			type: "creatingConnection";
-			sourceNodeId: string;
+			sourceItemId: string;
 			/** Port the drag started from, kept as the source anchor. */
 			sourceAnchor: BoardConnectionAnchor;
 			current: WorldPoint;
 			/** Candidate under the pointer, or null while over empty space. */
-			targetNodeId: string | null;
+			targetItemId: string | null;
 	  }
 	/** Re-pointing one end of an existing relation onto another node. */
 	| {
@@ -236,7 +233,7 @@ export type BoardInteraction =
 			/** The relation as it was when the drag began, for a clean cancel. */
 			origin: BoardConnection;
 			current: WorldPoint;
-			targetNodeId: string | null;
+			targetItemId: string | null;
 			moved: boolean;
 	  }
 	| {
@@ -298,7 +295,8 @@ export type BoardEditorOptions = {
 	readonly?: boolean;
 	onCommit: (
 		document: BoardDocument,
-		ops: BoardOperation[],
+		before: BoardDocument,
+		commands: BoardSemanticCommand[],
 	) => void | Promise<void>;
 	onViewStateChange?: (state: BoardViewState) => void;
 };
@@ -352,8 +350,12 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		width: 0,
 		height: 0,
 	});
-	let undoStack = $state<BoardOperation[][]>([]);
-	let redoStack = $state<BoardOperation[][]>([]);
+	type UndoEntry = {
+		undo: BoardSemanticCommand[];
+		redo: BoardSemanticCommand[];
+	};
+	let undoStack = $state<UndoEntry[]>([]);
+	let redoStack = $state<UndoEntry[]>([]);
 	let localRev = $state(0);
 	let committedRev = $state(0);
 	let draftId = $state<string | null>(null);
@@ -404,8 +406,8 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		null;
 
 	// Serial persistence: diffs immutable snapshots against a running baseline.
-	const queue = createCommitQueue(async (document, ops) => {
-		await options.onCommit(document, ops);
+	const queue = createCommitQueue(async (document, before, commands) => {
+		await options.onCommit(document, before, commands);
 	});
 	queue.reset({
 		...toContent(options.document),
@@ -670,9 +672,10 @@ export function createBoardEditor(options: BoardEditorOptions) {
 	 * so an action is undoable even if its upload is still pending or fails.
 	 */
 	function recordUndoStep() {
-		const ops = diffBoardDocuments(undoBaseline, document);
-		if (ops.length === 0) return;
-		undoStack = [...undoStack, ops];
+		const redo = boardDocumentToSemanticCommands(undoBaseline, document);
+		if (redo.length === 0) return;
+		const undo = boardDocumentToSemanticCommands(document, undoBaseline);
+		undoStack = [...undoStack, { undo, redo }];
 		redoStack = [];
 		undoBaseline = document;
 	}
@@ -717,11 +720,11 @@ export function createBoardEditor(options: BoardEditorOptions) {
 	}
 
 	function undo() {
-		const ops = undoStack.at(-1);
-		if (!ops) return;
+		const entry = undoStack.at(-1);
+		if (!entry) return;
 		undoStack = undoStack.slice(0, -1);
-		redoStack = [...redoStack, ops];
-		const next = applyBoardOps(document, invertBoardOps(ops));
+		redoStack = [...redoStack, entry];
+		const next = applyBoardSemanticCommands(document, entry.undo);
 		setAppearance(next.appearance);
 		setContent(next.items, next.connections);
 		undoBaseline = document;
@@ -729,11 +732,11 @@ export function createBoardEditor(options: BoardEditorOptions) {
 	}
 
 	function redo() {
-		const ops = redoStack.at(-1);
-		if (!ops) return;
+		const entry = redoStack.at(-1);
+		if (!entry) return;
 		redoStack = redoStack.slice(0, -1);
-		undoStack = [...undoStack, ops];
-		const next = applyBoardOps(document, ops);
+		undoStack = [...undoStack, entry];
+		const next = applyBoardSemanticCommands(document, entry.redo);
 		setAppearance(next.appearance);
 		setContent(next.items, next.connections);
 		undoBaseline = document;
@@ -962,8 +965,8 @@ export function createBoardEditor(options: BoardEditorOptions) {
 			.map((source) =>
 				createBoardConnection({
 					id: createBoardItemId(),
-					sourceNodeId: source.nodeId,
-					targetNodeId: item.id,
+					sourceItemId: source.nodeId,
+					targetItemId: item.id,
 					sourcePortId: source.sourcePortId,
 					targetPortId: source.targetPortId,
 					relation: "input",
@@ -1135,19 +1138,18 @@ export function createBoardEditor(options: BoardEditorOptions) {
 	 * step brings back both the nodes and their relations.
 	 */
 	function removeNodes(ids: Set<string>) {
-		const remainingConnections =
-			synced.connections.length > 0
-				? synced.connections.filter(
-						(connection) =>
-							!ids.has(connection.source.nodeId) &&
-							!ids.has(connection.target.nodeId),
-					)
-				: synced.connections;
-		if (remainingConnections.length === synced.connections.length) {
+		// Degree-bounded instead of scanning every relation: removing a node costs
+		// its own connections via the index, not the board's whole relation set.
+		const incident = connectionsForNodes(ids);
+		if (incident.length === 0) {
 			setItems(removeBoardItems(synced.items, ids));
 			return;
 		}
-		setContent(removeBoardItems(synced.items, ids), remainingConnections);
+		const dropped = new Set(incident.map((connection) => connection.id));
+		setContent(
+			removeBoardItems(synced.items, ids),
+			synced.connections.filter((connection) => !dropped.has(connection.id)),
+		);
 	}
 
 	function deleteSelection() {
@@ -1164,8 +1166,8 @@ export function createBoardEditor(options: BoardEditorOptions) {
 				synced.connections.filter(
 					(connection) =>
 						!dropped.has(connection.id) &&
-						!ids.has(connection.source.nodeId) &&
-						!ids.has(connection.target.nodeId),
+						!ids.has(connection.source.itemId) &&
+						!ids.has(connection.target.itemId),
 				),
 			);
 		} else {
@@ -1200,7 +1202,11 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		offset?: number,
 	): { items: BoardItem[]; connections: BoardConnection[] } {
 		const sourceSet = new Set(sourceIds);
-		const sources = synced.items.filter((item) => sourceSet.has(item.id));
+		const sources: BoardItem[] = [];
+		// Document order for z-order preservation on duplicate/paste.
+		for (const item of synced.items) {
+			if (sourceSet.has(item.id)) sources.push(item);
+		}
 		if (sources.length === 0) return { items: [], connections: [] };
 
 		const pairs = sources.map((item) => ({
@@ -1215,8 +1221,8 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		);
 
 		const connections = synced.connections.flatMap((connection) => {
-			const source = idMap.get(connection.source.nodeId);
-			const target = idMap.get(connection.target.nodeId);
+			const source = idMap.get(connection.source.itemId);
+			const target = idMap.get(connection.target.itemId);
 			if (!source || !target) return [];
 			return [
 				{
@@ -1302,7 +1308,13 @@ export function createBoardEditor(options: BoardEditorOptions) {
 	function copySelection(): BoardClipboardPayload | null {
 		if (selection.length === 0) return null;
 		const ids = new Set(selection);
-		const items = synced.items.filter((item) => ids.has(item.id));
+		// Document order, not selection order: clipboard paste must preserve
+		// z-order regardless of the order items were clicked into the selection.
+		// Single pass over the document, membership checked once per item.
+		const items: BoardItem[] = [];
+		for (const item of synced.items) {
+			if (ids.has(item.id)) items.push(item);
+		}
 		const payload = encodeClipboard(items);
 		if (payload) {
 			internalClipboard = payload;
@@ -1394,8 +1406,13 @@ export function createBoardEditor(options: BoardEditorOptions) {
 	function bringToFront() {
 		if (selection.length === 0) return;
 		const ids = new Set(selection);
-		const rest = synced.items.filter((item) => !ids.has(item.id));
-		const chosen = synced.items.filter((item) => ids.has(item.id));
+		// Single partition pass: selection membership is checked once per item
+		// instead of two full scans (chosen + rest).
+		const chosen: BoardItem[] = [];
+		const rest: BoardItem[] = [];
+		for (const item of synced.items) {
+			(ids.has(item.id) ? chosen : rest).push(item);
+		}
 		setItems([...rest, ...chosen]);
 		commitAction();
 	}
@@ -1403,8 +1420,11 @@ export function createBoardEditor(options: BoardEditorOptions) {
 	function sendToBack() {
 		if (selection.length === 0) return;
 		const ids = new Set(selection);
-		const chosen = synced.items.filter((item) => ids.has(item.id));
-		const rest = synced.items.filter((item) => !ids.has(item.id));
+		const chosen: BoardItem[] = [];
+		const rest: BoardItem[] = [];
+		for (const item of synced.items) {
+			(ids.has(item.id) ? chosen : rest).push(item);
+		}
 		setItems([...chosen, ...rest]);
 		commitAction();
 	}
@@ -1926,29 +1946,28 @@ export function createBoardEditor(options: BoardEditorOptions) {
 
 	/** Create a relation between two nodes. Returns its id, or null if refused. */
 	function connectNodes(input: {
-		sourceNodeId: string;
-		targetNodeId: string;
+		sourceItemId: string;
+		targetItemId: string;
 		sourceAnchor?: BoardConnectionAnchor;
 		targetAnchor?: BoardConnectionAnchor;
 	}): string | null {
 		if (options.readonly) return null;
-		const source = itemById(input.sourceNodeId);
-		const target = itemById(input.targetNodeId);
+		const source = itemById(input.sourceItemId);
+		const target = itemById(input.targetItemId);
 		if (!source || !target) return null;
 		if (!shapeCapabilities(source).canConnect) return null;
 		if (!shapeCapabilities(target).canConnect) return null;
 		// Re-drawing an existing relation is a no-op rather than a duplicate edge:
-		// the second one would be invisible underneath the first.
-		const existing = synced.connections.find(
-			(connection) =>
-				connection.source.nodeId === input.sourceNodeId &&
-				connection.target.nodeId === input.targetNodeId,
+		// the second one would be invisible underneath the first. Found via the
+		// connection index (source degree) instead of scanning every relation.
+		const existing = connectionsForNodes([input.sourceItemId]).find(
+			(connection) => connection.target.itemId === input.targetItemId,
 		);
 		if (existing) return existing.id;
 		const connection = createBoardConnection({
 			id: createBoardItemId(),
-			sourceNodeId: input.sourceNodeId,
-			targetNodeId: input.targetNodeId,
+			sourceItemId: input.sourceItemId,
+			targetItemId: input.targetItemId,
 			...(input.sourceAnchor ? { sourceAnchor: input.sourceAnchor } : {}),
 			...(input.targetAnchor ? { targetAnchor: input.targetAnchor } : {}),
 			style: {
@@ -2220,10 +2239,10 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		if (port) {
 			interaction = {
 				type: "creatingConnection",
-				sourceNodeId: port.nodeId,
+				sourceItemId: port.nodeId,
 				sourceAnchor: { kind: "side", side: port.side, offset: 0.5 },
 				current: event.world,
-				targetNodeId: null,
+				targetItemId: null,
 			};
 			return;
 		}
@@ -2238,7 +2257,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 				which: endpointHandle.which,
 				origin: endpointHandle.connection,
 				current: event.world,
-				targetNodeId: null,
+				targetItemId: null,
 				moved: false,
 			};
 			return;
@@ -2632,7 +2651,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 			interaction = {
 				...interaction,
 				current: event.world,
-				targetNodeId: connectTargetAt(event.world, interaction.sourceNodeId),
+				targetItemId: connectTargetAt(event.world, interaction.sourceItemId),
 			};
 			return;
 		}
@@ -2640,12 +2659,12 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		if (interaction.type === "draggingConnectionEnd") {
 			const fixedEnd =
 				interaction.which === "source"
-					? interaction.origin.target.nodeId
-					: interaction.origin.source.nodeId;
+					? interaction.origin.target.itemId
+					: interaction.origin.source.itemId;
 			interaction = {
 				...interaction,
 				current: event.world,
-				targetNodeId: connectTargetAt(event.world, fixedEnd),
+				targetItemId: connectTargetAt(event.world, fixedEnd),
 				moved: true,
 			};
 			return;
@@ -2717,14 +2736,14 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		} else if (gesture.type === "creatingConnection") {
 			// A drag that ended on nothing creates nothing. There is no sensible
 			// half-relation to store, and inventing a node here would be a surprise.
-			const targetNodeId = event.cancelled
+			const targetItemId = event.cancelled
 				? null
-				: (gesture.targetNodeId ??
-					connectTargetAt(gesture.current, gesture.sourceNodeId));
-			if (targetNodeId) {
+				: (gesture.targetItemId ??
+					connectTargetAt(gesture.current, gesture.sourceItemId));
+			if (targetItemId) {
 				const created = connectNodes({
-					sourceNodeId: gesture.sourceNodeId,
-					targetNodeId,
+					sourceItemId: gesture.sourceItemId,
+					targetItemId,
 					sourceAnchor: gesture.sourceAnchor,
 				});
 				// Select the new relation so its inspector is immediately available.
@@ -2733,19 +2752,19 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		} else if (gesture.type === "draggingConnectionEnd") {
 			const fixedEnd =
 				gesture.which === "source"
-					? gesture.origin.target.nodeId
-					: gesture.origin.source.nodeId;
-			const targetNodeId = event.cancelled
+					? gesture.origin.target.itemId
+					: gesture.origin.source.itemId;
+			const targetItemId = event.cancelled
 				? null
-				: (gesture.targetNodeId ?? connectTargetAt(gesture.current, fixedEnd));
+				: (gesture.targetItemId ?? connectTargetAt(gesture.current, fixedEnd));
 			// Dropping on empty space leaves the relation exactly as it was: an edge
 			// with one end nowhere is not a state the model can hold.
-			if (targetNodeId) {
+			if (targetItemId) {
 				const endpoint = gesture.which === "source" ? "source" : "target";
 				const current = gesture.origin[endpoint];
-				if (current.nodeId !== targetNodeId) {
+				if (current.itemId !== targetItemId) {
 					updateConnection(gesture.connectionId, {
-						[endpoint]: { nodeId: targetNodeId, anchor: { kind: "auto" } },
+						[endpoint]: { nodeId: targetItemId, anchor: { kind: "auto" } },
 					} as Partial<Omit<BoardConnection, "id">>);
 				}
 			}
@@ -3015,11 +3034,11 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		 */
 		get connectionDraft() {
 			if (interaction.type === "creatingConnection") {
-				const source = itemById(interaction.sourceNodeId);
+				const source = itemById(interaction.sourceItemId);
 				if (!source) return null;
 				const from = anchorPointOnFrame(interaction.sourceAnchor, source.frame);
-				const target = interaction.targetNodeId
-					? itemById(interaction.targetNodeId)
+				const target = interaction.targetItemId
+					? itemById(interaction.targetItemId)
 					: null;
 				return {
 					from: { x: from.x, y: from.y },
@@ -3036,11 +3055,11 @@ export function createBoardEditor(options: BoardEditorOptions) {
 					interaction.which === "source"
 						? connection.target
 						: connection.source;
-				const fixedNode = itemById(fixedEndpoint.nodeId);
+				const fixedNode = itemById(fixedEndpoint.itemId);
 				if (!fixedNode) return null;
 				const from = anchorPointOnFrame(fixedEndpoint.anchor, fixedNode.frame);
-				const target = interaction.targetNodeId
-					? itemById(interaction.targetNodeId)
+				const target = interaction.targetItemId
+					? itemById(interaction.targetItemId)
 					: null;
 				return {
 					from: { x: from.x, y: from.y },

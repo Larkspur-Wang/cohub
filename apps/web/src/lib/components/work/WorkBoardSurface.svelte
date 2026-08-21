@@ -1,9 +1,9 @@
 <script lang="ts">
 import type { WorkBoardArtifactManifest, WorkContent } from "@neta-art/cohub";
+import { boardAuthoringSnapshotToDocument } from "@neta-art/cohub/board";
 import { createWorkBoardAssetSource } from "$lib/board/board-asset-source";
-import { boardBootstrapToDocument } from "$lib/board/board-document";
 import {
-	boardRuntimeDataFromBootstrap,
+	boardRuntimeDataFromAuthoring,
 	resolveBoardRuntime,
 } from "$lib/board/runtime/board-runtime";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
@@ -28,10 +28,10 @@ const manifest = $derived(loaded?.url === content.url ? loaded.manifest : null);
 // The published snapshot is the whole document: no Space, no realtime, no reads.
 const board = $derived.by(() => {
 	if (!manifest) return null;
-	const bootstrap = manifest.snapshot;
+	const snapshot = manifest.snapshot;
 	return {
-		document: boardBootstrapToDocument(bootstrap),
-		runtime: boardRuntimeDataFromBootstrap(bootstrap),
+		document: boardAuthoringSnapshotToDocument(snapshot),
+		runtime: boardRuntimeDataFromAuthoring(snapshot),
 		assetSource: createWorkBoardAssetSource({
 			manifestUrl: content.url,
 			assets: manifest.assets,

@@ -30,17 +30,6 @@ function textItem(id: string, text: string): BoardItem {
 	};
 }
 
-function createdNodeId(op: { type: string; payload: Record<string, unknown> }) {
-	const node = payloadNode(op);
-	return node?.nodeId;
-}
-
-function payloadNode(op: {
-	payload: Record<string, unknown>;
-}): { nodeId?: string } | undefined {
-	return op.payload.node as { nodeId?: string } | undefined;
-}
-
 test("commits run serially, never concurrently", async () => {
 	let inFlight = 0;
 	let maxConcurrent = 0;
@@ -71,12 +60,19 @@ test("each commit only sends the delta against the advancing baseline", async ()
 	);
 	assert.ok(r1.ok && r2.ok);
 	// First commit creates "a".
-	assert.equal(r1.ops.length, 1);
-	assert.equal(createdNodeId(r1.ops[0]), "a");
+	assert.equal(r1.commands.length, 1);
+	assert.equal(r1.commands[0]?.type, "item.create");
+	assert.equal(
+		r1.commands[0]?.type === "item.create" && r1.commands[0].item.id,
+		"a",
+	);
 	// Second commit creates only "b" — it must not re-create "a".
-	assert.equal(r2.ops.length, 1);
-	assert.equal(r2.ops[0].type, "node.create");
-	assert.equal(createdNodeId(r2.ops[0]), "b");
+	assert.equal(r2.commands.length, 1);
+	assert.equal(r2.commands[0]?.type, "item.create");
+	assert.equal(
+		r2.commands[0]?.type === "item.create" && r2.commands[0].item.id,
+		"b",
+	);
 });
 
 test("a failed commit does not advance the baseline; the next re-sends", async () => {
@@ -94,8 +90,11 @@ test("a failed commit does not advance the baseline; the next re-sends", async (
 	const retried = await queue.commit(snapshot);
 	assert.ok(retried.ok);
 	// Baseline never advanced, so the create is re-sent in full.
-	assert.equal(retried.ops.length, 1);
-	assert.equal(createdNodeId(retried.ops[0]), "a");
+	assert.equal(retried.commands.length, 1);
+	assert.equal(
+		retried.commands[0]?.type === "item.create" && retried.commands[0].item.id,
+		"a",
+	);
 });
 
 test("isEcho recognises a committed snapshot exactly once", async () => {
@@ -118,7 +117,7 @@ test("a commit with no changes is a no-op that skips onCommit", async () => {
 	queue.reset(makeDoc([]));
 	const result = await queue.commit(makeDoc([]));
 	assert.ok(result.ok);
-	assert.equal(result.ops.length, 0);
+	assert.equal(result.commands.length, 0);
 	assert.equal(called, 0);
 });
 
@@ -135,7 +134,7 @@ test("the queue keeps processing after a failure", async () => {
 	assert.equal(first.ok, false);
 	const second = await queue.commit(makeDoc([textItem("a", "1")]));
 	assert.ok(second.ok);
-	assert.equal(second.ops.length, 1);
+	assert.equal(second.commands.length, 1);
 });
 
 test("reset is a barrier: an in-flight commit cannot advance the baseline", async () => {
@@ -164,8 +163,11 @@ test("reset is a barrier: an in-flight commit cannot advance the baseline", asyn
 	const d3 = makeDoc([textItem("b", "2"), textItem("c", "3")]);
 	const result = await queue.commit(d3);
 	assert.ok(result.ok);
-	assert.equal(result.ops.length, 1);
-	assert.equal(createdNodeId(result.ops[0]), "c");
+	assert.equal(result.commands.length, 1);
+	assert.equal(
+		result.commands[0]?.type === "item.create" && result.commands[0].item.id,
+		"c",
+	);
 });
 
 test("reset clears the echo set", async () => {

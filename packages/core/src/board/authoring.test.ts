@@ -35,6 +35,33 @@ test("Item patch recursively merges objects and preserves untouched fields", () 
 	assert.equal(props.fontSize, 32);
 });
 
+test("explicit null clearing does not restore opaque source or style", () => {
+	const before = boardAuthoringItemToNode({
+		id: "extension",
+		type: "extension.demo.node",
+		kindVersion: 1,
+		frame: { x: 0, y: 0, width: 100, height: 100, rotation: 0 },
+		props: {},
+		source: { kind: "asset", ref: "asset:one" },
+		style: { runtimeStyle: true },
+	}, { orderKey: "00000001" });
+	const compiled = boardAuthoringItemToNode({
+		id: "extension",
+		type: "extension.demo.node",
+		kindVersion: 1,
+		frame: { x: 0, y: 0, width: 100, height: 100, rotation: 0 },
+		props: {},
+	}, { orderKey: before.orderKey });
+	const cleared = preserveOpaqueNodeFields(before, compiled, {
+		preserveSource: false,
+		preserveStyle: false,
+	});
+	assert.equal(cleared.refKind, null);
+	assert.equal(cleared.refPath, null);
+	assert.deepEqual(cleared.view, {});
+	assert.deepEqual(cleared.style, {});
+});
+
 test("partial authoring edits preserve opaque storage fields", () => {
 	const before = boardAuthoringItemToNode(text, { orderKey: "00000001" });
 	before.refKind = "runtime_asset";

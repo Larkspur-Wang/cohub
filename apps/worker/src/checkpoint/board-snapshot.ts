@@ -11,6 +11,8 @@ import {
 import {
   BOARD_PROTOCOL_VERSION,
   BOARD_SNAPSHOT_KIND,
+  boardNodeToAuthoringItem,
+  type BoardNodeInput,
   type BoardSnapshot,
 } from "@cohub/protocol";
 import {
@@ -62,13 +64,31 @@ export async function captureBoardSnapshots(input: {
           createdAt: dateString(board.createdAt),
           updatedAt: dateString(board.updatedAt),
         },
-        nodes: nodes.map(({ deletedAt: _deletedAt, ...node }) => ({
-          ...node,
-          createdAt: dateString(node.createdAt),
-          updatedAt: dateString(node.updatedAt),
-        })),
-        connections: connections.map(boardConnectionFromRow),
-        effects: effects.map(boardEffectFromRow),
+        items: nodes.map((node) => boardNodeToAuthoringItem({
+          nodeId: node.nodeId,
+          type: node.type,
+          parentId: node.parentId,
+          orderKey: node.orderKey,
+          x: node.x,
+          y: node.y,
+          width: node.width,
+          height: node.height,
+          rotation: node.rotation,
+          refKind: node.refKind,
+          refPath: node.refPath,
+          refUrl: node.refUrl,
+          view: node.view,
+          style: node.style,
+          data: node.data,
+        } satisfies BoardNodeInput)),
+        connections: connections.map((row) => {
+          const { boardId: _boardId, revision: _revision, createdAt: _createdAt, updatedAt: _updatedAt, ...connection } = boardConnectionFromRow(row);
+          return connection;
+        }),
+        effects: effects.map((row) => {
+          const { boardId: _boardId, ...effect } = boardEffectFromRow(row);
+          return effect;
+        }),
         compositions: boardCompositionsFromRows(compositions, tracks, clips),
         playback: null,
       });

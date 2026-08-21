@@ -359,12 +359,29 @@ export const BoardCompositionSchema = z
 	.strict()
 	.superRefine(validateCompositionFallback);
 export type BoardComposition = z.infer<typeof BoardCompositionSchema>;
+export type BoardAuthoringComposition = BoardCompositionInput & { revision?: number };
 
-/** Accept inspect/get output as apply input while stripping server-owned revision. */
+/**
+ * Accept inspect/get output as apply input while stripping server-owned
+ * `revision`. Anything else that looks server-owned (or simply unknown) fails
+ * with a pointer at the offending key, so a get → edit → apply round-trip that
+ * accidentally carries runtime fields names the culprit instead of a bare
+ * "Unrecognized key".
+ */
 export function parseBoardCompositionInput(value: unknown): BoardCompositionInput {
 	if (value && typeof value === "object" && !Array.isArray(value)) {
 		const { revision: _revision, ...input } = value as Record<string, unknown>;
-		return BoardCompositionInputSchema.parse(input);
+		const result = BoardCompositionInputSchema.safeParse(input);
+		if (!result.success) {
+			const issue = result.error.issues.find((item) => item.code === "unrecognized_keys");
+			if (issue) {
+				throw new Error(
+					`unknown field in composition input: ${issue.message}. Server-owned fields such as revision are stripped automatically; remove other fields not part of the composition schema`,
+				);
+			}
+			throw result.error;
+		}
+		return result.data;
 	}
 	return BoardCompositionInputSchema.parse(value);
 }

@@ -3,14 +3,12 @@ import test from "node:test";
 import type { TaskRunRecord } from "@neta-art/cohub";
 import {
 	BoardDocumentSchema,
-	boardNodeToItem,
+	boardAuthoringItemToDocumentItem,
+	boardItemToAuthoringItem,
 	imageAssetKey,
 	taskRunToBoardTaskSnapshot as taskBoardSnapshot,
 } from "@neta-art/cohub/board";
-import {
-	boardItemToNode,
-	createEmptyBoardDocument,
-} from "$lib/board/board-document";
+import { createEmptyBoardDocument } from "$lib/board/board-document";
 import { createTaskBoardItem } from "$lib/board/board-items";
 
 function generationRun(result: unknown): TaskRunRecord {
@@ -86,7 +84,7 @@ test("never persists inline generation media in a task snapshot", () => {
 	assert.deepEqual(snapshot.artifacts, []);
 });
 
-test("task items survive document and server-node round trips", () => {
+test("task items survive document and semantic authoring round trips", () => {
 	const snapshot = taskBoardSnapshot(
 		generationRun({
 			output: [
@@ -102,21 +100,16 @@ test("task items survive document and server-node round trips", () => {
 	const item = createTaskBoardItem("task_1", snapshot, 200, 120, {
 		regeneration: {
 			sourceTaskRunId: "task_0",
-			sourceNodeId: "node_0",
+			sourceItemId: "node_0",
 		},
 	});
 	const document = BoardDocumentSchema.parse({
 		...createEmptyBoardDocument(),
 		items: [item],
 	});
-	const node = boardItemToNode(document.items[0], 0, 1);
-	const decoded = boardNodeToItem({
-		...node,
-		boardId: "board_1",
-		version: 1,
-		createdAt: null,
-		updatedAt: null,
-	});
+	const authored = boardItemToAuthoringItem(document.items[0]);
+	assert.ok(authored);
+	const decoded = boardAuthoringItemToDocumentItem(authored);
 
 	assert.equal(decoded.type, "task");
 	if (decoded.type !== "task") assert.fail("expected task item");
@@ -125,7 +118,7 @@ test("task items survive document and server-node round trips", () => {
 	assert.deepEqual(decoded.metadata, {
 		regeneration: {
 			sourceTaskRunId: "task_0",
-			sourceNodeId: "node_0",
+			sourceItemId: "node_0",
 		},
 	});
 	assert.equal(

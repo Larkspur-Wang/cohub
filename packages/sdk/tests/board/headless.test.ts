@@ -112,7 +112,7 @@ const document: BoardDocument = {
   // A relation between two of the nodes, so the export path covers connection
   // drawing rather than only shapes.
   connections: [
-    createBoardConnection({ id: "c1", sourceNodeId: "g0", targetNodeId: "g1", label: "to" }),
+    createBoardConnection({ id: "c1", sourceItemId: "g0", targetItemId: "g1", label: "to" }),
   ],
 } as BoardDocument;
 

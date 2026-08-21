@@ -76,12 +76,12 @@ export function boardConnectionFromRow(row: BoardConnectionRow): BoardConnection
 		id: row.connectionId,
 		boardId: row.boardId,
 		source: {
-			nodeId: row.sourceNodeId,
+			itemId: row.sourceNodeId,
 			...(sourcePortId ? { portId: sourcePortId } : {}),
 			anchor: row.sourceAnchor as unknown as BoardConnectionAnchor,
 		},
 		target: {
-			nodeId: row.targetNodeId,
+			itemId: row.targetNodeId,
 			...(targetPortId ? { portId: targetPortId } : {}),
 			anchor: row.targetAnchor as unknown as BoardConnectionAnchor,
 		},
@@ -193,12 +193,55 @@ export function boardCompositionInputFromRows(
 	return composition;
 }
 
+export function boardTrackValues(
+	boardId: string,
+	compositionId: string,
+	track: BoardTrack,
+) {
+	return {
+		id: track.id,
+		boardId,
+		compositionId,
+		target: track.target,
+		channel: track.channel,
+		channelVersion: track.channelVersion,
+		interpolation: track.interpolation,
+		fill: track.fill,
+		keyframes: track.keyframes,
+		metadata: track.metadata,
+	};
+}
+
+export function boardClipValues(
+	boardId: string,
+	compositionId: string,
+	clip: BoardProceduralClip,
+) {
+	return {
+		id: clip.id,
+		boardId,
+		compositionId,
+		kind: clip.kind,
+		kindVersion: clip.kindVersion,
+		target: clip.target,
+		start: clip.start,
+		duration: clip.duration,
+		layer: clip.layer,
+		fill: clip.fill,
+		easing: clip.easing,
+		params: clip.params,
+		assetRefs: clip.assetRefs,
+		seed: clip.seed,
+		metadata: clip.metadata,
+	};
+}
+
 export function boardConnectionValues(boardId: string, connection: BoardConnection) {
 	return {
 		boardId,
 		connectionId: connection.id,
-		sourceNodeId: connection.source.nodeId,
-		targetNodeId: connection.target.nodeId,
+		sourceNodeId: connection.source.itemId,
+		targetNodeId: connection.target.itemId,
 		relation: connection.relation,
 		direction: connection.direction,
 		label: connection.label,

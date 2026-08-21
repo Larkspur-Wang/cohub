@@ -26,7 +26,7 @@ import { BoardAppearanceSchema } from "@cohub/protocol/board-document";
 import {
   BoardConnectionPatchSchema,
   BoardConnectionSchema,
-  connectionNodeIds,
+  connectionItemIds,
   type BoardConnection,
   type BoardConnectionPatch,
 } from "@cohub/protocol/board-connection";
@@ -685,8 +685,8 @@ export function contextualValidation(
       // both. An implicit cascade here would delete rows the inverse never sees.
       const incident = [...connections.values()].filter(
         (connection) =>
-          connection.source.nodeId === operation.payload.nodeId ||
-          connection.target.nodeId === operation.payload.nodeId,
+          connection.source.itemId === operation.payload.nodeId ||
+          connection.target.itemId === operation.payload.nodeId,
       );
       if (incident.length > 0) {
         error(
@@ -706,7 +706,7 @@ export function contextualValidation(
       if (connections.has(connection.id)) {
         error("CONNECTION_EXISTS", `connection already exists: ${connection.id}`, `${path}.payload.connection.id`);
       }
-      for (const nodeId of connectionNodeIds(connection)) {
+      for (const nodeId of connectionItemIds(connection)) {
         if (!nodeIds.has(nodeId)) {
           error("INVALID_REFERENCE", `connection endpoint does not exist: ${nodeId}`, `${path}.payload.connection`);
         }
@@ -724,7 +724,7 @@ export function contextualValidation(
         ...current,
         ...operation.payload.patch,
       } as Pick<BoardConnection, "id" | "source" | "target">;
-      for (const nodeId of connectionNodeIds(next as BoardConnection)) {
+      for (const nodeId of connectionItemIds(next as BoardConnection)) {
         if (!nodeIds.has(nodeId)) {
           error("INVALID_REFERENCE", `connection endpoint does not exist: ${nodeId}`, `${path}.payload.patch`);
         }

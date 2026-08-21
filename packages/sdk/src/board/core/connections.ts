@@ -304,12 +304,12 @@ export function resolveConnection(
 	getFrame: FrameLookup,
 	options: { gap?: number } = {},
 ): ResolvedConnection | null {
-	const sourceFrame = getFrame(connection.source.nodeId);
-	const targetFrame = getFrame(connection.target.nodeId);
+	const sourceFrame = getFrame(connection.source.itemId);
+	const targetFrame = getFrame(connection.target.itemId);
 	if (!sourceFrame || !targetFrame) return null;
 	const gap = options.gap ?? CONNECTION_ENDPOINT_GAP;
 
-	if (connection.source.nodeId === connection.target.nodeId) {
+	if (connection.source.itemId === connection.target.itemId) {
 		const path = selfLoopPath(sourceFrame, gap);
 		const first = path[0] as WorldPoint;
 		const last = path[path.length - 1] as WorldPoint;
@@ -514,7 +514,7 @@ export function createConnectionIndex(
 	const byId = new Map<string, BoardConnection>();
 	for (const connection of connections) {
 		byId.set(connection.id, connection);
-		for (const nodeId of new Set([connection.source.nodeId, connection.target.nodeId])) {
+		for (const nodeId of new Set([connection.source.itemId, connection.target.itemId])) {
 			const list = byNode.get(nodeId);
 			if (list) list.push(connection.id);
 			else byNode.set(nodeId, [connection.id]);

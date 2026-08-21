@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { BoardClient, BoardTransactionError } from "../src/apis/spaces.js";
+import { BoardClient } from "../src/apis/spaces.js";
 import { CohubHttpClient } from "../src/http.js";
 import { HttpTransport, type Fetch } from "../src/transport.js";
 import type { WebsocketClient, WebsocketEventPayload } from "../src/websocket.js";
@@ -12,103 +12,26 @@ function jsonResponse(body: unknown): Response {
 	});
 }
 
-test("space.board and boards.byId bind the Board identity", async () => {
+test("space.board and boards.byId use public authoring and mutation endpoints", async () => {
 	const requests: Array<{ url: string; init?: RequestInit }> = [];
 	const fetch: Fetch = async (input, init) => {
 		requests.push({ url: String(input), init });
-		return jsonResponse({});
-	};
-	const client = new CohubHttpClient({ baseUrl: "https://api.example.test", fetch });
-	const space = client.space("space-1");
-	const board = space.board("board-1");
-
-	assert.equal(board.id, "board-1");
-	assert.equal(board.spaceId, "space-1");
-	assert.equal(space.boards.byId("board-2").id, "board-2");
-
-	await board.inspect({ include: ["nodes"], viewport: { x: 1, y: 2, width: 3, height: 4 } });
-	assert.match(requests[0]?.url ?? "", /^https:\/\/api\.example\.test\/api\/spaces\/space-1\/boards\/board-1\?/);
-	const inspectUrl = new URL(requests[0]?.url ?? "");
-	assert.deepEqual(inspectUrl.searchParams.getAll("include"), ["nodes"]);
-	assert.deepEqual(JSON.parse(inspectUrl.searchParams.get("viewport") ?? "null"), {
-		x: 1,
-		y: 2,
-		width: 3,
-		height: 4,
-	});
-
-	await board.apply({
-		txId: "tx-1",
-		baseVersion: 7,
-		operations: [{ type: "board.patch", payload: { patch: { title: "Plan" } } }],
-	});
-	assert.equal(requests[1]?.url, "https://api.example.test/api/spaces/space-1/boards/board-1/transactions");
-	assert.deepEqual(JSON.parse(String(requests[1]?.init?.body)), {
-		txId: "tx-1",
-		baseVersion: 7,
-		operations: [{ type: "board.patch", payload: { patch: { title: "Plan" } } }],
-		boardId: "board-1",
-	});
-	await board.summary();
-	assert.equal(requests[2]?.url, "https://api.example.test/api/spaces/space-1/boards/board-1/summary");
-});
-
-test("Board mutate rebuilds once after a version conflict", async () => {
-	let inspectVersion = 2;
-	let applies = 0;
-	const fetch: Fetch = async (input, init) => {
-		const url = String(input);
-		if (url.includes("/transactions")) {
-			assert.doesNotMatch(url, /\?compact=1$/);
-			applies += 1;
-			if (applies === 1) {
-				inspectVersion = 3;
-				return new Response(JSON.stringify({ code: "VERSION_CONFLICT", message: "changed" }), {
-					status: 409,
-					headers: { "Content-Type": "application/json" },
-				});
-			}
-			return jsonResponse({
-				mutationId: "mutation-1",
-				status: "applied",
-				replayed: false,
-				board: { id: "board-1", version: 4 },
-				changed: { items: [], connections: [], effects: [], compositions: [], board: true },
-			});
-		}
-		assert.equal(init?.method, undefined);
 		return jsonResponse({
-			board: { id: "board-1", spaceId: "space-1", title: "Plan", version: inspectVersion, metadata: {} },
-			nodes: [], connections: [], effects: [], compositions: [], playback: null,
+			board: { id: "board-1", title: "Plan", version: 1, metadata: {}, updatedAt: null },
+			items: [], connections: [], effects: [], compositions: [], playback: null,
 		});
 	};
-	const board = new CohubHttpClient({ baseUrl: "https://api.example.test", fetch })
-		.space("space-1").board("board-1");
-	const versions: number[] = [];
-	const result = await board.mutate({
-		build(current) {
-			versions.push(current.board.version);
-			return [{ type: "board.patch", payload: { patch: { title: `v${current.board.version}` } } }];
-		},
-	});
-	assert.deepEqual(versions, [2, 3]);
-	assert.equal(applies, 2);
-	assert.equal(result.board.version, 4);
-});
-
-test("Board mutate rejects invalid retry counts before requesting", async () => {
-	let requests = 0;
-	const fetch: Fetch = async () => {
-		requests += 1;
-		return jsonResponse({});
-	};
-	const board = new CohubHttpClient({ baseUrl: "https://api.example.test", fetch })
-		.space("space-1").board("board-1");
-	await assert.rejects(
-		board.mutate({ retries: Number.NaN, build: () => [] }),
-		/retries must be an integer from 0 to 3/,
-	);
-	assert.equal(requests, 0);
+	const client = new CohubHttpClient({ baseUrl: "https://api.example.test", fetch });
+	const board = client.space("space-1").board("board-1");
+	assert.equal(board.id, "board-1");
+	assert.equal(client.space("space-1").boards.byId("board-2").id, "board-2");
+	await board.authoring({ include: ["items", "connections"], itemIds: ["title"] });
+	assert.match(requests[0]?.url ?? "", /\/authoring\?/);
+	const authoringUrl = new URL(requests[0]?.url ?? "");
+	assert.deepEqual(authoringUrl.searchParams.getAll("include"), ["items", "connections"]);
+	assert.equal(authoringUrl.searchParams.get("itemIds"), "title");
+	await board.mutateSemantic({ mutationId: "mutation-1", baseVersion: 1, commands: [{ type: "board.patch", patch: { title: "Updated" } }] });
+	assert.equal(requests[1]?.url, "https://api.example.test/api/spaces/space-1/boards/board-1/mutations");
 });
 
 test("Board create rejects invalid semantic items before making a request", async () => {
@@ -131,33 +54,6 @@ test("Board create rejects invalid semantic items before making a request", asyn
 		(error) => error instanceof Error && /fontSize/.test(error.message),
 	);
 	assert.equal(requests, 0);
-});
-
-test("Board apply exposes version conflicts as BoardTransactionError", async () => {
-	const fetch: Fetch = async () => new Response(JSON.stringify({
-		code: "VERSION_CONFLICT",
-		message: "Board version changed",
-	}), {
-		status: 409,
-		headers: { "Content-Type": "application/json" },
-	});
-	const client = new CohubHttpClient({ baseUrl: "https://api.example.test", fetch });
-	const board = client.space("space-1").board("board-1");
-
-	await assert.rejects(
-		board.apply({ txId: "tx-1", baseVersion: 2, operations: [] }),
-		(error: unknown) => {
-			assert.ok(error instanceof BoardTransactionError);
-			assert.equal(error.status, 409);
-			assert.equal(error.code, "VERSION_CONFLICT");
-			assert.equal(error.isVersionConflict, true);
-			assert.deepEqual(error.body, {
-				code: "VERSION_CONFLICT",
-				message: "Board version changed",
-			});
-			return true;
-		},
-	);
 });
 
 test("Board realtime subscriptions isolate events by space and Board", () => {
@@ -185,20 +81,20 @@ test("Board realtime subscriptions isolate events by space and Board", () => {
 	const board = new BoardClient("space-1", "board-1", transport, websocket);
 	const received: string[] = [];
 	const stop = board.subscribe({
-		transaction: () => received.push("transaction"),
+		changed: () => received.push("changed"),
 		awareness: () => received.push("awareness"),
 		playback: () => received.push("playback"),
 	});
 
 	const emit = eventHandler as (event: WebsocketEventPayload) => void;
-	emit({ spaceId: "space-1", type: "board.transaction.applied", payload: { boardId: "board-2" } } as WebsocketEventPayload);
-	emit({ spaceId: "space-2", type: "board.transaction.applied", payload: { boardId: "board-1" } } as WebsocketEventPayload);
-	emit({ spaceId: "space-1", type: "board.transaction.applied", payload: { boardId: "board-1" } } as WebsocketEventPayload);
+	emit({ spaceId: "space-1", type: "board.changed", payload: { boardId: "board-2" } } as WebsocketEventPayload);
+	emit({ spaceId: "space-2", type: "board.changed", payload: { boardId: "board-1" } } as WebsocketEventPayload);
+	emit({ spaceId: "space-1", type: "board.changed", payload: { boardId: "board-1" } } as WebsocketEventPayload);
 	emit({ spaceId: "space-1", type: "board.awareness.updated", payload: { boardId: "board-1", connectionId: "connection-self" } } as WebsocketEventPayload);
 	emit({ spaceId: "space-1", type: "board.awareness.updated", payload: { boardId: "board-1", connectionId: "connection-other" } } as WebsocketEventPayload);
 	emit({ spaceId: "space-1", type: "board.playback.changed", payload: { boardId: "board-1" } } as WebsocketEventPayload);
 
-	assert.deepEqual(received, ["transaction", "awareness", "playback"]);
+	assert.deepEqual(received, ["changed", "awareness", "playback"]);
 	stop();
 	assert.equal(unsubscribed, 1);
 	assert.equal(released, 1);

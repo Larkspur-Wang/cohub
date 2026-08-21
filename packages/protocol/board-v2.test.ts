@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-	BOARD_PROTOCOL_VERSION,
+	BOARD_AUTHORING_SCHEMAS,
+	BoardConnectionSchema,
+	BoardEffectInputSchema,
+	boardAuthoringItemToNode,
+	boardNodeToAuthoringItem,
 	parseBoardCompositionInput,
-	upgradeBoardSnapshot,
 } from "./src/index.js";
 
 test("authoring sources reject unsafe workspace paths", async () => {
@@ -20,6 +23,29 @@ test("authoring sources reject unsafe workspace paths", async () => {
 	assert.equal(BoardAuthoringItemSchema.safeParse(item("/etc/passwd")).success, false);
 });
 
+test("authoring items expose only semantic fields", () => {
+	const item = boardNodeToAuthoringItem({
+		nodeId: "title",
+		type: "text",
+		parentId: null,
+		orderKey: "00004096",
+		x: 0,
+		y: 0,
+		width: 200,
+		height: 40,
+		rotation: 0,
+		refKind: null,
+		refPath: null,
+		refUrl: null,
+		view: {},
+		style: {},
+		data: { text: "Hello", fontSize: 24, color: "neutral" },
+	});
+	assert.equal("opaque" in item, false);
+	assert.equal("orderKey" in item, false);
+	assert.equal(boardAuthoringItemToNode(item).data.text, "Hello");
+});
+
 test("Composition inspect output can be applied without server revision", () => {
 	const input = parseBoardCompositionInput({
 		id: "intro",
@@ -32,21 +58,32 @@ test("Composition inspect output can be applied without server revision", () => 
 	assert.equal("revision" in input, false);
 });
 
-test("v1 snapshots upgrade through one explicit protocol ingress", () => {
-	const upgraded = upgradeBoardSnapshot({
-		kind: "cohub.board.snapshot",
-		version: 1,
-		capturedAt: "2026-01-01T00:00:00.000Z",
-		board: { id: "board", metadata: {} },
-		nodes: [],
-		connections: [],
-		effects: [{ id: "pulse", target: { type: "node", nodeId: "title" } }],
-		sequences: [{ id: "intro", name: "Intro", duration: 100, seed: "seed", restPose: {}, metadata: {}, revision: 1 }],
-		clips: [{ id: "reveal", sequenceId: "intro", kind: "text.reveal", target: { type: "node", nodeId: "title" }, params: {}, keyframes: [] }],
-		playback: null,
-	});
-	assert.equal(upgraded.version, BOARD_PROTOCOL_VERSION);
-	assert.equal(upgraded.compositions[0]?.id, "intro");
-	assert.deepEqual(upgraded.compositions[0]?.timeline.clips[0]?.target, { type: "item", itemId: "title" });
-	assert.deepEqual(upgraded.effects[0]?.target, { type: "item", itemId: "title" });
+test("authoring capabilities serialize every schema lazily", () => {
+	assert.deepEqual(Object.keys(BOARD_AUTHORING_SCHEMAS), [
+		"item", "itemPatch", "mutation", "composition", "effect", "create",
+	]);
+	const serialized = JSON.parse(JSON.stringify(BOARD_AUTHORING_SCHEMAS));
+	assert.ok(serialized.item);
+	assert.ok(serialized.mutation);
+	assert.ok(serialized.composition);
+});
+
+test("connection and effect envelopes reject unknown fields", () => {
+	assert.equal(BoardConnectionSchema.safeParse({
+		id: "connection",
+		source: { nodeId: "a", anchor: { kind: "auto" } },
+		target: { nodeId: "b", anchor: { kind: "auto" } },
+		relation: "related",
+		unknown: true,
+	}).success, false);
+	assert.equal(BoardEffectInputSchema.safeParse({
+		id: "pulse",
+		target: { type: "board" },
+		kind: "effects.pulse",
+		kindVersion: 1,
+		lifecycle: "manual",
+		timeOrigin: "board",
+		seed: "seed",
+		unknown: true,
+	}).success, false);
 });

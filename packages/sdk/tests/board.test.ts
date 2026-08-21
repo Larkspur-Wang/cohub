@@ -4,12 +4,8 @@ import {
 	BOARD_BUILTIN_CAPABILITIES,
 	DEFAULT_BOARD_RENDER_LIMITS,
 } from "@cohub/protocol";
-import { BoardTransactionError } from "../src/apis/spaces.js";
 import { createBoardExtensionRegistry } from "../src/board/animation.js";
-import {
-	boardAppearanceOperation,
-	patchBoardAppearance,
-} from "../src/board/mutation.js";
+import { patchBoardAppearance } from "../src/board/mutation.js";
 import { createBattleFixture } from "./fixtures/battle.js";
 
 test("battle fixture compilation is deterministic", () => {
@@ -66,13 +62,7 @@ test("SDK render limits stay aligned with the protocol", async () => {
 	assert.deepEqual(DEFAULT_BOARD_LIMITS, DEFAULT_BOARD_RENDER_LIMITS);
 });
 
-test("only VERSION_CONFLICT errors are eligible for rebase", () => {
-	assert.equal(new BoardTransactionError("conflict", 409, "VERSION_CONFLICT").isVersionConflict, true);
-	assert.equal(new BoardTransactionError("referenced", 409, "NODE_REFERENCED").isVersionConflict, false);
-	assert.equal(new BoardTransactionError("unknown", 409).isVersionConflict, false);
-});
-
-test("Board mutation builders preserve appearance and cascade relations", () => {
+test("Board appearance patches preserve nested settings", () => {
 	const appearance = patchBoardAppearance({
 		theme: "clean",
 		background: { kind: "solid" },
@@ -80,8 +70,7 @@ test("Board mutation builders preserve appearance and cascade relations", () => 
 		mood: "natural",
 	}, { background: { kind: "solid", color: "#123456" } });
 	assert.equal(appearance.grid.visible, true);
-	assert.equal(boardAppearanceOperation(appearance).type, "board.patch");
-	assert.equal(boardAppearanceOperation(appearance).type, "board.patch");
+	assert.equal(appearance.background.color, "#123456");
 });
 
 test("registry reports invalid particle bounds without dropping the clip", () => {

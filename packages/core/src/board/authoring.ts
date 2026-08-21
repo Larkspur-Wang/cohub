@@ -10,17 +10,25 @@ export {
 export function preserveOpaqueNodeFields(
 	before: BoardNodeInput,
 	compiled: BoardNodeInput,
+	options: {
+		preserveSource?: boolean;
+		preserveStyle?: boolean;
+	} = {},
 ): BoardNodeInput {
 	const data = { ...before.data, ...compiled.data };
 	if (!("locked" in compiled.data)) delete data.locked;
 	if (!("metadata" in compiled.data)) delete data.metadata;
+	// `undefined` means "patch did not mention the field" → keep the stored
+	// value; `false` means "patch explicitly cleared it" → do not restore.
+	const preserveSource = options.preserveSource !== false;
+	const preserveStyle = options.preserveStyle !== false;
 	return {
 		...compiled,
-		refKind: compiled.refKind ?? before.refKind,
-		refPath: compiled.refPath ?? before.refPath,
-		refUrl: compiled.refUrl ?? before.refUrl,
-		view: { ...before.view, ...compiled.view },
-		style: { ...before.style, ...compiled.style },
+		refKind: preserveSource ? compiled.refKind ?? before.refKind : compiled.refKind,
+		refPath: preserveSource ? compiled.refPath ?? before.refPath : compiled.refPath,
+		refUrl: preserveSource ? compiled.refUrl ?? before.refUrl : compiled.refUrl,
+		view: preserveSource ? { ...before.view, ...compiled.view } : compiled.view,
+		style: preserveStyle ? { ...before.style, ...compiled.style } : compiled.style,
 		data,
 	};
 }

@@ -818,15 +818,15 @@ async function writeWorkFileAsset(input: {
 
 function collectBoardDependencyPaths(snapshot: BoardSnapshot): string[] {
   const paths = new Set<string>();
-  for (const node of snapshot.nodes) {
-    if (
-      (node.type === "image" || node.type === "video" || node.type === "audio") &&
-      node.refPath
-    ) {
-      paths.add(node.refPath);
-    }
-    if (node.type === "file" && typeof node.view.coverPath === "string") {
-      paths.add(node.view.coverPath);
+  for (const item of snapshot.items) {
+    if (item.type !== "image" && item.type !== "video" && item.type !== "audio" && item.type !== "file") continue;
+    const source = "source" in item
+      ? item.source as { kind?: string; path?: string; snapshot?: Record<string, unknown> } | undefined
+      : undefined;
+    if (!source?.path) continue;
+    paths.add(source.path);
+    if (item.type === "file" && typeof source.snapshot?.coverPath === "string") {
+      paths.add(source.snapshot.coverPath);
     }
   }
   const clips = snapshot.compositions.flatMap((composition) => composition.timeline.clips);

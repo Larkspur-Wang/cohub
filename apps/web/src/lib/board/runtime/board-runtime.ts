@@ -1,9 +1,14 @@
-import { parseBoardPlaybackPolicy } from "@cohub/protocol";
 import type {
-	BoardBootstrap,
-	BoardOperation,
-	BoardPlaybackPolicy,
-} from "@neta-art/cohub";
+	BoardCompositionInput,
+	BoardEffectInput,
+	BoardPlaybackSnapshot,
+	BoardSemanticCommand,
+} from "@cohub/protocol";
+import {
+	type BoardAuthoringSnapshot,
+	parseBoardPlaybackPolicy,
+} from "@cohub/protocol";
+import type { BoardPlaybackPolicy } from "@neta-art/cohub";
 import { BOARD_DOCUMENT_KIND, type BoardDocument } from "@neta-art/cohub/board";
 import type {
 	BoardAutomationActivity,
@@ -23,38 +28,24 @@ export type BoardRuntimeViewState = {
 	selectedNodes: Array<{ id: string; type: string; title?: string }>;
 };
 
-export type BoardRuntimeData = Pick<
-	BoardBootstrap,
-	"effects" | "compositions" | "playback"
-> & {
+export type BoardRuntimeData = {
 	boardId: string;
+	effects: Array<BoardEffectInput & { revision: number }>;
+	compositions: Array<BoardCompositionInput & { revision: number }>;
+	playback: BoardPlaybackSnapshot | null;
 	playbackPolicy: BoardPlaybackPolicy | null;
 };
 
-export function boardRuntimeDataFromBootstrap(
-	bootstrap: BoardBootstrap,
+export function boardRuntimeDataFromAuthoring(
+	snapshot: BoardAuthoringSnapshot,
 ): BoardRuntimeData {
 	return {
-		boardId: bootstrap.board.id,
-		effects: bootstrap.effects,
-		compositions: bootstrap.compositions,
-		playback: bootstrap.playback,
-		playbackPolicy: parseBoardPlaybackPolicy(bootstrap.board.metadata),
+		boardId: snapshot.board.id,
+		effects: snapshot.effects ?? [],
+		compositions: snapshot.compositions ?? [],
+		playback: snapshot.playback ?? null,
+		playbackPolicy: parseBoardPlaybackPolicy(snapshot.board.metadata),
 	};
-}
-
-/** Runtime operations carry server-assigned revisions, so refresh them atomically. */
-export function operationsRequireBoardRuntimeRefresh(
-	operations: BoardOperation[],
-): boolean {
-	return operations.some(
-		(operation) =>
-			operation.type.startsWith("effect.") ||
-			operation.type.startsWith("composition.") ||
-			(operation.type === "board.patch" &&
-				(operation.payload.patch.metadata !== undefined ||
-					operation.payload.patch.metadataPatch !== undefined)),
-	);
 }
 
 /**
@@ -69,7 +60,8 @@ export type BoardRuntimeMode = "edit" | "view";
 /** Persist a document change. Absent in view mode, which never commits. */
 export type BoardCommitHandler = (
 	document: BoardDocument,
-	ops: BoardOperation[],
+	before: BoardDocument,
+	commands: BoardSemanticCommand[],
 ) => void | Promise<void>;
 
 /** Stable host contract for a complete board editor and renderer runtime. */

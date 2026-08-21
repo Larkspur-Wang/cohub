@@ -1,9 +1,6 @@
 import {
   BoardAppearanceSchema,
   DEFAULT_BOARD_APPEARANCE,
-  boardAppearanceOperation,
-  boardPlaybackPolicyOperation,
-  boardTitleOperation,
   patchBoardAppearance,
 } from "@neta-art/cohub/board";
 import type { BoardPlaybackPolicy } from "@neta-art/cohub";
@@ -12,6 +9,7 @@ import { handleHttp } from "../../output.js";
 import {
   finite,
   type JsonOptions,
+  mutateSemantic,
   resolvedBoard,
   showUpdated,
   withJson,
@@ -27,7 +25,7 @@ export function registerBoardAppearanceCommands(boards: Command): void {
     .action(async (target: string, title: string, options: JsonOptions) => {
       try {
         const board = await resolvedBoard(boards, target);
-        showUpdated(await board.mutate({ build: () => [boardTitleOperation(title)] }), options);
+        showUpdated(await mutateSemantic(board, [{ type: "board.patch", patch: { title } }]), options);
       } catch (cause) {
         handleHttp(cause);
       }
@@ -61,24 +59,24 @@ Examples:
         const opacity = finite(options.opacity, "opacity");
         if (opacity < 0 || opacity > 1) throw new Error("opacity must be between 0 and 1");
         const board = await resolvedBoard(boards, target);
-        const result = await board.mutate({
-          build(current) {
-            const appearance = appearanceFrom(current.board.metadata);
-            const background = options.reset
-              ? { kind: "solid" as const }
-              : options.color
-                ? { kind: "solid" as const, color: options.color }
-                : {
-                    kind: "image" as const,
-                    imageUrl: options.image,
-                    fit: options.fit as "cover" | "contain" | "repeat",
-                    position: options.position as "center" | "top" | "bottom" | "left" | "right",
-                    opacity,
-                    color: appearance.background.color,
-                  };
-            return [boardAppearanceOperation(patchBoardAppearance(appearance, { background }))];
-          },
-        });
+        const current = await board.summary();
+        const appearance = appearanceFrom(current.board.metadata);
+        const background = options.reset
+          ? { kind: "solid" as const }
+          : options.color
+            ? { kind: "solid" as const, color: options.color }
+            : {
+                kind: "image" as const,
+                imageUrl: options.image,
+                fit: options.fit as "cover" | "contain" | "repeat",
+                position: options.position as "center" | "top" | "bottom" | "left" | "right",
+                opacity,
+                color: appearance.background.color,
+              };
+        const result = await mutateSemantic(board, [{
+          type: "board.patch",
+          patch: { metadataPatch: { appearance: patchBoardAppearance(appearance, { background }) } },
+        }], { baseVersion: current.board.version });
         showUpdated(result, options);
       } catch (cause) {
         handleHttp(cause);
@@ -103,9 +101,12 @@ Examples:
           ? null
           : { compositionId: options.composition as string, delayMs };
         const board = await resolvedBoard(boards, target);
-        showUpdated(await board.mutate({
-          build: (current) => [boardPlaybackPolicyOperation(current.board.metadata, policy)],
-        }), options);
+        const current = await board.summary();
+        const patch = policy
+          ? { metadataPatch: { playback: policy } }
+          : { metadata: { ...current.board.metadata, playback: undefined } };
+        if (!policy) delete (patch.metadata as Record<string, unknown>).playback;
+        showUpdated(await mutateSemantic(board, [{ type: "board.patch", patch }], { baseVersion: current.board.version }), options);
       } catch (cause) {
         handleHttp(cause);
       }
