@@ -128,8 +128,12 @@ import { createSessionGenerationPolicyController } from "./session-generation-po
 import { createSessionGenerationRealtimeController } from "./session-generation-realtime-controller.svelte";
 import {
 	createSessionScrollController,
-	isSessionScrollAnchorInTurns,
+	isSessionScrollAnchorKind,
+	isSessionScrollAnchorTurnLoaded,
+	resolveSessionScrollAnchorTargetIndex,
 	resolveSessionScrollRestore,
+	type SessionScrollAnchor,
+	type SessionScrollAnchorTarget,
 } from "./session-scroll-controller.svelte";
 import { createSessionShareController } from "./session-share-controller.svelte";
 import {
@@ -181,7 +185,8 @@ import {
 const PRELOAD_THRESHOLD = 10;
 const TURN_SCROLL_ANCHOR_OFFSET = 16;
 const SESSION_INITIAL_LOADING_DELAY_MS = 160;
-const SESSION_SCROLL_ANCHOR_STORAGE_KEY = "cohub:session_scroll_anchor";
+// V1 used overlapping numeric ids; leave that raw key untouched for rollback.
+const SESSION_SCROLL_ANCHOR_STORAGE_KEY = "cohub:session_scroll_anchor:v2";
 const SESSION_TASK_PAGE_LIMIT = 8;
 const TERMINAL_GENERATION_STATUSES = new Set([
 	"idle",
@@ -200,12 +205,6 @@ export type SessionChatHostOptions = SessionChatEnvironment & {
 		| "error";
 	canManageSessionAccess?: () => boolean;
 	hasSpace?: () => boolean;
-};
-
-type SessionScrollAnchor = {
-	sequence: number;
-	offset: number;
-	updatedAt: number;
 };
 
 function taskRunSortTime(notice: SessionTaskNotice) {
@@ -478,6 +477,8 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	let turnMarkerMeasureFrame: number | null = null;
 	let lastTurnIndexRefreshKey = "";
 	let restoringBottomSessionId = $state<string | null>(null);
+	let pendingTailReconcileSessionId = $state<string | null>(null);
+	let programmaticScrollEpoch = 0;
 	let programmaticScrollActive = false;
 	let programmaticScrollTarget: number | null = null;
 	let userScrollActive = false;
@@ -503,6 +504,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		string,
 		ReturnType<typeof setTimeout>
 	>();
+	const scrollAnchorWindowLoads = new Set<string>();
 
 	let refreshSessionsListInFlight: Promise<void> | null = null;
 	let refreshSessionsListQueued = false;
@@ -694,6 +696,10 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		getSpaceId: () => spaceId,
 		getConnectionState: () => options.getConnectionState(),
 		getActiveSessionId: () => activeSessionId,
+		hasExplicitScrollTarget: (sessionId) =>
+			route.kind === "session" &&
+			route.sessionId === sessionId &&
+			route.turnSequence != null,
 		getSessionState: (id) => sessionStateById[id],
 		updateSessionState: (id, state) => {
 			workspace.sessionStateById = { ...sessionStateById, [id]: state };
@@ -701,7 +707,8 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		refreshSessionsList: (force) => refreshSessionsList(force ?? true),
 		requestBottomFollow: (opts) => requestBottomFollow(opts),
 		shouldAutoFollow: () => scroll.shouldAutoFollow,
-		getListEl: () => scroll.listEl,
+		getListEl: () =>
+			activeSessionId ? getSessionScrollList(activeSessionId) : null,
 		captureCurrentScrollAnchor: (id) => captureCurrentScrollAnchor(id),
 		getSessionScrollAnchor: (id) => getSessionScrollAnchor(id),
 		areSessionScrollAnchorsEqual: (a, b) => areSessionScrollAnchorsEqual(a, b),
@@ -848,16 +855,20 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		const el = listEl;
 		if (!el) return;
 		const container = el as HTMLDivElement;
+		const ownerSessionId = container.dataset.sessionId;
 		function handleScrollTrack() {
+			if (!ownerSessionId || activeSessionId !== ownerSessionId) return;
 			const isProgrammatic =
 				programmaticScrollActive ||
 				(programmaticScrollTarget != null &&
 					Math.abs(container.scrollTop - programmaticScrollTarget) <= 1);
 			if (isProgrammatic) {
-				programmaticScrollActive = false;
-				programmaticScrollTarget = null;
+				clearProgrammaticScroll();
 				updateTimelineScrollMetrics();
-				updateAutoFollow();
+				if (!isRestoringSessionScroll(ownerSessionId)) {
+					updateAutoFollow();
+					markLatestTurnViewedIfVisible(ownerSessionId);
+				}
 				updateCurrentTurnSequence();
 				scheduleTurnMarkerMeasure();
 				return;
@@ -891,23 +902,20 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	});
 
 	$effect(() => {
-		if (!listEl) return;
 		const targetId = pendingRestoreSessionId;
 		if (!targetId || targetId !== activeSessionId) return;
+		if (!getSessionScrollList(targetId)) return;
 		const state = sessionStateById[targetId];
 		if (!state?.loaded) return;
 		const anchor = getSessionScrollAnchor(targetId);
-		// Must accept assistant sequences (turn*10+2), not only user (turn*10).
-		const hasCachedAnchor = anchor
-			? isSessionScrollAnchorInTurns(anchor.sequence, state.turns)
-			: false;
+		const waitingForAuthoritativeData =
+			state.loading || pendingTailReconcileSessionId === targetId;
 		const isRestoreTargetCurrent = () =>
 			activeSessionId === targetId &&
 			(scroll.pendingRestoreSessionId === targetId ||
 				scroll.activeAnchorRestore?.sessionId === targetId);
 		const finishRestore = () => {
-			// Only clear state owned by this target — a stale rAF from a previous
-			// session must not wipe the next session's pending restore.
+			// A stale frame may finish after another session has started restoring.
 			if (scroll.pendingRestoreSessionId === targetId) {
 				scroll.pendingRestoreSessionId = null;
 			}
@@ -920,26 +928,25 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			}
 			if (activeSessionId === targetId) updateAutoFollow();
 		};
-		/** Apply leave position now; keep ownership while content is still laying out. */
-		const finishAnchorRestore = (options?: { waitForLayout?: boolean }) => {
-			if (scroll.pendingRestoreSessionId === targetId) {
-				scroll.pendingRestoreSessionId = null;
-			}
+		const finishAnchorRestore = (waitForLayout: boolean) => {
 			if (restoringBottomSessionId === targetId) {
 				restoringBottomSessionId = null;
 			}
 			if (activeSessionId !== targetId) return;
-			const waitForLayout = Boolean(options?.waitForLayout);
 			if (waitForLayout) {
 				scroll.anchorRestoreWaitingForLayout = true;
-				updateAutoFollow();
+				scroll.shouldAutoFollow = false;
 				return;
+			}
+			if (scroll.pendingRestoreSessionId === targetId) {
+				scroll.pendingRestoreSessionId = null;
 			}
 			if (scroll.activeAnchorRestore?.sessionId === targetId) {
 				scroll.activeAnchorRestore = null;
 			}
 			scroll.anchorRestoreWaitingForLayout = false;
 			updateAutoFollow();
+			markLatestTurnViewedIfVisible(targetId);
 			scheduleTurnMarkerMeasure();
 		};
 		const restoreToBottom = () => {
@@ -954,55 +961,75 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			restoringBottomSessionId = targetId;
 			scroll.shouldAutoFollow = true;
 			requestAnimationFrame(() => {
-				if (!listEl || activeSessionId !== targetId) {
+				if (activeSessionId !== targetId) {
 					finishRestore();
 					return;
 				}
+				if (!getSessionScrollList(targetId)) return;
 				scrollToBottomNow();
 				finishRestore();
 			});
 		};
-		if (!anchor || !hasCachedAnchor) {
-			clearSessionScrollAnchor(targetId);
+		if (!anchor) {
 			void tick().then(restoreToBottom);
+			return;
+		}
+		if (!isSessionScrollAnchorTurnLoaded(anchor, state.turns)) {
+			const loadKey = `${targetId}:${anchor.turnSequence}:${anchor.updatedAt}`;
+			if (!scrollAnchorWindowLoads.has(loadKey)) {
+				scrollAnchorWindowLoads.add(loadKey);
+				untrack(() => {
+					void ensureTurnWindowLoaded(targetId, anchor.turnSequence)
+						.catch((error) => {
+							console.warn(
+								"[session-scroll] Failed to load the saved turn window:",
+								error,
+							);
+						})
+						.then(() => {
+							if (
+								activeSessionId !== targetId ||
+								scroll.pendingRestoreSessionId !== targetId
+							) {
+								return;
+							}
+							const currentAnchor = getSessionScrollAnchor(targetId);
+							const currentState = sessionStateById[targetId];
+							if (
+								areSessionScrollAnchorsEqual(currentAnchor, anchor) &&
+								currentState &&
+								!isSessionScrollAnchorTurnLoaded(anchor, currentState.turns)
+							) {
+								clearSessionScrollAnchor(targetId);
+							}
+						})
+						.finally(() => scrollAnchorWindowLoads.delete(loadKey));
+				});
+			}
 			return;
 		}
 		const restoreByAnchor = (retries = 6) => {
 			requestAnimationFrame(() => {
-				// Session switched away — drop this attempt without touching the
-				// new session's pending restore flags.
 				if (activeSessionId !== targetId) return;
 				if (scroll.pendingRestoreSessionId !== targetId) return;
-				// `{#key}` remount briefly clears listEl. Keep pending restore so
-				// the effect can re-run once the new timeline binds.
-				if (!listEl) {
+				if (!getSessionScrollList(targetId)) {
 					if (retries > 0) restoreByAnchor(retries - 1);
 					return;
 				}
-				const node = listEl.querySelector<HTMLElement>(
-					`[data-sequence="${anchor.sequence}"]`,
-				);
+				const node = findSessionScrollAnchorNode(targetId, anchor);
 				if (!node) {
 					if (retries > 0) {
 						restoreByAnchor(retries - 1);
 						return;
 					}
-					// Only clear this session's anchor when we still own restore.
 					if (isRestoreTargetCurrent()) {
 						clearSessionScrollAnchor(targetId);
 						restoreToBottom();
 					}
 					return;
 				}
-				const restore = {
-					sessionId: targetId,
-					sequence: anchor.sequence,
-					offset: anchor.offset,
-					updatedAt: anchor.updatedAt,
-				};
+				const restore = { ...anchor, sessionId: targetId };
 				scroll.activeAnchorRestore = restore;
-				// Apply immediately, but keep the anchor until the target is actually
-				// reachable. Early session layout can otherwise clamp it to scrollTop 0.
 				const restoreResult = applyActiveAnchorRestore(restore);
 				if (restoreResult === "missing") {
 					if (isRestoreTargetCurrent()) {
@@ -1012,12 +1039,12 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 					return;
 				}
 				const waitForLayout =
-					pendingTimelineMarkdownRenders > 0 || restoreResult === "pending";
-				finishAnchorRestore({ waitForLayout });
+					waitingForAuthoritativeData ||
+					pendingTimelineMarkdownRenders > 0 ||
+					restoreResult === "pending";
+				finishAnchorRestore(waitForLayout);
 				if (waitForLayout && isRestoreTargetCurrent()) {
-					requestAnimationFrame(() => {
-						maybeCompleteAnchorRestore();
-					});
+					requestAnimationFrame(() => maybeCompleteAnchorRestore());
 				}
 			});
 		};
@@ -1062,21 +1089,22 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	});
 
 	$effect(() => {
-		if (!listEl || !activeSessionId) return;
+		if (!activeSessionId || !getSessionScrollList(activeSessionId)) return;
 		updateTimelineScrollMetrics();
-		updateAutoFollow();
+		if (!isRestoringSessionScroll(activeSessionId)) updateAutoFollow();
 	});
 
 	// Keep pinned to bottom when content grows (markdown/images) while following.
 	$effect(() => {
 		const el = listEl;
-		if (!el) return;
+		const ownerSessionId = el?.dataset.sessionId;
+		if (!el || !ownerSessionId) return;
 		let prevHeight = el.scrollHeight;
 		const ro = new ResizeObserver(() => {
-			if (listEl !== el) return;
+			if (listEl !== el || activeSessionId !== ownerSessionId) return;
 			const currentHeight = el.scrollHeight;
-			const restoringBottom = restoringBottomSessionId === activeSessionId;
-			const restoringPosition = isRestoringSessionScroll(activeSessionId);
+			const restoringBottom = restoringBottomSessionId === ownerSessionId;
+			const restoringPosition = isRestoringSessionScroll(ownerSessionId);
 			if (restoringPosition) maybeCompleteAnchorRestore();
 			if (
 				currentHeight > prevHeight &&
@@ -1701,6 +1729,52 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		);
 	}
 
+	function getSessionScrollList(sessionId: string) {
+		return scroll.listEl?.dataset.sessionId === sessionId
+			? scroll.listEl
+			: null;
+	}
+
+	function readSessionScrollAnchorTarget(
+		node: HTMLElement,
+	): SessionScrollAnchorTarget | null {
+		const itemKey = node.dataset.scrollAnchorKey?.trim();
+		const turnSequence = Number(node.dataset.scrollAnchorTurnSequence);
+		const kind = node.dataset.scrollAnchorKind;
+		if (
+			!itemKey ||
+			!Number.isInteger(turnSequence) ||
+			turnSequence <= 0 ||
+			!isSessionScrollAnchorKind(kind)
+		) {
+			return null;
+		}
+		return { itemKey, turnSequence, kind };
+	}
+
+	function getSessionScrollAnchorNodes(sessionId: string) {
+		const list = getSessionScrollList(sessionId);
+		if (!list) return [];
+		return Array.from(
+			list.querySelectorAll<HTMLElement>("[data-scroll-anchor-key]"),
+		).flatMap((node) => {
+			const target = readSessionScrollAnchorTarget(node);
+			return target ? [{ node, target }] : [];
+		});
+	}
+
+	function findSessionScrollAnchorNode(
+		sessionId: string,
+		anchor: SessionScrollAnchor,
+	) {
+		const entries = getSessionScrollAnchorNodes(sessionId);
+		const index = resolveSessionScrollAnchorTargetIndex(
+			anchor,
+			entries.map((entry) => entry.target),
+		);
+		return index >= 0 ? (entries[index]?.node ?? null) : null;
+	}
+
 	function getMessageElementAbsoluteTop(node: HTMLElement) {
 		return scroll.getMessageElementAbsoluteTop(node);
 	}
@@ -1746,53 +1820,56 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		}
 	}
 
-	function captureCurrentScrollAnchor(sessionId: string) {
-		if (!listEl) return;
-		// Re-entry restore owns the saved leave position until it finishes.
-		if (isRestoringSessionScroll(sessionId)) return;
-		const nodes = Array.from(
-			listEl.querySelectorAll<HTMLElement>("[data-sequence]"),
+	function markLatestTurnViewedIfVisible(sessionId: string) {
+		const list = getSessionScrollList(sessionId);
+		if (!list) return;
+		const nodes = getSessionScrollAnchorNodes(sessionId).map(
+			(entry) => entry.node,
 		);
 		if (nodes.length === 0) return;
-		const containerRect = listEl.getBoundingClientRect();
+		markVisibleLatestTurnViewed(sessionId, nodes, list.getBoundingClientRect());
+	}
+
+	function captureCurrentScrollAnchor(sessionId: string) {
+		const list = getSessionScrollList(sessionId);
+		if (!list) return;
+		// Re-entry restore owns the saved leave position until it finishes.
+		if (isRestoringSessionScroll(sessionId)) return;
+		const entries = getSessionScrollAnchorNodes(sessionId);
+		if (entries.length === 0) return;
+		const containerRect = list.getBoundingClientRect();
 		const firstVisible =
-			nodes.find(
-				(node) => node.getBoundingClientRect().bottom > containerRect.top + 8,
-			) ?? nodes[0];
+			entries.find(
+				(entry) =>
+					entry.node.getBoundingClientRect().bottom > containerRect.top + 8,
+			) ?? entries[0];
 		if (!firstVisible) return;
-		const sequence = Number(firstVisible.dataset.sequence);
-		if (!Number.isFinite(sequence)) return;
-		const absoluteTop = getMessageElementAbsoluteTop(firstVisible);
-		const offset = listEl.scrollTop - absoluteTop;
+		const absoluteTop = getMessageElementAbsoluteTop(firstVisible.node);
 		setSessionScrollAnchor(sessionId, {
-			sequence,
-			offset,
+			...firstVisible.target,
+			offset: list.scrollTop - absoluteTop,
 			updatedAt: Date.now(),
 		});
-		markVisibleLatestTurnViewed(sessionId, nodes, containerRect);
+		markVisibleLatestTurnViewed(
+			sessionId,
+			entries.map((entry) => entry.node),
+			containerRect,
+		);
 		updateCurrentTurnSequence();
 	}
 
 	function writeBottomScrollAnchor(sessionId: string) {
-		if (!listEl) return;
-		const nodes = Array.from(
-			listEl.querySelectorAll<HTMLElement>("[data-sequence]"),
-		);
-		const lastNode = nodes.at(-1);
-		if (!lastNode) {
+		const list = getSessionScrollList(sessionId);
+		if (!list) return;
+		const lastEntry = getSessionScrollAnchorNodes(sessionId).at(-1);
+		if (!lastEntry) {
 			clearSessionScrollAnchor(sessionId);
 			return;
 		}
-		const sequence = Number(lastNode.dataset.sequence);
-		if (!Number.isFinite(sequence)) {
-			clearSessionScrollAnchor(sessionId);
-			return;
-		}
-		const absoluteTop = getMessageElementAbsoluteTop(lastNode);
-		const offset = listEl.scrollTop - absoluteTop;
+		const absoluteTop = getMessageElementAbsoluteTop(lastEntry.node);
 		setSessionScrollAnchor(sessionId, {
-			sequence,
-			offset,
+			...lastEntry.target,
+			offset: list.scrollTop - absoluteTop,
 			updatedAt: Date.now(),
 		});
 		const state = sessionStateById[sessionId];
@@ -1892,6 +1969,8 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		// loading, loadSessionState owns the fetch — do not double-hit /turns.
 		const alreadyLoaded = Boolean(sessionStateById[sessionId]?.loaded);
 		const sessionChanged = previousSessionId !== sessionId;
+		const shouldReconcileTail = alreadyLoaded && sessionChanged;
+		pendingTailReconcileSessionId = shouldReconcileTail ? sessionId : null;
 		workspace.prepareRouteSession(sessionId);
 		scroll.pendingRestoreSessionId = sessionId;
 		scroll.activeAnchorRestore = null;
@@ -1904,13 +1983,12 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			scroll.pendingTimelineMarkdownRenders = 0;
 		}
 		userScrollActive = false;
-		programmaticScrollActive = false;
-		programmaticScrollTarget = null;
+		clearProgrammaticScroll();
 		currentTurnSequence = null;
 		showTurnBottomSheet = false;
 		ensureSessionModelLoaded(sessionId);
 		applySessionGenerationPolicy(sessionId);
-		// Keep mid-session position: only default to bottom when no cached anchor.
+		// A saved position stays fixed while the authoritative tail reconciles.
 		scroll.shouldAutoFollow = !getSessionScrollAnchor(sessionId);
 		// Always restore local generation UI. Re-fetch tail only when switching
 		// back into a fully loaded session (mid-send leave / dual-host return).
@@ -1919,10 +1997,15 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			.catch(() => undefined)
 			.then(() => {
 				if (disposed || activeSessionId !== sessionId) return;
-				if (!alreadyLoaded || !sessionChanged) return;
+				if (!shouldReconcileTail) return;
 				return reconcileSessionTail(sessionId);
 			})
-			.catch(() => undefined);
+			.catch(() => undefined)
+			.finally(() => {
+				if (pendingTailReconcileSessionId === sessionId) {
+					pendingTailReconcileSessionId = null;
+				}
+			});
 	}
 
 	async function syncGenerationStateFromTail(
@@ -3575,12 +3658,23 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		);
 	}
 
-	function scrollToBottomNow() {
-		if (!listEl) return;
-		setProgrammaticScrollTop(scroll.getTimelineBottomScrollTop());
-		if (activeSessionId) {
-			writeBottomScrollAnchor(activeSessionId);
+	function cancelSessionScrollRestore(sessionId: string) {
+		if (scroll.activeAnchorRestore?.sessionId === sessionId) {
+			scroll.activeAnchorRestore = null;
+			scroll.anchorRestoreWaitingForLayout = false;
 		}
+		if (scroll.pendingRestoreSessionId === sessionId) {
+			scroll.pendingRestoreSessionId = null;
+		}
+		if (restoringBottomSessionId === sessionId) {
+			restoringBottomSessionId = null;
+		}
+	}
+
+	function scrollToBottomNow() {
+		if (!activeSessionId || !getSessionScrollList(activeSessionId)) return;
+		setProgrammaticScrollTop(scroll.getTimelineBottomScrollTop());
+		writeBottomScrollAnchor(activeSessionId);
 	}
 
 	function requestBottomFollow(options?: { immediate?: boolean }) {
@@ -3605,15 +3699,17 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	}
 
 	function updateCurrentTurnSequence() {
-		if (!listEl) return;
+		if (!activeSessionId) return;
+		const list = getSessionScrollList(activeSessionId);
+		if (!list) return;
 		const nodes = Array.from(
-			listEl.querySelectorAll<HTMLElement>('[data-turn-anchor="user"]'),
+			list.querySelectorAll<HTMLElement>('[data-turn-anchor="user"]'),
 		);
 		if (nodes.length === 0) {
 			if (currentTurnSequence !== null) currentTurnSequence = null;
 			return;
 		}
-		const containerRect = listEl.getBoundingClientRect();
+		const containerRect = list.getBoundingClientRect();
 		const probeY =
 			containerRect.top + Math.min(160, containerRect.height * 0.35);
 		let best: { sequence: number; distance: number } | null = null;
@@ -3629,37 +3725,36 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		if (currentTurnSequence !== next) currentTurnSequence = next;
 	}
 
+	function clearProgrammaticScroll() {
+		programmaticScrollEpoch += 1;
+		programmaticScrollActive = false;
+		programmaticScrollTarget = null;
+	}
+
 	function setProgrammaticScrollTop(scrollTop: number) {
-		if (!listEl) return;
+		if (!activeSessionId) return;
+		const list = getSessionScrollList(activeSessionId);
+		if (!list) return;
 		const nextScrollTop = Math.min(
-			Math.max(0, listEl.scrollHeight - listEl.clientHeight),
+			Math.max(0, list.scrollHeight - list.clientHeight),
 			Math.max(0, scrollTop),
 		);
+		const epoch = ++programmaticScrollEpoch;
 		programmaticScrollActive = true;
 		programmaticScrollTarget = nextScrollTop;
 		userScrollActive = false;
-		listEl.scrollTop = nextScrollTop;
+		list.scrollTop = nextScrollTop;
 		updateTimelineScrollMetrics();
 		requestAnimationFrame(() => {
-			programmaticScrollActive = false;
+			if (programmaticScrollEpoch === epoch) clearProgrammaticScroll();
 		});
 	}
 
 	function beginUserScroll() {
 		if (!activeSessionId) return;
 		userScrollActive = true;
-		programmaticScrollActive = false;
-		programmaticScrollTarget = null;
-		if (activeAnchorRestore?.sessionId === activeSessionId) {
-			scroll.activeAnchorRestore = null;
-			scroll.anchorRestoreWaitingForLayout = false;
-		}
-		if (pendingRestoreSessionId === activeSessionId) {
-			scroll.pendingRestoreSessionId = null;
-		}
-		if (restoringBottomSessionId === activeSessionId) {
-			restoringBottomSessionId = null;
-		}
+		clearProgrammaticScroll();
+		cancelSessionScrollRestore(activeSessionId);
 	}
 
 	function handleScrollKeydown(event: KeyboardEvent) {
@@ -3681,26 +3776,36 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		if (pendingTimelineMarkdownRenders > 0) return;
 		const restore = activeAnchorRestore;
 		if (activeSessionId !== restore.sessionId) return;
+		if (
+			sessionStateById[restore.sessionId]?.loading ||
+			pendingTailReconcileSessionId === restore.sessionId
+		) {
+			return;
+		}
 		if (applyActiveAnchorRestore(restore) !== "complete") return;
 		if (scroll.activeAnchorRestore?.sessionId !== restore.sessionId) return;
+		if (scroll.pendingRestoreSessionId === restore.sessionId) {
+			scroll.pendingRestoreSessionId = null;
+		}
 		scroll.activeAnchorRestore = null;
 		scroll.anchorRestoreWaitingForLayout = false;
 		scheduleTurnMarkerMeasure();
 		updateAutoFollow();
+		markLatestTurnViewedIfVisible(restore.sessionId);
 	}
 
 	function applyActiveAnchorRestore(restore = activeAnchorRestore) {
-		if (!restore || !listEl || activeSessionId !== restore.sessionId)
+		if (!restore || activeSessionId !== restore.sessionId) {
 			return "missing" as const;
-		const node = listEl.querySelector<HTMLElement>(
-			`[data-sequence="${restore.sequence}"]`,
-		);
-		if (!node) return "missing" as const;
+		}
+		const list = getSessionScrollList(restore.sessionId);
+		const node = findSessionScrollAnchorNode(restore.sessionId, restore);
+		if (!list || !node) return "missing" as const;
 		const target = resolveSessionScrollRestore({
 			anchorTop: getMessageElementAbsoluteTop(node),
 			anchorOffset: restore.offset,
-			scrollHeight: listEl.scrollHeight,
-			clientHeight: listEl.clientHeight,
+			scrollHeight: list.scrollHeight,
+			clientHeight: list.clientHeight,
 		});
 		setProgrammaticScrollTop(target.scrollTop);
 		scroll.shouldAutoFollow = false;
@@ -3714,7 +3819,9 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		return Boolean(
 			current &&
 				next &&
-				current.sequence === next.sequence &&
+				current.itemKey === next.itemKey &&
+				current.turnSequence === next.turnSequence &&
+				current.kind === next.kind &&
 				current.offset === next.offset &&
 				current.updatedAt === next.updatedAt,
 		);
@@ -3729,14 +3836,20 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			if (activeSessionId !== sessionId) return;
 			const result = applyActiveAnchorRestore(restore);
 			const waitForLayout =
-				pendingTimelineMarkdownRenders > 0 || result === "pending";
+				sessionStateById[sessionId]?.loading ||
+				pendingTailReconcileSessionId === sessionId ||
+				pendingTimelineMarkdownRenders > 0 ||
+				result === "pending";
 			scroll.anchorRestoreWaitingForLayout = waitForLayout;
 			if (result !== "missing") scheduleTurnMarkerMeasure();
 			if (!waitForLayout && activeAnchorRestore?.sessionId === sessionId) {
 				scroll.activeAnchorRestore = null;
 				scroll.anchorRestoreWaitingForLayout = false;
+				updateAutoFollow();
+				markLatestTurnViewedIfVisible(sessionId);
+			} else if (waitForLayout) {
+				scroll.shouldAutoFollow = false;
 			}
-			updateAutoFollow();
 		});
 	}
 
@@ -4096,6 +4209,8 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 				scroll.pendingRestoreSessionId = null;
 				scroll.activeAnchorRestore = null;
 				scroll.anchorRestoreWaitingForLayout = false;
+				pendingTailReconcileSessionId = null;
+				clearProgrammaticScroll();
 				currentTurnSequence = null;
 				showTurnBottomSheet = false;
 				scroll.shouldAutoFollow = true;
@@ -4125,7 +4240,10 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			generationRealtime.resetForSpaceChange();
 			currentTurnSequence = null;
 			highlightedTurnSequence = null;
-			scroll.clearTurnMarkers();
+			scroll.resetSessionScrollUi();
+			pendingTailReconcileSessionId = null;
+			clearProgrammaticScroll();
+			scrollAnchorWindowLoads.clear();
 			lastTurnIndexRefreshKey = "";
 			showTurnBottomSheet = false;
 			appliedRouteTurnKey = null;
@@ -4161,7 +4279,10 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		generationRealtime.resetForSpaceChange();
 		currentTurnSequence = null;
 		highlightedTurnSequence = null;
-		scroll.clearTurnMarkers();
+		scroll.resetSessionScrollUi();
+		pendingTailReconcileSessionId = null;
+		clearProgrammaticScroll();
+		scrollAnchorWindowLoads.clear();
 		lastTurnIndexRefreshKey = "";
 		showTurnBottomSheet = false;
 		appliedRouteTurnKey = null;
@@ -4220,11 +4341,6 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			if (activeSessionId !== route.sessionId) {
 				if (activeSessionId) captureCurrentScrollAnchor(activeSessionId);
 				prepareRouteSession(route.sessionId);
-				const state = sessionStateById[route.sessionId];
-				unreadTracker.markViewed(
-					route.sessionId,
-					state?.session?.lastMessageId ?? null,
-				);
 				void loadSessionState(route.sessionId);
 				void loadTurnIndex(route.sessionId);
 			} else {
@@ -4234,6 +4350,8 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 				}
 			}
 			if (route.turnSequence) {
+				cancelSessionScrollRestore(route.sessionId);
+				scroll.shouldAutoFollow = false;
 				const key = `${route.sessionId}:${route.turnSequence}`;
 				if (appliedRouteTurnKey !== key) {
 					appliedRouteTurnKey = key;
@@ -4270,8 +4388,8 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 				scroll.activeAnchorRestore = null;
 				scroll.anchorRestoreWaitingForLayout = false;
 				userScrollActive = false;
-				programmaticScrollActive = false;
-				programmaticScrollTarget = null;
+				clearProgrammaticScroll();
+				pendingTailReconcileSessionId = null;
 				currentTurnSequence = null;
 				showTurnBottomSheet = false;
 			}
@@ -4294,8 +4412,8 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			scroll.activeAnchorRestore = null;
 			scroll.anchorRestoreWaitingForLayout = false;
 			userScrollActive = false;
-			programmaticScrollActive = false;
-			programmaticScrollTarget = null;
+			clearProgrammaticScroll();
+			pendingTailReconcileSessionId = null;
 			currentTurnSequence = null;
 			showTurnBottomSheet = false;
 		}

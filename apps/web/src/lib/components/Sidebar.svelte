@@ -130,7 +130,6 @@ import {
 	patchCachedSessionList,
 	setCachedSessionList,
 } from "$lib/stores/session-list-cache";
-import { unreadTracker } from "$lib/stores/session-state.svelte";
 import {
 	getCachedExpandedLabelIdsSnapshot,
 	setCachedExpandedLabelIds,
@@ -2440,8 +2439,6 @@ async function handleNavigateToSession(sessionId: string) {
 		sessionNavigateClickTimer = null;
 	}
 	onClose?.();
-	const session = sessions.find((s) => s.id === sessionId);
-	unreadTracker.markViewed(sessionId, session?.lastMessageId ?? null);
 	if (!currentSpaceId) return;
 	await goto(buildPreferredSessionRoute(currentSpaceId, sessionId));
 }

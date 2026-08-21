@@ -15,6 +15,7 @@ import type { ChatMessage, TimelineItem } from "$lib/session-tree";
 import type { OpenWorkspaceFileTarget } from "$lib/workspace-file-links";
 
 type Props = {
+	sessionId?: string | null;
 	timeline: TimelineItem[];
 	bindListEl?: HTMLDivElement | null;
 	/** Number of unseen items at the visual top before triggering preload */
@@ -43,6 +44,7 @@ type Props = {
 };
 
 let {
+	sessionId = null,
 	timeline,
 	bindListEl = $bindable(null),
 	preloadThreshold = 10,
@@ -63,6 +65,43 @@ let {
 let observedNodes = new Map<HTMLElement, number>();
 let observer: IntersectionObserver | null = null;
 let prevScrollHeight = $state(0);
+
+type TimelineScrollAnchor = {
+	itemKey: string;
+	turnSequence: number;
+	kind: "user" | "assistant" | "process" | "compact";
+};
+
+function getTimelineScrollAnchor(
+	item: TimelineItem,
+): TimelineScrollAnchor | null {
+	if (item.kind === "process" || item.kind === "compact") {
+		return {
+			itemKey: item.id,
+			turnSequence: item.turn.sequence,
+			kind: item.kind,
+		};
+	}
+	if (item.kind !== "message") return null;
+	const turnSequence = item.message.meta?.turn?.sequence;
+	if (
+		typeof turnSequence !== "number" ||
+		!Number.isInteger(turnSequence) ||
+		turnSequence <= 0
+	) {
+		return null;
+	}
+	if (item.message.role === "user") {
+		return { itemKey: item.id, turnSequence, kind: "user" };
+	}
+	if (
+		item.message.role === "assistant" &&
+		item.message.meta?.messageKind !== "assistant_streaming_preview"
+	) {
+		return { itemKey: item.id, turnSequence, kind: "assistant" };
+	}
+	return null;
+}
 
 export function preparePrepend() {
 	if (!bindListEl) return;
@@ -131,6 +170,7 @@ $effect(() => {
 
 <div
 	bind:this={bindListEl}
+	data-session-id={sessionId ?? undefined}
 	class="chat-timeline-scroll relative flex-1 min-h-0 overflow-y-auto bg-bg-content px-4 sm:px-6"
 >
 	<div class={`mx-auto max-w-4xl flex flex-col [&>*]:mt-2 pt-6 pb-6`}>
@@ -142,25 +182,20 @@ $effect(() => {
 		{/if}
 		{#each timeline as item, idx (item.id)}
 			{@const originalIdx = idx}
+			{@const scrollAnchor = getTimelineScrollAnchor(item)}
 			<div
 				data-idx={originalIdx}
 				data-kind={item.kind}
-				data-sequence={item.kind === 'message'
-					? item.message.sequence
-					: item.kind === 'process'
-						? item.turn.sequence
-						: undefined}
+				data-scroll-anchor-key={scrollAnchor?.itemKey}
+				data-scroll-anchor-kind={scrollAnchor?.kind}
+				data-scroll-anchor-turn-sequence={scrollAnchor?.turnSequence}
 				data-turn-id={item.kind === 'message' && item.message.meta?.messageKind === 'turn_user'
-			? item.message.meta.turnId
-			: undefined}
-		data-turn-anchor={item.kind === 'message' && item.message.meta?.messageKind === 'turn_user'
-			? 'user'
-			: undefined}
-		data-turn-sequence={item.kind === 'message'
-					? Math.floor(item.message.sequence / 10)
-					: item.kind === 'process'
-						? item.turn.sequence
-						: undefined}
+					? item.message.meta.turnId
+					: undefined}
+				data-turn-anchor={item.kind === 'message' && item.message.meta?.messageKind === 'turn_user'
+					? 'user'
+					: undefined}
+				data-turn-sequence={scrollAnchor?.turnSequence}
 				use:observeItem={originalIdx}
 			>
 				{#if item.kind === 'message'}

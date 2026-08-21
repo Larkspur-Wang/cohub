@@ -10,14 +10,9 @@ import {
 } from "$lib/stores/session-generation-realtime";
 import { SessionRecoveryCoordinator } from "$lib/stores/session-recovery-coordinator";
 import { subscribeGenerationChannel } from "./generation-channel";
+import type { SessionScrollAnchor } from "./session-scroll-controller.svelte";
 import { areSessionTurnsEqual, preserveSessionTurnRefs } from "./session-utils";
 import type { SessionViewState } from "./session-workspace-controller.svelte";
-
-type SessionScrollAnchor = {
-	sequence: number;
-	offset: number;
-	updatedAt: number;
-};
 
 type ConnectionState =
 	| "idle"
@@ -57,6 +52,7 @@ export function createSessionGenerationRealtimeController(options: {
 	getSpaceId: () => string;
 	getConnectionState: () => ConnectionState;
 	getActiveSessionId: () => string | null;
+	hasExplicitScrollTarget: (sessionId: string) => boolean;
 	getSessionState: (id: string) => SessionViewState | undefined;
 	updateSessionState: (id: string, state: SessionViewState) => void;
 	refreshSessionsList: (force?: boolean) => Promise<void>;
@@ -169,6 +165,7 @@ export function createSessionGenerationRealtimeController(options: {
 		const inFlight = reconcileSessionTailInFlight.get(sessionId);
 		if (inFlight) return inFlight;
 		const shouldRestoreAnchor =
+			!options.hasExplicitScrollTarget(sessionId) &&
 			options.getActiveSessionId() === sessionId &&
 			Boolean(options.getListEl()) &&
 			!options.shouldAutoFollow();

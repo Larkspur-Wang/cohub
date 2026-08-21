@@ -1,38 +1,78 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-	isSessionScrollAnchorInTurns,
+	isSessionScrollAnchor,
+	isSessionScrollAnchorTurnLoaded,
+	resolveSessionScrollAnchorTargetIndex,
 	resolveSessionScrollRestore,
+	type SessionScrollAnchor,
 } from "../lib/features/session-chat/session-scroll-controller.svelte.ts";
 
-const turns = [{ sequence: 1 }, { sequence: 2 }, { sequence: 5 }];
+const anchor: SessionScrollAnchor = {
+	itemKey: "turn:10:process",
+	turnSequence: 10,
+	kind: "process",
+	offset: -24,
+	updatedAt: 1_000,
+};
 
-test("matches process-card sequence (turn.sequence)", () => {
-	assert.equal(isSessionScrollAnchorInTurns(1, turns), true);
-	assert.equal(isSessionScrollAnchorInTurns(5, turns), true);
-	assert.equal(isSessionScrollAnchorInTurns(3, turns), false);
+test("accepts version-two semantic anchors", () => {
+	assert.equal(isSessionScrollAnchor(anchor), true);
 });
 
-test("matches user message sequence (turn.sequence * 10)", () => {
-	assert.equal(isSessionScrollAnchorInTurns(10, turns), true);
-	assert.equal(isSessionScrollAnchorInTurns(20, turns), true);
-	assert.equal(isSessionScrollAnchorInTurns(50, turns), true);
-	assert.equal(isSessionScrollAnchorInTurns(30, turns), false);
-});
-
-test("matches assistant message sequence (turn.sequence * 10 + 2)", () => {
-	// Regression: first-visible assistant bubble must keep the leave anchor.
-	assert.equal(isSessionScrollAnchorInTurns(12, turns), true);
-	assert.equal(isSessionScrollAnchorInTurns(22, turns), true);
-	assert.equal(isSessionScrollAnchorInTurns(52, turns), true);
-	assert.equal(isSessionScrollAnchorInTurns(32, turns), false);
-});
-
-test("rejects non-finite sequences", () => {
-	assert.equal(isSessionScrollAnchorInTurns(Number.NaN, turns), false);
+test("rejects ambiguous legacy numeric anchors", () => {
 	assert.equal(
-		isSessionScrollAnchorInTurns(Number.POSITIVE_INFINITY, turns),
+		isSessionScrollAnchor({ sequence: 10, offset: -24, updatedAt: 1_000 }),
 		false,
+	);
+});
+
+test("checks the anchor's actual turn sequence", () => {
+	assert.equal(
+		isSessionScrollAnchorTurnLoaded(anchor, [
+			{ sequence: 1 },
+			{ sequence: 10 },
+		]),
+		true,
+	);
+	assert.equal(
+		isSessionScrollAnchorTurnLoaded(anchor, [{ sequence: 1 }, { sequence: 2 }]),
+		false,
+	);
+});
+
+test("resolves process turn 10 without colliding with user turn 1", () => {
+	const targets = [
+		{ itemKey: "turn:1:user", turnSequence: 1, kind: "user" as const },
+		{ itemKey: "turn:10:process", turnSequence: 10, kind: "process" as const },
+	];
+	assert.equal(resolveSessionScrollAnchorTargetIndex(anchor, targets), 1);
+});
+
+test("falls back to semantic turn and kind when an item key changes", () => {
+	const targets = [
+		{ itemKey: "turn:1:user", turnSequence: 1, kind: "user" as const },
+		{
+			itemKey: "turn:10:process:final",
+			turnSequence: 10,
+			kind: "process" as const,
+		},
+	];
+	assert.equal(
+		resolveSessionScrollAnchorTargetIndex(
+			{ ...anchor, itemKey: "turn:10:process:streaming" },
+			targets,
+		),
+		1,
+	);
+});
+
+test("does not fall back to a different item kind in the same turn", () => {
+	assert.equal(
+		resolveSessionScrollAnchorTargetIndex(anchor, [
+			{ itemKey: "turn:10:user", turnSequence: 10, kind: "user" },
+		]),
+		-1,
 	);
 });
 
@@ -57,5 +97,17 @@ test("reaches the same anchor after timeline layout expands", () => {
 			clientHeight: 500,
 		}),
 		{ scrollTop: 600, reached: true },
+	);
+});
+
+test("keeps the old bottom position when newer content was appended", () => {
+	assert.deepEqual(
+		resolveSessionScrollRestore({
+			anchorTop: 900,
+			anchorOffset: -100,
+			scrollHeight: 2_200,
+			clientHeight: 500,
+		}),
+		{ scrollTop: 800, reached: true },
 	);
 });

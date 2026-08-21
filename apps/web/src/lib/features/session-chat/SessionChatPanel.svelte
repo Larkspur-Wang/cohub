@@ -325,6 +325,7 @@ async function handleDraftDrop(event: DragEvent) {
 				<ChatTimeline
 					bind:this={chatTimelineRef}
 					bind:bindListEl={listEl}
+					sessionId={activeSessionId}
 					timeline={timeline}
 					preloadThreshold={10}
 					onFirstVisible={host.handleFirstVisible}

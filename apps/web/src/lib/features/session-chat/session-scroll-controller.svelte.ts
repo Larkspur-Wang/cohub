@@ -5,11 +5,73 @@ export type ChatTimelineHandle = {
 	finalizePrepend: () => void;
 };
 
-export type SessionScrollAnchor = {
-	sequence: number;
+export type SessionScrollAnchorKind =
+	| "user"
+	| "assistant"
+	| "process"
+	| "compact";
+
+export type SessionScrollAnchorTarget = {
+	itemKey: string;
+	turnSequence: number;
+	kind: SessionScrollAnchorKind;
+};
+
+export type SessionScrollAnchor = SessionScrollAnchorTarget & {
 	offset: number;
 	updatedAt: number;
 };
+
+export function isSessionScrollAnchorKind(
+	value: unknown,
+): value is SessionScrollAnchorKind {
+	return (
+		value === "user" ||
+		value === "assistant" ||
+		value === "process" ||
+		value === "compact"
+	);
+}
+
+export function isSessionScrollAnchor(
+	value: unknown,
+): value is SessionScrollAnchor {
+	if (!value || typeof value !== "object") return false;
+	const anchor = value as Partial<SessionScrollAnchor>;
+	return Boolean(
+		typeof anchor.itemKey === "string" &&
+			anchor.itemKey.trim() &&
+			Number.isInteger(anchor.turnSequence) &&
+			(anchor.turnSequence ?? 0) > 0 &&
+			isSessionScrollAnchorKind(anchor.kind) &&
+			typeof anchor.offset === "number" &&
+			Number.isFinite(anchor.offset) &&
+			typeof anchor.updatedAt === "number" &&
+			Number.isFinite(anchor.updatedAt),
+	);
+}
+
+export function isSessionScrollAnchorTurnLoaded(
+	anchor: SessionScrollAnchor,
+	turns: Array<{ sequence: number }>,
+) {
+	return turns.some((turn) => turn.sequence === anchor.turnSequence);
+}
+
+export function resolveSessionScrollAnchorTargetIndex(
+	anchor: SessionScrollAnchor,
+	targets: SessionScrollAnchorTarget[],
+) {
+	const exactIndex = targets.findIndex(
+		(target) => target.itemKey === anchor.itemKey,
+	);
+	if (exactIndex >= 0) return exactIndex;
+	return targets.findIndex(
+		(target) =>
+			target.turnSequence === anchor.turnSequence &&
+			target.kind === anchor.kind,
+	);
+}
 
 export function resolveSessionScrollRestore(input: {
 	anchorTop: number;
@@ -26,25 +88,6 @@ export function resolveSessionScrollRestore(input: {
 }
 
 const AUTO_FOLLOW_THRESHOLD_PX = 60;
-
-/**
- * Timeline `data-sequence` values:
- * - process cards: turn.sequence (1, 2, 3…)
- * - user messages: turn.sequence * 10
- * - assistant messages: turn.sequence * 10 + 2
- * - streaming previews: ephemeral higher bands
- */
-export function isSessionScrollAnchorInTurns(
-	anchorSequence: number,
-	turns: Array<{ sequence: number }>,
-) {
-	if (!Number.isFinite(anchorSequence)) return false;
-	return turns.some((turn) => {
-		if (turn.sequence === anchorSequence) return true;
-		// Message-style sequences live in the turn*10 band (user / assistant / extras).
-		return Math.floor(anchorSequence / 10) === turn.sequence;
-	});
-}
 
 function areNumberRecordsEqual(
 	current: Record<number, number>,
@@ -87,17 +130,17 @@ export function createSessionScrollController() {
 	let vimPendingGTimer: ReturnType<typeof setTimeout> | null = null;
 
 	function loadSessionScrollAnchors(storageKey: string) {
+		scrollAnchorBySession = new Map();
 		try {
 			const raw = localStorage.getItem(storageKey);
 			if (!raw) return;
-			const parsed = JSON.parse(raw) as Record<string, SessionScrollAnchor>;
+			const parsed: unknown = JSON.parse(raw);
+			if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+				return;
 			scrollAnchorBySession = new Map(
-				Object.entries(parsed).filter(([, anchor]) =>
-					Boolean(
-						anchor &&
-							typeof anchor.sequence === "number" &&
-							typeof anchor.offset === "number",
-					),
+				Object.entries(parsed).filter(
+					(entry): entry is [string, SessionScrollAnchor] =>
+						isSessionScrollAnchor(entry[1]),
 				),
 			);
 		} catch {
