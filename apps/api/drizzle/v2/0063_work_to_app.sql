@@ -1,3 +1,5 @@
+-- Re-applied after fixing inversed journal `when` ordering on merge (0063 < 0062).
+-- Semantics unchanged; this marker ensures the file diffs so CI re-runs migrate.
 -- Rename the Work storage layer to App: tables, columns, indexes, and checks
 -- are pure metadata renames, so no row data moves. All identifiers keep the
 -- v2_ naming convention.
