@@ -4164,17 +4164,17 @@ $effect(() => {
           {@render labelsSection()}
           {@render chatsSection()}
 
-          <!-- Works -->
+          <!-- Apps -->
           <div class="mt-3">
             <button
               type="button"
               class="flex items-center gap-2 px-1.5 py-1.5 w-full text-left hover:bg-bg-hover transition-colors duration-100 rounded-[6px]"
               onclick={() => { worksCollapsed = !worksCollapsed; }}
-              title={worksCollapsed ? "Expand works" : "Collapse works"}
+              title={worksCollapsed ? "Expand apps" : "Collapse apps"}
             >
               <ChevronDown class="w-3 h-3 text-text-tertiary shrink-0 transition-transform duration-150 {worksCollapsed ? 'rotate-180' : ''}" />
               <Rocket class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
-              <span class="text-[11px] text-text-placeholder select-none">Works</span>
+              <span class="text-[11px] text-text-placeholder select-none">Apps</span>
               {@render syncSpinner(refreshingApps, "ml-auto")}
             </button>
 

@@ -97,7 +97,7 @@ const canPublish = $derived(
 	),
 );
 const publicPath = $derived(
-	`/${currentUsername || "username"}/${currentSpaceSlug || "space"}/w/${currentWorkSlug || "work"}`,
+	`/${currentUsername || "username"}/${currentSpaceSlug || "space"}/w/${currentWorkSlug || "app"}`,
 );
 const appUrl = $derived.by(() => {
 	if (!currentUsername || !currentSpaceSlug || !published) return "";
@@ -126,8 +126,8 @@ $effect(() => {
 				.split("/")
 				.filter(Boolean)
 				.pop()
-				?.replace(/\.[^.]+$/, "") || "work";
-		slug = normalizePublicSlugInput(base) || "work";
+				?.replace(/\.[^.]+$/, "") || "app";
+		slug = normalizePublicSlugInput(base) || "app";
 		published = null;
 		error = null;
 		copied = false;
