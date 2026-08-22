@@ -35,7 +35,7 @@ import FilesSidebarPanel from "./FilesSidebarPanel.svelte";
 import type { FileWorkspaceInlineFile } from "./file-workspace-controller.svelte";
 import InlineFilePanel from "./InlineFilePanel.svelte";
 import PortWindow from "./PortWindow.svelte";
-import Windows from "./Windows.svelte";
+import WindowTabs from "./WindowTabs.svelte";
 import type { Window } from "./windows";
 import { workspaceFilePreviewKind } from "./windows";
 
@@ -430,7 +430,7 @@ function previewContentOut(node: Element) {
 			out:previewContentOut
 		>
 			{#if !isMobile && !previewImmersiveMode}
-				<Windows
+				<WindowTabs
 					tabs={windows}
 					onActivate={activateWindow}
 					onClose={closeWindow}
@@ -446,7 +446,7 @@ function previewContentOut(node: Element) {
 							onToggleImmersive={onTogglePreviewImmersiveMode}
 						/>
 					{/snippet}
-				</Windows>
+				</WindowTabs>
 			{/if}
 			<div class="relative min-h-0 flex-1">
 {#if inlineFile}

@@ -4,9 +4,9 @@ import { onDestroy, untrack } from "svelte";
 import * as publicEnv from "$env/static/public";
 import { readAppCheckoutState } from "$lib/components/app/app-checkout-state";
 import MarkdownView from "$lib/components/MarkdownView.svelte";
+import AppAuthorizeDialog from "$lib/features/app/AppAuthorizeDialog.svelte";
+import AppPurchaseDialog from "$lib/features/app/AppPurchaseDialog.svelte";
 import { createAppBridgeHost } from "$lib/features/app/bridge-host.svelte";
-import WorkAuthorizeDialog from "$lib/features/app/WorkAuthorizeDialog.svelte";
-import WorkPurchaseDialog from "$lib/features/app/WorkPurchaseDialog.svelte";
 import type { PreviewCaptureTarget } from "$lib/features/preview-mark";
 import {
 	createSpacePreviewSessionController,
@@ -146,7 +146,7 @@ onDestroy(() => {
 		{/if}
 	</div>
 	{#if host}
-		<WorkPurchaseDialog
+		<AppPurchaseDialog
 			open={host.purchaseOpen && !!host.pendingPurchase}
 			pending={host.pendingPurchase}
 			error={host.purchaseError}
@@ -154,7 +154,7 @@ onDestroy(() => {
 			onConfirm={() => void host.confirmPurchase()}
 			onCancel={host.cancelPurchase}
 		/>
-		<WorkAuthorizeDialog
+		<AppAuthorizeDialog
 			open={host.authOpen && !!host.pendingAuth}
 			pending={host.pendingAuth}
 			error={host.authError}

@@ -2,7 +2,7 @@
 import { Menu, PanelRightOpen } from "lucide-svelte";
 import type { Snippet } from "svelte";
 import { uiState } from "$lib/stores/ui.svelte";
-import Windows from "./Windows.svelte";
+import WindowTabs from "./WindowTabs.svelte";
 import type { Window } from "./windows";
 
 const {
@@ -31,7 +31,7 @@ const {
 		<Menu class="h-5 w-5" />
 	</button>
 	<div class="min-w-0 flex-1 overflow-hidden">
-		<Windows {tabs} {onActivate} {onClose} embedded />
+		<WindowTabs {tabs} {onActivate} {onClose} embedded />
 	</div>
 	{#if trailing}
 		{@render trailing()}
