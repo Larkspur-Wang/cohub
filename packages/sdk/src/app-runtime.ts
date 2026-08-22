@@ -499,8 +499,9 @@ export type AppIdResolver = () => Promise<string | null>;
 
 /**
  * Builds a memoized appId resolver that reverse-looks-up the appId from the
- * public slug triple via `GET /api/works/by-slug/:username/:spaceSlug/:appSlug`
- * (the works REST paths are frozen for existing API consumers). The endpoint is
+ * public slug triple via `GET /api/apps/by-slug/:username/:spaceSlug/:appSlug`
+ * (the works REST routes are dual-mounted; `/api/works` keeps serving older
+ * consumers with identical payloads). The endpoint is
  * anonymous (no auth) for public apps, so no token is needed. The result is
  * cached; a failed lookup is not cached so it can be retried.
  */
@@ -517,7 +518,7 @@ export function createSlugAppIdResolver(deps: {
     const run = (async (): Promise<string | null> => {
       const doFetch = deps.fetch ?? globalThis.fetch;
       if (typeof doFetch !== "function") return null;
-      const url = `${deps.apiBaseUrl}/api/works/by-slug/${encodeURIComponent(deps.ownerUsername)}/${encodeURIComponent(deps.spaceSlug)}/${encodeURIComponent(deps.appSlug)}`;
+      const url = `${deps.apiBaseUrl}/api/apps/by-slug/${encodeURIComponent(deps.ownerUsername)}/${encodeURIComponent(deps.spaceSlug)}/${encodeURIComponent(deps.appSlug)}`;
       const response = await doFetch(url);
       if (!response.ok) throw new Error(`getBySlug failed: ${response.status}`);
       const data = (await response.json()) as { work?: { id?: string } } | null;

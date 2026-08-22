@@ -22,7 +22,7 @@ import billingRouter from "./billing.route.js";
 import queuesRouter from "./queues.route.js";
 import publicAssetsRouter from "./public-assets.route.js";
 import appsRouter from "./apps.route.js";
-import appCommerceRouter from "./app-commerce.route.js";
+import { createAppCommerceRouter } from "./app-commerce.route.js";
 import appPromotionsRouter from "./app-promotions.route.js";
 import usersRouter from "./users.route.js";
 import referencesRouter from "./references.route.js";
@@ -52,11 +52,19 @@ router.route("/api/generations", generationsRouter);
 router.route("/api/billing", billingRouter);
 router.route("/api/queues", queuesRouter);
 router.route("/api/public-assets", publicAssetsRouter);
+// Works REST is dual-mounted: the canonical /api/apps serves new SDK clients,
+// and the legacy /api/works mount keeps existing consumers (older SDK versions
+// and direct REST callers) working with identical payloads until the next
+// breaking version.
+router.route("/api/apps", appsRouter);
+router.route("/api/apps", appPromotionsRouter);
 router.route("/api/works", appsRouter);
 router.route("/api/works", appPromotionsRouter);
-router.route("/api", appCommerceRouter);
+router.route("/api", createAppCommerceRouter("apps"));
+router.route("/api", createAppCommerceRouter("works"));
 router.route("/api/users", usersRouter);
 router.route("/api/references", referencesRouter);
+router.route("/api/desktop/commands", desktopCommandsRouter);
 router.route("/api/ui/commands", desktopCommandsRouter);
 router.route("/", previewRouter);
 router.route("/internal", internalRouter);

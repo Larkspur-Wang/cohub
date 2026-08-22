@@ -82,10 +82,10 @@ export class DesktopCommandsApi {
   constructor(private readonly transport: HttpTransport) {}
 
   create(input: CreateDesktopCommandInput) {
-    // The `/api/ui/commands` path is frozen for existing SDK consumers; the
+    // The `/api/desktop/commands` path is frozen for existing SDK consumers; the
     // server accepts both the canonical `desktop.open` command and the legacy
     // `preview.show` shape.
-    return this.transport.request<{ command: DesktopCommandRecord }>("/api/ui/commands", {
+    return this.transport.request<{ command: DesktopCommandRecord }>("/api/desktop/commands", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
@@ -94,7 +94,7 @@ export class DesktopCommandsApi {
 
   get(commandId: string) {
     return this.transport.request<{ command: DesktopCommandRecord }>(
-      `/api/ui/commands/${encodeURIComponent(commandId)}`,
+      `/api/desktop/commands/${encodeURIComponent(commandId)}`,
     );
   }
 
@@ -103,7 +103,7 @@ export class DesktopCommandsApi {
     input: { status: DesktopCommandStatus; result?: unknown; error?: DesktopCommandError | null },
   ) {
     return this.transport.request<{ command: DesktopCommandRecord }>(
-      `/api/ui/commands/${encodeURIComponent(commandId)}/result`,
+      `/api/desktop/commands/${encodeURIComponent(commandId)}/result`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },

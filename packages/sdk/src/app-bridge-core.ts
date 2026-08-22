@@ -218,7 +218,7 @@ export function createAppBridgeCore(
 			return null;
 		}
 		const response = await fetch(
-			`${apiOrigin}/api/works/${app.id}/session`,
+			`${apiOrigin}/api/apps/${app.id}/session`,
 			{
 				method: "POST",
 				headers: { Authorization: `Bearer ${userToken}` },
@@ -240,7 +240,7 @@ export function createAppBridgeCore(
 			return null;
 		}
 		const response = await fetch(
-			`${apiOrigin}/api/works/${app.id}/authorize`,
+			`${apiOrigin}/api/apps/${app.id}/authorize`,
 			{
 				method: "POST",
 				headers: {
@@ -328,7 +328,7 @@ export function createAppBridgeCore(
 		}
 		const promotionAttribution = config.getPromotionAttribution?.() ?? null;
 		const response = await fetch(
-			`${apiOrigin}/api/works/${app.id}/commerce/purchase`,
+			`${apiOrigin}/api/apps/${app.id}/commerce/purchase`,
 			{
 				method: "POST",
 				headers: {

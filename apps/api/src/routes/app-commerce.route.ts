@@ -33,7 +33,13 @@ import {
   resolvePublishedAppPromotion,
 } from "../app-promotion-events.js";
 
-const router = new Hono();
+/**
+ * Commerce endpoints live under `/{resource}/:id/commerce/*`; the router is a
+ * factory so the same handlers serve both the canonical `/api/apps` mount and
+ * the legacy `/api/works` mount with identical payloads.
+ */
+export function createAppCommerceRouter(resource: "works" | "apps"): Hono {
+  const router = new Hono();
 
 /** Public resolve fan-out caps: bound upstream Billing load per request. */
 const RESOLVE_MAX_PRODUCT_KEYS = 20;
@@ -82,7 +88,7 @@ async function resolvePublicAppUrl(input: { spaceId: string; appSlug: string }) 
   return `${origin}/${encodeURIComponent(row.username)}/${encodeURIComponent(row.spaceSlug)}/w/${encodeURIComponent(input.appSlug)}`;
 }
 
-router.post("/works/:id/commerce/products/resolve", async (c) => {
+router.post(`/${resource}/:id/commerce/products/resolve`, async (c) => {
   const principal = getOptionalAuth(c);
   const appId = c.req.param("id");
   if (!requireValidId(appId)) return c.json({ message: "app not found" }, 404);
@@ -154,7 +160,7 @@ router.post("/works/:id/commerce/products/resolve", async (c) => {
   }
 });
 
-router.get("/works/:id/commerce/entitlements", async (c) => {
+router.get(`/${resource}/:id/commerce/entitlements`, async (c) => {
   const user = useAuth(c);
   if (user instanceof Response) return user;
   const appId = c.req.param("id");
@@ -186,7 +192,7 @@ router.get("/works/:id/commerce/entitlements", async (c) => {
   }
 });
 
-router.post("/works/:id/commerce/credits/consume", async (c) => {
+router.post(`/${resource}/:id/commerce/credits/consume`, async (c) => {
   const user = useAuth(c);
   if (user instanceof Response) return user;
   const appId = c.req.param("id");
@@ -239,7 +245,7 @@ router.post("/works/:id/commerce/credits/consume", async (c) => {
   }
 });
 
-router.post("/works/:id/commerce/purchase", async (c) => {
+router.post(`/${resource}/:id/commerce/purchase`, async (c) => {
   const user = useAuth(c);
   if (user instanceof Response) return user;
   const appId = c.req.param("id");
@@ -385,7 +391,7 @@ router.post("/works/:id/commerce/purchase", async (c) => {
   }
 });
 
-router.get("/works/:id/commerce/orders/:orderId", async (c) => {
+router.get(`/${resource}/:id/commerce/orders/:orderId`, async (c) => {
   const user = useAuth(c);
   if (user instanceof Response) return user;
   const appId = c.req.param("id");
@@ -409,6 +415,7 @@ router.get("/works/:id/commerce/orders/:orderId", async (c) => {
     if (response) return response;
     throw error;
   }
-});
+  });
 
-export default router;
+  return router;
+}

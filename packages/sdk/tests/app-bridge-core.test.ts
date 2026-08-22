@@ -138,7 +138,7 @@ test("token message mints a session token via API", async () => {
 			messageEvent({ type: "cohub.app.token", requestId: "r2" }),
 		);
 
-		assert.deepEqual(fetchCalls, ["https://api.test/api/works/work_123/session"]);
+		assert.deepEqual(fetchCalls, ["https://api.test/api/apps/work_123/session"]);
 		assert.equal(config.replies.length, 1);
 		assert.equal(config.replies[0].payload.type, "cohub.app.token.result");
 		assert.equal(config.replies[0].payload.token, "session-token-xyz");

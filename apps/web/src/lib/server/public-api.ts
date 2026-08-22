@@ -52,7 +52,7 @@ export async function loadPublicAppDetail(
 ): Promise<{ ok: true; detail: AppDetailResponse } | PublicApiFailure> {
 	if (!path) return { ok: false, status: 0 };
 	const url = apiUrl(
-		`/api/works/by-slug/${encodeURIComponent(path.username)}/${encodeURIComponent(path.spaceSlug)}/${encodeURIComponent(path.appSlug)}`,
+		`/api/apps/by-slug/${encodeURIComponent(path.username)}/${encodeURIComponent(path.spaceSlug)}/${encodeURIComponent(path.appSlug)}`,
 	);
 	const response = await fetcher(url).catch(() => null);
 	if (!response) return { ok: false, status: 502 };

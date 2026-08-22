@@ -46,7 +46,7 @@ function fail(msg: string) {
 
 async function loadAppDetail(token: string): Promise<AppDetail | null> {
 	const response = await fetch(
-		`${PUBLIC_API_ORIGIN ?? ""}/api/works/${encodeURIComponent(appId)}/public`,
+		`${PUBLIC_API_ORIGIN ?? ""}/api/apps/${encodeURIComponent(appId)}/public`,
 		{ headers: { Authorization: `Bearer ${token}` } },
 	);
 	if (!response.ok) return null;

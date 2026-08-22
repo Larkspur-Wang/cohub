@@ -63,7 +63,7 @@ export class AppCommerceApi {
 
   resolveProducts(appId: string, input: { productKeys: string[] }) {
     return this.transport.request<AppCommerceProductResolveResponse>(
-      `/api/works/${encodeURIComponent(appId)}/commerce/products/resolve`,
+      `/api/apps/${encodeURIComponent(appId)}/commerce/products/resolve`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -74,13 +74,13 @@ export class AppCommerceApi {
 
   getEntitlements(appId: string) {
     return this.transport.request<AppCommerceEntitlementsResponse>(
-      `/api/works/${encodeURIComponent(appId)}/commerce/entitlements`,
+      `/api/apps/${encodeURIComponent(appId)}/commerce/entitlements`,
     );
   }
 
   consumeCredits(appId: string, input: { amount: number; operationId: string; reason?: string }) {
     return this.transport.request<AppCommerceCreditConsumeResponse>(
-      `/api/works/${encodeURIComponent(appId)}/commerce/credits/consume`,
+      `/api/apps/${encodeURIComponent(appId)}/commerce/credits/consume`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -91,7 +91,7 @@ export class AppCommerceApi {
 
   purchase(appId: string, input: { productKey: string }) {
     return this.transport.request<AppCommercePurchaseResponse>(
-      `/api/works/${encodeURIComponent(appId)}/commerce/purchase`,
+      `/api/apps/${encodeURIComponent(appId)}/commerce/purchase`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -102,7 +102,7 @@ export class AppCommerceApi {
 
   getOrder(appId: string, orderId: string) {
     return this.transport.request<{ order: AppCommerceOrder }>(
-      `/api/works/${encodeURIComponent(appId)}/commerce/orders/${encodeURIComponent(orderId)}`,
+      `/api/apps/${encodeURIComponent(appId)}/commerce/orders/${encodeURIComponent(orderId)}`,
     );
   }
 }

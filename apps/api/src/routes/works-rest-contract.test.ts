@@ -6,15 +6,17 @@ import { test } from "node:test";
 
 /**
  * The works REST surface is frozen wire contract: external consumers (e.g.
- * neta-studio) and the SDK call `/api/works*` paths and read response field
- * names like `work` / `works` / `workScopes` / `workId` directly, and the
- * server promises to keep serving exactly those.
+ * neta-studio) and older SDK versions call `/api/works*` paths and read
+ * response field names like `work` / `works` / `workScopes` / `workId`
+ * directly. The routes are dual-mounted — canonical `/api/apps` for new SDK
+ * clients, legacy `/api/works` for existing ones — with identical payloads.
  *
  * Route-level integration tests are impractical here (the route module wires
  * db/redis at import time), so this contract test instead extracts both sides
  * from source and matches them: every path the SDK (and web's direct calls)
- * requests must be mounted by the api router table. Renaming a mount prefix or
- * an internal path — without the matching SDK change — fails here.
+ * requests must be mounted under the canonical prefix, and its legacy twin
+ * must be mounted too. Renaming a mount prefix or an internal path — without
+ * the matching SDK change — fails here.
  */
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -33,8 +35,14 @@ const SDK_SOURCES = [
 
 /** Web-side direct calls (SSR + broker page) that bypass the SDK. */
 const WEB_DIRECT_PATHS = [
-  "/api/works/by-slug/:p/:p/:p",
-  "/api/works/:p/public",
+  "/api/apps/by-slug/:p/:p/:p",
+  "/api/apps/:p/public",
+];
+
+/** Canonical -> legacy prefix pairs kept mounted with identical payloads. */
+const LEGACY_PREFIXES: Array<[canonical: string, legacy: string]> = [
+  ["/api/apps", "/api/works"],
+  ["/api/desktop/commands", "/api/ui/commands"],
 ];
 
 /** Normalize a template string: `${...}` interpolations become `:p` segments. */
@@ -42,8 +50,7 @@ function normalizePath(raw: string): string {
   return raw
     .replace(/\$\{[^}]*\}/g, ":p")
     .replace(/\/+/g, "/")
-    .replace(/\/$/, "")
-    .replace(/^\/api/, "/api");
+    .replace(/\/$/, "");
 }
 
 /** Extract every `/api/...` request path a source file mentions. */
@@ -67,51 +74,70 @@ function segmentsMatch(routeSegments: string[], pathSegments: string[]): boolean
   );
 }
 
-test("every works REST path the SDK requests is mounted by the api", () => {
-  // Build the api route table from routes/index.ts: import bindings plus
-  // router.route(prefix, routerName) mounts, then each route file's
-  // router.<method>("path") registrations under that prefix.
-  const indexSource = read(API_ROOT, "src", "routes", "index.ts");
+/** Build the full mounted route table from routes/index.ts + route files. */
+function mountedRoutes(): string[] {
+  const indexSource = read(API_ROOT, "src", "routes", "index.ts")
+    // Commented-out mounts must not count as live routes.
+    .split("\n")
+    .filter((line) => !line.trim().startsWith("//"))
+    .join("\n");
   const imports = new Map<string, string>();
-  for (const match of indexSource.matchAll(/import\s+(\w+)\s+from\s+"\.\/([^"]+)"/g)) {
+  for (const match of indexSource.matchAll(/import\s+\{?\s*(\w+)\s*\}?\s+from\s+"\.\/([^"]+)"/g)) {
     imports.set(match[1] ?? "", join(API_ROOT, "src", "routes", `${(match[2] ?? "").replace(/\.js$/, "")}.ts`));
   }
 
   const mounted: string[] = [];
-  for (const match of indexSource.matchAll(/router\.route\("([^"]+)",\s*(\w+)\)/g)) {
-    const prefix = match[1] ?? "";
-    const file = imports.get(match[2] ?? "");
-    if (!file) continue;
+  const registerFile = (prefix: string, file: string, resource?: string) => {
     const routeSource = readFileSync(file, "utf-8");
     for (const inner of routeSource.matchAll(
-      /\.route\(\s*"(\/[^"]*)"\s*,\s*\w+\s*\)|\.(?:get|post|patch|put|delete)\(\s*"(\/[^"]*)"/g,
+      /\.route\(\s*"(?<sub>\/[^"]*)"\s*,\s*\w+\s*\)|\.(?:get|post|patch|put|delete)\(\s*[`"](?<path>\/[^`"]*)[`"]/g,
     )) {
-      const path = inner[1] ?? inner[2] ?? "";
-      if (!path || path === "/") {
-        mounted.push(normalizePath(prefix));
-      } else {
-        mounted.push(normalizePath(`${prefix}${path}`));
-      }
+      let path = inner.groups?.sub ?? inner.groups?.path ?? "";
+      if (resource) path = path.replaceAll("${resource}", resource);
+      mounted.push(path && path !== "/" ? normalizePath(`${prefix}${path}`) : normalizePath(prefix));
     }
+  };
+
+  for (const match of indexSource.matchAll(/router\.route\("([^"]+)",\s*(\w+)\)/g)) {
+    const file = imports.get(match[2] ?? "");
+    if (file) registerFile(match[1] ?? "", file);
   }
+  for (const match of indexSource.matchAll(/router\.route\("([^"]+)",\s*createAppCommerceRouter\("(\w+)"\)\)/g)) {
+    // Commerce paths embed the resource segment: /works/:id/... or /apps/:id/...
+    registerFile(match[1] ?? "", join(API_ROOT, "src", "routes", "app-commerce.route.ts"), match[2]);
+  }
+  return mounted;
+}
+
+test("every apps REST path the SDK requests is dual-mounted", () => {
+  const mounted = mountedRoutes();
 
   const sdkPaths = new Set<string>();
   for (const source of SDK_SOURCES) {
     for (const path of extractApiPaths(read(REPO_ROOT, source))) {
-      // Only the frozen works surface is under contract here.
-      if (path.startsWith("/api/works")) sdkPaths.add(path);
+      if (path.startsWith("/api/apps") || path.startsWith("/api/desktop/commands")) {
+        sdkPaths.add(path);
+      }
     }
   }
   for (const path of WEB_DIRECT_PATHS) sdkPaths.add(path);
-  assert.ok(sdkPaths.size >= 20, `expected the full works surface, found ${sdkPaths.size}`);
+  assert.ok(sdkPaths.size >= 20, `expected the full apps surface, found ${sdkPaths.size}`);
 
-  const missing = [...sdkPaths].filter(
-    (path) => !mounted.some((route) => segmentsMatch(route.split("/"), path.split("/"))),
-  );
+  const isMounted = (path: string) =>
+    mounted.some((route) => segmentsMatch(route.split("/"), path.split("/")));
+
+  const problems: string[] = [];
+  for (const path of sdkPaths) {
+    if (!isMounted(path)) problems.push(`canonical mount missing: ${path}`);
+    const legacy = LEGACY_PREFIXES.find(([canonical]) => path.startsWith(canonical));
+    if (legacy && !isMounted(path.replace(legacy[0], legacy[1]))) {
+      problems.push(`legacy mount missing: ${path.replace(legacy[0], legacy[1])}`);
+    }
+  }
   assert.deepEqual(
-    missing,
+    problems,
     [],
-    "works REST paths are frozen: mount or route changes must keep serving these",
+    "apps REST is dual-mounted: both the canonical and legacy prefixes must keep serving every path",
   );
 });
 

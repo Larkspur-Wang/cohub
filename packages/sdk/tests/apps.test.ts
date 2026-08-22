@@ -7,7 +7,7 @@ import type { HttpTransport } from "../src/transport.js";
 test("AppsApi.getStats requests the fixed analytics range", async () => {
   const transport = {
     request: async (path: string) => {
-      assert.equal(path, "/api/works/work-1/stats");
+      assert.equal(path, "/api/apps/work-1/stats");
       return {};
     },
   } as unknown as HttpTransport;
@@ -38,11 +38,11 @@ test("AppsApi creates and records Work promotions", async () => {
     fbp: "fbp-1",
   });
 
-  assert.equal(requests[0]?.path, "/api/works/work-1/promotions");
+  assert.equal(requests[0]?.path, "/api/apps/work-1/promotions");
   assert.equal(requests[0]?.init?.method, "POST");
-  assert.equal(requests[1]?.path, "/api/works/work-1/promotions/promotion-1/events");
+  assert.equal(requests[1]?.path, "/api/apps/work-1/promotions/promotion-1/events");
   assert.equal(requests[1]?.init?.method, "POST");
-  assert.equal(requests[2]?.path, "/api/works/work-1/promotions/promotion-1/registration");
+  assert.equal(requests[2]?.path, "/api/apps/work-1/promotions/promotion-1/registration");
   assert.equal(requests[2]?.init?.method, "POST");
 });
 
@@ -50,7 +50,7 @@ test("AppsApi.getBySlug forwards the abort signal", async () => {
   const controller = new AbortController();
   const transport = {
     request: async (path: string, init?: RequestInit) => {
-      assert.equal(path, "/api/works/by-slug/alice/studio/launch");
+      assert.equal(path, "/api/apps/by-slug/alice/studio/launch");
       assert.equal(init?.signal, controller.signal);
       return {};
     },
@@ -62,7 +62,7 @@ test("AppsApi.getBySlug forwards the abort signal", async () => {
 });
 
 test("works REST wire field names stay frozen for existing API consumers", () => {
-	// External consumers (e.g. neta-studio) call `/api/works*` directly and
+	// External consumers (e.g. neta-studio) call `/api/apps*` directly and
 	// read these exact field names. Renaming any of them is a breaking wire
 	// change reserved for the next protocol version.
 	const record: AppRecord = {
@@ -126,7 +126,7 @@ test("client.apps and client.works point at the same API instance", () => {
 	assert.equal(client.appCommerce, client.workCommerce);
 });
 
-test("works REST request paths stay frozen", async () => {
+test("apps REST request paths use the canonical /api/apps mount", async () => {
   const requests: string[] = [];
   const transport = {
     request: async (path: string, init?: RequestInit) => {
@@ -149,15 +149,15 @@ test("works REST request paths stay frozen", async () => {
   await api.createSession(id);
 
   assert.deepEqual(requests, [
-    "GET /api/works/space/space-1",
-    `GET /api/works/${id}`,
-    `GET /api/works/${id}/public`,
-    "GET /api/works/by-slug/alice/studio/launch",
-    "POST /api/works",
-    `PATCH /api/works/${id}`,
-    `DELETE /api/works/${id}`,
-    `GET /api/works/${id}/versions`,
-    `POST /api/works/${id}/versions`,
-    `POST /api/works/${id}/session`,
+    "GET /api/apps/space/space-1",
+    `GET /api/apps/${id}`,
+    `GET /api/apps/${id}/public`,
+    "GET /api/apps/by-slug/alice/studio/launch",
+    "POST /api/apps",
+    `PATCH /api/apps/${id}`,
+    `DELETE /api/apps/${id}`,
+    `GET /api/apps/${id}/versions`,
+    `POST /api/apps/${id}/versions`,
+    `POST /api/apps/${id}/session`,
   ]);
 });

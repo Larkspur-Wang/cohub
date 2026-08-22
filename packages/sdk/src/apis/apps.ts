@@ -245,11 +245,11 @@ export class AppsApi {
   constructor(private readonly transport: HttpTransport) {}
 
   listBySpace(spaceId: string) {
-    return this.transport.request<{ works: AppRecord[] }>(`/api/works/space/${spaceId}`);
+    return this.transport.request<{ works: AppRecord[] }>(`/api/apps/space/${spaceId}`);
   }
 
   get(id: string) {
-    return this.transport.request<AppGetResponse>(`/api/works/${id}`);
+    return this.transport.request<AppGetResponse>(`/api/apps/${id}`);
   }
 
   /**
@@ -257,7 +257,7 @@ export class AppsApi {
    * Used by the standalone app auth broker page.
    */
   getPublicById(id: string) {
-    return this.transport.request<AppResolveResponse>(`/api/works/${id}/public`);
+    return this.transport.request<AppResolveResponse>(`/api/apps/${id}/public`);
   }
 
   getBySlug(
@@ -267,13 +267,13 @@ export class AppsApi {
     options?: { signal?: AbortSignal },
   ) {
     return this.transport.request<AppResolveResponse>(
-      `/api/works/by-slug/${encodeURIComponent(username)}/${encodeURIComponent(spaceSlug)}/${encodeURIComponent(appSlug)}`,
+      `/api/apps/by-slug/${encodeURIComponent(username)}/${encodeURIComponent(spaceSlug)}/${encodeURIComponent(appSlug)}`,
       options?.signal ? { signal: options.signal } : undefined,
     );
   }
 
   create(input: AppCreateInput) {
-    return this.transport.request<{ work: AppRecord }>("/api/works", {
+    return this.transport.request<{ work: AppRecord }>("/api/apps", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
@@ -281,7 +281,7 @@ export class AppsApi {
   }
 
   update(id: string, input: AppUpdateInput) {
-    return this.transport.request<{ work: AppRecord }>(`/api/works/${id}`, {
+    return this.transport.request<{ work: AppRecord }>(`/api/apps/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
@@ -289,25 +289,25 @@ export class AppsApi {
   }
 
   delete(id: string) {
-    return this.transport.request<{ ok: true }>(`/api/works/${id}`, {
+    return this.transport.request<{ ok: true }>(`/api/apps/${id}`, {
       method: "DELETE",
     });
   }
 
   getStats(appId: string) {
-    return this.transport.request<AppViewStatsResponse>(`/api/works/${appId}/stats`);
+    return this.transport.request<AppViewStatsResponse>(`/api/apps/${appId}/stats`);
   }
 
   listPromotions(appId: string) {
     return this.transport.request<{
       promotions: AppPromotionRecord[];
       providers: AppPromotionProviderStatus[];
-    }>(`/api/works/${appId}/promotions`);
+    }>(`/api/apps/${appId}/promotions`);
   }
 
   createPromotion(appId: string, input: AppPromotionCreateInput) {
     return this.transport.request<{ promotion: AppPromotionRecord }>(
-      `/api/works/${appId}/promotions`,
+      `/api/apps/${appId}/promotions`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -318,7 +318,7 @@ export class AppsApi {
 
   getPromotionStats(appId: string, promotionId: string) {
     return this.transport.request<AppPromotionStatsResponse>(
-      `/api/works/${appId}/promotions/${promotionId}/stats`,
+      `/api/apps/${appId}/promotions/${promotionId}/stats`,
     );
   }
 
@@ -335,7 +335,7 @@ export class AppsApi {
     },
   ) {
     return this.transport.request<AppPromotionEventResponse>(
-      `/api/works/${appId}/promotions/${promotionId}/events`,
+      `/api/apps/${appId}/promotions/${promotionId}/events`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -354,7 +354,7 @@ export class AppsApi {
       eventId: string | null;
       browser: AppPromotionEventResponse["browser"];
     }>(
-      `/api/works/${appId}/promotions/${promotionId}/registration`,
+      `/api/apps/${appId}/promotions/${promotionId}/registration`,
       {
         method: "POST",
         headers: input ? { "Content-Type": "application/json" } : undefined,
@@ -364,11 +364,11 @@ export class AppsApi {
   }
 
   listVersions(appId: string) {
-    return this.transport.request<{ versions: AppVersionRecord[] }>(`/api/works/${appId}/versions`);
+    return this.transport.request<{ versions: AppVersionRecord[] }>(`/api/apps/${appId}/versions`);
   }
 
   publishVersion(appId: string, input?: { meta?: AppMeta | null }) {
-    return this.transport.request<{ work: AppRecord; version: AppVersionRecord }>(`/api/works/${appId}/versions`, {
+    return this.transport.request<{ work: AppRecord; version: AppVersionRecord }>(`/api/apps/${appId}/versions`, {
       method: "POST",
       headers: input ? { "Content-Type": "application/json" } : undefined,
       body: input ? JSON.stringify(input) : undefined,
@@ -376,13 +376,13 @@ export class AppsApi {
   }
 
   createSession(appId: string) {
-    return this.transport.request<AppSessionResponse>(`/api/works/${appId}/session`, {
+    return this.transport.request<AppSessionResponse>(`/api/apps/${appId}/session`, {
       method: "POST",
     });
   }
 
   authorize(appId: string, input: { scopes: Permission[]; reason?: string }) {
-    return this.transport.request<AppAuthorizeResponse>(`/api/works/${appId}/authorize`, {
+    return this.transport.request<AppAuthorizeResponse>(`/api/apps/${appId}/authorize`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
@@ -391,9 +391,11 @@ export class AppsApi {
 }
 
 // ── Legacy aliases ────────────────────────────────────────────────────────────
-// The works REST paths and payload field names are frozen for existing API
-// consumers (see AppRecord); these type aliases keep the work-era names
-// compiling until the next breaking SDK version.
+// The works REST payload field names are frozen for existing API consumers
+// (see AppRecord); the server dual-mounts the routes so `/api/works` keeps
+// serving older clients while this SDK uses the canonical `/api/apps`. These
+// type aliases keep the work-era names compiling until the next breaking SDK
+// version.
 
 /** @deprecated Use `AppTargetType`. */
 export type WorkTargetType = AppTargetType;

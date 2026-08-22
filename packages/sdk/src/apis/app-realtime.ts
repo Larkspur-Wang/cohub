@@ -532,7 +532,7 @@ export class AppRealtimeApi {
 
   async createRoom<Events extends AppRoomEventMap = AppRoomEventMap>(input: AppRoomCreateInput = {}) {
     const admission = await this.transport.request<AppRoomAdmissionResponse>(
-      `/api/works/${encodeURIComponent(await this.requireAppId())}/realtime/rooms`,
+      `/api/apps/${encodeURIComponent(await this.requireAppId())}/realtime/rooms`,
       { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) },
     );
     return this.openRoom<Events>(admission);
@@ -540,7 +540,7 @@ export class AppRealtimeApi {
 
   async joinRoom<Events extends AppRoomEventMap = AppRoomEventMap>(input: { code: string }) {
     const admission = await this.transport.request<AppRoomAdmissionResponse>(
-      `/api/works/${encodeURIComponent(await this.requireAppId())}/realtime/rooms/join`,
+      `/api/apps/${encodeURIComponent(await this.requireAppId())}/realtime/rooms/join`,
       { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) },
     );
     return this.openRoom<Events>(admission);

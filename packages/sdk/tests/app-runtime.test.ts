@@ -538,7 +538,7 @@ test("createSlugAppIdResolver resolves appId from getBySlug and caches it", asyn
 			calls += 1;
 			assert.equal(
 				url,
-				"https://api.cohub.run/api/works/by-slug/tzwm/playground/pulsewall",
+				"https://api.cohub.run/api/apps/by-slug/tzwm/playground/pulsewall",
 			);
 			return {
 				ok: true,
