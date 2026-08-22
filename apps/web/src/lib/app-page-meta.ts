@@ -48,7 +48,7 @@ function cleanText(value: unknown, max = 500) {
 	return text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
 }
 
-/** Shared display title for Work chrome (bar, iframe title, dialogs). */
+/** Shared display title for app chrome (bar, iframe title, dialogs). */
 export function appDisplayTitle(
 	meta: WorkMeta | null | undefined,
 	fallback: string,
@@ -106,7 +106,7 @@ function appName(input: {
 
 /**
  * Resolve icon/image for the public shell.
- * Root-relative paths like `/favicon.svg` must join the Work content URL,
+ * Root-relative paths like `/favicon.svg` must join the app content URL,
  * not the Cohub host origin.
  */
 function resolveMediaRef(
@@ -127,7 +127,7 @@ function resolveMediaRef(
 	if (/^https?:/i.test(value) || /^data:/i.test(value)) return null;
 	if (!contentUrl) return null;
 	try {
-		// Root-relative `/favicon.svg` is the Work package root, not cohub.live/.
+		// Root-relative `/favicon.svg` is the app package root, not cohub.live/.
 		const base = new URL(contentUrl);
 		const relative = value.replace(/^\.\//, "").replace(/^\/+/, "");
 		if (!relative || relative.includes("\0")) return null;
@@ -170,7 +170,7 @@ export type AppPageDetail = {
 };
 
 export type AppPageMeta = {
-	/** Primary work name (no host suffix). */
+	/** Primary app name (no host suffix). */
 	name: string;
 	/** Document / tab / OG title. */
 	documentTitle: string;
@@ -217,7 +217,7 @@ export function buildAppPageMeta(
 		isRecord(meta) && (cleanText(meta.title) || cleanText(meta.name)),
 	);
 
-	// Default: Work title as-is; only brand generic fallbacks with a light host mark.
+	// Default: app title as-is; only brand generic fallbacks with a light host mark.
 	// Minimal (hideCohubBar): never append host branding.
 	const documentTitle = truncateText(
 		hasExplicitTitle || minimalBranding
@@ -225,7 +225,7 @@ export function buildAppPageMeta(
 			: `${primaryName} · ${HOST_LABEL}`,
 		MAX_NAME_LENGTH,
 	);
-	// Default keeps a soft host signal; minimal uses the Work name as site.
+	// Default keeps a soft host signal; minimal uses the app name as site.
 	const siteName = minimalBranding ? primaryName : HOST_LABEL;
 
 	const explicitDescription = isRecord(meta)

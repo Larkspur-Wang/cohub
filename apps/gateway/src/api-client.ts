@@ -151,7 +151,7 @@ export const authorizeAppRoom = async (input: {
   });
   const data = await parseJson<{ ok?: boolean; room?: RealtimeRoomDescriptor; participantId?: string; userKey?: string; message?: string }>(response);
   if (!response.ok || !data?.ok || !data.room || !data.participantId || !data.userKey) {
-    throw new Error(data?.message || `Work room authorization failed ${response.status}`);
+    throw new Error(data?.message || `App room authorization failed ${response.status}`);
   }
   return { room: data.room, participantId: data.participantId, userKey: data.userKey };
 };

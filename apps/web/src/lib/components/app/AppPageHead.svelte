@@ -11,7 +11,7 @@ const {
 <svelte:head>
 	<!-- hooks.server.ts reads this to set <html lang> for app public pages. -->
 	{#if meta.lang}
-		<meta name="cohub-work-lang" content={meta.lang} />
+		<meta name="cohub-app-lang" content={meta.lang} />
 	{/if}
 	<title>{meta.documentTitle}</title>
 	<meta name="description" content={meta.description} />

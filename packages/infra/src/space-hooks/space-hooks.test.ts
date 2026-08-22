@@ -126,11 +126,11 @@ test("maybeEnqueueSpaceHookTask skips non-hookable and re-entrant events", async
   });
 });
 
-test("maybeEnqueueSpaceHookTask accepts published Work versions", async () => {
+test("maybeEnqueueSpaceHookTask accepts published app versions", async () => {
   const calls: unknown[] = [];
   const result = await maybeEnqueueSpaceHookTask({
     event: {
-      id: "event-work-3",
+      id: "event-app-3",
       type: "app.version.published",
       spaceId: "space-1",
       payload: {
@@ -141,7 +141,7 @@ test("maybeEnqueueSpaceHookTask accepts published Work versions", async () => {
     },
     enqueue: async (name, payload, options) => {
       calls.push({ name, payload, options });
-      return { id: "job-work-3" };
+      return { id: "job-app-3" };
     },
   });
 

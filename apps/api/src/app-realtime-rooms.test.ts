@@ -12,7 +12,7 @@ import {
   normalizeAppRoomOptions,
 } from "./app-realtime-rooms.js";
 
-test("normalizes Work room codes without making them case-sensitive", () => {
+test("normalizes app room codes without making them case-sensitive", () => {
   assert.equal(normalizeAppRoomCode("  team-alpha "), "TEAM-ALPHA");
   assert.equal(normalizeAppRoomCode("a_b2"), "A_B2");
   assert.equal(normalizeAppRoomCode("a"), null);
@@ -48,7 +48,7 @@ const evalStub = (results: number[]) => {
   return { redis, calls };
 };
 
-test("surfaces the per-Work active room quota instead of retrying codes", async () => {
+test("surfaces the per-app active room quota instead of retrying codes", async () => {
   const { redis, calls } = evalStub([-1]);
   await assert.rejects(
     () => createAppRoom({ appId: "work-1", redis }),

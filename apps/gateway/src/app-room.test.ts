@@ -22,7 +22,7 @@ const connection = () => ({
 
 const evalStub = (result: number) => ({ eval: async () => result }) as unknown as Redis;
 
-test("renewing a Work room membership distinguishes expiry from revocation", async () => {
+test("renewing an app room membership distinguishes expiry from revocation", async () => {
   const active = connection();
   assert.equal(await renewAppRoomMembership(active, "room-1", evalStub(1)), "active");
   assert.equal(active.appRooms.size, 1, "an active lease keeps the membership");
@@ -53,13 +53,13 @@ test("an operation that outruns the heartbeat reports why the membership is gone
   );
 });
 
-test("renewing an unknown Work room reports revocation without touching Redis", async () => {
+test("renewing an unknown app room reports revocation without touching Redis", async () => {
   const ctx = { connectionId: "connection-1", appRooms: new Map() };
   const redis = { eval: async () => assert.fail("must not query Redis") } as unknown as Redis;
   assert.equal(await renewAppRoomMembership(ctx, "room-404", redis), "revoked");
 });
 
-test("Work room presence admission enforces and resets its rate window", () => {
+test("App room presence admission enforces and resets its rate window", () => {
   const rate = { startedAt: 1_000, count: 0 };
   for (let index = 0; index < WORK_ROOM_MAX_PRESENCE_RATE; index += 1) {
     assert.equal(consumeAppRoomPresenceRate(rate, 1_500), true);

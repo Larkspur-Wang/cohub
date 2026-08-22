@@ -9,7 +9,7 @@ import type { AppArtifactDescriptor } from "@cohub/protocol";
 
 export const APP_PUBLISH_ASSET_JOB = "app.publish_asset";
 
-export type WorkPublishAssetJobData = {
+export type AppPublishAssetJobData = {
   spaceId: string;
   slug: string;
   targetType: "file" | "directory";
@@ -39,17 +39,17 @@ export type AppPublishAssetJobResult = {
   code?: string;
 };
 
-const workPublishAssetQueue = createBullmqQueue<WorkPublishAssetJobData, AppPublishAssetJobResult>(COHUB_SYSTEM_QUEUE, {
+const appPublishAssetQueue = createBullmqQueue<AppPublishAssetJobData, AppPublishAssetJobResult>(COHUB_SYSTEM_QUEUE, {
   redisUrl: config.bullmqRedisUrl,
   telemetryServiceName: "cohub-api-app-publish-asset",
 });
 
-const workPublishAssetQueueEvents = new QueueEvents(COHUB_SYSTEM_QUEUE, {
+const appPublishAssetQueueEvents = new QueueEvents(COHUB_SYSTEM_QUEUE, {
   connection: createBullmqConnectionOptions(config.bullmqRedisUrl),
 });
 
-export async function publishAppAssetInWorker(input: Omit<WorkPublishAssetJobData, "requestId" | "trace">) {
-  const job = await workPublishAssetQueue.add(APP_PUBLISH_ASSET_JOB, {
+export async function publishAppAssetInWorker(input: Omit<AppPublishAssetJobData, "requestId" | "trace">) {
+  const job = await appPublishAssetQueue.add(APP_PUBLISH_ASSET_JOB, {
     ...input,
     requestId: getCurrentRequestId() ?? null,
     trace: injectTrace(),
@@ -59,5 +59,5 @@ export async function publishAppAssetInWorker(input: Omit<WorkPublishAssetJobDat
     ...defaultJobRetention,
   });
 
-  return job.waitUntilFinished(workPublishAssetQueueEvents, 30 * 60 * 1000) as Promise<AppPublishAssetJobResult>;
+  return job.waitUntilFinished(appPublishAssetQueueEvents, 30 * 60 * 1000) as Promise<AppPublishAssetJobResult>;
 }

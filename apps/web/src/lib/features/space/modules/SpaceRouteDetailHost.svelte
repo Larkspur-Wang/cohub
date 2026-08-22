@@ -122,7 +122,7 @@ function handleTaskLoaded(run: TaskRunRecord | null) {
 {:else if route.view === "app"}
 	<AppView
 		{spaceId}
-		routeWorkId={route.appId}
+		routeAppId={route.appId}
 		{ownerUsername}
 		{spaceSlug}
 		{canEditSpace}

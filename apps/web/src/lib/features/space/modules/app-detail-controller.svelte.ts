@@ -1,8 +1,8 @@
 import type {
+	AppMeta,
 	AppRecord,
 	AppVersionRecord,
 	AppViewStatsResponse,
-	WorkMeta,
 } from "@neta-art/cohub";
 import { goto } from "$app/navigation";
 import {
@@ -21,27 +21,27 @@ import {
 } from "./app-utils";
 import { createKeyedRouteRequestGuard } from "./route-request-guard";
 
-export type WorkTargetType = "file" | "directory" | "port";
-export type WorkStatus = "published" | "disabled";
-export type WorkVisibility = "public" | "space";
+export type AppTargetType = "file" | "directory" | "port";
+export type AppStatus = "published" | "disabled";
+export type AppVisibility = "public" | "space";
 
 const WORK_HIDE_COHUB_BAR_FEATURE = "work.publish.hide_cohub_bar";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	Boolean(value && typeof value === "object" && !Array.isArray(value));
 
-function getHideCohubBar(meta: WorkMeta | null | undefined) {
+function getHideCohubBar(meta: AppMeta | null | undefined) {
 	return (
 		isRecord(meta?.presentation) && meta.presentation.hideCohubBar === true
 	);
 }
 
 function buildAppMeta(
-	currentMeta: WorkMeta | null | undefined,
+	currentMeta: AppMeta | null | undefined,
 	hideCohubBar: boolean,
-): WorkMeta | null {
-	const meta: WorkMeta = isRecord(currentMeta) ? { ...currentMeta } : {};
-	const presentation: NonNullable<WorkMeta["presentation"]> &
+): AppMeta | null {
+	const meta: AppMeta = isRecord(currentMeta) ? { ...currentMeta } : {};
+	const presentation: NonNullable<AppMeta["presentation"]> &
 		Record<string, unknown> = isRecord(meta.presentation)
 		? { ...meta.presentation }
 		: {};
@@ -58,9 +58,9 @@ function buildAppMeta(
 	return Object.keys(meta).length ? meta : null;
 }
 
-export function createWorkDetailController(options: {
+export function createAppDetailController(options: {
 	getSpaceId: () => string;
-	getRouteWorkId: () => string | null;
+	getRouteAppId: () => string | null;
 	getOwnerUsername: () => string | null;
 	getSpaceSlug: () => string | null;
 	/** Stats require space.edit; skip the request for read-only viewers. */
@@ -74,10 +74,10 @@ export function createWorkDetailController(options: {
 	let deleteInProgress = $state(false);
 	let editMode = $state(false);
 	let formSlug = $state("");
-	let formTargetType = $state<WorkTargetType>("file");
+	let formTargetType = $state<AppTargetType>("file");
 	let formTargetRef = $state("");
-	let formStatus = $state<WorkStatus>("published");
-	let formVisibility = $state<WorkVisibility>("public");
+	let formStatus = $state<AppStatus>("published");
+	let formVisibility = $state<AppVisibility>("public");
 	let formHideCohubBar = $state(false);
 	let hideCohubBarAllowed = $state(false);
 	let hideCohubBarLoading = $state(false);
@@ -155,7 +155,7 @@ export function createWorkDetailController(options: {
 		const requestSpaceId = options.getSpaceId();
 		const isCurrentRequest = () =>
 			options.getSpaceId() === requestSpaceId &&
-			options.getRouteWorkId() === appId;
+			options.getRouteAppId() === appId;
 		loading = true;
 		error = "";
 		try {
@@ -182,7 +182,7 @@ export function createWorkDetailController(options: {
 	async function loadVersions(appId: string) {
 		const guard = createKeyedRouteRequestGuard({
 			captureKey: () =>
-				`${options.getSpaceId()}:${options.getRouteWorkId() ?? ""}`,
+				`${options.getSpaceId()}:${options.getRouteAppId() ?? ""}`,
 		});
 		versionsLoading = true;
 		versionsError = "";
@@ -205,7 +205,7 @@ export function createWorkDetailController(options: {
 		if (!options.getCanViewStats()) return;
 		const guard = createKeyedRouteRequestGuard({
 			captureKey: () =>
-				`${options.getSpaceId()}:${options.getRouteWorkId() ?? ""}`,
+				`${options.getSpaceId()}:${options.getRouteAppId() ?? ""}`,
 		});
 		statsLoading = true;
 		statsError = "";
@@ -299,7 +299,7 @@ export function createWorkDetailController(options: {
 		}
 	}
 
-	async function deleteWork() {
+	async function deleteApp() {
 		if (
 			!detail ||
 			actionInProgress ||
@@ -382,9 +382,9 @@ export function createWorkDetailController(options: {
 		}
 	}
 
-	function applyWorksChanged(change: AppsChangedDetail) {
+	function applyAppsChanged(change: AppsChangedDetail) {
 		if (change.spaceId !== options.getSpaceId()) return;
-		const appId = options.getRouteWorkId();
+		const appId = options.getRouteAppId();
 		if (!appId) return;
 		if (change.deletedAppId === appId) {
 			detail = null;
@@ -403,7 +403,7 @@ export function createWorkDetailController(options: {
 	}
 
 	function refresh() {
-		const appId = options.getRouteWorkId();
+		const appId = options.getRouteAppId();
 		if (appId) void loadDetail(appId);
 	}
 
@@ -426,7 +426,7 @@ export function createWorkDetailController(options: {
 	}
 
 	function syncRoute() {
-		const appId = options.getRouteWorkId();
+		const appId = options.getRouteAppId();
 		const stateKey = `${options.getSpaceId()}:${appId ?? ""}`;
 		if (routeStateKey === stateKey) return;
 		routeStateKey = stateKey;
@@ -477,7 +477,7 @@ export function createWorkDetailController(options: {
 		get formTargetType() {
 			return formTargetType;
 		},
-		set formTargetType(value: WorkTargetType) {
+		set formTargetType(value: AppTargetType) {
 			formTargetType = value;
 		},
 		get formTargetRef() {
@@ -489,13 +489,13 @@ export function createWorkDetailController(options: {
 		get formStatus() {
 			return formStatus;
 		},
-		set formStatus(value: WorkStatus) {
+		set formStatus(value: AppStatus) {
 			formStatus = value;
 		},
 		get formVisibility() {
 			return formVisibility;
 		},
-		set formVisibility(value: WorkVisibility) {
+		set formVisibility(value: AppVisibility) {
 			formVisibility = value;
 		},
 		get formHideCohubBar() {
@@ -565,9 +565,9 @@ export function createWorkDetailController(options: {
 		copyId,
 		copyPublicRoute,
 		toggleStatus,
-		deleteWork,
+		deleteApp,
 		submitUpdate,
-		applyWorksChanged,
+		applyAppsChanged,
 		refresh,
 		syncRoute,
 		dispose,

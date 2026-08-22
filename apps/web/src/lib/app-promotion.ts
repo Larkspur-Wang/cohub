@@ -46,7 +46,7 @@ function writeAttribution(attribution: AppPromotionAttribution) {
 		localStorage.setItem(ATTRIBUTION_LATEST_STORAGE_KEY, value);
 		localStorage.setItem(attributionWorkStorageKey(attribution.appId), value);
 	} catch {
-		// Attribution must never block the Work.
+		// Attribution must never block the app.
 	}
 }
 

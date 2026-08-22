@@ -7,8 +7,8 @@ import { downloadApp } from "../app-download.js";
 import { getAppByRef, parseAppRef } from "../app-ref.js";
 import { registerAppCommerce } from "./app-commerce.js";
 
-const WORK_STATUSES = ["published", "disabled"] as const;
-const WORK_VISIBILITIES = ["public", "space"] as const;
+const APP_STATUSES = ["published", "disabled"] as const;
+const APP_VISIBILITIES = ["public", "space"] as const;
 
 const collectOption = (value: string, previous: string[] = []): string[] => [...previous, value];
 
@@ -63,11 +63,11 @@ function resolveTarget(opts: { file?: string; dir?: string; port?: string }): { 
 function resolveStatus(opts: { disabled?: boolean; status?: string }): AppStatus {
   const values = [opts.status, opts.disabled ? "disabled" : undefined].filter(Boolean);
   if (values.length > 1) return error("Conflicting status", "Use only one of --status or --disabled");
-  return values[0] ? parseChoice(values[0], "status", WORK_STATUSES) : "published";
+  return values[0] ? parseChoice(values[0], "status", APP_STATUSES) : "published";
 }
 
 function resolveVisibility(value: string | undefined): AppVisibility | undefined {
-  return value ? parseChoice(value, "visibility", WORK_VISIBILITIES) : undefined;
+  return value ? parseChoice(value, "visibility", APP_VISIBILITIES) : undefined;
 }
 
 function printApp(app: Record<string, unknown>): void {

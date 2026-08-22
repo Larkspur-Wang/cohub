@@ -20,7 +20,7 @@ import {
 import { formatDateTime } from "../space-utils";
 import AppPromotions from "./AppPromotions.svelte";
 import AppViewStats from "./AppViewStats.svelte";
-import { createWorkDetailController } from "./app-detail-controller.svelte";
+import { createAppDetailController } from "./app-detail-controller.svelte";
 import {
 	APP_SCOPE_OPTIONS,
 	APP_VIEWER_SCOPE_OPTIONS,
@@ -29,18 +29,18 @@ import {
 
 type Props = {
 	spaceId: string;
-	routeWorkId: string | null;
+	routeAppId: string | null;
 	ownerUsername: string | null;
 	spaceSlug: string | null;
 	canEditSpace: boolean;
-	onDetailLoaded?: (work: AppRecord | null) => void;
+	onDetailLoaded?: (app: AppRecord | null) => void;
 	/** Show this app in the workspace window pane, beside the detail page. */
 	onPreviewApp?: (app: AppRecord) => void;
 };
 
 let {
 	spaceId,
-	routeWorkId,
+	routeAppId,
 	ownerUsername,
 	spaceSlug,
 	canEditSpace,
@@ -48,29 +48,29 @@ let {
 	onPreviewApp,
 }: Props = $props();
 
-const appDetailController = createWorkDetailController({
+const appDetailController = createAppDetailController({
 	getSpaceId: () => spaceId,
-	getRouteWorkId: () => routeWorkId,
+	getRouteAppId: () => routeAppId,
 	getOwnerUsername: () => ownerUsername,
 	getSpaceSlug: () => spaceSlug,
 	getCanViewStats: () => canEditSpace,
-	onDetailLoaded: (work) => onDetailLoaded?.(work),
+	onDetailLoaded: (app) => onDetailLoaded?.(app),
 });
 
 const appDetail = $derived(appDetailController.detail);
 const appDetailLoading = $derived(appDetailController.loading);
 const appDetailError = $derived(appDetailController.error);
-const workActionInProgress = $derived(appDetailController.actionInProgress);
-const workDeleteInProgress = $derived(appDetailController.deleteInProgress);
-const workFormSubmitting = $derived(appDetailController.formSubmitting);
-const workFormError = $derived(appDetailController.formError);
-const workCopiedId = $derived(appDetailController.copiedId);
-const workCopiedPublicRoute = $derived(appDetailController.copiedPublicRoute);
+const appActionInProgress = $derived(appDetailController.actionInProgress);
+const appDeleteInProgress = $derived(appDetailController.deleteInProgress);
+const appFormSubmitting = $derived(appDetailController.formSubmitting);
+const appFormError = $derived(appDetailController.formError);
+const appCopiedId = $derived(appDetailController.copiedId);
+const appCopiedPublicRoute = $derived(appDetailController.copiedPublicRoute);
 const appVersions = $derived(appDetailController.versions);
 const appVersionsLoading = $derived(appDetailController.versionsLoading);
 const appVersionsError = $derived(appDetailController.versionsError);
-const workPublishSubmitting = $derived(appDetailController.publishSubmitting);
-const workPublishError = $derived(appDetailController.publishError);
+const appPublishSubmitting = $derived(appDetailController.publishSubmitting);
+const appPublishError = $derived(appDetailController.publishError);
 const workHideCohubBar = $derived(
 	appDetail?.meta?.presentation?.hideCohubBar === true,
 );
@@ -91,7 +91,7 @@ onMount(() => {
 		const detail = (event as CustomEvent<AppsChangedDetail>).detail;
 		if (detail?.spaceId !== spaceId) return;
 		if (detail.app || detail.version || detail.deletedAppId) {
-			appDetailController.applyWorksChanged(detail);
+			appDetailController.applyAppsChanged(detail);
 			return;
 		}
 		appDetailController.refresh();
@@ -124,11 +124,11 @@ onDestroy(() => {
 
 <div class="flex-1 min-h-0 overflow-y-auto px-4 py-5 sm:px-6 lg:px-8">
   <div class="max-w-5xl">
-  {#if appDetailLoading && appDetail?.id !== routeWorkId}
-    <CenteredLoading label="Loading work…" size="panel" />
+  {#if appDetailLoading && appDetail?.id !== routeAppId}
+    <CenteredLoading label="Loading app…" size="panel" />
   {:else if appDetailError}
     <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{appDetailError}</div>
-  {:else if appDetail && appDetail.id === routeWorkId}
+  {:else if appDetail && appDetail.id === routeAppId}
     {@const publicRoute = appDetailController.publicRoute(appDetail)}
     <div class="space-y-6 sm:space-y-8">
       <header class="flex flex-col gap-4 border-b border-border-subtle/70 pb-5 lg:flex-row lg:items-start lg:justify-between">
@@ -144,7 +144,7 @@ onDestroy(() => {
                 <span class="h-1.5 w-1.5 rounded-full {appDetail.visibility === 'public' ? 'bg-brand' : 'bg-text-placeholder'}"></span>
                 {appDetail.visibility === 'public' ? 'public' : 'space access'}
               </span>
-              {@render CopyIdMetaItem(appDetail.id, workCopiedId, () => void appDetailController.copyId(appDetail!.id), 'Copy work ID')}
+              {@render CopyIdMetaItem(appDetail.id, appCopiedId, () => void appDetailController.copyId(appDetail!.id), 'Copy app ID')}
               <span class="font-mono text-[11px] text-text-placeholder">{appDetail.targetType}:{appDetail.targetRef}</span>
             </div>
           </div>
@@ -166,13 +166,13 @@ onDestroy(() => {
             <Pencil class="h-3.5 w-3.5" />
             <span>{appDetailController.editMode ? 'Close edit' : 'Edit'}</span>
           </button>
-          <button type="button" class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] bg-bg-elevated px-3 py-2 text-[12px] font-medium transition-colors hover:bg-bg-hover disabled:opacity-50 sm:w-auto {appDetail.status === 'published' ? 'text-status-running' : 'text-text-secondary'}" onclick={() => appDetailController.toggleStatus(appDetail!.status === 'published' ? 'disabled' : 'published')} disabled={workActionInProgress}>
-            {#if workActionInProgress}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else if appDetail.status === 'published'}<Power class="h-3.5 w-3.5" />{:else}<Rocket class="h-3.5 w-3.5" />{/if}
+          <button type="button" class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] bg-bg-elevated px-3 py-2 text-[12px] font-medium transition-colors hover:bg-bg-hover disabled:opacity-50 sm:w-auto {appDetail.status === 'published' ? 'text-status-running' : 'text-text-secondary'}" onclick={() => appDetailController.toggleStatus(appDetail!.status === 'published' ? 'disabled' : 'published')} disabled={appActionInProgress}>
+            {#if appActionInProgress}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else if appDetail.status === 'published'}<Power class="h-3.5 w-3.5" />{:else}<Rocket class="h-3.5 w-3.5" />{/if}
             <span>{appDetail.status === 'published' ? 'Disable' : 'Publish'}</span>
           </button>
-          <button type="button" class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] px-3 py-2 text-[12px] font-medium text-text-tertiary transition-colors hover:bg-bg-hover hover:text-error-soft disabled:opacity-50 sm:w-auto" onclick={appDetailController.deleteWork} disabled={workActionInProgress || workDeleteInProgress}>
-            {#if workDeleteInProgress}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Trash2 class="h-3.5 w-3.5" />{/if}
-            <span>{workDeleteInProgress ? 'Deleting…' : 'Delete'}</span>
+          <button type="button" class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] px-3 py-2 text-[12px] font-medium text-text-tertiary transition-colors hover:bg-bg-hover hover:text-error-soft disabled:opacity-50 sm:w-auto" onclick={appDetailController.deleteApp} disabled={appActionInProgress || appDeleteInProgress}>
+            {#if appDeleteInProgress}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Trash2 class="h-3.5 w-3.5" />{/if}
+            <span>{appDeleteInProgress ? 'Deleting…' : 'Delete'}</span>
           </button>
         </div>
       </header>
@@ -194,34 +194,34 @@ onDestroy(() => {
           <section class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
             <div class="min-w-0 space-y-5">
               <div class="space-y-1.5">
-                <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary" for="work-edit-slug">Slug</label>
-                <input id="work-edit-slug" type="text" bind:value={appDetailController.formSlug} class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 font-mono text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none" />
+                <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary" for="app-edit-slug">Slug</label>
+                <input id="app-edit-slug" type="text" bind:value={appDetailController.formSlug} class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 font-mono text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none" />
               </div>
               <div class="grid gap-4 sm:grid-cols-[160px_minmax(0,1fr)]">
                 <div class="space-y-1.5">
-                  <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary" for="work-edit-target-type">Target</label>
-                  <select id="work-edit-target-type" bind:value={appDetailController.formTargetType} class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none">
+                  <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary" for="app-edit-target-type">Target</label>
+                  <select id="app-edit-target-type" bind:value={appDetailController.formTargetType} class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none">
                     <option value="file">File</option>
                     <option value="directory">Directory</option>
                     <option value="port">Port</option>
                   </select>
                 </div>
                 <div class="space-y-1.5">
-                  <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary" for="work-edit-target-ref">Reference</label>
-                  <input id="work-edit-target-ref" type="text" bind:value={appDetailController.formTargetRef} class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 font-mono text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none" />
+                  <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary" for="app-edit-target-ref">Reference</label>
+                  <input id="app-edit-target-ref" type="text" bind:value={appDetailController.formTargetRef} class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 font-mono text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none" />
                 </div>
               </div>
               <div class="grid gap-4 sm:grid-cols-2">
                 <div class="space-y-1.5">
-                  <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary" for="work-edit-status">Status</label>
-                  <select id="work-edit-status" bind:value={appDetailController.formStatus} class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none">
+                  <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary" for="app-edit-status">Status</label>
+                  <select id="app-edit-status" bind:value={appDetailController.formStatus} class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none">
                     <option value="published">Published</option>
                     <option value="disabled">Disabled</option>
                   </select>
                 </div>
                 <div class="space-y-1.5">
-                  <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary" for="work-edit-visibility">Access</label>
-                  <select id="work-edit-visibility" bind:value={appDetailController.formVisibility} class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none">
+                  <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary" for="app-edit-visibility">Access</label>
+                  <select id="app-edit-visibility" bind:value={appDetailController.formVisibility} class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none">
                     <option value="public">Anyone with the link</option>
                     <option value="space">Use space access</option>
                   </select>
@@ -265,13 +265,13 @@ onDestroy(() => {
               </div>
             </aside>
           </section>
-          {#if workFormError}
-            <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{workFormError}</div>
+          {#if appFormError}
+            <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{appFormError}</div>
           {/if}
           <div class="sticky bottom-0 z-10 -mx-4 -mb-5 flex flex-col-reverse gap-2 border-t border-border-subtle/70 bg-bg-primary/95 px-4 py-4 backdrop-blur sm:-mx-6 sm:-mb-5 sm:flex-row sm:justify-end sm:px-6 lg:-mx-8 lg:px-8">
             <button type="button" class="inline-flex min-h-10 items-center justify-center rounded-[5px] border border-border-subtle px-3 py-2 text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary" onclick={() => { appDetailController.editMode = false; appDetailController.syncFormFromDetail(); }}>Cancel</button>
-            <button type="submit" class="inline-flex min-h-10 items-center justify-center gap-2 rounded-[5px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover disabled:opacity-50" disabled={workFormSubmitting}>
-              {#if workFormSubmitting}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Check class="h-3.5 w-3.5" />{/if}
+            <button type="submit" class="inline-flex min-h-10 items-center justify-center gap-2 rounded-[5px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover disabled:opacity-50" disabled={appFormSubmitting}>
+              {#if appFormSubmitting}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Check class="h-3.5 w-3.5" />{/if}
               <span>Save changes</span>
             </button>
           </div>
@@ -286,9 +286,9 @@ onDestroy(() => {
                   <div class="mt-1 font-mono text-[11px] text-text-placeholder">Current v{appDetail.latestVersion || 0}</div>
                 </div>
                 {#if appDetail.status === 'published'}
-                  <button type="button" class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover disabled:opacity-50 sm:w-auto" onclick={() => void appDetailController.publishVersion()} disabled={workPublishSubmitting}>
-                    {#if workPublishSubmitting}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Rocket class="h-3.5 w-3.5" />{/if}
-                    <span>{workPublishSubmitting ? 'Updating…' : 'Update version'}</span>
+                  <button type="button" class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover disabled:opacity-50 sm:w-auto" onclick={() => void appDetailController.publishVersion()} disabled={appPublishSubmitting}>
+                    {#if appPublishSubmitting}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Rocket class="h-3.5 w-3.5" />{/if}
+                    <span>{appPublishSubmitting ? 'Updating…' : 'Update version'}</span>
                   </button>
                 {/if}
               </div>
@@ -299,8 +299,8 @@ onDestroy(() => {
                   <div class="mt-2 text-[12px] text-text-tertiary">{appDetail.targetType}</div>
                 </div>
               </div>
-              {#if workPublishError}
-                <div class="rounded-[6px] border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] font-mono text-error-soft break-all">{workPublishError}</div>
+              {#if appPublishError}
+                <div class="rounded-[6px] border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] font-mono text-error-soft break-all">{appPublishError}</div>
               {/if}
             </section>
             <section class="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_140px]">
@@ -326,8 +326,8 @@ onDestroy(() => {
               <div class="space-y-2">
                 <div class="flex items-center justify-between gap-3">
                   <div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">Public path</div>
-                  <button type="button" class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[5px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary" onclick={() => void appDetailController.copyPublicRoute(publicRoute)} title={workCopiedPublicRoute ? 'Copied' : 'Copy public link'} aria-label={workCopiedPublicRoute ? 'Copied' : 'Copy public link'}>
-                    {#if workCopiedPublicRoute}<Check class="h-3.5 w-3.5 text-success-soft" />{:else}<Copy class="h-3.5 w-3.5" />{/if}
+                  <button type="button" class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[5px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary" onclick={() => void appDetailController.copyPublicRoute(publicRoute)} title={appCopiedPublicRoute ? 'Copied' : 'Copy public link'} aria-label={appCopiedPublicRoute ? 'Copied' : 'Copy public link'}>
+                    {#if appCopiedPublicRoute}<Check class="h-3.5 w-3.5 text-success-soft" />{:else}<Copy class="h-3.5 w-3.5" />{/if}
                   </button>
                 </div>
                 <div class="rounded-[6px] bg-bg-elevated/30 px-3 py-2 font-mono text-[12px] text-text-secondary break-all">{publicRoute}</div>
