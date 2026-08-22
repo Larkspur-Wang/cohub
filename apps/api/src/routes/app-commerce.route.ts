@@ -82,7 +82,7 @@ async function resolvePublicAppUrl(input: { spaceId: string; appSlug: string }) 
   return `${origin}/${encodeURIComponent(row.username)}/${encodeURIComponent(row.spaceSlug)}/w/${encodeURIComponent(input.appSlug)}`;
 }
 
-router.post("/apps/:id/commerce/products/resolve", async (c) => {
+router.post("/works/:id/commerce/products/resolve", async (c) => {
   const principal = getOptionalAuth(c);
   const appId = c.req.param("id");
   if (!requireValidId(appId)) return c.json({ message: "app not found" }, 404);
@@ -154,7 +154,7 @@ router.post("/apps/:id/commerce/products/resolve", async (c) => {
   }
 });
 
-router.get("/apps/:id/commerce/entitlements", async (c) => {
+router.get("/works/:id/commerce/entitlements", async (c) => {
   const user = useAuth(c);
   if (user instanceof Response) return user;
   const appId = c.req.param("id");
@@ -186,7 +186,7 @@ router.get("/apps/:id/commerce/entitlements", async (c) => {
   }
 });
 
-router.post("/apps/:id/commerce/credits/consume", async (c) => {
+router.post("/works/:id/commerce/credits/consume", async (c) => {
   const user = useAuth(c);
   if (user instanceof Response) return user;
   const appId = c.req.param("id");
@@ -239,7 +239,7 @@ router.post("/apps/:id/commerce/credits/consume", async (c) => {
   }
 });
 
-router.post("/apps/:id/commerce/purchase", async (c) => {
+router.post("/works/:id/commerce/purchase", async (c) => {
   const user = useAuth(c);
   if (user instanceof Response) return user;
   const appId = c.req.param("id");
@@ -385,7 +385,7 @@ router.post("/apps/:id/commerce/purchase", async (c) => {
   }
 });
 
-router.get("/apps/:id/commerce/orders/:orderId", async (c) => {
+router.get("/works/:id/commerce/orders/:orderId", async (c) => {
   const user = useAuth(c);
   if (user instanceof Response) return user;
   const appId = c.req.param("id");

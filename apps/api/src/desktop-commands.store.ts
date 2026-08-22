@@ -72,7 +72,7 @@ const parseRecord = (raw: string | null): DesktopCommandRecord | null => {
 
 export class DesktopCommandStoreError extends Error {
   constructor(detail: string) {
-    super(`ui command store returned an unusable value: ${detail}`);
+    super(`desktop command store returned an unusable value: ${detail}`);
     this.name = "DesktopCommandStoreError";
   }
 }

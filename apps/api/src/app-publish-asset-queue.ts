@@ -20,7 +20,7 @@ export type WorkPublishAssetJobData = {
 
 export type { AppPublishExtractedPageMeta };
 
-export type WorkPublishAssetJobResult = {
+export type AppPublishAssetJobResult = {
   ok: true;
   assetKey: string;
   sizeBytes: number;
@@ -39,7 +39,7 @@ export type WorkPublishAssetJobResult = {
   code?: string;
 };
 
-const workPublishAssetQueue = createBullmqQueue<WorkPublishAssetJobData, WorkPublishAssetJobResult>(COHUB_SYSTEM_QUEUE, {
+const workPublishAssetQueue = createBullmqQueue<WorkPublishAssetJobData, AppPublishAssetJobResult>(COHUB_SYSTEM_QUEUE, {
   redisUrl: config.bullmqRedisUrl,
   telemetryServiceName: "cohub-api-app-publish-asset",
 });
@@ -59,5 +59,5 @@ export async function publishAppAssetInWorker(input: Omit<WorkPublishAssetJobDat
     ...defaultJobRetention,
   });
 
-  return job.waitUntilFinished(workPublishAssetQueueEvents, 30 * 60 * 1000) as Promise<WorkPublishAssetJobResult>;
+  return job.waitUntilFinished(workPublishAssetQueueEvents, 30 * 60 * 1000) as Promise<AppPublishAssetJobResult>;
 }

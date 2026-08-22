@@ -91,10 +91,10 @@ router.get("/:commandId", async (c) => {
   const user = useAuth(c);
   if (user instanceof Response) return user;
   const commandId = parseDesktopCommandId(c.req.param("commandId"));
-  if (!commandId) return c.json({ message: "ui command not found" }, 404);
+  if (!commandId) return c.json({ message: "desktop command not found" }, 404);
   const record = await getDesktopCommand(commandId);
   if (!record || record.actorUserId !== user.uuid) {
-    return c.json({ message: "ui command not found" }, 404);
+    return c.json({ message: "desktop command not found" }, 404);
   }
   return c.json({ command: record });
 });
@@ -104,7 +104,7 @@ router.post("/:commandId/result", limitBody, async (c) => {
   if (user instanceof Response) return user;
 
   const commandId = parseDesktopCommandId(c.req.param("commandId"));
-  if (!commandId) return c.json({ message: "ui command not found" }, 404);
+  if (!commandId) return c.json({ message: "desktop command not found" }, 404);
 
   const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
   const status = typeof body?.status === "string" ? (body.status as DesktopCommandStatus) : null;
@@ -131,7 +131,7 @@ router.post("/:commandId/result", limitBody, async (c) => {
       actorUserId: user.uuid,
       appId: appSession.appId,
     })) {
-      return c.json({ message: "ui command not found" }, 404);
+      return c.json({ message: "desktop command not found" }, 404);
     }
     reportingClientId = command.targetClientId;
   }
@@ -146,7 +146,7 @@ router.post("/:commandId/result", limitBody, async (c) => {
   });
 
   if (settled.ok) return c.json({ command: settled.record });
-  if (settled.reason === "not_found") return c.json({ message: "ui command not found" }, 404);
+  if (settled.reason === "not_found") return c.json({ message: "desktop command not found" }, 404);
   if (settled.reason === "forbidden") return c.json({ message: "forbidden" }, 403);
   return c.json({ command: settled.record }, 200);
 });

@@ -2,7 +2,7 @@ import { Hono, type Context } from "hono";
 import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { spaces, apps, appPromotions, appPromotionStatsHourly, appVersions, appViewerGrants, appViewStatsHourly, userProfiles } from "@cohub/db";
 import { createAppAssetPublicUrl, deleteAppAssetsByObjectKey, isConfiguredAppAssetPublicUrl } from "../app-asset-storage.js";
-import { publishAppAssetInWorker, type WorkPublishAssetJobResult } from "../app-publish-asset-queue.js";
+import { publishAppAssetInWorker, type AppPublishAssetJobResult } from "../app-publish-asset-queue.js";
 import type { Permission } from "@cohub/core/permissions";
 import { materializeHtmlPageMeta, mergeAppPageMeta } from "@cohub/core/apps";
 import { db } from "../db/index.js";
@@ -46,13 +46,13 @@ import {
 const logger = createLogger({ serviceName: "cohub-api" });
 const router = new Hono();
 
-const WORK_STATUSES = new Set(["published", "disabled"]);
-const WORK_VISIBILITIES = new Set(["public", "space"]);
+const APP_STATUSES = new Set(["published", "disabled"]);
+const APP_VISIBILITIES = new Set(["public", "space"]);
 const TARGET_TYPES = new Set(["file", "directory", "port"]);
 const SLUG_RE = /^[a-z0-9](?:[a-z0-9_-]{0,78}[a-z0-9])?$/;
 /** Public work payloads are safe to edge/browser cache briefly. */
-const PUBLIC_WORK_HTTP_CACHE = "public, max-age=60, stale-while-revalidate=300";
-const PRIVATE_WORK_HTTP_CACHE = "private, no-store";
+const PUBLIC_APP_HTTP_CACHE = "public, max-age=60, stale-while-revalidate=300";
+const PRIVATE_APP_HTTP_CACHE = "private, no-store";
 const SANDBOX_PUBLIC_PORT_SET = new Set<number>(SANDBOX_PUBLIC_PORTS as readonly number[]);
 const ALLOWED_APP_SCOPES = new Set<Permission>(["space.view", "session.view", "file.view", "taskrun.view"]);
 const ALLOWED_VIEWER_SCOPES = new Set<Permission>([
@@ -95,7 +95,7 @@ async function canHideCohubBar(userId: string) {
   }
 }
 
-async function ensureWorkPresentationAllowed(c: Context, input: { userId: string; meta: AppMeta | null | undefined }) {
+async function ensureAppPresentationAllowed(c: Context, input: { userId: string; meta: AppMeta | null | undefined }) {
   if (!getHideCohubBar(input.meta)) return null;
   if (await canHideCohubBar(input.userId)) return null;
   return appHideCohubBarRequiredResponse(c);
@@ -238,7 +238,7 @@ function recordResolvedAppView(
 }
 
 class AppAssetPublishError extends Error {
-  constructor(public result: Extract<WorkPublishAssetJobResult, { ok: false }>) {
+  constructor(public result: Extract<AppPublishAssetJobResult, { ok: false }>) {
     super(result.message);
   }
 }
@@ -412,7 +412,7 @@ router.get("/by-slug/:username/:spaceSlug/:appSlug", async (c) => {
   // Public apps are anonymous-readable; space apps depend on the caller.
   c.header(
     "Cache-Control",
-    requiresSpaceAppAccess(row.app) ? PRIVATE_WORK_HTTP_CACHE : PUBLIC_WORK_HTTP_CACHE,
+    requiresSpaceAppAccess(row.app) ? PRIVATE_APP_HTTP_CACHE : PUBLIC_APP_HTTP_CACHE,
   );
   return c.json({
     work: serializeApp(row.app),
@@ -431,7 +431,8 @@ router.get("/space/:spaceId", async (c) => {
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
   if (!(await hasPermission(user, "space.view", { spaceId }))) return authzDenied(c);
   const rows = await db.select().from(apps).where(eq(apps.spaceId, spaceId));
-  return c.json({ apps: rows.map(serializeApp) });
+  const works: RealtimeAppRecord[] = rows.map(serializeApp);
+  return c.json({ works } satisfies { works: RealtimeAppRecord[] });
 });
 
 router.get("/:id/public", async (c) => {
@@ -528,10 +529,10 @@ router.post("/", async (c) => {
     if (!portRef) return c.json({ message: "port is invalid" }, 400);
     targetRef = portRef;
   }
-  if (body?.status !== undefined && (typeof body.status !== "string" || !WORK_STATUSES.has(body.status))) {
+  if (body?.status !== undefined && (typeof body.status !== "string" || !APP_STATUSES.has(body.status))) {
     return invalidAppStatusResponse(c);
   }
-  if (body?.visibility !== undefined && (typeof body.visibility !== "string" || !WORK_VISIBILITIES.has(body.visibility))) {
+  if (body?.visibility !== undefined && (typeof body.visibility !== "string" || !APP_VISIBILITIES.has(body.visibility))) {
     return invalidAppVisibilityResponse(c);
   }
   const status = typeof body?.status === "string" ? body.status : "published";
@@ -539,7 +540,7 @@ router.post("/", async (c) => {
   const identityError = await ensureAppPublicIdentity(c, spaceId, user);
   if (identityError) return identityError;
   const meta = getAppMeta(body?.meta);
-  const presentationError = await ensureWorkPresentationAllowed(c, { userId: user.uuid, meta });
+  const presentationError = await ensureAppPresentationAllowed(c, { userId: user.uuid, meta });
   if (presentationError) return presentationError;
   const now = new Date();
 
@@ -624,7 +625,7 @@ router.post("/", async (c) => {
   }
 });
 
-async function updateWork(
+async function updateApp(
   c: Context,
   current: typeof apps.$inferSelect,
   body: Record<string, unknown> | null,
@@ -644,10 +645,10 @@ async function updateWork(
     if (!portRef) return c.json({ message: "port is invalid" }, 400);
     nextTargetRef = portRef;
   }
-  if (body && "status" in body && (typeof body.status !== "string" || !WORK_STATUSES.has(body.status))) {
+  if (body && "status" in body && (typeof body.status !== "string" || !APP_STATUSES.has(body.status))) {
     return invalidAppStatusResponse(c);
   }
-  if (body && "visibility" in body && (typeof body.visibility !== "string" || !WORK_VISIBILITIES.has(body.visibility))) {
+  if (body && "visibility" in body && (typeof body.visibility !== "string" || !APP_VISIBILITIES.has(body.visibility))) {
     return invalidAppVisibilityResponse(c);
   }
   const nextStatus = typeof body?.status === "string" ? body.status : current.status;
@@ -658,7 +659,7 @@ async function updateWork(
   const identityError = await ensureAppPublicIdentity(c, current.spaceId, actor);
   if (identityError) return identityError;
   const nextMeta = "meta" in (body ?? {}) ? getAppMeta(body?.meta) : getAppMeta(current.meta);
-  const presentationError = await ensureWorkPresentationAllowed(c, { userId: actor.uuid, meta: nextMeta });
+  const presentationError = await ensureAppPresentationAllowed(c, { userId: actor.uuid, meta: nextMeta });
   if (presentationError) return presentationError;
 
   const assetKey = nextStatus === "published" ? current.assetKey : null;
@@ -689,7 +690,7 @@ async function updateWork(
   return c.json({ work: serializeApp(app) });
 }
 
-async function publishWorkVersion(
+async function publishAppVersion(
   c: Context,
   current: typeof apps.$inferSelect,
   options: { actor: AuthUser; meta?: AppMeta | null },
@@ -713,7 +714,7 @@ async function publishWorkVersion(
     baseMeta: options?.meta ?? null,
     extracted: written?.extracted ?? null,
   });
-  const workMeta = withPublishedPageMeta({
+  const appMeta = withPublishedPageMeta({
     baseMeta: getAppMeta(current.meta),
     extracted: written?.extracted ?? null,
   });
@@ -747,7 +748,7 @@ async function publishWorkVersion(
         currentVersionId: version.id,
         latestVersion: versionedWork.latestVersion,
         publishedAt: current.publishedAt ?? now,
-        meta: workMeta,
+        meta: appMeta,
         updatedAt: now,
       }).where(eq(apps.id, current.id)).returning();
       if (!app) throw new Error("failed to publish app version");
@@ -789,7 +790,7 @@ router.patch("/:id", async (c) => {
   if (!(await hasPermission(user, "space.edit", { spaceId: current.spaceId }))) return authzDenied(c);
 
   const body = await c.req.json().catch(() => null) as Record<string, unknown> | null;
-  return updateWork(c, current, body, user);
+  return updateApp(c, current, body, user);
 });
 
 router.get("/:id/versions", async (c) => {
@@ -813,7 +814,7 @@ router.post("/:id/versions", async (c) => {
   if (!app) return c.json({ message: "work not found" }, 404);
   if (!(await hasPermission(user, "space.edit", { spaceId: app.spaceId }))) return authzDenied(c);
   const meta = applyRequestSourceToMeta(c, null);
-  return publishWorkVersion(c, app, { actor: user, meta });
+  return publishAppVersion(c, app, { actor: user, meta });
 });
 
 router.delete("/:id", async (c) => {

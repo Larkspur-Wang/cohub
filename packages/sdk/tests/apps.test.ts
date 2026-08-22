@@ -125,3 +125,39 @@ test("client.apps and client.works point at the same API instance", () => {
 	assert.equal(client.desktop, client.ui);
 	assert.equal(client.appCommerce, client.workCommerce);
 });
+
+test("works REST request paths stay frozen", async () => {
+  const requests: string[] = [];
+  const transport = {
+    request: async (path: string, init?: RequestInit) => {
+      requests.push(`${(init as { method?: string })?.method ?? "GET"} ${path}`);
+      return {};
+    },
+  } as unknown as HttpTransport;
+  const api = new AppsApi(transport);
+  const id = "123e4567-e89b-42d3-a456-426614174000";
+
+  await api.listBySpace("space-1");
+  await api.get(id);
+  await api.getPublicById(id);
+  await api.getBySlug("alice", "studio", "launch");
+  await api.create({ spaceId: "space-1", slug: "launch" });
+  await api.update(id, { slug: "launch-2" });
+  await api.delete(id);
+  await api.listVersions(id);
+  await api.publishVersion(id);
+  await api.createSession(id);
+
+  assert.deepEqual(requests, [
+    "GET /api/works/space/space-1",
+    `GET /api/works/${id}`,
+    `GET /api/works/${id}/public`,
+    "GET /api/works/by-slug/alice/studio/launch",
+    "POST /api/works",
+    `PATCH /api/works/${id}`,
+    `DELETE /api/works/${id}`,
+    `GET /api/works/${id}/versions`,
+    `POST /api/works/${id}/versions`,
+    `POST /api/works/${id}/session`,
+  ]);
+});
