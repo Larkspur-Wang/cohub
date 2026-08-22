@@ -68,7 +68,7 @@ USER_UPLOAD_S3_REGION: "auto"
 CHAT_ATTACHMENT_S3_BUCKET: "cohub-chat-attachments"
 CHAT_ATTACHMENT_PUBLIC_BASE_URL: "https://uploads.example.com"
 SPACE_UPLOAD_S3_BUCKET: "cohub-space-uploads"
-WORK_ASSET_CDN_BASE_URL: "https://works.example.com"
+APP_ASSET_CDN_BASE_URL: "https://works.example.com"
 CONFIGS_SUBPATH: "configs/dev"
 
 # ========== 路由配置 ==========
