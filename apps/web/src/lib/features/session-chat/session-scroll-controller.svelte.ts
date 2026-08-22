@@ -279,14 +279,24 @@ export function createSessionScrollController() {
 	}
 
 	function clearTurnMarkers() {
-		if (SESSION_SCROLL_DEBUG) console.debug("[session-scroll] clear markers");
+		const hadMarkers =
+			Object.keys(turnMarkerPositions).length > 0 ||
+			Object.keys(turnMarkerHeights).length > 0;
+		const hadGeometry =
+			turnAnchorGeometry.length > 0 || turnGeometrySessionId !== null;
 		if (Object.keys(turnMarkerPositions).length > 0) turnMarkerPositions = {};
 		if (Object.keys(turnMarkerHeights).length > 0) turnMarkerHeights = {};
 		turnAnchorGeometry = [];
 		turnGeometrySessionId = null;
-		// Clearing is a cache lifecycle event too: consumers re-derive from the
-		// now-empty cache instead of relying on scattered external resets.
-		turnMarkerMeasureVersion += 1;
+		// Only signal when the cache actually transitions — a no-op clear on an
+		// already-empty cache must stay reactively silent or repeated timeline
+		// effect runs (listEl / hasTimelineItems invalidation) ping-pong the
+		// version effect until Svelte's depth guard throws.
+		if (hadMarkers || hadGeometry) {
+			if (SESSION_SCROLL_DEBUG)
+				console.debug("[session-scroll] clear markers (had content)");
+			turnMarkerMeasureVersion += 1;
+		}
 	}
 
 	function measureTurnMarkerPositions() {
