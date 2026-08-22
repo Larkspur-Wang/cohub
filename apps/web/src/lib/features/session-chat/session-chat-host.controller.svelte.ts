@@ -132,7 +132,6 @@ import {
 	isSessionScrollAnchorTurnLoaded,
 	resolveSessionScrollAnchorTargetIndex,
 	resolveSessionScrollRestore,
-	SESSION_SCROLL_DEBUG,
 	type SessionScrollAnchor,
 	type SessionScrollAnchorTarget,
 } from "./session-scroll-controller.svelte";
@@ -218,51 +217,6 @@ function taskRunSortTime(notice: SessionTaskNotice) {
 	return Number.isFinite(t) ? t : 0;
 }
 
-function logScrollDebug(message: string, ...details: unknown[]) {
-	if (SESSION_SCROLL_DEBUG)
-		console.log(`[session-scroll] ${message}`, ...details);
-}
-
-if (SESSION_SCROLL_DEBUG && typeof window !== "undefined") {
-	// Svelte's effect-loop error stack is all runtime frames; raise the limit
-	// so the app-code frame at the bottom of the recursion is captured.
-	Error.stackTraceLimit = 200;
-	window.addEventListener("error", (event) => {
-		if (event.error?.message?.includes("effect_update_depth")) {
-			console.error(
-				"[session-scroll] effect loop — full stack:",
-				event.error.stack,
-			);
-		}
-	});
-}
-
-/**
- * Flags effects that re-run suspiciously fast — the captured stack identifies
- * the effect before Svelte's own 100-run guard throws. Throttled measurement
- * peaks around 13 passes/second by design (leading + trailing edges); 20
- * stays clear of that while a synchronous loop still hits it in milliseconds.
- */
-function createEffectSpinGuard(label: string) {
-	let runs = 0;
-	let windowStartedAt = Date.now();
-	return () => {
-		if (!SESSION_SCROLL_DEBUG) return;
-		runs += 1;
-		const now = Date.now();
-		if (now - windowStartedAt >= 1000) {
-			runs = 1;
-			windowStartedAt = now;
-		}
-		if (runs === 20) {
-			console.warn(
-				`[session-scroll] "${label}" effect re-ran ${runs} times within a second`,
-				new Error("spin trace").stack,
-			);
-		}
-	};
-}
-
 // Wire generation store reset once for process-wide leases.
 setSpaceGenerationLastReleaseHandler((spaceId) => {
 	sessionGenerationStore.resetSpace(spaceId);
@@ -299,9 +253,6 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	const composer = createSessionComposerController();
 	const viewport = createViewportContextController();
 	const scroll = createSessionScrollController();
-	const guardTimelineEffect = createEffectSpinGuard("timeline");
-	const guardVersionEffect = createEffectSpinGuard("version");
-	const guardRestoreEffect = createEffectSpinGuard("restore");
 	let sessionScrollAnchorsLoaded = $state(false);
 	let scrollRestoreGeneration = $state(0);
 	let tailReconcileGeneration = 0;
@@ -898,7 +849,6 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	});
 
 	$effect(() => {
-		guardTimelineEffect();
 		if (!listEl || !hasTimelineItems) {
 			scroll.clearTurnMarkers();
 			return;
@@ -914,7 +864,6 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	// Covers prepends, content reflows above the viewport, and emptied
 	// timelines — none of which reliably fire a scroll event.
 	$effect(() => {
-		guardVersionEffect();
 		void scroll.turnMarkerMeasureVersion;
 		untrack(() => updateCurrentTurnSequence());
 	});
@@ -981,7 +930,6 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	});
 
 	$effect(() => {
-		guardRestoreEffect();
 		const restoreGeneration = scrollRestoreGeneration;
 		const targetId = pendingRestoreSessionId;
 		if (!sessionScrollAnchorsLoaded) return;
@@ -1965,7 +1913,6 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 				existing?.loading ||
 				pendingRestoreSessionId === sessionId)
 		) {
-			logScrollDebug("prepare skipped (already active)", sessionId);
 			return;
 		}
 		++scrollRestoreGeneration;
@@ -1999,10 +1946,6 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		scroll.shouldAutoFollow = sessionScrollAnchorsLoaded
 			? !getSessionScrollAnchor(sessionId)
 			: false;
-		logScrollDebug("prepare", sessionId, {
-			anchor: Boolean(getSessionScrollAnchor(sessionId)),
-			reconcileTail: shouldReconcileTail,
-		});
 		// Always restore local generation UI. Re-fetch tail only when switching
 		// back into a fully loaded session (mid-send leave / dual-host return).
 		void sessionGenerationStore
@@ -3745,14 +3688,12 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		);
 		if (dataInFlight) {
 			// Turns or markdown are still arriving; keep waiting for the target.
-			logScrollDebug("restore expired, data in flight — extending", sessionId);
 			anchorRestoreWaitStartedAt = Date.now();
 			anchorRestoreRetryStep = 0;
 			scheduleAnchorRestoreRetry();
 			return;
 		}
 		// The saved target never became restorable: default to the latest turn.
-		logScrollDebug("restore expired — falling back to bottom", sessionId);
 		clearSessionScrollAnchor(sessionId);
 		restoreSessionScrollToBottom(sessionId);
 	}
@@ -3760,7 +3701,6 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	function restoreSessionScrollToBottom(sessionId: string) {
 		if (disposed || activeSessionId !== sessionId) return;
 		if (!getSessionScrollList(sessionId)) return;
-		logScrollDebug("restore to bottom", sessionId);
 		cancelSessionScrollRestore(sessionId);
 		restoringBottomSessionId = sessionId;
 		scroll.shouldAutoFollow = true;
@@ -3799,10 +3739,6 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	function cancelSessionScrollRestore(sessionId: string) {
 		++scrollRestoreGeneration;
 		clearAnchorRestoreRetry();
-		const hadRestore =
-			scroll.activeAnchorRestore?.sessionId === sessionId ||
-			scroll.pendingRestoreSessionId === sessionId ||
-			restoringBottomSessionId === sessionId;
 		if (scroll.activeAnchorRestore?.sessionId === sessionId) {
 			scroll.activeAnchorRestore = null;
 		}
@@ -3812,7 +3748,6 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		if (restoringBottomSessionId === sessionId) {
 			restoringBottomSessionId = null;
 		}
-		if (hadRestore) logScrollDebug("restore cancelled", sessionId);
 	}
 
 	function scrollToBottomNow() {
@@ -3931,9 +3866,6 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			scroll.pendingRestoreSessionId = null;
 		}
 		scroll.activeAnchorRestore = null;
-		logScrollDebug("restore applied", restore.sessionId, {
-			turnSequence: restore.turnSequence,
-		});
 		scroll.scheduleTurnMarkerMeasure();
 		updateAutoFollow();
 		markLatestTurnViewedIfVisible(restore.sessionId);

@@ -111,10 +111,6 @@ const SESSION_SCROLL_ANCHOR_PERSIST_DEBOUNCE_MS = 500;
 const MAX_SESSION_SCROLL_ANCHORS = 200;
 const TURN_MARKER_CONTENT_MEASURE_MS = 150;
 
-/** Dev deployments log scroll internals so effect loops identify themselves. */
-export const SESSION_SCROLL_DEBUG =
-	import.meta.env?.PUBLIC_COHUB_ENV !== "prod";
-
 export function createSessionScrollController() {
 	let listEl = $state<HTMLDivElement | null>(null);
 	let chatTimelineRef = $state<ChatTimelineHandle | null>(null);
@@ -293,8 +289,6 @@ export function createSessionScrollController() {
 		// effect runs (listEl / hasTimelineItems invalidation) ping-pong the
 		// version effect until Svelte's depth guard throws.
 		if (hadMarkers || hadGeometry) {
-			if (SESSION_SCROLL_DEBUG)
-				console.debug("[session-scroll] clear markers (had content)");
 			turnMarkerMeasureVersion += 1;
 		}
 	}
@@ -322,8 +316,6 @@ export function createSessionScrollController() {
 		// current turn without touching the DOM; it only changes with content.
 		turnGeometrySessionId = scrollContainer.dataset.sessionId ?? null;
 		turnAnchorGeometry = anchors;
-		if (SESSION_SCROLL_DEBUG)
-			console.debug("[session-scroll] measure", anchors.length, "anchors");
 		// Signal "cache refreshed" even when the derived marker values happen to
 		// stay identical (e.g. a uniform shift above the first anchor).
 		turnMarkerMeasureVersion += 1;
