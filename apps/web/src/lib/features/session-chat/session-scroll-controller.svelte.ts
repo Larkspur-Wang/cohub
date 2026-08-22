@@ -332,10 +332,9 @@ export function createSessionScrollController() {
 
 	/** Measure on the next frame; coalesces bursts of layout triggers. */
 	function scheduleTurnMarkerMeasure() {
-		if (turnMarkerMeasureTimer) {
-			clearTimeout(turnMarkerMeasureTimer);
-			turnMarkerMeasureTimer = null;
-		}
+		// Do NOT cancel the throttle timer here: direct schedules (chrome resize,
+		// session switch) must not reset the content-growth throttle window, or
+		// every markdown render after a chrome change fires an unthrottled measure.
 		if (turnMarkerMeasureFrame != null) return;
 		turnMarkerMeasureFrame = requestAnimationFrame(() => {
 			turnMarkerMeasureFrame = null;

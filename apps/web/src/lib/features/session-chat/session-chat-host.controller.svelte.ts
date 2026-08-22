@@ -223,6 +223,20 @@ function logScrollDebug(message: string, ...details: unknown[]) {
 		console.log(`[session-scroll] ${message}`, ...details);
 }
 
+if (SESSION_SCROLL_DEBUG && typeof window !== "undefined") {
+	// Svelte's effect-loop error stack is all runtime frames; raise the limit
+	// so the app-code frame at the bottom of the recursion is captured.
+	Error.stackTraceLimit = 200;
+	window.addEventListener("error", (event) => {
+		if (event.error?.message?.includes("effect_update_depth")) {
+			console.error(
+				"[session-scroll] effect loop — full stack:",
+				event.error.stack,
+			);
+		}
+	});
+}
+
 /**
  * Flags effects that re-run suspiciously fast — the captured stack identifies
  * the effect before Svelte's own 100-run guard throws. Throttled measurement
