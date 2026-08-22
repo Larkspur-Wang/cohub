@@ -1,7 +1,7 @@
 import { fileURLToPath, URL } from "node:url";
 import { sveltekit } from "@sveltejs/kit/vite";
 import tailwindcss from "@tailwindcss/vite";
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 
 /** Keep each Shiki language/theme package as its own cacheable chunk. */
@@ -22,110 +22,120 @@ const docsProductDir = fileURLToPath(
 	new URL("../../docs/product", import.meta.url),
 );
 
-export default defineConfig({
-	resolve: {
-		// Workspace package aliases (@cohub/protocol, @neta-art/cohub) live in
-		// svelte.config.js `kit.alias`, which SvelteKit injects into Vite for us.
-		alias: [
-			{
-				find: /^\$docs-product\/(.*)$/,
-				replacement: `${docsProductDir}/$1`,
+export default defineConfig(({ mode }) => {
+	// Dev deployments build unminified with sourcemaps so runtime stack traces
+	// stay readable (DevTools maps frames back to original sources). The deploy
+	// workflow writes PUBLIC_COHUB_ENV into .env before running `pnpm build`.
+	const prodDeploy =
+		loadEnv(mode, process.cwd(), "").PUBLIC_COHUB_ENV === "prod";
+
+	return {
+		resolve: {
+			// Workspace package aliases (@cohub/protocol, @neta-art/cohub) live in
+			// svelte.config.js `kit.alias`, which SvelteKit injects into Vite for us.
+			alias: [
+				{
+					find: /^\$docs-product\/(.*)$/,
+					replacement: `${docsProductDir}/$1`,
+				},
+			],
+		},
+		dev: {
+			sourcemap: {
+				js: true,
+				css: true,
 			},
-		],
-	},
-	dev: {
-		sourcemap: {
-			js: true,
-			css: true,
 		},
-	},
-	server: {
-		allowedHosts: true,
-		// Product docs live outside apps/web; allow Vite to read them in dev.
-		fs: {
-			allow: [docsProductDir],
+		server: {
+			allowedHosts: true,
+			// Product docs live outside apps/web; allow Vite to read them in dev.
+			fs: {
+				allow: [docsProductDir],
+			},
 		},
-	},
-	build: {
-		chunkSizeWarningLimit: 1200,
-		rolldownOptions: {
-			output: {
-				codeSplitting: {
-					groups: [
-						{
-							// Dynamic name: each matched package becomes its own chunk;
-							// null means leave the module to automatic splitting.
-							name: shikiPackageChunkName,
-						},
-					],
+		build: {
+			chunkSizeWarningLimit: 1200,
+			minify: prodDeploy,
+			sourcemap: !prodDeploy,
+			rolldownOptions: {
+				output: {
+					codeSplitting: {
+						groups: [
+							{
+								// Dynamic name: each matched package becomes its own chunk;
+								// null means leave the module to automatic splitting.
+								name: shikiPackageChunkName,
+							},
+						],
+					},
 				},
 			},
 		},
-	},
-	plugins: [
-		tailwindcss(),
-		sveltekit(),
-		VitePWA({
-			registerType: undefined,
-			injectRegister: null,
-			includeAssets: ["robots.txt", "pwa/*.png", "pwa/*.svg"],
-			manifest: {
-				name: "Cohub",
-				short_name: "Cohub",
-				description: "AI-powered space collaboration",
-				// Keep the installed PWA chrome calm; reserve brand orange for in-app emphasis.
-				theme_color: "#1F2026",
-				background_color: "#1a1a1a",
-				display: "standalone",
-				icons: [
-					{
-						src: "/pwa/icon-192x192.png",
-						sizes: "192x192",
-						type: "image/png",
-					},
-					{
-						src: "/pwa/icon-512x512.png",
-						sizes: "512x512",
-						type: "image/png",
-					},
-					{
-						src: "/pwa/icon-maskable-192x192.png",
-						sizes: "192x192",
-						type: "image/png",
-						purpose: "maskable",
-					},
-					{
-						src: "/pwa/icon-maskable-512x512.png",
-						sizes: "512x512",
-						type: "image/png",
-						purpose: "maskable",
-					},
-				],
-			},
-			workbox: {
-				globPatterns: [
-					"**/*.{css,html,ico,png,svg,woff2}",
-					"_app/immutable/entry/*.js",
-					"_app/immutable/nodes/*.js",
-					"_app/version.json",
-				],
-				importScripts: ["notification-sw.js"],
-				navigateFallback: undefined,
-				runtimeCaching: [
-					{
-						urlPattern: ({ url }) =>
-							url.pathname.startsWith("/_app/immutable/"),
-						handler: "CacheFirst",
-						options: {
-							cacheName: "immutable-assets",
-							expiration: {
-								maxEntries: 240,
-								maxAgeSeconds: 60 * 60 * 24 * 30,
+		plugins: [
+			tailwindcss(),
+			sveltekit(),
+			VitePWA({
+				registerType: undefined,
+				injectRegister: null,
+				includeAssets: ["robots.txt", "pwa/*.png", "pwa/*.svg"],
+				manifest: {
+					name: "Cohub",
+					short_name: "Cohub",
+					description: "AI-powered space collaboration",
+					// Keep the installed PWA chrome calm; reserve brand orange for in-app emphasis.
+					theme_color: "#1F2026",
+					background_color: "#1a1a1a",
+					display: "standalone",
+					icons: [
+						{
+							src: "/pwa/icon-192x192.png",
+							sizes: "192x192",
+							type: "image/png",
+						},
+						{
+							src: "/pwa/icon-512x512.png",
+							sizes: "512x512",
+							type: "image/png",
+						},
+						{
+							src: "/pwa/icon-maskable-192x192.png",
+							sizes: "192x192",
+							type: "image/png",
+							purpose: "maskable",
+						},
+						{
+							src: "/pwa/icon-maskable-512x512.png",
+							sizes: "512x512",
+							type: "image/png",
+							purpose: "maskable",
+						},
+					],
+				},
+				workbox: {
+					globPatterns: [
+						"**/*.{css,html,ico,png,svg,woff2}",
+						"_app/immutable/entry/*.js",
+						"_app/immutable/nodes/*.js",
+						"_app/version.json",
+					],
+					importScripts: ["notification-sw.js"],
+					navigateFallback: undefined,
+					runtimeCaching: [
+						{
+							urlPattern: ({ url }) =>
+								url.pathname.startsWith("/_app/immutable/"),
+							handler: "CacheFirst",
+							options: {
+								cacheName: "immutable-assets",
+								expiration: {
+									maxEntries: 240,
+									maxAgeSeconds: 60 * 60 * 24 * 30,
+								},
 							},
 						},
-					},
-				],
-			},
-		}),
-	],
+					],
+				},
+			}),
+		],
+	};
 });
