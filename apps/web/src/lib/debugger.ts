@@ -14,6 +14,7 @@ declare global {
 		cohubDebugHar: () => CohubDebugHar;
 		cohubClearDebugLog: () => void;
 		cohubStopDebugger: () => void;
+		cohubSaveDebugLog: () => void;
 	}
 }
 
@@ -24,6 +25,7 @@ export function installCohubDebuggerConsoleExports() {
 	window.cohubDebugHar = () => exportCohubDebugHar();
 	window.cohubClearDebugLog = () => clearCohubDebugLog();
 	window.cohubStopDebugger = () => stopCohubDebugger();
+	window.cohubSaveDebugLog = () => saveCohubDebugBundle();
 }
 
 export function downloadCohubDebugBundle() {
@@ -32,6 +34,10 @@ export function downloadCohubDebugBundle() {
 		return;
 	}
 
+	saveCohubDebugBundle();
+}
+
+function saveCohubDebugBundle() {
 	const timestamp = formatDebugFileTimestamp(new Date());
 	downloadJsonFile(`cohub-debug-${timestamp}.log`, exportCohubDebugLog());
 	downloadJsonFile(`cohub-debug-${timestamp}.har`, exportCohubDebugHar());
