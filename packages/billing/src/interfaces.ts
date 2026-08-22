@@ -87,6 +87,8 @@ export const COHUB_BILLING_FEATURES = {
   spaceStorageMaxBytes: "space.storage.max_bytes",
   spaceModsMax: "space.mods.max",
   spaceCommerce: "space.commerce",
+  // Billing-provider feature keys are stored identifiers on purchased
+  // entitlements; the work-era key stays frozen so existing grants keep resolving.
   workPublishHideCohubBar: "work.publish.hide_cohub_bar",
 } as const;
 

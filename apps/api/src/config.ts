@@ -211,6 +211,8 @@ export const config: AppConfig = {
   chatAttachmentS3Bucket: process.env.CHAT_ATTACHMENT_S3_BUCKET,
   chatAttachmentPublicBaseUrl: process.env.CHAT_ATTACHMENT_PUBLIC_BASE_URL?.replace(/\/+$/, ""),
   spaceUploadS3Bucket: process.env.SPACE_UPLOAD_S3_BUCKET,
+  // WORK_* env names are deployment-facing identifiers set across the live
+  // clusters; renaming them would silently drop the config, so they stay.
   appAssetCdnBaseUrl: process.env.WORK_ASSET_CDN_BASE_URL?.replace(/\/+$/, ""),
   checkpointAssetOssEndpoint: process.env.CHECKPOINT_ASSET_OSS_ENDPOINT ?? process.env.TURN_OBJECT_S3_ENDPOINT ?? "http://127.0.0.1:9000",
   checkpointAssetOssPublicEndpoint: process.env.CHECKPOINT_ASSET_OSS_PUBLIC_ENDPOINT ?? process.env.TURN_OBJECT_S3_PUBLIC_ENDPOINT,
@@ -228,6 +230,7 @@ export const config: AppConfig = {
     ["cohub.live", "cohub.run"],
   ),
   allowedAppContentHostSuffixes: parseDomainList(
+    // Same as WORK_ASSET_CDN_BASE_URL above: live env identifier, kept stable.
     process.env.WORK_CONTENT_HOST_SUFFIXES,
     [".cohub.live", ".cohub.run"],
   ),

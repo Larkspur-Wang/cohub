@@ -75,6 +75,8 @@ export type CohubClientOptions = {
   voice?: VoiceInputCreateOptions;
   /** App runtime mode configuration (bridge vs broker). */
   app?: AppRuntimeModeConfig;
+  /** @deprecated Use `app`. Kept so existing runtimes keep configuring broker mode. */
+  work?: AppRuntimeModeConfig;
   /** Optional X-Cohub-Source-* headers (static or per-request getter). */
   requestSource?: RequestSource | null | (() => RequestSource | null | undefined);
 };

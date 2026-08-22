@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
+import { CohubClient } from "../src/client.js";
 import {
 	createSlugAppIdResolver,
 	createAppRuntime,
@@ -720,4 +721,27 @@ test("AppRuntimeApi isolates localStorage by resolved appId", async () => {
 
 	const token = await runtime.getAccessToken();
 	assert.equal(token, "cached-late-token");
+});
+
+test("CohubClientOptions.work keeps configuring broker mode (legacy key)", async () => {
+	const windowMock: { location: { origin: string }; parent?: unknown } = {
+		location: { origin: "https://my-work.example" },
+	};
+	windowMock.parent = windowMock;
+	globalThis.window = windowMock as unknown as Window & typeof globalThis;
+
+	const client = new CohubClient({
+		work: { mode: "broker", brokerOrigin: "https://cohub.run", appId: "app-1" },
+		getAccessToken: async () => null,
+	});
+	const context = await client.context();
+	assert.equal(context?.app.id, "app-1");
+
+	const clientWithAppKey = new CohubClient({
+		app: { mode: "broker", brokerOrigin: "https://cohub.run", appId: "app-2" },
+		work: { mode: "broker", brokerOrigin: "https://cohub.run", appId: "app-ignored" },
+		getAccessToken: async () => null,
+	});
+	const contextAppKey = await clientWithAppKey.context();
+	assert.equal(contextAppKey?.app.id, "app-2", "the canonical `app` key wins when both are set");
 });

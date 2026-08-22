@@ -78,25 +78,26 @@ export class CohubClient {
 
   constructor(options: CohubClientOptions = {}) {
     const apiBaseUrl = resolveApiBaseUrl(options);
+    const appRuntime = options.app ?? options.work;
     // When broker mode is configured with a slug triple instead of an explicit
     // appId, build a resolver that reverse-looks-up the appId at runtime via
     // the public getBySlug API. Shared by both the transport (popup) and the
     // runtime API (localStorage key isolation).
     const appIdResolver: AppIdResolver | undefined =
-      !options.app?.appId &&
-      options.app?.ownerUsername &&
-      options.app?.spaceSlug &&
-      options.app?.appSlug
+      !appRuntime?.appId &&
+      appRuntime?.ownerUsername &&
+      appRuntime?.spaceSlug &&
+      appRuntime?.appSlug
         ? createSlugAppIdResolver({
             apiBaseUrl,
             fetch: options.fetch,
-            ownerUsername: options.app.ownerUsername,
-            spaceSlug: options.app.spaceSlug,
-            appSlug: options.app.appSlug,
+            ownerUsername: appRuntime.ownerUsername,
+            spaceSlug: appRuntime.spaceSlug,
+            appSlug: appRuntime.appSlug,
           })
         : undefined;
-    const appTransport = resolveAppTransport(options.app, appIdResolver);
-    this.appRuntime = createAppRuntime(appTransport, options.app?.appId, appIdResolver);
+    const appTransport = resolveAppTransport(appRuntime, appIdResolver);
+    this.appRuntime = createAppRuntime(appTransport, appRuntime?.appId, appIdResolver);
     const getAccessToken = options.getAccessToken ?? ((tokenOptions?: { forceRefresh?: boolean }) => this.appRuntime.getAccessToken(tokenOptions));
     const resolvedOptions = { ...options, getAccessToken };
     this.transport = new HttpTransport(resolvedOptions);

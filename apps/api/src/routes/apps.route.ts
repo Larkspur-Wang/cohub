@@ -65,7 +65,7 @@ const APP_STATUSES = new Set(["published", "disabled"]);
 const APP_VISIBILITIES = new Set(["public", "space"]);
 const TARGET_TYPES = new Set(["file", "directory", "port"]);
 const SLUG_RE = /^[a-z0-9](?:[a-z0-9_-]{0,78}[a-z0-9])?$/;
-/** Public work payloads are safe to edge/browser cache briefly. */
+/** Public app payloads are safe to edge/browser cache briefly. */
 const PUBLIC_APP_HTTP_CACHE = "public, max-age=60, stale-while-revalidate=300";
 const PRIVATE_APP_HTTP_CACHE = "private, no-store";
 const SANDBOX_PUBLIC_PORT_SET = new Set<number>(SANDBOX_PUBLIC_PORTS as readonly number[]);
@@ -285,8 +285,8 @@ function appAssetErrorResponse(c: Context, error: unknown, context: { spaceId: s
   if (error instanceof AppAssetPublishError) {
     return c.json({ message: error.result.message.toLowerCase().replace(/\.$/, ""), code: error.result.code }, error.result.status as never);
   }
-  logger.warn("[apps] failed to write work asset", { ...context, error });
-  return c.json({ message: "work asset storage failed" }, 502);
+  logger.warn("[apps] failed to write app asset", { ...context, error });
+  return c.json({ message: "app asset storage failed" }, 502);
 }
 
 async function cleanupAppAssets(assetKey: string | null | undefined, context: { appId: string; spaceId: string; reason: string }) {
@@ -294,7 +294,7 @@ async function cleanupAppAssets(assetKey: string | null | undefined, context: { 
   try {
     await deleteAppAssetsByObjectKey(assetKey);
   } catch (error) {
-    logger.warn("[apps] failed to delete stale work asset", { ...context, assetKey, error });
+    logger.warn("[apps] failed to delete stale app asset", { ...context, assetKey, error });
   }
 }
 
@@ -374,7 +374,7 @@ router.get("/by-slug/:username/:spaceSlug/:appSlug", async (c) => {
   const username = c.req.param("username");
   const spaceSlug = c.req.param("spaceSlug");
   const appSlug = c.req.param("appSlug");
-  if (!username || !SLUG_RE.test(spaceSlug) || !SLUG_RE.test(appSlug)) return c.json({ message: "work not found" }, 404);
+  if (!username || !SLUG_RE.test(spaceSlug) || !SLUG_RE.test(appSlug)) return c.json({ message: "app not found" }, 404);
 
   const [row] = await db
     .select({
@@ -387,8 +387,8 @@ router.get("/by-slug/:username/:spaceSlug/:appSlug", async (c) => {
     .innerJoin(apps, and(eq(apps.spaceId, spaces.id), eq(apps.slug, appSlug), eq(apps.status, "published")))
     .where(eq(userProfiles.username, username))
     .limit(1);
-  if (!row) return c.json({ message: "work not found" }, 404);
-  if (!row.owner.username || !row.space.slug) return c.json({ message: "work public identity is incomplete" }, 409);
+  if (!row) return c.json({ message: "app not found" }, 404);
+  if (!row.owner.username || !row.space.slug) return c.json({ message: "app public identity is incomplete" }, 409);
   if (requiresSpaceAppAccess(row.app) && !(await hasPermission(user, "space.view", { spaceId: row.space.id }))) return authzDenied(c);
 
   recordResolvedAppView(c, row.app, "web");
@@ -420,14 +420,14 @@ router.get("/space/:spaceId", async (c) => {
 });
 
 router.get("/:id/public", async (c) => {
-  // Public endpoint used by the standalone work auth broker page to load work
+  // Public endpoint used by the standalone app auth broker page to load app
   // metadata + owner info by appId. Mirrors the by-slug access model: only
   // space-visibility apps require space.view; public apps are open.
   const user = getOptionalAuth(c);
   const id = c.req.param("id");
-  if (!requireValidId(id)) return c.json({ message: "work not found" }, 404);
+  if (!requireValidId(id)) return c.json({ message: "app not found" }, 404);
   const app = await getAppById(id);
-  if (app?.status !== "published") return c.json({ message: "work not found" }, 404);
+  if (app?.status !== "published") return c.json({ message: "app not found" }, 404);
   if (requiresSpaceAppAccess(app) && !(await hasPermission(user, "space.view", { spaceId: app.spaceId }))) return authzDenied(c);
   const [row] = await db
     .select({
@@ -438,8 +438,8 @@ router.get("/:id/public", async (c) => {
     .innerJoin(userProfiles, eq(userProfiles.userUuid, spaces.userUuid))
     .where(eq(spaces.id, app.spaceId))
     .limit(1);
-  if (!row) return c.json({ message: "work not found" }, 404);
-  if (!row.owner.username || !row.space.slug) return c.json({ message: "work public identity is incomplete" }, 409);
+  if (!row) return c.json({ message: "app not found" }, 404);
+  if (!row.owner.username || !row.space.slug) return c.json({ message: "app public identity is incomplete" }, 409);
   const space = { id: row.space.id, slug: row.space.slug, name: row.space.name, userUuid: row.space.userUuid, publicProfile: getSpacePublicProfile(row.space) };
   // Content matches what the by-slug page already serves for the same access
   // model, so an in-workspace preview can render a Work reached by public url.
@@ -456,9 +456,9 @@ router.get("/:id/stats", async (c) => {
   const user = useAuth(c);
   if (user instanceof Response) return user;
   const id = c.req.param("id");
-  if (!requireValidId(id)) return c.json({ message: "work not found" }, 404);
+  if (!requireValidId(id)) return c.json({ message: "app not found" }, 404);
   const app = await getAppById(id);
-  if (!app) return c.json({ message: "work not found" }, 404);
+  if (!app) return c.json({ message: "app not found" }, 404);
   if (!(await hasPermission(user, "space.edit", { spaceId: app.spaceId }))) return authzDenied(c);
   return c.json(await getAppViewStats(app.id));
 });
@@ -467,9 +467,9 @@ router.get("/:id", async (c) => {
   const user = useAuth(c);
   if (user instanceof Response) return user;
   const id = c.req.param("id");
-  if (!requireValidId(id)) return c.json({ message: "work not found" }, 404);
+  if (!requireValidId(id)) return c.json({ message: "app not found" }, 404);
   const app = await getAppById(id);
-  if (!app) return c.json({ message: "work not found" }, 404);
+  if (!app) return c.json({ message: "app not found" }, 404);
   if (!(await hasPermission(user, "space.view", { spaceId: app.spaceId }))) return authzDenied(c);
   const [row] = await db
     .select({
@@ -480,8 +480,8 @@ router.get("/:id", async (c) => {
     .innerJoin(userProfiles, eq(userProfiles.userUuid, spaces.userUuid))
     .where(eq(spaces.id, app.spaceId))
     .limit(1);
-  if (!row) return c.json({ message: "work not found" }, 404);
-  if (!row.owner.username || !row.space.slug) return c.json({ message: "work public identity is incomplete" }, 409);
+  if (!row) return c.json({ message: "app not found" }, 404);
+  if (!row.owner.username || !row.space.slug) return c.json({ message: "app public identity is incomplete" }, 409);
   const space = { id: row.space.id, slug: row.space.slug, name: row.space.name, userUuid: row.space.userUuid, publicProfile: getSpacePublicProfile(row.space) };
   const shouldRecordCliView = getRequestSource(c)?.via === "cli";
   if (shouldRecordCliView) recordResolvedAppView(c, app, "cli");
@@ -635,7 +635,7 @@ async function updateApp(
   }
   const nextStatus = typeof body?.status === "string" ? body.status : current.status;
   if (nextStatus === "published" && current.status !== "published") {
-    return c.json({ message: "publish a version to publish this work" }, 409);
+    return c.json({ message: "publish a version to publish this app" }, 409);
   }
   const nextVisibility = typeof body?.visibility === "string" ? body.visibility : (current.visibility ?? "public");
   const identityError = await ensureAppPublicIdentity(c, current.spaceId, actor);
@@ -706,17 +706,17 @@ async function publishAppVersion(
   try {
     const result = await db.transaction(async (tx) => {
       const now = new Date();
-      const [versionedWork] = await tx.update(apps).set({
+      const [versionedApp] = await tx.update(apps).set({
         latestVersion: sql`${apps.latestVersion} + 1`,
         updatedAt: now,
       }).where(eq(apps.id, current.id)).returning({
         latestVersion: apps.latestVersion,
         previousVersionId: apps.currentVersionId,
       });
-      if (!versionedWork) throw new Error("failed to reserve work version");
+      if (!versionedApp) throw new Error("failed to reserve app version");
       const [version] = await tx.insert(appVersions).values({
         appId: current.id,
-        version: versionedWork.latestVersion,
+        version: versionedApp.latestVersion,
         targetType: current.targetType,
         targetRef: current.targetRef,
         assetKey,
@@ -730,13 +730,13 @@ async function publishAppVersion(
         status: "published",
         assetKey,
         currentVersionId: version.id,
-        latestVersion: versionedWork.latestVersion,
+        latestVersion: versionedApp.latestVersion,
         publishedAt: current.publishedAt ?? now,
         meta: appMeta,
         updatedAt: now,
       }).where(eq(apps.id, current.id)).returning();
       if (!app) throw new Error("failed to publish app version");
-      return { app, version, previousVersionId: versionedWork.previousVersionId };
+      return { app, version, previousVersionId: versionedApp.previousVersionId };
     });
     await dispatchAppVersionPublished({
       app: serializeAppRecord(result.app, "canonical"),
@@ -769,9 +769,9 @@ router.patch("/:id", async (c) => {
   const user = useAuth(c);
   if (user instanceof Response) return user;
   const id = c.req.param("id");
-  if (!requireValidId(id)) return c.json({ message: "work not found" }, 404);
+  if (!requireValidId(id)) return c.json({ message: "app not found" }, 404);
   const current = await getAppById(id);
-  if (!current) return c.json({ message: "work not found" }, 404);
+  if (!current) return c.json({ message: "app not found" }, 404);
   if (!(await hasPermission(user, "space.edit", { spaceId: current.spaceId }))) return authzDenied(c);
 
   const body = await c.req.json().catch(() => null) as Record<string, unknown> | null;
@@ -782,9 +782,9 @@ router.get("/:id/versions", async (c) => {
   const user = useAuth(c);
   if (user instanceof Response) return user;
   const id = c.req.param("id");
-  if (!requireValidId(id)) return c.json({ message: "work not found" }, 404);
+  if (!requireValidId(id)) return c.json({ message: "app not found" }, 404);
   const app = await getAppById(id);
-  if (!app) return c.json({ message: "work not found" }, 404);
+  if (!app) return c.json({ message: "app not found" }, 404);
   if (!(await hasPermission(user, "space.view", { spaceId: app.spaceId }))) return authzDenied(c);
   const rows = await db.select().from(appVersions).where(eq(appVersions.appId, id)).orderBy(desc(appVersions.version));
   return c.json({ versions: rows.map(serializeAppVersion) });
@@ -794,9 +794,9 @@ router.post("/:id/versions", async (c) => {
   const user = useAuth(c);
   if (user instanceof Response) return user;
   const id = c.req.param("id");
-  if (!requireValidId(id)) return c.json({ message: "work not found" }, 404);
+  if (!requireValidId(id)) return c.json({ message: "app not found" }, 404);
   const app = await getAppById(id);
-  if (!app) return c.json({ message: "work not found" }, 404);
+  if (!app) return c.json({ message: "app not found" }, 404);
   if (!(await hasPermission(user, "space.edit", { spaceId: app.spaceId }))) return authzDenied(c);
   const meta = applyRequestSourceToMeta(c, null);
   return publishAppVersion(c, app, { actor: user, meta });
@@ -806,9 +806,9 @@ router.delete("/:id", async (c) => {
   const user = useAuth(c);
   if (user instanceof Response) return user;
   const id = c.req.param("id");
-  if (!requireValidId(id)) return c.json({ message: "work not found" }, 404);
+  if (!requireValidId(id)) return c.json({ message: "app not found" }, 404);
   const app = await getAppById(id);
-  if (!app) return c.json({ message: "work not found" }, 404);
+  if (!app) return c.json({ message: "app not found" }, 404);
   if (!(await hasPermission(user, "space.edit", { spaceId: app.spaceId }))) return authzDenied(c);
   await db.transaction(async (tx) => {
     const promotions = await tx
@@ -846,7 +846,7 @@ const getPublishedAppForRoom = async (c: Context, appId: string) => {
 
 router.post("/:id/realtime/rooms", async (c) => {
   const id = c.req.param("id");
-  if (!requireValidId(id)) return c.json({ message: "work not found" }, 404);
+  if (!requireValidId(id)) return c.json({ message: "app not found" }, 404);
   const context = await getPublishedAppForRoom(c, id);
   if (!context) return authzDenied(c);
   const body = await c.req.json().catch(() => null) as {
@@ -875,7 +875,7 @@ router.post("/:id/realtime/rooms", async (c) => {
 
 router.post("/:id/realtime/rooms/join", async (c) => {
   const id = c.req.param("id");
-  if (!requireValidId(id)) return c.json({ message: "work not found" }, 404);
+  if (!requireValidId(id)) return c.json({ message: "app not found" }, 404);
   const context = await getPublishedAppForRoom(c, id);
   if (!context) return authzDenied(c);
   const body = await c.req.json().catch(() => null) as { code?: unknown } | null;
@@ -896,9 +896,9 @@ router.post("/:id/session", async (c) => {
   const user = useAuth(c);
   if (user instanceof Response) return user;
   const id = c.req.param("id");
-  if (!requireValidId(id)) return c.json({ message: "work not found" }, 404);
+  if (!requireValidId(id)) return c.json({ message: "app not found" }, 404);
   const app = await getAppById(id);
-  if (app?.status !== "published") return c.json({ message: "work not found" }, 404);
+  if (app?.status !== "published") return c.json({ message: "app not found" }, 404);
   if (requiresSpaceAppAccess(app) && !(await hasPermission(user, "space.view", { spaceId: app.spaceId }))) return authzDenied(c);
   const token = createAppSessionToken({
     userUuid: user.uuid,
@@ -913,14 +913,14 @@ router.post("/:id/authorize", async (c) => {
   const user = useAuth(c);
   if (user instanceof Response) return user;
   const id = c.req.param("id");
-  if (!requireValidId(id)) return c.json({ message: "work not found" }, 404);
+  if (!requireValidId(id)) return c.json({ message: "app not found" }, 404);
   const app = await getAppById(id);
-  if (app?.status !== "published") return c.json({ message: "work not found" }, 404);
+  if (app?.status !== "published") return c.json({ message: "app not found" }, 404);
   if (requiresSpaceAppAccess(app) && !(await hasPermission(user, "space.view", { spaceId: app.spaceId }))) return authzDenied(c);
   const body = await c.req.json().catch(() => null) as { scopes?: unknown } | null;
   const requested = normalizeScopes(body?.scopes, ALLOWED_VIEWER_SCOPES);
   if (requested.length === 0) return c.json({ message: "no valid scopes requested" }, 400);
-  if (!isSubset(requested, app.allowedViewerScopes ?? [])) return c.json({ message: "scope not allowed for this work" }, 403);
+  if (!isSubset(requested, app.allowedViewerScopes ?? [])) return c.json({ message: "scope not allowed for this app" }, 403);
 
   const expiresAt = new Date(Date.now() + APP_SESSION_TTL_SECONDS * 1000);
   const [grant] = await db.insert(appViewerGrants).values({

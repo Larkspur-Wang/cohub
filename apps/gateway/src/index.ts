@@ -537,7 +537,7 @@ const touchAppRoomMemberships = async (ctx: WsConnectionContext, socket: WebSock
       // Announce peers whose lease lapsed without a clean close, so a crashed
       // gateway does not leave ghost members in everyone else's member list.
       await sweepAppRoomLeases(roomId).catch((error) => {
-        logger.warn("[Gateway] failed to sweep Work room leases", { roomId, connectionId: ctx.connectionId, error });
+        logger.warn("[Gateway] failed to sweep app room leases", { roomId, connectionId: ctx.connectionId, error });
       });
       continue;
     }
