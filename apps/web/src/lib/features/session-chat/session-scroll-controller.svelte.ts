@@ -111,6 +111,10 @@ const SESSION_SCROLL_ANCHOR_PERSIST_DEBOUNCE_MS = 500;
 const MAX_SESSION_SCROLL_ANCHORS = 200;
 const TURN_MARKER_CONTENT_MEASURE_MS = 150;
 
+/** Dev deployments log scroll internals so effect loops identify themselves. */
+export const SESSION_SCROLL_DEBUG =
+	import.meta.env?.PUBLIC_COHUB_ENV !== "prod";
+
 export function createSessionScrollController() {
 	let listEl = $state<HTMLDivElement | null>(null);
 	let chatTimelineRef = $state<ChatTimelineHandle | null>(null);
@@ -275,6 +279,7 @@ export function createSessionScrollController() {
 	}
 
 	function clearTurnMarkers() {
+		if (SESSION_SCROLL_DEBUG) console.debug("[session-scroll] clear markers");
 		if (Object.keys(turnMarkerPositions).length > 0) turnMarkerPositions = {};
 		if (Object.keys(turnMarkerHeights).length > 0) turnMarkerHeights = {};
 		turnAnchorGeometry = [];
@@ -307,6 +312,8 @@ export function createSessionScrollController() {
 		// current turn without touching the DOM; it only changes with content.
 		turnGeometrySessionId = scrollContainer.dataset.sessionId ?? null;
 		turnAnchorGeometry = anchors;
+		if (SESSION_SCROLL_DEBUG)
+			console.debug("[session-scroll] measure", anchors.length, "anchors");
 		// Signal "cache refreshed" even when the derived marker values happen to
 		// stay identical (e.g. a uniform shift above the first anchor).
 		turnMarkerMeasureVersion += 1;
