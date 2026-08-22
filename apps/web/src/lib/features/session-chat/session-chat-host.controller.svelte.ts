@@ -225,8 +225,9 @@ function logScrollDebug(message: string, ...details: unknown[]) {
 
 /**
  * Flags effects that re-run suspiciously fast — the captured stack identifies
- * the effect before Svelte's own 100-run guard throws. Normal traffic (even
- * streaming at ~7 measurement passes per second) stays well under the limit.
+ * the effect before Svelte's own 100-run guard throws. Throttled measurement
+ * peaks around 13 passes/second by design (leading + trailing edges); 20
+ * stays clear of that while a synchronous loop still hits it in milliseconds.
  */
 function createEffectSpinGuard(label: string) {
 	let runs = 0;
@@ -239,7 +240,7 @@ function createEffectSpinGuard(label: string) {
 			runs = 1;
 			windowStartedAt = now;
 		}
-		if (runs === 10) {
+		if (runs === 20) {
 			console.warn(
 				`[session-scroll] "${label}" effect re-ran ${runs} times within a second`,
 				new Error("spin trace").stack,
@@ -732,6 +733,10 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			streaming,
 		});
 	});
+	// Boolean view of timeline emptiness: recomputes per stream chunk, but its
+	// value only flips when items appear or disappear, so effects keyed on it
+	// stay stable during streaming.
+	const hasTimelineItems = $derived(timeline.length > 0);
 	const hasUnread = $derived.by(() => {
 		const session = activeSessionState?.session;
 		if (
@@ -880,7 +885,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 
 	$effect(() => {
 		guardTimelineEffect();
-		if (!listEl || timeline.length === 0) {
+		if (!listEl || !hasTimelineItems) {
 			scroll.clearTurnMarkers();
 			return;
 		}
