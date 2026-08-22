@@ -75,8 +75,8 @@ test("parses checkpoint / work / task / file resources", () => {
 	);
 	assert.equal(
 		resolveWorkspaceRouteContext({
-			pathname: "/spaces/spc_1/works/w_1",
-		}).workId,
+			pathname: "/spaces/spc_1/apps/w_1",
+		}).appId,
 		"w_1",
 	);
 	assert.equal(

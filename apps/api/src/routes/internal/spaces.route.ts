@@ -20,8 +20,8 @@ import { hasPermission } from "../../permissions.js";
 import { dispatchTurnFinalized } from "../../session-output.js";
 import { submitSessionPrompt, type PromptAccessMode, type SubmitSessionPromptContext } from "../../session-prompts.js";
 import { ModelUnavailableError, parsePromptEnv, PromptEnvValidationError } from "@cohub/core/sessions";
-import { verifyWorkSessionToken } from "../../work-sessions.js";
-import { mergePromptContextAuth, promptAuthContextFromWorkSession } from "../../prompt-auth-context.js";
+import { verifyAppSessionToken } from "../../app-sessions.js";
+import { mergePromptContextAuth, promptAuthContextFromAppSession } from "../../prompt-auth-context.js";
 import { getSpaceSandboxBySpaceId, updateSpaceSandbox, recoverSpaceSandbox } from "../../space-sandboxes.js";
 import { isSandboxReportTokenValid } from "../../crypto.js";
 import { normalizeSandboxLifecycleStatus, normalizeSandboxRuntimeStatus } from "@cohub/sandbox-controller";
@@ -407,11 +407,11 @@ router.post("/:spaceId/sessions/:sessionId/prompt", async (c) => {
   const promptThinkingLevel = typeof body.thinkingLevel === "string" && body.thinkingLevel.trim() && VALID_THINKING_LEVELS.has(body.thinkingLevel.trim()) ? body.thinkingLevel.trim() : body.thinkingLevel === undefined || body.thinkingLevel === null ? undefined : null;
   if (promptThinkingLevel === null) return c.json({ message: "thinkingLevel must be one of: off, minimal, low, medium, high, xhigh, max" }, 400);
   const promptPermission = accessMode === "read_only" ? "session.prompt.readonly" : "session.prompt.fullaccess";
-  const workSession = body.authToken ? verifyWorkSessionToken(body.authToken) : null;
-  const permissionSubject = workSession && workSession.userUuid === userId
-    ? ({ uuid: userId, workSession } as { uuid: string; workSession: typeof workSession })
+  const appSession = body.authToken ? verifyAppSessionToken(body.authToken) : null;
+  const permissionSubject = appSession && appSession.userUuid === userId
+    ? ({ uuid: userId, appSession } as { uuid: string; appSession: typeof appSession })
     : { uuid: userId };
-  const promptAuth = workSession?.userUuid === userId ? promptAuthContextFromWorkSession(workSession, spaceId) : null;
+  const promptAuth = appSession?.userUuid === userId ? promptAuthContextFromAppSession(appSession, spaceId) : null;
   if (!(await hasPermission(permissionSubject, promptPermission, { spaceId, sessionId }))) {
     return c.json({ message: "forbidden" }, 403);
   }

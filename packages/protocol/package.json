@@ -115,13 +115,13 @@
       "types": "./dist/provenance.d.ts",
       "default": "./dist/provenance.js"
     },
-    "./ui-command": {
-      "types": "./dist/ui-command.d.ts",
-      "default": "./dist/ui-command.js"
+    "./desktop-command": {
+      "types": "./dist/desktop-command.d.ts",
+      "default": "./dist/desktop-command.js"
     },
-    "./work-surface": {
-      "types": "./dist/work-surface.d.ts",
-      "default": "./dist/work-surface.js"
+    "./app-surface": {
+      "types": "./dist/app-surface.d.ts",
+      "default": "./dist/app-surface.js"
     },
     "./public-identifiers": {
       "types": "./dist/public-identifiers.d.ts",

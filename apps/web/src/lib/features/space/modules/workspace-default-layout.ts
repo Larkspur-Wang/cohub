@@ -20,7 +20,7 @@ export type ResolvedDefaultLayoutGeometry = {
 	filesColumnHidden: boolean;
 	presentation: ResolvedPresentation;
 	/** Whether the configured preview should be opened for this fresh entry. */
-	openPreview: boolean;
+	openWindow: boolean;
 };
 
 /**
@@ -34,11 +34,11 @@ export function resolveDefaultLayoutGeometry(
 	layout: WorkspaceDefaultLayout,
 	hasRoutePreview: boolean,
 ): ResolvedDefaultLayoutGeometry {
-	const hasPreview = Boolean(layout.preview) || hasRoutePreview;
+	const hasWindow = Boolean(layout.window) || hasRoutePreview;
 	const presentation: ResolvedPresentation =
-		hasPreview && layout.presentation === "focus"
+		hasWindow && layout.presentation === "focus"
 			? "focus"
-			: hasPreview && layout.presentation === "fullscreen"
+			: hasWindow && layout.presentation === "fullscreen"
 				? "immersive"
 				: "default";
 	return {
@@ -46,8 +46,8 @@ export function resolveDefaultLayoutGeometry(
 		rightSidebarCollapsed: layout.fileTree === "collapsed",
 		// Never hide the Files column while a preview (config or explicit URL)
 		// needs to render — explicit preview must win over `filesColumn: hidden`.
-		filesColumnHidden: layout.filesColumn === "hidden" && !hasPreview,
+		filesColumnHidden: layout.filesColumn === "hidden" && !hasWindow,
 		presentation,
-		openPreview: Boolean(layout.preview),
+		openWindow: Boolean(layout.window),
 	};
 }

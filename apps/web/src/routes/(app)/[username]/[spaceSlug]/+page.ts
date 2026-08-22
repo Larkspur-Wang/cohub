@@ -1,6 +1,6 @@
 import { HttpError } from "@neta-art/cohub";
 import { error } from "@sveltejs/kit";
-import { readPreviewFromSearch } from "$lib/features/space/modules/workspace-preview-route";
+import { readWindowFromSearch } from "$lib/features/space/modules/window-route";
 import { sdk } from "$lib/sdk";
 import { cacheSpaceRecordSoon } from "$lib/stores/space-record-cache";
 import type { PageLoad } from "./$types";
@@ -18,7 +18,7 @@ export const load: PageLoad = async ({ params, url }) => {
 	const sessionId = url.searchParams.get("session");
 	// Prefer ?preview=; legacy ?file= maps to file preview.
 	const preview =
-		readPreviewFromSearch(url.searchParams) ??
+		readWindowFromSearch(url.searchParams) ??
 		(url.searchParams.get("file")
 			? {
 					kind: "file" as const,
@@ -31,7 +31,7 @@ export const load: PageLoad = async ({ params, url }) => {
 		view: "session" as const,
 		sessionId: sessionId ?? "new",
 		filePath: null,
-		previewKind: preview?.kind ?? null,
-		previewKey: preview?.key ?? null,
+		windowKind: preview?.kind ?? null,
+		windowKey: preview?.key ?? null,
 	};
 };

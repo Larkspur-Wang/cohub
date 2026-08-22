@@ -24,7 +24,7 @@ import { db } from "../db.js";
 
 const dateString = (value: Date | null | undefined) => value?.toISOString() ?? null;
 
-/** Capture one repeatable-read snapshot; published Works and Checkpoints share it. */
+/** Capture one repeatable-read snapshot; published apps and Checkpoints share it. */
 export async function captureBoardSnapshots(input: {
   spaceId: string;
   boardIds?: string[];

@@ -55,9 +55,9 @@ export type ViewportPortContext = {
   url?: string;
 };
 
-export type ViewportWorkContext = {
-  kind: "work";
-  workId: string;
+export type ViewportAppContext = {
+  kind: "app";
+  appId: string;
   key: string;
   label: string;
   content: string;
@@ -67,11 +67,11 @@ export type ViewportContext =
   | ViewportFileContext
   | ViewportBoardContext
   | ViewportPortContext
-  | ViewportWorkContext;
+  | ViewportAppContext;
 
 export function viewportContextId(context: ViewportContext): string {
   if (context.kind === "port") return `port:${context.port}`;
-  if (context.kind === "work") return `work:${context.workId}:${context.key}`;
+  if (context.kind === "app") return `app:${context.appId}:${context.key}`;
   return `${context.kind}:${context.path}`;
 }
 
@@ -113,7 +113,7 @@ export function formatViewportContextLabel(context: ViewportContext): string {
       : "";
     return `${name}${selected}`;
   }
-  if (context.kind === "work") return context.label;
+  if (context.kind === "app") return context.label;
   return `:${context.port}`;
 }
 
@@ -134,10 +134,10 @@ export function formatViewportContextLine(context: ViewportContext): string {
     const suffix = details.length > 0 ? ` (${details.join("; ")})` : "";
     return `- board: \`${escapeAttachmentPath(context.path)}\`${suffix}`;
   }
-  if (context.kind === "work") {
+  if (context.kind === "app") {
     const label = escapeViewportLabel(context.label);
     const content = context.content.replace(/\r\n?/g, "\n").trim();
-    return `- work: \`${escapeAttachmentPath(context.workId)}\` (${label})\n${content}`;
+    return `- app: \`${escapeAttachmentPath(context.appId)}\` (${label})\n${content}`;
   }
   const url = context.url?.trim();
   const suffix = url ? ` (${escapeAttachmentUrl(url)})` : "";
@@ -260,15 +260,15 @@ export function parseViewportContextsFromMeta(
       continue;
     }
     if (
-      record.kind === "work" &&
-      typeof record.workId === "string" &&
+      record.kind === "app" &&
+      typeof record.appId === "string" &&
       typeof record.key === "string" &&
       typeof record.label === "string" &&
       typeof record.content === "string"
     ) {
       result.push({
-        kind: "work",
-        workId: record.workId,
+        kind: "app",
+        appId: record.appId,
         key: record.key,
         label: record.label,
         content: record.content,

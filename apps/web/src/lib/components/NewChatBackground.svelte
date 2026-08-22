@@ -1,22 +1,22 @@
 <script lang="ts">
-import type { WorkComposerChip } from "@cohub/protocol/work-surface";
+import type { AppComposerChip } from "@cohub/protocol/app-surface";
 import { page } from "$app/state";
+import { type CohubAppUrl, parseCohubAppUrl } from "$lib/app-url";
+import NewChatAppBackground from "$lib/components/NewChatAppBackground.svelte";
 import NewChatSpaceBackground from "$lib/components/NewChatSpaceBackground.svelte";
-import NewChatWorkBackground from "$lib/components/NewChatWorkBackground.svelte";
 import { parseNewChatBackgroundAction } from "$lib/new-chat-background-bridge";
 import type { NewChatBackgroundConfig } from "$lib/space-config";
 import { emitSpaceConfigBackgroundAction } from "$lib/space-config";
 import { isDecorativeNewChatBackground } from "$lib/space-config-parse";
-import { type CohubWorkUrl, parseCohubWorkUrl } from "$lib/work-url";
 
 type Props = {
 	background: NewChatBackgroundConfig;
 	/** Current Space, used to serve space-local file backgrounds. */
 	spaceId?: string | null;
-	onWorkComposerChip?: (workId: string, chip: WorkComposerChip | null) => void;
+	onAppComposerChip?: (appId: string, chip: AppComposerChip | null) => void;
 };
 
-const { background, spaceId = null, onWorkComposerChip }: Props = $props();
+const { background, spaceId = null, onAppComposerChip }: Props = $props();
 
 const externalUrl = $derived(
 	background.source.kind === "url" ? background.source.url : null,
@@ -45,22 +45,22 @@ function getBackgroundOrigin() {
 
 // Memoize by origin+pathname so ?preview= changes don't produce a new
 // object identity and trigger a guide refetch.
-let workUrlKey = "";
-let workUrlCache: CohubWorkUrl | null = null;
-const workUrl = $derived.by((): CohubWorkUrl | null => {
+let appUrlKey = "";
+let appUrlCache: CohubAppUrl | null = null;
+const appUrl = $derived.by((): CohubAppUrl | null => {
 	if (background.type !== "html" || !externalUrl) return null;
 	const key = `${externalUrl}|${page.url.origin}${page.url.pathname}`;
-	if (key === workUrlKey) return workUrlCache;
-	workUrlKey = key;
-	workUrlCache = parseCohubWorkUrl(
+	if (key === appUrlKey) return appUrlCache;
+	appUrlKey = key;
+	appUrlCache = parseCohubAppUrl(
 		externalUrl,
 		`${page.url.origin}${page.url.pathname}`,
 	);
-	return workUrlCache;
+	return appUrlCache;
 });
 
 const sandbox = $derived.by(() => {
-	if (background.type !== "html" || !externalUrl || workUrl) return undefined;
+	if (background.type !== "html" || !externalUrl || appUrl) return undefined;
 	const origin = getBackgroundOrigin();
 	if (typeof window !== "undefined" && origin === window.location.origin) {
 		return "allow-scripts";
@@ -70,7 +70,7 @@ const sandbox = $derived.by(() => {
 
 $effect(() => {
 	if (typeof document === "undefined") return;
-	if (background.type !== "html" || !externalUrl || workUrl) return;
+	if (background.type !== "html" || !externalUrl || appUrl) return;
 	const origin = getBackgroundOrigin();
 	if (!origin) return;
 	const link = document.createElement("link");
@@ -82,7 +82,7 @@ $effect(() => {
 });
 
 function handleMessage(event: MessageEvent) {
-	if (background.type !== "html" || !externalUrl || workUrl) return;
+	if (background.type !== "html" || !externalUrl || appUrl) return;
 	if (event.source !== iframeEl?.contentWindow) return;
 	const origin = getBackgroundOrigin();
 	if (!origin) return;
@@ -101,7 +101,7 @@ $effect(() => {
 		typeof window === "undefined" ||
 		background.type !== "html" ||
 		!externalUrl ||
-		workUrl
+		appUrl
 	)
 		return;
 	window.addEventListener("message", handleMessage);
@@ -120,11 +120,11 @@ $effect(() => {
     <video src={background.source.url} style:object-fit={objectFit} style:object-position={background.position} autoplay muted loop playsinline preload="metadata"></video>
   {:else if spacePath && spaceId}
     <NewChatSpaceBackground spaceId={spaceId} path={spacePath} />
-  {:else if workUrl}
+  {:else if appUrl}
     <svelte:boundary onerror={handleWorkBackgroundError}>
-      <NewChatWorkBackground workUrl={workUrl} onComposerChip={onWorkComposerChip} />
+      <NewChatAppBackground appUrl={appUrl} onComposerChip={onAppComposerChip} />
       {#snippet failed()}
-        <div class="new-chat-background-state">Work background is unavailable.</div>
+        <div class="new-chat-background-state">App background is unavailable.</div>
       {/snippet}
     </svelte:boundary>
   {:else if externalUrl}

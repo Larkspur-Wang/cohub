@@ -8,8 +8,8 @@ import type { SpaceFsChangedPayload } from "../fs/index.js";
 import type { SpacePortsChangedPayload } from "../ports/index.js";
 import type { BoardMutationReceipt, BoardPlaybackSnapshot } from "../board.js";
 import type { RequestSource } from "../provenance.js";
-import type { UiCommandDispatchedPayload } from "../ui-command.js";
-import type { WorkArtifactDescriptor, WorkContentKind } from "../work.js";
+import type { DesktopCommandDispatchedPayload } from "../desktop-command.js";
+import type { AppArtifactDescriptor, AppContentKind } from "../app.js";
 import type {
   BoardAwarenessClientPayload,
   BoardAwarenessUpdate,
@@ -35,12 +35,12 @@ export const REALTIME_ROOM_EVENT_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,6
 export const REALTIME_ROOM_MAX_PAYLOAD_BYTES = 16 * 1024;
 
 export const getRealtimeRoomMetaKey = (roomId: string) => `${REALTIME_ROOM_KEY_PREFIX}:room:${roomId}`;
-export const getRealtimeRoomCodeKey = (workId: string, code: string) => `${REALTIME_ROOM_KEY_PREFIX}:code:${workId}:${code}`;
+export const getRealtimeRoomCodeKey = (appId: string, code: string) => `${REALTIME_ROOM_KEY_PREFIX}:code:${appId}:${code}`;
 export const getRealtimeRoomMembersKey = (roomId: string) => `${REALTIME_ROOM_KEY_PREFIX}:room:${roomId}:members`;
 export const getRealtimeRoomLeasesKey = (roomId: string) => `${REALTIME_ROOM_KEY_PREFIX}:room:${roomId}:leases`;
 export const getRealtimeRoomSequenceKey = (roomId: string) => `${REALTIME_ROOM_KEY_PREFIX}:room:${roomId}:sequence`;
 export const getRealtimeRoomRateKey = (roomId: string) => `${REALTIME_ROOM_KEY_PREFIX}:room:${roomId}:rate`;
-export const getRealtimeRoomIndexKey = (workId: string) => `${REALTIME_ROOM_KEY_PREFIX}:work:${workId}:rooms`;
+export const getRealtimeRoomIndexKey = (appId: string) => `${REALTIME_ROOM_KEY_PREFIX}:app:${appId}:rooms`;
 
 export type RealtimeRoom =
   | `space:${string}`
@@ -697,54 +697,64 @@ export type BoardPlaybackChangedEvent = {
   payload: BoardPlaybackSnapshot;
 };
 
-export type RealtimeWorkStatus = "published" | "disabled";
-export type RealtimeWorkVisibility = "public" | "space";
-export type RealtimeWorkTargetType = "file" | "directory" | "port";
+export type RealtimeAppStatus = "published" | "disabled";
+export type RealtimeAppVisibility = "public" | "space";
+export type RealtimeAppTargetType = "file" | "directory" | "port";
 
-export type RealtimeWorkRecord = {
+/**
+ * Canonical wire shape of an app record: realtime events and `/api/apps`
+ * responses. The legacy `/api/works` mount serves the work-era field names
+ * (`workScopes`) until the next breaking protocol version.
+ */
+export type RealtimeAppRecord = {
   id: string;
   spaceId: string;
   userUuid: string;
   slug: string;
-  status: RealtimeWorkStatus;
-  visibility: RealtimeWorkVisibility;
-  targetType: RealtimeWorkTargetType;
+  status: RealtimeAppStatus;
+  visibility: RealtimeAppVisibility;
+  targetType: RealtimeAppTargetType;
   targetRef: string;
   assetKey: string | null;
   currentVersionId: string | null;
   latestVersion: number;
   publishedAt: string | null;
-  workScopes: string[];
+  appScopes: string[];
   allowedViewerScopes: string[];
   meta: Record<string, unknown> | null;
   createdAt: string | null;
   updatedAt: string | null;
 };
 
-export type RealtimeWorkVersionRecord = {
+/**
+ * Canonical wire shape of a published app version. The legacy `/api/works`
+ * mount serves the work-era `workId` field name until the next breaking
+ * protocol version.
+ */
+export type RealtimeAppVersionRecord = {
   id: string;
-  workId: string;
+  appId: string;
   version: number;
-  targetType: RealtimeWorkTargetType;
+  targetType: RealtimeAppTargetType;
   targetRef: string;
   assetKey: string | null;
-  contentKind: WorkContentKind;
-  artifact: WorkArtifactDescriptor | null;
+  contentKind: AppContentKind;
+  artifact: AppArtifactDescriptor | null;
   meta: Record<string, unknown> | null;
   createdAt: string | null;
 };
 
-export type WorkVersionPublishedEvent = {
+export type AppVersionPublishedEvent = {
   id: string;
   timestamp: number;
   domain: "space";
-  type: "work.version.published";
+  type: "app.version.published";
   requestId?: string | null;
   spaceId: string;
   sessionId?: null;
   payload: {
-    work: RealtimeWorkRecord;
-    version: RealtimeWorkVersionRecord;
+    app: RealtimeAppRecord;
+    version: RealtimeAppVersionRecord;
     previousVersionId: string | null;
     actor: { userId: string };
     source: RequestSource | null;
@@ -816,16 +826,16 @@ export type LabelAssignmentsUpdatedEvent = {
  * to the user room; every client compares `targetClientId` with its own client
  * id and ignores commands that are not for it.
  */
-export type UiCommandDispatchedEvent = {
+export type DesktopCommandDispatchedEvent = {
   id: string;
   timestamp: number;
-  domain: "ui";
-  type: "ui.command.dispatched";
+  domain: "desktop";
+  type: "desktop.command.dispatched";
   requestId?: string | null;
   spaceId?: string | null;
   sessionId?: string | null;
   rooms?: RealtimeRoom[];
-  payload: UiCommandDispatchedPayload;
+  payload: DesktopCommandDispatchedPayload;
 };
 
 export type RealtimeServerEvent =
@@ -854,11 +864,11 @@ export type RealtimeServerEvent =
   | BoardChangedEvent
   | BoardAwarenessUpdatedEvent
   | BoardPlaybackChangedEvent
-  | WorkVersionPublishedEvent
+  | AppVersionPublishedEvent
   | TaskCreatedEvent
   | TaskUpdatedEvent
   | LabelAssignmentsUpdatedEvent
-  | UiCommandDispatchedEvent
+  | DesktopCommandDispatchedEvent
   | RealtimeRoomEvent
   | RealtimeRoomJoinedEvent
   | RealtimeRoomMemberChangedEvent

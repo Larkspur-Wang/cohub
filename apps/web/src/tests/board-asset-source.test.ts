@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { WorkBoardAsset } from "@neta-art/cohub";
-import { createWorkBoardAssetSource } from "$lib/board/board-asset-source";
+import type { AppBoardAsset } from "@neta-art/cohub";
+import { createAppBoardAssetSource } from "$lib/board/board-asset-source";
 
 const MANIFEST_URL = "https://cdn.example/w/space/slug/abc123/board.json";
 
-const source = (assets: WorkBoardAsset[]) =>
-	createWorkBoardAssetSource({ manifestUrl: MANIFEST_URL, assets });
+const source = (assets: AppBoardAsset[]) =>
+	createAppBoardAssetSource({ manifestUrl: MANIFEST_URL, assets });
 
 test("a captured asset resolves against the artifact prefix", async () => {
 	const resolver = source([

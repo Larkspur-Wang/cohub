@@ -1,33 +1,33 @@
 import { normalizePermissionScopes } from "@cohub/core/permissions";
-import { createDelegatedPromptAuth, type PromptAuthContext, type SubmitSessionPromptContext, type WorkSessionPromptAuthContext } from "@cohub/core/sessions";
-import type { WorkSessionPrincipal } from "./work-sessions.js";
+import { createDelegatedPromptAuth, type PromptAuthContext, type SubmitSessionPromptContext, type AppSessionPromptAuthContext } from "@cohub/core/sessions";
+import type { AppSessionPrincipal } from "./app-sessions.js";
 
-export function promptAuthContextFromWorkSession(workSession: WorkSessionPrincipal | null | undefined, spaceId: string): WorkSessionPromptAuthContext | null {
-  if (!workSession || workSession.spaceId !== spaceId) return null;
+export function promptAuthContextFromAppSession(appSession: AppSessionPrincipal | null | undefined, spaceId: string): AppSessionPromptAuthContext | null {
+  if (!appSession || appSession.spaceId !== spaceId) return null;
   return {
-    type: "work_session",
-    workId: workSession.workId,
-    spaceId: workSession.spaceId,
-    scopes: normalizePermissionScopes(workSession.scopes),
-    workScopes: normalizePermissionScopes(workSession.workScopes),
-    viewerScopes: normalizePermissionScopes(workSession.viewerScopes),
-    exp: workSession.exp,
-    workViewerGrantId: workSession.workViewerGrantId ?? null,
+    type: "app_session",
+    appId: appSession.appId,
+    spaceId: appSession.spaceId,
+    scopes: normalizePermissionScopes(appSession.scopes),
+    appScopes: normalizePermissionScopes(appSession.appScopes),
+    viewerScopes: normalizePermissionScopes(appSession.viewerScopes),
+    exp: appSession.exp,
+    appViewerGrantId: appSession.appViewerGrantId ?? null,
   };
 }
 
-export function delegatedPromptAuthFromWorkSession(workSession: WorkSessionPrincipal | null | undefined, spaceId: string, actorUserId: string) {
-  const auth = promptAuthContextFromWorkSession(workSession, spaceId);
+export function delegatedPromptAuthFromAppSession(appSession: AppSessionPrincipal | null | undefined, spaceId: string, actorUserId: string) {
+  const auth = promptAuthContextFromAppSession(appSession, spaceId);
   if (!auth) return null;
   return createDelegatedPromptAuth({
-    source: "work_session",
+    source: "app_session",
     actorUserId,
-    workId: auth.workId,
+    appId: auth.appId,
     spaceId: auth.spaceId,
     scopes: auth.scopes,
-    workScopes: auth.workScopes,
+    appScopes: auth.appScopes,
     viewerScopes: auth.viewerScopes,
-    workViewerGrantId: auth.workViewerGrantId ?? null,
+    appViewerGrantId: auth.appViewerGrantId ?? null,
     exp: auth.exp,
   });
 }

@@ -15,9 +15,9 @@ import SessionConversationPanel from "$lib/features/sessions/SessionConversation
 import UserSessionsList from "$lib/features/sessions/UserSessionsList.svelte";
 import { createUserSessionListController } from "$lib/features/sessions/user-session-list-controller.svelte";
 import {
-	type WorkspacePreviewRef,
-	withPreviewParam,
-} from "$lib/features/space/modules/workspace-preview-route";
+	type WindowRef,
+	withWindowParam,
+} from "$lib/features/space/modules/window-route";
 import { DESKTOP_SHELL_MIN_WIDTH_PX } from "$lib/layout/breakpoints";
 import { sdk } from "$lib/sdk";
 import {
@@ -85,8 +85,8 @@ const sessionChat = createSessionChatHost({
 		const path = resolveOpenPathTarget(target);
 		const sessionId = sessionChat.activeSessionId;
 		if (!spaceId || !path || !sessionId) return;
-		const preview: WorkspacePreviewRef = { kind: "file", key: path };
-		const href = withPreviewParam(
+		const preview: WindowRef = { kind: "file", key: path };
+		const href = withWindowParam(
 			buildSpaceSessionRoute(spaceId, sessionId),
 			null,
 			preview,

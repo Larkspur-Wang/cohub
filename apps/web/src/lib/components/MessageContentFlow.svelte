@@ -141,7 +141,7 @@ const userMentionButtonClass =
 	"inline-flex max-w-full translate-y-[-1px] items-baseline rounded-[5px] bg-brand-muted px-1.5 py-0.5 text-[0.92em] font-medium leading-none text-brand-muted-fg ring-1 ring-brand-border/70 transition-colors hover:bg-brand-muted-hover focus:outline-none focus:ring-1 focus:ring-brand";
 
 function buildUserMentionHref(token: ResourceMentionToken) {
-	if (token.type === "workMention") return token.href;
+	if (token.type === "appMention") return token.href;
 	const url = new URL(token.href, page.url.origin);
 	url.searchParams.set("from", page.url.pathname);
 	return `${url.pathname}${url.search}${url.hash}`;
@@ -232,7 +232,7 @@ const segments = $derived.by(() => {
 						type="button"
 						class={userMentionButtonClass}
 						title={`Open ${token.label} in a new window`}
-						aria-label={`Open ${token.type === 'workMention' ? 'work' : 'space'} ${token.label} in a new window`}
+						aria-label={`Open ${token.type === 'appMention' ? 'work' : 'space'} ${token.label} in a new window`}
 						onclick={(event) => openUserMention(token, event)}
 					>{token.text}</button>
 				{:else}{token.text}{/if}

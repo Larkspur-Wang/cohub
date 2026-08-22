@@ -14,10 +14,10 @@ function resolveHtmlLang(pathname: string, html: string): string {
 	if (isPublicWorkPath(pathname)) {
 		const match =
 			html.match(
-				/<meta\b[^>]*\bname=["']cohub-work-lang["'][^>]*\bcontent=["']([^"']+)["'][^>]*>/i,
+				/<meta\b[^>]*\bname=["']cohub-app-lang["'][^>]*\bcontent=["']([^"']+)["'][^>]*>/i,
 			) ??
 			html.match(
-				/<meta\b[^>]*\bcontent=["']([^"']+)["'][^>]*\bname=["']cohub-work-lang["'][^>]*>/i,
+				/<meta\b[^>]*\bcontent=["']([^"']+)["'][^>]*\bname=["']cohub-app-lang["'][^>]*>/i,
 			);
 		const workLang = match?.[1]?.trim();
 		if (workLang && /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/.test(workLang)) {

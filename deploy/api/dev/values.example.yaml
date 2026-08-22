@@ -66,12 +66,12 @@ USER_UPLOAD_S3_REGION: "auto"
 CHAT_ATTACHMENT_S3_BUCKET: "cohub-chat-attachments"
 CHAT_ATTACHMENT_PUBLIC_BASE_URL: "https://uploads.example.com"
 SPACE_UPLOAD_S3_BUCKET: "cohub-space-uploads"
-WORK_ASSET_CDN_BASE_URL: "https://works.example.com"
+APP_ASSET_CDN_BASE_URL: "https://works.example.com"
 CONFIGS_SUBPATH: "configs/dev"
 # 沙箱公网端口域名列表（逗号分隔，第一个为主域名；不配默认 cohub.live,cohub.run）
 SANDBOX_PUBLIC_DOMAINS: "cohub.live,cohub.run"
 # Work 内容端口 URL 允许的域名后缀（安全边界，不配默认 .cohub.live,.cohub.run）
-WORK_CONTENT_HOST_SUFFIXES: ".cohub.live,.cohub.run"
+APP_CONTENT_HOST_SUFFIXES: ".cohub.live,.cohub.run"
 # checkpoint git 提交作者邮箱（不配默认 noreply@cohub.live）
 CHECKPOINT_GIT_AUTHOR_EMAIL: "noreply@cohub.live"
 

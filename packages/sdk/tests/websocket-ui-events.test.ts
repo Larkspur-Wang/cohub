@@ -73,7 +73,7 @@ test("emits UI command envelopes as user events", async () => {
     id: "ui-event-1",
     timestamp: Date.now(),
     domain: "ui",
-    type: "ui.command.dispatched",
+    type: "desktop.command.dispatched",
     payload: {
       commandId: "command-1",
       targetClientId: "client-1",
@@ -81,13 +81,13 @@ test("emits UI command envelopes as user events", async () => {
         type: "preview.show",
         preview: {
           kind: "work",
-          workId: "123e4567-e89b-42d3-a456-426614174000",
+          appId: "123e4567-e89b-42d3-a456-426614174000",
         },
       },
       source: null,
     },
   });
 
-  assert.deepEqual(events.map((event) => event.type), ["ui.command.dispatched"]);
+  assert.deepEqual(events.map((event) => event.type), ["desktop.command.dispatched"]);
   await client.disconnect();
 });

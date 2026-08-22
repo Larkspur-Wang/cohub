@@ -36,6 +36,8 @@ import {
 } from "$lib/composer-keyboard";
 import { isCreateModeCommand } from "$lib/composer-mode-command";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
+import { getCohubAppLinkKey, parseCohubAppUrls } from "$lib/mentions/app";
+import { resolveCohubWorkLinkMentionLabels } from "$lib/mentions/app-link-resolve";
 import {
 	type ResourceMentionTextToken,
 	replaceCohubResourceUrls,
@@ -62,8 +64,6 @@ import {
 	spaceMentionTriggerKey,
 	type TextCaret,
 } from "$lib/mentions/space-trigger";
-import { getCohubWorkLinkKey, parseCohubWorkUrls } from "$lib/mentions/work";
-import { resolveCohubWorkLinkMentionLabels } from "$lib/mentions/work-link-resolve";
 import { sdk } from "$lib/sdk";
 import { billingConversion } from "$lib/stores/billing-conversion.svelte";
 import { entriesFromFiles, type LocalUploadEntry } from "$lib/upload-entries";
@@ -345,7 +345,7 @@ const shouldPrepareComposerMentionMirror = $derived(
 	!isTextareaFocused &&
 		value.length <= COMPOSER_MENTION_MIRROR_TEXT_LIMIT &&
 		value.includes("@[") &&
-		(value.includes("](cohub://spaces/") || value.includes("](cohub://works/")),
+		(value.includes("](cohub://spaces/") || value.includes("](cohub://apps/")),
 );
 const composerMentionTokens = $derived.by<ResourceMentionTextToken[]>(() =>
 	shouldPrepareComposerMentionMirror ? tokenizeResourceMentionText(value) : [],
@@ -957,9 +957,7 @@ function handlePaste(event: ClipboardEvent) {
 	const pastedSpaceLinks = clipboardText
 		? parseCohubSpaceUrls(clipboardText)
 		: [];
-	const pastedWorkLinks = clipboardText
-		? parseCohubWorkUrls(clipboardText)
-		: [];
+	const pastedWorkLinks = clipboardText ? parseCohubAppUrls(clipboardText) : [];
 	if (pastedSpaceLinks.length > 0 || pastedWorkLinks.length > 0) {
 		event.preventDefault();
 		const spaceLabels = new Map<string, string>();
@@ -974,7 +972,7 @@ function handlePaste(event: ClipboardEvent) {
 		const renderSegment = () =>
 			replaceCohubResourceUrls(clipboardText, {
 				space: (link) => spaceLabels.get(getCohubLinkMentionKey(link)),
-				work: (link) => workLabels.get(getCohubWorkLinkKey(link)),
+				work: (link) => workLabels.get(getCohubAppLinkKey(link)),
 			});
 		let renderedSegment = renderSegment();
 		const inserted = insertSnippet(renderedSegment);
@@ -1251,7 +1249,7 @@ $effect(() => {
 									{#if token.type !== 'text'}<span
 										class="composer-space-mention"
 										data-space-id={token.type === 'spaceMention' ? token.spaceId : undefined}
-										data-work-ref={token.type === 'workMention' ? `${token.username}/${token.spaceSlug}/${token.workSlug}` : undefined}
+										data-work-ref={token.type === 'appMention' ? `${token.username}/${token.spaceSlug}/${token.appSlug}` : undefined}
 									>@{token.label}</span>{:else}{token.text}{/if}
 								{/each}
 							</div>

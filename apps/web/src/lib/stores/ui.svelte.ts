@@ -344,7 +344,7 @@ class UIState {
 
 		// On mobile skip desktop geometry entirely; the caller may still open the
 		// configured preview as a full-screen surface.
-		if (options.isMobile) return geo.openPreview;
+		if (options.isMobile) return geo.openWindow;
 
 		if (presentation === "default") {
 			this.setLeftSidebarCollapsed(geo.leftSidebarCollapsed);
@@ -352,7 +352,7 @@ class UIState {
 			this.setFilesColumnHidden(geo.filesColumnHidden);
 			this.setWorkspacePresentation("default");
 			this.setWorkspaceLayoutSnapshot(null);
-			return geo.openPreview;
+			return geo.openWindow;
 		}
 
 		// Focus / fullscreen: snapshot the base layout so exit restores it, then
@@ -368,7 +368,7 @@ class UIState {
 		this.setLeftSidebarCollapsed(true);
 		this.setRightSidebarCollapsed(true);
 		this.setWorkspacePresentation(presentation);
-		return geo.openPreview;
+		return geo.openWindow;
 	}
 }
 

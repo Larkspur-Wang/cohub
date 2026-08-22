@@ -1,19 +1,19 @@
 <script lang="ts">
 import type {
+	AppRecord,
 	CronJobRecord,
 	SpaceRecord,
 	TaskRunRecord,
-	WorkRecord,
 } from "@neta-art/cohub";
+import AppView from "./AppView.svelte";
 import CheckpointView from "./CheckpointView.svelte";
 import CronjobView from "./CronjobView.svelte";
 import TaskRunView from "./TaskRunView.svelte";
 import type { TaskRealtimeEvent } from "./task-run-detail-controller.svelte";
 import { taskTypeLabel } from "./task-run-utils";
-import WorkView from "./WorkView.svelte";
 
 type RouteDetailHeaderMeta = {
-	view: "checkpoint" | "cronjob" | "work" | "task";
+	view: "checkpoint" | "cronjob" | "app" | "task";
 	id: string;
 	title: string;
 } | null;
@@ -23,14 +23,14 @@ export type RouteDetailView =
 	| "checkpoint"
 	| "cronjob-new"
 	| "cronjob"
-	| "work"
+	| "app"
 	| "task";
 
 type RouteDetailContext = {
 	view: RouteDetailView;
 	checkpointId: string | null;
 	cronjobId: string | null;
-	workId: string | null;
+	appId: string | null;
 	taskId: string | null;
 };
 
@@ -45,8 +45,8 @@ type Props = {
 	ownerUsername: string | null;
 	spaceSlug: string | null;
 	onHeaderMeta: (meta: RouteDetailHeaderMeta) => void;
-	/** Show a Work in the workspace preview pane. */
-	onPreviewWork?: (work: WorkRecord) => void;
+	/** Show an app in the workspace window pane. */
+	onPreviewApp?: (app: AppRecord) => void;
 };
 
 let {
@@ -60,7 +60,7 @@ let {
 	ownerUsername,
 	spaceSlug,
 	onHeaderMeta,
-	onPreviewWork,
+	onPreviewApp,
 }: Props = $props();
 
 const spaceName = $derived(space?.name ?? space?.title ?? spaceId);
@@ -85,8 +85,8 @@ function handleCronjobLoaded(job: CronJobRecord | null) {
 	onHeaderMeta(job ? { view: "cronjob", id: job.id, title: job.title } : null);
 }
 
-function handleWorkLoaded(work: WorkRecord | null) {
-	onHeaderMeta(work ? { view: "work", id: work.id, title: work.slug } : null);
+function handleWorkLoaded(work: AppRecord | null) {
+	onHeaderMeta(work ? { view: "app", id: work.id, title: work.slug } : null);
 }
 
 function handleTaskLoaded(run: TaskRunRecord | null) {
@@ -119,15 +119,15 @@ function handleTaskLoaded(run: TaskRunRecord | null) {
 		{taskRealtimeEvent}
 		onDetailLoaded={handleCronjobLoaded}
 	/>
-{:else if route.view === "work"}
-	<WorkView
+{:else if route.view === "app"}
+	<AppView
 		{spaceId}
-		routeWorkId={route.workId}
+		routeAppId={route.appId}
 		{ownerUsername}
 		{spaceSlug}
 		{canEditSpace}
 		onDetailLoaded={handleWorkLoaded}
-		{onPreviewWork}
+		{onPreviewApp}
 	/>
 {:else if route.view === "task"}
 	<TaskRunView

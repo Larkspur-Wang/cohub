@@ -19,8 +19,8 @@ import { registerPrompt, registerSpaces } from "./commands/spaces.js";
 import { maybeHandleRunCommand } from "./commands/run.js";
 import { registerSandbox } from "./commands/sandbox.js";
 import { registerTasks } from "./commands/tasks.js";
-import { registerUi } from "./commands/ui.js";
-import { registerWorks } from "./commands/works.js";
+import { registerDesktop, registerLegacyUi } from "./commands/desktop.js";
+import { registerApps } from "./commands/apps.js";
 
 const VERSION = (() => {
   try {
@@ -57,8 +57,8 @@ Common commands:
   cohub -s <space-id> spaces sessions turns ls <session-id>
   cohub -s <space-id> spaces files ls
   cohub -s <space-id> public upload ./dist demo
-  cohub -s <space-id> works publish demo --file dist/index.html
-  cohub ui preview <work-id> --call selection.get
+  cohub -s <space-id> apps publish demo --file dist/index.html
+  cohub desktop open <app-id> --call selection.get
   cohub -s <space-id> spaces commerce products list
   cohub models ls
   cohub models ls --model-type multimodal
@@ -87,8 +87,9 @@ registerReferences(program);
 registerReferrals(program);
 registerTasks(program);
 registerCronJobs(program);
-registerWorks(program);
-registerUi(program);
+registerApps(program);
+registerDesktop(program);
+registerLegacyUi(program);
 
 const argv = process.argv.slice(2);
 if (await maybeHandleRunCommand(argv)) {

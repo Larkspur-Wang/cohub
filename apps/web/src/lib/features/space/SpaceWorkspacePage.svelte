@@ -1,14 +1,14 @@
 <script lang="ts">
+import type { AppComposerChip } from "@cohub/protocol/app-surface";
 import type { SpaceFsChangedPayload } from "@cohub/protocol/fs";
 import type { ChannelEnvelope } from "@cohub/protocol/realtime";
-import type { WorkComposerChip } from "@cohub/protocol/work-surface";
 import type {
+	AppRecord,
+	AppRuntimeInvocationContext,
 	Permission,
 	SpaceRecord,
 	TaskRunRecord,
 	UserProfile,
-	WorkRecord,
-	WorkRuntimeInvocationContext,
 } from "@neta-art/cohub";
 import type { BoardDocument } from "@neta-art/cohub/board";
 import {
@@ -37,6 +37,7 @@ import {
 	isBlockingAccessState,
 } from "$lib/access/access-state";
 import { floatNear } from "$lib/actions/portal";
+import { appDisplayTitle } from "$lib/app-page-meta";
 import type {
 	BoardAutomationActivity,
 	BoardCollaboratorProfile,
@@ -55,20 +56,20 @@ import ResourceLabelPicker from "$lib/components/ResourceLabelPicker.svelte";
 import UserIdentity from "$lib/components/UserIdentity.svelte";
 import { createDeferredMount } from "$lib/deferred-mount.svelte";
 import {
+	APPS_CHANGED_EVENT,
+	createAppMutationBuffer,
+	dispatchAppsChanged,
+	parseAppVersionPublished,
+	upsertAppSnapshot,
+} from "$lib/features/app/app-realtime";
+import type { AppSurfaceHost } from "$lib/features/app/surface-host";
+import { registerDesktopCommandHost } from "$lib/features/desktop-command/bus";
+import {
 	createSessionChatHost,
 	getSessionTitle,
 	subscribeSpaceChannel,
 } from "$lib/features/session-chat";
 import SessionChatPanel from "$lib/features/session-chat/SessionChatPanel.svelte";
-import { registerUiCommandHost } from "$lib/features/ui-command/bus";
-import type { WorkSurfaceHost } from "$lib/features/work/surface-host";
-import {
-	createWorkMutationBuffer,
-	dispatchWorksChanged,
-	parseWorkVersionPublished,
-	upsertWorkSnapshot,
-	WORKS_CHANGED_EVENT,
-} from "$lib/features/work/work-realtime";
 // SettingsOverlay removed — settings merged inline into detail page
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import {
@@ -112,14 +113,14 @@ import {
 	uiState,
 } from "$lib/stores/ui.svelte";
 import type { LocalUploadEntry } from "$lib/upload-entries";
-import { workDisplayTitle } from "$lib/work-page-meta";
 import {
 	type ResolveWorkspaceAsset,
 	resolveWorkspaceFileAsset,
 } from "$lib/workspace-assets";
 import type { WorkspaceFileLinkTarget } from "$lib/workspace-file-links";
 import { resolveWorkspaceSpaceId } from "$lib/workspace-route";
-import { createBoardPreviewController } from "./modules/board-preview-controller.svelte";
+import { createAppPreviewController } from "./modules/app-window-controller.svelte";
+import { createBoardWindowController } from "./modules/board-window-controller.svelte";
 import { createFileWorkspaceController } from "./modules/file-workspace-controller.svelte";
 import { classifyInlineFileFsChange } from "./modules/file-workspace-utils";
 import {
@@ -130,13 +131,8 @@ import {
 } from "./modules/float-layout";
 import NewChatSpaceProfile from "./modules/NewChatSpaceProfile.svelte";
 import PortReadyToastView from "./modules/PortReadyToast.svelte";
-import { createPortPreviewController } from "./modules/port-preview-controller.svelte";
-import { extractPublicEndpoints } from "./modules/port-preview-utils";
-import {
-	activePreviewFilePath,
-	workspaceFilePreviewKind,
-} from "./modules/preview-tabs";
-import { createPreviewWorkspaceController } from "./modules/preview-workspace-controller.svelte";
+import { createPortPreviewController } from "./modules/port-window-controller.svelte";
+import { extractPublicEndpoints } from "./modules/port-window-utils";
 import SessionShareDialog from "./modules/SessionShareDialog.svelte";
 import SpaceDanmakuLayer from "./modules/SpaceDanmakuLayer.svelte";
 import SpaceFileDomain, {
@@ -165,16 +161,20 @@ import {
 import { createSpacePresenceController } from "./modules/space-presence-controller.svelte";
 import { createSpaceRealtimeController } from "./modules/space-realtime-controller.svelte";
 import { createSpaceStatusController } from "./modules/space-status-controller.svelte";
-import { createWorkPreviewController } from "./modules/work-preview-controller.svelte";
-import { createWorkspaceLayoutController } from "./modules/workspace-layout-controller.svelte";
+import { createWindowManager } from "./modules/window-manager.svelte";
 import {
-	encodePreviewParam,
-	readPreviewFromSearch,
-	resolveRoutePreview,
-	type WorkspacePreviewRef,
-	withCurrentPreview,
-	withPreviewParam,
-} from "./modules/workspace-preview-route";
+	encodeWindowParam,
+	readWindowFromSearch,
+	resolveRouteWindow,
+	type WindowRef,
+	withCurrentWindow,
+	withWindowParam,
+} from "./modules/window-route";
+import {
+	activeWindowFilePath,
+	workspaceFilePreviewKind,
+} from "./modules/windows";
+import { createWorkspaceLayoutController } from "./modules/workspace-layout-controller.svelte";
 import { displayUserName, fallbackUserName } from "./space-utils";
 
 type Props = {
@@ -187,15 +187,15 @@ type Props = {
 			| "checkpoint-new"
 			| "cronjob"
 			| "cronjob-new"
-			| "work"
+			| "app"
 			| "task";
 		sessionId?: string | null;
 		filePath?: string | null;
-		previewKind?: "file" | "board" | "port" | "work" | null;
-		previewKey?: string | null;
+		windowKind?: "file" | "board" | "port" | "app" | null;
+		windowKey?: string | null;
 		checkpointId?: string | null;
 		cronjobId?: string | null;
-		workId?: string | null;
+		appId?: string | null;
 		taskId?: string | null;
 		turnSequence?: string | null;
 	};
@@ -213,15 +213,12 @@ const routeSessionId = $derived(data.sessionId ?? null);
 const isNewSessionRoute = $derived(
 	routeView === "session" && routeSessionId === "new",
 );
-const routePreviewRef = $derived.by((): WorkspacePreviewRef | null => {
+const routePreviewRef = $derived.by((): WindowRef | null => {
 	const searchParams =
 		typeof window === "undefined"
 			? page.url.searchParams
 			: new URLSearchParams(window.location.search);
-	const preview = resolveRoutePreview(
-		searchParams,
-		page.state.workspacePreview,
-	);
+	const preview = resolveRouteWindow(searchParams, page.state.workspacePreview);
 	if (preview) return preview;
 	const legacyFile = searchParams.get("file");
 	if (legacyFile) return { kind: "file", key: legacyFile };
@@ -248,7 +245,7 @@ const activeFsSidebarSubtitle = $derived(
 		: "",
 );
 const routeCronjobId = $derived(data.cronjobId ?? null);
-const routeWorkId = $derived(data.workId ?? null);
+const routeAppId = $derived(data.appId ?? null);
 const routeTaskId = $derived(data.taskId ?? null);
 const routeTurnSequence = $derived.by(() => {
 	const value = data.turnSequence;
@@ -277,7 +274,7 @@ const isRouteDetailView = $derived(
 		routeView === "checkpoint" ||
 		routeView === "cronjob-new" ||
 		routeView === "cronjob" ||
-		routeView === "work" ||
+		routeView === "app" ||
 		routeView === "task",
 );
 let space = $state<SpaceRecord | null>(null);
@@ -320,7 +317,7 @@ const sessionChat = createSessionChatHost({
 		toSession: async (sessionId, opts) => {
 			// Keep open file/board/port preview when new chat becomes a real session.
 			await goto(
-				withCurrentPreview(buildSpaceSessionRoute(spaceId, sessionId)),
+				withCurrentWindow(buildSpaceSessionRoute(spaceId, sessionId)),
 				{
 					replaceState: opts?.replace ?? true,
 					keepFocus: true,
@@ -331,10 +328,10 @@ const sessionChat = createSessionChatHost({
 		toTurn: async (sessionId, sequence) => {
 			// Merge turn + current preview; buildSpaceSessionTurnRoute alone drops preview.
 			await goto(
-				withPreviewParam(
+				withWindowParam(
 					buildSpaceSessionRoute(spaceId, sessionId),
 					new URLSearchParams({ turn: String(sequence) }),
-					readPreviewFromSearch(
+					readWindowFromSearch(
 						typeof window !== "undefined" ? window.location.search : null,
 					),
 				),
@@ -346,7 +343,7 @@ const sessionChat = createSessionChatHost({
 			);
 		},
 		toNewSession: async (opts) => {
-			await goto(withCurrentPreview(buildSpaceNewSessionRoute(spaceId)), {
+			await goto(withCurrentWindow(buildSpaceNewSessionRoute(spaceId)), {
 				replaceState: opts?.replace ?? false,
 				keepFocus: true,
 				noScroll: true,
@@ -384,13 +381,13 @@ const portPreview = createPortPreviewController({
 	},
 	onClosePanel: () => {
 		queueMicrotask(() => {
-			if (!activePreviewKind) closePreviewFocusMode();
+			if (!activeWindowKind) closePreviewFocusMode();
 		});
 	},
-	onPortClosed: (port) => previewWorkspace.tabClosed("port", port),
+	onPortClosed: (port) => windowManager.tabClosed("port", port),
 	onBeforeOpenPort: () => {},
 });
-const workPreview = createWorkPreviewController({
+const appPreview = createAppPreviewController({
 	getSpaceId: () => spaceId,
 	onOpenPanel: () => {
 		if (uiState.filesColumnHidden) uiState.setFilesColumnHidden(false);
@@ -398,14 +395,14 @@ const workPreview = createWorkPreviewController({
 	},
 	onClosePanel: () => {
 		queueMicrotask(() => {
-			if (!activePreviewKind) closePreviewFocusMode();
+			if (!activeWindowKind) closePreviewFocusMode();
 		});
 	},
-	onWorkClosed: (workId) => previewWorkspace.tabClosed("work", workId),
+	onAppClosed: (appId) => windowManager.tabClosed("app", appId),
 });
-const inlineWorkPreview = $derived(workPreview.preview);
-const inlineWorkTabs = $derived(workPreview.previews);
-const activeInlineWorkId = $derived(workPreview.activeWorkId);
+const inlineAppPreview = $derived(appPreview.preview);
+const inlineAppTabs = $derived(appPreview.previews);
+const activeInlineAppId = $derived(appPreview.activeAppId);
 const previewEndpoints = $derived(portPreview.endpoints);
 const inlinePortPreview = $derived(portPreview.preview);
 const inlinePortTabs = $derived(portPreview.previews);
@@ -458,7 +455,7 @@ const spaceUsage = $derived(spaceStatus.usage);
 const spaceUsageLoadedFor = $derived(spaceStatus.usageLoadedFor);
 const spaceSandbox = $derived(spaceStatus.sandbox);
 const spaceSandboxLoadedFor = $derived(spaceStatus.sandboxLoadedFor);
-let workPublishTarget = $state<{
+let appPublishTarget = $state<{
 	targetType: "file" | "directory" | "port";
 	targetRef: string;
 } | null>(null);
@@ -482,16 +479,16 @@ const fileWorkspace = createFileWorkspaceController({
 		// page wrapper was skipped (e.g. route hydrate -> controller openFile).
 		if (uiState.filesColumnHidden) uiState.setFilesColumnHidden(false);
 	},
-	onInlineFileClosed: (path) => previewWorkspace.tabClosed("file", path),
+	onInlineFileClosed: (path) => windowManager.tabClosed("file", path),
 	onClosePreviewFocusMode: () => {
 		// Only leave focus/immersive when nothing is open in Files.
 		queueMicrotask(() => {
-			if (!activePreviewKind) closePreviewFocusMode();
+			if (!activeWindowKind) closePreviewFocusMode();
 		});
 	},
 	onEnsurePreviewPanelFits: ensurePreviewPanelFits,
 });
-const boardPreview = createBoardPreviewController({
+const boardPreview = createBoardWindowController({
 	getSpaceId: () => spaceId,
 	getSourceKey: () => activeFsSourceKey,
 	getReadonly: () => activeFsReadonly,
@@ -503,10 +500,10 @@ const boardPreview = createBoardPreviewController({
 	},
 	onClosePanel: () => {
 		queueMicrotask(() => {
-			if (!activePreviewKind) closePreviewFocusMode();
+			if (!activeWindowKind) closePreviewFocusMode();
 		});
 	},
-	onBoardClosed: (path) => previewWorkspace.tabClosed("board", path),
+	onBoardClosed: (path) => windowManager.tabClosed("board", path),
 	onBeforeOpenBoard: () => {},
 	onMarkSavePending: fileWorkspace.markFileSavePending,
 	onClearSavePendingSoon: fileWorkspace.clearFileSavePendingSoon,
@@ -522,15 +519,15 @@ const inlineBoard = $derived(boardPreview.board);
 const inlineBoardTabs = $derived(boardPreview.boards);
 const activeInlineBoardPath = $derived(boardPreview.activeBoardPath);
 
-const previewWorkspace = createPreviewWorkspaceController({
+const windowManager = createWindowManager({
 	getFileTabs: () => fileWorkspace.inlineFileTabs,
 	getActiveFilePath: () => fileWorkspace.activeInlineFilePath,
 	getBoardTabs: () => boardPreview.boards,
 	getActiveBoardPath: () => boardPreview.activeBoardPath,
 	getPortTabs: () => portPreview.previews,
 	getActivePort: () => portPreview.activePort,
-	getWorkTabs: () => workPreview.previews,
-	getActiveWorkId: () => workPreview.activeWorkId,
+	getAppTabs: () => appPreview.previews,
+	getActiveAppId: () => appPreview.activeAppId,
 	openFile: (path, optionsArg) =>
 		fileWorkspace.openInlineFile(path, optionsArg as never),
 	activateFile: (path) => fileWorkspace.activateInlineFile(path),
@@ -544,9 +541,9 @@ const previewWorkspace = createPreviewWorkspaceController({
 		portPreview.openPort(port, url, optionsArg),
 	activatePort: (port) => portPreview.activatePort(port),
 	closePort: (port) => portPreview.closePort(port ?? undefined),
-	openWork: (input) => workPreview.openWork(input),
-	activateWork: (workId) => workPreview.activateWork(workId),
-	closeWork: (workId) => workPreview.closeWork(workId ?? undefined),
+	openApp: (input) => appPreview.openApp(input),
+	activateApp: (appId) => appPreview.activateApp(appId),
+	closeApp: (appId) => appPreview.closeApp(appId ?? undefined),
 	getPortEndpointUrl: (port) => previewEndpoints[port]?.url,
 	syncUrl: (ref, replace = true) => syncPreviewQuery(ref, replace),
 	onBudgetCleanup: () => {
@@ -562,11 +559,11 @@ const previewWorkspace = createPreviewWorkspaceController({
 function openTaskBrowser() {
 	if (!taskBrowserWorkId) return;
 	const sessionId = sessionChat.activeSessionId;
-	previewWorkspace.openWork({
-		workId: taskBrowserWorkId,
+	windowManager.openApp({
+		appId: taskBrowserWorkId,
 		label: "Tasks",
 		invocation: {
-			surface: "preview",
+			surface: "app",
 			source: "user",
 			spaceId,
 			...(sessionId ? { sessionId } : {}),
@@ -579,7 +576,7 @@ const openWorkPublish = (
 	targetType: "file" | "directory" | "port",
 	targetRef: string,
 ) => {
-	workPublishTarget = { targetType, targetRef };
+	appPublishTarget = { targetType, targetRef };
 };
 const inlineFileIsMarkdown = $derived(fileWorkspace.inlineFileIsMarkdown);
 const inlineFileIsCsv = $derived(fileWorkspace.inlineFileIsCsv);
@@ -594,17 +591,17 @@ const inlineFileIsAudio = $derived(fileWorkspace.inlineFileIsAudio);
 const inlineFileIsPdf = $derived(fileWorkspace.inlineFileIsPdf);
 const inlineFileIsText = $derived(fileWorkspace.inlineFileIsText);
 const inlineFileDataUrl = $derived(fileWorkspace.inlineFileDataUrl);
-let previewWorks = $state<WorkRecord[]>([]);
-let previewWorksLoadedFor = $state<string | null>(null);
+let previewApps = $state<AppRecord[]>([]);
+let previewAppsLoadedFor = $state<string | null>(null);
 /** Realtime mutations seen while the full list request is in flight. */
-const previewWorksBuffer = createWorkMutationBuffer();
-let previewWorksToken = 0;
-const inlineFileWork = $derived.by(() => {
+const previewAppsBuffer = createAppMutationBuffer();
+let previewAppsToken = 0;
+const inlineFileApp = $derived.by(() => {
 	const filePath = inlineFile?.response?.path ?? null;
 	if (!filePath || activeFsReadonly || authStore.userUuid !== space?.userUuid)
 		return null;
 	return (
-		previewWorks.find(
+		previewApps.find(
 			(work) =>
 				work.status === "published" &&
 				work.targetType === "file" &&
@@ -622,30 +619,30 @@ $effect(() => {
 		!currentSpaceId ||
 		!currentOwnerId ||
 		activeFsReadonly ||
-		previewWorksLoadedFor === currentSpaceId
+		previewAppsLoadedFor === currentSpaceId
 	)
 		return;
-	const token = ++previewWorksToken;
-	previewWorksBuffer.reset();
+	const token = ++previewAppsToken;
+	previewAppsBuffer.reset();
 	void (async () => {
 		try {
 			await authStore.ensureLoaded();
-			if (token !== previewWorksToken) return;
+			if (token !== previewAppsToken) return;
 			if (!authStore.userUuid || authStore.userUuid !== currentOwnerId) {
-				previewWorks = [];
-				previewWorksLoadedFor = currentSpaceId;
+				previewApps = [];
+				previewAppsLoadedFor = currentSpaceId;
 				return;
 			}
-			const { works } = await sdk.works.listBySpace(currentSpaceId);
-			if (token !== previewWorksToken) return;
+			const { apps } = await sdk.works.listBySpace(currentSpaceId);
+			if (token !== previewAppsToken) return;
 			// Replay what realtime delivered mid-request instead of dropping the
-			// response, which would hide every other Work until the next reload.
-			previewWorks = previewWorksBuffer.apply(works);
-			previewWorksLoadedFor = currentSpaceId;
+			// response, which would hide every other app until the next reload.
+			previewApps = previewAppsBuffer.apply(apps);
+			previewAppsLoadedFor = currentSpaceId;
 		} catch {
-			if (token !== previewWorksToken) return;
-			previewWorks = [];
-			previewWorksLoadedFor = currentSpaceId;
+			if (token !== previewAppsToken) return;
+			previewApps = [];
+			previewAppsLoadedFor = currentSpaceId;
 		}
 	})();
 });
@@ -653,28 +650,28 @@ const inlinePortEndpoint = $derived.by(() => {
 	if (!inlinePortPreview) return null;
 	return previewEndpoints[inlinePortPreview.port] ?? null;
 });
-const activePreviewKind = $derived(previewWorkspace.activeKind);
+const activeWindowKind = $derived(windowManager.activeKind);
 const selectedFilePath = $derived(
-	activePreviewFilePath(
-		activePreviewKind,
+	activeWindowFilePath(
+		activeWindowKind,
 		activeInlineFilePath,
 		activeInlineBoardPath,
 	),
 );
 let newChatBackgroundWorkContext = $state<{
-	workId: string;
-	chip: WorkComposerChip;
+	appId: string;
+	chip: AppComposerChip;
 } | null>(null);
 
 $effect(() => {
-	if (activePreviewKind === "file" && inlineFile?.path) {
+	if (activeWindowKind === "file" && inlineFile?.path) {
 		sessionChat.reportActiveSource({
 			kind: "file",
 			path: inlineFile.path,
 		});
 		return;
 	}
-	if (activePreviewKind === "board" && inlineBoard?.path) {
+	if (activeWindowKind === "board" && inlineBoard?.path) {
 		sessionChat.reportActiveSource({
 			kind: "board",
 			path: inlineBoard.path,
@@ -682,19 +679,19 @@ $effect(() => {
 		});
 		return;
 	}
-	if (activePreviewKind === "work" && inlineWorkPreview?.composerChip) {
+	if (activeWindowKind === "app" && inlineAppPreview?.composerChip) {
 		sessionChat.reportActiveSource({
-			kind: "work",
-			workId: inlineWorkPreview.workId,
-			...inlineWorkPreview.composerChip,
+			kind: "app",
+			appId: inlineAppPreview.appId,
+			...inlineAppPreview.composerChip,
 		});
 		return;
 	}
-	if (activePreviewKind === "work") {
+	if (activeWindowKind === "app") {
 		sessionChat.reportActiveSource(null);
 		return;
 	}
-	if (activePreviewKind === "port" && inlinePortPreview) {
+	if (activeWindowKind === "port" && inlinePortPreview) {
 		sessionChat.reportActiveSource({
 			kind: "port",
 			port: inlinePortPreview.port,
@@ -702,14 +699,14 @@ $effect(() => {
 		});
 		return;
 	}
-	if (activePreviewKind) {
+	if (activeWindowKind) {
 		sessionChat.reportActiveSource(null);
 		return;
 	}
 	if (newChatBackgroundWorkContext) {
 		sessionChat.reportActiveSource({
-			kind: "work",
-			workId: newChatBackgroundWorkContext.workId,
+			kind: "app",
+			appId: newChatBackgroundWorkContext.appId,
 			...newChatBackgroundWorkContext.chip,
 		});
 		return;
@@ -730,7 +727,7 @@ const previewLayout = createWorkspaceLayoutController({
 	getIsCompact: () => isMobile,
 	getWorkspaceBodyEl: () => workspaceBodyEl,
 	getFilesAvailable: () => rightSidebarAvailable,
-	getHasPreview: () => Boolean(activePreviewKind),
+	getHasPreview: () => Boolean(activeWindowKind),
 });
 const previewPanelWidth = $derived(previewLayout.previewWidth);
 const previewFocusMode = $derived(previewLayout.focusMode);
@@ -744,12 +741,11 @@ const filesColumnHidden = $derived(previewLayout.filesColumnHidden);
 const filesChromeEffectivelyHidden = $derived(
 	isMobile
 		? !uiState.mobileRightDrawerOpen
-		: filesColumnHidden ||
-				(uiState.rightSidebarCollapsed && !activePreviewKind),
+		: filesColumnHidden || (uiState.rightSidebarCollapsed && !activeWindowKind),
 );
 /**
  * Keep Files domain mounted through the column hide width tween so open
- * preview tabs and tree state survive. Unmount after the shell finishes.
+ * window tabs and tree state survive. Unmount after the shell finishes.
  * Initial mount follows hidden state so cold start never mounts-then-tears-down.
  */
 const filesColumnMount = createDeferredMount(
@@ -844,7 +840,7 @@ $effect(() => {
 // presence, files availability, tree collapse, or tree width changes.
 $effect(() => {
 	if (isMobile) return;
-	const hasPreview = Boolean(activePreviewKind);
+	const hasPreview = Boolean(activeWindowKind);
 	if (!hasPreview) return;
 	// Track the inputs that feed getMaxPreviewWidth / tree reservation.
 	void rightSidebarAvailable;
@@ -866,18 +862,18 @@ $effect(() => {
 	if (!layout) return;
 	untrack(() => {
 		const hasRoutePreview = Boolean(
-			readPreviewFromSearch(
+			readWindowFromSearch(
 				typeof window !== "undefined" ? window.location.search : null,
 			),
 		);
-		const openPreview = uiState.applySpaceDefaultLayoutIfFresh(
+		const openLayout = uiState.applySpaceDefaultLayoutIfFresh(
 			currentSpaceId,
 			layout,
 			{ hasRoutePreview, isMobile },
 		);
-		if (!openPreview || !layout.preview) return;
+		if (!openLayout || !layout.window) return;
 		if (hasRoutePreview) return;
-		syncPreviewQuery(layout.preview, true);
+		syncPreviewQuery(layout.window, true);
 	});
 });
 
@@ -938,8 +934,8 @@ const spaceRealtime = createSpaceRealtimeController({
 	},
 	onConnectionRecovered: () => {
 		void sessionChat.onConnectionRecovered();
-		previewWorksLoadedFor = null;
-		dispatchWorksChanged({ spaceId });
+		previewAppsLoadedFor = null;
+		dispatchAppsChanged({ spaceId });
 		scheduleDanmakuCatchup();
 	},
 	onHidden: () => {
@@ -993,7 +989,7 @@ $effect(() => {
 	});
 });
 type RouteDetailHeaderMeta = {
-	view: "checkpoint" | "cronjob" | "work" | "task";
+	view: "checkpoint" | "cronjob" | "app" | "task";
 	id: string;
 	title: string;
 };
@@ -1098,7 +1094,7 @@ const activeRouteDetailHeader = $derived.by(() => {
 	const routeIdByView = {
 		checkpoint: routeCheckpointId,
 		cronjob: routeCronjobId,
-		work: routeWorkId,
+		app: routeAppId,
 		task: routeTaskId,
 	} satisfies Record<RouteDetailHeaderMeta["view"], string | null>;
 	return routeIdByView[meta.view] === meta.id ? meta : null;
@@ -1155,7 +1151,7 @@ const browserTabTitle = $derived.by(() => {
 			);
 		}
 		if (routeView === "cronjob-new") return "New cronjob";
-		if (routeView === "work")
+		if (routeView === "app")
 			return normalizeTabTitleSegment(activeRouteDetailHeader?.title, "Work");
 		if (routeView === "task")
 			return normalizeTabTitleSegment(activeRouteDetailHeader?.title, "Task");
@@ -1251,10 +1247,10 @@ async function openBoardActivity(activity: BoardAutomationActivity) {
 		: null;
 	const pathname = buildSpaceSessionRoute(targetSpaceId, sessionId);
 	// Keep the board open: the point is to read the turn beside what it changed.
-	const href = withPreviewParam(
+	const href = withWindowParam(
 		pathname,
 		sequence == null ? null : new URLSearchParams({ turn: String(sequence) }),
-		readPreviewFromSearch(
+		readWindowFromSearch(
 			typeof window !== "undefined" ? window.location.search : null,
 		),
 	);
@@ -1545,14 +1541,14 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 		// double-apply session/task semantics against the same host state.
 		if (payload.type === "space.ports.changed") {
 			applyPortsChanged(payload);
-		} else if (payload.type === "work.version.published") {
-			const published = parseWorkVersionPublished(payload);
+		} else if (payload.type === "app.version.published") {
+			const published = parseAppVersionPublished(payload);
 			if (published) {
-				previewWorksBuffer.upsert(published.work);
-				previewWorks = upsertWorkSnapshot(previewWorks, published.work);
-				dispatchWorksChanged({
+				previewAppsBuffer.upsert(published.app);
+				previewApps = upsertAppSnapshot(previewApps, published.app);
+				dispatchAppsChanged({
 					spaceId,
-					work: published.work,
+					app: published.app,
 					version: published.version,
 				});
 			}
@@ -1831,24 +1827,24 @@ async function toggleFilesTree() {
 	await previewLayout.toggleTree();
 }
 
-function syncPreviewQuery(ref: WorkspacePreviewRef | null, replace = true) {
+function syncPreviewQuery(ref: WindowRef | null, replace = true) {
 	if (typeof window === "undefined") return;
 	const search = new URLSearchParams(window.location.search);
 	// Canonicalize the legacy public-slug query when preview state changes.
 	search.delete("file");
-	const next = withPreviewParam(window.location.pathname, search, ref);
+	const next = withWindowParam(window.location.pathname, search, ref);
 	const current = `${window.location.pathname}${window.location.search}`;
 	if (next === current) return;
 	const state = {
 		...page.state,
-		workspacePreview: ref ? encodePreviewParam(ref) : null,
+		workspacePreview: ref ? encodeWindowParam(ref) : null,
 	};
 	if (replace) replaceState(next, state);
 	else pushState(next, state);
 }
 
-function currentPreviewRef(): WorkspacePreviewRef | null {
-	return previewWorkspace.currentRef();
+function currentPreviewRef(): WindowRef | null {
+	return windowManager.currentRef();
 }
 async function loadFileTree(force = false) {
 	await fileWorkspace.loadFileTree(force);
@@ -1873,14 +1869,14 @@ async function handleRenameNode(node: SpaceFsNode) {
 	await fileWorkspace.handleRenameNode(node);
 	// If active preview path changed via rename, keep query in sync.
 	const next = currentPreviewRef();
-	if (next) previewWorkspace.syncCurrent();
+	if (next) windowManager.syncCurrent();
 	else if (routePreviewRef?.key === prevPath) syncPreviewQuery(null, true);
 }
 async function handleMoveNode(node: SpaceFsNode, targetDir: string) {
 	const prevPath = node.path;
 	await fileWorkspace.handleMoveNode(node, targetDir);
 	const next = currentPreviewRef();
-	if (next) previewWorkspace.syncCurrent();
+	if (next) windowManager.syncCurrent();
 	else if (routePreviewRef?.key === prevPath) syncPreviewQuery(null, true);
 }
 async function handleDownloadNode(node: SpaceFsNode) {
@@ -1896,7 +1892,7 @@ async function openInlineFile(
 	options: { syncUrl?: boolean } = {},
 ) {
 	if (filesColumnHidden) previewLayout.setFilesColumnHidden(false);
-	await previewWorkspace.openFile(path, options);
+	await windowManager.openFile(path, options);
 }
 async function openLinkedInlineFile(target: string | WorkspaceFileLinkTarget) {
 	const path = typeof target === "string" ? target : target.path;
@@ -1906,7 +1902,7 @@ async function openLinkedInlineFile(target: string | WorkspaceFileLinkTarget) {
 	}
 	const position =
 		typeof target === "string" ? null : (target.position ?? null);
-	await previewWorkspace.openFile(path, {
+	await windowManager.openFile(path, {
 		preserveHistory: true,
 		position,
 	});
@@ -1914,10 +1910,10 @@ async function openLinkedInlineFile(target: string | WorkspaceFileLinkTarget) {
 const resolveWorkspaceAsset: ResolveWorkspaceAsset = (path, { signal }) =>
 	resolveWorkspaceFileAsset(fileWorkspace.readActiveFsFile, path, { signal });
 async function goBackInlineFile() {
-	await previewWorkspace.goBackFile();
+	await windowManager.goBackFile();
 }
 function closeInlineFile() {
-	previewWorkspace.closeActive();
+	windowManager.closeActive();
 }
 async function openInlineBoard(
 	path: string,
@@ -1928,7 +1924,7 @@ async function openInlineBoard(
 		return;
 	}
 	if (filesColumnHidden) previewLayout.setFilesColumnHidden(false);
-	await previewWorkspace.openBoard(path, options);
+	await windowManager.openBoard(path, options);
 }
 async function openTask(taskRunId: string) {
 	if (!spaceId) return;
@@ -1936,8 +1932,8 @@ async function openTask(taskRunId: string) {
 }
 function closeInlineBoard() {
 	const path = activeInlineBoardPath;
-	if (path) previewWorkspace.close("board", path);
-	else previewWorkspace.closeActive();
+	if (path) windowManager.close("board", path);
+	else windowManager.closeActive();
 }
 async function commitInlineBoard(
 	boardId: string,
@@ -1957,39 +1953,39 @@ function openInlinePort(
 	options: { autoOpened?: boolean; syncUrl?: boolean } = {},
 ) {
 	if (filesColumnHidden) previewLayout.setFilesColumnHidden(false);
-	previewWorkspace.openPort(port, url, options);
+	windowManager.openPort(port, url, options);
 }
 function activateInlineFileTab(path: string) {
-	previewWorkspace.activate("file", path);
+	windowManager.activate("file", path);
 }
 function activateInlineBoardTab(path: string) {
-	previewWorkspace.activate("board", path);
+	windowManager.activate("board", path);
 }
 function activateInlinePortTab(port: string) {
-	previewWorkspace.activate("port", port);
+	windowManager.activate("port", port);
 }
 function closeInlinePort() {
 	const port = activeInlinePort;
-	if (port) previewWorkspace.close("port", port);
-	else previewWorkspace.closeActive();
+	if (port) windowManager.close("port", port);
+	else windowManager.closeActive();
 }
 function closeInlineFileTab(path: string, skipConfirm = false) {
-	previewWorkspace.close("file", path, skipConfirm);
+	windowManager.close("file", path, skipConfirm);
 }
 function closeInlineBoardTab(path?: string) {
-	previewWorkspace.close("board", path ?? activeInlineBoardPath);
+	windowManager.close("board", path ?? activeInlineBoardPath);
 }
 function closeInlinePortTab(port?: string) {
-	previewWorkspace.close("port", port ?? activeInlinePort);
+	windowManager.close("port", port ?? activeInlinePort);
 }
-function activateInlineWorkTab(workId: string) {
-	previewWorkspace.activate("work", workId);
+function activateInlineWorkTab(appId: string) {
+	windowManager.activate("app", appId);
 }
-function closeInlineWorkTab(workId?: string) {
-	previewWorkspace.close("work", workId ?? activeInlineWorkId);
+function closeInlineWorkTab(appId?: string) {
+	windowManager.close("app", appId ?? activeInlineAppId);
 }
-function retryInlineWork(workId: string) {
-	workPreview.retry(workId);
+function retryInlineWork(appId: string) {
+	appPreview.retry(appId);
 }
 /**
  * The panel owns the iframe, so it hands its surface host up on mount and clears
@@ -1997,28 +1993,28 @@ function retryInlineWork(workId: string) {
  * invoker pointing at a detached frame.
  */
 const workSurfaceDisposers = new Map<string, () => void>();
-function handleWorkComposerChip(workId: string, chip: WorkComposerChip | null) {
-	workPreview.setComposerChip(workId, chip);
+function handleAppComposerChip(appId: string, chip: AppComposerChip | null) {
+	appPreview.setComposerChip(appId, chip);
 }
 function handleNewChatBackgroundComposerChip(
-	workId: string,
-	chip: WorkComposerChip | null,
+	appId: string,
+	chip: AppComposerChip | null,
 ) {
 	if (chip) {
-		newChatBackgroundWorkContext = { workId, chip };
+		newChatBackgroundWorkContext = { appId, chip };
 		return;
 	}
-	if (newChatBackgroundWorkContext?.workId === workId) {
+	if (newChatBackgroundWorkContext?.appId === appId) {
 		newChatBackgroundWorkContext = null;
 	}
 }
-function registerWorkSurface(workId: string, host: WorkSurfaceHost | null) {
-	workSurfaceDisposers.get(workId)?.();
-	workSurfaceDisposers.delete(workId);
+function registerAppSurface(appId: string, host: AppSurfaceHost | null) {
+	workSurfaceDisposers.get(appId)?.();
+	workSurfaceDisposers.delete(appId);
 	if (!host) return;
 	workSurfaceDisposers.set(
-		workId,
-		workPreview.registerSurface(workId, (input) => host.call(input)),
+		appId,
+		appPreview.registerSurface(appId, (input) => host.call(input)),
 	);
 }
 async function downloadInlineFile() {
@@ -2238,9 +2234,9 @@ onMount(() => {
 		).detail;
 		if (detail?.spaceId !== spaceId || typeof detail.work?.id !== "string")
 			return;
-		workPreview.refreshIfOpen(detail.work.id);
+		appPreview.refreshIfOpen(detail.work.id);
 	};
-	window.addEventListener(WORKS_CHANGED_EVENT, handleWorksChanged);
+	window.addEventListener(APPS_CHANGED_EVENT, handleWorksChanged);
 	const offSessionListCacheUpdated = onSessionListCacheUpdated(
 		({ spaceId: updatedSpaceId, sessions }) => {
 			if (updatedSpaceId !== spaceId) return;
@@ -2340,78 +2336,80 @@ onMount(() => {
 	document.addEventListener("click", handleResourceActionMenuClickOutside);
 	scheduleStatusRefresh();
 	scheduleDanmakuCatchup();
-	// Serve UI commands addressed at this tab while a workspace is mounted.
-	const offUiCommandHost = registerUiCommandHost(async (command, context) => {
-		if (command.type !== "preview.show") {
-			return {
-				status: "unsupported",
-				error: {
-					code: "unsupported_command",
-					message: `This Cohub version cannot handle "${command.type}".`,
-				},
+	// Serve desktop commands addressed at this tab while a workspace is mounted.
+	const offDesktopCommandHost = registerDesktopCommandHost(
+		async (command, context) => {
+			if (command.type !== "desktop.open") {
+				return {
+					status: "unsupported",
+					error: {
+						code: "unsupported_command",
+						message: `This Cohub version cannot handle "${command.type}".`,
+					},
+				};
+			}
+			// An app window lives inside one workspace; refuse rather than navigate away.
+			if (context.source?.spaceId && context.source.spaceId !== spaceId) {
+				return {
+					status: "desktop_host_unavailable",
+					error: {
+						code: "space_mismatch",
+						message:
+							"This Cohub tab is showing a different Space than the one the command came from.",
+					},
+				};
+			}
+
+			if (command.target.kind === "file") {
+				// Route through the file domain so .board files keep their native Board
+				// window instead of being opened as generic text.
+				await fileWorkspace.openSpaceFile(command.target.path);
+				return { status: "applied" };
+			}
+
+			const invocation: AppRuntimeInvocationContext = {
+				surface: "app",
+				source: "desktop_command",
+				...(context.source?.spaceId ? { spaceId: context.source.spaceId } : {}),
+				...(context.source?.sessionId
+					? { sessionId: context.source.sessionId }
+					: {}),
+				...(context.source?.turnId ? { turnId: context.source.turnId } : {}),
+				...(context.source?.toolCallId
+					? { toolCallId: context.source.toolCallId }
+					: {}),
 			};
-		}
-		// A Work tab lives inside one workspace; refuse rather than navigate away.
-		if (context.source?.spaceId && context.source.spaceId !== spaceId) {
+			windowManager.openApp({
+				appId: command.target.appId,
+				label: command.target.label,
+				launch: command.target.launch ?? null,
+				invocation,
+			});
+			if (!command.call) return { status: "applied" };
+
+			const called = await appPreview.callSurface({
+				appId: command.target.appId,
+				method: command.call.method,
+				input: command.call.input,
+				commandId: context.commandId,
+			});
+			if (called.ok) return { status: "pending" };
 			return {
-				status: "ui_host_unavailable",
-				error: {
-					code: "space_mismatch",
-					message:
-						"This Cohub tab is showing a different Space than the one the command came from.",
-				},
+				status:
+					called.code === "surface_not_supported" ||
+					called.code === "method_not_found"
+						? "unsupported"
+						: "rejected",
+				error: { code: called.code, message: called.message },
 			};
-		}
-
-		if (command.preview.kind === "file") {
-			// Route through the file domain so .board files keep their native Board
-			// preview instead of being opened as generic text.
-			await fileWorkspace.openSpaceFile(command.preview.path);
-			return { status: "applied" };
-		}
-
-		const invocation: WorkRuntimeInvocationContext = {
-			surface: "preview",
-			source: "ui_command",
-			...(context.source?.spaceId ? { spaceId: context.source.spaceId } : {}),
-			...(context.source?.sessionId
-				? { sessionId: context.source.sessionId }
-				: {}),
-			...(context.source?.turnId ? { turnId: context.source.turnId } : {}),
-			...(context.source?.toolCallId
-				? { toolCallId: context.source.toolCallId }
-				: {}),
-		};
-		previewWorkspace.openWork({
-			workId: command.preview.workId,
-			label: command.preview.label,
-			launch: command.preview.launch ?? null,
-			invocation,
-		});
-		if (!command.request) return { status: "applied" };
-
-		const called = await workPreview.callSurface({
-			workId: command.preview.workId,
-			method: command.request.method,
-			input: command.request.input,
-			commandId: context.commandId,
-		});
-		if (called.ok) return { status: "pending" };
-		return {
-			status:
-				called.code === "surface_not_supported" ||
-				called.code === "method_not_found"
-					? "unsupported"
-					: "rejected",
-			error: { code: called.code, message: called.message },
-		};
-	});
+		},
+	);
 	return () => {
-		offUiCommandHost();
+		offDesktopCommandHost();
 		if (activeSessionId)
 			sessionChat.captureCurrentScrollAnchor(activeSessionId);
 		window.removeEventListener("keydown", handleSessionVimKeydown);
-		window.removeEventListener(WORKS_CHANGED_EVENT, handleWorksChanged);
+		window.removeEventListener(APPS_CHANGED_EVENT, handleWorksChanged);
 		offSessionListCacheUpdated();
 		offBoardTxApplied();
 		offBoardPlaybackChanged();
@@ -2424,7 +2422,7 @@ onMount(() => {
 		portPreview.dispose();
 		for (const dispose of workSurfaceDisposers.values()) dispose();
 		workSurfaceDisposers.clear();
-		workPreview.dispose();
+		appPreview.dispose();
 		sessionChat.scroll.stopVimScroll();
 		sessionChat.scroll.clearPendingVimG();
 		sessionChat.persistSessionScrollAnchorsNow();
@@ -2475,7 +2473,7 @@ function resetSpaceScopedState(currentSpaceId: string) {
 	// Chat-owned UI (turn rail / route turn) is reset by sessionChat.enterSpace.
 	// Entering a Space is a context teardown: run it through the coordinator so the
 	// previews being discarded cannot write their URL over the incoming route.
-	previewWorkspace.resetForContext(() => {
+	windowManager.resetForContext(() => {
 		fileWorkspace.resetForSpace(currentSpaceId, { force: true });
 		boardPreview.closeBoard();
 		portPreview.setEndpoints({});
@@ -2561,7 +2559,7 @@ $effect(() => {
 	if (
 		previewImmersiveMode &&
 		pageMounted &&
-		!activePreviewKind &&
+		!activeWindowKind &&
 		!routePreviewRef
 	) {
 		previewLayout.exitPresentation();
@@ -2574,7 +2572,7 @@ $effect(() => {
 let portDeepLinkTimer: ReturnType<typeof setTimeout> | null = null;
 $effect(() => {
 	const ref = routePreviewRef;
-	const hasActive = activePreviewKind;
+	const hasActive = activeWindowKind;
 	if (
 		ref?.kind === "port" &&
 		!hasActive &&
@@ -2587,7 +2585,7 @@ $effect(() => {
 			// Re-check: endpoint may have arrived during the wait.
 			if (
 				routePreviewRef?.kind === "port" &&
-				!activePreviewKind &&
+				!activeWindowKind &&
 				previewImmersiveMode
 			) {
 				syncPreviewQuery(null, true);
@@ -2632,7 +2630,7 @@ $effect(() => {
 		// 1) Space / FS source transition. Tear down through the coordinator so the
 		// dying context cannot write its own URL over the route we are navigating to.
 		if (contextKey !== appliedPreviewContextKey) {
-			previewWorkspace.resetForContext(() => {
+			windowManager.resetForContext(() => {
 				// beforeNavigate already confirmed discard when FS source changes.
 				fileWorkspace.switchSource(sourceKey, { force: true });
 				// Source change invalidates non-file previews; file tabs already cleared by switchSource.
@@ -2640,7 +2638,7 @@ $effect(() => {
 					boardPreview.closeBoard(tab.path);
 				for (const tab of [...portPreview.previews])
 					portPreview.closePort(tab.port);
-				workPreview.closeAll();
+				appPreview.closeAll();
 			});
 			appliedPreviewContextKey = contextKey;
 		}
@@ -2656,7 +2654,7 @@ $effect(() => {
 			isMobile &&
 			sessionChanged &&
 			!preview &&
-			previewWorkspace.suspendForRoute()
+			windowManager.suspendForRoute()
 		) {
 			return;
 		}
@@ -2667,7 +2665,7 @@ $effect(() => {
 			preview?.kind === "board" && activeFsReadonly
 				? { kind: "file" as const, key: preview.key }
 				: preview;
-		const result = previewWorkspace.applyRoute(target);
+		const result = windowManager.applyRoute(target);
 		if (!result.ok) {
 			// Wait for trusted port endpoint; effect re-runs when endpoints update.
 			return;
@@ -2683,7 +2681,7 @@ const spaceFileDomainProps = $derived.by<
 		| "inlineFileZoom"
 		| "inlineFilePanX"
 		| "inlineFilePanY"
-		| "workPublishTarget"
+		| "appPublishTarget"
 	>
 >(() => ({
 	spaceId,
@@ -2719,10 +2717,10 @@ const spaceFileDomainProps = $derived.by<
 	inlinePortPreview,
 	inlinePortTabs,
 	activeInlinePort,
-	inlineWorkPreview,
-	inlineWorkTabs,
-	activeInlineWorkId,
-	activePreviewKind,
+	inlineAppPreview,
+	inlineAppTabs,
+	activeInlineAppId,
+	activeWindowKind,
 	inlinePortEndpoint,
 	previewEndpoints,
 	inlineFileDownloadUrl,
@@ -2742,7 +2740,7 @@ const spaceFileDomainProps = $derived.by<
 	inlineFileIsAudio,
 	inlineFileIsPdf,
 	inlineFileDataUrl,
-	inlineFileWork,
+	inlineFileApp,
 	inlineFileDragging: fileWorkspace.inlineFileDragging,
 	inlineFilePanHandlers,
 	uploadPaneVisible: fileWorkspace.uploadPaneVisible,
@@ -2779,11 +2777,11 @@ const spaceFileDomainProps = $derived.by<
 	onCloseInlineBoardTab: closeInlineBoardTab,
 	onActivateInlinePort: activateInlinePortTab,
 	onCloseInlinePortTab: closeInlinePortTab,
-	onActivateInlineWork: activateInlineWorkTab,
-	onCloseInlineWorkTab: closeInlineWorkTab,
-	onRetryInlineWork: retryInlineWork,
-	onRegisterWorkSurface: registerWorkSurface,
-	onWorkComposerChip: handleWorkComposerChip,
+	onActivateInlineApp: activateInlineWorkTab,
+	onCloseInlineAppTab: closeInlineWorkTab,
+	onRetryInlineApp: retryInlineWork,
+	onRegisterAppSurface: registerAppSurface,
+	onAppComposerChip: handleAppComposerChip,
 	onActivateInlineFile: activateInlineFileTab,
 	onCloseInlineFileTab: closeInlineFileTab,
 	onBackInlineFile: goBackInlineFile,
@@ -2811,9 +2809,9 @@ const spaceFileDomainProps = $derived.by<
 	onInsertFilePathReference: insertFilePathReference,
 	onGetFileActionNode: getFileActionNode,
 	onUploadComplete: fileWorkspace.handleUploadComplete,
-	onOpenWorkPublish: openWorkPublish,
-	onCloseWorkPublish: () => {
-		workPublishTarget = null;
+	onOpenAppPublish: openWorkPublish,
+	onCloseAppPublish: () => {
+		appPublishTarget = null;
 	},
 	onVisibleLinesChange: (path, range) =>
 		sessionChat.reportFileVisibleLines(path, range),
@@ -3053,7 +3051,7 @@ const headerActions = {
           view: routeView as RouteDetailView,
           checkpointId: routeCheckpointId,
           cronjobId: routeCronjobId,
-          workId: routeWorkId,
+          appId: routeAppId,
           taskId: routeTaskId,
         }}
         {spaceId}
@@ -3067,10 +3065,10 @@ const headerActions = {
         onHeaderMeta={(meta) => {
           routeDetailHeaderMeta = meta;
         }}
-        onPreviewWork={(work) => {
-          previewWorkspace.openWork({
-            workId: work.id,
-            label: workDisplayTitle(work.meta, work.slug),
+        onPreviewApp={(app) => {
+          windowManager.openApp({
+            appId: app.id,
+            label: appDisplayTitle(app.meta, app.slug),
           });
         }}
       />
@@ -3147,7 +3145,7 @@ const headerActions = {
         bind:inlineFileZoom={fileWorkspace.inlineFileZoom}
         bind:inlineFilePanX={fileWorkspace.inlineFilePanX}
         bind:inlineFilePanY={fileWorkspace.inlineFilePanY}
-        bind:workPublishTarget
+        bind:appPublishTarget
       />
     </div>
   </div>

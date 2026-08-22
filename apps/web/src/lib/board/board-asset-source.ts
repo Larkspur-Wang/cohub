@@ -8,7 +8,7 @@
  * resolves against the immutable assets captured into its artifact.
  */
 
-import type { WorkBoardAsset } from "@neta-art/cohub";
+import type { AppBoardAsset } from "@neta-art/cohub";
 import type { BoardAssetSource } from "@neta-art/cohub/board";
 
 export type { BoardAssetSource } from "@neta-art/cohub/board";
@@ -37,9 +37,9 @@ export function createSpaceBoardAssetSource(spaceId: string): BoardAssetSource {
  * asset was missing or rejected during capture resolves to null and renders as
  * unavailable — the viewer is never sent back to the origin Space.
  */
-export function createWorkBoardAssetSource(input: {
+export function createAppBoardAssetSource(input: {
 	manifestUrl: string;
-	assets: WorkBoardAsset[];
+	assets: AppBoardAsset[];
 }): BoardAssetSource {
 	const base = new URL(".", input.manifestUrl);
 	const byPath = new Map(

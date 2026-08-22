@@ -25,13 +25,13 @@ test("SpaceEventsApi routes published Work versions for the selected Space", () 
 	} as unknown as WebsocketClient;
 	const events = new SpaceEventsApi(websocket, "space-1");
 	const received: string[] = [];
-	const stop = events.on("work.version.published", (event) => {
+	const stop = events.on("app.version.published", (event) => {
 		received.push(event.type);
 	});
 	const publish = emit as unknown as (event: WebsocketEventPayload) => void;
 	publish({
 		spaceId: "space-2",
-		type: "work.version.published",
+		type: "app.version.published",
 		payload: {},
 	} as WebsocketEventPayload);
 	publish({
@@ -41,11 +41,11 @@ test("SpaceEventsApi routes published Work versions for the selected Space", () 
 	} as WebsocketEventPayload);
 	publish({
 		spaceId: "space-1",
-		type: "work.version.published",
+		type: "app.version.published",
 		payload: {},
 	} as WebsocketEventPayload);
 
-	assert.deepEqual(received, ["work.version.published"]);
+	assert.deepEqual(received, ["app.version.published"]);
 	stop();
 	assert.equal(released, 1);
 });

@@ -18,7 +18,7 @@ import { getTokenFromRequest, type AuthUserProfile, consumeExecutionAuthFromToke
 import { describeUserAccessTokenFailure } from "./auth-failure.js";
 import { recordAuthTrace } from "./auth-observability.js";
 import { verifyPreviewSessionToken, type PreviewSessionPrincipal } from "./preview-sessions.js";
-import { verifyWorkSessionToken, type WorkSessionPrincipal } from "./work-sessions.js";
+import { verifyAppSessionToken, type AppSessionPrincipal } from "./app-sessions.js";
 import { assertRequiredConfig, config } from "./config.js";
 
 import router from "./routes/index.js";
@@ -32,8 +32,8 @@ const app = new Hono<{
     authUser: AuthUserProfile | null;
     executionAuth: ExecutionAuthPrincipal | null;
     previewSession: PreviewSessionPrincipal | null;
-    workSession: WorkSessionPrincipal | null;
-    principal: { type: "user"; user: AuthUserProfile } | { type: "execution"; execution: ExecutionAuthPrincipal } | { type: "preview_session"; previewSession: PreviewSessionPrincipal } | { type: "work_session"; workSession: WorkSessionPrincipal } | null;
+    appSession: AppSessionPrincipal | null;
+    principal: { type: "user"; user: AuthUserProfile } | { type: "execution"; execution: ExecutionAuthPrincipal } | { type: "preview_session"; previewSession: PreviewSessionPrincipal } | { type: "app_session"; appSession: AppSessionPrincipal } | null;
     requestId: string;
     traceId: string | null;
   };
@@ -102,7 +102,7 @@ app.use(async (c, next) => {
   c.set("authUser", null);
   c.set("executionAuth", null);
   c.set("previewSession", null);
-  c.set("workSession", null);
+  c.set("appSession", null);
   c.set("principal", null);
 
   if (token) {
@@ -137,13 +137,13 @@ app.use(async (c, next) => {
       }
     }
 
-    const workSession = verifyWorkSessionToken(token);
-    if (workSession) {
-      c.set("workSession", workSession);
-      c.set("principal", { type: "work_session", workSession });
+    const appSession = verifyAppSessionToken(token);
+    if (appSession) {
+      c.set("appSession", appSession);
+      c.set("principal", { type: "app_session", appSession });
       recordAuthTrace(trace.getActiveSpan(), {
         credentialPresent: true,
-        principalType: "work_session",
+        principalType: "app_session",
         outcome: "authenticated",
       });
       await next();

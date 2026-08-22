@@ -1,5 +1,5 @@
 import { context, trace, SpanStatusCode } from "@opentelemetry/api";
-import { boards, works } from "@cohub/db";
+import { boards, apps } from "@cohub/db";
 import { createLogger } from "@cohub/infra/logging";
 import { getTracer, extractTrace } from "@cohub/infra/tracing/propagator";
 import { GATEWAY_ATTACHMENT_MAX_BYTES, gatewayInboundEventSchema, type GatewayInboundEvent } from "@cohub/protocol/gateway";
@@ -9,7 +9,7 @@ import { getSpacePresenceSnapshot } from "../../space-presence.js";
 import { Hono } from "hono";
 import { bindAllActiveSpaceChannelsToGateway, handleInboundEvent, resolveChannelInboundForEventWithLock } from "../../channels.js";
 import { hasPermission } from "../../permissions.js";
-import { ensureInternalRequest, getOptionalAuth, getWorkSessionPrincipal, requireValidId } from "../../lib/middleware.js";
+import { ensureInternalRequest, getOptionalAuth, getAppSessionPrincipal, requireValidId } from "../../lib/middleware.js";
 import { getSpaceById } from "../../space-sessions.js";
 import { getSpaceSandboxBySpaceId, updateSpaceSandbox } from "../../space-sandboxes.js";
 import { normalizeSandboxLifecycleStatus, normalizeSandboxRuntimeStatus } from "@cohub/sandbox-controller";
@@ -38,7 +38,7 @@ import {
 import { enqueueSandboxUploadFilesJob } from "../../sandbox-bash-queue.js";
 import { db } from "../../db/index.js";
 import { eq } from "drizzle-orm";
-import { getWorkRoomById, serializeWorkRoom, verifyWorkRoomTicket } from "../../work-realtime-rooms.js";
+import { getAppRoomById, serializeAppRoom, verifyAppRoomTicket } from "../../app-realtime-rooms.js";
 
 const logger = createLogger({ serviceName: "cohub-api" });
 const tracer = getTracer("cohub-api");
@@ -178,28 +178,28 @@ router.post("/authorize-work-room", async (c) => {
   const forbidden = ensureInternalRequest(c);
   if (forbidden) return forbidden;
 
-  const principal = getWorkSessionPrincipal(c);
+  const principal = getAppSessionPrincipal(c);
   if (!principal) return c.json({ ok: false, message: "a Work session is required" }, 403);
   const body = await c.req.json<{ roomId?: string; ticket?: string }>().catch(() => null);
   const roomId = typeof body?.roomId === "string" ? body.roomId.trim() : "";
   const ticket = typeof body?.ticket === "string" ? body.ticket.trim() : "";
-  const ticketPayload = ticket ? verifyWorkRoomTicket(ticket) : null;
+  const ticketPayload = ticket ? verifyAppRoomTicket(ticket) : null;
   if (!requireValidId(roomId) || !ticketPayload || ticketPayload.roomId !== roomId) {
     return c.json({ ok: false, message: "invalid room admission" }, 403);
   }
   if (
-    ticketPayload.workId !== principal.workId ||
+    ticketPayload.appId !== principal.appId ||
     ticketPayload.userUuid !== principal.userUuid ||
     principal.spaceId.length === 0
   ) return c.json({ ok: false, message: "invalid room admission" }, 403);
 
-  const room = await getWorkRoomById(roomId);
-  if (!room || room.workId !== principal.workId) {
+  const room = await getAppRoomById(roomId);
+  if (!room || room.appId !== principal.appId) {
     return c.json({ ok: false, message: "room not found" }, 404);
   }
-  const [work] = await db.select({ status: works.status, spaceId: works.spaceId })
-    .from(works)
-    .where(eq(works.id, principal.workId))
+  const [work] = await db.select({ status: apps.status, spaceId: apps.spaceId })
+    .from(apps)
+    .where(eq(apps.id, principal.appId))
     .limit(1);
   if (work?.status !== "published" || work.spaceId !== principal.spaceId) {
     return c.json({ ok: false, message: "work is unavailable" }, 403);
@@ -207,7 +207,7 @@ router.post("/authorize-work-room", async (c) => {
 
   return c.json({
     ok: true,
-    room: serializeWorkRoom(room),
+    room: serializeAppRoom(room),
     participantId: ticketPayload.participantId,
     userKey: ticketPayload.userKey,
   });

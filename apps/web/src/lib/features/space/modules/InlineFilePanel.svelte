@@ -1,8 +1,8 @@
 <script lang="ts">
 import type {
+	AppRecord,
 	SpaceFsFileResponse,
 	SpacePendingDiffFileResponse,
-	WorkRecord,
 } from "@neta-art/cohub";
 import {
 	ArrowLeft,
@@ -35,10 +35,10 @@ import type {
 	WorkspaceFilePosition,
 } from "$lib/workspace-file-links";
 import { formatFileSize } from "../space-utils";
-import MobilePreviewTabsChrome from "./MobilePreviewTabsChrome.svelte";
-import PreviewFloatChrome from "./PreviewFloatChrome.svelte";
-import type { PreviewSyncStatus } from "./preview-sync-status";
-import type { PreviewTab } from "./preview-tabs";
+import MobileWindowTabsChrome from "./MobileWindowTabsChrome.svelte";
+import WindowFloatChrome from "./WindowFloatChrome.svelte";
+import type { WindowSyncStatus } from "./window-sync-status";
+import type { Window } from "./windows";
 
 type InlineFilePanelState = {
 	response: SpaceFsFileResponse | null;
@@ -47,7 +47,7 @@ type InlineFilePanelState = {
 	position: WorkspaceFilePosition | null;
 	loading: boolean;
 	saving: boolean;
-	syncStatus: PreviewSyncStatus;
+	syncStatus: WindowSyncStatus;
 	saveError: string | null;
 	error: string | null;
 	tooLarge: boolean;
@@ -59,7 +59,7 @@ type PanHandlers = {
 
 type Props = {
 	inlineFile: InlineFilePanelState;
-	previewTabs: PreviewTab[];
+	windows: Window[];
 	inlineFileCanGoBack: boolean;
 	inlineFileDownloadUrl: string;
 	inlineFileDownloadName: string;
@@ -82,7 +82,7 @@ type Props = {
 	inlineFileIsPdf: boolean;
 	inlineFileDataUrl: string | null;
 	inlineFileSpaceId: string;
-	inlineFileWork: WorkRecord | null;
+	inlineFileApp: AppRecord | null;
 	previewImmersiveMode: boolean;
 	treeVisible?: boolean;
 	onToggleTree?: () => void | Promise<void>;
@@ -94,8 +94,8 @@ type Props = {
 	inlineFileDragging: boolean;
 	inlineFilePanHandlers: PanHandlers;
 	onCloseInlineFile: () => void;
-	onActivatePreviewTab: (kind: PreviewTab["kind"], key: string) => void;
-	onClosePreviewTab: (kind: PreviewTab["kind"], key: string) => void;
+	onActivateWindow: (kind: Window["kind"], key: string) => void;
+	onCloseWindow: (kind: Window["kind"], key: string) => void;
 	onBackInlineFile: () => void | Promise<void>;
 	onOpenLinkedInlineFile: (
 		target: OpenWorkspaceFileTarget,
@@ -126,7 +126,7 @@ type Props = {
 
 let {
 	inlineFile,
-	previewTabs,
+	windows,
 	inlineFileCanGoBack,
 	inlineFileDownloadUrl,
 	inlineFileDownloadName,
@@ -149,7 +149,7 @@ let {
 	inlineFileIsPdf,
 	inlineFileDataUrl,
 	inlineFileSpaceId,
-	inlineFileWork,
+	inlineFileApp,
 	previewImmersiveMode,
 	treeVisible = true,
 	onToggleTree,
@@ -161,8 +161,8 @@ let {
 	inlineFileDragging,
 	inlineFilePanHandlers,
 	onCloseInlineFile,
-	onActivatePreviewTab,
-	onClosePreviewTab,
+	onActivateWindow,
+	onCloseWindow,
 	onBackInlineFile,
 	onOpenLinkedInlineFile,
 	resolveWorkspaceAsset,
@@ -618,7 +618,7 @@ $effect(() => {
 				path={inlineFile.response.path}
 				spaceId={inlineFileSpaceId}
 				readonly={activeFsReadonly}
-				work={inlineFileWork}
+				app={inlineFileApp}
 				bind:markTarget={htmlMarkTarget}
 				onOpenFile={onOpenLinkedInlineFile}
 			/>
@@ -721,10 +721,10 @@ $effect(() => {
 
 {#if isMobile}
 	<div class="flex h-full min-w-0 flex-col bg-bg-content">
-			<MobilePreviewTabsChrome
-				tabs={previewTabs}
-				onActivate={onActivatePreviewTab}
-				onClose={onClosePreviewTab}
+			<MobileWindowTabsChrome
+				tabs={windows}
+				onActivate={onActivateWindow}
+				onClose={onCloseWindow}
 			>
 				{#snippet trailing()}
 					{#if inlineFileIsPdf && hasUsableMedia}
@@ -743,7 +743,7 @@ $effect(() => {
 					{/if}
 					{@render FileHeaderCoreActions(activeFilePath)}
 				{/snippet}
-			</MobilePreviewTabsChrome>
+			</MobileWindowTabsChrome>
       {#if inlineFile?.loading}
         <CenteredLoading label="Loading file…" size="panel" />
       {:else if inlineFile?.tooLarge}
@@ -840,16 +840,16 @@ $effect(() => {
 	{:else}
       <div class="inline-file-preview relative flex h-full min-w-0 flex-col bg-bg-content" class:inline-file-preview--immersive={previewImmersiveMode}>
         {#if previewImmersiveMode}
-          <PreviewFloatChrome
-            tabs={previewTabs}
+          <WindowFloatChrome
+            tabs={windows}
             filesVisible={treeVisible}
-            onActivate={onActivatePreviewTab}
-            onClose={onClosePreviewTab}
+            onActivate={onActivateWindow}
+            onClose={onCloseWindow}
             onToggleFiles={onToggleTree}
             onExit={onTogglePreviewImmersiveMode}
           >
             {#snippet context()}{@render FloatFileActions()}{/snippet}
-          </PreviewFloatChrome>
+          </WindowFloatChrome>
         {/if}
         {#if inlineFile?.loading}
           <div class="preview-chrome flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">

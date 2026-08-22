@@ -10,13 +10,14 @@ import { ReferencesApi } from "./apis/references.js";
 import { SessionAccessApi } from "./apis/session-access.js";
 import { SpaceClient, SpacesApi } from "./apis/spaces.js";
 import { TasksApi } from "./apis/tasks.js";
-import { UiCommandsApi } from "./apis/ui-commands.js";
+
 import { UserApi } from "./apis/user.js";
 import { UsersApi } from "./apis/users.js";
 import { PublicInviteApi } from "./apis/invitations.js";
 import { ReferralsApi } from "./apis/referrals.js";
-import { WorksApi } from "./apis/works.js";
-import { WorkCommerceApi } from "./apis/work-commerce.js";
+import { AppsApi } from "./apis/apps.js";
+import { DesktopCommandsApi } from "./apis/desktop-commands.js";
+import { AppCommerceApi } from "./apis/app-commerce.js";
 import { HttpTransport, HttpError, type CohubClientOptions, type Fetch } from "./transport.js";
 import { resolveApiBaseUrl } from "./environment.js";
 
@@ -37,9 +38,23 @@ export class CohubHttpClient {
   readonly cronJobs: CronJobsApi;
   readonly invite: PublicInviteApi;
   readonly referrals: ReferralsApi;
-  readonly works: WorksApi;
-  readonly workCommerce: WorkCommerceApi;
-  readonly ui: UiCommandsApi;
+  readonly apps: AppsApi;
+  readonly appCommerce: AppCommerceApi;
+
+  /** @deprecated Use `apps`. */
+  get works(): AppsApi {
+    return this.apps;
+  }
+  /** @deprecated Use `appCommerce`. */
+  get workCommerce(): AppCommerceApi {
+    return this.appCommerce;
+  }
+  readonly desktop: DesktopCommandsApi;
+
+  /** @deprecated Use `desktop`. */
+  get ui(): DesktopCommandsApi {
+    return this.desktop;
+  }
 
   private readonly transport: HttpTransport;
 
@@ -67,9 +82,9 @@ export class CohubHttpClient {
     this.cronJobs = new CronJobsApi(this.transport);
     this.invite = new PublicInviteApi(this.transport);
     this.referrals = new ReferralsApi(this.transport);
-    this.works = new WorksApi(this.transport);
-    this.workCommerce = new WorkCommerceApi(this.transport);
-    this.ui = new UiCommandsApi(this.transport);
+    this.apps = new AppsApi(this.transport);
+    this.appCommerce = new AppCommerceApi(this.transport);
+    this.desktop = new DesktopCommandsApi(this.transport);
   }
 
   space(spaceId: string) {

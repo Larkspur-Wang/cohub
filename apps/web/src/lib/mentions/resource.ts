@@ -1,17 +1,17 @@
 import {
+	buildAppMentionHref,
+	buildAppMentionUri,
+	type ParsedCohubAppLink,
+	parseAppMentionUri,
+	replaceCohubWorkUrls,
+} from "./app";
+import {
 	buildSpaceMentionHref,
 	buildSpaceMentionUri,
 	type ParsedCohubSpaceLink,
 	parseSpaceMentionUri,
 	replaceCohubSpaceUrls,
 } from "./space";
-import {
-	buildWorkMentionHref,
-	buildWorkMentionUri,
-	type ParsedCohubWorkLink,
-	parseWorkMentionUri,
-	replaceCohubWorkUrls,
-} from "./work";
 
 export type ResourceMentionTextToken =
 	| { type: "text"; text: string }
@@ -25,11 +25,11 @@ export type ResourceMentionTextToken =
 			href: string;
 	  }
 	| {
-			type: "workMention";
+			type: "appMention";
 			label: string;
 			username: string;
 			spaceSlug: string;
-			workSlug: string;
+			appSlug: string;
 			launchSuffix: string;
 			raw: string;
 			uri: string;
@@ -37,7 +37,7 @@ export type ResourceMentionTextToken =
 	  };
 
 const RESOURCE_MENTION_PATTERN =
-	/@\[([^\]\n]+)\]\((cohub:\/\/(?:spaces|works)\/[^\s)]+)\)/g;
+	/@\[([^\]\n]+)\]\((cohub:\/\/(?:spaces|apps)\/[^\s)]+)\)/g;
 const VALID_MENTION_PREFIX_PATTERN = /[\s([{<:,;!?，。！？、；：]/;
 
 function isMentionBoundary(text: string, index: number) {
@@ -60,7 +60,7 @@ export function tokenizeResourceMentionText(
 		const label = match[1]?.trim() ?? "";
 		const uri = match[2] ?? "";
 		const space = parseSpaceMentionUri(uri);
-		const work = parseWorkMentionUri(uri);
+		const work = parseAppMentionUri(uri);
 		if (!raw || !label || (!space && !work)) {
 			tokens.push({ type: "text", text: raw });
 		} else if (space) {
@@ -75,12 +75,12 @@ export function tokenizeResourceMentionText(
 			});
 		} else if (work) {
 			tokens.push({
-				type: "workMention",
+				type: "appMention",
 				label,
 				...work,
 				raw,
-				uri: buildWorkMentionUri(work),
-				href: buildWorkMentionHref(work),
+				uri: buildAppMentionUri(work),
+				href: buildAppMentionHref(work),
 			});
 		}
 		cursor = index + raw.length;
@@ -100,7 +100,7 @@ export function replaceCohubResourceUrls(
 	text: string,
 	resolve: {
 		space: (link: ParsedCohubSpaceLink) => string | null | undefined;
-		work: (link: ParsedCohubWorkLink) => string | null | undefined;
+		work: (link: ParsedCohubAppLink) => string | null | undefined;
 	},
 ) {
 	return replaceCohubWorkUrls(

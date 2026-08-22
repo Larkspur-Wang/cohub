@@ -153,7 +153,7 @@ export type SessionSubscriptionHandlers = {
 };
 
 export type SessionEventName = "created" | "updated" | "turn.created" | "turn.patch" | "turn.lifecycle" | "turn.updated" | "turn.finalized" | "turn.error" | "message.persisted";
-export type SpaceEventName = SessionEventName | "fs.changed" | "ports.changed" | "presence.updated" | "board.changed" | "board.playback.changed" | "work.version.published" | "task.created" | "task.updated" | "event";
+export type SpaceEventName = SessionEventName | "fs.changed" | "ports.changed" | "presence.updated" | "board.changed" | "board.playback.changed" | "app.version.published" | "task.created" | "task.updated" | "event";
 
 const toSessionEventName = (type: WebsocketEventPayload["type"]): SessionEventName | null => {
   switch (type) {
@@ -1060,7 +1060,7 @@ export class SpaceEventsApi {
         handler(event);
         return;
       }
-      if (type === "work.version.published" && event.type === "work.version.published") {
+      if (type === "app.version.published" && event.type === "app.version.published") {
         handler(event);
         return;
       }

@@ -24,7 +24,7 @@ export function registerProfile(program: Command): void {
         const handle = result.profile.username ? `@${result.profile.username}` : result.profile.userUuid;
         console.log(`\n  ${result.profile.displayName} (${handle})`);
         console.log(`  Spaces: ${result.spaces.length}`);
-        console.log(`  Works:  ${result.works.length}\n`);
+        console.log(`  Apps:   ${result.apps.length}\n`);
         if (result.spaces.length > 0) {
           console.log("  Spaces:");
           for (const space of result.spaces) {
@@ -32,10 +32,10 @@ export function registerProfile(program: Command): void {
           }
           console.log("");
         }
-        if (result.works.length > 0) {
-          console.log("  Works:");
-          for (const work of result.works) {
-            console.log(`    - ${work.title} ${work.publicUrl}`);
+        if (result.apps.length > 0) {
+          console.log("  Apps:");
+          for (const app of result.apps) {
+            console.log(`    - ${app.title} ${app.publicUrl}`);
           }
           console.log("");
         }

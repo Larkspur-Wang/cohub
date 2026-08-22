@@ -23,12 +23,12 @@ import { getRegisteredSystemJobs, getSystemJobHandler } from "../system/registry
 import { SANDBOX_IDLE_REAPER_JOB } from "../system/jobs/sandbox-idle-reaper/types.js";
 import { startSystemReferralRewardRetryLoop } from "../system/referral-reward-retry.js";
 import {
-  WORK_PROMOTION_STATS_FLUSH_INTERVAL_MS,
-  WORK_PROMOTION_STATS_FLUSH_JOB,
-  WORK_PROMOTION_STATS_FLUSH_SCHEDULER_ID,
-  WORK_VIEW_STATS_FLUSH_INTERVAL_MS,
-  WORK_VIEW_STATS_FLUSH_JOB,
-  WORK_VIEW_STATS_FLUSH_SCHEDULER_ID,
+  APP_PROMOTION_STATS_FLUSH_INTERVAL_MS,
+  APP_PROMOTION_STATS_FLUSH_JOB,
+  APP_PROMOTION_STATS_FLUSH_SCHEDULER_ID,
+  APP_VIEW_STATS_FLUSH_INTERVAL_MS,
+  APP_VIEW_STATS_FLUSH_JOB,
+  APP_VIEW_STATS_FLUSH_SCHEDULER_ID,
 } from "@cohub/protocol";
 
 import "../system/jobs/index.js";
@@ -36,6 +36,12 @@ import "../system/jobs/index.js";
 const SANDBOX_IDLE_REAPER_SCHEDULER_ID = "sandbox-idle-reaper-daily";
 /** UTC 00:24 — offset from top-of-hour to reduce collisions with other daily jobs. */
 const SANDBOX_IDLE_REAPER_CRON = "24 0 * * *";
+
+/** Pre-rename scheduler ids whose job names no longer have handlers. */
+const RETIRED_JOB_SCHEDULER_IDS = [
+  "work-view-stats-flush",
+  "work-promotion-stats-flush",
+] as const;
 
 const logger = createLogger({ serviceName: "cohub-worker" });
 assertRequiredConfig();
@@ -106,12 +112,23 @@ logger.info("[SystemWorker] App Redis:", getRedisHost(config.redisUrl));
 logger.info("[SystemWorker] Queue:", COHUB_SYSTEM_QUEUE);
 logger.info("[SystemWorker] Registered jobs:", getRegisteredSystemJobs());
 
+// BullMQ schedulers are keyed by id, so the work->app rename left orphaned
+// schedules firing job names that no longer have handlers. Remove them once
+// here; absence is not an error.
+for (const schedulerId of RETIRED_JOB_SCHEDULER_IDS) {
+  try {
+    await systemQueue.removeJobScheduler(schedulerId);
+  } catch {
+    // Already gone or never existed.
+  }
+}
+
 try {
   await systemQueue.upsertJobScheduler(
-    WORK_VIEW_STATS_FLUSH_SCHEDULER_ID,
-    { every: WORK_VIEW_STATS_FLUSH_INTERVAL_MS },
+    APP_VIEW_STATS_FLUSH_SCHEDULER_ID,
+    { every: APP_VIEW_STATS_FLUSH_INTERVAL_MS },
     {
-      name: WORK_VIEW_STATS_FLUSH_JOB,
+      name: APP_VIEW_STATS_FLUSH_JOB,
       data: {},
       opts: {
         attempts: 3,
@@ -120,22 +137,22 @@ try {
       },
     },
   );
-  logger.info("[SystemWorker] Ensured Work view stats flush schedule", {
-    schedulerId: WORK_VIEW_STATS_FLUSH_SCHEDULER_ID,
-    intervalMs: WORK_VIEW_STATS_FLUSH_INTERVAL_MS,
+  logger.info("[SystemWorker] Ensured app view stats flush schedule", {
+    schedulerId: APP_VIEW_STATS_FLUSH_SCHEDULER_ID,
+    intervalMs: APP_VIEW_STATS_FLUSH_INTERVAL_MS,
   });
 } catch (error) {
-  logger.error("[SystemWorker] Failed to ensure Work view stats flush schedule", {
+  logger.error("[SystemWorker] Failed to ensure app view stats flush schedule", {
     error: error instanceof Error ? error.message : String(error),
   });
 }
 
 try {
   await systemQueue.upsertJobScheduler(
-    WORK_PROMOTION_STATS_FLUSH_SCHEDULER_ID,
-    { every: WORK_PROMOTION_STATS_FLUSH_INTERVAL_MS },
+    APP_PROMOTION_STATS_FLUSH_SCHEDULER_ID,
+    { every: APP_PROMOTION_STATS_FLUSH_INTERVAL_MS },
     {
-      name: WORK_PROMOTION_STATS_FLUSH_JOB,
+      name: APP_PROMOTION_STATS_FLUSH_JOB,
       data: {},
       opts: {
         attempts: 3,
@@ -144,12 +161,12 @@ try {
       },
     },
   );
-  logger.info("[SystemWorker] Ensured Work promotion stats flush schedule", {
-    schedulerId: WORK_PROMOTION_STATS_FLUSH_SCHEDULER_ID,
-    intervalMs: WORK_PROMOTION_STATS_FLUSH_INTERVAL_MS,
+  logger.info("[SystemWorker] Ensured app promotion stats flush schedule", {
+    schedulerId: APP_PROMOTION_STATS_FLUSH_SCHEDULER_ID,
+    intervalMs: APP_PROMOTION_STATS_FLUSH_INTERVAL_MS,
   });
 } catch (error) {
-  logger.error("[SystemWorker] Failed to ensure Work promotion stats flush schedule", {
+  logger.error("[SystemWorker] Failed to ensure app promotion stats flush schedule", {
     error: error instanceof Error ? error.message : String(error),
   });
 }

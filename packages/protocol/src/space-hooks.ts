@@ -18,7 +18,7 @@ export const SPACE_HOOKABLE_EVENTS = [
   "space.workspace.ready",
   "session.turn.finalized",
   "checkpoint.created",
-  "work.version.published",
+  "app.version.published",
   "task.updated",
 ] as const;
 

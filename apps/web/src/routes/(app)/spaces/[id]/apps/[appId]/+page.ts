@@ -1,0 +1,18 @@
+import { readWindowFromSearch } from "$lib/features/space/modules/window-route";
+import type { PageLoad } from "./$types";
+
+export const load: PageLoad = async ({ params, url }) => {
+	const preview = readWindowFromSearch(url.searchParams);
+	return {
+		spaceId: params.id,
+		view: "app" as const,
+		sessionId: null,
+		filePath: null,
+		checkpointId: null,
+		cronjobId: null,
+		taskId: null,
+		appId: params.appId,
+		windowKind: preview?.kind ?? null,
+		windowKey: preview?.key ?? null,
+	};
+};

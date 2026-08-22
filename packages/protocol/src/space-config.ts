@@ -1,9 +1,9 @@
 export const SPACE_CONFIG_PATH = ".cohub/space.json";
 
-export type WorkspacePreviewKind = "file" | "board" | "port";
+export type WindowKind = "file" | "board" | "port";
 
-export type WorkspacePreviewRef = {
-  kind: WorkspacePreviewKind;
+export type WindowRef = {
+  kind: WindowKind;
   key: string;
 };
 
@@ -13,7 +13,7 @@ export type WorkspaceDefaultLayout = {
   leftSidebar?: "expanded" | "collapsed";
   filesColumn?: "visible" | "hidden";
   fileTree?: "expanded" | "collapsed";
-  preview?: WorkspacePreviewRef;
+  window?: WindowRef;
   presentation?: WorkspaceLayoutPresentation;
 };
 
@@ -102,7 +102,7 @@ function isValidPortKey(key: string) {
   return Number.isInteger(port) && port >= 1 && port <= 65535;
 }
 
-function normalizePreviewPath(value: unknown) {
+function normalizeWindowPath(value: unknown) {
   if (typeof value !== "string") return null;
   const normalized = value
     .replace(/\\/g, "/")
@@ -112,12 +112,12 @@ function normalizePreviewPath(value: unknown) {
   return normalized.length > 0 ? normalized : null;
 }
 
-function parsePreview(value: unknown): WorkspacePreviewRef | undefined {
+function parseWindow(value: unknown): WindowRef | undefined {
   if (!value || typeof value !== "object") return undefined;
   const record = value as Record<string, unknown>;
   const kind = record.kind;
   if (kind === "file" || kind === "board") {
-    const key = normalizePreviewPath(record.path ?? record.key);
+    const key = normalizeWindowPath(record.path ?? record.key);
     return key ? { kind, key } : undefined;
   }
   if (kind === "port") {
@@ -150,8 +150,8 @@ export function parseWorkspaceDefaultLayout(
   ) {
     layout.presentation = record.presentation;
   }
-  const preview = parsePreview(record.preview);
-  if (preview) layout.preview = preview;
+  const window = parseWindow(record.window);
+  if (window) layout.window = window;
   return Object.keys(layout).length > 0 ? layout : undefined;
 }
 

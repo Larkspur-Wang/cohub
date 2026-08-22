@@ -21,12 +21,12 @@ import generationsRouter from "./generations.route.js";
 import billingRouter from "./billing.route.js";
 import queuesRouter from "./queues.route.js";
 import publicAssetsRouter from "./public-assets.route.js";
-import worksRouter from "./works.route.js";
-import workCommerceRouter from "./work-commerce.route.js";
-import workPromotionsRouter from "./work-promotions.route.js";
+import { createAppsRouter } from "./apps.route.js";
+import { createAppCommerceRouter } from "./app-commerce.route.js";
+import { createAppPromotionsRouter } from "./app-promotions.route.js";
 import usersRouter from "./users.route.js";
 import referencesRouter from "./references.route.js";
-import uiCommandsRouter from "./ui-commands.route.js";
+import desktopCommandsRouter from "./desktop-commands.route.js";
 import previewRouter from "./preview.route.js";
 
 const router = new Hono();
@@ -52,12 +52,20 @@ router.route("/api/generations", generationsRouter);
 router.route("/api/billing", billingRouter);
 router.route("/api/queues", queuesRouter);
 router.route("/api/public-assets", publicAssetsRouter);
-router.route("/api/works", worksRouter);
-router.route("/api/works", workPromotionsRouter);
-router.route("/api", workCommerceRouter);
+// Works REST is dual-mounted: the canonical /api/apps serves new SDK clients,
+// and the legacy /api/works mount keeps existing consumers (older SDK versions
+// and direct REST callers) working with identical payloads until the next
+// breaking version.
+router.route("/api/apps", createAppsRouter("canonical"));
+router.route("/api/apps", createAppPromotionsRouter("canonical"));
+router.route("/api/works", createAppsRouter("legacy"));
+router.route("/api/works", createAppPromotionsRouter("legacy"));
+router.route("/api", createAppCommerceRouter("apps"));
+router.route("/api", createAppCommerceRouter("works"));
 router.route("/api/users", usersRouter);
 router.route("/api/references", referencesRouter);
-router.route("/api/ui/commands", uiCommandsRouter);
+router.route("/api/desktop/commands", desktopCommandsRouter);
+router.route("/api/ui/commands", desktopCommandsRouter);
 router.route("/", previewRouter);
 router.route("/internal", internalRouter);
 

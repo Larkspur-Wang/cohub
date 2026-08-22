@@ -23,7 +23,7 @@ import {
   sessionTurns,
 } from "@cohub/db";
 import { eq, and, inArray, desc, lt, or, sql } from "drizzle-orm";
-import { useAuth, getOptionalAuth, getWorkSessionPrincipal, getPreviewSessionPrincipal, getExecutionPrincipal, requireValidId, buildSpaceListItems, authzDenied, getSpacePublicProfile, normalizePublicAvatarUrl } from "../../lib/middleware.js";
+import { useAuth, getOptionalAuth, getAppSessionPrincipal, getPreviewSessionPrincipal, getExecutionPrincipal, requireValidId, buildSpaceListItems, authzDenied, getSpacePublicProfile, normalizePublicAvatarUrl } from "../../lib/middleware.js";
 import { config } from "../../config.js";
 import { scheduleSandboxAutoDestroy } from "../../sandbox-idle-scheduler.js";
 import { attachSandboxPublicEndpoints } from "../../sandbox-public-network.js";
@@ -73,7 +73,7 @@ import { checkpointFsJsonError, listCheckpointDirectory, readCheckpointFile } fr
 import type { AuthUser } from "../../lib/middleware.js";
 import { submitSessionPrompt } from "../../session-prompts.js";
 import { ModelUnavailableError, parsePromptEnv, PromptEnvValidationError } from "@cohub/core/sessions";
-import { delegatedPromptAuthFromWorkSession, promptAuthContextFromWorkSession } from "../../prompt-auth-context.js";
+import { delegatedPromptAuthFromAppSession, promptAuthContextFromAppSession } from "../../prompt-auth-context.js";
 import { buildSessionTurnResponse } from "../../session-turn-response.js";
 import { getSessionTurnById, hydrateTurnAuthorProfiles } from "../../session-turns.js";
 import { InvalidSpaceTurnListQueryError, listSpaceTurns } from "../../space-turns.js";
@@ -102,11 +102,11 @@ const { CronExpressionParser } = cronParser;
 type SpaceRouteSessionRecord = NonNullable<Awaited<ReturnType<typeof getSpaceSessionById>>>;
 
 function getPromptAuthContext(c: Context, spaceId: string) {
-  return promptAuthContextFromWorkSession(getWorkSessionPrincipal(c), spaceId);
+  return promptAuthContextFromAppSession(getAppSessionPrincipal(c), spaceId);
 }
 
 function getScheduledPromptAuthContext(c: Context, spaceId: string, actorUserId: string) {
-  return delegatedPromptAuthFromWorkSession(getWorkSessionPrincipal(c), spaceId, actorUserId);
+  return delegatedPromptAuthFromAppSession(getAppSessionPrincipal(c), spaceId, actorUserId);
 }
 
 async function buildSpacePromptTurnResponse(session: SpaceRouteSessionRecord | null, turnId: string) {
@@ -790,8 +790,8 @@ router.get("/", async (c) => {
     ...item,
     isPinned: pinnedSpaceIds.has(item.id),
   }));
-  const workSession = getWorkSessionPrincipal(c);
-  return c.json(workSession ? itemsWithPins.map(stripSensitiveSpaceFields) : itemsWithPins);
+  const appSession = getAppSessionPrincipal(c);
+  return c.json(appSession ? itemsWithPins.map(stripSensitiveSpaceFields) : itemsWithPins);
 });
 
 router.get("/default", async (c) => {
@@ -806,7 +806,7 @@ router.get("/default", async (c) => {
   // Ensure only for normal account sessions. Work / preview / execution
   // principals may list via viewer grants but must not mint spaces.
   const canEnsureHome =
-    !getWorkSessionPrincipal(c) &&
+    !getAppSessionPrincipal(c) &&
     !getPreviewSessionPrincipal(c) &&
     !getExecutionPrincipal(c);
   if (!space && canEnsureHome) {
@@ -1060,7 +1060,7 @@ function stripSensitiveSpaceFields(item: Record<string, unknown>): Record<string
 }
 
 async function buildDefaultSpaceResponse(c: Context, space: SpaceRow, user: AuthUser) {
-  if (!getWorkSessionPrincipal(c)) return serializeSpaceForResponse(space, user);
+  if (!getAppSessionPrincipal(c)) return serializeSpaceForResponse(space, user);
   const [item] = await buildSpaceListItems([space]);
   return item ? stripSensitiveSpaceFields(item) : null;
 }

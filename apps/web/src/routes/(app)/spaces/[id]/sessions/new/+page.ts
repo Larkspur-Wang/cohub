@@ -1,15 +1,15 @@
-import { readPreviewFromSearch } from "$lib/features/space/modules/workspace-preview-route";
+import { readWindowFromSearch } from "$lib/features/space/modules/window-route";
 import type { PageLoad } from "./$types";
 
 export const load: PageLoad = async ({ params, url }) => {
-	const preview = readPreviewFromSearch(url.searchParams);
+	const preview = readWindowFromSearch(url.searchParams);
 	return {
 		spaceId: params.id,
 		view: "session" as const,
 		sessionId: "new",
 		filePath: null,
-		previewKind: preview?.kind ?? null,
-		previewKey: preview?.key ?? null,
+		windowKind: preview?.kind ?? null,
+		windowKey: preview?.key ?? null,
 		turnSequence: null,
 	};
 };

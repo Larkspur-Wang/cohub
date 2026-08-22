@@ -1,13 +1,13 @@
 <script lang="ts">
-import type { WorkRecord } from "@neta-art/cohub";
+import type { AppRecord } from "@neta-art/cohub";
 import { onDestroy, untrack } from "svelte";
 import * as publicEnv from "$env/static/public";
+import { readAppCheckoutState } from "$lib/components/app/app-checkout-state";
 import MarkdownView from "$lib/components/MarkdownView.svelte";
-import { readWorkCheckoutState } from "$lib/components/work/work-checkout-state";
+import { createAppBridgeHost } from "$lib/features/app/bridge-host.svelte";
+import WorkAuthorizeDialog from "$lib/features/app/WorkAuthorizeDialog.svelte";
+import WorkPurchaseDialog from "$lib/features/app/WorkPurchaseDialog.svelte";
 import type { PreviewCaptureTarget } from "$lib/features/preview-mark";
-import { createWorkBridgeHost } from "$lib/features/work/bridge-host.svelte";
-import WorkAuthorizeDialog from "$lib/features/work/WorkAuthorizeDialog.svelte";
-import WorkPurchaseDialog from "$lib/features/work/WorkPurchaseDialog.svelte";
 import {
 	createSpacePreviewSessionController,
 	type SpacePreviewTarget,
@@ -21,7 +21,7 @@ let {
 	path = null,
 	spaceId = null,
 	readonly = false,
-	work = null,
+	app = null,
 	markTarget = $bindable(null),
 	onOpenFile,
 }: {
@@ -31,8 +31,8 @@ let {
 	path?: string | null;
 	spaceId?: string | null;
 	readonly?: boolean;
-	/** When set, auto-host work runtime APIs for this published file. */
-	work?: WorkRecord | null;
+	/** When set, auto-host app runtime APIs for this published file. */
+	app?: AppRecord | null;
 	/** Outbound mark capture target for parent chrome. */
 	markTarget?: PreviewCaptureTarget | null;
 	onOpenFile?: (target: WorkspaceFileLinkTarget) => void | Promise<void>;
@@ -58,19 +58,18 @@ const previewSession = createSpacePreviewSessionController({
 	errorMessage: "Preview failed to load.",
 });
 
-// Auto-enable work bridge when this HTML file is a published work.
+// Auto-enable the app bridge when this HTML file is a published app.
 const host = $derived.by(() => {
-	if (!work || type !== "html" || !canUsePreviewOrigin) return null;
-	return createWorkBridgeHost({
-		work,
+	if (!app || type !== "html" || !canUsePreviewOrigin) return null;
+	return createAppBridgeHost({
+		app,
 		reply: (requestId, payload) => {
 			frame?.contentWindow?.postMessage(
 				{ requestId, ...payload },
 				previewOrigin,
 			);
 		},
-		getCheckoutState: () =>
-			readWorkCheckoutState(new URL(window.location.href)),
+		getCheckoutState: () => readAppCheckoutState(new URL(window.location.href)),
 	});
 });
 
@@ -160,7 +159,7 @@ onDestroy(() => {
 			pending={host.pendingAuth}
 			error={host.authError}
 			saving={host.authSaving}
-			workName={work?.slug ?? "Preview"}
+			appName={app?.slug ?? "Preview"}
 			authorName="Cohub"
 			onConfirm={() => void host.confirmAuth()}
 			onCancel={host.cancelAuth}

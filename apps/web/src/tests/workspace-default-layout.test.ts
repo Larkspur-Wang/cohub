@@ -27,23 +27,23 @@ test("parses sidebar / column / tree enums, ignoring unknown values", () => {
 test("normalizes file preview path and accepts board", () => {
 	assert.deepEqual(
 		parseWorkspaceDefaultLayout({
-			preview: { kind: "file", path: "./docs/a.md" },
+			window: { kind: "file", path: "./docs/a.md" },
 		}),
-		{ preview: { kind: "file", key: "docs/a.md" } },
+		{ window: { kind: "file", key: "docs/a.md" } },
 	);
 	assert.deepEqual(
 		parseWorkspaceDefaultLayout({
-			preview: { kind: "board", path: "/board.board" },
+			window: { kind: "board", path: "/board.board" },
 		}),
-		{ preview: { kind: "board", key: "board.board" } },
+		{ window: { kind: "board", key: "board.board" } },
 	);
 });
 
 test("accepts trusted numeric ports, rejects injection", () => {
 	assert.deepEqual(
-		parseWorkspaceDefaultLayout({ preview: { kind: "port", port: 5173 } }),
+		parseWorkspaceDefaultLayout({ window: { kind: "port", port: 5173 } }),
 		{
-			preview: { kind: "port", key: "5173" },
+			window: { kind: "port", key: "5173" },
 		},
 	);
 	assert.equal(
@@ -87,7 +87,7 @@ test("geometry maps enums and presentation modes", () => {
 			{
 				leftSidebar: "collapsed",
 				fileTree: "collapsed",
-				preview: { kind: "file", key: "README.md" },
+				window: { kind: "file", key: "README.md" },
 				presentation: "fullscreen",
 			},
 			false,
@@ -97,7 +97,7 @@ test("geometry maps enums and presentation modes", () => {
 			rightSidebarCollapsed: true,
 			filesColumnHidden: false,
 			presentation: "immersive",
-			openPreview: true,
+			openWindow: true,
 		},
 	);
 });
@@ -105,7 +105,7 @@ test("geometry maps enums and presentation modes", () => {
 test("presentation falls back to default without a preview", () => {
 	const geo = resolveDefaultLayoutGeometry({ presentation: "focus" }, false);
 	assert.equal(geo.presentation, "default");
-	assert.equal(geo.openPreview, false);
+	assert.equal(geo.openWindow, false);
 });
 
 test("explicit route preview wins over filesColumn: hidden", () => {
@@ -113,7 +113,7 @@ test("explicit route preview wins over filesColumn: hidden", () => {
 	// renders the preview must stay visible.
 	const geo = resolveDefaultLayoutGeometry({ filesColumn: "hidden" }, true);
 	assert.equal(geo.filesColumnHidden, false);
-	assert.equal(geo.openPreview, false);
+	assert.equal(geo.openWindow, false);
 });
 
 test("filesColumn: hidden applies only when nothing needs previewing", () => {
@@ -128,5 +128,5 @@ test("route preview enables config presentation even without config preview", ()
 	);
 	assert.equal(geo.presentation, "immersive");
 	assert.equal(geo.filesColumnHidden, false);
-	assert.equal(geo.openPreview, false);
+	assert.equal(geo.openWindow, false);
 });

@@ -114,7 +114,7 @@ onMount(() => {
 
 /**
  * Verbatim CLI output from a Space driven from a terminal: a prompt goes out,
- * the agent edits a file, and that file is published as a new Work version.
+ * the agent edits a file, and that file is published as a new app version.
  * Ids, sizes, and timestamps are exactly what the CLI printed — including the
  * full turn id, which wraps here the same way it wraps in a narrow terminal.
  */
@@ -149,10 +149,10 @@ const cliLines = [
 	{ kind: "gap" as const },
 	{
 		kind: "command" as const,
-		text: "cohub works publish starfield",
+		text: "cohub apps publish starfield",
 		flags: "--file demo/index.html --visibility public",
 	},
-	{ kind: "ok" as const, text: "Work version updated: v2" },
+	{ kind: "ok" as const, text: "App version updated: v2" },
 	{ kind: "gap" as const },
 	{ kind: "command" as const, text: "cohub sandbox status" },
 	{ kind: "out" as const, text: "provider: cloud", dim: true },
@@ -165,7 +165,7 @@ const cliLines = [
 	<title>Cohub — a living space where people and agents build together</title>
 	<meta
 		name="description"
-		content="A living space where people and agents create, play, and build together. Open a Space, work with an Agent on real files, save checkpoints, and publish live Works."
+		content="A living space where people and agents create, play, and build together. Open a Space, work with an Agent on real files, save checkpoints, and publish live apps."
 	/>
 	<link rel="canonical" href={canonical} />
 	<meta property="og:type" content="website" />
@@ -173,14 +173,14 @@ const cliLines = [
 	<meta property="og:title" content="Cohub — a living space where people and agents build together" />
 	<meta
 		property="og:description"
-		content="Open a Space, build with an Agent on real files, save checkpoints, and publish live Works."
+		content="Open a Space, build with an Agent on real files, save checkpoints, and publish live apps."
 	/>
 	<meta property="og:url" content={canonical} />
 	<meta name="twitter:card" content="summary_large_image" />
 	<meta name="twitter:title" content="Cohub — a living space where people and agents build together" />
 	<meta
 		name="twitter:description"
-		content="Open a Space, build with an Agent on real files, save checkpoints, and publish live Works."
+		content="Open a Space, build with an Agent on real files, save checkpoints, and publish live apps."
 	/>
 </svelte:head>
 
@@ -258,14 +258,14 @@ const cliLines = [
 
 			<!-- 4 · Live Works — the strongest outcome: a real URL that feeds back -->
 			<LandingSection
-				eyebrow="Live Works"
+				eyebrow="Live Apps"
 				title="Publish something people can play with."
-				lede="A game, a demo, a weird little tool: publish it from a file, a directory, or a running port. Visitors get something live, not a screenshot. And if you let it, a Work can even reach back and change the Space behind it."
+				lede="A game, a demo, a weird little tool: publish it from a file, a directory, or a running port. Visitors get something live, not a screenshot. And if you let it, an app can even reach back and change the Space behind it."
 				divided
 			>
 				<LandingMedia
 					src="work"
-					alt="A published Cohub Work running at its public URL"
+					alt="A published Cohub app running at its public URL"
 					label="Work — published page with its public URL"
 					ratio="16 / 10"
 				/>

@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm";
-import { spaceCommerceBusinesses, spaces, works } from "@cohub/db";
+import { spaceCommerceBusinesses, spaces, apps } from "@cohub/db";
 import { db } from "../db/index.js";
 import {
   billingOperations,
@@ -176,44 +176,44 @@ export async function ensureSpaceCommerceBusinessKey(spaceId: string) {
   return (await ensureSpaceCommerceBusiness(spaceId)).billingBusinessKey;
 }
 
-export async function getWorkCommerceContextById(workId: string) {
+export async function getAppCommerceContextById(appId: string) {
   const [row] = await db
     .select({
-      workId: works.id,
-      workSlug: works.slug,
-      workStatus: works.status,
-      workVisibility: works.visibility,
-      spaceId: works.spaceId,
+      appId: apps.id,
+      appSlug: apps.slug,
+      appStatus: apps.status,
+      appVisibility: apps.visibility,
+      spaceId: apps.spaceId,
     })
-    .from(works)
-    .where(eq(works.id, workId))
+    .from(apps)
+    .where(eq(apps.id, appId))
     .limit(1);
   if (!row) return null;
   return row;
 }
 
-export async function getWorkCommerceContextBySpaceAndSlug(input: {
+export async function getAppCommerceContextBySpaceAndSlug(input: {
   spaceId: string;
-  workSlug: string;
+  appSlug: string;
 }) {
   const [row] = await db
     .select({
-      workId: works.id,
-      workSlug: works.slug,
-      workStatus: works.status,
-      workVisibility: works.visibility,
-      spaceId: works.spaceId,
+      appId: apps.id,
+      appSlug: apps.slug,
+      appStatus: apps.status,
+      appVisibility: apps.visibility,
+      spaceId: apps.spaceId,
     })
-    .from(works)
-    .where(and(eq(works.spaceId, input.spaceId), eq(works.slug, input.workSlug)))
+    .from(apps)
+    .where(and(eq(apps.spaceId, input.spaceId), eq(apps.slug, input.appSlug)))
     .limit(1);
   return row ?? null;
 }
 
-export function buildWorkCheckoutReturnUrls(input: { workUrl: string; orderId?: string | null }) {
+export function buildAppCheckoutReturnUrls(input: { appUrl: string; orderId?: string | null }) {
   return {
-    successRedirectUrl: appendCheckoutQuery(input.workUrl, { status: "success", orderId: input.orderId }),
-    failedRedirectUrl: appendCheckoutQuery(input.workUrl, { status: "failed", orderId: input.orderId }),
-    cancelRedirectUrl: appendCheckoutQuery(input.workUrl, { status: "cancel", orderId: input.orderId }),
+    successRedirectUrl: appendCheckoutQuery(input.appUrl, { status: "success", orderId: input.orderId }),
+    failedRedirectUrl: appendCheckoutQuery(input.appUrl, { status: "failed", orderId: input.orderId }),
+    cancelRedirectUrl: appendCheckoutQuery(input.appUrl, { status: "cancel", orderId: input.orderId }),
   };
 }

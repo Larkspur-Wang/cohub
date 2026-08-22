@@ -134,12 +134,12 @@ export const notifySpacePresenceUpdated = async (spaceId: string): Promise<void>
   }
 };
 
-export const authorizeWorkRoom = async (input: {
+export const authorizeAppRoom = async (input: {
   authToken: string;
   roomId: string;
   ticket: string;
 }): Promise<{ room: RealtimeRoomDescriptor; participantId: string; userKey: string }> => {
-  const response = await fetch(`${gatewayConfig.apiBaseUrl}/internal/gateway/authorize-work-room`, {
+  const response = await fetch(`${gatewayConfig.apiBaseUrl}/internal/gateway/authorize-app-room`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -151,7 +151,7 @@ export const authorizeWorkRoom = async (input: {
   });
   const data = await parseJson<{ ok?: boolean; room?: RealtimeRoomDescriptor; participantId?: string; userKey?: string; message?: string }>(response);
   if (!response.ok || !data?.ok || !data.room || !data.participantId || !data.userKey) {
-    throw new Error(data?.message || `Work room authorization failed ${response.status}`);
+    throw new Error(data?.message || `App room authorization failed ${response.status}`);
   }
   return { room: data.room, participantId: data.participantId, userKey: data.userKey };
 };

@@ -16,7 +16,7 @@ export type WorkspaceLabelResource = {
 export type WorkspaceRouteContext = {
 	spaceId: string | null;
 	sessionId: string | null;
-	workId: string | null;
+	appId: string | null;
 	checkpointId: string | null;
 	cronjobId: string | null;
 	taskId: string | null;
@@ -66,7 +66,7 @@ function parseSpaceIdFromPath(pathname: string): string | null {
 
 function parseResourceId(
 	pathname: string,
-	kind: "sessions" | "works" | "checkpoints" | "cronjobs" | "tasks",
+	kind: "sessions" | "apps" | "checkpoints" | "cronjobs" | "tasks",
 ): string | null {
 	const match = pathname.match(new RegExp(`^/spaces/[^/]+/${kind}/([^/]+)`));
 	const id = match?.[1] ? decodePathSegment(match[1]) : null;
@@ -115,7 +115,7 @@ export function resolveWorkspaceRouteContext(
 ): WorkspaceRouteContext {
 	const spaceId = resolveSpaceId(input);
 	const sessionId = resolveSessionId(input);
-	const workId = parseResourceId(input.pathname, "works");
+	const appId = parseResourceId(input.pathname, "apps");
 	const checkpointId = parseResourceId(input.pathname, "checkpoints");
 	const cronjobId = parseResourceId(input.pathname, "cronjobs");
 	const taskId = parseResourceId(input.pathname, "tasks");
@@ -133,7 +133,7 @@ export function resolveWorkspaceRouteContext(
 	return {
 		spaceId,
 		sessionId,
-		workId,
+		appId,
 		checkpointId,
 		cronjobId,
 		taskId,

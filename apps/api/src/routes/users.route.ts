@@ -1,10 +1,10 @@
 import { Hono } from "hono";
 import { and, desc, eq, or, sql } from "drizzle-orm";
-import { accessPolicies, spaces, userProfiles, works } from "@cohub/db";
-import { readWorkPageFields, workTitleFromMeta } from "@cohub/core/works";
+import { accessPolicies, spaces, userProfiles, apps } from "@cohub/db";
+import { readAppPageFields, appTitleFromMeta } from "@cohub/core/apps";
 import { db } from "../db/index.js";
 import { getSpacePublicProfile, requireValidId, useAuth } from "../lib/middleware.js";
-import { createWorkPublicUrl } from "../lib/work-public-url.js";
+import { createAppPublicUrl } from "../lib/app-public-url.js";
 import {
   getProfileByUsername,
   getProfilesByUuids,
@@ -126,28 +126,28 @@ router.get("/by-username/:username", async (c) => {
   // Public URL always uses the space owner's username.
   const workRows = await db
     .select({
-      id: works.id,
-      slug: works.slug,
-      meta: works.meta,
-      publishedAt: works.publishedAt,
-      updatedAt: works.updatedAt,
+      id: apps.id,
+      slug: apps.slug,
+      meta: apps.meta,
+      publishedAt: apps.publishedAt,
+      updatedAt: apps.updatedAt,
       spaceSlug: spaces.slug,
       spaceName: spaces.name,
       spaceOwnerUsername: userProfiles.username,
     })
-    .from(works)
-    .innerJoin(spaces, eq(spaces.id, works.spaceId))
+    .from(apps)
+    .innerJoin(spaces, eq(spaces.id, apps.spaceId))
     .innerJoin(userProfiles, eq(userProfiles.userUuid, spaces.userUuid))
     .where(and(
-      eq(works.userUuid, profile.userUuid),
-      eq(works.status, "published"),
-      eq(works.visibility, "public"),
+      eq(apps.userUuid, profile.userUuid),
+      eq(apps.status, "published"),
+      eq(apps.visibility, "public"),
       sql`${spaces.slug} is not null`,
       sql`${userProfiles.username} is not null`,
     ))
     .orderBy(
-      desc(sql`coalesce(${works.publishedAt}, ${works.updatedAt})`),
-      desc(works.createdAt),
+      desc(sql`coalesce(${apps.publishedAt}, ${apps.updatedAt})`),
+      desc(apps.createdAt),
     )
     .limit(MAX_PUBLIC_USER_WORKS);
 
@@ -155,19 +155,19 @@ router.get("/by-username/:username", async (c) => {
     .filter((row): row is typeof row & { spaceSlug: string; spaceOwnerUsername: string } =>
       Boolean(row.spaceSlug && row.spaceOwnerUsername))
     .map((row) => {
-      const page = readWorkPageFields(row.meta);
+      const page = readAppPageFields(row.meta);
       return {
         id: row.id,
         slug: row.slug,
-        title: workTitleFromMeta(row.meta, row.slug),
+        title: appTitleFromMeta(row.meta, row.slug),
         description: page.description,
         icon: page.icon,
         spaceSlug: row.spaceSlug,
         spaceName: row.spaceName,
-        publicUrl: createWorkPublicUrl({
+        publicUrl: createAppPublicUrl({
           ownerUsername: row.spaceOwnerUsername,
           spaceSlug: row.spaceSlug,
-          workSlug: row.slug,
+          appSlug: row.slug,
         }),
         publishedAt: row.publishedAt?.toISOString() ?? null,
         updatedAt: row.updatedAt?.toISOString() ?? null,
@@ -178,7 +178,7 @@ router.get("/by-username/:username", async (c) => {
   return c.json({
     profile,
     spaces: publicSpaces,
-    works: publicWorks,
+    apps: publicWorks,
   });
 });
 
