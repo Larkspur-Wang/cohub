@@ -24,7 +24,7 @@ function memoryFetch(responses: Map<string, Buffer>): typeof fetch {
 
 function directoryDetail(manifestSha256: string): AppGetResponse {
   return {
-    work: { id: "work-1", slug: "launch", latestVersion: 2 },
+    app: { id: "work-1", slug: "launch", latestVersion: 2 },
     content: {
       kind: "web",
       targetType: "directory",
@@ -40,7 +40,7 @@ function directoryDetail(manifestSha256: string): AppGetResponse {
 
 function fileDetail(manifestSha256: string): AppGetResponse {
   return {
-    work: { id: "work-2", slug: "report", latestVersion: 3 },
+    app: { id: "work-2", slug: "report", latestVersion: 3 },
     content: {
       kind: "file",
       targetType: "file",
@@ -75,7 +75,7 @@ function singleFileManifest(content: Buffer): AppArtifactManifest {
 
 function htmlDetail(manifestSha256: string): AppGetResponse {
   return {
-    work: { id: "work-3", slug: "site", latestVersion: 4 },
+    app: { id: "work-3", slug: "site", latestVersion: 4 },
     content: {
       kind: "web",
       targetType: "file",

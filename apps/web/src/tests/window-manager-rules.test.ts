@@ -32,10 +32,7 @@ test("compact session navigation suspends previews instead of closing them", () 
 		"utf8",
 	);
 
-	assert.match(
-		page,
-		/sessionChanged[\s\S]*previewWorkspace\.suspendForRoute\(\)/,
-	);
+	assert.match(page, /sessionChanged[\s\S]*windowManager.suspendForRoute()/);
 });
 
 test("new and existing Space chats share one mounted workspace", () => {

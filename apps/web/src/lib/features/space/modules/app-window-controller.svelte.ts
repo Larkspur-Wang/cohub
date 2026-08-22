@@ -11,9 +11,9 @@ import { appDisplayTitle } from "$lib/app-page-meta";
 import { isNewerAppSnapshot } from "$lib/features/app/app-realtime";
 import { createRequestDedupe } from "./request-dedupe";
 
-export type WorkPreviewLaunchState = { search?: string; hash?: string };
+export type AppLaunchState = { search?: string; hash?: string };
 
-export type InlineWorkPreview = {
+export type InlineAppPreview = {
 	appId: string;
 	mountKey: number;
 	label: string;
@@ -21,7 +21,7 @@ export type InlineWorkPreview = {
 	loading: boolean;
 	error: string | null;
 	refreshError: string | null;
-	launch: WorkPreviewLaunchState | null;
+	launch: AppLaunchState | null;
 	invocation: AppRuntimeInvocationContext | null;
 	composerChip: AppComposerChip | null;
 };
@@ -41,7 +41,7 @@ type WorkPreviewControllerOptions = {
 	onOpenPanel?: () => void;
 	onClosePanel?: () => void;
 	/** A tab actually went away, so a coordinator can re-derive the active ref. */
-	onWorkClosed?: (appId: string) => void;
+	onAppClosed?: (appId: string) => void;
 	loadWork?: (appId: string) => Promise<WorkDetailResponse>;
 	loadPublicWork?: (appId: string) => Promise<WorkDetailResponse>;
 };
@@ -60,11 +60,11 @@ function invocationContextsEqual(
 	);
 }
 
-export function createWorkPreviewController(
+export function createAppPreviewController(
 	options: WorkPreviewControllerOptions,
 ) {
-	let previews = $state<InlineWorkPreview[]>([]);
-	let activeWorkId = $state<string | null>(null);
+	let previews = $state<InlineAppPreview[]>([]);
+	let activeAppId = $state<string | null>(null);
 	let nextMountKey = 0;
 	const requests = createRequestDedupe();
 	const invokers = new Map<string, AppSurfaceInvoker>();
@@ -73,11 +73,11 @@ export function createWorkPreviewController(
 
 	const loadWork =
 		options.loadWork ??
-		(async (appId: string) => (await import("$lib/sdk")).sdk.works.get(appId));
+		(async (appId: string) => (await import("$lib/sdk")).sdk.apps.get(appId));
 	const loadPublicWork =
 		options.loadPublicWork ??
 		(async (appId: string) =>
-			(await import("$lib/sdk")).sdk.works.getPublicById(appId));
+			(await import("$lib/sdk")).sdk.apps.getPublicById(appId));
 
 	/**
 	 * A public Work in a Space we cannot view is still previewable, and
@@ -96,7 +96,7 @@ export function createWorkPreviewController(
 		}
 	}
 
-	function patch(appId: string, next: Partial<InlineWorkPreview>) {
+	function patch(appId: string, next: Partial<InlineAppPreview>) {
 		previews = previews.map((item) =>
 			item.appId === appId ? { ...item, ...next } : item,
 		);
@@ -125,8 +125,8 @@ export function createWorkPreviewController(
 				)
 					return;
 				const changed = isNewerAppSnapshot(
-					current.detail?.work ?? null,
-					detail.work,
+					current.detail?.app ?? null,
+					detail.app,
 				);
 				if (current.detail && !changed) {
 					patch(appId, { loading: false, refreshError: null });
@@ -137,7 +137,7 @@ export function createWorkPreviewController(
 					loading: false,
 					error: null,
 					refreshError: null,
-					label: appDisplayTitle(detail.work.meta, detail.work.slug),
+					label: appDisplayTitle(detail.app.meta, detail.app.slug),
 					...(loadOptions.remount && changed
 						? { mountKey: ++nextMountKey }
 						: {}),
@@ -172,10 +172,10 @@ export function createWorkPreviewController(
 		await settle;
 	}
 
-	function openWork(input: {
+	function openApp(input: {
 		appId: string;
 		label?: string;
-		launch?: WorkPreviewLaunchState | null;
+		launch?: AppLaunchState | null;
 		invocation?: AppRuntimeInvocationContext | null;
 	}) {
 		const existing = previews.find((item) => item.appId === input.appId);
@@ -196,7 +196,7 @@ export function createWorkPreviewController(
 					...(invocationChanged ? { mountKey: ++nextMountKey } : {}),
 				});
 			}
-			activeWorkId = input.appId;
+			activeAppId = input.appId;
 			options.onOpenPanel?.();
 			if (!existing.detail && !existing.loading) void loadDetail(input.appId);
 			return;
@@ -216,18 +216,18 @@ export function createWorkPreviewController(
 				refreshError: null,
 			},
 		];
-		activeWorkId = input.appId;
+		activeAppId = input.appId;
 		options.onOpenPanel?.();
 		void loadDetail(input.appId);
 	}
 
-	function activateWork(appId: string) {
+	function activateApp(appId: string) {
 		if (!previews.some((item) => item.appId === appId)) return;
-		activeWorkId = appId;
+		activeAppId = appId;
 		options.onOpenPanel?.();
 	}
 
-	function closeWork(appId = activeWorkId) {
+	function closeApp(appId = activeAppId) {
 		if (!appId) return;
 		const index = previews.findIndex((item) => item.appId === appId);
 		if (index < 0) return;
@@ -235,18 +235,18 @@ export function createWorkPreviewController(
 		previews = nextPreviews;
 		invokers.delete(appId);
 		detailSettled.delete(appId);
-		if (activeWorkId === appId) {
-			activeWorkId =
+		if (activeAppId === appId) {
+			activeAppId =
 				nextPreviews[Math.max(0, index - 1)]?.appId ??
 				nextPreviews[0]?.appId ??
 				null;
 		}
 		if (nextPreviews.length === 0) options.onClosePanel?.();
-		options.onWorkClosed?.(appId);
+		options.onAppClosed?.(appId);
 	}
 
 	function closeAll() {
-		for (const item of [...previews]) closeWork(item.appId);
+		for (const item of [...previews]) closeApp(item.appId);
 	}
 
 	function retry(appId: string) {
@@ -361,14 +361,14 @@ export function createWorkPreviewController(
 			return previews;
 		},
 		get preview() {
-			return previews.find((item) => item.appId === activeWorkId) ?? null;
+			return previews.find((item) => item.appId === activeAppId) ?? null;
 		},
-		get activeWorkId() {
-			return activeWorkId;
+		get activeAppId() {
+			return activeAppId;
 		},
-		openWork,
-		activateWork,
-		closeWork,
+		openApp,
+		activateApp,
+		closeApp,
 		closeAll,
 		retry,
 		refreshIfOpen,
@@ -380,5 +380,5 @@ export function createWorkPreviewController(
 }
 
 export type WorkPreviewController = ReturnType<
-	typeof createWorkPreviewController
+	typeof createAppPreviewController
 >;

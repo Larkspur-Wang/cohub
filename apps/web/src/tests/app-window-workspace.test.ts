@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createPreviewWorkspaceController } from "../lib/features/space/modules/window-manager.svelte.ts";
+import { createWindowManager } from "../lib/features/space/modules/window-manager.svelte.ts";
 
 (globalThis as unknown as { $state: <T>(value: T) => T }).$state = <T>(
 	value: T,
@@ -17,19 +17,19 @@ type OpenWorkInput = {
 
 function createHarness() {
 	let workTabs: Array<{ appId: string; loading: boolean }> = [];
-	let activeWorkId: string | null = null;
+	let activeAppId: string | null = null;
 	const opens: OpenWorkInput[] = [];
 	const urls: Array<{ kind: string; key: string } | null> = [];
 
-	const controller = createPreviewWorkspaceController({
+	const controller = createWindowManager({
 		getFileTabs: () => [],
 		getActiveFilePath: () => null,
 		getBoardTabs: () => [],
 		getActiveBoardPath: () => null,
 		getPortTabs: () => [],
 		getActivePort: () => null,
-		getWorkTabs: () => workTabs,
-		getActiveWorkId: () => activeWorkId,
+		getAppTabs: () => workTabs,
+		getActiveAppId: () => activeAppId,
 		openFile: async () => {},
 		activateFile: () => {},
 		closeFile: () => {},
@@ -40,20 +40,20 @@ function createHarness() {
 		openPort: () => {},
 		activatePort: () => {},
 		closePort: () => {},
-		openWork: (input) => {
+		openApp: (input) => {
 			opens.push(input);
 			if (!workTabs.some((tab) => tab.appId === input.appId)) {
 				workTabs = [...workTabs, { appId: input.appId, loading: false }];
 			}
-			activeWorkId = input.appId;
+			activeAppId = input.appId;
 		},
-		activateWork: (appId) => {
-			activeWorkId = appId;
+		activateApp: (appId) => {
+			activeAppId = appId;
 		},
-		closeWork: (appId) => {
+		closeApp: (appId) => {
 			if (!appId) return;
 			workTabs = workTabs.filter((tab) => tab.appId !== appId);
-			if (activeWorkId === appId) activeWorkId = workTabs.at(-1)?.appId ?? null;
+			if (activeAppId === appId) activeAppId = workTabs.at(-1)?.appId ?? null;
 		},
 		getPortEndpointUrl: () => null,
 		syncUrl: (ref) => {
@@ -62,33 +62,33 @@ function createHarness() {
 		weightLimit: 100,
 	});
 
-	return { controller, opens, urls, getWorkTabs: () => workTabs };
+	return { controller, opens, urls, getAppTabs: () => workTabs };
 }
 
 test("showing a work opens one tab and syncs a work preview URL", () => {
-	const { controller, urls, getWorkTabs } = createHarness();
-	controller.openWork({ appId: WORK_A, label: "Launch" });
+	const { controller, urls, getAppTabs } = createHarness();
+	controller.openApp({ appId: WORK_A, label: "Launch" });
 
 	assert.deepEqual(controller.currentRef(), { kind: "app", key: WORK_A });
 	assert.equal(controller.activeKind, "app");
-	assert.equal(getWorkTabs().length, 1);
+	assert.equal(getAppTabs().length, 1);
 	assert.deepEqual(urls.at(-1), { kind: "app", key: WORK_A });
 });
 
 test("showing the same work again reuses the tab and forwards new launch state", () => {
-	const { controller, opens, getWorkTabs } = createHarness();
-	controller.openWork({ appId: WORK_A });
-	controller.openWork({ appId: WORK_A, launch: { search: "?view=timeline" } });
+	const { controller, opens, getAppTabs } = createHarness();
+	controller.openApp({ appId: WORK_A });
+	controller.openApp({ appId: WORK_A, launch: { search: "?view=timeline" } });
 
 	// Idempotent by work id: a repeat re-activates instead of stacking duplicates.
-	assert.equal(getWorkTabs().length, 1);
+	assert.equal(getAppTabs().length, 1);
 	assert.equal(opens.length, 2);
 	assert.deepEqual(opens.at(-1)?.launch, { search: "?view=timeline" });
 });
 
 test("work previews are rejected unless the key is a work id", () => {
 	const { controller, opens } = createHarness();
-	controller.openWork({ appId: "alice/studio/launch" });
+	controller.openApp({ appId: "alice/studio/launch" });
 	assert.equal(opens.length, 0);
 	assert.equal(controller.currentRef(), null);
 });
@@ -103,21 +103,21 @@ test("route hydration opens a work preview without writing the URL back", () => 
 });
 
 test("closing the active work falls back to the remaining tab", () => {
-	const { controller, getWorkTabs } = createHarness();
-	controller.openWork({ appId: WORK_A });
-	controller.openWork({ appId: WORK_B });
+	const { controller, getAppTabs } = createHarness();
+	controller.openApp({ appId: WORK_A });
+	controller.openApp({ appId: WORK_B });
 	controller.close("app", WORK_B);
 
-	assert.equal(getWorkTabs().length, 1);
+	assert.equal(getAppTabs().length, 1);
 	assert.deepEqual(controller.currentRef(), { kind: "app", key: WORK_A });
 });
 
 test("closeAll clears work tabs alongside the other preview domains", () => {
-	const { controller, getWorkTabs } = createHarness();
-	controller.openWork({ appId: WORK_A });
-	controller.openWork({ appId: WORK_B });
+	const { controller, getAppTabs } = createHarness();
+	controller.openApp({ appId: WORK_A });
+	controller.openApp({ appId: WORK_B });
 	controller.closeAll();
 
-	assert.equal(getWorkTabs().length, 0);
+	assert.equal(getAppTabs().length, 0);
 	assert.equal(controller.currentRef(), null);
 });

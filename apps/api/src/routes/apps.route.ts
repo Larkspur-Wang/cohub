@@ -22,7 +22,16 @@ import { getSandboxPublicEndpoints } from "../sandbox-public-network.js";
 import type { AppArtifactDescriptor, AppContentKind } from "@cohub/protocol";
 import { SANDBOX_PUBLIC_PORTS } from "@cohub/protocol/ports";
 import { config, isHostAllowedBySuffix } from "../config.js";
-import type { RealtimeAppRecord, RealtimeAppVersionRecord } from "@cohub/protocol/realtime";
+import {
+  appScopesBodyField,
+  serializeAppRecord,
+  serializeAppVersionRecord,
+  wrapAppRecord,
+  wrapAppRecords,
+  type AppWire,
+  type AppWireRecord,
+  type AppWireVersionRecord,
+} from "./apps-wire.js";
 import { createLogger } from "@cohub/infra/logging";
 import { billingOperations, COHUB_BILLING_FEATURES } from "@cohub/billing";
 import { featureGateResponse } from "../lib/feature-gate.js";
@@ -44,7 +53,13 @@ import {
 } from "../app-realtime-rooms.js";
 
 const logger = createLogger({ serviceName: "cohub-api" });
-const router = new Hono();
+/**
+ * Works REST router factory: the canonical `/api/apps` mount and the legacy
+ * `/api/works` mount share every handler; only the wire vocabulary differs.
+ */
+export function createAppsRouter(wire: AppWire): Hono {
+  const router = new Hono();
+
 
 const APP_STATUSES = new Set(["published", "disabled"]);
 const APP_VISIBILITIES = new Set(["public", "space"]);
@@ -177,40 +192,10 @@ const isAllowedAppContentUrl = (url: string, kind: "asset" | "port") => {
   }
 };
 
-const serializeApp = (app: typeof apps.$inferSelect): RealtimeAppRecord => ({
-  id: app.id,
-  spaceId: app.spaceId,
-  userUuid: app.userUuid,
-  slug: app.slug,
-  status: app.status as RealtimeAppRecord["status"],
-  visibility: (app.visibility ?? "public") as RealtimeAppRecord["visibility"],
-  targetType: app.targetType as RealtimeAppRecord["targetType"],
-  targetRef: app.targetRef,
-  assetKey: app.assetKey,
-  currentVersionId: app.currentVersionId,
-  latestVersion: app.latestVersion ?? 0,
-  publishedAt: app.publishedAt?.toISOString() ?? null,
-  // `workScopes` is the frozen works REST field name; the storage column is app_scopes.
-  workScopes: app.appScopes ?? [],
-  allowedViewerScopes: app.allowedViewerScopes ?? [],
-  meta: getAppMeta(app.meta),
-  createdAt: app.createdAt?.toISOString() ?? null,
-  updatedAt: app.updatedAt?.toISOString() ?? null,
-});
-
-const serializeAppVersion = (version: typeof appVersions.$inferSelect): RealtimeAppVersionRecord => ({
-  id: version.id,
-  // `workId` is the frozen works REST field name; the storage column is app_id.
-  workId: version.appId,
-  version: version.version,
-  targetType: version.targetType as RealtimeAppVersionRecord["targetType"],
-  targetRef: version.targetRef,
-  assetKey: version.assetKey,
-  contentKind: version.contentKind as AppContentKind,
-  artifact: isRecord(version.artifact) ? version.artifact as AppArtifactDescriptor : null,
-  meta: getAppMeta(version.meta),
-  createdAt: version.createdAt?.toISOString() ?? null,
-});
+const serializeApp = (app: typeof apps.$inferSelect): AppWireRecord =>
+  serializeAppRecord(app, wire);
+const serializeAppVersion = (version: typeof appVersions.$inferSelect): AppWireVersionRecord =>
+  serializeAppVersionRecord(version, wire);
 
 async function getAppById(id: string) {
   const [app] = await db.select().from(apps).where(eq(apps.id, id)).limit(1);
@@ -415,7 +400,7 @@ router.get("/by-slug/:username/:spaceSlug/:appSlug", async (c) => {
     requiresSpaceAppAccess(row.app) ? PRIVATE_APP_HTTP_CACHE : PUBLIC_APP_HTTP_CACHE,
   );
   return c.json({
-    work: serializeApp(row.app),
+    ...wrapAppRecord(wire, serializeApp(row.app)),
     space: { id: row.space.id, slug: row.space.slug, name: row.space.name, userUuid: row.space.userUuid, publicProfile: getSpacePublicProfile(row.space) },
     owner: { ...row.owner, username: row.owner.username },
     publicUrl: createAppPublicUrl({ ownerUsername: row.owner.username, spaceSlug: row.space.slug, appSlug: row.app.slug, status: row.app.status }),
@@ -431,8 +416,7 @@ router.get("/space/:spaceId", async (c) => {
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
   if (!(await hasPermission(user, "space.view", { spaceId }))) return authzDenied(c);
   const rows = await db.select().from(apps).where(eq(apps.spaceId, spaceId));
-  const works: RealtimeAppRecord[] = rows.map(serializeApp);
-  return c.json({ works } satisfies { works: RealtimeAppRecord[] });
+  return c.json(wrapAppRecords(wire, rows.map(serializeApp)));
 });
 
 router.get("/:id/public", async (c) => {
@@ -461,7 +445,7 @@ router.get("/:id/public", async (c) => {
   // model, so an in-workspace preview can render a Work reached by public url.
   const content = await getPublishedAppContent(app);
   return c.json({
-    work: serializeApp(app),
+    ...wrapAppRecord(wire, serializeApp(app)),
     space,
     owner: { ...row.owner, username: row.owner.username },
     content,
@@ -503,7 +487,7 @@ router.get("/:id", async (c) => {
   if (shouldRecordCliView) recordResolvedAppView(c, app, "cli");
   const content = await getPublishedAppContent(app);
   return c.json({
-    work: serializeApp(app),
+    ...wrapAppRecord(wire, serializeApp(app)),
     space,
     owner: { ...row.owner, username: row.owner.username },
     publicUrl: createAppPublicUrl({ ownerUsername: row.owner.username, spaceSlug: row.space.slug, appSlug: app.slug, status: app.status }),
@@ -573,7 +557,7 @@ router.post("/", async (c) => {
         assetKey,
         latestVersion: status === "published" ? 1 : 0,
         publishedAt: status === "published" ? now : null,
-        appScopes: normalizeScopes(body?.workScopes, ALLOWED_APP_SCOPES),
+        appScopes: normalizeScopes(body?.[appScopesBodyField(wire)], ALLOWED_APP_SCOPES),
         allowedViewerScopes: normalizeScopes(body?.allowedViewerScopes, ALLOWED_VIEWER_SCOPES),
         meta: pageMeta,
       }).returning();
@@ -601,12 +585,10 @@ router.post("/", async (c) => {
       await cleanupAppAssets(assetKey, { appId: "new", spaceId, reason: "create_slug_conflict" });
       return c.json({ message: "slug already exists" }, 409);
     }
-    const serializedApp = serializeApp(result.app);
     if (result.version) {
-      const serializedVersion = serializeAppVersion(result.version);
       await dispatchAppVersionPublished({
-        app: serializedApp,
-        version: serializedVersion,
+        app: serializeAppRecord(result.app, "canonical"),
+        version: serializeAppVersionRecord(result.version, "canonical"),
         previousVersionId: null,
         actorUserId: user.uuid,
         source: getRequestSource(c),
@@ -618,7 +600,7 @@ router.post("/", async (c) => {
         });
       });
     }
-    return c.json({ work: serializedApp }, 201);
+    return c.json(wrapAppRecord(wire, serializeApp(result.app)), 201);
   } catch (error) {
     await cleanupAppAssets(assetKey, { appId: "new", spaceId, reason: "create_failed" });
     throw error;
@@ -676,7 +658,9 @@ async function updateApp(
       currentVersionId: current.currentVersionId,
       latestVersion: current.latestVersion,
       publishedAt: nextStatus === "published" ? (current.publishedAt ?? now) : null,
-      appScopes: "workScopes" in (body ?? {}) ? normalizeScopes(body?.workScopes, ALLOWED_APP_SCOPES) : current.appScopes,
+      appScopes: appScopesBodyField(wire) in (body ?? {})
+        ? normalizeScopes(body?.[appScopesBodyField(wire)], ALLOWED_APP_SCOPES)
+        : current.appScopes,
       allowedViewerScopes: "allowedViewerScopes" in (body ?? {}) ? normalizeScopes(body?.allowedViewerScopes, ALLOWED_VIEWER_SCOPES) : current.allowedViewerScopes,
       meta: nextMeta,
       updatedAt: now,
@@ -687,7 +671,7 @@ async function updateApp(
     throw error;
   });
   if (!app) return c.json({ message: "slug already exists" }, 409);
-  return c.json({ work: serializeApp(app) });
+  return c.json(wrapAppRecord(wire, serializeApp(app)));
 }
 
 async function publishAppVersion(
@@ -754,11 +738,9 @@ async function publishAppVersion(
       if (!app) throw new Error("failed to publish app version");
       return { app, version, previousVersionId: versionedWork.previousVersionId };
     });
-    const serializedApp = serializeApp(result.app);
-    const serializedVersion = serializeAppVersion(result.version);
     await dispatchAppVersionPublished({
-      app: serializedApp,
-      version: serializedVersion,
+      app: serializeAppRecord(result.app, "canonical"),
+      version: serializeAppVersionRecord(result.version, "canonical"),
       previousVersionId: result.previousVersionId,
       actorUserId: options.actor.uuid,
       source: getRequestSource(c),
@@ -769,7 +751,10 @@ async function publishAppVersion(
         error,
       });
     });
-    return c.json({ work: serializedApp, version: serializedVersion });
+    return c.json({
+      ...wrapAppRecord(wire, serializeApp(result.app)),
+      version: serializeAppVersion(result.version),
+    });
   } catch (error) {
     try {
       await cleanupAppAssets(assetKey, { appId: current.id, spaceId: current.spaceId, reason: "publish_failed" });
@@ -921,7 +906,7 @@ router.post("/:id/session", async (c) => {
     spaceId: app.spaceId,
     appScopes: app.appScopes as Permission[],
   });
-  return c.json({ token, expiresIn: APP_SESSION_TTL_SECONDS, work: serializeApp(app) });
+  return c.json({ token, expiresIn: APP_SESSION_TTL_SECONDS, ...wrapAppRecord(wire, serializeApp(app)) });
 });
 
 router.post("/:id/authorize", async (c) => {
@@ -961,4 +946,6 @@ router.post("/:id/authorize", async (c) => {
   return c.json({ token, expiresIn: APP_SESSION_TTL_SECONDS, grant: { id: grant.id, scopes: requested, expiresAt: expiresAt.toISOString() } });
 });
 
-export default router;
+  return router;
+}
+

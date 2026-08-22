@@ -64,7 +64,7 @@ export function appDisplayTitle(
  * Aligns with `presentation.hideCohubBar` (Pro+):
  * minimal host branding on public share meta as well as the on-page bar.
  */
-export function isMinimalWorkBranding(meta: WorkMeta | null | undefined) {
+export function isMinimalAppBranding(meta: WorkMeta | null | undefined) {
 	return (
 		isRecord(meta) &&
 		isRecord(meta.presentation) &&
@@ -157,13 +157,10 @@ function isSharePreviewImage(url: string | null | undefined): url is string {
 	}
 }
 
-export type WorkPageDetail = {
-	work: Pick<AppDetailResponse["work"], "meta" | "slug"> &
+export type AppPageDetail = {
+	app: Pick<AppDetailResponse["app"], "meta" | "slug"> &
 		Partial<
-			Pick<
-				AppDetailResponse["work"],
-				"visibility" | "publishedAt" | "updatedAt"
-			>
+			Pick<AppDetailResponse["app"], "visibility" | "publishedAt" | "updatedAt">
 		>;
 	space?: Pick<AppDetailResponse["space"], "name"> | null;
 	owner?: Pick<AppDetailResponse["owner"], "displayName" | "username"> | null;
@@ -172,7 +169,7 @@ export type WorkPageDetail = {
 	contentUrl?: string | null;
 };
 
-export type WorkPageMeta = {
+export type AppPageMeta = {
 	/** Primary work name (no host suffix). */
 	name: string;
 	/** Document / tab / OG title. */
@@ -196,23 +193,23 @@ export type WorkPageMeta = {
 	jsonLd: string;
 };
 
-export function buildWorkPageMeta(
-	detail: WorkPageDetail | null,
+export function buildAppPageMeta(
+	detail: AppPageDetail | null,
 	options?: {
 		origin?: string | null;
 		path?: string | null;
 		/** Force robots when detail is unavailable (e.g. auth-gated shell). */
 		indexable?: boolean;
 	},
-): WorkPageMeta {
-	const work = detail?.work ?? null;
+): AppPageMeta {
+	const app = detail?.app ?? null;
 	const space = detail?.space ?? null;
 	const owner = detail?.owner ?? null;
-	const meta = work?.meta ?? null;
-	const minimalBranding = isMinimalWorkBranding(meta);
+	const meta = app?.meta ?? null;
+	const minimalBranding = isMinimalAppBranding(meta);
 	const primaryName = appName({
 		meta,
-		slug: work?.slug ?? null,
+		slug: app?.slug ?? null,
 		spaceName: space?.name ?? null,
 	});
 	const shortName = truncateText(primaryName, MAX_SHORT_NAME_LENGTH);
@@ -271,7 +268,7 @@ export function buildWorkPageMeta(
 	const indexable =
 		typeof options?.indexable === "boolean"
 			? options.indexable
-			: (work?.visibility ?? "public") === "public";
+			: (app?.visibility ?? "public") === "public";
 	const robots = indexable ? "index,follow" : "noindex,nofollow";
 	const origin = siteOrigin(options?.origin);
 	const authorName =
@@ -305,8 +302,8 @@ export function buildWorkPageMeta(
 				name: siteName,
 				url: origin,
 			},
-			datePublished: work?.publishedAt ?? undefined,
-			dateModified: work?.updatedAt ?? work?.publishedAt ?? undefined,
+			datePublished: app?.publishedAt ?? undefined,
+			dateModified: app?.updatedAt ?? app?.publishedAt ?? undefined,
 		},
 	];
 	const jsonLd = JSON.stringify({
@@ -338,8 +335,8 @@ export function buildWorkPageMeta(
 }
 
 /** Backward-compatible PWA helpers built on the same resolver. */
-export function buildAppPwaMeta(detail: WorkPageDetail | null) {
-	const page = buildWorkPageMeta(detail);
+export function buildAppPwaMeta(detail: AppPageDetail | null) {
+	const page = buildAppPageMeta(detail);
 	return {
 		name: page.documentTitle,
 		shortName: page.shortName,

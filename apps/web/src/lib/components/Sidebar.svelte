@@ -1,5 +1,6 @@
 <script lang="ts">
 import type {
+	AppRecord,
 	BillingCreditStatus,
 	CheckpointRecord,
 	CronJobRecord,
@@ -9,7 +10,6 @@ import type {
 	SessionRecord,
 	SpaceRecord,
 	TaskRunRecord,
-	WorkRecord,
 } from "@neta-art/cohub";
 import { taskRunToBoardTaskSnapshot as taskBoardSnapshot } from "@neta-art/cohub/board";
 import {
@@ -345,12 +345,12 @@ let deletingLabelId = $state<string | null>(null);
 
 let cronjobs = $state<CronJobRecord[]>([]);
 let tasks = $state<TaskRunRecord[]>([]);
-let works = $state<WorkRecord[]>([]);
+let apps = $state<AppRecord[]>([]);
 /**
  * Realtime mutations seen while a full list request is in flight, replayed onto
- * the response so a publish mid-load cannot hide the Space's other Works.
+ * the response so a publish mid-load cannot hide the Space's other apps.
  */
-const worksBuffer = createAppMutationBuffer();
+const appsBuffer = createAppMutationBuffer();
 let loadingCronjobs = $state(false);
 let refreshingCheckpoints = $state(false);
 let loadingCronjobsSpaceId = $state<string | null>(null);
@@ -363,9 +363,9 @@ let tasksPageInfo = $state<{ hasMore: boolean; nextCursor: string | null }>({
 	hasMore: false,
 	nextCursor: null,
 });
-let loadingWorks = $state(false);
-let loadingWorksSpaceId = $state<string | null>(null);
-let refreshingWorks = $state(false);
+let loadingApps = $state(false);
+let loadingAppsSpaceId = $state<string | null>(null);
+let refreshingApps = $state(false);
 
 const currentPath = $derived(page.url.pathname);
 const isSessionsRoute = $derived(
@@ -381,7 +381,7 @@ const workspaceRoute = $derived(
 );
 const currentSpaceId = $derived(workspaceRoute.spaceId);
 const activeSessionId = $derived(workspaceRoute.sessionId);
-const activeWorkId = $derived(workspaceRoute.appId);
+const activeAppId = $derived(workspaceRoute.appId);
 const activeCheckpointId = $derived(workspaceRoute.checkpointId);
 const activeCronjobId = $derived(workspaceRoute.cronjobId);
 const activeTaskId = $derived(workspaceRoute.taskId);
@@ -396,9 +396,7 @@ const activeSession = $derived.by(() => {
 			: null)
 	);
 });
-const activeWork = $derived(
-	works.find((work) => work.id === activeWorkId) ?? null,
-);
+const activeApp = $derived(apps.find((app) => app.id === activeAppId) ?? null);
 const activeCheckpoint = $derived(
 	checkpoints.find((checkpoint) => checkpoint.id === activeCheckpointId) ??
 		null,
@@ -2305,31 +2303,31 @@ async function loadMoreTasksForSpace(spaceId: string) {
 }
 
 /** Fold buffered realtime mutations onto a freshly fetched list. */
-async function loadWorksForSpace(spaceId: string, force = false) {
+async function loadAppsForSpace(spaceId: string, force = false) {
 	await authStore.ensureLoaded();
 	if (spaceId !== currentSpaceId) return;
-	if (!force && loadingWorks && loadingWorksSpaceId === spaceId) return;
-	const shouldShowLoading = works.length === 0;
+	if (!force && loadingApps && loadingAppsSpaceId === spaceId) return;
+	const shouldShowLoading = apps.length === 0;
 	if (shouldShowLoading) {
-		loadingWorks = true;
-		loadingWorksSpaceId = spaceId;
+		loadingApps = true;
+		loadingAppsSpaceId = spaceId;
 	} else {
-		refreshingWorks = true;
+		refreshingApps = true;
 	}
-	worksBuffer.reset();
+	appsBuffer.reset();
 	try {
-		const result = await sdk.works.listBySpace(spaceId);
+		const result = await sdk.apps.listBySpace(spaceId);
 		if (spaceId === currentSpaceId) {
-			works = worksBuffer.apply(result.works ?? []);
+			apps = appsBuffer.apply(result.apps ?? []);
 		}
 	} catch (error) {
-		console.warn("[sidebar] Failed to load works", { spaceId, error });
+		console.warn("[sidebar] Failed to load apps", { spaceId, error });
 	} finally {
-		if (loadingWorksSpaceId === spaceId) {
-			loadingWorks = false;
-			loadingWorksSpaceId = null;
+		if (loadingAppsSpaceId === spaceId) {
+			loadingApps = false;
+			loadingAppsSpaceId = null;
 		}
-		refreshingWorks = false;
+		refreshingApps = false;
 	}
 }
 
@@ -2488,7 +2486,7 @@ function getCurrentSpaceOwnerUsername() {
 	);
 }
 
-async function handleNavigateToWork(appId: string) {
+async function handleNavigateToApp(appId: string) {
 	onClose?.();
 	if (!currentSpaceId) return;
 	await goto(mainRouteWithWindow(buildSpaceAppRoute(currentSpaceId, appId)));
@@ -2498,16 +2496,16 @@ function handleWorksChanged(event: Event) {
 	const detail = (event as CustomEvent<AppsChangedDetail>).detail;
 	if (!currentSpaceId || detail?.spaceId !== currentSpaceId) return;
 	if (detail.app) {
-		worksBuffer.upsert(detail.app);
-		works = upsertAppSnapshot(works, detail.app);
+		appsBuffer.upsert(detail.app);
+		apps = upsertAppSnapshot(apps, detail.app);
 		return;
 	}
 	if (detail.deletedAppId) {
-		worksBuffer.remove(detail.deletedAppId);
-		works = works.filter((app) => app.id !== detail.deletedAppId);
+		appsBuffer.remove(detail.deletedAppId);
+		apps = apps.filter((app) => app.id !== detail.deletedAppId);
 		return;
 	}
-	void loadWorksForSpace(currentSpaceId, true);
+	void loadAppsForSpace(currentSpaceId, true);
 }
 
 async function handleCreateNewSession() {
@@ -3224,7 +3222,7 @@ $effect(() => {
 		checkpoints = [];
 		cronjobs = [];
 		tasks = [];
-		works = [];
+		apps = [];
 		sessionsPageInfo = { hasMore: false, nextCursor: null };
 		exhaustedFallbackSessionCursor = null;
 		loadingSessions = false;
@@ -3246,9 +3244,9 @@ $effect(() => {
 		refreshingTasks = false;
 		loadingMoreTasks = false;
 		tasksPageInfo = { hasMore: false, nextCursor: null };
-		loadingWorks = false;
-		loadingWorksSpaceId = null;
-		refreshingWorks = false;
+		loadingApps = false;
+		loadingAppsSpaceId = null;
+		refreshingApps = false;
 		labelDropTargetId = null;
 		labelDropBusyId = null;
 		labelDropErrorMessage = null;
@@ -3264,7 +3262,7 @@ $effect(() => {
 			void loadLabelsForSpace(id);
 			void loadCheckpointsForSpace(id, true);
 			void loadCronjobsForSpace(id, true);
-			void loadWorksForSpace(id, true);
+			void loadAppsForSpace(id, true);
 		});
 	} else {
 		sessions = [];
@@ -3275,7 +3273,7 @@ $effect(() => {
 		checkpoints = [];
 		cronjobs = [];
 		tasks = [];
-		works = [];
+		apps = [];
 		loadingSessions = false;
 		loadingSessionsSpaceId = null;
 		refreshingSessions = false;
@@ -3774,18 +3772,18 @@ $effect(() => {
 	{/if}
 {/snippet}
 
-{#snippet worksFlyoutList()}
-	{#if loadingWorks && works.length === 0}
-		{@render sidebarEmptyState("Loading works…", true)}
-	{:else if works.length === 0}
-		{@render sidebarEmptyState("No works")}
+{#snippet appsFlyoutList()}
+	{#if loadingApps && apps.length === 0}
+		{@render sidebarEmptyState("Loading apps…", true)}
+	{:else if apps.length === 0}
+		{@render sidebarEmptyState("No apps")}
 	{:else}
 		<div class="space-y-[2px]">
-			{#each works.slice(0, sidebarFlyoutPreviewLimit) as work (work.id)}
-				{@const manageHref = currentSpaceId ? buildSpaceAppRoute(currentSpaceId, work.id) : "#"}
-				{@const isActive = activeWork?.id === work.id}
-				<a href={manageHref} class="sidebar-flyout-item flex items-center gap-2 rounded-[var(--sidebar-item-radius)] px-1.5 py-1.5 text-[13px] {isActive ? 'bg-[var(--sidebar-item-active-bg)] font-medium text-[var(--sidebar-item-active-fg)]' : 'text-text-tertiary hover:bg-[var(--sidebar-item-hover-bg)] hover:text-text-secondary'}" onclick={(e) => { e.preventDefault(); void handleNavigateToWork(work.id); }}>
-					<div class="min-w-0 flex-1"><div class="truncate font-mono leading-tight">{work.slug}</div></div>
+			{#each apps.slice(0, sidebarFlyoutPreviewLimit) as app (app.id)}
+				{@const manageHref = currentSpaceId ? buildSpaceAppRoute(currentSpaceId, app.id) : "#"}
+				{@const isActive = activeApp?.id === app.id}
+				<a href={manageHref} class="sidebar-flyout-item flex items-center gap-2 rounded-[var(--sidebar-item-radius)] px-1.5 py-1.5 text-[13px] {isActive ? 'bg-[var(--sidebar-item-active-bg)] font-medium text-[var(--sidebar-item-active-fg)]' : 'text-text-tertiary hover:bg-[var(--sidebar-item-hover-bg)] hover:text-text-secondary'}" onclick={(e) => { e.preventDefault(); void handleNavigateToApp(app.id); }}>
+					<div class="min-w-0 flex-1"><div class="truncate font-mono leading-tight">{app.slug}</div></div>
 				</a>
 			{/each}
 		</div>
@@ -3934,11 +3932,11 @@ $effect(() => {
               {/snippet}
               {@render chatsSection(false)}
             </SidebarFlyout>
-            <SidebarFlyout label="Apps" active={Boolean(activeWork)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
+            <SidebarFlyout label="Apps" active={Boolean(activeApp)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
               {#snippet trigger()}
                 <Rocket class="h-4 w-4" />
               {/snippet}
-              {@render worksFlyoutList()}
+              {@render appsFlyoutList()}
             </SidebarFlyout>
             <SidebarFlyout label="Saves" active={Boolean(activeCheckpointId)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
               {#snippet trigger()}
@@ -4177,40 +4175,40 @@ $effect(() => {
               <ChevronDown class="w-3 h-3 text-text-tertiary shrink-0 transition-transform duration-150 {worksCollapsed ? 'rotate-180' : ''}" />
               <Rocket class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
               <span class="text-[11px] text-text-placeholder select-none">Works</span>
-              {@render syncSpinner(refreshingWorks, "ml-auto")}
+              {@render syncSpinner(refreshingApps, "ml-auto")}
             </button>
 
             {#if !worksCollapsed}
-              {#if loadingWorks && works.length === 0}
-                {@render sidebarEmptyState("Loading works…", true)}
-              {:else if works.length === 0}
-                {@render sidebarEmptyState("No works")}
+              {#if loadingApps && apps.length === 0}
+                {@render sidebarEmptyState("Loading apps…", true)}
+              {:else if apps.length === 0}
+                {@render sidebarEmptyState("No apps")}
               {:else}
                 <div class="space-y-[2px] mt-1">
-                  {#each works as work (work.id)}
-                    {@const manageHref = currentSpaceId ? buildSpaceAppRoute(currentSpaceId, work.id) : "#"}
-                    {@const isActive = activeWork?.id === work.id}
+                  {#each apps as app (app.id)}
+                    {@const manageHref = currentSpaceId ? buildSpaceAppRoute(currentSpaceId, app.id) : "#"}
+                    {@const isActive = activeApp?.id === app.id}
                     <a
                       href={manageHref}
                       class="flex items-center gap-2 rounded-[var(--sidebar-item-radius)] px-1.5 py-1.5 text-[13px] transition-colors duration-100 {isActive ? 'bg-[var(--sidebar-item-active-bg)] font-medium text-[var(--sidebar-item-active-fg)]' : 'text-text-tertiary hover:bg-[var(--sidebar-item-hover-bg)] hover:text-text-secondary'}"
-                      onclick={(e) => { e.preventDefault(); void handleNavigateToWork(work.id); }}
+                      onclick={(e) => { e.preventDefault(); void handleNavigateToApp(app.id); }}
                     >
                       <div class="min-w-0 flex-1">
-                        <div class="truncate font-mono leading-tight">{work.slug}</div>
+                        <div class="truncate font-mono leading-tight">{app.slug}</div>
                       </div>
                     </a>
                   {/each}
                 </div>
               {/if}
-            {:else if activeWork}
-              {@const manageHref = currentSpaceId ? buildSpaceAppRoute(currentSpaceId, activeWork.id) : "#"}
+            {:else if activeApp}
+              {@const manageHref = currentSpaceId ? buildSpaceAppRoute(currentSpaceId, activeApp.id) : "#"}
               <a
                 href={manageHref}
                 class="mt-1 flex items-center gap-2 rounded-[var(--sidebar-item-radius)] bg-[var(--sidebar-item-active-bg)] px-1.5 py-1.5 text-[13px] font-medium text-[var(--sidebar-item-active-fg)] transition-colors duration-100"
-                onclick={(e) => { e.preventDefault(); void handleNavigateToWork(activeWork.id); }}
+                onclick={(e) => { e.preventDefault(); void handleNavigateToApp(activeApp.id); }}
               >
                 <div class="min-w-0 flex-1">
-                  <div class="truncate font-mono leading-tight">{activeWork.slug}</div>
+                  <div class="truncate font-mono leading-tight">{activeApp.slug}</div>
                 </div>
               </a>
             {/if}

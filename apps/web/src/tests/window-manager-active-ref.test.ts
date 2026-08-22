@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { createPreviewWorkspaceController } from "../lib/features/space/modules/window-manager.svelte.ts";
+import { createWindowManager } from "../lib/features/space/modules/window-manager.svelte.ts";
 
 (globalThis as unknown as { $state: <T>(value: T) => T }).$state = <T>(
 	value: T,
@@ -23,14 +23,14 @@ function createHarness() {
 	let ports: string[] = [];
 	let activePort: string | null = null;
 	let appIds: string[] = [];
-	let activeWorkId: string | null = null;
+	let activeAppId: string | null = null;
 	let boardOpenCount = 0;
 	const urls: Array<Ref | null> = [];
 
 	const drop = (list: string[], key: string) =>
 		list.filter((item) => item !== key);
 
-	const controller = createPreviewWorkspaceController({
+	const controller = createWindowManager({
 		getFileTabs: () =>
 			filePaths.map((path) => ({ path, response: null, draft: "" })),
 		getActiveFilePath: () => activeFilePath,
@@ -38,8 +38,8 @@ function createHarness() {
 		getActiveBoardPath: () => activeBoardPath,
 		getPortTabs: () => ports.map((port) => ({ port, url: "http://x" })),
 		getActivePort: () => activePort,
-		getWorkTabs: () => appIds.map((appId) => ({ appId, loading: false })),
-		getActiveWorkId: () => activeWorkId,
+		getAppTabs: () => appIds.map((appId) => ({ appId, loading: false })),
+		getActiveAppId: () => activeAppId,
 		openFile: async (path) => {
 			if (!filePaths.includes(path)) filePaths = [...filePaths, path];
 			activeFilePath = path;
@@ -78,17 +78,17 @@ function createHarness() {
 			ports = drop(ports, port);
 			if (activePort === port) activePort = ports.at(-1) ?? null;
 		},
-		openWork: (input) => {
+		openApp: (input) => {
 			if (!appIds.includes(input.appId)) appIds = [...appIds, input.appId];
-			activeWorkId = input.appId;
+			activeAppId = input.appId;
 		},
-		activateWork: (appId) => {
-			activeWorkId = appId;
+		activateApp: (appId) => {
+			activeAppId = appId;
 		},
-		closeWork: (appId) => {
+		closeApp: (appId) => {
 			if (!appId) return;
 			appIds = drop(appIds, appId);
-			if (activeWorkId === appId) activeWorkId = appIds.at(-1) ?? null;
+			if (activeAppId === appId) activeAppId = appIds.at(-1) ?? null;
 		},
 		getPortEndpointUrl: () => "http://x",
 		syncUrl: (ref) => {
@@ -119,7 +119,7 @@ test("closing the active preview falls back to the most recently used surface", 
 	const { controller } = createHarness();
 	await controller.openFile("docs/a.md");
 	controller.openPort("5173", "http://x");
-	controller.openWork({ appId: WORK_ID });
+	controller.openApp({ appId: WORK_ID });
 
 	controller.close("app", WORK_ID);
 
@@ -134,7 +134,7 @@ test("re-activating an older tab makes it the fallback again", async () => {
 	await controller.openFile("docs/a.md");
 	await controller.openBoard("plans/main.board");
 	controller.activate("file", "docs/a.md");
-	controller.openWork({ appId: WORK_ID });
+	controller.openApp({ appId: WORK_ID });
 
 	controller.close("app", WORK_ID);
 
@@ -192,7 +192,7 @@ test("a reopened tab does not inherit its previous access order", async () => {
 	// Reopening the port must rank it as newest, not restore the stale ordering
 	// left behind by the closed tab.
 	controller.openPort("5173", "http://x");
-	controller.openWork({ appId: WORK_ID });
+	controller.openApp({ appId: WORK_ID });
 	controller.close("app", WORK_ID);
 
 	assert.deepEqual(controller.currentRef(), { kind: "port", key: "5173" });
@@ -203,7 +203,7 @@ test("compact session navigation suspends tabs without disposing runtimes", asyn
 	await controller.openFile("docs/a.md");
 	await controller.openBoard("plans/main.board");
 	controller.openPort("5173", "http://x");
-	controller.openWork({ appId: WORK_ID });
+	controller.openApp({ appId: WORK_ID });
 	const opensBeforeSuspend = boardOpenCount();
 
 	assert.equal(controller.suspendForRoute(), true);
@@ -230,7 +230,7 @@ test("closeAll drops every domain tab and the active ref", async () => {
 	await controller.openFile("docs/a.md");
 	await controller.openBoard("plans/main.board");
 	controller.openPort("5173", "http://x");
-	controller.openWork({ appId: WORK_ID });
+	controller.openApp({ appId: WORK_ID });
 
 	controller.closeAll();
 
@@ -260,7 +260,7 @@ test("a context teardown never writes the URL of the route it is leaving for", a
 	const { controller, urls } = createHarness();
 	await controller.openFile("docs/a.md");
 	controller.openPort("5173", "http://x");
-	controller.openWork({ appId: WORK_ID });
+	controller.openApp({ appId: WORK_ID });
 	const writesBefore = urls.length;
 
 	// Leaving a Space/FS context: the new route is already in the address bar, so
@@ -276,7 +276,7 @@ test("a context teardown never writes the URL of the route it is leaving for", a
 
 test("the route that follows a context teardown survives", async () => {
 	const { controller, urls } = createHarness();
-	controller.openWork({ appId: WORK_ID });
+	controller.openApp({ appId: WORK_ID });
 	const writesBefore = urls.length;
 
 	// Full sequence of a Space switch: tear the old context down, then hydrate the
@@ -327,7 +327,7 @@ test("every domain reports closed tabs to the coordinator", () => {
 		["file-workspace-controller.svelte.ts", "onInlineFileClosed"],
 		["board-window-controller.svelte.ts", "onBoardClosed"],
 		["port-window-controller.svelte.ts", "onPortClosed"],
-		["app-window-controller.svelte.ts", "onWorkClosed"],
+		["app-window-controller.svelte.ts", "onAppClosed"],
 	] as const) {
 		const source = readFileSync(new URL(file, modules), "utf8");
 		assert.match(source, new RegExp(`options\\.${callback}\\?\\.\\(`));
@@ -355,7 +355,7 @@ test("panels open only once their tab is the committed active surface", () => {
 	for (const [source, activeAssignment] of [
 		[board, "activeBoardPath = path"],
 		[port, "activePort = port"],
-		[work, "activeWorkId = input.appId"],
+		[work, "activeAppId = input.appId"],
 	] as const) {
 		const activeAt = source.indexOf(activeAssignment);
 		const openPanelAt = source.indexOf("options.onOpenPanel?.()");

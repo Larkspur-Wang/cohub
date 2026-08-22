@@ -16,7 +16,7 @@ export async function resolveCohubWorkLinkMentionLabels(
 	await Promise.all(
 		unique.map(async (link) => {
 			try {
-				const { work } = await sdk.works.getBySlug(
+				const { app } = await sdk.works.getBySlug(
 					link.username,
 					link.spaceSlug,
 					link.appSlug,
@@ -26,7 +26,7 @@ export async function resolveCohubWorkLinkMentionLabels(
 					throw new DOMException("Resolve aborted", "AbortError");
 				resolved.set(
 					getCohubAppLinkKey(link),
-					appDisplayTitle(work.meta, work.slug),
+					appDisplayTitle(app.meta, app.slug),
 				);
 			} catch (error) {
 				if ((error as { name?: string })?.name === "AbortError") throw error;

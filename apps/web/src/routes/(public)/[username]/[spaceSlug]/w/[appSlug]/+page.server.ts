@@ -21,11 +21,11 @@ export const load: PageServerLoad = async ({
 
 	if (result.ok) {
 		setPublicPageCache(setHeaders, {
-			private: (result.detail.work.visibility ?? "public") === "space",
+			private: (result.detail.app.visibility ?? "public") === "space",
 		});
 		return {
 			mode: "ready" as const,
-			work: result.detail.work,
+			work: result.detail.app,
 			space: result.detail.space,
 			owner: result.detail.owner,
 			content: result.detail.content,

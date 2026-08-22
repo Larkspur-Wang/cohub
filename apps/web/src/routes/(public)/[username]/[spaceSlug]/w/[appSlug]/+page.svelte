@@ -1,8 +1,8 @@
 <script lang="ts">
-import type { WorkDetailResponse } from "@neta-art/cohub";
+import type { AppDetailResponse } from "@neta-art/cohub";
 import { onMount } from "svelte";
 import { page } from "$app/state";
-import { buildWorkPageMeta } from "$lib/app-page-meta";
+import { buildAppPageMeta } from "$lib/app-page-meta";
 import { reportAppPromotionReady, startAppPromotion } from "$lib/app-promotion";
 import AppPageHead from "$lib/components/app/AppPageHead.svelte";
 import AppSurface from "$lib/components/app/AppSurface.svelte";
@@ -10,11 +10,11 @@ import { sdk } from "$lib/sdk";
 
 type ReadyData = {
 	mode: "ready";
-	work: WorkDetailResponse["work"];
-	space: WorkDetailResponse["space"];
-	owner: WorkDetailResponse["owner"];
-	content: WorkDetailResponse["content"];
-	publicUrl: WorkDetailResponse["publicUrl"];
+	app: AppDetailResponse["app"];
+	space: AppDetailResponse["space"];
+	owner: AppDetailResponse["owner"];
+	content: AppDetailResponse["content"];
+	publicUrl: AppDetailResponse["publicUrl"];
 	pathname: string;
 	origin: string;
 };
@@ -35,7 +35,7 @@ const launchState = $derived({
 	hash: page.url.hash,
 });
 
-let clientDetail = $state<WorkDetailResponse | null>(null);
+let clientDetail = $state<AppDetailResponse | null>(null);
 let clientError = $state("");
 let clientLoading = $state(false);
 /** AppSurface uses window/postMessage; mount only after hydration. */
@@ -56,7 +56,7 @@ function maybeReportPromotionReady() {
 		!ready
 	)
 		return;
-	const appId = ready.work.id;
+	const appId = ready.app.id;
 	promotionReadyReported = true;
 	void promotionRuntime
 		.then((runtime) => reportAppPromotionReady(appId, promotionId, runtime))
@@ -74,7 +74,7 @@ const ready = $derived(
 		: clientDetail
 			? {
 					mode: "ready" as const,
-					work: clientDetail.work,
+					app: clientDetail.app,
 					space: clientDetail.space,
 					owner: clientDetail.owner,
 					content: clientDetail.content,
@@ -87,9 +87,9 @@ const ready = $derived(
 
 const pageMeta = $derived(
 	ready
-		? buildWorkPageMeta(
+		? buildAppPageMeta(
 				{
-					work: ready.work,
+					app: ready.app,
 					space: ready.space,
 					owner: ready.owner,
 					publicUrl: ready.publicUrl,
@@ -97,7 +97,7 @@ const pageMeta = $derived(
 				},
 				{ origin: ready.origin, path: ready.pathname },
 			)
-		: buildWorkPageMeta(null, {
+		: buildAppPageMeta(null, {
 				origin: props.data.origin,
 				path: props.data.pathname,
 				// Auth-gated shell must not be indexed before client resolution.
@@ -111,11 +111,11 @@ onMount(() => {
 
 $effect(() => {
 	if (!surfaceReady || !promotionId || !ready) return;
-	const key = `${ready.work.id}:${promotionId}`;
+	const key = `${ready.app.id}:${promotionId}`;
 	if (activePromotionKey === key) return;
 	activePromotionKey = key;
 	promotionReadyReported = false;
-	promotionRuntime = startAppPromotion(ready.work.id, promotionId);
+	promotionRuntime = startAppPromotion(ready.app.id, promotionId);
 	promotionRuntime.catch(() => undefined);
 	maybeReportPromotionReady();
 });
@@ -164,7 +164,7 @@ $effect(() => {
 
 {#if ready && surfaceReady}
 	<AppSurface
-		app={ready.work}
+		app={ready.app}
 		space={ready.space}
 		owner={ready.owner}
 		content={ready.content}

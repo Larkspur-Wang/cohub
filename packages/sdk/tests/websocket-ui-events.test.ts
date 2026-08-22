@@ -81,7 +81,7 @@ test("emits UI command envelopes as user events", async () => {
         type: "preview.show",
         preview: {
           kind: "work",
-          workId: "123e4567-e89b-42d3-a456-426614174000",
+          appId: "123e4567-e89b-42d3-a456-426614174000",
         },
       },
       source: null,

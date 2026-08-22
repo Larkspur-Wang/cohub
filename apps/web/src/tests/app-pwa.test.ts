@@ -1,16 +1,16 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { AppDetailResponse } from "@neta-art/cohub";
-import { buildWorkPageMeta } from "../lib/app-page-meta";
+import { buildAppPageMeta } from "../lib/app-page-meta";
 import { buildAppPwaMeta, resolvePublicAppStartUrl } from "../lib/app-pwa";
 
 function detail(
-	overrides: Partial<AppDetailResponse["work"]> = {},
+	overrides: Partial<AppDetailResponse["app"]> = {},
 	space: Partial<AppDetailResponse["space"]> = {},
 	owner: Partial<AppDetailResponse["owner"]> = {},
 ): AppDetailResponse {
 	return {
-		work: {
+		app: {
 			id: "work-1",
 			spaceId: "space-1",
 			userUuid: "user-1",
@@ -23,7 +23,7 @@ function detail(
 			currentVersionId: null,
 			latestVersion: 1,
 			publishedAt: null,
-			workScopes: [],
+			appScopes: [],
 			allowedViewerScopes: [],
 			meta: null,
 			createdAt: null,
@@ -92,8 +92,8 @@ test("buildAppPwaMeta falls back to space name then slug", () => {
 	);
 });
 
-test("buildWorkPageMeta marks space-visibility works noindex", () => {
-	const page = buildWorkPageMeta(
+test("buildAppPageMeta marks space-visibility works noindex", () => {
+	const page = buildAppPageMeta(
 		detail({ visibility: "space", meta: { title: "Private Board" } }),
 		{ origin: "https://cohub.run", path: "/ada/lab/w/demo" },
 	);
@@ -105,8 +105,8 @@ test("buildWorkPageMeta marks space-visibility works noindex", () => {
 	assert.match(page.jsonLd, /Private Board/);
 });
 
-test("buildWorkPageMeta resolves root-relative icons against content URL", () => {
-	const page = buildWorkPageMeta(
+test("buildAppPageMeta resolves root-relative icons against content URL", () => {
+	const page = buildAppPageMeta(
 		{
 			...detail({
 				meta: {
@@ -132,8 +132,8 @@ test("buildWorkPageMeta resolves root-relative icons against content URL", () =>
 	assert.equal(page.twitterCard, "summary");
 });
 
-test("buildWorkPageMeta surfaces lang and theme-color from work meta", () => {
-	const page = buildWorkPageMeta(
+test("buildAppPageMeta surfaces lang and theme-color from work meta", () => {
+	const page = buildAppPageMeta(
 		detail({
 			meta: {
 				title: "时光笔记",
@@ -149,8 +149,8 @@ test("buildWorkPageMeta surfaces lang and theme-color from work meta", () => {
 	assert.match(page.jsonLd, /"inLanguage":"zh-CN"/);
 });
 
-test("buildWorkPageMeta keeps raster og:image and skips svg share images", () => {
-	const withPng = buildWorkPageMeta(
+test("buildAppPageMeta keeps raster og:image and skips svg share images", () => {
+	const withPng = buildAppPageMeta(
 		{
 			...detail({
 				meta: {
@@ -174,8 +174,8 @@ test("buildWorkPageMeta keeps raster og:image and skips svg share images", () =>
 	assert.equal(withPng.twitterCard, "summary_large_image");
 });
 
-test("buildWorkPageMeta default branding is light host; hideCohubBar is minimal", () => {
-	const withTitle = buildWorkPageMeta(
+test("buildAppPageMeta default branding is light host; hideCohubBar is minimal", () => {
+	const withTitle = buildAppPageMeta(
 		detail({ meta: { title: "Launch Board" } }),
 		{ origin: "https://cohub.run", path: "/ada/lab/w/demo" },
 	);
@@ -183,14 +183,14 @@ test("buildWorkPageMeta default branding is light host; hideCohubBar is minimal"
 	assert.equal(withTitle.siteName, "Cohub");
 	assert.equal(withTitle.minimalBranding, false);
 
-	const generic = buildWorkPageMeta(detail({ slug: "demo_work", meta: null }), {
+	const generic = buildAppPageMeta(detail({ slug: "demo_work", meta: null }), {
 		origin: "https://cohub.run",
 		path: "/ada/lab/w/demo",
 	});
 	assert.equal(generic.documentTitle, "Demo Work · Cohub");
 	assert.equal(generic.siteName, "Cohub");
 
-	const minimal = buildWorkPageMeta(
+	const minimal = buildAppPageMeta(
 		detail({
 			slug: "demo_work",
 			meta: {
@@ -205,7 +205,7 @@ test("buildWorkPageMeta default branding is light host; hideCohubBar is minimal"
 	assert.equal(minimal.minimalBranding, true);
 	assert.match(minimal.jsonLd, /"name":"Launch Board"/);
 
-	const minimalGeneric = buildWorkPageMeta(
+	const minimalGeneric = buildAppPageMeta(
 		detail({
 			slug: "demo_work",
 			meta: { presentation: { hideCohubBar: true } },

@@ -306,7 +306,7 @@ onDestroy(() => {
             <section class="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_140px]">
               <div class="rounded-[7px] bg-bg-elevated/30 px-3 py-2.5">
                 <div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">App permissions</div>
-                <div class="mt-1 text-[13px] text-text-primary">{appDetail.workScopes.length ? appDetail.workScopes.join(', ') : 'None'}</div>
+                <div class="mt-1 text-[13px] text-text-primary">{appDetail.appScopes.length ? appDetail.appScopes.join(', ') : 'None'}</div>
               </div>
               <div class="rounded-[7px] bg-bg-elevated/30 px-3 py-2.5">
                 <div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">Viewer grants</div>

@@ -16,12 +16,7 @@ type BrokerState = "loading" | "need-login" | "ready" | "error";
 type AppDetail = {
 	work: Pick<
 		AppRecord,
-		| "id"
-		| "spaceId"
-		| "userUuid"
-		| "slug"
-		| "workScopes"
-		| "allowedViewerScopes"
+		"id" | "spaceId" | "userUuid" | "slug" | "appScopes" | "allowedViewerScopes"
 	>;
 	owner: AppPublicOwnerRecord;
 };

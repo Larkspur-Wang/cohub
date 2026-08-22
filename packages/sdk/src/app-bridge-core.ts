@@ -17,7 +17,7 @@ import {
  */
 export type AppBridgeCoreApp = Pick<
 	AppRecord,
-	"id" | "spaceId" | "slug" | "userUuid" | "workScopes" | "allowedViewerScopes"
+	"id" | "spaceId" | "slug" | "userUuid" | "appScopes" | "allowedViewerScopes"
 >;
 
 /**
@@ -364,7 +364,7 @@ export function createAppBridgeCore(
 		if (!data?.requestId) return;
 		try {
 			if (data.type === "cohub.app.context") {
-				const appScopes = clonePermissionScopes(app.workScopes);
+				const appScopes = clonePermissionScopes(app.appScopes);
 				const viewerUuid = await getViewerUuid();
 				reply(data.requestId, {
 					type: "cohub.app.context.result",

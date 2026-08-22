@@ -105,8 +105,8 @@ async function resolveAppTarget(client: CohubHttpClient, ref: string): Promise<O
   const detail = await getAppByRef(client, normalized);
   return {
     kind: "app",
-    appId: detail.work.id,
-    label: detail.work.slug,
+    appId: detail.app.id,
+    label: detail.app.slug,
     launch: {
       ...(parsed.search ? { search: parsed.search } : {}),
       ...(parsed.hash ? { hash: parsed.hash } : {}),

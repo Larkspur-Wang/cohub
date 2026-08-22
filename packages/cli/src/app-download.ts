@@ -231,7 +231,7 @@ export async function downloadApp(
   outputOption?: string,
   fetcher: typeof fetch = fetch,
 ): Promise<DownloadResult> {
-  const { work, content } = detail;
+  const { app, content } = detail;
   if (!content) throw new Error("This app has no published downloadable artifact");
   if (content.kind === "port") throw new Error("Port apps do not have a downloadable artifact");
   if (content.kind === "board") throw new Error("Board apps do not have a restorable file or directory artifact");
@@ -245,7 +245,7 @@ export async function downloadApp(
   const entry = manifest.files.find((file) => file.artifactPath === manifest.entrypoint);
   if (!entry) throw new Error("App download manifest entrypoint is missing");
   const hasDirectoryOutput = manifest.targetType === "directory" || manifest.files.length > 1;
-  const output = resolve(outputOption ?? (hasDirectoryOutput ? work.slug : basename(manifest.targetRef)));
+  const output = resolve(outputOption ?? (hasDirectoryOutput ? app.slug : basename(manifest.targetRef)));
   await assertOutputMissing(output);
   await mkdir(dirname(output), { recursive: true });
   const stage = await mkdtemp(join(dirname(output), `.${basename(output)}.cohub-download-`));
@@ -261,8 +261,8 @@ export async function downloadApp(
       await rm(stage, { recursive: true, force: true });
     }
     return {
-      appId: work.id,
-      version: work.latestVersion,
+      appId: app.id,
+      version: app.latestVersion,
       kind: hasDirectoryOutput ? "directory" : "file",
       output,
       files: files.length,

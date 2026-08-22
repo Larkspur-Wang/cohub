@@ -1,9 +1,9 @@
 import {
+	type AppPageDetail,
 	buildAppPwaMeta as buildSharedAppPwaMeta,
-	type WorkPageDetail,
 } from "$lib/app-page-meta";
 
-export type WorkPwaDetail = WorkPageDetail;
+export type AppPwaDetail = AppPageDetail;
 
 const PUBLIC_WORK_SEGMENT = "w";
 
@@ -40,6 +40,6 @@ export function resolvePublicAppStartUrl(requestUrl: URL) {
 	return { startUrl: path.pathname, path };
 }
 
-export function buildAppPwaMeta(detail: WorkPwaDetail | null) {
+export function buildAppPwaMeta(detail: AppPwaDetail | null) {
 	return buildSharedAppPwaMeta(detail);
 }

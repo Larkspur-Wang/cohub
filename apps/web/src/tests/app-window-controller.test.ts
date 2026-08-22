@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createWorkPreviewController } from "../lib/features/space/modules/app-window-controller.svelte.ts";
+import { createAppPreviewController } from "../lib/features/space/modules/app-window-controller.svelte.ts";
 
 (globalThis as unknown as { $state: <T>(value: T) => T }).$state = <T>(
 	value: T,
@@ -9,7 +9,7 @@ import { createWorkPreviewController } from "../lib/features/space/modules/app-w
 const WORK_ID = "123e4567-e89b-42d3-a456-426614174000";
 
 const detailFor = (kind: "web" | "port" | "file" | "board" | null) => ({
-	work: {
+	app: {
 		id: WORK_ID,
 		slug: "launch",
 		meta: null,
@@ -27,7 +27,7 @@ const detailFor = (kind: "web" | "port" | "file" | "board" | null) => ({
 function createController(
 	options: { detail?: unknown; delayMs?: number; fail?: string } = {},
 ) {
-	return createWorkPreviewController({
+	return createAppPreviewController({
 		getSpaceId: () => "space-1",
 		loadWork: async () => {
 			if (options.delayMs)
@@ -42,7 +42,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 5));
 
 test("opening a work loads its detail and adopts the published title as the tab label", async () => {
 	const controller = createController();
-	controller.openWork({ appId: WORK_ID, label: "Work" });
+	controller.openApp({ appId: WORK_ID, label: "Work" });
 	assert.equal(controller.preview?.loading, true);
 
 	await settle();
@@ -52,7 +52,7 @@ test("opening a work loads its detail and adopts the published title as the tab 
 
 test("reopening a Work from another invocation updates context and remounts", () => {
 	const controller = createController();
-	controller.openWork({
+	controller.openApp({
 		appId: WORK_ID,
 		invocation: {
 			surface: "app",
@@ -63,7 +63,7 @@ test("reopening a Work from another invocation updates context and remounts", ()
 	});
 	const firstMountKey = controller.preview?.mountKey;
 
-	controller.openWork({
+	controller.openApp({
 		appId: WORK_ID,
 		invocation: {
 			surface: "app",
@@ -80,21 +80,21 @@ test("reopening a Work from another invocation updates context and remounts", ()
 
 test("reopening a closed Work gets a fresh surface mount", () => {
 	const controller = createController();
-	controller.openWork({ appId: WORK_ID });
+	controller.openApp({ appId: WORK_ID });
 	const firstMountKey = controller.preview?.mountKey;
 
-	controller.openWork({ appId: WORK_ID });
+	controller.openApp({ appId: WORK_ID });
 	assert.equal(controller.preview?.mountKey, firstMountKey);
 
-	controller.closeWork(WORK_ID);
-	controller.openWork({ appId: WORK_ID });
+	controller.closeApp(WORK_ID);
+	controller.openApp({ appId: WORK_ID });
 	assert.notEqual(controller.preview?.mountKey, firstMountKey);
 });
 
 test("refreshing an open Work reloads its detail and remounts the surface", async () => {
 	let detail = detailFor("web");
 	let loads = 0;
-	const controller = createWorkPreviewController({
+	const controller = createAppPreviewController({
 		getSpaceId: () => "space-1",
 		loadWork: async () => {
 			loads += 1;
@@ -102,19 +102,19 @@ test("refreshing an open Work reloads its detail and remounts the surface", asyn
 		},
 	});
 
-	controller.openWork({ appId: WORK_ID });
+	controller.openApp({ appId: WORK_ID });
 	await settle();
 	const firstMountKey = controller.preview?.mountKey;
 	const firstLoads = loads;
-	const nextWork = {
-		...detail.work,
-		latestVersion: detail.work.latestVersion + 1,
+	const nextApp = {
+		...detail.app,
+		latestVersion: detail.app.latestVersion + 1,
 		currentVersionId: "version-2",
 		updatedAt: "2026-07-20T01:00:00.000Z",
 	};
 	detail = {
 		...detail,
-		work: nextWork,
+		app: nextApp,
 		content: { kind: "web", url: "https://work.example/v2.html" },
 	};
 
@@ -130,17 +130,17 @@ test("refreshing an open Work reloads its detail and remounts the surface", asyn
 
 test("a stale refresh response cannot replace the current Work detail", async () => {
 	let detail = detailFor("web");
-	const controller = createWorkPreviewController({
+	const controller = createAppPreviewController({
 		getSpaceId: () => "space-1",
 		loadWork: async () => detail as never,
 	});
 
-	controller.openWork({ appId: WORK_ID });
+	controller.openApp({ appId: WORK_ID });
 	await settle();
 	const current = {
 		...detail,
-		work: {
-			...detail.work,
+		app: {
+			...detail.app,
 			latestVersion: 2,
 			currentVersionId: "version-2",
 			updatedAt: "2026-07-20T01:00:00.000Z",
@@ -153,8 +153,8 @@ test("a stale refresh response cannot replace the current Work detail", async ()
 
 	const stale = {
 		...detail,
-		work: {
-			...detail.work,
+		app: {
+			...detail.app,
 			latestVersion: 1,
 			currentVersionId: "version-1",
 			updatedAt: "2026-07-20T00:00:00.000Z",
@@ -165,7 +165,7 @@ test("a stale refresh response cannot replace the current Work detail", async ()
 	controller.refreshIfOpen(WORK_ID);
 	await settle();
 
-	assert.equal(controller.preview?.detail?.work.latestVersion, 2);
+	assert.equal(controller.preview?.detail?.app.latestVersion, 2);
 	assert.equal(
 		controller.preview?.detail?.content?.url,
 		"https://work.example/v2.html",
@@ -175,7 +175,7 @@ test("a stale refresh response cannot replace the current Work detail", async ()
 
 test("a failed background refresh keeps the current Work detail", async () => {
 	let shouldFail = false;
-	const controller = createWorkPreviewController({
+	const controller = createAppPreviewController({
 		getSpaceId: () => "space-1",
 		loadWork: async () => {
 			if (shouldFail) throw new Error("Network unavailable");
@@ -183,13 +183,13 @@ test("a failed background refresh keeps the current Work detail", async () => {
 		},
 	});
 
-	controller.openWork({ appId: WORK_ID });
+	controller.openApp({ appId: WORK_ID });
 	await settle();
 	shouldFail = true;
 	controller.refreshIfOpen(WORK_ID);
 	await settle();
 
-	assert.equal(controller.preview?.detail?.work.latestVersion, 1);
+	assert.equal(controller.preview?.detail?.app.latestVersion, 1);
 	assert.equal(controller.preview?.error, null);
 	assert.equal(controller.preview?.refreshError, "Network unavailable");
 	assert.equal(controller.preview?.loading, false);
@@ -197,7 +197,7 @@ test("a failed background refresh keeps the current Work detail", async () => {
 
 test("refreshing a closed Work does not load it", async () => {
 	let loads = 0;
-	const controller = createWorkPreviewController({
+	const controller = createAppPreviewController({
 		getSpaceId: () => "space-1",
 		loadWork: async () => {
 			loads += 1;
@@ -212,34 +212,34 @@ test("refreshing a closed Work does not load it", async () => {
 
 test("opening the panel happens after preview state is committed", () => {
 	const observedPanelState: Array<{
-		activeWorkId: string | null;
+		activeAppId: string | null;
 		previewCount: number;
 	}> = [];
-	let controller: ReturnType<typeof createWorkPreviewController>;
-	controller = createWorkPreviewController({
+	let controller: ReturnType<typeof createAppPreviewController>;
+	controller = createAppPreviewController({
 		getSpaceId: () => "space-1",
 		loadWork: async () => detailFor("web") as never,
 		onOpenPanel: () => {
 			observedPanelState.push({
-				activeWorkId: controller.activeWorkId,
+				activeAppId: controller.activeAppId,
 				previewCount: controller.previews.length,
 			});
 		},
 	});
 
-	controller.openWork({ appId: WORK_ID });
-	controller.closeWork(WORK_ID);
-	controller.openWork({ appId: WORK_ID });
+	controller.openApp({ appId: WORK_ID });
+	controller.closeApp(WORK_ID);
+	controller.openApp({ appId: WORK_ID });
 
 	assert.deepEqual(observedPanelState, [
-		{ activeWorkId: WORK_ID, previewCount: 1 },
-		{ activeWorkId: WORK_ID, previewCount: 1 },
+		{ activeAppId: WORK_ID, previewCount: 1 },
+		{ activeAppId: WORK_ID, previewCount: 1 },
 	]);
 });
 
 test("Work composer context updates in place and is discarded with the preview", () => {
 	const controller = createController();
-	controller.openWork({ appId: WORK_ID });
+	controller.openApp({ appId: WORK_ID });
 	const chip = {
 		key: "selection",
 		label: "3 selected",
@@ -250,14 +250,14 @@ test("Work composer context updates in place and is discarded with the preview",
 	assert.deepEqual(controller.preview?.composerChip, chip);
 	controller.setComposerChip(WORK_ID, { ...chip, label: "4 selected" });
 	assert.equal(controller.preview?.composerChip?.label, "4 selected");
-	controller.closeWork(WORK_ID);
+	controller.closeApp(WORK_ID);
 	assert.equal(controller.preview, null);
 });
 
 test("a call issued right after opening waits for the detail and the mounted surface", async () => {
 	// The realistic agent path: show and call in one command, before the iframe exists.
 	const controller = createController({ delayMs: 20 });
-	controller.openWork({ appId: WORK_ID });
+	controller.openApp({ appId: WORK_ID });
 	const pending = controller.callSurface({
 		appId: WORK_ID,
 		method: "ping",
@@ -265,10 +265,13 @@ test("a call issued right after opening waits for the detail and the mounted sur
 	});
 
 	setTimeout(() => {
-		controller.registerSurface(WORK_ID, async ({ method }) => ({
-			ok: true,
-			result: { echoed: method },
-		}));
+		controller.registerSurface(
+			WORK_ID,
+			async ({ method }: { method: string }) => ({
+				ok: true,
+				result: { echoed: method },
+			}),
+		);
 	}, 30);
 
 	assert.deepEqual(await pending, { ok: true, result: { echoed: "ping" } });
@@ -293,7 +296,7 @@ for (const [name, options, code] of [
 ] as const) {
 	test(`calling ${name} fails fast with ${code}`, async () => {
 		const controller = createController(options);
-		controller.openWork({ appId: WORK_ID });
+		controller.openApp({ appId: WORK_ID });
 
 		const result = await controller.callSurface({
 			appId: WORK_ID,
@@ -309,7 +312,7 @@ test("a denied member read falls back to the public one, other errors do not", a
 	// cannot view must still preview.
 	const build = (status: number) => {
 		let publicReads = 0;
-		const controller = createWorkPreviewController({
+		const controller = createAppPreviewController({
 			getSpaceId: () => "space-1",
 			loadWork: async () => {
 				throw Object.assign(new Error("denied"), { status });
@@ -323,13 +326,13 @@ test("a denied member read falls back to the public one, other errors do not", a
 	};
 
 	const denied = build(403);
-	denied.controller.openWork({ appId: WORK_ID });
+	denied.controller.openApp({ appId: WORK_ID });
 	await settle();
 	assert.equal(denied.reads(), 1);
 	assert.equal(denied.controller.preview?.error, null);
 
 	const failed = build(500);
-	failed.controller.openWork({ appId: WORK_ID });
+	failed.controller.openApp({ appId: WORK_ID });
 	await settle();
 	assert.equal(failed.reads(), 0);
 	assert.equal(failed.controller.preview?.error, "denied");
@@ -344,10 +347,10 @@ test("a work that is not open, or was closed, cannot be called", async () => {
 	});
 	assert.equal(before.ok === false && before.code, "preview_not_open");
 
-	controller.openWork({ appId: WORK_ID });
+	controller.openApp({ appId: WORK_ID });
 	await settle();
 	controller.registerSurface(WORK_ID, async () => ({ ok: true }));
-	controller.closeWork(WORK_ID);
+	controller.closeApp(WORK_ID);
 
 	assert.equal(controller.previews.length, 0);
 	const after = await controller.callSurface({

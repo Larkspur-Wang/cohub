@@ -18,7 +18,7 @@ function makeApp(overrides: Partial<AppBridgeCoreApp> = {}): AppBridgeCoreApp {
 		spaceId: "space_1",
 		slug: "my-work",
 		userUuid: "owner-uuid",
-		workScopes: ["space.view", "session.view"],
+		appScopes: ["space.view", "session.view"],
 		allowedViewerScopes: ["session.prompt.readonly", "generation.create"],
 		...overrides,
 	};

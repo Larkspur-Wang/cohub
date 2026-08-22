@@ -57,7 +57,7 @@ export type AppRecord = {
   currentVersionId: string | null;
   latestVersion: number;
   publishedAt: string | null;
-  workScopes: Permission[];
+  appScopes: Permission[];
   allowedViewerScopes: Permission[];
   meta: AppMeta | null;
   createdAt: string | null;
@@ -72,7 +72,7 @@ export type AppCreateInput = {
   targetType: AppTargetType;
   targetRef: string;
   assetKey?: string | null;
-  workScopes?: Permission[];
+  appScopes?: Permission[];
   allowedViewerScopes?: Permission[];
   meta?: AppMeta | null;
 };
@@ -83,15 +83,14 @@ export type AppUpdateInput = Partial<{
   visibility: AppVisibility;
   targetType: AppTargetType;
   targetRef: string;
-  workScopes: Permission[];
+  appScopes: Permission[];
   allowedViewerScopes: Permission[];
   meta: AppMeta | null;
 }>;
 
 export type AppVersionRecord = {
   id: string;
-  /** Frozen works REST field name; the storage column is app_id. */
-  workId: string;
+  appId: string;
   version: number;
   targetType: AppTargetType;
   targetRef: string;
@@ -149,7 +148,7 @@ export type AppPublicOwnerRecord = {
 };
 
 export type AppDetailResponse = {
-  work: AppRecord;
+  app: AppRecord;
   space: AppPublicSpaceRecord;
   owner: AppPublicOwnerRecord;
   publicUrl: string | null;
@@ -228,7 +227,7 @@ export type AppPromotionEventResponse = {
 export type AppSessionResponse = {
   token: string;
   expiresIn: number;
-  work: AppRecord;
+  app: AppRecord;
 };
 
 export type AppAuthorizeResponse = {
@@ -245,7 +244,7 @@ export class AppsApi {
   constructor(private readonly transport: HttpTransport) {}
 
   listBySpace(spaceId: string) {
-    return this.transport.request<{ works: AppRecord[] }>(`/api/apps/space/${spaceId}`);
+    return this.transport.request<{ apps: AppRecord[] }>(`/api/apps/space/${spaceId}`);
   }
 
   get(id: string) {
@@ -273,7 +272,7 @@ export class AppsApi {
   }
 
   create(input: AppCreateInput) {
-    return this.transport.request<{ work: AppRecord }>("/api/apps", {
+    return this.transport.request<{ app: AppRecord }>("/api/apps", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
@@ -281,7 +280,7 @@ export class AppsApi {
   }
 
   update(id: string, input: AppUpdateInput) {
-    return this.transport.request<{ work: AppRecord }>(`/api/apps/${id}`, {
+    return this.transport.request<{ app: AppRecord }>(`/api/apps/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
@@ -368,7 +367,7 @@ export class AppsApi {
   }
 
   publishVersion(appId: string, input?: { meta?: AppMeta | null }) {
-    return this.transport.request<{ work: AppRecord; version: AppVersionRecord }>(`/api/apps/${appId}/versions`, {
+    return this.transport.request<{ app: AppRecord; version: AppVersionRecord }>(`/api/apps/${appId}/versions`, {
       method: "POST",
       headers: input ? { "Content-Type": "application/json" } : undefined,
       body: input ? JSON.stringify(input) : undefined,
@@ -391,11 +390,11 @@ export class AppsApi {
 }
 
 // ── Legacy aliases ────────────────────────────────────────────────────────────
-// The works REST payload field names are frozen for existing API consumers
-// (see AppRecord); the server dual-mounts the routes so `/api/works` keeps
-// serving older clients while this SDK uses the canonical `/api/apps`. These
-// type aliases keep the work-era names compiling until the next breaking SDK
-// version.
+// The works REST surface is dual-mounted: this SDK speaks the canonical
+// `/api/apps` vocabulary (`app`, `apps`, `appScopes`, `appId`), while the
+// server keeps serving the work-era field names at `/api/works` for older SDK
+// versions and direct REST consumers. These aliases keep the work-era TYPE
+// NAMES compiling; their field shapes follow the canonical wire.
 
 /** @deprecated Use `AppTargetType`. */
 export type WorkTargetType = AppTargetType;

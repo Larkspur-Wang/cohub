@@ -1,10 +1,10 @@
 <script lang="ts">
-import type { WorkPageMeta } from "$lib/app-page-meta";
+import type { AppPageMeta } from "$lib/app-page-meta";
 
 const {
 	meta,
 }: {
-	meta: WorkPageMeta;
+	meta: AppPageMeta;
 } = $props();
 </script>
 

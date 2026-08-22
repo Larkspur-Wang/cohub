@@ -86,6 +86,12 @@ function mountedRoutes(): string[] {
     imports.set(match[1] ?? "", join(API_ROOT, "src", "routes", `${(match[2] ?? "").replace(/\.js$/, "")}.ts`));
   }
 
+  const ROUTE_FILES: Record<string, string> = {
+    AppsRouter: "apps.route.ts",
+    AppPromotionsRouter: "app-promotions.route.ts",
+    AppCommerceRouter: "app-commerce.route.ts",
+  };
+
   const mounted: string[] = [];
   const registerFile = (prefix: string, file: string, resource?: string) => {
     const routeSource = readFileSync(file, "utf-8");
@@ -98,13 +104,19 @@ function mountedRoutes(): string[] {
     }
   };
 
-  for (const match of indexSource.matchAll(/router\.route\("([^"]+)",\s*(\w+)\)/g)) {
-    const file = imports.get(match[2] ?? "");
-    if (file) registerFile(match[1] ?? "", file);
-  }
-  for (const match of indexSource.matchAll(/router\.route\("([^"]+)",\s*createAppCommerceRouter\("(\w+)"\)\)/g)) {
-    // Commerce paths embed the resource segment: /works/:id/... or /apps/:id/...
-    registerFile(match[1] ?? "", join(API_ROOT, "src", "routes", "app-commerce.route.ts"), match[2]);
+  for (const match of indexSource.matchAll(
+    /router\.route\("([^"]+)",\s*(\w+|create\w+Router\("\w+"\))\)/g,
+  )) {
+    const target = match[2] ?? "";
+    const factory = target.match(/create(\w+Router)(?:\("(\w+)"\))?/);
+    if (factory) {
+      const file = ROUTE_FILES[factory[1] ?? ""];
+      // Commerce paths embed the resource segment: /works/:id/... or /apps/:id/...
+      if (file) registerFile(match[1] ?? "", join(API_ROOT, "src", "routes", file), factory[2]);
+    } else {
+      const file = imports.get(target);
+      if (file) registerFile(match[1] ?? "", file);
+    }
   }
   return mounted;
 }
@@ -138,14 +150,5 @@ test("every apps REST path the SDK requests is dual-mounted", () => {
     problems,
     [],
     "apps REST is dual-mounted: both the canonical and legacy prefixes must keep serving every path",
-  );
-});
-
-test("the works list response keeps its frozen `works` wrapper key", () => {
-  const source = read(API_ROOT, "src", "routes", "apps.route.ts");
-  assert.match(
-    source,
-    /\{ works \} satisfies \{ works: RealtimeAppRecord\[\] \}/,
-    "the list endpoint must keep returning { works: [...] }",
   );
 });

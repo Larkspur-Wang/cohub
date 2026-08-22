@@ -216,26 +216,26 @@ async function publish() {
 				visibility,
 				targetType,
 				targetRef,
-				workScopes: selectedScopes(appScopes),
+				appScopes: selectedScopes(appScopes),
 				allowedViewerScopes: selectedScopes(allowedViewerScopes),
 				meta: buildWorkMeta(),
 			});
-			published = result.work;
+			published = result.app;
 		} catch (cause) {
 			if (!(cause instanceof HttpError) || cause.status !== 409) throw cause;
-			const { works } = await sdk.apps.listBySpace(spaceId);
-			const existingWork = works.find((work) => work.slug === currentWorkSlug);
-			if (!existingWork) throw cause;
-			const { work } = await sdk.apps.update(existingWork.id, {
-				status: existingWork.status,
+			const { apps } = await sdk.apps.listBySpace(spaceId);
+			const existingApp = apps.find((app) => app.slug === currentWorkSlug);
+			if (!existingApp) throw cause;
+			const { app } = await sdk.apps.update(existingApp.id, {
+				status: existingApp.status,
 				visibility,
 				targetType,
 				targetRef,
-				workScopes: selectedScopes(appScopes),
+				appScopes: selectedScopes(appScopes),
 				allowedViewerScopes: selectedScopes(allowedViewerScopes),
 				meta: buildWorkMeta(),
 			});
-			published = (await sdk.apps.publishVersion(work.id)).work;
+			published = (await sdk.apps.publishVersion(app.id)).app;
 		}
 		if (published) dispatchAppsChanged({ spaceId, app: published });
 	} catch (err) {

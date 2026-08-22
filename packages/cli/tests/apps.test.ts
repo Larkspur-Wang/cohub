@@ -27,7 +27,7 @@ test("getAppStatsByRef resolves public references before requesting stats", asyn
     apps: {
       getBySlug: async (username: string, spaceSlug: string, appSlug: string) => {
         calls.push(`resolve:${username}/${spaceSlug}/${appSlug}`);
-        return { work: { id: "work-1" } };
+        return { app: { id: "app-1" } };
       },
       getStats: async (appId: string) => {
         calls.push(`stats:${appId}`);
@@ -37,7 +37,7 @@ test("getAppStatsByRef resolves public references before requesting stats", asyn
   } as unknown as CohubHttpClient;
 
   assert.equal(await getAppStatsByRef(client, "alice/studio/launch"), stats);
-  assert.deepEqual(calls, ["resolve:alice/studio/launch", "stats:work-1"]);
+  assert.deepEqual(calls, ["resolve:alice/studio/launch", "stats:app-1"]);
 });
 
 test("getAppStatsByRef requests stats directly for work ids", async () => {

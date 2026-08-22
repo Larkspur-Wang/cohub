@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createPreviewWorkspaceController } from "../lib/features/space/modules/window-manager.svelte.ts";
+import { createWindowManager } from "../lib/features/space/modules/window-manager.svelte.ts";
 
 (globalThis as unknown as { $state: <T>(value: T) => T }).$state = <T>(
 	value: T,
@@ -28,15 +28,15 @@ function createHarness() {
 		replace: boolean;
 	}> = [];
 
-	const controller = createPreviewWorkspaceController({
+	const controller = createWindowManager({
 		getFileTabs: () => fileTabs,
 		getActiveFilePath: () => activeFilePath,
 		getBoardTabs: () => [],
 		getActiveBoardPath: () => null,
 		getPortTabs: () => [],
 		getActivePort: () => null,
-		getWorkTabs: () => [],
-		getActiveWorkId: () => null,
+		getAppTabs: () => [],
+		getActiveAppId: () => null,
 		openFile: (path) => {
 			activeFilePath = path;
 			if (!fileTabs.some((tab) => tab.path === path))
@@ -61,9 +61,9 @@ function createHarness() {
 		openPort: () => {},
 		activatePort: () => {},
 		closePort: () => {},
-		openWork: () => {},
-		activateWork: () => {},
-		closeWork: () => {},
+		openApp: () => {},
+		activateApp: () => {},
+		closeApp: () => {},
 		getPortEndpointUrl: () => null,
 		syncUrl: (ref, replace = true) => {
 			urls.push({ ref, replace });

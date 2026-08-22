@@ -1,8 +1,8 @@
 import type {
+	AppRecord,
+	AppVersionRecord,
 	AppViewStatsResponse,
 	WorkMeta,
-	WorkRecord,
-	WorkVersionRecord,
 } from "@neta-art/cohub";
 import { goto } from "$app/navigation";
 import {
@@ -65,9 +65,9 @@ export function createWorkDetailController(options: {
 	getSpaceSlug: () => string | null;
 	/** Stats require space.edit; skip the request for read-only viewers. */
 	getCanViewStats: () => boolean;
-	onDetailLoaded?: (work: WorkRecord | null) => void;
+	onDetailLoaded?: (app: AppRecord | null) => void;
 }) {
-	let detail = $state<WorkRecord | null>(null);
+	let detail = $state<AppRecord | null>(null);
 	let loading = $state(false);
 	let error = $state("");
 	let actionInProgress = $state(false);
@@ -90,7 +90,7 @@ export function createWorkDetailController(options: {
 	let copiedTimer: ReturnType<typeof setTimeout> | null = null;
 	let copiedPublicRouteTimer: ReturnType<typeof setTimeout> | null = null;
 	let routeStateKey = "";
-	let versions = $state<WorkVersionRecord[]>([]);
+	let versions = $state<AppVersionRecord[]>([]);
 	let versionsLoading = $state(false);
 	let versionsError = $state("");
 	let stats = $state<AppViewStatsResponse | null>(null);
@@ -99,8 +99,8 @@ export function createWorkDetailController(options: {
 	let publishSubmitting = $state(false);
 	let publishError = $state("");
 
-	function notify(work: WorkRecord | null) {
-		options.onDetailLoaded?.(work);
+	function notify(app: AppRecord | null) {
+		options.onDetailLoaded?.(app);
 	}
 
 	function syncFormFromDetail() {
@@ -111,7 +111,7 @@ export function createWorkDetailController(options: {
 		formStatus = detail.status;
 		formVisibility = detail.visibility;
 		formHideCohubBar = getHideCohubBar(detail.meta);
-		formScopes = scopeState(detail.workScopes, APP_SCOPE_OPTIONS);
+		formScopes = scopeState(detail.appScopes, APP_SCOPE_OPTIONS);
 		formViewerScopes = scopeState(
 			detail.allowedViewerScopes,
 			APP_VIEWER_SCOPE_OPTIONS,
@@ -143,11 +143,11 @@ export function createWorkDetailController(options: {
 		dispatchAppsChanged({ spaceId: options.getSpaceId(), ...change });
 	}
 
-	function publicRoute(work: WorkRecord | null = detail) {
+	function publicRoute(app: AppRecord | null = detail) {
 		const ownerUsername = options.getOwnerUsername();
 		const spaceSlug = options.getSpaceSlug();
-		return ownerUsername && spaceSlug && work?.slug
-			? `/${encodeURIComponent(ownerUsername)}/${encodeURIComponent(spaceSlug)}/w/${encodeURIComponent(work.slug)}`
+		return ownerUsername && spaceSlug && app?.slug
+			? `/${encodeURIComponent(ownerUsername)}/${encodeURIComponent(spaceSlug)}/w/${encodeURIComponent(app.slug)}`
 			: null;
 	}
 
@@ -159,21 +159,21 @@ export function createWorkDetailController(options: {
 		loading = true;
 		error = "";
 		try {
-			const { work } = await sdk.works.get(appId);
+			const { app } = await sdk.apps.get(appId);
 			if (!isCurrentRequest()) return;
-			if (isNewerAppSnapshot(detail, work)) {
-				detail = work;
-				notify(work);
+			if (isNewerAppSnapshot(detail, app)) {
+				detail = app;
+				notify(app);
 				syncFormFromDetail();
 			}
 			void loadHideCohubBarEntitlement();
-			void loadVersions(work.id);
-			if (options.getCanViewStats()) void loadStats(work.id);
+			void loadVersions(app.id);
+			if (options.getCanViewStats()) void loadStats(app.id);
 		} catch (cause) {
 			if (!isCurrentRequest()) return;
 			detail = null;
 			notify(null);
-			error = cause instanceof Error ? cause.message : "Failed to load work";
+			error = cause instanceof Error ? cause.message : "Failed to load app";
 		} finally {
 			if (isCurrentRequest()) loading = false;
 		}
@@ -187,7 +187,7 @@ export function createWorkDetailController(options: {
 		versionsLoading = true;
 		versionsError = "";
 		try {
-			const { versions: nextVersions } = await sdk.works.listVersions(appId);
+			const { versions: nextVersions } = await sdk.apps.listVersions(appId);
 			if (guard.isCurrent()) {
 				versions = versions.reduce(upsertAppVersion, nextVersions);
 			}
@@ -210,7 +210,7 @@ export function createWorkDetailController(options: {
 		statsLoading = true;
 		statsError = "";
 		try {
-			const nextStats = await sdk.works.getStats(appId);
+			const nextStats = await sdk.apps.getStats(appId);
 			if (guard.isCurrent()) stats = nextStats;
 		} catch (cause) {
 			if (guard.isCurrent()) {
@@ -227,12 +227,12 @@ export function createWorkDetailController(options: {
 		publishError = "";
 		publishSubmitting = true;
 		try {
-			const { work, version } = await sdk.works.publishVersion(detail.id);
-			detail = work;
-			notify(work);
+			const { app, version } = await sdk.apps.publishVersion(detail.id);
+			detail = app;
+			notify(app);
 			syncFormFromDetail();
-			await loadVersions(work.id);
-			notifyAppsUpdated({ app: work, version });
+			await loadVersions(app.id);
+			notifyAppsUpdated({ app, version });
 		} catch (cause) {
 			publishError =
 				cause instanceof Error ? cause.message : "Failed to publish version";
@@ -250,7 +250,7 @@ export function createWorkDetailController(options: {
 				copiedId = false;
 			}, 1600);
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : "Failed to copy work ID";
+			error = cause instanceof Error ? cause.message : "Failed to copy app ID";
 		}
 	}
 
@@ -277,22 +277,22 @@ export function createWorkDetailController(options: {
 		actionInProgress = true;
 		error = "";
 		try {
-			let work: WorkRecord;
-			let version: WorkVersionRecord | undefined;
+			let app: AppRecord;
+			let version: AppVersionRecord | undefined;
 			if (status === "published") {
-				const result = await sdk.works.publishVersion(detail.id);
-				work = result.work;
+				const result = await sdk.apps.publishVersion(detail.id);
+				app = result.app;
 				version = result.version;
 			} else {
-				work = (await sdk.works.update(detail.id, { status })).work;
+				app = (await sdk.apps.update(detail.id, { status })).app;
 			}
-			detail = work;
-			notify(work);
+			detail = app;
+			notify(app);
 			syncFormFromDetail();
-			void loadVersions(work.id);
-			notifyAppsUpdated({ app: work, version });
+			void loadVersions(app.id);
+			notifyAppsUpdated({ app, version });
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : "Failed to update work";
+			error = cause instanceof Error ? cause.message : "Failed to update app";
 			void loadDetail(detail.id);
 		} finally {
 			actionInProgress = false;
@@ -349,35 +349,34 @@ export function createWorkDetailController(options: {
 		try {
 			const shouldRelease =
 				formStatus === "published" && detail.status !== "published";
-			const { work: savedWork } = await sdk.works.update(detail.id, {
+			const { app: savedApp } = await sdk.apps.update(detail.id, {
 				slug: formSlug.trim(),
 				status: shouldRelease ? detail.status : formStatus,
 				visibility: formVisibility,
 				targetType: formTargetType,
 				targetRef: formTargetRef.trim(),
-				workScopes: selectedScopeList(formScopes, APP_SCOPE_OPTIONS),
+				appScopes: selectedScopeList(formScopes, APP_SCOPE_OPTIONS),
 				allowedViewerScopes: selectedScopeList(
 					formViewerScopes,
 					APP_VIEWER_SCOPE_OPTIONS,
 				),
 				meta: buildAppMeta(detail.meta, formHideCohubBar),
 			});
-			let work = savedWork;
-			let version: WorkVersionRecord | undefined;
+			let app = savedApp;
+			let version: AppVersionRecord | undefined;
 			if (shouldRelease) {
-				const result = await sdk.works.publishVersion(savedWork.id);
-				work = result.work;
+				const result = await sdk.apps.publishVersion(savedApp.id);
+				app = result.app;
 				version = result.version;
 			}
-			detail = work;
-			notify(work);
+			detail = app;
+			notify(app);
 			editMode = false;
 			syncFormFromDetail();
-			void loadVersions(work.id);
-			notifyAppsUpdated({ app: work, version });
+			void loadVersions(app.id);
+			notifyAppsUpdated({ app, version });
 		} catch (cause) {
-			formError =
-				cause instanceof Error ? cause.message : "Failed to save work";
+			formError = cause instanceof Error ? cause.message : "Failed to save app";
 		} finally {
 			formSubmitting = false;
 		}
@@ -398,7 +397,7 @@ export function createWorkDetailController(options: {
 			notify(change.app);
 			if (!editMode && !formSubmitting) syncFormFromDetail();
 		}
-		if (change.version?.workId === appId) {
+		if (change.version?.appId === appId) {
 			versions = upsertAppVersion(versions, change.version);
 		}
 	}

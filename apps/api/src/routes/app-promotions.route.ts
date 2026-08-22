@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { serializePromotionRecord, type AppWire } from "./apps-wire.js";
 import { and, asc, eq, gte, sql } from "drizzle-orm";
 import { userProfiles, appPromotions, appPromotionStatsHourly, apps } from "@cohub/db";
 import type { AppPromotionEventKey } from "@cohub/protocol";
@@ -14,7 +15,15 @@ import {
   resolvePublishedAppPromotion,
 } from "../app-promotion-events.js";
 
-const router = new Hono();
+/**
+ * Promotions router factory: shares handlers between the canonical `/api/apps`
+ * and legacy `/api/works` mounts; only the wire vocabulary differs.
+ */
+export function createAppPromotionsRouter(wire: AppWire): Hono {
+  const router = new Hono();
+  const serializePromotion = (row: typeof appPromotions.$inferSelect) =>
+    serializePromotionRecord(row, wire);
+
 const PROVIDER_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const PARAMETER_KEYS = new Set([
   "utm_id",
@@ -57,18 +66,6 @@ function promotionCountKey(eventKey: string): keyof PromotionCounts | null {
   if (eventKey === "paywall_viewed") return "paywallViewed";
   if (eventKey === "checkout_started") return "checkoutStarted";
   return null;
-}
-
-function serializePromotion(row: typeof appPromotions.$inferSelect) {
-  return {
-    id: row.id,
-    appId: row.appId,
-    name: row.name,
-    provider: row.provider,
-    parameters: row.parameters,
-    createdBy: row.createdBy,
-    createdAt: row.createdAt.toISOString(),
-  };
 }
 
 function hasControlCharacters(value: string) {
@@ -283,4 +280,6 @@ router.post("/:appId/promotions/:promotionId/registration", async (c) => {
   return c.json({ reported: true, eventId, browser });
 });
 
-export default router;
+  return router;
+}
+

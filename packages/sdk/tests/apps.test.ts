@@ -61,10 +61,10 @@ test("AppsApi.getBySlug forwards the abort signal", async () => {
   });
 });
 
-test("works REST wire field names stay frozen for existing API consumers", () => {
-	// External consumers (e.g. neta-studio) call `/api/apps*` directly and
-	// read these exact field names. Renaming any of them is a breaking wire
-	// change reserved for the next protocol version.
+test("apps REST wire uses the canonical app vocabulary", () => {
+	// `/api/apps` responses speak the canonical vocabulary (`appScopes`,
+	// `appId`); the server serves the work-era field names only at the legacy
+	// `/api/works` mount for older consumers.
 	const record: AppRecord = {
 		id: "app-1",
 		spaceId: "space-1",
@@ -78,7 +78,7 @@ test("works REST wire field names stay frozen for existing API consumers", () =>
 		currentVersionId: "v-1",
 		latestVersion: 1,
 		publishedAt: null,
-		workScopes: ["space.view"],
+		appScopes: ["space.view"],
 		allowedViewerScopes: [],
 		meta: null,
 		createdAt: null,
@@ -86,6 +86,7 @@ test("works REST wire field names stay frozen for existing API consumers", () =>
 	};
 	assert.deepEqual(Object.keys(record).sort(), [
 		"allowedViewerScopes",
+		"appScopes",
 		"assetKey",
 		"createdAt",
 		"currentVersionId",
@@ -101,12 +102,11 @@ test("works REST wire field names stay frozen for existing API consumers", () =>
 		"updatedAt",
 		"userUuid",
 		"visibility",
-		"workScopes",
 	]);
 
 	const version: AppVersionRecord = {
 		id: "v-1",
-		workId: "app-1",
+		appId: "app-1",
 		version: 1,
 		targetType: "directory",
 		targetRef: "dist",
@@ -116,7 +116,7 @@ test("works REST wire field names stay frozen for existing API consumers", () =>
 		meta: null,
 		createdAt: null,
 	};
-	assert.ok("workId" in version, "version records keep the frozen workId field");
+	assert.ok("appId" in version, "version records use appId");
 });
 
 test("client.apps and client.works point at the same API instance", () => {

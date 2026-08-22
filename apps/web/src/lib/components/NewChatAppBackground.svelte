@@ -41,12 +41,12 @@ $effect(() => {
 	{@const data = state.data}
 	<AppSurface
 		mode="background"
-		app={data.work}
+		app={data.app}
 		space={data.space}
 		owner={data.owner}
 		content={data.content ?? null}
 		launchState={appUrl}
-		onComposerChip={(chip) => onComposerChip?.(data.work.id, chip)}
+		onComposerChip={(chip) => onComposerChip?.(data.app.id, chip)}
 	/>
 {:else if state.status === "error"}
 	<div class="work-background-state">App background is unavailable.</div>

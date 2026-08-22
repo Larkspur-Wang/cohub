@@ -26,20 +26,20 @@ type PortTabLike = {
 	url: string;
 };
 
-type WorkTabLike = {
+type AppTabLike = {
 	appId: string;
 	loading: boolean;
 };
 
-type PreviewWorkspaceOptions = {
+type WindowManagerOptions = {
 	getFileTabs: () => FileTabLike[];
 	getActiveFilePath: () => string | null;
 	getBoardTabs: () => BoardTabLike[];
 	getActiveBoardPath: () => string | null;
 	getPortTabs: () => PortTabLike[];
 	getActivePort: () => string | null;
-	getWorkTabs: () => WorkTabLike[];
-	getActiveWorkId: () => string | null;
+	getAppTabs: () => AppTabLike[];
+	getActiveAppId: () => string | null;
 	openFile: (
 		path: string,
 		options?: { preserveHistory?: boolean; position?: unknown },
@@ -57,14 +57,14 @@ type PreviewWorkspaceOptions = {
 	) => void;
 	activatePort: (port: string) => void;
 	closePort: (port?: string | null) => void;
-	openWork: (input: {
+	openApp: (input: {
 		appId: string;
 		label?: string;
 		launch?: { search?: string; hash?: string } | null;
 		invocation?: AppRuntimeInvocationContext | null;
 	}) => void;
-	activateWork: (appId: string) => void;
-	closeWork: (appId?: string | null) => void;
+	activateApp: (appId: string) => void;
+	closeApp: (appId?: string | null) => void;
 	getPortEndpointUrl: (port: string) => string | null | undefined;
 	syncUrl: (ref: WindowRef | null, replace?: boolean) => void;
 	onBudgetCleanup?: () => void;
@@ -101,9 +101,7 @@ function isDirtyFileTab(tab: FileTabLike) {
  * domain actually has that tab mounted as its active surface. That is what keeps
  * an "active" kind from outliving its surface and painting an empty panel.
  */
-export function createPreviewWorkspaceController(
-	options: PreviewWorkspaceOptions,
-) {
+export function createWindowManager(options: WindowManagerOptions) {
 	let activeRef = $state<WindowRef | null>(null);
 	/** Monotonic access order. A counter, not a clock: two tabs touched inside the
 	 * same millisecond must still compare, or the MRU fallback silently degrades
@@ -157,7 +155,7 @@ export function createPreviewWorkspaceController(
 			return options.getBoardTabs().some((tab) => tab.path === key);
 		if (kind === "port")
 			return options.getPortTabs().some((tab) => tab.port === key);
-		return options.getWorkTabs().some((tab) => tab.appId === key);
+		return options.getAppTabs().some((tab) => tab.appId === key);
 	}
 
 	/** Every domain's currently mounted surface, as preview refs. */
@@ -169,7 +167,7 @@ export function createPreviewWorkspaceController(
 		if (boardPath) refs.push({ kind: "board", key: boardPath });
 		const port = options.getActivePort();
 		if (port) refs.push({ kind: "port", key: port });
-		const appId = options.getActiveWorkId();
+		const appId = options.getActiveAppId();
 		if (appId) refs.push({ kind: "app", key: appId });
 		return refs;
 	}
@@ -243,7 +241,7 @@ export function createPreviewWorkspaceController(
 				weight: 3,
 				protected: false,
 			})),
-			...options.getWorkTabs().map((tab) => ({
+			...options.getAppTabs().map((tab) => ({
 				kind: "app" as const,
 				key: tab.appId,
 				// An embedded Work costs about as much as a port preview.
@@ -296,7 +294,7 @@ export function createPreviewWorkspaceController(
 			if (kind === "file") options.closeFile(key, skipConfirm);
 			else if (kind === "board") options.closeBoard(key);
 			else if (kind === "port") options.closePort(key);
-			else options.closeWork(key);
+			else options.closeApp(key);
 		});
 	}
 
@@ -391,7 +389,7 @@ export function createPreviewWorkspaceController(
 	 * Show a Work preview. Idempotent by Work id: repeating re-activates the
 	 * existing tab and refreshes its launch state.
 	 */
-	function openWork(
+	function openApp(
 		input: {
 			appId: string;
 			label?: string;
@@ -406,7 +404,7 @@ export function createPreviewWorkspaceController(
 		const ref = { kind: "app" as const, key: input.appId };
 		beginNavigation(ref, opts.source ?? (syncUrl ? "user" : "route"));
 		commitActive(ref);
-		options.openWork(input);
+		options.openApp(input);
 		if (syncUrl) options.syncUrl(ref, hadPreview);
 		enforceBudget();
 		if (syncUrl) {
@@ -422,7 +420,7 @@ export function createPreviewWorkspaceController(
 		if (kind === "file") options.activateFile(key);
 		else if (kind === "board") options.activateBoard(key);
 		else if (kind === "port") options.activatePort(key);
-		else options.activateWork(key);
+		else options.activateApp(key);
 		if (syncUrl) options.syncUrl(ref, true);
 	}
 
@@ -478,8 +476,8 @@ export function createPreviewWorkspaceController(
 			for (const tab of [...options.getPortTabs()]) {
 				options.closePort(tab.port);
 			}
-			for (const tab of [...options.getWorkTabs()]) {
-				options.closeWork(tab.appId);
+			for (const tab of [...options.getAppTabs()]) {
+				options.closeApp(tab.appId);
 			}
 		});
 		if (syncUrl) options.syncUrl(null, true);
@@ -519,7 +517,7 @@ export function createPreviewWorkspaceController(
 			if (ref.kind === "file") options.activateFile(ref.key);
 			else if (ref.kind === "board") options.activateBoard(ref.key);
 			else if (ref.kind === "port") options.activatePort(ref.key);
-			else options.activateWork(ref.key);
+			else options.activateApp(ref.key);
 			return { ok: true as const };
 		}
 		if (ref.kind === "file") {
@@ -531,7 +529,7 @@ export function createPreviewWorkspaceController(
 			return { ok: true as const };
 		}
 		if (ref.kind === "app") {
-			openWork({ appId: ref.key }, { syncUrl: false, source: "route" });
+			openApp({ appId: ref.key }, { syncUrl: false, source: "route" });
 			return { ok: true as const };
 		}
 		// Port routes wait for a trusted endpoint before activating a surface.
@@ -585,7 +583,7 @@ export function createPreviewWorkspaceController(
 		openFile,
 		openBoard,
 		openPort,
-		openWork,
+		openApp,
 		activate,
 		close,
 		closeActive,

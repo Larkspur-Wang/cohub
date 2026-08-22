@@ -702,9 +702,9 @@ export type RealtimeAppVisibility = "public" | "space";
 export type RealtimeAppTargetType = "file" | "directory" | "port";
 
 /**
- * Wire shape of the works REST API responses (`/api/works*`). The `workScopes`
- * field name is frozen for existing API consumers; it renames in the next
- * breaking protocol version.
+ * Canonical wire shape of an app record: realtime events and `/api/apps`
+ * responses. The legacy `/api/works` mount serves the work-era field names
+ * (`workScopes`) until the next breaking protocol version.
  */
 export type RealtimeAppRecord = {
   id: string;
@@ -719,7 +719,7 @@ export type RealtimeAppRecord = {
   currentVersionId: string | null;
   latestVersion: number;
   publishedAt: string | null;
-  workScopes: string[];
+  appScopes: string[];
   allowedViewerScopes: string[];
   meta: Record<string, unknown> | null;
   createdAt: string | null;
@@ -727,12 +727,13 @@ export type RealtimeAppRecord = {
 };
 
 /**
- * Wire shape of a published app version. The `workId` field name is frozen for
- * existing API consumers; it renames in the next breaking protocol version.
+ * Canonical wire shape of a published app version. The legacy `/api/works`
+ * mount serves the work-era `workId` field name until the next breaking
+ * protocol version.
  */
 export type RealtimeAppVersionRecord = {
   id: string;
-  workId: string;
+  appId: string;
   version: number;
   targetType: RealtimeAppTargetType;
   targetRef: string;

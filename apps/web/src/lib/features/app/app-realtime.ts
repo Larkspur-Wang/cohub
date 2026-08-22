@@ -34,7 +34,7 @@ export function parseAppVersionPublished(
 		app.spaceId !== event.spaceId ||
 		typeof app.latestVersion !== "number" ||
 		typeof version.id !== "string" ||
-		version.workId !== app.id ||
+		version.appId !== app.id ||
 		typeof version.version !== "number"
 	) {
 		return null;

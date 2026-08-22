@@ -50,7 +50,7 @@ type Props = {
 		| "visibility"
 		| "targetType"
 		| "targetRef"
-		| "workScopes"
+		| "appScopes"
 		| "allowedViewerScopes"
 		| "meta"
 	>;

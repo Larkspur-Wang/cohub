@@ -50,7 +50,7 @@ export const GET: RequestHandler = async ({ fetch, url }) => {
 	const meta = buildAppPwaMeta(
 		result.ok
 			? {
-					work: result.detail.work,
+					app: result.detail.app,
 					space: result.detail.space,
 					owner: result.detail.owner,
 					publicUrl: result.detail.publicUrl,

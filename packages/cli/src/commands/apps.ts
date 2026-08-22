@@ -119,7 +119,7 @@ export async function getAppStatsByRef(client: CohubHttpClient, app: string): Pr
   const ref = parseAppRef(app);
   if ("id" in ref) return client.apps.getStats(ref.id);
   const detail = await getAppByRef(client, app);
-  return client.apps.getStats(detail.work.id);
+  return client.apps.getStats(detail.app.id);
 }
 
 async function confirmDelete(opts: { yes?: boolean }): Promise<void> {
@@ -141,7 +141,7 @@ async function publishAppVersion(id: string, opts: { json?: boolean }): Promise<
     const result = await client.apps.publishVersion(id);
     if (jsonRequested(opts)) return outJson(result);
     ok(`App version updated: v${result.version.version}`);
-    printApp(result.work);
+    printApp(result.app);
   } catch (e: unknown) {
     handleHttp(e);
   }
@@ -197,7 +197,7 @@ export function registerApps(program: Command): void {
       try {
         const result = await client.apps.listBySpace(spaceId);
         if (jsonRequested(opts)) return outJson(result);
-        table(result.works, [
+        table(result.apps, [
           { key: "id", label: "ID" },
           { key: "slug", label: "Slug" },
           { key: "status", label: "Status" },
@@ -221,7 +221,7 @@ export function registerApps(program: Command): void {
       try {
         const result = await getAppByRef(client, app);
         if (jsonRequested(opts)) return outJson(result);
-        printApp(result.work);
+        printApp(result.app);
         printAppUrls(result);
       } catch (e: unknown) {
         handleHttp(e);
@@ -273,7 +273,7 @@ export function registerApps(program: Command): void {
       try {
         const result = await client.apps.getBySlug(opts.owner.trim(), opts.spaceSlug.trim(), appSlug);
         if (jsonRequested(opts)) return outJson(result);
-        printApp(result.work);
+        printApp(result.app);
         printAppUrls(result);
       } catch (e: unknown) {
         handleHttp(e);
@@ -314,37 +314,37 @@ export function registerApps(program: Command): void {
         visibility: resolveVisibility(opts.visibility),
         targetType: target.targetType,
         targetRef: target.targetRef,
-        workScopes: opts.appScope as Permission[],
+        appScopes: opts.appScope as Permission[],
         allowedViewerScopes: opts.viewerScope as Permission[],
         meta,
       };
       try {
         const result = await client.apps.create(input);
         if (jsonRequested(opts)) return outJson(result);
-        ok(`App published: ${result.work.id}`);
-        printApp(result.work);
+        ok(`App published: ${result.app.id}`);
+        printApp(result.app);
       } catch (e: unknown) {
         if (!(e instanceof HttpError) || e.status !== 409) handleHttp(e);
         try {
-          const { works } = await client.apps.listBySpace(spaceId);
-          const existingApp = works.find((app) => app.slug === slug);
+          const { apps } = await client.apps.listBySpace(spaceId);
+          const existingApp = apps.find((app) => app.slug === slug);
           if (!existingApp) return handleHttp(e);
-          const { work } = await client.apps.update(existingApp.id, {
+          const { app } = await client.apps.update(existingApp.id, {
             status: status === "published" && existingApp.status !== "published" ? existingApp.status : status,
             visibility: resolveVisibility(opts.visibility),
             targetType: target.targetType,
             targetRef: target.targetRef,
-            workScopes: opts.appScope as Permission[],
+            appScopes: opts.appScope as Permission[],
             allowedViewerScopes: opts.viewerScope as Permission[],
             meta,
           });
           const publishedVersion = status === "published"
-            ? await client.apps.publishVersion(work.id)
+            ? await client.apps.publishVersion(app.id)
             : null;
-          const result = publishedVersion ?? { work };
+          const result = publishedVersion ?? { app };
           if (jsonRequested(opts)) return outJson(result);
-          ok(status === "published" && publishedVersion ? `App version updated: v${publishedVersion.version.version}` : `App updated: ${work.id}`);
-          printApp(result.work);
+          ok(status === "published" && publishedVersion ? `App version updated: v${publishedVersion.version.version}` : `App updated: ${app.id}`);
+          printApp(result.app);
         } catch (fallbackError: unknown) {
           handleHttp(fallbackError);
         }
@@ -381,7 +381,7 @@ export function registerApps(program: Command): void {
         let baseMeta = opts.meta !== undefined ? parseJsonObject(opts.meta, "meta") ?? null : undefined;
         if (baseMeta === undefined && (opts.hideCohubBar || opts.showCohubBar)) {
           try {
-            baseMeta = (await client.apps.get(id)).work.meta;
+            baseMeta = (await client.apps.get(id)).app.meta;
           } catch (e: unknown) {
             handleHttp(e);
           }
@@ -393,14 +393,14 @@ export function registerApps(program: Command): void {
         });
       }
       const nextStatus = opts.status || opts.disabled ? resolveStatus(opts) : undefined;
-      const currentApp = nextStatus === "published" ? (await client.apps.get(id)).work : null;
+      const currentApp = nextStatus === "published" ? (await client.apps.get(id)).app : null;
       const input = compactObject<AppUpdateInput>({
         slug: opts.slug,
         status: nextStatus === "published" && currentApp?.status !== "published" ? currentApp?.status : nextStatus,
         visibility: resolveVisibility(opts.visibility),
         targetType: target?.targetType,
         targetRef: target?.targetRef,
-        workScopes: opts.clearAppScopes ? [] : opts.appScope?.length ? opts.appScope as Permission[] : undefined,
+        appScopes: opts.clearAppScopes ? [] : opts.appScope?.length ? opts.appScope as Permission[] : undefined,
         allowedViewerScopes: opts.clearViewerScopes ? [] : opts.viewerScope?.length ? opts.viewerScope as Permission[] : undefined,
         meta,
       });
@@ -408,12 +408,12 @@ export function registerApps(program: Command): void {
       try {
         const updated = await client.apps.update(id, input);
         const publishedVersion = nextStatus === "published" && currentApp?.status !== "published"
-          ? await client.apps.publishVersion(updated.work.id)
+          ? await client.apps.publishVersion(updated.app.id)
           : null;
-        const result = publishedVersion ?? updated;
+        const result = publishedVersion ?? { app: updated.app };
         if (jsonRequested(opts)) return outJson(result);
         ok(publishedVersion ? `App published: v${publishedVersion.version.version}` : "App updated");
-        printApp(result.work);
+        printApp(result.app);
       } catch (e: unknown) {
         handleHttp(e);
       }
@@ -463,7 +463,7 @@ export function registerApps(program: Command): void {
       const client = createClient();
       try {
         const detail = await getAppByRef(client, appRef);
-        const result = await client.apps.listPromotions(detail.work.id);
+        const result = await client.apps.listPromotions(detail.app.id);
         const promotions = result.promotions.map((promotion) => ({
           ...promotion,
           url: promotionUrl(detail.publicUrl, promotion),
@@ -514,7 +514,7 @@ export function registerApps(program: Command): void {
           utm_term: opts.utmTerm,
           utm_content: opts.utmContent,
         }).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
-        const result = await client.apps.createPromotion(detail.work.id, {
+        const result = await client.apps.createPromotion(detail.app.id, {
           name: opts.name,
           provider: opts.provider,
           parameters,
@@ -541,7 +541,7 @@ export function registerApps(program: Command): void {
       const client = createClient();
       try {
         const detail = await getAppByRef(client, appRef);
-        const result = await client.apps.getPromotionStats(detail.work.id, promotionId);
+        const result = await client.apps.getPromotionStats(detail.app.id, promotionId);
         if (jsonRequested(opts)) return outJson(result);
         table([{
           name: result.promotion.name,

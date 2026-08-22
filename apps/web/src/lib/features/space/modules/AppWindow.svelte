@@ -4,13 +4,13 @@ import { ExternalLink, Loader2, RefreshCw } from "lucide-svelte";
 import AppSurface from "$lib/components/app/AppSurface.svelte";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import type { AppSurfaceHost } from "$lib/features/app/surface-host";
-import type { InlineWorkPreview } from "./app-window-controller.svelte";
+import type { InlineAppPreview } from "./app-window-controller.svelte";
 import MobileWindowTabsChrome from "./MobileWindowTabsChrome.svelte";
 import WindowFloatChrome from "./WindowFloatChrome.svelte";
 import type { Window } from "./windows";
 
 type Props = {
-	preview: InlineWorkPreview;
+	preview: InlineAppPreview;
 	windows: Window[];
 	immersive: boolean;
 	isMobile: boolean;
@@ -68,7 +68,7 @@ const launchState = $derived({
 	search: preview.launch?.search ?? "",
 	hash: preview.launch?.hash ?? "",
 });
-const isDisabled = $derived(detail?.work.status === "disabled");
+const isDisabled = $derived(detail?.app.status === "disabled");
 </script>
 
 {#snippet WorkActions()}
@@ -142,7 +142,7 @@ const isDisabled = $derived(detail?.work.status === "disabled");
 			{#key preview.mountKey}
 				<AppSurface
 					mode="app"
-					app={detail.work}
+					app={detail.app}
 					space={detail.space}
 					owner={detail.owner}
 					content={detail.content}

@@ -22,7 +22,7 @@ const work = (latestVersion: number, updatedAt: string): WorkRecord => ({
 	currentVersionId: `version-${latestVersion}`,
 	latestVersion,
 	publishedAt: updatedAt,
-	workScopes: [],
+	appScopes: [],
 	allowedViewerScopes: [],
 	meta: null,
 	createdAt: updatedAt,
@@ -31,7 +31,7 @@ const work = (latestVersion: number, updatedAt: string): WorkRecord => ({
 
 const version = (value: number): WorkVersionRecord => ({
 	id: `version-${value}`,
-	workId: "work-1",
+	appId: "work-1",
 	version: value,
 	targetType: "file",
 	targetRef: "index.html",
@@ -42,7 +42,7 @@ const version = (value: number): WorkVersionRecord => ({
 	createdAt: "2026-07-20T00:00:00.000Z",
 });
 
-test("parseAppVersionPublished validates the work relationship", () => {
+test("parseAppVersionPublished validates the app relationship", () => {
 	const event = {
 		id: "event-1",
 		timestamp: Date.now(),
@@ -63,7 +63,7 @@ test("parseAppVersionPublished validates the work relationship", () => {
 
 	const invalid = {
 		...event,
-		payload: { ...event.payload, version: { ...version(2), workId: "other" } },
+		payload: { ...event.payload, version: { ...version(2), appId: "other" } },
 	};
 	assert.equal(parseAppVersionPublished(invalid), null);
 });

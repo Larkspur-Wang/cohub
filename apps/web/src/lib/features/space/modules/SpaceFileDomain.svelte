@@ -28,7 +28,7 @@ import type { LocalUploadEntry } from "$lib/upload-entries";
 import type { ResolveWorkspaceAsset } from "$lib/workspace-assets";
 import type { WorkspaceFileLinkTarget } from "$lib/workspace-file-links";
 import AppWindow from "./AppWindow.svelte";
-import type { InlineWorkPreview } from "./app-window-controller.svelte";
+import type { InlineAppPreview } from "./app-window-controller.svelte";
 import BoardWindow from "./BoardWindow.svelte";
 import type { InlineBoardPanelState } from "./board-window-controller.svelte";
 import FilesSidebarPanel from "./FilesSidebarPanel.svelte";
@@ -86,9 +86,9 @@ export type SpaceFileDomainProps = {
 	inlinePortPreview: { port: string; url: string } | null;
 	inlinePortTabs: { port: string; url: string }[];
 	activeInlinePort: string | null;
-	inlineWorkPreview: InlineWorkPreview | null;
-	inlineWorkTabs: InlineWorkPreview[];
-	activeInlineWorkId: string | null;
+	inlineAppPreview: InlineAppPreview | null;
+	inlineAppTabs: InlineAppPreview[];
+	activeInlineAppId: string | null;
 	activeWindowKind: "file" | "board" | "port" | "app" | null;
 	inlinePortEndpoint: SpacePublicEndpoint | null;
 	previewEndpoints: SpacePublicEndpoints;
@@ -121,7 +121,7 @@ export type SpaceFileDomainProps = {
 	uploadPaneTargetDir: string;
 	pendingUploadFiles: File[];
 	pendingUploadEntries: LocalUploadEntry[];
-	workPublishTarget: PublishTarget;
+	appPublishTarget: PublishTarget;
 	onSpaceUpdated: (space: SpaceRecord) => void;
 	onMobileRightDrawerClose: () => void;
 	onSetUploadPaneVisible: (visible: boolean) => void;
@@ -153,9 +153,9 @@ export type SpaceFileDomainProps = {
 	onCloseInlineBoardTab: (path: string) => void;
 	onActivateInlinePort: (port: string) => void;
 	onCloseInlinePortTab: (port: string) => void;
-	onActivateInlineWork: (appId: string) => void;
-	onCloseInlineWorkTab: (appId: string) => void;
-	onRetryInlineWork: (appId: string) => void;
+	onActivateInlineApp: (appId: string) => void;
+	onCloseInlineAppTab: (appId: string) => void;
+	onRetryInlineApp: (appId: string) => void;
 	onRegisterAppSurface: (appId: string, host: AppSurfaceHost | null) => void;
 	onAppComposerChip: (appId: string, chip: AppComposerChip | null) => void;
 	onBackInlineFile: () => void | Promise<void>;
@@ -189,8 +189,8 @@ export type SpaceFileDomainProps = {
 	onInsertFilePathReference: (path: string) => void;
 	onGetFileActionNode: (path: string) => SpaceFsNode;
 	onUploadComplete: () => void | Promise<void>;
-	onOpenWorkPublish: (type: "file" | "directory" | "port", ref: string) => void;
-	onCloseWorkPublish: () => void;
+	onOpenAppPublish: (type: "file" | "directory" | "port", ref: string) => void;
+	onCloseAppPublish: () => void;
 	onVisibleLinesChange?: (
 		path: string,
 		range: { start: number; end: number } | null,
@@ -241,9 +241,9 @@ let {
 	inlinePortPreview,
 	inlinePortTabs,
 	activeInlinePort,
-	inlineWorkPreview,
-	inlineWorkTabs,
-	activeInlineWorkId,
+	inlineAppPreview,
+	inlineAppTabs,
+	activeInlineAppId,
 	activeWindowKind,
 	inlinePortEndpoint,
 	previewEndpoints,
@@ -276,7 +276,7 @@ let {
 	uploadPaneTargetDir,
 	pendingUploadFiles,
 	pendingUploadEntries,
-	workPublishTarget = $bindable(),
+	appPublishTarget = $bindable(),
 	onSpaceUpdated,
 	onMobileRightDrawerClose,
 	onSetUploadPaneVisible,
@@ -303,9 +303,9 @@ let {
 	onCloseInlineBoardTab,
 	onActivateInlinePort,
 	onCloseInlinePortTab,
-	onActivateInlineWork,
-	onCloseInlineWorkTab,
-	onRetryInlineWork,
+	onActivateInlineApp,
+	onCloseInlineAppTab,
+	onRetryInlineApp,
 	onRegisterAppSurface,
 	onAppComposerChip,
 	onBackInlineFile,
@@ -329,8 +329,8 @@ let {
 	onInsertFilePathReference,
 	onGetFileActionNode,
 	onUploadComplete,
-	onOpenWorkPublish,
-	onCloseWorkPublish,
+	onOpenAppPublish,
+	onCloseAppPublish,
 	onVisibleLinesChange,
 	onBoardViewStateChange,
 }: SpaceFileDomainProps = $props();
@@ -340,7 +340,7 @@ function closeMobileDrawerIfNeeded(mobile: boolean) {
 }
 
 function publishInlineFile() {
-	if (inlineFile?.response) onOpenWorkPublish("file", inlineFile.response.path);
+	if (inlineFile?.response) onOpenAppPublish("file", inlineFile.response.path);
 }
 
 function handleSpaceUpdated(nextSpace: SpaceRecord) {
@@ -379,13 +379,13 @@ const windows = $derived([
 		syncStatus: "idle" as const,
 		active: activeWindowKind === "port" && tab.port === activeInlinePort,
 	})),
-	...inlineWorkTabs.map((tab) => ({
+	...inlineAppTabs.map((tab) => ({
 		kind: "app" as const,
 		key: tab.appId,
 		label: tab.label,
 		title: tab.detail?.publicUrl ?? tab.label,
 		syncStatus: tab.error ? ("error" as const) : ("idle" as const),
-		active: activeWindowKind === "app" && tab.appId === activeInlineWorkId,
+		active: activeWindowKind === "app" && tab.appId === activeInlineAppId,
 	})),
 ]);
 
@@ -393,14 +393,14 @@ function activateWindow(kind: Window["kind"], key: string) {
 	if (kind === "file") onActivateInlineFile(key);
 	else if (kind === "board") onActivateInlineBoard(key);
 	else if (kind === "port") onActivateInlinePort(key);
-	else onActivateInlineWork(key);
+	else onActivateInlineApp(key);
 }
 
 function closeWindow(kind: Window["kind"], key: string) {
 	if (kind === "file") onCloseInlineFileTab(key);
 	else if (kind === "board") onCloseInlineBoardTab(key);
 	else if (kind === "port") onCloseInlinePortTab(key);
-	else onCloseInlineWorkTab(key);
+	else onCloseInlineAppTab(key);
 }
 
 function previewContentOut(node: Element) {
@@ -569,12 +569,12 @@ function previewContentOut(node: Element) {
 		immersive={previewImmersiveMode}
 		{isMobile}
 		onToggleImmersive={onTogglePreviewImmersiveMode}
-		onPublish={() => onOpenWorkPublish("port", inlinePortPreview!.port)}
+		onPublish={() => onOpenAppPublish("port", inlinePortPreview!.port)}
 		/>
 	</div>
 {/if}
 
-{#if inlineWorkPreview}
+{#if inlineAppPreview}
 	<div
 		class="h-full min-h-0"
 		hidden={activeWindowKind !== "app"}
@@ -582,7 +582,7 @@ function previewContentOut(node: Element) {
 		aria-hidden={activeWindowKind !== "app"}
 	>
 	<AppWindow
-		preview={inlineWorkPreview}
+		preview={inlineAppPreview}
 		{windows}
 		{treeVisible}
 		{onToggleTree}
@@ -591,7 +591,7 @@ function previewContentOut(node: Element) {
 		immersive={previewImmersiveMode}
 		{isMobile}
 		onToggleImmersive={onTogglePreviewImmersiveMode}
-		onRetry={onRetryInlineWork}
+		onRetry={onRetryInlineApp}
 		onRegisterSurface={onRegisterAppSurface}
 		onComposerChip={onAppComposerChip}
 	/>
@@ -647,7 +647,7 @@ function previewContentOut(node: Element) {
 	onUpload={onUploadFiles}
 	onInsertReference={onInsertPathReference}
 	onPublishDirectory={(path, options) => {
-		onOpenWorkPublish("directory", path);
+		onOpenAppPublish("directory", path);
 		closeMobileDrawerIfNeeded(options.mobile);
 	}}
 	onOpenPort={(port, url, options) => {
@@ -660,12 +660,12 @@ function previewContentOut(node: Element) {
 />
 
 <AppPublishDialog
-	open={Boolean(workPublishTarget)}
+	open={Boolean(appPublishTarget)}
 	{spaceId}
 	ownerUsername={spaceOwnerUsername}
 	{spaceSlug}
-	targetType={workPublishTarget?.targetType ?? "file"}
-	targetRef={workPublishTarget?.targetRef ?? ""}
+	targetType={appPublishTarget?.targetType ?? "file"}
+	targetRef={appPublishTarget?.targetRef ?? ""}
 	onSpaceUpdated={handleSpaceUpdated}
-	onClose={onCloseWorkPublish}
+	onClose={onCloseAppPublish}
 />
