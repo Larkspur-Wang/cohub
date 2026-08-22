@@ -275,7 +275,7 @@ onMount(async () => {
 								</li>
 							{/each}
 						</ol>
-					{:else}<p class="text-[12px] text-text-placeholder">No Work views in this range.</p>{/if}
+					{:else}<p class="text-[12px] text-text-placeholder">No App views in this range.</p>{/if}
 				</section>
 			</div>
 

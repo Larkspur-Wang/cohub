@@ -99,7 +99,7 @@ export function createAppSurfaceHost(
 				: {
 						ok: false,
 						code: response.error?.code ?? "surface_error",
-						message: response.error?.message ?? "Work surface call failed",
+						message: response.error?.message ?? "App surface call failed",
 					},
 		);
 		return true;
@@ -133,7 +133,7 @@ export function createAppSurfaceHost(
 			return {
 				ok: false,
 				code: "surface_unavailable",
-				message: "The Work surface is not mounted.",
+				message: "The App surface is not mounted.",
 			};
 		}
 
@@ -145,7 +145,7 @@ export function createAppSurfaceHost(
 			return {
 				ok: false,
 				code: "surface_reset",
-				message: "The Work surface reloaded before answering.",
+				message: "The App surface reloaded before answering.",
 			};
 		}
 		if (!becameReady) {
@@ -160,7 +160,7 @@ export function createAppSurfaceHost(
 			return {
 				ok: false,
 				code: "method_not_found",
-				message: `This Work exposes: ${methods.join(", ")}.`,
+				message: `This App exposes: ${methods.join(", ")}.`,
 			};
 		}
 
@@ -173,7 +173,7 @@ export function createAppSurfaceHost(
 				resolve({
 					ok: false,
 					code: "surface_timeout",
-					message: `The Work did not answer "${input.method}" in time.`,
+					message: `The App did not answer "${input.method}" in time.`,
 				});
 			}, timeoutMs);
 			pending.set(requestId, (result) => {
@@ -214,7 +214,7 @@ export function createAppSurfaceHost(
 			settle({
 				ok: false,
 				code: "surface_reset",
-				message: "The Work surface reloaded before answering.",
+				message: "The App surface reloaded before answering.",
 			});
 		}
 		pending.clear();

@@ -394,8 +394,8 @@ $effect(() => {
 			type="button"
 			class="icon-btn preview-context-secondary"
 			onclick={onPublishInlineFile}
-			title="Publish work"
-			aria-label="Publish work"
+			title="Publish app"
+			aria-label="Publish app"
 		>
 			<Rocket class="h-4 w-4" />
 		</button>
@@ -902,7 +902,7 @@ $effect(() => {
               </div>
               {@render FileHeaderCoreActions(activeResponsePath)}
               {#if inlineFileIsHtml && inlineFileViewMode === "preview"}
-                <button type="button" class="action-btn" onclick={onPublishInlineFile} title="Publish work">
+                <button type="button" class="action-btn" onclick={onPublishInlineFile} title="Publish app">
                   <Rocket class="w-3.5 h-3.5 shrink-0" />
                   <span class="hidden sm:inline">Publish</span>
                 </button>

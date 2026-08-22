@@ -149,10 +149,10 @@ $effect(() => {
 					: 0;
 			clientError =
 				status === 401 || status === 403
-					? "Sign in to view this Work."
+					? "Sign in to view this App."
 					: status === 404
-						? "Work not found."
-						: "Failed to load this Work.";
+						? "App not found."
+						: "Failed to load this App.";
 		});
 	return () => {
 		cancelled = true;
@@ -178,12 +178,12 @@ $effect(() => {
 	<div
 		class="flex min-h-screen items-center justify-center bg-bg-primary px-4 text-[13px] text-text-tertiary"
 	>
-		Loading Work…
+		Loading App…
 	</div>
 {:else}
 	<div
 		class="flex min-h-screen items-center justify-center bg-bg-primary px-4 text-[13px] text-text-secondary"
 	>
-		{clientError || "Work is unavailable."}
+		{clientError || "App is unavailable."}
 	</div>
 {/if}

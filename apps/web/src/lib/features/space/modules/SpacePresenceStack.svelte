@@ -60,7 +60,7 @@ const locationLabel = (user: SpacePresenceUser) => {
 	if (kind === "file") return "in a file";
 	if (kind === "checkpoint") return "reviewing a save";
 	if (kind === "task") return "on a task";
-	if (kind === "work") return "in a work";
+	if (kind === "app" || kind === "work") return "in an app";
 	if (kind === "cronjob") return "checking a cronjob";
 	return "in this space";
 };
@@ -196,7 +196,7 @@ $effect(() => {
 								<div class="presence-row-body">
 									<div class="presence-row-name">{userName}</div>
 									<div class="presence-row-subtitle">
-										<span>{label || (kind === "session" ? "in a chat" : kind === "file" ? "in a file" : kind === "checkpoint" ? "reviewing a save" : kind === "task" ? "on a task" : kind === "work" ? "in a work" : kind === "cronjob" ? "checking a cronjob" : "in this space")}</span>
+										<span>{label || (kind === "session" ? "in a chat" : kind === "file" ? "in a file" : kind === "checkpoint" ? "reviewing a save" : kind === "task" ? "on a task" : (kind === "app" || kind === "work") ? "in an app" : kind === "cronjob" ? "checking a cronjob" : "in this space")}</span>
 										{#if panels.length > 1}
 											<span>· {panels.length} panels</span>
 										{/if}

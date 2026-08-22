@@ -305,7 +305,7 @@ export function createAppDetailController(options: {
 			actionInProgress ||
 			deleteInProgress ||
 			!confirm(
-				"Delete this work? This removes the management record and public link.",
+				"Delete this app? This removes the management record and public link.",
 			)
 		)
 			return;
@@ -324,7 +324,7 @@ export function createAppDetailController(options: {
 				replaceState: true,
 			});
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : "Failed to delete work";
+			error = cause instanceof Error ? cause.message : "Failed to delete app";
 		} finally {
 			if (!deleted) {
 				actionInProgress = false;

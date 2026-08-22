@@ -232,7 +232,7 @@ const segments = $derived.by(() => {
 						type="button"
 						class={userMentionButtonClass}
 						title={`Open ${token.label} in a new window`}
-						aria-label={`Open ${token.type === 'appMention' ? 'work' : 'space'} ${token.label} in a new window`}
+						aria-label={`Open ${token.type === 'appMention' ? 'app' : 'space'} ${token.label} in a new window`}
 						onclick={(event) => openUserMention(token, event)}
 					>{token.text}</button>
 				{:else}{token.text}{/if}

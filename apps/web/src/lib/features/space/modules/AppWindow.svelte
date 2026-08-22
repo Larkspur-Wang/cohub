@@ -131,7 +131,7 @@ const isDisabled = $derived(detail?.app.status === "disabled");
 				</div>
 			</div>
 		{:else if !detail}
-			<CenteredLoading label="Loading Work…" size="panel" />
+			<CenteredLoading label="Loading App…" size="panel" />
 		{:else if !detail.content}
 			<div class="flex h-full items-center justify-center p-6 text-center text-xs leading-5 text-text-tertiary">
 				{isDisabled

@@ -114,7 +114,7 @@ const displayName = $derived(appName?.trim() || "this app");
 			<section class="auth-usage">
 				<div class="auth-usage-label">About usage</div>
 				<p class="auth-usage-copy">
-					How often and when generation runs is decided by the work. Each call uses your
+					How often and when generation runs is decided by the app. Each call uses your
 					quota.
 				</p>
 			</section>

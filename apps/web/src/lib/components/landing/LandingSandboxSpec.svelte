@@ -14,7 +14,7 @@
 const specs = [
 	{
 		term: "Ports and live preview",
-		desc: "A process listening on a public port becomes a preview you can watch, and a Work you can publish.",
+		desc: "A process listening on a public port becomes a preview you can watch, and an App you can publish.",
 	},
 	{
 		term: "Scheduled prompts",

@@ -155,16 +155,14 @@ export function createAppPreviewController(
 						refreshError:
 							cause instanceof Error
 								? cause.message
-								: "Failed to refresh this Work.",
+								: "Failed to refresh this App.",
 					});
 					return;
 				}
 				patch(appId, {
 					loading: false,
 					error:
-						cause instanceof Error
-							? cause.message
-							: "Failed to load this Work.",
+						cause instanceof Error ? cause.message : "Failed to load this App.",
 				});
 			}
 		})();
@@ -296,7 +294,7 @@ export function createAppPreviewController(
 			return {
 				ok: false as const,
 				code: "preview_not_open",
-				message: "The Work preview is not open.",
+				message: "The App preview is not open.",
 			};
 		}
 		// A call right after showing races the fetch and the iframe mount.
@@ -306,7 +304,7 @@ export function createAppPreviewController(
 			return {
 				ok: false as const,
 				code: "preview_not_open",
-				message: "The Work preview was closed before the call ran.",
+				message: "The App preview was closed before the call ran.",
 			};
 		}
 		if (preview.error) {
@@ -321,14 +319,14 @@ export function createAppPreviewController(
 			return {
 				ok: false as const,
 				code: "surface_not_supported",
-				message: "This Work has no published content to call into.",
+				message: "This App has no published content to call into.",
 			};
 		}
 		if (!EMBEDDED_KINDS.has(kind)) {
 			return {
 				ok: false as const,
 				code: "surface_not_supported",
-				message: `A ${kind} Work renders natively and exposes no callable methods.`,
+				message: `A ${kind} App renders natively and exposes no callable methods.`,
 			};
 		}
 
@@ -337,7 +335,7 @@ export function createAppPreviewController(
 			return {
 				ok: false as const,
 				code: "surface_unavailable",
-				message: "The Work surface did not mount.",
+				message: "The App surface did not mount.",
 			};
 		}
 		return invoker({

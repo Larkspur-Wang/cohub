@@ -253,7 +253,7 @@ async function copyUrl() {
 }
 </script>
 
-<Dialog {open} onClose={onClose} title="Publish work" maxWidth="560px">
+<Dialog {open} onClose={onClose} title="Publish app" maxWidth="560px">
 	<div class="publish-panel">
 		{#if published}
 			<div class="success-block">
@@ -310,7 +310,7 @@ async function copyUrl() {
 				<div class="section-label">Access</div>
 				<label class="access-row">
 					<input type="radio" bind:group={visibility} value="public" />
-					<span><span class="access-title">Anyone with the link</span><span class="access-copy">The work page is fully public.</span></span>
+					<span><span class="access-title">Anyone with the link</span><span class="access-copy">The app page is fully public.</span></span>
 				</label>
 				<label class="access-row">
 					<input type="radio" bind:group={visibility} value="space" />
@@ -340,7 +340,7 @@ async function copyUrl() {
 					<input type="checkbox" bind:checked={hideCohubBar} disabled={!hideCohubBarAllowed || hideCohubBarLoading} />
 					<span class="min-w-0 flex-1">
 						<span class="presentation-title">Hide Cohub bar</span>
-						<span class="presentation-copy">Remove the Cohub footer bar from the public work page.</span>
+						<span class="presentation-copy">Remove the Cohub footer bar from the public app page.</span>
 					</span>
 					{#if !hideCohubBarAllowed && !hideCohubBarLoading}
 						<span class="plan-badge">Pro / Max</span>

@@ -14,7 +14,7 @@ import { createAppBridgeHost } from "$lib/features/app/bridge-host.svelte";
 type BrokerState = "loading" | "need-login" | "ready" | "error";
 
 type AppDetail = {
-	work: Pick<
+	app: Pick<
 		AppRecord,
 		"id" | "spaceId" | "userUuid" | "slug" | "appScopes" | "allowedViewerScopes"
 	>;
@@ -46,18 +46,18 @@ async function loadAppDetail(token: string): Promise<AppDetail | null> {
 	);
 	if (!response.ok) return null;
 	const json = (await response.json()) as Partial<AppDetail>;
-	if (!json.work || !json.owner) return null;
-	return { work: json.work, owner: json.owner };
+	if (!json.app || !json.owner) return null;
+	return { app: json.app, owner: json.owner };
 }
 
 async function init() {
 	if (!appId) {
-		fail("Missing work id.");
+		fail("Missing app id.");
 		return;
 	}
 	if (typeof window === "undefined" || !window.opener) {
 		fail(
-			"This page cannot be opened directly. Please access it through a Cohub work.",
+			"This page cannot be opened directly. Please access it through a Cohub app.",
 		);
 		return;
 	}
@@ -72,7 +72,7 @@ async function init() {
 	// 2. Load work metadata.
 	const detail = await loadAppDetail(token);
 	if (!detail) {
-		fail("Work not found or no longer available.");
+		fail("App not found or no longer available.");
 		return;
 	}
 	appDetail = detail;
@@ -88,7 +88,7 @@ async function init() {
 	// 4. Set up the bridge host with a reply that posts back to the opener.
 	validatedOpenerOrigin = openerOrigin;
 	host = createAppBridgeHost({
-		app: detail.work,
+		app: detail.app,
 		authorizationContext: { surface: "broker" },
 		reply: (requestId, payload) => {
 			window.opener?.postMessage(
@@ -190,7 +190,7 @@ onDestroy(() => window.removeEventListener("message", onMessage));
 			pending={h.pendingAuth}
 			error={h.authError}
 			saving={h.authSaving}
-			appName={detail.work.slug}
+			appName={detail.app.slug}
 			authorName={detail.owner.displayName}
 			onConfirm={() => void h.confirmAuth()}
 			onCancel={h.cancelAuth}

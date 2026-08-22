@@ -172,7 +172,7 @@ onDestroy(() => {
 			type="button"
 			class="preview-icon-btn preview-context-secondary"
 			onclick={onPublish}
-			title="Publish work"
+			title="Publish app"
 			disabled={!url}
 		>
 			<Rocket class="h-4 w-4" />

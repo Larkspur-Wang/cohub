@@ -101,7 +101,7 @@ function appName(input: {
 		const humanized = humanizeSlug(input.slug);
 		if (humanized) return humanized;
 	}
-	return "Work";
+	return "App";
 }
 
 /**

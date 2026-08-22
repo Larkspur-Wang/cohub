@@ -266,7 +266,7 @@ const cliLines = [
 				<LandingMedia
 					src="work"
 					alt="A published Cohub app running at its public URL"
-					label="Work — published page with its public URL"
+					label="App — published page with its public URL"
 					ratio="16 / 10"
 				/>
 			</LandingSection>

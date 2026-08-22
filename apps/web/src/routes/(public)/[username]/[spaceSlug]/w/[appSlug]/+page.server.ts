@@ -39,7 +39,7 @@ export const load: PageServerLoad = async ({
 	// Auth failures, API outages, and shape issues fall back to client load so
 	// already-published Works keep working (same as pre-SSR behavior).
 	if (result.status === 404) {
-		error(404, "Work not found");
+		error(404, "App not found");
 	}
 
 	setPublicPageCache(setHeaders, { private: true });
