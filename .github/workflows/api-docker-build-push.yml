@@ -154,7 +154,8 @@ jobs:
 
           CHANGED=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" -- \
             'apps/api/src/db/schema-v2.ts' \
-            'apps/api/drizzle/v2/*.sql' 2>/dev/null || true)
+            'apps/api/drizzle/v2/*.sql' \
+            'apps/api/drizzle/v2/meta/_journal.json' 2>/dev/null || true)
 
           if [ -z "$CHANGED" ]; then
             echo "No migration needed"
