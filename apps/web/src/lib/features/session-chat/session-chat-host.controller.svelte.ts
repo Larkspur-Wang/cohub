@@ -146,6 +146,7 @@ import {
 import { createSessionTurnLoadingController } from "./session-turn-loading-controller.svelte";
 import {
 	adoptPromptSessionState,
+	areSessionTurnsEqual,
 	extractBackgroundBashResultPreview,
 	formatBackgroundBashSubtitle,
 	getTurnClientMessageId,
@@ -942,7 +943,9 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			scrollRestoreGeneration === restoreGeneration &&
 			scroll.pendingRestoreSessionId === targetId;
 		beginAnchorRestoreWait();
-		const anchor = getSessionScrollAnchor(targetId);
+		// Read the anchor untracked: scroll-capture writes to the anchor Map
+		// must not re-trigger this effect.
+		const anchor = untrack(() => getSessionScrollAnchor(targetId));
 		if (!anchor) {
 			// Deferred: the bottom restore cancels this restore by writing state
 			// this effect reads — running it synchronously would self-invalidate.
@@ -981,9 +984,14 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			return;
 		}
 		const restore = { ...anchor, sessionId: targetId };
-		if (!isSameActiveAnchorRestore(restore)) {
-			scroll.activeAnchorRestore = restore;
-		}
+		// Write untracked: this effect must not depend on the signal it writes
+		// (isSameActiveAnchorRestore reads scroll.activeAnchorRestore — a
+		// tracked read plus a write here is a self-invalidation cycle).
+		untrack(() => {
+			if (!isSameActiveAnchorRestore(restore)) {
+				scroll.activeAnchorRestore = restore;
+			}
+		});
 		// Turn merges, markdown renders, and container resizes re-run this effect
 		// and re-apply the anchor; the backoff timer only covers missed triggers.
 		requestAnimationFrame(() => {
@@ -1033,8 +1041,16 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 
 	$effect(() => {
 		if (!activeSessionId || !getSessionScrollList(activeSessionId)) return;
-		updateTimelineScrollMetrics();
-		if (!isRestoringSessionScroll(activeSessionId)) updateAutoFollow();
+		// These helpers sync DOM scroll metrics into scroll state. They read the
+		// very signals they write (timelineScrollTop/Height/ClientHeight via
+		// updateTimelineScrollMetrics, shouldAutoFollow via updateAutoFollow), so
+		// tracking those reads self-invalidates this effect. Run the body untracked:
+		// this effect only needs to re-run when the session or the scroll container
+		// changes, not when its own metric writes settle.
+		untrack(() => {
+			updateTimelineScrollMetrics();
+			if (!isRestoringSessionScroll(activeSessionId)) updateAutoFollow();
+		});
 	});
 
 	// Keep pinned to bottom when content grows (markdown/images) while following.
@@ -1082,15 +1098,36 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 					}),
 				),
 			);
+			const nextSession = snapshot.session ?? current.session;
+			const nextOldestCursor = snapshot.oldestSequence ?? undefined;
+			// A cache emit fires on every in-memory write even when the merged
+			// content is identical. Rewriting the state with a fresh object would
+			// re-invalidate every `sessionStateById` consumer for no reason — a
+			// churn source that feeds effect re-run cascades during restore.
+			// `snapshot.session` is re-serialized each emit, so compare by value.
+			const sessionUnchanged =
+				nextSession === current.session ||
+				(nextSession?.id === current.session?.id &&
+					nextSession?.lastMessageId === current.session?.lastMessageId &&
+					nextSession?.updatedAt === current.session?.updatedAt);
+			if (
+				sessionUnchanged &&
+				areSessionTurnsEqual(current.turns, nextTurns) &&
+				current.hasMore === snapshot.hasMoreOlder &&
+				current.hasMoreNewer === snapshot.hasMoreNewer &&
+				current.oldestCursor === nextOldestCursor
+			) {
+				return;
+			}
 			workspace.sessionStateById = {
 				...sessionStateById,
 				[sessionId]: {
 					...current,
-					session: snapshot.session ?? current.session,
+					session: nextSession,
 					turns: nextTurns,
 					hasMore: snapshot.hasMoreOlder,
 					hasMoreNewer: snapshot.hasMoreNewer,
-					oldestCursor: snapshot.oldestSequence ?? undefined,
+					oldestCursor: nextOldestCursor,
 				},
 			};
 		});
@@ -3737,6 +3774,18 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	}
 
 	function cancelSessionScrollRestore(sessionId: string) {
+		// No-op when nothing is mid-restore: bumping scrollRestoreGeneration
+		// unconditionally re-invalidates the restore effect on every call even
+		// when there is no restore to cancel — the same signal-change-without-
+		// transition bug clearTurnMarkers had. Only transition when a restore
+		// actually exists for this session.
+		if (
+			scroll.activeAnchorRestore?.sessionId !== sessionId &&
+			scroll.pendingRestoreSessionId !== sessionId &&
+			restoringBottomSessionId !== sessionId
+		) {
+			return;
+		}
 		++scrollRestoreGeneration;
 		clearAnchorRestoreRetry();
 		if (scroll.activeAnchorRestore?.sessionId === sessionId) {
@@ -4413,11 +4462,15 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 				}
 			}
 			if (route.turnSequence) {
-				cancelSessionScrollRestore(route.sessionId);
-				scroll.shouldAutoFollow = false;
 				const key = `${route.sessionId}:${route.turnSequence}`;
+				// Only act when the requested turn actually changes. Running this on
+				// every syncContext pass cancels the restore (and bumps
+				// scrollRestoreGeneration) on a no-op, which re-invalidated the
+				// restore effect and drove the effect_update_depth_exceeded loop.
 				if (appliedRouteTurnKey !== key) {
 					appliedRouteTurnKey = key;
+					cancelSessionScrollRestore(route.sessionId);
+					scroll.shouldAutoFollow = false;
 					void jumpToTurn(route.turnSequence);
 				}
 			}
