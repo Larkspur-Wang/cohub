@@ -1,23 +1,39 @@
 <script lang="ts">
 import { Menu } from "lucide-svelte";
 import { page } from "$app/state";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 import { uiState } from "$lib/stores/ui.svelte";
 
-const settingsTitles: Record<string, string> = {
-	profile: "Profile",
-	activity: "Activity",
-	appearance: "Appearance",
-	referrals: "Referrals",
-	billing: "Billing",
-	balance: "Billing",
-	rules: "User Rules",
-	channels: "Channels",
-};
+const locale = $derived(getLocale());
+
+function settingsTitle(section: string): string {
+	const options = { locale };
+	switch (section) {
+		case "profile":
+			return m.nav_profile({}, options);
+		case "activity":
+			return m.nav_activity({}, options);
+		case "appearance":
+			return m.nav_appearance({}, options);
+		case "referrals":
+			return m.nav_referrals({}, options);
+		case "billing":
+		case "balance":
+			return m.nav_billing({}, options);
+		case "rules":
+			return m.nav_user_rules({}, options);
+		case "channels":
+			return m.nav_channels({}, options);
+		default:
+			return m.nav_settings({}, options);
+	}
+}
 
 const currentSection = $derived(
 	page.url.pathname.split("/").filter(Boolean)[1] ?? "profile",
 );
-const title = $derived(settingsTitles[currentSection] ?? "Settings");
+const title = $derived(settingsTitle(currentSection));
 
 const { children } = $props();
 </script>
@@ -27,8 +43,8 @@ const { children } = $props();
 		<button
 			type="button"
 			class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[6px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
-			aria-label="Open settings navigation"
-			title="Open settings navigation"
+			aria-label={m.nav_open_settings({}, { locale })}
+			title={m.nav_open_settings({}, { locale })}
 			onclick={() => {
 				uiState.mobileDrawerOpen = true;
 			}}

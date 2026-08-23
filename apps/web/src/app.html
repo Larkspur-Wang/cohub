@@ -21,6 +21,31 @@
     <script>
       // Prevent FOUC — resolve theme before first paint
       (() => {
+        function readStoredValue(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (_error) {
+            return null;
+          }
+        }
+        function resolveUiLocale(preference, languages) {
+          var languageIndex;
+          var primaryLanguage;
+          if (preference === 'en' || preference === 'zh-CN') return preference;
+          for (languageIndex = 0; languageIndex < languages.length; languageIndex++) {
+            primaryLanguage = (languages[languageIndex] || '').split('-')[0].toLowerCase();
+            if (primaryLanguage === 'en') return 'en';
+            if (primaryLanguage === 'zh') return 'zh-CN';
+          }
+          return 'en';
+        }
+
+        // Resolve the UI language before paint. The reactive locale store takes
+        // over after hydration and keeps this attribute in sync.
+        var localePreference = readStoredValue('cohub-locale') || 'system';
+        var locale = resolveUiLocale(localePreference, navigator.languages || [navigator.language]);
+        document.documentElement.lang = locale;
+
         var themeColors = {
           dark: '#1F2026',
           light: '#F8F8FA',
@@ -28,7 +53,7 @@
           'solarized-light': '#FDF6E3',
           'neta-studio': '#1A191A'
         };
-        var stored = localStorage.getItem('cohub-theme');
+        var stored = readStoredValue('cohub-theme');
         var resolved;
         var path = location.pathname;
         // Marketing home renders light so product captures only need one theme;
@@ -57,13 +82,13 @@
         var i = 0;
         if (path === '/' || path === '') {
           try {
-            homeHint = localStorage.getItem('cohub:session-hint') === '1';
-            homeToken = (localStorage.getItem('cohub_token') || '').trim();
+            homeHint = readStoredValue('cohub:session-hint') === '1';
+            homeToken = (readStoredValue('cohub_token') || '').trim();
             // Official Logto app ids (dev + prod) — residue means a prior session.
             for (i = 0; i < logtoApps.length; i++) {
               if (
-                localStorage.getItem(`logto:${logtoApps[i]}:refreshToken`) ||
-                localStorage.getItem(`logto:${logtoApps[i]}:idToken`)
+                readStoredValue(`logto:${logtoApps[i]}:refreshToken`) ||
+                readStoredValue(`logto:${logtoApps[i]}:idToken`)
               ) {
                 homeLogto = true;
                 break;

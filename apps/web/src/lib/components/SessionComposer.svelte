@@ -35,6 +35,7 @@ import {
 	isMobileComposerInput,
 } from "$lib/composer-keyboard";
 import { isCreateModeCommand } from "$lib/composer-mode-command";
+import { getLocale } from "$lib/i18n/locale.svelte";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { getCohubAppLinkKey, parseCohubAppUrls } from "$lib/mentions/app";
 import { resolveCohubWorkLinkMentionLabels } from "$lib/mentions/app-link-resolve";
@@ -64,6 +65,7 @@ import {
 	spaceMentionTriggerKey,
 	type TextCaret,
 } from "$lib/mentions/space-trigger";
+import { m } from "$lib/paraglide/messages.js";
 import { sdk } from "$lib/sdk";
 import { billingConversion } from "$lib/stores/billing-conversion.svelte";
 import { entriesFromFiles, type LocalUploadEntry } from "$lib/upload-entries";
@@ -118,7 +120,7 @@ let {
 	aborting = false,
 	streamError = "",
 	showBillingAction = false,
-	placeholder = "Send a message...",
+	placeholder = "",
 	attachments = [],
 	viewportContexts = [],
 	currentModel = null,
@@ -137,6 +139,11 @@ let {
 	onremoveviewport,
 	onModelSelect,
 }: Props = $props();
+
+const locale = $derived(getLocale());
+const composerPlaceholder = $derived(
+	placeholder || m.composer_placeholder({}, { locale }),
+);
 
 let textareaEl = $state<HTMLTextAreaElement | null>(null);
 let mentionMirrorEl = $state<HTMLDivElement | null>(null);
@@ -196,13 +203,20 @@ const submitDisabled = $derived(
 	disabled || sending || (!hasDraft && !showAbort),
 );
 const modelControlLabel = $derived(
-	currentModel?.name ?? currentModel?.id ?? "Model",
+	currentModel?.name ?? currentModel?.id ?? m.composer_model({}, { locale }),
 );
 const modelControlAriaLabel = $derived(
 	[
-		`Model ${modelControlLabel}`,
-		thinkingLevelLabel ? `thinking ${thinkingLevelLabel}` : null,
-		generationPolicyLabel ? `generation ${generationPolicyLabel}` : null,
+		m.composer_model_label({ model: modelControlLabel }, { locale }),
+		thinkingLevelLabel
+			? m.composer_thinking_label({ level: thinkingLevelLabel }, { locale })
+			: null,
+		generationPolicyLabel
+			? m.composer_generation_label(
+					{ policy: generationPolicyLabel },
+					{ locale },
+				)
+			: null,
 	]
 		.filter(Boolean)
 		.join(", "),
@@ -1188,8 +1202,8 @@ $effect(() => {
 									type="button"
 									class="h-full w-full cursor-zoom-in p-0"
 									onclick={() => openComposerImagePreview(attachment)}
-									title="Preview image"
-									aria-label={`Preview ${attachment.name}`}
+									title={m.composer_preview_image({}, { locale })}
+									aria-label={m.composer_preview_named_image({ name: attachment.name }, { locale })}
 								>
 									<img src={attachment.previewUrl} alt={attachment.name} class="h-full w-full object-contain transition-transform duration-200 group-hover:scale-[1.02]" />
 								</button>
@@ -1214,7 +1228,7 @@ $effect(() => {
 								type="button"
 								class="absolute right-1.5 top-1.5 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-bg-elevated/90 text-text-tertiary opacity-0 shadow-sm ring-1 ring-border-subtle transition-all hover:text-text-primary group-hover:opacity-100"
 								onclick={() => onremoveattachment?.(attachment.id)}
-								title="Remove attachment"
+								title={m.composer_remove_attachment({}, { locale })}
 							>
 								<X class="h-3.5 w-3.5" />
 							</button>
@@ -1259,7 +1273,7 @@ $effect(() => {
 							bind:this={textareaEl}
 							bind:value
 							rows="1"
-							placeholder={placeholder}
+							placeholder={composerPlaceholder}
 							class={`relative z-[1] block min-h-[44px] w-full resize-none overflow-y-auto overscroll-contain bg-transparent px-0 py-0 text-[14px] leading-6 outline-none placeholder:text-text-placeholder ${shouldRenderComposerMentionMirror ? 'text-transparent caret-text-primary selection:bg-brand/22' : 'text-text-primary'}`}
 							onpointerdown={() => {
 								isTextareaFocused = true;
@@ -1423,7 +1437,8 @@ $effect(() => {
 									class="-ml-2 flex h-8.5 w-8.5 shrink-0 items-center justify-center rounded-full text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
 									onclick={() => fileInputEl?.click()}
 									disabled={disabled || sending}
-									title="Add files"
+									title={m.composer_add_attachment({}, { locale })}
+									aria-label={m.composer_add_attachment({}, { locale })}
 								>
 									<Plus class="h-[17px] w-[17px]" />
 								</button>
@@ -1470,7 +1485,7 @@ $effect(() => {
 														showModeMenu = false;
 													}}
 												>
-													<span class="flex-1">{item === "agent" ? "Agent" : "Create"}</span>
+													<span class="flex-1">{item === "agent" ? m.composer_agent({}, { locale }) : m.composer_create({}, { locale })}</span>
 													{#if mode === item}<Check class="h-3.5 w-3.5 text-brand" />{/if}
 												</button>
 											{/each}
@@ -1502,8 +1517,8 @@ $effect(() => {
 								<button
 									type="button"
 									class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand/40"
-									title={isComposerExpanded ? "Collapse editor" : "Expand editor"}
-									aria-label={isComposerExpanded ? "Collapse editor" : "Expand editor"}
+									title={isComposerExpanded ? m.composer_collapse({}, { locale }) : m.composer_expand({}, { locale })}
+									aria-label={isComposerExpanded ? m.composer_collapse({}, { locale }) : m.composer_expand({}, { locale })}
 									aria-expanded={isComposerExpanded}
 									onpointerdown={(event) => event.preventDefault()}
 									onclick={toggleComposerExpansion}
@@ -1519,8 +1534,8 @@ $effect(() => {
 								type="button"
 								class={`voice-record-button relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full border transition-all disabled:cursor-not-allowed disabled:opacity-50 ${isVoiceRecording ? 'border-brand/45 bg-brand text-brand-contrast-fg shadow-sm' : isVoiceStarting ? 'border-border-subtle bg-bg-hover-strong text-text-secondary' : 'border-transparent text-text-tertiary hover:bg-bg-hover hover:text-text-primary'}`}
 								disabled={disabled || sending || isVoiceStarting}
-								title={isVoiceRecording ? "Stop voice input" : "Start voice input"}
-								aria-label={isVoiceRecording ? "Stop voice input" : "Start voice input"}
+								title={isVoiceRecording ? m.composer_stop_voice({}, { locale }) : m.composer_start_voice({}, { locale })}
+								aria-label={isVoiceRecording ? m.composer_stop_voice({}, { locale }) : m.composer_start_voice({}, { locale })}
 								aria-pressed={isVoiceRecording}
 								oncontextmenu={(event) => event.preventDefault()}
 								onclick={toggleVoiceInput}

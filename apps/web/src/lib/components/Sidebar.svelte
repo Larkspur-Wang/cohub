@@ -30,6 +30,7 @@ import {
 	MessageSquare,
 	Network,
 	NotebookPen,
+	Palette,
 	PanelLeftClose,
 	PanelLeftOpen,
 	Pencil,
@@ -78,6 +79,7 @@ import {
 } from "$lib/features/app/app-realtime";
 import { withSidebarMainWindow } from "$lib/features/space/modules/window-route";
 import { extractGenerationPromptPreview } from "$lib/generation-task-media";
+import { getLocale } from "$lib/i18n/locale.svelte";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { hydrateLabelItemsById } from "$lib/labels/label-resource-hydrator";
 import {
@@ -87,6 +89,7 @@ import {
 	removeResourceFromLabel,
 } from "$lib/labels/resource-label-actions";
 import { formatResourceMentionTextForDisplay } from "$lib/mentions/resource";
+import { m } from "$lib/paraglide/messages.js";
 import { sdk } from "$lib/sdk";
 import {
 	mergeSessionRecord,
@@ -206,6 +209,8 @@ const {
 	mode?: "space" | "settings";
 	collapsed?: boolean;
 } = $props();
+
+const locale = $derived(getLocale());
 
 const SESSION_PAGE_SIZE = 20;
 const CHECKPOINT_PAGE_SIZE = 20;
@@ -472,7 +477,7 @@ const systemChannelLabels = $derived(getSystemChannelLabels(labels));
 const systemUserLabels = $derived(getSystemUserLabels(labels));
 const displayLabels = $derived(getDisplayLabels(labels));
 const userDisplayName = $derived(
-	authStore.profile?.displayName?.trim() || "User",
+	authStore.profile?.displayName?.trim() || m.common_user({}, { locale }),
 );
 
 let billingCreditRequest: Promise<boolean> | null = null;
@@ -526,7 +531,7 @@ async function refreshBillingCredit() {
 				return false;
 			}
 			console.warn("[sidebar] Failed to load billing credit", error);
-			billingCreditError = "Failed to refresh";
+			billingCreditError = m.sidebar_failed_refresh({}, { locale });
 			return false;
 		} finally {
 			billingCreditLoading = false;
@@ -555,39 +560,50 @@ async function refreshBillingPlan() {
 	return billingPlanRequest;
 }
 
-const baseSettingsTabs = [
-	{ id: "profile", label: "Profile", icon: User, href: "/settings/profile" },
+const baseSettingsTabs = $derived([
+	{
+		id: "profile",
+		label: m.nav_profile({}, { locale }),
+		icon: User,
+		href: "/settings/profile",
+	},
+	{
+		id: "appearance",
+		label: m.nav_appearance({}, { locale }),
+		icon: Palette,
+		href: "/settings/appearance",
+	},
 	{
 		id: "activity",
-		label: "Activity",
+		label: m.nav_activity({}, { locale }),
 		icon: Activity,
 		href: "/settings/activity",
 	},
 	{
 		id: "referrals",
-		label: "Referrals",
+		label: m.nav_referrals({}, { locale }),
 		icon: Gift,
 		href: "/settings/referrals",
 	},
 	{
 		id: "billing",
-		label: "Billing",
+		label: m.nav_billing({}, { locale }),
 		icon: CreditCard,
 		href: "/settings/billing",
 	},
 	{
 		id: "rules",
-		label: "User Rules",
+		label: m.nav_user_rules({}, { locale }),
 		icon: NotebookPen,
 		href: "/settings/rules",
 	},
 	{
 		id: "channels",
-		label: "Channels",
+		label: m.nav_channels({}, { locale }),
 		icon: Network,
 		href: "/settings/channels",
 	},
-];
+]);
 const settingsTabs = $derived(
 	baseSettingsTabs.filter(
 		(tab) => tab.id !== "billing" || billingConfigured !== false,
@@ -689,7 +705,9 @@ function getTaskRunTitle(run: TaskRunRecord) {
 	if (explicitTitle) return compactTaskText(explicitTitle);
 	if (run.taskType === "generation") {
 		const prompt = extractGenerationPromptPreview(run.payload);
-		return prompt ? compactTaskText(prompt) : "Generation";
+		return prompt
+			? compactTaskText(prompt)
+			: m.sidebar_generation({}, { locale });
 	}
 	if (run.taskType === "send_message") {
 		const content = data?.content;
@@ -703,15 +721,18 @@ function getTaskRunTitle(run: TaskRunRecord) {
 				.join(" ");
 			if (text.trim()) return compactTaskText(text);
 		}
-		return "Send message";
+		return m.sidebar_send_message({}, { locale });
 	}
 	if (run.taskType === "run_command") {
 		const command = readTaskString(data, ["command", "rawText"]);
-		return command ? compactTaskText(command) : "Run command";
+		return command
+			? compactTaskText(command)
+			: m.sidebar_run_command({}, { locale });
 	}
 	if (run.taskType === "save_checkpoint") {
 		return compactTaskText(
-			readTaskString(data, ["description"]) ?? "Save checkpoint",
+			readTaskString(data, ["description"]) ??
+				m.sidebar_save_checkpoint({}, { locale }),
 		);
 	}
 	return formatTaskTypeLabel(
@@ -1902,7 +1923,9 @@ function setLabelDropFeedback(
 	labelDropSuccessId = kind === "success" ? labelId : null;
 	labelDropErrorId = kind === "error" ? labelId : null;
 	labelDropErrorMessage =
-		kind === "error" ? (message ?? "Failed to update label") : null;
+		kind === "error"
+			? (message ?? m.sidebar_failed_update_label({}, { locale }))
+			: null;
 	labelDropFeedbackTimer = setTimeout(
 		() => {
 			labelDropSuccessId = null;
@@ -2022,7 +2045,11 @@ async function handleLabelDrop(event: DragEvent, label: LabelListItem) {
 			error,
 		});
 		if (currentSpaceId === spaceId) {
-			setLabelDropFeedback("error", label.id, "Could not update label");
+			setLabelDropFeedback(
+				"error",
+				label.id,
+				m.sidebar_could_not_update_label({}, { locale }),
+			);
 		}
 	} finally {
 		if (currentSpaceId === spaceId) labelDropBusyId = null;
@@ -2163,7 +2190,11 @@ async function removeLabelAssignment(
 			error,
 		});
 		if (currentSpaceId === spaceId) {
-			setLabelDropFeedback("error", label.id, "Could not remove label");
+			setLabelDropFeedback(
+				"error",
+				label.id,
+				m.sidebar_could_not_remove_label({}, { locale }),
+			);
 		}
 	} finally {
 		if (currentSpaceId === spaceId) labelDropBusyId = null;
@@ -2414,9 +2445,9 @@ function openSpacePalette() {
 	window.dispatchEvent(
 		new CustomEvent("cohub:open-command-palette", {
 			detail: {
-				title: "Switch Space",
+				title: m.sidebar_switch_space_title({}, { locale }),
 				query: "a: ",
-				placeholder: "Search spaces…",
+				placeholder: m.sidebar_search_spaces({}, { locale }),
 				refreshSpaces: true,
 			},
 		}),
@@ -2522,7 +2553,9 @@ async function handleCreateNewSession() {
 		});
 	} catch (error) {
 		createSessionError =
-			error instanceof Error ? error.message : "Failed to open new chat";
+			error instanceof Error
+				? error.message
+				: m.sidebar_failed_open_chat({}, { locale });
 	}
 }
 
@@ -2643,16 +2676,16 @@ function cancelRenameLabel() {
 async function deleteLabel(label: LabelListItem) {
 	if (deletingLabelId || !currentSpaceId || !canDeleteLabel(label)) return;
 	if (label.children?.length) {
-		window.alert("Delete child labels first.");
+		window.alert(m.sidebar_delete_child_labels_first({}, { locale }));
 		return;
 	}
 	const labelRef = labelRefForId(label.id);
 	if (!labelRef) {
-		window.alert("Label not found.");
+		window.alert(m.sidebar_label_not_found({}, { locale }));
 		return;
 	}
 	const confirmed = window.confirm(
-		`Delete “${label.name}”?\n\nThis removes the label and its item assignments. This cannot be undone.`,
+		m.sidebar_delete_label_confirm({ label: label.name }, { locale }),
 	);
 	if (!confirmed) return;
 
@@ -2674,7 +2707,9 @@ async function deleteLabel(label: LabelListItem) {
 			error,
 		});
 		window.alert(
-			error instanceof Error ? error.message : "Failed to delete label.",
+			error instanceof Error
+				? error.message
+				: m.sidebar_failed_delete_label({}, { locale }),
 		);
 	} finally {
 		deletingLabelId = null;
@@ -2754,7 +2789,7 @@ function getSessionTitle(session: SessionRecord, _index: number) {
 		const normalized = normalizeSessionDisplayText(candidate);
 		if (normalized) return normalized.slice(0, 36);
 	}
-	return "New chat";
+	return m.sidebar_new_chat({}, { locale });
 }
 
 function isLikelyDefaultForkTitle(
@@ -2873,8 +2908,11 @@ function buildSidebarSessionItems(
 			? buildForkTitle(session, connectedFork)
 			: getSessionTitle(session, 0);
 		const source = connectedFork?.parentTitle
-			? `Forked from “${normalizeSessionDisplayText(connectedFork.parentTitle)}”`
-			: "Forked from another chat";
+			? m.sidebar_forked_from(
+					{ title: normalizeSessionDisplayText(connectedFork.parentTitle) },
+					{ locale },
+				)
+			: m.sidebar_forked_from_chat({}, { locale });
 		const turn = connectedFork?.anchorSequence
 			? ` at turn #${connectedFork.anchorSequence}`
 			: "";
@@ -3314,7 +3352,7 @@ $effect(() => {
 
 {#snippet syncSpinner(active: boolean, className = "")}
 	{#if active}
-		<Loader2 class={`h-3 w-3 animate-spin text-text-placeholder ${className}`} aria-label="Syncing" />
+		<Loader2 class={`h-3 w-3 animate-spin text-text-placeholder ${className}`} aria-label={m.sidebar_syncing({}, { locale })} />
 	{/if}
 {/snippet}
 
@@ -3340,9 +3378,9 @@ $effect(() => {
 		{@const itemIndentStyle = itemIndentPx > 0 ? `padding-left: ${itemIndentPx}px` : undefined}
 		{#if items.length === 0 && !hasChildLabels}
 			{#if currentLoadingLabelIds.has(label.id)}
-				<div class="flex min-h-8 items-center gap-2 rounded-[var(--sidebar-item-radius)] px-1.5 py-2 text-[12px] text-text-placeholder" style={itemIndentStyle}><Loader2 class="h-3 w-3 animate-spin text-text-tertiary" /> Loading…</div>
+				<div class="flex min-h-8 items-center gap-2 rounded-[var(--sidebar-item-radius)] px-1.5 py-2 text-[12px] text-text-placeholder" style={itemIndentStyle}><Loader2 class="h-3 w-3 animate-spin text-text-tertiary" /> {m.sidebar_loading_items({}, { locale })}</div>
 			{:else}
-				<div class="flex min-h-8 items-center rounded-[var(--sidebar-item-radius)] px-1.5 py-2 text-[12px] text-text-placeholder" style={itemIndentStyle}>No items</div>
+				<div class="flex min-h-8 items-center rounded-[var(--sidebar-item-radius)] px-1.5 py-2 text-[12px] text-text-placeholder" style={itemIndentStyle}>{m.sidebar_no_items({}, { locale })}</div>
 			{/if}
 		{:else if orderedItems.length > 0}
 			<div class="space-y-[1px]" style={itemIndentStyle}>
@@ -3350,7 +3388,7 @@ $effect(() => {
 					{@const isActive = isLabelAssignmentActive(item)}
 					{@const itemDraggable = isDraggableLabelItem(item)}
 					{@const canRemoveItem = canEditLabelItems && item.source !== "system"}
-					{@const labelRemoveTitle = `Remove from “${getReactiveLabelDisplayName(label)}”`}
+					{@const labelRemoveTitle = m.sidebar_remove_from_label({ label: getReactiveLabelDisplayName(label) }, { locale })}
 					{#if item.resourceType === "session" && labelSessionsById.get(item.resourceRef)}
 						{@const session = labelSessionsById.get(item.resourceRef)!}
 						{@const sessionItem = labelSessionItemById.get(session.id)}
@@ -3432,7 +3470,7 @@ $effect(() => {
 					disabled={currentLoadingLabelIds.has(label.id)}
 					onclick={() => void loadLabelItems(label.id, { append: true })}
 				>
-					{#if currentLoadingLabelIds.has(label.id)}Loading…{:else}Load more{/if}
+					{#if currentLoadingLabelIds.has(label.id)}{m.common_loading({}, { locale })}{:else}{m.sidebar_show_more({}, { locale })}{/if}
 				</button>
 			{/if}
 		{/if}
@@ -3468,10 +3506,10 @@ $effect(() => {
 					onkeydown={(event) => handleLabelRenameKeydown(event, label)}
 				/>
 				<span class="ml-auto inline-flex shrink-0 items-center gap-0.5">
-					<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary disabled:opacity-50" title="Save" disabled={renameLabelSaving} onclick={(event) => { event.preventDefault(); event.stopPropagation(); void submitRenameLabel(label); }}>
+					<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary disabled:opacity-50" title={m.common_save({}, { locale })} disabled={renameLabelSaving} onclick={(event) => { event.preventDefault(); event.stopPropagation(); void submitRenameLabel(label); }}>
 						{#if renameLabelSaving}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Check class="h-3.5 w-3.5" />{/if}
 					</button>
-					<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary disabled:opacity-50" title="Cancel" disabled={renameLabelSaving} onclick={(event) => { event.preventDefault(); event.stopPropagation(); cancelRenameLabel(); }}>
+					<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary disabled:opacity-50" title={m.common_cancel({}, { locale })} disabled={renameLabelSaving} onclick={(event) => { event.preventDefault(); event.stopPropagation(); cancelRenameLabel(); }}>
 						<X class="h-3.5 w-3.5" />
 					</button>
 				</span>
@@ -3486,10 +3524,10 @@ $effect(() => {
 				<span class="min-w-0 flex-1 truncate" title={getReactiveLabelDisplayTitle(label)}>{getReactiveLabelDisplayName(label)}</span>
 				{#if canManageUserLabel(label)}
 					<span class="label-row-actions">
-						<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary disabled:opacity-50" draggable="false" title="Rename" disabled={deletingLabelId === label.id} onclick={(event) => { event.preventDefault(); event.stopPropagation(); startRenameLabel(label); }}>
+						<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary disabled:opacity-50" draggable="false" title={m.common_edit({}, { locale })} disabled={deletingLabelId === label.id} onclick={(event) => { event.preventDefault(); event.stopPropagation(); startRenameLabel(label); }}>
 							<Pencil class="h-3.5 w-3.5" />
 						</button>
-						<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-status-error disabled:opacity-50" draggable="false" title="Delete" disabled={deletingLabelId === label.id} onclick={(event) => { event.preventDefault(); event.stopPropagation(); void deleteLabel(label); }}>
+						<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-status-error disabled:opacity-50" draggable="false" title={m.common_delete({}, { locale })} disabled={deletingLabelId === label.id} onclick={(event) => { event.preventDefault(); event.stopPropagation(); void deleteLabel(label); }}>
 							{#if deletingLabelId === label.id}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Trash2 class="h-3.5 w-3.5" />{/if}
 						</button>
 					</span>
@@ -3526,10 +3564,10 @@ $effect(() => {
 							onkeydown={(event) => handleLabelRenameKeydown(event, child)}
 						/>
 						<span class="ml-auto inline-flex shrink-0 items-center gap-0.5">
-							<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary disabled:opacity-50" title="Save" disabled={renameLabelSaving} onclick={(event) => { event.preventDefault(); event.stopPropagation(); void submitRenameLabel(child); }}>
+							<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary disabled:opacity-50" title={m.common_save({}, { locale })} disabled={renameLabelSaving} onclick={(event) => { event.preventDefault(); event.stopPropagation(); void submitRenameLabel(child); }}>
 								{#if renameLabelSaving}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Check class="h-3.5 w-3.5" />{/if}
 							</button>
-							<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary disabled:opacity-50" title="Cancel" disabled={renameLabelSaving} onclick={(event) => { event.preventDefault(); event.stopPropagation(); cancelRenameLabel(); }}>
+							<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary disabled:opacity-50" title={m.common_cancel({}, { locale })} disabled={renameLabelSaving} onclick={(event) => { event.preventDefault(); event.stopPropagation(); cancelRenameLabel(); }}>
 								<X class="h-3.5 w-3.5" />
 							</button>
 						</span>
@@ -3544,10 +3582,10 @@ $effect(() => {
 						<span class="min-w-0 flex-1 truncate" title={getReactiveLabelDisplayTitle(child)}>{getReactiveLabelDisplayName(child)}</span>
 						{#if canManageUserLabel(child)}
 							<span class="label-row-actions">
-								<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary disabled:opacity-50" draggable="false" title="Rename" disabled={deletingLabelId === child.id} onclick={(event) => { event.preventDefault(); event.stopPropagation(); startRenameLabel(child); }}>
+								<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary disabled:opacity-50" draggable="false" title={m.common_edit({}, { locale })} disabled={deletingLabelId === child.id} onclick={(event) => { event.preventDefault(); event.stopPropagation(); startRenameLabel(child); }}>
 									<Pencil class="h-3.5 w-3.5" />
 								</button>
-								<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-status-error disabled:opacity-50" draggable="false" title="Delete" disabled={deletingLabelId === child.id} onclick={(event) => { event.preventDefault(); event.stopPropagation(); void deleteLabel(child); }}>
+								<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-status-error disabled:opacity-50" draggable="false" title={m.common_delete({}, { locale })} disabled={deletingLabelId === child.id} onclick={(event) => { event.preventDefault(); event.stopPropagation(); void deleteLabel(child); }}>
 									{#if deletingLabelId === child.id}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Trash2 class="h-3.5 w-3.5" />{/if}
 								</button>
 							</span>
@@ -3566,19 +3604,19 @@ $effect(() => {
 			<div
 				class="flex w-full cursor-pointer items-center gap-2 rounded-[6px] px-1.5 py-1.5 text-left transition-colors duration-100 hover:bg-bg-hover"
 				onclick={() => { labelsCollapsed = !labelsCollapsed; }}
-				title={labelsCollapsed ? "Expand labels" : "Collapse labels"}
+				title={labelsCollapsed ? m.sidebar_expand_labels({}, { locale }) : m.sidebar_collapse_labels({}, { locale })}
 				role="button"
 				tabindex="0"
 				onkeydown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); labelsCollapsed = !labelsCollapsed; } }}
 			>
 				<ChevronDown class="h-3 w-3 shrink-0 text-text-tertiary transition-transform duration-150 {labelsCollapsed ? 'rotate-180' : ''}" />
 				<Tags class="h-3.5 w-3.5 shrink-0 text-text-placeholder" />
-				<span class="text-[11px] text-text-placeholder select-none">Labels</span>
+				<span class="text-[11px] text-text-placeholder select-none">{m.sidebar_labels({}, { locale })}</span>
 				{@render syncSpinner(refreshingLabels, canManageLabels ? "ml-auto" : "ml-auto")}
 				{#if canManageLabels}
 					<span
 						class="{refreshingLabels ? '' : 'ml-auto'} rounded p-0.5 text-text-placeholder transition-colors hover:bg-bg-hover hover:text-text-secondary"
-						title="New label"
+						title={m.sidebar_new_label({}, { locale })}
 						onclick={(event) => { event.stopPropagation(); showNewLabelPopover = true; }}
 						onkeydown={(event) => { if (event.key === "Enter" || event.key === " ") { event.stopPropagation(); event.preventDefault(); showNewLabelPopover = true; } }}
 						role="button"
@@ -3595,9 +3633,9 @@ $effect(() => {
 		{#if !showHeader || !labelsCollapsed}
 			<div class="mt-1 space-y-[1px]">
 				{#if loadingLabels && labels.length === 0}
-					{@render sidebarEmptyState("Loading labels…", true)}
+					{@render sidebarEmptyState(m.sidebar_loading_labels({}, { locale }), true)}
 				{:else if displayLabels.length === 0}
-					<div class="px-6 py-1.5 text-[12px] text-text-tertiary">No labels yet</div>
+					<div class="px-6 py-1.5 text-[12px] text-text-tertiary">{m.sidebar_no_labels({}, { locale })}</div>
 				{:else}
 					{@render labelTreeRows(displayLabels)}
 				{/if}
@@ -3623,7 +3661,7 @@ $effect(() => {
 			ondrop={(event) => handleLabelDrop(event, label)}
 		>
 			<ChevronDown class="h-3 w-3 shrink-0 transition-transform {currentExpandedLabelIds.has(label.id) ? '' : '-rotate-90'}" />
-			<span class="min-w-0 flex-1 truncate" title={`Source / ${getReactiveLabelDisplayTitle(label)}`}>{getReactiveLabelDisplayName(label)}</span>
+			<span class="min-w-0 flex-1 truncate" title={m.sidebar_source_label({ label: getReactiveLabelDisplayTitle(label) }, { locale })}>{getReactiveLabelDisplayName(label)}</span>
 		</div>
 		{@render labelAssignmentRows(label, 0)}
 	{/each}
@@ -3635,21 +3673,21 @@ $effect(() => {
 			<div
 				class="flex w-full cursor-pointer items-center gap-2 rounded-[6px] px-1.5 py-1.5 text-left transition-colors duration-100 hover:bg-bg-hover"
 				onclick={() => { chatsCollapsed = !chatsCollapsed; }}
-				title={chatsCollapsed ? "Expand chats" : "Collapse chats"}
+				title={chatsCollapsed ? m.sidebar_expand_chats({}, { locale }) : m.sidebar_collapse_chats({}, { locale })}
 				role="button"
 				tabindex="0"
 				onkeydown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); chatsCollapsed = !chatsCollapsed; } }}
 			>
 				<ChevronDown class="h-3 w-3 shrink-0 text-text-tertiary transition-transform duration-150 {chatsCollapsed ? 'rotate-180' : ''}" />
 				<MessageSquare class="h-3.5 w-3.5 shrink-0 text-text-placeholder" />
-				<span class="text-[11px] text-text-placeholder select-none">Chats</span>
+				<span class="text-[11px] text-text-placeholder select-none">{m.sidebar_chats({}, { locale })}</span>
 				{@render syncSpinner(refreshingSessions, "ml-auto")}
 			</div>
 		{/if}
 		{#if !showHeader || !chatsCollapsed}
 			<div class="mt-1 space-y-[1px]">
 				{#if loadingLabels && labels.length === 0 && loadingSessions && sessions.length === 0}
-					{@render sidebarEmptyState("Loading chats…", true)}
+					{@render sidebarEmptyState(m.sidebar_loading_chats({}, { locale }), true)}
 				{:else}
 					{@render sourceLabelRows()}
 					{@render labelTreeRows(systemChannelLabels)}
@@ -3670,7 +3708,7 @@ $effect(() => {
 		onkeydown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); toggleLabelExpanded(ALL_CHATS_LABEL_ID); } }}
 	>
 		<ChevronDown class="h-3 w-3 shrink-0 transition-transform {currentExpandedLabelIds.has(ALL_CHATS_LABEL_ID) ? '' : '-rotate-90'}" />
-		<span class="min-w-0 flex-1 truncate" title="All chats">All</span>
+		<span class="min-w-0 flex-1 truncate" title={m.sidebar_all_chats({}, { locale })}>{m.sidebar_all({}, { locale })}</span>
 		{@render syncSpinner(refreshingSessions, "ml-auto")}
 	</div>
 	{#if currentExpandedLabelIds.has(ALL_CHATS_LABEL_ID)}
@@ -3682,9 +3720,9 @@ $effect(() => {
 
 {#snippet allChatsList(preview = true)}
 	{#if loadingSessions && sessions.length === 0}
-		{@render sidebarEmptyState("Loading chats…", true)}
+		{@render sidebarEmptyState(m.sidebar_loading_chats({}, { locale }), true)}
 	{:else if sessions.length === 0}
-		{@render sidebarEmptyState("No chats")}
+		{@render sidebarEmptyState(m.sidebar_no_chats({}, { locale }))}
 	{:else}
 		{@const chatItems = preview ? sidebarSessionItems.slice(0, sidebarFlyoutPreviewLimit) : sidebarSessionItems}
 		<div class="space-y-[2px]">
@@ -3723,7 +3761,7 @@ $effect(() => {
 			{/each}
 			{#if shouldShowLoadMoreSessions()}
 				<button type="button" class="mt-1 flex w-full items-center justify-center gap-2 rounded-[6px] px-2 py-1.5 text-[12px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-60" disabled={loadingMoreSessions} onclick={() => currentSpaceId && void loadMoreSessionsForSpace(currentSpaceId)}>
-					{#if loadingMoreSessions}<Loader2 class="h-3 w-3 animate-spin" /> Loading...{:else}Load more{/if}
+					{#if loadingMoreSessions}<Loader2 class="h-3 w-3 animate-spin" /> {m.common_loading({}, { locale })}{:else}{m.sidebar_show_more({}, { locale })}{/if}
 				</button>
 			{/if}
 		</div>
@@ -3732,9 +3770,9 @@ $effect(() => {
 
 {#snippet checkpointsFlyoutList()}
 	{#if loadingCheckpoints && checkpoints.length === 0}
-		{@render sidebarEmptyState("Loading saves…", true)}
+		{@render sidebarEmptyState(m.sidebar_loading_saves({}, { locale }), true)}
 	{:else if checkpoints.length === 0}
-		{@render sidebarEmptyState("No saves")}
+		{@render sidebarEmptyState(m.sidebar_no_saves({}, { locale }))}
 	{:else}
 		<div class="space-y-[2px]">
 			{#each checkpoints.slice(0, sidebarFlyoutPreviewLimit) as checkpoint (checkpoint.id)}
@@ -3752,13 +3790,13 @@ $effect(() => {
 {#snippet cronjobsFlyoutList()}
 	<div class="mb-1 flex justify-end">
 		<button type="button" class="inline-flex items-center gap-1 rounded-[5px] px-2 py-1 text-[11px] font-medium text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35" onclick={handleNavigateToNewCronjob}>
-			<Plus class="h-3 w-3" /> New scheduled
+			<Plus class="h-3 w-3" /> {m.sidebar_new_scheduled({}, { locale })}
 		</button>
 	</div>
 	{#if loadingCronjobs && cronjobs.length === 0}
-		{@render sidebarEmptyState("Loading scheduled…", true)}
+		{@render sidebarEmptyState(m.sidebar_loading_scheduled({}, { locale }), true)}
 	{:else if cronjobs.length === 0}
-		{@render sidebarEmptyState("No scheduled")}
+		{@render sidebarEmptyState(m.sidebar_no_scheduled({}, { locale }))}
 	{:else}
 		<div class="space-y-[2px]">
 			{#each cronjobs.slice(0, sidebarFlyoutPreviewLimit) as job (job.id)}
@@ -3774,9 +3812,9 @@ $effect(() => {
 
 {#snippet appsFlyoutList()}
 	{#if loadingApps && apps.length === 0}
-		{@render sidebarEmptyState("Loading apps…", true)}
+		{@render sidebarEmptyState(m.sidebar_loading_apps({}, { locale }), true)}
 	{:else if apps.length === 0}
-		{@render sidebarEmptyState("No apps")}
+		{@render sidebarEmptyState(m.sidebar_no_apps({}, { locale }))}
 	{:else}
 		<div class="space-y-[2px]">
 			{#each apps.slice(0, sidebarFlyoutPreviewLimit) as app (app.id)}
@@ -3792,9 +3830,9 @@ $effect(() => {
 
 {#snippet tasksFlyoutList()}
 	{#if loadingTasks && tasks.length === 0}
-		{@render sidebarEmptyState("Loading tasks…", true)}
+		{@render sidebarEmptyState(m.sidebar_loading_tasks({}, { locale }), true)}
 	{:else if tasks.length === 0}
-		{@render sidebarEmptyState("No tasks")}
+		{@render sidebarEmptyState(m.sidebar_no_tasks({}, { locale }))}
 	{:else}
 		<div class="space-y-[2px]">
 			{#each tasks.slice(0, sidebarFlyoutPreviewLimit) as run (run.id)}
@@ -3815,8 +3853,8 @@ $effect(() => {
       <a
         href="/"
         class="flex h-8 w-8 shrink-0 items-center justify-center rounded-[7px] bg-brand text-[11px] font-bold text-brand-contrast-fg transition-colors duration-100 hover:bg-brand-hover"
-        aria-label="Cohub home"
-        title="Home"
+        aria-label={m.sidebar_cohub_home({}, { locale })}
+        title={m.sidebar_home({}, { locale })}
       >
         C
       </a>
@@ -3824,8 +3862,8 @@ $effect(() => {
         type="button"
         class="mt-1 flex h-8 w-8 items-center justify-center rounded-[6px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"
         onclick={() => uiState.setLeftSidebarCollapsed(false)}
-        aria-label="Expand sidebar"
-        title="Expand sidebar (Ctrl+Alt+← / ⌃⌥←)"
+        aria-label={m.sidebar_expand({}, { locale })}
+        title={m.sidebar_expand_shortcut({}, { locale })}
       >
         <PanelLeftOpen class="h-4 w-4" />
       </button>
@@ -3833,16 +3871,16 @@ $effect(() => {
         type="button"
         class="mt-1 flex h-8 w-8 items-center justify-center rounded-[6px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"
         onclick={openCommandPalette}
-        aria-label="Search everywhere"
-        title="Search everywhere (⌘K / Ctrl K)"
+        aria-label={m.sidebar_search_everywhere({}, { locale })}
+        title={m.sidebar_search_everywhere_shortcut({}, { locale })}
       >
         <Search class="h-4 w-4" />
       </button>
       <a
         href={buildSessionsRoute()}
         class="mt-1 flex h-8 w-8 items-center justify-center rounded-[6px] transition-colors duration-100 {isSessionsRoute ? 'bg-bg-active text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}"
-        aria-label="Chats"
-        title="Chats"
+        aria-label={m.sidebar_chats({}, { locale })}
+        title={m.sidebar_chats({}, { locale })}
         onclick={(event) => {
           event.preventDefault();
           void handleNavigate(buildSessionsRoute());
@@ -3859,8 +3897,8 @@ $effect(() => {
             type="button"
             class="flex h-8 w-8 items-center justify-center overflow-hidden rounded-[6px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"
             onclick={openSpacePalette}
-            aria-label={currentSpace ? `Switch space: ${currentSpace.name || currentSpace.title || currentSpace.id}` : "Select a space"}
-            title={currentSpace ? currentSpace.name || currentSpace.title || currentSpace.id : "Select a space"}
+            aria-label={currentSpace ? m.sidebar_switch_space({ space: currentSpace.name || currentSpace.title || currentSpace.id }, { locale }) : m.sidebar_select_space({}, { locale })}
+            title={currentSpace ? currentSpace.name || currentSpace.title || currentSpace.id : m.sidebar_select_space({}, { locale })}
           >
             {#if currentSpace}
               <SpaceAvatar name={currentSpace.name || currentSpace.title || currentSpace.id} profile={currentSpace.publicProfile} size="sm" />
@@ -3874,8 +3912,8 @@ $effect(() => {
               class="new-chat-collapsed relative flex h-8 w-8 items-center justify-center rounded-[6px] text-brand transition-colors duration-100 hover:bg-brand-muted hover:text-brand"
               onclick={() => { void handleCreateNewSession(); }}
               disabled={creatingSession}
-              aria-label="New chat"
-              title="New chat (⌘O / Ctrl O)"
+              aria-label={m.sidebar_new_chat({}, { locale })}
+              title={m.sidebar_new_chat_shortcut({}, { locale })}
             >
               {#if creatingSession}
                 <Loader2 class="h-4 w-4 animate-spin" />
@@ -3887,8 +3925,8 @@ $effect(() => {
               type="button"
               class="flex h-8 w-8 items-center justify-center rounded-[6px] transition-colors duration-100 {currentPath === buildSpaceSettingsRoute(currentSpaceId!) ? 'bg-bg-active text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}"
               onclick={() => { void handleNavigate(buildSpaceSettingsRoute(currentSpaceId!)); }}
-              aria-label="Space settings"
-              title="Space settings"
+              aria-label={m.sidebar_space_settings({}, { locale })}
+              title={m.sidebar_space_settings({}, { locale })}
             >
               <Settings class="h-4 w-4" />
             </button>
@@ -3896,8 +3934,8 @@ $effect(() => {
               type="button"
               class="flex h-8 w-8 items-center justify-center rounded-[6px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"
               onclick={handleNavigateToNewCheckpoint}
-              aria-label="New save"
-              title="New save"
+              aria-label={m.sidebar_new_save({}, { locale })}
+              title={m.sidebar_new_save({}, { locale })}
             >
               <Save class="h-4 w-4" />
             </button>
@@ -3907,7 +3945,7 @@ $effect(() => {
         {#if currentSpace}
           <div class="mt-2 h-px w-6 bg-border-subtle/70"></div>
           <nav class="mt-2 flex w-full flex-1 flex-col items-center gap-1 overflow-visible">
-            <SidebarFlyout label="Labels" active={Boolean(activeLabelResource)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
+            <SidebarFlyout label={m.sidebar_labels({}, { locale })} active={Boolean(activeLabelResource)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
               {#snippet trigger()}
                 <Tags class="h-4 w-4" />
               {/snippet}
@@ -3916,8 +3954,8 @@ $effect(() => {
                   <button
                     type="button"
                     class="inline-flex h-6 w-6 items-center justify-center rounded-[5px] text-text-placeholder transition-colors hover:bg-bg-hover hover:text-text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
-                    title="New label"
-                    aria-label="New label"
+                    title={m.sidebar_new_label({}, { locale })}
+                    aria-label={m.sidebar_new_label({}, { locale })}
                     onclick={(event) => { event.stopPropagation(); showNewLabelPopover = true; }}
                   >
                     <Plus class="h-3.5 w-3.5" />
@@ -3926,31 +3964,31 @@ $effect(() => {
               {/if}
               {@render labelsSection(false)}
             </SidebarFlyout>
-            <SidebarFlyout label="Chats" active={Boolean(activeSession)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
+            <SidebarFlyout label={m.sidebar_chats({}, { locale })} active={Boolean(activeSession)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
               {#snippet trigger()}
                 <MessageSquare class="h-4 w-4" />
               {/snippet}
               {@render chatsSection(false)}
             </SidebarFlyout>
-            <SidebarFlyout label="Apps" active={Boolean(activeApp)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
+            <SidebarFlyout label={m.sidebar_apps({}, { locale })} active={Boolean(activeApp)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
               {#snippet trigger()}
                 <Rocket class="h-4 w-4" />
               {/snippet}
               {@render appsFlyoutList()}
             </SidebarFlyout>
-            <SidebarFlyout label="Saves" active={Boolean(activeCheckpointId)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
+            <SidebarFlyout label={m.sidebar_saves({}, { locale })} active={Boolean(activeCheckpointId)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
               {#snippet trigger()}
                 <History class="h-4 w-4" />
               {/snippet}
               {@render checkpointsFlyoutList()}
             </SidebarFlyout>
-            <SidebarFlyout label="Scheduled" active={Boolean(activeCronjobId)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
+            <SidebarFlyout label={m.sidebar_scheduled({}, { locale })} active={Boolean(activeCronjobId)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
               {#snippet trigger()}
                 <Clock class="h-4 w-4" />
               {/snippet}
               {@render cronjobsFlyoutList()}
             </SidebarFlyout>
-            <SidebarFlyout label="Tasks" active={Boolean(activeTaskId)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
+            <SidebarFlyout label={m.sidebar_tasks({}, { locale })} active={Boolean(activeTaskId)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
               {#snippet trigger()}
                 <Activity class="h-4 w-4" />
               {/snippet}
@@ -3962,7 +4000,7 @@ $effect(() => {
         {/if}
       {:else}
         <nav class="mt-3 flex w-full flex-1 flex-col items-center gap-1 overflow-y-auto">
-          <button type="button" class="rail-button text-text-tertiary" onclick={returnFromSettings} aria-label="Back" title="Back">
+          <button type="button" class="rail-button text-text-tertiary" onclick={returnFromSettings} aria-label={m.nav_back({}, { locale })} title={m.nav_back({}, { locale })}>
             <ArrowLeft class="h-4 w-4" />
           </button>
           {#each settingsTabs as tab (tab.id)}
@@ -3995,9 +4033,9 @@ $effect(() => {
           >
             {#if billingConfigured !== false}
               <div class="border-b border-border-subtle">
-                <a href={currentSubscriptionName ? "/settings/billing" : "/pricing"} class="rail-menu-item" title={currentSubscriptionName ? "Open billing details" : "View plans"} onclick={(e) => { e.preventDefault(); if (currentSubscriptionName) openBillingSettings(); else { showUserMenu = false; handleNavigate('/pricing'); } }}>
+                <a href={currentSubscriptionName ? "/settings/billing" : "/pricing"} class="rail-menu-item" title={currentSubscriptionName ? m.sidebar_open_billing({}, { locale }) : m.sidebar_view_plans({}, { locale })} onclick={(e) => { e.preventDefault(); if (currentSubscriptionName) openBillingSettings(); else { showUserMenu = false; handleNavigate('/pricing'); } }}>
                   <CreditCard class="h-3.5 w-3.5" />
-                  <span>{currentSubscriptionName ?? "Free Plan"}</span>
+                  <span>{currentSubscriptionName ?? m.sidebar_free_plan({}, { locale })}</span>
                   {#if showBillingBalanceEntry}
                     <span class="ml-auto font-mono text-[11px] {billingCredit && billingCredit.netUsd < 0 ? 'text-error-soft' : 'text-text-secondary'}">
                       {#if billingCreditLoading || (!billingCredit && !billingCreditError)}
@@ -4009,7 +4047,7 @@ $effect(() => {
                       {/if}
                     </span>
                   {:else if !currentSubscriptionName}
-                    <span class="ml-auto text-[10px] font-medium text-brand">Upgrade</span>
+                    <span class="ml-auto text-[10px] font-medium text-brand">{m.sidebar_upgrade({}, { locale })}</span>
                   {/if}
                 </a>
                 {#if showBillingBalanceEntry && billingCreditError}
@@ -4017,16 +4055,16 @@ $effect(() => {
                 {/if}
               </div>
             {/if}
-            <a href="/settings/referrals" class="rail-menu-item" onclick={(e) => { e.preventDefault(); openReferralsSettings(); }}><Gift class="h-3.5 w-3.5" /><span>Referrals</span></a>
+            <a href="/settings/referrals" class="rail-menu-item" onclick={(e) => { e.preventDefault(); openReferralsSettings(); }}><Gift class="h-3.5 w-3.5" /><span>{m.nav_referrals({}, { locale })}</span></a>
             {#if mode === "space"}
-              <a href="/settings" class="rail-menu-item" onclick={(e) => { e.preventDefault(); openSettings(); }}><Settings class="h-3.5 w-3.5" /><span>Settings</span></a>
+              <a href="/settings" class="rail-menu-item" onclick={(e) => { e.preventDefault(); openSettings(); }}><Settings class="h-3.5 w-3.5" /><span>{m.nav_settings({}, { locale })}</span></a>
             {:else}
-              <a href={settingsReturnTo} class="rail-menu-item" onclick={(e) => { e.preventDefault(); showUserMenu = false; returnFromSettings(); }}><FolderKanban class="h-3.5 w-3.5" /><span>Spaces</span></a>
+              <a href={settingsReturnTo} class="rail-menu-item" onclick={(e) => { e.preventDefault(); showUserMenu = false; returnFromSettings(); }}><FolderKanban class="h-3.5 w-3.5" /><span>{m.nav_spaces({}, { locale })}</span></a>
             {/if}
-            <a href="/trending" class="rail-menu-item" onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/trending'); }}><BarChart3 class="h-3.5 w-3.5" /><span>Trending</span></a>
-            <button type="button" class="rail-menu-item w-full" onclick={openHelpPanel}><Keyboard class="h-3.5 w-3.5" /><span>Help</span></button>
-            <button type="button" class="rail-menu-item w-full" onclick={saveDebugLog}><Download class="h-3.5 w-3.5" /><span>Save debug log</span></button>
-            <button type="button" class="rail-menu-item w-full hover:text-error-soft" onclick={() => { showUserMenu = false; void handleLogout(); }}><LogOut class="h-3.5 w-3.5" /><span>Sign out</span></button>
+            <a href="/trending" class="rail-menu-item" onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/trending'); }}><BarChart3 class="h-3.5 w-3.5" /><span>{m.sidebar_trending({}, { locale })}</span></a>
+            <button type="button" class="rail-menu-item w-full" onclick={openHelpPanel}><Keyboard class="h-3.5 w-3.5" /><span>{m.sidebar_help({}, { locale })}</span></button>
+            <button type="button" class="rail-menu-item w-full" onclick={saveDebugLog}><Download class="h-3.5 w-3.5" /><span>{m.sidebar_save_debug_log({}, { locale })}</span></button>
+            <button type="button" class="rail-menu-item w-full hover:text-error-soft" onclick={() => { showUserMenu = false; void handleLogout(); }}><LogOut class="h-3.5 w-3.5" /><span>{m.sidebar_sign_out({}, { locale })}</span></button>
           </div>
         {/if}
         <button
@@ -4060,8 +4098,8 @@ $effect(() => {
         type="button"
         class="group/search flex h-7 shrink-0 items-center gap-1.5 rounded-[6px] bg-bg-surface px-2 text-[11px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"
         onclick={openCommandPalette}
-        title="Search everywhere (⌘K / Ctrl K)"
-        aria-label="Search everywhere"
+        title={m.sidebar_search_everywhere_shortcut({}, { locale })}
+        aria-label={m.sidebar_search_everywhere({}, { locale })}
       >
         <Search class="h-3.5 w-3.5 text-text-placeholder transition-colors group-hover/search:text-brand" />
         <span class="hidden font-mono tracking-[0.02em] sm:inline">⌘K</span>
@@ -4069,8 +4107,8 @@ $effect(() => {
       <a
         href={buildSessionsRoute()}
         class="flex h-7 w-7 shrink-0 items-center justify-center rounded-[5px] transition-colors duration-100 {isSessionsRoute ? 'bg-bg-active text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}"
-        title="Chats"
-        aria-label="Chats"
+        title={m.sidebar_chats({}, { locale })}
+        aria-label={m.sidebar_chats({}, { locale })}
         onclick={(event) => {
           event.preventDefault();
           void handleNavigate(buildSessionsRoute());
@@ -4083,8 +4121,8 @@ $effect(() => {
           type="button"
           class="flex h-7 w-7 shrink-0 items-center justify-center rounded-[5px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"
           onclick={() => uiState.setLeftSidebarCollapsed(true)}
-          title="Collapse sidebar (Ctrl+Alt+← / ⌃⌥←)"
-          aria-label="Collapse sidebar"
+          title={m.sidebar_collapse_shortcut({}, { locale })}
+          aria-label={m.sidebar_collapse({}, { locale })}
         >
           <PanelLeftClose class="h-4 w-4" />
         </button>
@@ -4105,7 +4143,7 @@ $effect(() => {
           <span class="flex-1 text-[13px] font-medium text-text-primary truncate text-left">{currentSpace.name || currentSpace.title || currentSpace.id.slice(0, 12)}</span>
           {@render syncSpinner(refreshingSpaces)}
         {:else}
-          <span class="flex-1 text-[13px] text-text-placeholder truncate text-left">Select a space</span>
+          <span class="flex-1 text-[13px] text-text-placeholder truncate text-left">{m.sidebar_select_space({}, { locale })}</span>
         {/if}
         <ChevronDown class="w-3.5 h-3.5 text-text-tertiary shrink-0 transition-transform duration-150 group-hover:text-text-secondary" />
       </button>
@@ -4119,15 +4157,15 @@ $effect(() => {
           class="flex w-full items-center gap-2 rounded-[var(--sidebar-primary-action-radius)] border border-[color:var(--sidebar-primary-action-border)] bg-[var(--sidebar-primary-action-bg)] px-1.5 py-1.5 text-[var(--sidebar-primary-action-fg)] transition-colors duration-100 hover:bg-[var(--sidebar-primary-action-bg-hover)] disabled:cursor-not-allowed disabled:opacity-50"
           onclick={() => { void handleCreateNewSession(); }}
           disabled={creatingSession}
-          title="New chat (⌘O / Ctrl O)"
-          aria-label="New chat (⌘O / Ctrl O)"
+          title={m.sidebar_new_chat_shortcut({}, { locale })}
+          aria-label={m.sidebar_new_chat_shortcut({}, { locale })}
         >
           {#if creatingSession}
             <Loader2 class="w-3.5 h-3.5 animate-spin shrink-0" />
-            <span class="text-[12px] font-medium">Creating…</span>
+            <span class="text-[12px] font-medium">{m.sidebar_creating({}, { locale })}</span>
           {:else}
             <Plus class="w-3.5 h-3.5 shrink-0" />
-            <span class="text-[12px] font-medium">New Chat</span>
+            <span class="text-[12px] font-medium">{m.sidebar_new_chat({}, { locale })}</span>
             <span class="new-chat-shortcut ml-auto hidden rounded-[4px] border border-brand/20 bg-bg-primary/70 px-1.5 py-px font-mono text-[10px] text-brand/80 xl:inline">⌘O</span>
           {/if}
         </button>
@@ -4135,19 +4173,19 @@ $effect(() => {
           type="button"
           class="flex items-center gap-2 w-full px-1.5 py-1.5 rounded-[5px] text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors duration-100 disabled:opacity-50"
           onclick={() => { void handleNavigate(buildSpaceSettingsRoute(currentSpaceId!)); }}
-          title="Space settings"
+          title={m.sidebar_space_settings({}, { locale })}
         >
           <Settings class="w-3.5 h-3.5 shrink-0" />
-          <span class="text-[12px] font-medium">Settings</span>
+          <span class="text-[12px] font-medium">{m.nav_settings({}, { locale })}</span>
         </button>
         <button
           type="button"
           class="flex items-center gap-2 w-full px-1.5 py-1.5 rounded-[5px] text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors duration-100 disabled:opacity-50"
           onclick={handleNavigateToNewCheckpoint}
-          title="New save"
+          title={m.sidebar_new_save({}, { locale })}
         >
           <Save class="w-3.5 h-3.5 shrink-0" />
-          <span class="text-[12px] font-medium">New Save</span>
+          <span class="text-[12px] font-medium">{m.sidebar_new_save({}, { locale })}</span>
         </button>
         {#if createSessionError}
           <div class="px-2 py-1 text-[11px] text-error-soft">{createSessionError}</div>
@@ -4159,7 +4197,7 @@ $effect(() => {
     {#if currentSpace}
       <div class="flex-1 overflow-y-auto px-1.5 pb-2 pt-1 min-h-0">
         {#if loadingSessions && sessions.length === 0 && loadingCheckpoints && checkpoints.length === 0}
-          {@render sidebarEmptyState("Loading…", true)}
+          {@render sidebarEmptyState(m.common_loading({}, { locale }), true)}
         {:else}
           {@render labelsSection()}
           {@render chatsSection()}
@@ -4170,19 +4208,19 @@ $effect(() => {
               type="button"
               class="flex items-center gap-2 px-1.5 py-1.5 w-full text-left hover:bg-bg-hover transition-colors duration-100 rounded-[6px]"
               onclick={() => { worksCollapsed = !worksCollapsed; }}
-              title={worksCollapsed ? "Expand apps" : "Collapse apps"}
+              title={worksCollapsed ? m.sidebar_expand_apps({}, { locale }) : m.sidebar_collapse_apps({}, { locale })}
             >
               <ChevronDown class="w-3 h-3 text-text-tertiary shrink-0 transition-transform duration-150 {worksCollapsed ? 'rotate-180' : ''}" />
               <Rocket class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
-              <span class="text-[11px] text-text-placeholder select-none">Apps</span>
+              <span class="text-[11px] text-text-placeholder select-none">{m.sidebar_apps({}, { locale })}</span>
               {@render syncSpinner(refreshingApps, "ml-auto")}
             </button>
 
             {#if !worksCollapsed}
               {#if loadingApps && apps.length === 0}
-                {@render sidebarEmptyState("Loading apps…", true)}
+                {@render sidebarEmptyState(m.sidebar_loading_apps({}, { locale }), true)}
               {:else if apps.length === 0}
-                {@render sidebarEmptyState("No apps")}
+                {@render sidebarEmptyState(m.sidebar_no_apps({}, { locale }))}
               {:else}
                 <div class="space-y-[2px] mt-1">
                   {#each apps as app (app.id)}
@@ -4219,19 +4257,19 @@ $effect(() => {
               type="button"
               class="flex items-center gap-2 px-1.5 py-1.5 w-full text-left hover:bg-bg-hover transition-colors duration-100 rounded-[6px]"
               onclick={() => { checkpointsCollapsed = !checkpointsCollapsed; }}
-              title={checkpointsCollapsed ? "Expand saves" : "Collapse saves"}
+              title={checkpointsCollapsed ? m.sidebar_expand_saves({}, { locale }) : m.sidebar_collapse_saves({}, { locale })}
             >
               <ChevronDown class="w-3 h-3 text-text-tertiary shrink-0 transition-transform duration-150 {checkpointsCollapsed ? 'rotate-180' : ''}" />
               <History class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
-              <span class="text-[11px] text-text-placeholder select-none">Saves</span>
+              <span class="text-[11px] text-text-placeholder select-none">{m.sidebar_saves({}, { locale })}</span>
               {@render syncSpinner(refreshingCheckpoints, "ml-auto")}
             </button>
 
             {#if !checkpointsCollapsed}
               {#if loadingCheckpoints && checkpoints.length === 0}
-                {@render sidebarEmptyState("Loading saves…", true)}
+                {@render sidebarEmptyState(m.sidebar_loading_saves({}, { locale }), true)}
               {:else if checkpoints.length === 0}
-                {@render sidebarEmptyState("No saves")}
+                {@render sidebarEmptyState(m.sidebar_no_saves({}, { locale }))}
               {:else}
                 <div class="space-y-[2px] mt-1">
                   {#each checkpoints as checkpoint (checkpoint.id)}
@@ -4251,9 +4289,9 @@ $effect(() => {
                     >
                       {#if loadingMoreCheckpoints}
                         <Loader2 class="h-3 w-3 animate-spin" />
-                        Loading...
+                        {m.common_loading({}, { locale })}
                       {:else}
-                        Show more
+                        {m.sidebar_show_more({}, { locale })}
                       {/if}
                     </button>
                   {/if}
@@ -4277,20 +4315,20 @@ $effect(() => {
             <div
               class="flex items-center gap-2 px-1.5 py-1.5 w-full text-left hover:bg-bg-hover transition-colors duration-100 rounded-[6px] cursor-pointer"
               onclick={() => { cronjobsCollapsed = !cronjobsCollapsed; }}
-              title={cronjobsCollapsed ? "Expand scheduled" : "Collapse scheduled"}
+              title={cronjobsCollapsed ? m.sidebar_expand_scheduled({}, { locale }) : m.sidebar_collapse_scheduled({}, { locale })}
               role="button"
               tabindex="0"
               onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); cronjobsCollapsed = !cronjobsCollapsed; } }}
             >
               <ChevronDown class="w-3 h-3 text-text-tertiary shrink-0 transition-transform duration-150 {cronjobsCollapsed ? 'rotate-180' : ''}" />
               <Clock class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
-              <span class="text-[11px] text-text-placeholder select-none">Scheduled</span>
+              <span class="text-[11px] text-text-placeholder select-none">{m.sidebar_scheduled({}, { locale })}</span>
               {@render syncSpinner(refreshingCronjobs, "ml-auto")}
               <span
                 class="{refreshingCronjobs ? '' : 'ml-auto'} p-0.5 rounded hover:bg-bg-hover text-text-placeholder hover:text-text-secondary transition-colors cursor-pointer"
                 onclick={(e) => { e.stopPropagation(); handleNavigateToNewCronjob(); }}
                 onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); e.preventDefault(); handleNavigateToNewCronjob(); } }}
-                title="New scheduled"
+                title={m.sidebar_new_scheduled({}, { locale })}
                 role="button"
                 tabindex="0"
               >
@@ -4300,9 +4338,9 @@ $effect(() => {
 
             {#if !cronjobsCollapsed}
               {#if loadingCronjobs && cronjobs.length === 0}
-                {@render sidebarEmptyState("Loading scheduled…", true)}
+                {@render sidebarEmptyState(m.sidebar_loading_scheduled({}, { locale }), true)}
               {:else if cronjobs.length === 0}
-                {@render sidebarEmptyState("No scheduled")}
+                {@render sidebarEmptyState(m.sidebar_no_scheduled({}, { locale }))}
               {:else}
                 <div class="space-y-[2px] mt-1">
                   {#each cronjobs as job (job.id)}
@@ -4347,19 +4385,19 @@ $effect(() => {
                   void loadTasksForSpace(currentSpaceId);
                 }
               }}
-              title={tasksCollapsed ? "Expand tasks" : "Collapse tasks"}
+              title={tasksCollapsed ? m.sidebar_expand_tasks({}, { locale }) : m.sidebar_collapse_tasks({}, { locale })}
             >
               <ChevronDown class="w-3 h-3 text-text-tertiary shrink-0 transition-transform duration-150 {tasksCollapsed ? 'rotate-180' : ''}" />
               <Activity class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
-              <span class="text-[11px] text-text-placeholder select-none">Tasks</span>
+              <span class="text-[11px] text-text-placeholder select-none">{m.sidebar_tasks({}, { locale })}</span>
               {@render syncSpinner(refreshingTasks, "ml-auto")}
             </button>
 
             {#if !tasksCollapsed}
               {#if loadingTasks && tasks.length === 0}
-                {@render sidebarEmptyState("Loading tasks…", true)}
+                {@render sidebarEmptyState(m.sidebar_loading_tasks({}, { locale }), true)}
               {:else if tasks.length === 0}
-                {@render sidebarEmptyState("No tasks")}
+                {@render sidebarEmptyState(m.sidebar_no_tasks({}, { locale }))}
               {:else}
                 <div class="space-y-[2px] mt-1">
                   {#each tasks as run (run.id)}
@@ -4389,9 +4427,9 @@ $effect(() => {
                     >
                       {#if loadingMoreTasks}
                         <Loader2 class="h-3 w-3 animate-spin" />
-                        Loading...
+                        {m.common_loading({}, { locale })}
                       {:else}
-                        Show more
+                        {m.sidebar_show_more({}, { locale })}
                       {/if}
                     </button>
                   {/if}
@@ -4404,7 +4442,7 @@ $effect(() => {
                 onclick={(e) => { e.preventDefault(); handleNavigateToTask(activeTaskId); }}
               >
                 <div class="min-w-0 flex-1">
-                  <div class="truncate leading-tight text-[12px]">Task run</div>
+                  <div class="truncate leading-tight text-[12px]">{m.sidebar_task_run({}, { locale })}</div>
                 </div>
               </a>
             {/if}
@@ -4414,7 +4452,7 @@ $effect(() => {
     {:else}
       <div class="flex-1 overflow-y-auto px-1.5 pb-2 pt-1 min-h-0">
         <div class="px-1 py-6 text-[12px] text-text-placeholder text-center">
-          Select a space to view chats
+          {m.sidebar_select_space_for_chats({}, { locale })}
         </div>
       </div>
     {/if}
@@ -4426,7 +4464,7 @@ $effect(() => {
         onclick={returnFromSettings}
       >
         <ArrowLeft class="w-[15px] h-[15px] shrink-0" />
-        <span class="truncate">Back</span>
+        <span class="truncate">{m.nav_back({}, { locale })}</span>
       </button>
     </div>
     <nav class="flex-1 overflow-y-auto px-1.5 py-2 space-y-[2px]">
@@ -4467,11 +4505,11 @@ $effect(() => {
             <a
               href={currentSubscriptionName ? "/settings/billing" : "/pricing"}
               class="flex w-full items-center gap-2 px-2.5 py-[7px] text-[12px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"
-              title={currentSubscriptionName ? "Open billing details" : "View plans"}
+              title={currentSubscriptionName ? m.sidebar_open_billing({}, { locale }) : m.sidebar_view_plans({}, { locale })}
               onclick={(e) => { e.preventDefault(); if (currentSubscriptionName) openBillingSettings(); else { showUserMenu = false; handleNavigate('/pricing'); } }}
             >
               <CreditCard class="w-3.5 h-3.5" />
-              <span>{currentSubscriptionName ?? "Free Plan"}</span>
+              <span>{currentSubscriptionName ?? m.sidebar_free_plan({}, { locale })}</span>
               {#if showBillingBalanceEntry}
                 <span class="ml-auto font-mono text-[11px] {billingCredit && billingCredit.netUsd < 0 ? 'text-error-soft' : 'text-text-secondary'}">
                   {#if billingCreditLoading || (!billingCredit && !billingCreditError)}
@@ -4483,7 +4521,7 @@ $effect(() => {
                   {/if}
                 </span>
               {:else if !currentSubscriptionName}
-                <span class="ml-auto text-[10px] font-medium text-brand">Upgrade</span>
+                <span class="ml-auto text-[10px] font-medium text-brand">{m.sidebar_upgrade({}, { locale })}</span>
               {/if}
             </a>
             {#if showBillingBalanceEntry && billingCreditError}
@@ -4497,7 +4535,7 @@ $effect(() => {
           onclick={(e) => { e.preventDefault(); openReferralsSettings(); }}
         >
           <Gift class="w-3.5 h-3.5" />
-          <span>Referrals</span>
+          <span>{m.nav_referrals({}, { locale })}</span>
         </a>
         {#if mode === "space"}
           <a
@@ -4506,7 +4544,7 @@ $effect(() => {
             onclick={(e) => { e.preventDefault(); openSettings(); }}
           >
             <Settings class="w-3.5 h-3.5" />
-            <span>Settings</span>
+            <span>{m.nav_settings({}, { locale })}</span>
           </a>
         {:else}
           <a
@@ -4515,7 +4553,7 @@ $effect(() => {
             onclick={(e) => { e.preventDefault(); showUserMenu = false; returnFromSettings(); }}
           >
             <FolderKanban class="w-3.5 h-3.5" />
-            <span>Spaces</span>
+            <span>{m.nav_spaces({}, { locale })}</span>
           </a>
         {/if}
         <a
@@ -4524,7 +4562,7 @@ $effect(() => {
           onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/trending'); }}
         >
           <BarChart3 class="w-3.5 h-3.5" />
-          <span>Trending</span>
+          <span>{m.sidebar_trending({}, { locale })}</span>
         </a>
 	        <button
 	          type="button"
@@ -4532,7 +4570,7 @@ $effect(() => {
 	          onclick={openHelpPanel}
         >
           <Keyboard class="w-3.5 h-3.5" />
-	          <span>Help</span>
+	          <span>{m.sidebar_help({}, { locale })}</span>
 	          <span class="ml-auto rounded-[4px] border border-border-subtle bg-bg-surface px-1.5 py-px font-mono text-[10px] leading-4 text-text-placeholder">?</span>
 	        </button>
         <a
@@ -4541,7 +4579,7 @@ $effect(() => {
           onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/changelog'); }}
         >
           <History class="w-3.5 h-3.5" />
-          <span>Changelog</span>
+          <span>{m.sidebar_changelog({}, { locale })}</span>
         </a>
 	        <button
 	          type="button"
@@ -4549,7 +4587,7 @@ $effect(() => {
 	          onclick={saveDebugLog}
 	        >
 	          <Download class="w-3.5 h-3.5" />
-	          <span>Save debug log</span>
+	          <span>{m.sidebar_save_debug_log({}, { locale })}</span>
 	        </button>
 	        <button
 	          type="button"
@@ -4557,7 +4595,7 @@ $effect(() => {
 	          onclick={() => { showUserMenu = false; void handleLogout(); }}
 	        >
           <LogOut class="w-3.5 h-3.5" />
-          <span>Sign out</span>
+          <span>{m.sidebar_sign_out({}, { locale })}</span>
         </button>
       </div>
     {/if}

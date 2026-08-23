@@ -1,5 +1,7 @@
 <script lang="ts">
 import { Loader2 } from "lucide-svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 
 type LoadingSize = "compact" | "panel" | "page";
 type LoadingVariant = "plain" | "surface";
@@ -11,7 +13,8 @@ const props = $props<{
 	class?: string;
 }>();
 
-const label = $derived(props.label ?? "Loading…");
+const locale = $derived(getLocale());
+const label = $derived(props.label ?? m.common_loading({}, { locale }));
 const size = $derived(props.size ?? "panel");
 const variant = $derived(props.variant ?? "plain");
 const className = $derived(props.class ?? "");

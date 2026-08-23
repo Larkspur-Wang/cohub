@@ -1,6 +1,8 @@
 <script lang="ts">
 import { File as FileIcon, Link2Off, TextCursorInput } from "lucide-svelte";
 import SidebarActionButton from "$lib/components/sidebar/SidebarActionButton.svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 
 const {
 	path,
@@ -28,6 +30,7 @@ const {
 	onRemoveLabel?: () => void;
 } = $props();
 
+const locale = $derived(getLocale());
 const actionCount = $derived((onInsert ? 1 : 0) + (onRemoveLabel ? 1 : 0));
 const hoverPaddingClass = $derived(
 	!isMobile && actionCount > 0
@@ -52,10 +55,10 @@ const hoverPaddingClass = $derived(
 	{#if !isMobile && actionCount > 0}
 		<span class="absolute right-1 top-1/2 inline-flex -translate-y-1/2 items-center gap-0.5 opacity-0 pointer-events-none transition-opacity group-hover/file:opacity-100 group-hover/file:pointer-events-auto group-focus-within/file:opacity-100 group-focus-within/file:pointer-events-auto">
 			{#if onInsert}
-				<SidebarActionButton icon={TextCursorInput} title="Insert" onClick={() => onInsert(path)} />
+				<SidebarActionButton icon={TextCursorInput} title={m.common_insert({}, { locale })} onClick={() => onInsert(path)} />
 			{/if}
 			{#if onRemoveLabel}
-				<SidebarActionButton icon={Link2Off} title={removeLabelTitle ?? "Remove from label"} disabled={removeLabelDisabled} tone="danger" onClick={onRemoveLabel} />
+				<SidebarActionButton icon={Link2Off} title={removeLabelTitle ?? m.sidebar_remove_from_label_generic({}, { locale })} disabled={removeLabelDisabled} tone="danger" onClick={onRemoveLabel} />
 			{/if}
 		</span>
 	{/if}

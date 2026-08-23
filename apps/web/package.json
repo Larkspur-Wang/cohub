@@ -6,10 +6,11 @@
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
+		"i18n:compile": "paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide --strategy globalVariable baseLocale --emit-ts-declarations --silent",
 		"lint": "biome lint .",
 		"lint:fix": "biome lint --write .",
-		"test": "node ../../scripts/test/run.mjs --native-types --test-isolation=none --import ./scripts/register-alias.mjs 'src/tests/**/*.test.ts'",
-		"typecheck": "node ../../scripts/typecheck-web.mjs",
+		"test": "pnpm i18n:compile && node ../../scripts/test/run.mjs --native-types --test-isolation=none --import ./scripts/register-alias.mjs 'src/tests/**/*.test.ts'",
+		"typecheck": "pnpm i18n:compile && node ../../scripts/typecheck-web.mjs",
 		"preview": "pnpm build && wrangler dev",
 		"preview:prod": "pnpm build && wrangler dev --config wrangler.prod.toml",
 		"deploy": "wrangler deploy",
@@ -54,6 +55,8 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.5.3",
+		"@inlang/paraglide-js": "2.24.1",
+		"@inlang/plugin-message-format": "4.4.0",
 		"@sveltejs/adapter-cloudflare": "7.2.9",
 		"@sveltejs/kit": "^2.69.3",
 		"@sveltejs/vite-plugin-svelte": "^7.2.0",

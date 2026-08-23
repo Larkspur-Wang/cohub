@@ -1,32 +1,20 @@
 <script lang="ts">
-import {
-	Check,
-	Copy,
-	Loader2,
-	Monitor,
-	Moon,
-	Palette,
-	Pencil,
-	Sun,
-	Upload,
-	X,
-} from "lucide-svelte";
+import { Check, Copy, Loader2, Pencil, Upload, X } from "lucide-svelte";
 import { onMount } from "svelte";
 import { page } from "$app/state";
 import { ensureAuth } from "$lib/auth";
 import { handleUnauthorizedError } from "$lib/auth-redirect";
 import UploadProgress from "$lib/components/UploadProgress.svelte";
 import UserAvatar from "$lib/components/UserAvatar.svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
+import { m } from "$lib/paraglide/messages.js";
 import { uploadUserAvatarImage } from "$lib/public-asset-images";
 import { sdk } from "$lib/sdk";
 import { validateUsernameInput } from "$lib/slug-rules";
 import { authStore } from "$lib/stores/auth.svelte";
-import { getTheme } from "$lib/theme.svelte";
-import { THEME_OPTIONS, type ThemeMode } from "$lib/theme-registry";
-import { setThemeWithTransition } from "$lib/theme-transition";
 
-const mode = $derived(getTheme());
+const locale = $derived(getLocale());
 const currentPath = $derived(page.url.pathname);
 const currentSearch = $derived(page.url.search);
 
@@ -51,26 +39,13 @@ let avatarUploadStage = $state<"idle" | "preparing" | "uploading" | "saving">(
 let avatarUploadProgress = $state(0);
 let uuidCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 
-const profileTitle = $derived(displayName || username || "User");
-const usernameLabel = $derived(username ? `@${username}` : "Set username");
+const profileTitle = $derived(
+	displayName || username || m.common_user({}, { locale }),
+);
+const usernameLabel = $derived(
+	username ? `@${username}` : m.settings_set_username({}, { locale }),
+);
 const uuidLabel = $derived(formatUuid(userUuid));
-
-const themeIcon = {
-	dark: Moon,
-	light: Sun,
-	"solarized-dark": Palette,
-	"solarized-light": Palette,
-	"neta-studio": Palette,
-	system: Monitor,
-} satisfies Record<ThemeMode, typeof Sun>;
-
-function handleThemeChange(mode: ThemeMode, event: MouseEvent) {
-	setThemeWithTransition(mode, event);
-}
-
-function isThemeActive(option: ThemeMode): boolean {
-	return mode === option;
-}
 
 function formatUuid(uuid: string): string {
 	if (!uuid) return "";
@@ -149,7 +124,7 @@ async function saveEditingField() {
 
 	inlineError = "";
 	if (!nextDisplayName) {
-		inlineError = "Display name is required.";
+		inlineError = m.settings_display_name_required({}, { locale });
 		return;
 	}
 	if (field === "username") {
@@ -235,16 +210,16 @@ onMount(() => {
 </script>
 
 <svelte:head>
-	<title>Profile — Cohub</title>
+	<title>{m.nav_profile({}, { locale })} - Cohub</title>
 </svelte:head>
 
 <div class="flex-1 flex flex-col min-h-0 overflow-y-auto">
 	<div class="flex-1 overflow-y-auto px-6 py-7">
 		<section class="max-w-2xl">
 			<div class="border-b border-border-subtle pb-5">
-				<h1 class="text-[18px] font-semibold text-text-primary tracking-tight">Profile</h1>
+				<h1 class="text-[18px] font-semibold text-text-primary tracking-tight">{m.nav_profile({}, { locale })}</h1>
 				<p class="mt-1 max-w-xl text-[13px] leading-5 text-text-tertiary">
-					Manage the identity Cohub shows in shared spaces and agent activity.
+					{m.settings_profile_description({}, { locale })}
 				</p>
 			</div>
 
@@ -260,7 +235,7 @@ onMount(() => {
 							</div>
 						{:else}
 							<div class="flex w-16 shrink-0 flex-col items-center gap-1.5">
-								<label class="group relative h-14 w-14 cursor-pointer overflow-hidden rounded-full border border-border-subtle bg-bg-hover-strong transition-colors hover:border-brand/50" title={avatarUrl ? "Change avatar" : "Upload avatar"} aria-label={avatarUrl ? "Change avatar" : "Upload avatar"}>
+								<label class="group relative h-14 w-14 cursor-pointer overflow-hidden rounded-full border border-border-subtle bg-bg-hover-strong transition-colors hover:border-brand/50" title={avatarUrl ? m.settings_change_avatar({}, { locale }) : m.settings_upload_avatar({}, { locale })} aria-label={avatarUrl ? m.settings_change_avatar({}, { locale }) : m.settings_upload_avatar({}, { locale })}>
 									<UserAvatar name={displayName || username} {avatarUrl} size="lg" loading="eager" class="h-full w-full border-0" />
 									<span class="absolute inset-0 flex items-center justify-center bg-overlay-scrim-strong opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
 										{#if uploadingAvatar}
@@ -273,11 +248,11 @@ onMount(() => {
 								</label>
 								<label class="inline-flex cursor-pointer items-center gap-1 rounded-[4px] px-1 py-0.5 text-[11px] leading-none text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary focus-within:bg-bg-hover focus-within:text-text-secondary {uploadingAvatar ? 'pointer-events-none opacity-70' : ''}">
 									{#if uploadingAvatar}<Loader2 class="h-3 w-3 animate-spin" />{:else}<Upload class="h-3 w-3" />{/if}
-									<span aria-live="polite">{avatarUploadStage === "preparing" ? "Preparing" : avatarUploadStage === "uploading" ? `${avatarUploadProgress}%` : avatarUploadStage === "saving" ? "Saving" : avatarUrl ? "Change" : "Upload"}</span>
+									<span aria-live="polite">{avatarUploadStage === "preparing" ? m.common_preparing({}, { locale }) : avatarUploadStage === "uploading" ? `${avatarUploadProgress}%` : avatarUploadStage === "saving" ? m.common_saving({}, { locale }) : avatarUrl ? m.common_change({}, { locale }) : m.common_upload({}, { locale })}</span>
 									<input type="file" accept="image/jpeg,image/png,image/gif,image/webp" class="sr-only" disabled={uploadingAvatar} onchange={handleAvatarFileChange} />
 								</label>
 								{#if uploadingAvatar}
-									<UploadProgress class="w-12 rounded-full" value={avatarUploadStage === "uploading" ? avatarUploadProgress : null} label="Avatar upload progress" />
+									<UploadProgress class="w-12 rounded-full" value={avatarUploadStage === "uploading" ? avatarUploadProgress : null} label={m.settings_avatar_upload_progress({}, { locale })} />
 								{/if}
 							</div>
 						{/if}
@@ -290,16 +265,16 @@ onMount(() => {
 								<div class="min-w-0">
 									{#if editingField === "displayName"}
 										<div class="flex min-w-0 items-center gap-2">
-											<input aria-label="Display name" bind:value={draftValue} maxlength="120" onkeydown={handleEditKeydown} disabled={savingField === "displayName"} class="min-w-0 flex-1 rounded-[5px] border border-brand/40 bg-bg-input px-2.5 py-1.5 text-[15px] font-medium text-text-primary transition-colors focus:outline-none" />
-											<button type="button" onclick={() => void saveEditingField()} disabled={savingField === "displayName"} class="shrink-0 rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title="Save display name">
+											<input aria-label={m.settings_display_name({}, { locale })} bind:value={draftValue} maxlength="120" onkeydown={handleEditKeydown} disabled={savingField === "displayName"} class="min-w-0 flex-1 rounded-[5px] border border-brand/40 bg-bg-input px-2.5 py-1.5 text-[15px] font-medium text-text-primary transition-colors focus:outline-none" />
+											<button type="button" onclick={() => void saveEditingField()} disabled={savingField === "displayName"} class="shrink-0 rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title={m.settings_save_display_name({}, { locale })}>
 												{#if savingField === "displayName"}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Check class="h-3.5 w-3.5" />{/if}
 											</button>
-											<button type="button" onclick={cancelEdit} disabled={savingField === "displayName"} class="shrink-0 rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title="Cancel">
+											<button type="button" onclick={cancelEdit} disabled={savingField === "displayName"} class="shrink-0 rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title={m.common_cancel({}, { locale })}>
 												<X class="h-3.5 w-3.5" />
 											</button>
 										</div>
 									{:else}
-										<button type="button" onclick={() => beginEdit("displayName")} class="group/edit -ml-1 flex max-w-full items-center gap-1.5 rounded-[5px] px-1 py-0.5 text-left transition-colors hover:bg-bg-hover" title="Edit display name">
+										<button type="button" onclick={() => beginEdit("displayName")} class="group/edit -ml-1 flex max-w-full items-center gap-1.5 rounded-[5px] px-1 py-0.5 text-left transition-colors hover:bg-bg-hover" title={m.settings_edit_display_name({}, { locale })}>
 											<span class="min-w-0 truncate text-[15px] font-medium text-text-primary group-hover/edit:text-brand">{profileTitle}</span>
 											<Pencil class="h-3 w-3 shrink-0 text-text-placeholder opacity-0 transition-opacity group-hover/edit:opacity-100" />
 										</button>
@@ -312,19 +287,19 @@ onMount(() => {
 											<div class="flex min-w-0 items-center gap-2">
 												<div class="flex min-w-0 flex-1 items-center rounded-[5px] border border-brand/40 bg-bg-input px-2.5 py-1.5">
 													<span class="mr-1 shrink-0 text-[13px] text-text-tertiary">@</span>
-													<input aria-label="Username" bind:value={draftValue} placeholder="your-handle" maxlength="39" onkeydown={handleEditKeydown} disabled={savingField === "username"} class="min-w-0 flex-1 bg-transparent text-[13px] text-text-primary placeholder:text-text-placeholder focus:outline-none" />
+													<input aria-label={m.settings_username({}, { locale })} bind:value={draftValue} placeholder="your-handle" maxlength="39" onkeydown={handleEditKeydown} disabled={savingField === "username"} class="min-w-0 flex-1 bg-transparent text-[13px] text-text-primary placeholder:text-text-placeholder focus:outline-none" />
 												</div>
-												<button type="button" onclick={() => void saveEditingField()} disabled={savingField === "username"} class="shrink-0 rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title="Save username">
+												<button type="button" onclick={() => void saveEditingField()} disabled={savingField === "username"} class="shrink-0 rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title={m.settings_save_username({}, { locale })}>
 													{#if savingField === "username"}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Check class="h-3.5 w-3.5" />{/if}
 												</button>
-												<button type="button" onclick={cancelEdit} disabled={savingField === "username"} class="shrink-0 rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title="Cancel">
+												<button type="button" onclick={cancelEdit} disabled={savingField === "username"} class="shrink-0 rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title={m.common_cancel({}, { locale })}>
 													<X class="h-3.5 w-3.5" />
 												</button>
 											</div>
-											<p class="mt-1.5 text-[11px] leading-4 text-text-tertiary">Lowercase letters, numbers, and hyphens only.</p>
+											<p class="mt-1.5 text-[11px] leading-4 text-text-tertiary">{m.settings_username_help({}, { locale })}</p>
 										</div>
 									{:else}
-										<button type="button" onclick={() => beginEdit("username")} class="group/edit -ml-1 inline-flex max-w-full items-center gap-1.5 rounded-[5px] px-1 py-0.5 text-left transition-colors hover:bg-bg-hover" title="Edit username">
+										<button type="button" onclick={() => beginEdit("username")} class="group/edit -ml-1 inline-flex max-w-full items-center gap-1.5 rounded-[5px] px-1 py-0.5 text-left transition-colors hover:bg-bg-hover" title={m.settings_edit_username({}, { locale })}>
 											<span class="min-w-0 truncate text-[12px] {username ? 'text-text-tertiary' : 'text-text-placeholder'}">{usernameLabel}</span>
 											<Pencil class="h-3 w-3 shrink-0 text-text-placeholder opacity-0 transition-opacity group-hover/edit:opacity-100" />
 										</button>
@@ -341,7 +316,7 @@ onMount(() => {
 								<div class="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] text-text-tertiary">
 									<span class="shrink-0 uppercase tracking-wider">ID</span>
 									<code class="min-w-0 truncate font-mono" title={userUuid}>{uuidLabel}</code>
-									<button type="button" onclick={copyUuid} class="shrink-0 rounded-[4px] p-1 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary" title="Copy UUID">
+									<button type="button" onclick={copyUuid} class="shrink-0 rounded-[4px] p-1 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary" title={m.settings_copy_uuid({}, { locale })}>
 										{#if uuidCopied}
 											<Check class="h-3 w-3 text-status-running" />
 										{:else}
@@ -359,32 +334,6 @@ onMount(() => {
 				</div>
 			{/if}
 
-			<section class="border-t border-border-subtle py-6">
-				<div>
-					<h2 class="text-[14px] font-medium text-text-primary">Theme</h2>
-					<p class="mt-1 text-[12px] leading-5 text-text-tertiary">Choose how Cohub looks on this device.</p>
-				</div>
-
-				<div class="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-					{#each THEME_OPTIONS as option (option.value)}
-						{@const active = isThemeActive(option.value)}
-						{@const Icon = themeIcon[option.value]}
-						<button
-							type="button"
-							class="group flex min-w-0 items-center gap-2 rounded-[6px] px-3 py-2.5 text-left transition-colors duration-100 {active ? 'bg-brand-bg text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}"
-							onclick={(event) => handleThemeChange(option.value, event)}
-						>
-							<span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-[5px] {active ? 'bg-brand/15 text-brand' : 'bg-bg-hover-strong text-text-tertiary group-hover:text-text-secondary'}">
-								<Icon class="w-3.5 h-3.5" />
-							</span>
-							<span class="min-w-0">
-								<span class="block text-[12px] font-medium">{option.label}</span>
-								<span class="block truncate text-[10px] text-text-tertiary">{option.description}</span>
-							</span>
-						</button>
-					{/each}
-				</div>
-			</section>
 		</section>
 	</div>
 </div>

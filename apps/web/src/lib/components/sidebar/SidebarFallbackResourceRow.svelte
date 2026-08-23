@@ -7,6 +7,8 @@ import {
 	MessageSquare,
 } from "lucide-svelte";
 import SidebarActionButton from "$lib/components/sidebar/SidebarActionButton.svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 
 const {
 	item,
@@ -24,6 +26,7 @@ const {
 	onRemoveLabel?: () => void;
 } = $props();
 
+const locale = $derived(getLocale());
 const title = $derived(item.resource?.title ?? item.resourceRef);
 const subtitle = $derived(item.resource?.subtitle ?? item.resourceRef);
 const Icon = $derived.by(() => {
@@ -46,7 +49,7 @@ const Icon = $derived.by(() => {
 	<span class="min-w-0 flex-1 truncate">{title}</span>
 	{#if onRemoveLabel}
 		<span class="absolute right-1 top-1/2 inline-flex -translate-y-1/2 items-center gap-0.5 opacity-0 pointer-events-none transition-opacity group-hover/resource:opacity-100 group-hover/resource:pointer-events-auto group-focus-within/resource:opacity-100 group-focus-within/resource:pointer-events-auto">
-			<SidebarActionButton icon={Link2Off} title={removeLabelTitle ?? "Remove from label"} disabled={removeLabelDisabled} tone="danger" onClick={onRemoveLabel} />
+			<SidebarActionButton icon={Link2Off} title={removeLabelTitle ?? m.sidebar_remove_from_label_generic({}, { locale })} disabled={removeLabelDisabled} tone="danger" onClick={onRemoveLabel} />
 		</span>
 	{/if}
 </a>

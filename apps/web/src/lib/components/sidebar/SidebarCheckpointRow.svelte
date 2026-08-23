@@ -2,6 +2,8 @@
 import type { CheckpointRecord } from "@neta-art/cohub";
 import { Link2Off } from "lucide-svelte";
 import SidebarActionButton from "$lib/components/sidebar/SidebarActionButton.svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 import { formatCompactAbsoluteTime } from "$lib/time-format";
 
 const {
@@ -26,8 +28,10 @@ function compactId(id: string) {
 	return id.length > 12 ? id.slice(0, 8) : id;
 }
 
+const locale = $derived(getLocale());
 const title = $derived(
-	checkpoint.description?.trim() || `Save ${compactId(checkpoint.id)}`,
+	checkpoint.description?.trim() ||
+		m.sidebar_save_name({ id: compactId(checkpoint.id) }, { locale }),
 );
 const createdAt = $derived(formatCompactAbsoluteTime(checkpoint.createdAt));
 </script>
@@ -47,7 +51,7 @@ const createdAt = $derived(formatCompactAbsoluteTime(checkpoint.createdAt));
 	</span>
 	{#if onRemoveLabel}
 		<span class="absolute right-1 top-1/2 inline-flex -translate-y-1/2 items-center gap-0.5 opacity-0 pointer-events-none transition-opacity group-hover/checkpoint:opacity-100 group-hover/checkpoint:pointer-events-auto group-focus-within/checkpoint:opacity-100 group-focus-within/checkpoint:pointer-events-auto">
-			<SidebarActionButton icon={Link2Off} title={removeLabelTitle ?? "Remove from label"} disabled={removeLabelDisabled} tone="danger" onClick={onRemoveLabel} />
+			<SidebarActionButton icon={Link2Off} title={removeLabelTitle ?? m.sidebar_remove_from_label_generic({}, { locale })} disabled={removeLabelDisabled} tone="danger" onClick={onRemoveLabel} />
 		</span>
 	{/if}
 </a>

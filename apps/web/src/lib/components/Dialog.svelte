@@ -1,12 +1,14 @@
 <script lang="ts">
 import { X } from "lucide-svelte";
 import { fade, scale, slide } from "svelte/transition";
+import { getLocale } from "$lib/i18n/locale.svelte";
 import {
 	DURATION_MODAL_IN,
 	DURATION_MODAL_OUT,
 	svelteEaseIn,
 	svelteEaseOut,
 } from "$lib/motion.svelte";
+import { m } from "$lib/paraglide/messages.js";
 
 function portal(node: HTMLElement) {
 	if (typeof document === "undefined") return {};
@@ -36,6 +38,7 @@ const {
 	maxWidth?: string;
 } = $props();
 
+const locale = $derived(getLocale());
 const TRANSITION_IN = { duration: DURATION_MODAL_IN, easing: svelteEaseOut };
 const TRANSITION_OUT = { duration: DURATION_MODAL_OUT, easing: svelteEaseIn };
 const SCALE_TRANSITION_IN = { ...TRANSITION_IN, start: 0.95 };
@@ -96,14 +99,7 @@ const SCALE_TRANSITION_OUT = { ...TRANSITION_OUT, start: 0.95 };
     {#if title}
       <div class="h-9 flex items-center justify-between px-3 border-b border-border-subtle text-[10px] font-medium uppercase tracking-wider text-text-tertiary select-none shrink-0">
         <span>{title}</span>
-        <button
-          type="button"
-          class="flex items-center justify-center w-6 h-6 rounded-[4px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
-          onclick={onClose}
-          title="Close"
-        >
-          <X class="w-3.5 h-3.5" />
-        </button>
+        {@render closeButton()}
       </div>
     {/if}
     <div class="flex-1 overflow-y-auto min-h-0">
@@ -115,19 +111,24 @@ const SCALE_TRANSITION_OUT = { ...TRANSITION_OUT, start: 0.95 };
   </div>
 {/snippet}
 
+{#snippet closeButton()}
+  <button
+    type="button"
+    class="flex h-6 w-6 items-center justify-center rounded-[4px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"
+    onclick={onClose}
+    title={m.dialog_close({}, { locale })}
+    aria-label={m.dialog_close({}, { locale })}
+  >
+    <X class="h-3.5 w-3.5" />
+  </button>
+{/snippet}
+
 {#snippet mobileSheetContent()}
   <div class="flex flex-col max-h-[70vh]">
     {#if title}
       <div class="h-9 flex items-center justify-between px-3 border-b border-border-subtle text-[10px] font-medium uppercase tracking-wider text-text-tertiary select-none shrink-0">
         <span>{title}</span>
-        <button
-          type="button"
-          class="flex items-center justify-center w-6 h-6 rounded-[4px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
-          onclick={onClose}
-          title="Close"
-        >
-          <X class="w-3.5 h-3.5" />
-        </button>
+        {@render closeButton()}
       </div>
     {/if}
     <div class="flex-1 overflow-y-auto min-h-0 pb-safe">

@@ -3,7 +3,9 @@ import type { SessionRecord } from "@neta-art/cohub";
 import { Check, Link2Off, Pencil, TextCursorInput, X } from "lucide-svelte";
 import SessionSidebarRowContent from "$lib/components/SessionSidebarRowContent.svelte";
 import SidebarActionButton from "$lib/components/sidebar/SidebarActionButton.svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
 import type { ModelCatalogItem } from "$lib/model-catalog";
+import { m } from "$lib/paraglide/messages.js";
 
 export type SidebarSessionRowState = {
 	isFork?: boolean;
@@ -73,6 +75,7 @@ const {
 	onDragEnd?: () => void;
 } = $props();
 
+const locale = $derived(getLocale());
 let renameInputElement: HTMLInputElement | null = $state(null);
 
 $effect(() => {
@@ -101,7 +104,7 @@ const hoverPaddingClass = $derived.by(() => {
 			value={renameValue}
 			type="text"
 			class="min-w-0 flex-1 bg-transparent text-[13px] leading-tight text-text-primary outline-none"
-			placeholder="Session name"
+			placeholder={m.sidebar_session_name({}, { locale })}
 			maxlength="80"
 			disabled={renameSaving}
 			oninput={(event) => onRenameValueChange?.(event.currentTarget.value)}
@@ -120,7 +123,7 @@ const hoverPaddingClass = $derived.by(() => {
 			type="button"
 			class="shrink-0 rounded p-0.5 text-status-running transition-colors hover:bg-bg-hover disabled:opacity-50"
 			disabled={renameSaving}
-			title="Save"
+			title={m.common_save({}, { locale })}
 			onclick={() => onSubmitRename?.(session)}
 		>
 			<Check class="h-3.5 w-3.5" />
@@ -129,7 +132,7 @@ const hoverPaddingClass = $derived.by(() => {
 			type="button"
 			class="shrink-0 rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:opacity-50"
 			disabled={renameSaving}
-			title="Cancel"
+			title={m.common_cancel({}, { locale })}
 			onclick={() => onCancelRename?.()}
 		>
 			<X class="h-3.5 w-3.5" />
@@ -155,13 +158,13 @@ const hoverPaddingClass = $derived.by(() => {
 	{#if !isMobile && actionCount > 0}
 		<span class="absolute right-1 top-1/2 inline-flex -translate-y-1/2 items-center gap-0.5 opacity-0 pointer-events-none transition-opacity group-hover/session:opacity-100 group-hover/session:pointer-events-auto group-focus-within/session:opacity-100 group-focus-within/session:pointer-events-auto">
 			{#if showInsert && onInsert}
-				<SidebarActionButton icon={TextCursorInput} title="Insert" onClick={() => onInsert(`/sessions/${session.id}.jsonl`)} />
+				<SidebarActionButton icon={TextCursorInput} title={m.common_insert({}, { locale })} onClick={() => onInsert(`/sessions/${session.id}.jsonl`)} />
 			{/if}
 			{#if showRename && onRename}
-				<SidebarActionButton icon={Pencil} title="Rename" onClick={() => onRename(session)} />
+				<SidebarActionButton icon={Pencil} title={m.common_rename({}, { locale })} onClick={() => onRename(session)} />
 			{/if}
 			{#if onRemoveLabel}
-				<SidebarActionButton icon={Link2Off} title={removeLabelTitle ?? "Remove from label"} disabled={removeLabelDisabled} tone="danger" onClick={onRemoveLabel} />
+				<SidebarActionButton icon={Link2Off} title={removeLabelTitle ?? m.sidebar_remove_from_label_generic({}, { locale })} disabled={removeLabelDisabled} tone="danger" onClick={onRemoveLabel} />
 			{/if}
 		</span>
 	{/if}

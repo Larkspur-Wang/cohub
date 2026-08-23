@@ -31,6 +31,7 @@ import {
 	shouldStartDrawerGesture,
 	shouldStartRightDrawerGesture,
 } from "$lib/gestures/drawer-swipe";
+import { getLocale } from "$lib/i18n/locale.svelte";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { DESKTOP_SHELL_MIN_WIDTH_PX } from "$lib/layout/breakpoints";
 import { DURATION_DRAWER_OUT, DURATION_PANEL } from "$lib/motion.svelte";
@@ -38,6 +39,7 @@ import {
 	beginMobileSessionViewTransition,
 	resolveMobileSessionNavTransition,
 } from "$lib/navigation-transition";
+import { m } from "$lib/paraglide/messages.js";
 import { activateSpaceStyle, deactivateSpaceStyle } from "$lib/space-style";
 import { authStore } from "$lib/stores/auth.svelte";
 import { initSpacePinRealtime } from "$lib/stores/space-pins.svelte";
@@ -53,6 +55,7 @@ import { resolveWorkspaceSpaceId } from "$lib/workspace-route";
 const VCONSOLE_DISABLED_STORAGE_KEY = "cohub:vconsole-disabled";
 
 const { children } = $props();
+const locale = $derived(getLocale());
 
 // Mobile IM-style push: Chats list ↔ session detail.
 onNavigate((navigation) => {
@@ -604,7 +607,7 @@ onMount(() => {
 
 {#if !authReady}
   <main class="app-shell min-h-screen text-text-primary">
-    <CenteredLoading label="Loading…" size="page" />
+    <CenteredLoading label={m.shell_loading({}, { locale })} size="page" />
   </main>
 {:else}
   <div class="app-shell h-[100dvh] min-h-0 overflow-hidden flex flex-col lg:flex-row text-text-primary font-sans text-[13px] leading-[1.6]">
@@ -625,8 +628,8 @@ onMount(() => {
           <button
             type="button"
             class="sidebar-resize-handle"
-            aria-label="Resize navigation sidebar"
-            title="Resize navigation sidebar"
+            aria-label={m.nav_resize_sidebar({}, { locale })}
+            title={m.nav_resize_sidebar({}, { locale })}
             onpointerdown={beginLeftSidebarResize}
           ></button>
         {/if}
