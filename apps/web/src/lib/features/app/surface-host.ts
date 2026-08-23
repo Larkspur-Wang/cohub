@@ -8,6 +8,7 @@ import {
 	parseAppSurfaceReady,
 	parseAppSurfaceResponse,
 } from "@cohub/protocol/app-surface";
+import type { AppRuntimeInvocationContext } from "@neta-art/cohub";
 
 export type AppSurfaceCallResult =
 	| { ok: true }
@@ -17,6 +18,7 @@ export type AppSurfaceHostConfig = {
 	getFrame: () => HTMLIFrameElement | null;
 	getFrameOrigin: () => string | null;
 	onComposerChip?: (chip: AppComposerChip | null) => void;
+	syncContext?: (invocation?: AppRuntimeInvocationContext) => Promise<void>;
 };
 
 export type AppSurfaceHost = {
@@ -27,10 +29,12 @@ export type AppSurfaceHost = {
 		method: string;
 		input?: unknown;
 		commandId: string;
+		invocation?: AppRuntimeInvocationContext | null;
 		readyTimeoutMs?: number;
 		requestTimeoutMs?: number;
 	}) => Promise<AppSurfaceCallResult>;
 	reset: () => void;
+	syncContext: (invocation?: AppRuntimeInvocationContext) => Promise<void>;
 	dispose: () => void;
 };
 
@@ -43,6 +47,7 @@ export function createAppSurfaceHost(
 	const pending = new Map<string, (result: AppSurfaceCallResult) => void>();
 	let readyWaiters: Array<(becameReady: boolean) => void> = [];
 	let epoch = 0;
+	let operationQueue: Promise<unknown> = Promise.resolve();
 
 	function isFromSurface(event: MessageEvent) {
 		const frame = config.getFrame();
@@ -120,13 +125,26 @@ export function createAppSurfaceHost(
 		});
 	}
 
-	async function call(input: {
+	async function performCall(input: {
 		method: string;
 		input?: unknown;
 		commandId: string;
+		invocation?: AppRuntimeInvocationContext | null;
 		readyTimeoutMs?: number;
 		requestTimeoutMs?: number;
 	}): Promise<AppSurfaceCallResult> {
+		try {
+			await config.syncContext?.(input.invocation ?? undefined);
+		} catch (cause) {
+			return {
+				ok: false,
+				code: "context_sync_failed",
+				message:
+					cause instanceof Error
+						? cause.message
+						: "The App context could not be synchronized.",
+			};
+		}
 		const frame = config.getFrame();
 		const origin = config.getFrameOrigin();
 		if (!frame?.contentWindow || !origin) {
@@ -202,6 +220,23 @@ export function createAppSurfaceHost(
 		});
 	}
 
+	function enqueue<T>(operation: () => Promise<T>): Promise<T> {
+		const pending = operationQueue.catch(() => undefined).then(operation);
+		operationQueue = pending;
+		return pending;
+	}
+
+	function call(input: {
+		method: string;
+		input?: unknown;
+		commandId: string;
+		invocation?: AppRuntimeInvocationContext | null;
+		readyTimeoutMs?: number;
+		requestTimeoutMs?: number;
+	}) {
+		return enqueue(() => performCall(input));
+	}
+
 	function reset() {
 		epoch += 1;
 		ready = false;
@@ -231,6 +266,10 @@ export function createAppSurfaceHost(
 		handleMessage,
 		call,
 		reset,
+		syncContext: (invocation) =>
+			enqueue(async () => {
+				await config.syncContext?.(invocation);
+			}),
 		dispose: reset,
 	};
 }

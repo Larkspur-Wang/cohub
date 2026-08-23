@@ -44,6 +44,10 @@ export type AppBridgeHostConfig = {
 	app: AppBridgeHostApp;
 	authorizationContext?: AppBridgeAuthorizationContext;
 	invocation?: AppRuntimeInvocationContext;
+	/** Reads the latest opening context without recreating the app surface. */
+	getInvocation?: () => AppRuntimeInvocationContext | undefined;
+	/** Sends an unsolicited event to the app runtime. */
+	notify?: (payload: Record<string, unknown>) => void;
 	/** Sends a reply payload back to the app runtime. */
 	reply: (requestId: string, payload: Record<string, unknown>) => void;
 	/** Reads the current checkout state (typically derived from the page URL). */
@@ -63,6 +67,10 @@ export type AppBridgeHost = {
 	readonly purchaseSaving: boolean;
 	/** Processes an inbound bridge message (already source/origin-validated). */
 	handleMessage: (event: MessageEvent) => Promise<void>;
+	/** Sends the current complete runtime context to the app. */
+	notifyContextChanged: (
+		invocation?: AppRuntimeInvocationContext,
+	) => Promise<void>;
 	/** Confirm/cancel handlers for the authorize dialog. */
 	confirmAuth: () => Promise<void>;
 	cancelAuth: () => void;
@@ -95,6 +103,8 @@ export function createAppBridgeHost(
 		app: config.app,
 		authorizationContext: config.authorizationContext,
 		invocation: config.invocation,
+		getInvocation: config.getInvocation,
+		notify: config.notify,
 		apiOrigin: PUBLIC_API_ORIGIN ?? "",
 		reply: config.reply,
 		getCheckoutState: config.getCheckoutState,
@@ -163,6 +173,7 @@ export function createAppBridgeHost(
 			return purchaseSaving;
 		},
 		handleMessage: core.handleMessage,
+		notifyContextChanged: core.notifyContextChanged,
 		confirmAuth: core.confirmAuth,
 		cancelAuth: core.cancelAuth,
 		confirmPurchase: core.confirmPurchase,

@@ -7,6 +7,7 @@ import {
 	ParentBridgeTransport,
 	PopupBrokerTransport,
 	resolveAppTransport,
+	type AppContextChangedListener,
 	type AppRuntimeTransport,
 } from "../src/app-runtime.js";
 
@@ -60,6 +61,33 @@ test("work runtime ignores non-string ancestor origins", async () => {
 
 	assert.equal(targetOrigin, "https://cohub.run");
 	assert.equal(context?.space.id, "space-1");
+});
+
+test("AppRuntimeApi delegates context change subscriptions to its transport", () => {
+	let subscribed: AppContextChangedListener | null = null;
+	const transport: AppRuntimeTransport = {
+		request: async () => null,
+		subscribeContextChanged(listener) {
+			subscribed = listener;
+			return () => {
+				subscribed = null;
+			};
+		},
+	};
+	const runtime = createAppRuntime(transport);
+	let spaceId = "";
+	const unsubscribe = runtime.onContextChanged((context) => {
+		spaceId = context.space.id;
+	});
+
+	assert.ok(subscribed);
+	subscribed({
+		app: { id: "app-1", slug: "demo" },
+		space: { id: "space-1" },
+	});
+	assert.equal(spaceId, "space-1");
+	unsubscribe();
+	assert.equal(subscribed, null);
 });
 
 test("AppRuntimeApi delegates to the injected transport", async () => {
@@ -126,6 +154,14 @@ test("requestAuthorization returns false when no token is granted", async () => 
 	});
 
 	assert.equal(granted, false);
+});
+
+test("default App runtime context subscriptions are safe outside browsers", () => {
+	globalThis.window = undefined as unknown as Window & typeof globalThis;
+	const unsubscribe = createAppRuntime().onContextChanged(() => {
+		assert.fail("a Node runtime cannot receive parent context events");
+	});
+	assert.doesNotThrow(unsubscribe);
 });
 
 test("createAppRuntime defaults to the parent bridge transport", async () => {

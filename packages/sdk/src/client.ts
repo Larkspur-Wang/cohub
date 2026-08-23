@@ -31,6 +31,7 @@ import {
   createAppRuntime,
   resolveAppTransport,
   type AppIdResolver,
+  type AppContextChangedListener,
   type AppRuntimeApi,
 } from "./app-runtime.js";
 import type { Permission } from "./types.js";
@@ -161,6 +162,7 @@ export class CohubClient {
     realtime: null as unknown as AppRealtimeApi,
     /** Expose callable methods from inside a published app. */
     surface: new AppSurfaceApi(),
+    onContextChanged: (listener: AppContextChangedListener) => this.appRuntime.onContextChanged(listener),
     composer: {
       /** Attach or update context from this app in the Cohub composer. */
       setChip: (chip: AppComposerChip) => this.app.surface.setComposerChip(chip),

@@ -50,7 +50,7 @@ test("opening a work loads its detail and adopts the published title as the tab 
 	assert.equal(controller.preview?.label, "launch");
 });
 
-test("reopening a Work from another invocation updates context and remounts", () => {
+test("reopening an App from another invocation updates context without remounting", () => {
 	const controller = createController();
 	controller.openApp({
 		appId: WORK_ID,
@@ -73,7 +73,7 @@ test("reopening a Work from another invocation updates context and remounts", ()
 		},
 	});
 
-	assert.notEqual(controller.preview?.mountKey, firstMountKey);
+	assert.equal(controller.preview?.mountKey, firstMountKey);
 	assert.equal(controller.preview?.invocation?.spaceId, "space-b");
 	assert.equal(controller.preview?.invocation?.sessionId, "session-b");
 });
@@ -252,6 +252,25 @@ test("Work composer context updates in place and is discarded with the preview",
 	assert.equal(controller.preview?.composerChip?.label, "4 selected");
 	controller.closeApp(WORK_ID);
 	assert.equal(controller.preview, null);
+});
+
+test("a Surface call forwards its command invocation", async () => {
+	const controller = createController();
+	controller.openApp({ appId: WORK_ID });
+	await settle();
+	let sessionId: string | undefined;
+	controller.registerSurface(WORK_ID, async ({ invocation }) => {
+		sessionId = invocation?.sessionId;
+		return { ok: true };
+	});
+
+	await controller.callSurface({
+		appId: WORK_ID,
+		method: "ping",
+		commandId: "command-1",
+		invocation: { surface: "app", sessionId: "session-a" },
+	});
+	assert.equal(sessionId, "session-a");
 });
 
 test("a call issued right after opening waits for the detail and the mounted surface", async () => {

@@ -1,7 +1,7 @@
 {
-  "name": "work-sdk-lab-directory",
-  "version": "2026.06.23",
-  "purpose": "Validate Cohub Work directory publishing, relative assets, runtime permissions, and no-build SDK usage.",
+  "name": "app-sdk-lab-directory",
+  "version": "2026.08.23",
+  "purpose": "Validate Cohub App directory publishing, relative assets, runtime permissions, App Surface calls, and no-build SDK usage.",
   "files": [
     "index.html",
     "styles.css",

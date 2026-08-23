@@ -30,13 +30,14 @@ export type AppSurfaceInvoker = (input: {
 	method: string;
 	input?: unknown;
 	commandId: string;
+	invocation?: AppRuntimeInvocationContext | null;
 	readyTimeoutMs?: number;
 	requestTimeoutMs?: number;
 }) => Promise<
 	{ ok: true; result?: unknown } | { ok: false; code: string; message: string }
 >;
 
-type WorkPreviewControllerOptions = {
+type AppPreviewControllerOptions = {
 	getSpaceId: () => string;
 	onOpenPanel?: () => void;
 	onClosePanel?: () => void;
@@ -61,7 +62,7 @@ function invocationContextsEqual(
 }
 
 export function createAppPreviewController(
-	options: WorkPreviewControllerOptions,
+	options: AppPreviewControllerOptions,
 ) {
 	let previews = $state<InlineAppPreview[]>([]);
 	let activeAppId = $state<string | null>(null);
@@ -80,8 +81,8 @@ export function createAppPreviewController(
 			(await import("$lib/sdk")).sdk.apps.getPublicById(appId));
 
 	/**
-	 * A public Work in a Space we cannot view is still previewable, and
-	 * `cohub ui preview` accepts public references, so a denied member read falls
+	 * A public App in a Space we cannot view is still previewable, and
+	 * desktop commands accept public references, so a denied member read falls
 	 * back to the public one rather than showing a permission error.
 	 */
 	async function loadDetailFor(appId: string): Promise<WorkDetailResponse> {
@@ -191,7 +192,6 @@ export function createAppPreviewController(
 					...(input.invocation !== undefined
 						? { invocation: input.invocation }
 						: {}),
-					...(invocationChanged ? { mountKey: ++nextMountKey } : {}),
 				});
 			}
 			activeAppId = input.appId;
@@ -204,7 +204,7 @@ export function createAppPreviewController(
 			{
 				appId: input.appId,
 				mountKey: ++nextMountKey,
-				label: input.label?.trim() || "Work",
+				label: input.label?.trim() || "App",
 				detail: null,
 				loading: true,
 				error: null,
@@ -289,6 +289,7 @@ export function createAppPreviewController(
 		method: string;
 		input?: unknown;
 		commandId: string;
+		invocation?: AppRuntimeInvocationContext | null;
 	}) {
 		if (!previews.some((item) => item.appId === input.appId)) {
 			return {
@@ -342,6 +343,7 @@ export function createAppPreviewController(
 			method: input.method,
 			input: input.input,
 			commandId: input.commandId,
+			invocation: input.invocation,
 			readyTimeoutMs: APP_SURFACE_READY_TIMEOUT_MS,
 			requestTimeoutMs: APP_SURFACE_REQUEST_TIMEOUT_MS,
 		});
@@ -377,6 +379,6 @@ export function createAppPreviewController(
 	};
 }
 
-export type WorkPreviewController = ReturnType<
+export type AppPreviewController = ReturnType<
 	typeof createAppPreviewController
 >;

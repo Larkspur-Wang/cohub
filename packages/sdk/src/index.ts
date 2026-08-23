@@ -25,7 +25,7 @@ export { buildSpaceInvitePath, buildSpacePath } from "./apis/invitations.js";
 export type { BuildSpaceInvitePathInput, BuildSpacePathInput } from "./apis/invitations.js";
 export type { ReferenceResourceSelector } from "./apis/references.js";
 export { ParentBridgeTransport, PopupBrokerTransport, AppRuntimeApi, createSlugAppIdResolver, createAppRuntime, resolveAppTransport } from "./app-runtime.js";
-export type { AppIdResolver, AppRuntimeInvocationContext, AppRuntimeModeConfig, AppRuntimeRequestOptions, AppRuntimeTransport } from "./app-runtime.js";
+export type { AppContextChangedListener, AppIdResolver, AppRuntimeInvocationContext, AppRuntimeModeConfig, AppRuntimeRequestOptions, AppRuntimeTransport } from "./app-runtime.js";
 export { createAppBridgeCore } from "./app-bridge-core.js";
 export type { AppBridgeAuthorizationContext, AppBridgeCore, AppBridgeCoreConfig, AppBridgeCoreApp, AppBridgeDialogState, AppAuthorizeRequest, AppCheckoutStarted, AppPurchaseRequest, AppBridgeGetAccessToken, AppBridgeGetViewerUuid, AppBridgeRequestSignIn, AppPromotionAttributionContext } from "./app-bridge-core.js";
 export { clearGrantedAppScopes, hasGrantedAppScopes, setGrantedAppScopes } from "./app-grant-cache.js";

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Cohub Work SDK Lab</title>
+  <title>Cohub App SDK Lab</title>
   <link rel="stylesheet" href="./styles.css">
   <link rel="preload" href="./assets/lab-manifest.json" as="fetch" crossorigin="anonymous">
 </head>
@@ -11,9 +11,9 @@
   <main class="shell">
     <header class="hero">
       <div>
-        <p class="kicker">Work SDK Lab</p>
-        <h1>Develop like a Work author, inspect like a platform engineer.</h1>
-        <p class="sub">Exercise runtime context, scoped reads, viewer authorization, prompt submission, account-level data access, and the minimal commerce loop — the same way a no-build Work would.</p>
+        <p class="kicker">App SDK Lab</p>
+        <h1>Build an App, inspect it like a platform engineer.</h1>
+        <p class="sub">Exercise live App context, a stateful App Surface, scoped reads, viewer authorization, prompt submission, account-level data access, and the minimal commerce loop.</p>
       </div>
       <aside class="stamp" aria-label="Runtime status">
         <div class="stamp-row"><span class="label">Mode</span><span class="value" id="modeStamp">Booting</span></div>
@@ -26,19 +26,22 @@
       <aside class="panel">
         <div class="panel-head">
           <div class="panel-title">Runtime Passport</div>
-          <div class="panel-note">from <code>cohub.context()</code></div>
+          <div class="panel-note">from <code>client.context()</code> and context events</div>
         </div>
         <div class="panel-body stack">
           <dl>
-            <div class="kv"><dt>Work</dt><dd id="workId" class="mono">not loaded</dd></div>
-            <div class="kv"><dt>Slug</dt><dd id="workSlug">not loaded</dd></div>
+            <div class="kv"><dt>App</dt><dd id="appId" class="mono">not loaded</dd></div>
+            <div class="kv"><dt>Slug</dt><dd id="appSlug">not loaded</dd></div>
             <div class="kv"><dt>Space</dt><dd id="spaceId" class="mono">not loaded</dd></div>
+            <div class="kv"><dt>Source</dt><dd id="contextSource">not loaded</dd></div>
+            <div class="kv"><dt>Session</dt><dd id="contextSession" class="mono">not loaded</dd></div>
+            <div class="kv"><dt>Turn</dt><dd id="contextTurn" class="mono">not loaded</dd></div>
             <div class="kv"><dt>Client</dt><dd id="clientState">not ready</dd></div>
             <div class="kv"><dt>Token</dt><dd id="tokenState">empty</dd></div>
           </dl>
           <div>
-            <div class="panel-note">Work scopes</div>
-            <div class="chips" id="workScopes"><span class="chip">none</span></div>
+            <div class="panel-note">App scopes</div>
+            <div class="chips" id="appScopes"><span class="chip">none</span></div>
           </div>
           <div>
             <div class="panel-note">Viewer scopes</div>
@@ -51,9 +54,9 @@
           <div>
             <div class="panel-note">Minimal no-build SDK pattern</div>
             <pre class="output mono">const { createCohubClient } = await import(SDK_URL);
-const cohub = createCohubClient();
-const context = await cohub.context();
-const space = cohub.space(context.space.id);</pre>
+const client = createCohubClient();
+const context = await client.context();
+const space = client.space(context.space.id);</pre>
           </div>
         </div>
       </aside>
@@ -96,21 +99,22 @@ const space = cohub.space(context.space.id);</pre>
               </div>
               <div class="field span-2">
                 <label for="promptText">Prompt text</label>
-                <textarea id="promptText">Inspect this Work SDK Lab result and reply with one concise observation. Do not modify files.</textarea>
+                <textarea id="promptText">Inspect this App SDK Lab result and reply with one concise observation. Do not modify files.</textarea>
               </div>
             </div>
 
             <div class="grid">
               <article class="probe"><div><h2>Directory assets</h2><p>Loads <code>styles.css</code>, <code>app.js</code>, and <code>assets/lab-manifest.json</code> through relative paths.</p></div><div class="probe-row"><button id="assetProbe">Probe</button><span class="status"><span class="dot" id="sAsset"></span><span id="tAsset">idle</span></span></div></article>
               <article class="probe"><div><h2>Import SDK</h2><p>Loads <code>@neta-art/cohub</code> from an ESM CDN with no bundler.</p></div><div class="probe-row"><button id="importSdk">Import</button><span class="status"><span class="dot" id="sImport"></span><span id="tImport">idle</span></span></div></article>
-              <article class="probe"><div><h2>Create client</h2><p>Calls <code>createCohubClient()</code>. The SDK supplies Work runtime tokens by default.</p></div><div class="probe-row"><button id="createClient">Create</button><span class="status"><span class="dot" id="sClient"></span><span id="tClient">idle</span></span></div></article>
-              <article class="probe"><div><h2>SDK context</h2><p>Calls <code>cohub.context()</code> and renders Work, Space, and permission metadata.</p></div><div class="probe-row"><button id="sdkContext">Probe</button><span class="status"><span class="dot" id="sContext"></span><span id="tContext">idle</span></span></div></article>
+              <article class="probe"><div><h2>Create client</h2><p>Calls <code>createCohubClient()</code>. The SDK supplies App runtime tokens by default.</p></div><div class="probe-row"><button id="createClient">Create</button><span class="status"><span class="dot" id="sClient"></span><span id="tClient">idle</span></span></div></article>
+              <article class="probe"><div><h2>SDK context</h2><p>Calls <code>client.context()</code> and renders App, Space, and permission metadata.</p></div><div class="probe-row"><button id="sdkContext">Probe</button><span class="status"><span class="dot" id="sContext"></span><span id="tContext">idle</span></span></div></article>
+              <article class="probe state-probe"><div><h2>Live App state</h2><p>Callable Surface methods update this counter without recreating the App iframe. Try <code>counter.increment</code> repeatedly from the App command line.</p><div class="state-value" id="surfaceCounter">0</div><div class="state-meta" id="surfaceStateMeta">Waiting for App Surface</div></div><div class="probe-row"><button type="button" id="incrementState">Increment</button><button type="button" class="ghost" id="resetState">Reset</button></div></article>
               <article class="probe"><div><h2>Runtime wire tap</h2><p>Calls the same parent protocol directly to compare SDK behavior with the wire.</p></div><div class="probe-row"><button id="wireContext">Probe</button><span class="status"><span class="dot" id="sWire"></span><span id="tWire">idle</span></span></div></article>
-              <article class="probe"><div><h2>Token mint</h2><p>Uses <code>cohub.context()</code> for identity and direct runtime token for payload inspection.</p></div><div class="probe-row"><button id="getToken">Get token</button><button class="ghost" id="refreshToken">Refresh</button><span class="status"><span class="dot" id="sToken"></span><span id="tToken">idle</span></span></div></article>
+              <article class="probe"><div><h2>Token mint</h2><p>Uses <code>client.context()</code> for identity and the App runtime token for payload inspection.</p></div><div class="probe-row"><button id="getToken">Get token</button><button class="ghost" id="refreshToken">Refresh</button><span class="status"><span class="dot" id="sToken"></span><span id="tToken">idle</span></span></div></article>
               <article class="probe"><div><h2>Space config</h2><p>Calls <code>space.getConfig()</code>. Expects <code>space.view</code>.</p></div><div class="probe-row"><button id="spaceConfig">Probe</button><span class="status"><span class="dot" id="sConfig"></span><span id="tConfig">idle</span></span></div></article>
               <article class="probe"><div><h2>File tree</h2><p>Calls <code>space.files.list(path)</code>. Expects <code>file.view</code>.</p></div><div class="probe-row"><button id="fileTree">Probe</button><span class="status"><span class="dot" id="sFiles"></span><span id="tFiles">idle</span></span></div></article>
               <article class="probe"><div><h2>Sessions</h2><p>Calls <code>space.sessions.list({ limit: 5 })</code>. Expects <code>session.view</code>.</p></div><div class="probe-row"><button id="sessionsList">Probe</button><span class="status"><span class="dot" id="sSessions"></span><span id="tSessions">idle</span></span></div></article>
-              <article class="probe"><div><h2>Viewer auth</h2><p>Calls <code>cohub.auth.request()</code>. The host should show a consent dialog.</p></div><div class="probe-row"><button id="authReadonly">Read-only</button><button class="ghost" id="authFull">Full access</button><span class="status"><span class="dot" id="sAuth"></span><span id="tAuth">idle</span></span></div></article>
+              <article class="probe"><div><h2>Viewer auth</h2><p>Calls <code>client.auth.request()</code>. The host should show a consent dialog.</p></div><div class="probe-row"><button id="authReadonly">Read-only</button><button class="ghost" id="authFull">Full access</button><span class="status"><span class="dot" id="sAuth"></span><span id="tAuth">idle</span></span></div></article>
               <article class="probe"><div><h2>Prompt</h2><p>Calls <code>space.prompt()</code>. This can create a session and enqueue agent work.</p></div><div class="probe-row"><button id="promptReadonly">Read-only</button><button class="ghost" id="promptFull">Full access</button><span class="status"><span class="dot" id="sPrompt"></span><span id="tPrompt">manual</span></span></div></article>
               <article class="probe"><div><h2>Account spaces</h2><p>Calls <code>cohub.spaces.list()</code>. Requires <code>user.space.list</code> viewer grant.</p></div><div class="probe-row"><button id="accountSpacesBtn">Probe</button><span class="status"><span class="dot" id="sAccountSpaces"></span><span id="tAccountSpaces">idle</span></span></div></article>
               <article class="probe"><div><h2>Account sessions</h2><p>Calls <code>cohub.user.listSessions()</code>. Requires <code>user.session.list</code> viewer grant.</p></div><div class="probe-row"><button id="accountSessionsBtn">Probe</button><span class="status"><span class="dot" id="sAccountSessions"></span><span id="tAccountSessions">idle</span></span></div></article>

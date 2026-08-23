@@ -108,6 +108,9 @@ h1 { margin: 0; max-width: 760px; font-size: clamp(31px, 5vw, 58px); line-height
 .probe { border: 1px solid var(--line-soft); background: color-mix(in srgb, var(--surface-2) 66%, transparent); border-radius: 8px; padding: 12px; min-height: 138px; display: grid; gap: 11px; align-content: space-between; }
 .probe h2 { margin: 0; font-size: 13px; letter-spacing: 0; }
 .probe p { margin: 5px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.state-probe { border-color: color-mix(in srgb, var(--brand) 42%, var(--line-soft)); }
+.state-value { margin-top: 14px; color: var(--brand); font-size: 42px; font-weight: 800; line-height: 1; }
+.state-meta { margin-top: 7px; color: var(--muted); font-size: 11px; }
 .probe-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .status { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--muted); min-width: 0; }
 .dot { width: 8px; height: 8px; border-radius: 999px; background: var(--faint); box-shadow: 0 0 0 3px color-mix(in srgb, var(--faint) 16%, transparent); flex: 0 0 auto; }

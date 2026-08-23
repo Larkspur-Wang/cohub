@@ -7,7 +7,23 @@ const ORIGIN = "https://cohub.run";
 /** A call awaits readiness before posting. */
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
-function mountHost(options: { frameOrigin?: string | null } = {}) {
+async function waitForPosted(
+	posted: Array<{ message: Record<string, unknown> }>,
+	count: number,
+) {
+	const deadline = Date.now() + 500;
+	while (posted.length < count && Date.now() < deadline) await flush();
+	assert.ok(posted.length >= count, `expected ${count} posted messages`);
+}
+
+function mountHost(
+	options: {
+		frameOrigin?: string | null;
+		syncContext?: (
+			invocation?: import("@neta-art/cohub").AppRuntimeInvocationContext,
+		) => Promise<void>;
+	} = {},
+) {
 	const posted: Array<{ message: Record<string, unknown>; origin: string }> =
 		[];
 	const composerChips: Array<{
@@ -24,6 +40,7 @@ function mountHost(options: { frameOrigin?: string | null } = {}) {
 		getFrameOrigin: () =>
 			options.frameOrigin === undefined ? ORIGIN : options.frameOrigin,
 		onComposerChip: (chip) => composerChips.push(chip),
+		syncContext: options.syncContext,
 	});
 
 	const event = (
@@ -92,6 +109,86 @@ test("spoofed Work composer context is ignored", () => {
 		false,
 	);
 	assert.deepEqual(composerChips, []);
+});
+
+test("context updates and calls share one ordered surface queue", async () => {
+	const operations: string[] = [];
+	const mounted = mountHost({
+		syncContext: async (invocation) => {
+			operations.push(`context:${invocation?.sessionId ?? "current"}`);
+			await flush();
+		},
+	});
+	mounted.ready(["first", "second"]);
+
+	const first = mounted.host.call({
+		method: "first",
+		commandId: "command-1",
+		invocation: { surface: "app", sessionId: "session-a" },
+	});
+	const update = mounted.host.syncContext({
+		surface: "app",
+		sessionId: "session-between",
+	});
+	const second = mounted.host.call({
+		method: "second",
+		commandId: "command-2",
+		invocation: { surface: "app", sessionId: "session-b" },
+	});
+
+	await waitForPosted(mounted.posted, 1);
+	operations.push(`call:${String(mounted.posted[0]?.message.method)}`);
+	mounted.respond({
+		requestId: mounted.posted[0]?.message.requestId,
+		ok: true,
+	});
+	await first;
+	await update;
+	await waitForPosted(mounted.posted, 2);
+	operations.push(`call:${String(mounted.posted[1]?.message.method)}`);
+	mounted.respond({
+		requestId: mounted.posted[1]?.message.requestId,
+		ok: true,
+	});
+	await second;
+
+	assert.deepEqual(operations, [
+		"context:session-a",
+		"call:first",
+		"context:session-between",
+		"context:session-b",
+		"call:second",
+	]);
+});
+
+test("a context sync failure is explicit and does not block later calls", async () => {
+	let attempts = 0;
+	const mounted = mountHost({
+		syncContext: async () => {
+			attempts += 1;
+			if (attempts === 1) throw new Error("viewer lookup failed");
+		},
+	});
+	mounted.ready(["ping"]);
+	assert.deepEqual(
+		await mounted.host.call({ method: "ping", commandId: "command-1" }),
+		{
+			ok: false,
+			code: "context_sync_failed",
+			message: "viewer lookup failed",
+		},
+	);
+
+	const recovered = mounted.host.call({
+		method: "ping",
+		commandId: "command-2",
+	});
+	await waitForPosted(mounted.posted, 1);
+	mounted.respond({
+		requestId: mounted.posted[0]?.message.requestId,
+		ok: true,
+	});
+	assert.deepEqual(await recovered, { ok: true });
 });
 
 test("a call waits for a newly mounted Work to announce readiness", async () => {

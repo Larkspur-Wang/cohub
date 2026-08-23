@@ -2386,12 +2386,12 @@ onMount(() => {
 				invocation,
 			});
 			if (!command.call) return { status: "applied" };
-
 			const called = await appPreview.callSurface({
 				appId: command.target.appId,
 				method: command.call.method,
 				input: command.call.input,
 				commandId: context.commandId,
+				invocation,
 			});
 			if (called.ok) return { status: "pending" };
 			return {

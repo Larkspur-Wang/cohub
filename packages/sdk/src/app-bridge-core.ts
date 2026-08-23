@@ -2,6 +2,7 @@ import type { Permission } from "./types.js";
 import type { AppRecord } from "./apis/apps.js";
 import type {
 	AppRuntimeCheckoutState,
+	AppRuntimeContext,
 	AppRuntimeInvocationContext,
 } from "./app-runtime.js";
 import {
@@ -106,6 +107,10 @@ export type AppBridgeCoreConfig = {
 	authorizationContext?: AppBridgeAuthorizationContext;
 	/** Optional snapshot describing what opened this app runtime. */
 	invocation?: AppRuntimeInvocationContext;
+	/** Reads the latest opening context without recreating the app surface. */
+	getInvocation?: () => AppRuntimeInvocationContext | undefined;
+	/** Sends an unsolicited event to the app runtime. */
+	notify?: (payload: Record<string, unknown>) => void;
 	/** @deprecated Use authorizationContext with a background surface. */
 	isBackground?: boolean;
 	/** Base origin for Cohub API requests (e.g. "https://cohub.live"). */
@@ -135,6 +140,10 @@ export type AppBridgeCore = {
 	getState: () => AppBridgeDialogState;
 	/** Processes an inbound bridge message (already source/origin-validated). */
 	handleMessage: (event: MessageEvent) => Promise<void>;
+	/** Sends the current complete runtime context to the app. */
+	notifyContextChanged: (
+		invocation?: AppRuntimeInvocationContext,
+	) => Promise<void>;
 	/** Confirm/cancel handlers for the authorize dialog. */
 	confirmAuth: () => Promise<void>;
 	cancelAuth: () => void;
@@ -178,6 +187,42 @@ export function createAppBridgeCore(
 	const onStateChange = config.onStateChange;
 
 	let appToken: string | null = null;
+	let activeInvocation: AppRuntimeInvocationContext | undefined;
+
+	async function getContext(): Promise<AppRuntimeContext> {
+		const invocation =
+			activeInvocation !== undefined
+				? activeInvocation
+				: config.getInvocation?.() ?? config.invocation;
+		const appScopes = clonePermissionScopes(app.appScopes);
+		const viewerUuid = await getViewerUuid();
+		return {
+			app: {
+				id: app.id,
+				slug: app.slug,
+				url: typeof location !== "undefined" ? location.href : "",
+			},
+			space: { id: app.spaceId },
+			viewer: viewerUuid ? { userUuid: viewerUuid } : null,
+			...(invocation ? { invocation: { ...invocation } } : {}),
+			permissions: {
+				scopes: appScopes,
+				appScopes,
+				viewerScopes: [],
+			},
+		};
+	}
+
+	async function notifyContextChanged(
+		invocation?: AppRuntimeInvocationContext,
+	) {
+		activeInvocation = invocation;
+		if (!config.notify) return;
+		config.notify({
+			type: "cohub.app.context.changed",
+			context: await getContext(),
+		});
+	}
 
 	const state: AppBridgeDialogState = {
 		authOpen: false,
@@ -364,27 +409,9 @@ export function createAppBridgeCore(
 		if (!data?.requestId) return;
 		try {
 			if (data.type === "cohub.app.context") {
-				const appScopes = clonePermissionScopes(app.appScopes);
-				const viewerUuid = await getViewerUuid();
 				reply(data.requestId, {
 					type: "cohub.app.context.result",
-					context: {
-						app: {
-							id: app.id,
-							slug: app.slug,
-							url: typeof location !== "undefined" ? location.href : "",
-						},
-						space: { id: app.spaceId },
-						viewer: viewerUuid ? { userUuid: viewerUuid } : null,
-						...(config.invocation
-							? { invocation: { ...config.invocation } }
-							: {}),
-						permissions: {
-							scopes: appScopes,
-							appScopes,
-							viewerScopes: [],
-						},
-					},
+					context: await getContext(),
 				});
 			}
 			if (data.type === "cohub.app.token") {
@@ -614,6 +641,7 @@ export function createAppBridgeCore(
 	return {
 		getState: () => ({ ...state }),
 		handleMessage,
+		notifyContextChanged,
 		confirmAuth,
 		cancelAuth,
 		confirmPurchase,

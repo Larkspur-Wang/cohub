@@ -104,6 +104,33 @@ test("context message replies with app, viewer, and invocation metadata", async 
 	});
 });
 
+test("context requests read the latest invocation and notify full snapshots", async () => {
+	const notifications: Record<string, unknown>[] = [];
+	let invocation = { surface: "app" as const, source: "route" as const, sessionId: "first" };
+	const config = makeConfig({
+		getInvocation: () => invocation,
+		notify: (payload) => notifications.push(payload),
+	});
+	const core = createAppBridgeCore(config);
+
+	await core.handleMessage(messageEvent({ type: "cohub.app.context", requestId: "r1" }));
+	assert.equal(
+		((config.replies[0].payload.context as Record<string, unknown>).invocation as Record<string, unknown>)
+			.sessionId,
+		"first",
+	);
+
+	invocation = { ...invocation, sessionId: "second" };
+	await core.notifyContextChanged();
+	assert.equal(notifications.length, 1);
+	assert.equal(notifications[0].type, "cohub.app.context.changed");
+	assert.equal(
+		(((notifications[0].context as Record<string, unknown>).invocation as Record<string, unknown>)
+			.sessionId),
+		"second",
+	);
+});
+
 test("context message returns a null viewer when unauthenticated", async () => {
 	const config = makeConfig({ viewerUuid: null });
 	const core = createAppBridgeCore(config);

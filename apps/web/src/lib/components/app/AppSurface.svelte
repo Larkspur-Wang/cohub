@@ -85,6 +85,7 @@ const {
 let frame: HTMLIFrameElement | null = $state(null);
 let bridgeReady = $state(false);
 let readyReported = false;
+let contextSyncWarningReported = false;
 
 function reportReady() {
 	if (readyReported) return;
@@ -168,6 +169,11 @@ const host = untrack(() =>
 		app,
 		authorizationContext: { surface: mode },
 		invocation,
+		getInvocation: () => invocation,
+		notify: (payload) => {
+			if (!frameOrigin) return;
+			frame?.contentWindow?.postMessage(payload, frameReplyTarget);
+		},
 		reply: (requestId, payload) => {
 			if (!frameOrigin) return;
 			frame?.contentWindow?.postMessage(
@@ -179,16 +185,40 @@ const host = untrack(() =>
 	}),
 );
 
-// Surface RPC is opt-in: only created when a parent wants to call into the Work.
+$effect(() => {
+	void invocation;
+	pushSurfaceContext();
+});
+
+// Surface RPC is opt-in: only created when a parent wants to call into the App.
 const surfaceHost = untrack(() =>
 	onSurfaceHost || onComposerChip
 		? createAppSurfaceHost({
 				getFrame: () => frame,
 				getFrameOrigin: () => frameOrigin,
 				onComposerChip,
+				syncContext: (nextInvocation) =>
+					host.notifyContextChanged(nextInvocation),
 			})
 		: null,
 );
+
+function syncSurfaceContext() {
+	return surfaceHost?.syncContext() ?? host.notifyContextChanged();
+}
+
+function pushSurfaceContext() {
+	void syncSurfaceContext().then(
+		() => {
+			contextSyncWarningReported = false;
+		},
+		(cause) => {
+			if (contextSyncWarningReported) return;
+			contextSyncWarningReported = true;
+			console.warn("[app-context] Failed to notify the App.", cause);
+		},
+	);
+}
 
 async function onFrameMessage(event: MessageEvent) {
 	if (event.source !== frame?.contentWindow) return;
@@ -245,7 +275,10 @@ onMount(() => {
 			sandbox={frameSandbox}
 			allow={framePermissions}
 			src={iframeSrc}
-			onload={reportReady}
+			onload={() => {
+				reportReady();
+				pushSurfaceContext();
+			}}
 		></iframe>
 	{:else if !hasFrameSource}
 		<div class="empty-state">App asset is unavailable.</div>

@@ -9,6 +9,9 @@ const state = {
   token: null,
   parentOrigin: null,
   manifest: null,
+  surfaceCounter: 0,
+  surfaceRegistered: false,
+  contextUnsubscribe: null,
 };
 
 const statusMap = {
@@ -82,14 +85,46 @@ function decodeJwtPayload(token) {
   }
 }
 
-function applyContext(context) {
+function applyContext(context, source = "snapshot") {
   state.context = context;
   state.space = context ? state.client.space(context.space.id) : null;
-  $("workId").textContent = context?.work?.id || "missing";
-  $("workSlug").textContent = context?.work?.slug || "missing";
+  $("appId").textContent = context?.app?.id || "missing";
+  $("appSlug").textContent = context?.app?.slug || "missing";
   $("spaceId").textContent = context?.space?.id || "missing";
-  renderChips("workScopes", context?.permissions?.workScopes || [], true);
+  $("contextSource").textContent = context?.invocation?.source || "none";
+  $("contextSession").textContent = context?.invocation?.sessionId || "none";
+  $("contextTurn").textContent = context?.invocation?.turnId || "none";
+  renderChips("appScopes", context?.permissions?.appScopes || [], true);
   renderChips("viewerScopes", context?.permissions?.viewerScopes || [], true);
+  log("info", source === "event" ? "App context changed" : "App context loaded", context?.invocation?.source || "no invocation");
+}
+
+function renderSurfaceState(source = "local") {
+  $("surfaceCounter").textContent = String(state.surfaceCounter);
+  $("surfaceStateMeta").textContent = `${source} · iframe state is still mounted`;
+}
+
+async function handleSurfaceMethod(method, input) {
+  if (method === "counter.increment") {
+    const amount = Math.max(1, Math.min(100, Number(input?.amount) || 1));
+    state.surfaceCounter += amount;
+  } else if (method === "counter.reset") {
+    state.surfaceCounter = 0;
+  } else {
+    throw new Error(`Unknown App Surface method: ${method}`);
+  }
+  renderSurfaceState(method);
+  log("ok", `App Surface ${method}`, `counter=${state.surfaceCounter}`);
+  return { value: state.surfaceCounter };
+}
+
+function registerSurface() {
+  if (state.surfaceRegistered || !state.client?.app?.surface?.handle) return;
+  state.surfaceRegistered = true;
+  state.client.app.surface.handle("counter.increment", (input) => handleSurfaceMethod("counter.increment", input));
+  state.client.app.surface.handle("counter.reset", () => handleSurfaceMethod("counter.reset"));
+  renderSurfaceState("ready");
+  log("ok", "App Surface ready", "counter.increment, counter.reset");
 }
 
 function applyToken(token) {
@@ -97,7 +132,7 @@ function applyToken(token) {
   const payload = decodeJwtPayload(token);
   $("tokenState").textContent = token ? `present (${token.length} chars)` : "empty";
   $("tokenPayload").textContent = payload ? JSON.stringify(payload, null, 2) : "Token received, but payload could not be decoded.";
-  if (payload?.workScopes) renderChips("workScopes", payload.workScopes, true);
+  if (payload?.appScopes) renderChips("appScopes", payload.appScopes, true);
   if (payload?.viewerScopes) renderChips("viewerScopes", payload.viewerScopes, true);
 }
 
@@ -118,7 +153,7 @@ function runtimeRequest(message, timeoutMs = 1800) {
       clearTimeout(timer);
       window.removeEventListener("message", onMessage);
       state.parentOrigin = event.origin;
-      if (data.type === "cohub.work.error") reject(new Error(data.message || "Runtime request failed."));
+      if (data.type === "cohub.app.error") reject(new Error(data.message || "Runtime request failed."));
       else resolve(data);
     }
     window.addEventListener("message", onMessage);
@@ -168,10 +203,14 @@ async function createClient() {
     if (!state.module) await importSdk();
     const baseUrl = $("apiBase").value.trim().replace(/\/+$/, "");
     const options = {
-      getAccessToken: (tokenOptions) => getWorkTokenRaw(Boolean(tokenOptions?.forceRefresh)),
+      getAccessToken: (tokenOptions) => getAppTokenRaw(Boolean(tokenOptions?.forceRefresh)),
     };
     if (baseUrl) options.baseUrl = baseUrl;
     state.client = state.module.createCohubClient(options);
+    registerSurface();
+    if (!state.contextUnsubscribe && typeof state.client.app?.onContextChanged === "function") {
+      state.contextUnsubscribe = state.client.app.onContextChanged((context) => applyContext(context, "event"));
+    }
     const methods = [
       typeof state.client.context === "function" ? "context" : "no context",
       state.client.auth?.request ? "auth.request" : "no auth.request",
@@ -189,33 +228,34 @@ async function sdkContext() {
     let context = null;
     if (typeof state.client.context === "function") {
       context = await state.client.context();
-      if (context) log("ok", "SDK context loaded", context.work.slug);
+      if (context) log("ok", "SDK context loaded", context.app.slug);
     } else {
-      log("warn", "SDK context helper missing", "falling back to Work runtime wire protocol");
+      log("warn", "SDK context helper missing", "falling back to App runtime wire protocol");
     }
     if (!context) {
-      const response = await runtimeRequest({ type: "cohub.work.context" }, 8000);
+      const response = await runtimeRequest({ type: "cohub.app.context" }, 8000);
       context = response?.context || null;
-      if (context) log("ok", "Wire context loaded", context.work.slug);
+      if (context) log("ok", "Wire context loaded", context.app.slug);
     }
-    if (!context) throw new Error("No Work context. Publish this directory as a Cohub Work to enable it.");
-    applyContext(context);
+    if (!context) throw new Error("No App context. Publish this directory as a Cohub App to enable its runtime.");
+    applyContext(context, "pull");
     return context;
   });
 }
 
 async function wireContext() {
   return run("wire", async () => {
-    const response = await runtimeRequest({ type: "cohub.work.context" }, 8000);
+    const response = await runtimeRequest({ type: "cohub.app.context" }, 8000);
     if (!response?.context) throw new Error("No direct runtime context response.");
-    log("ok", "Wire context loaded", response.context.work.slug);
+    applyContext(response.context, "wire");
+    log("ok", "Wire context loaded", response.context.app.slug);
     return response.context;
   });
 }
 
-async function getWorkTokenRaw(forceRefresh = false) {
+async function getAppTokenRaw(forceRefresh = false) {
   if (state.token && !forceRefresh) return state.token;
-  const response = await runtimeRequest({ type: "cohub.work.token", forceRefresh }, 20000);
+  const response = await runtimeRequest({ type: "cohub.app.token", forceRefresh }, 20000);
   if (!response?.token) return null;
   applyToken(response.token);
   return response.token;
@@ -223,8 +263,8 @@ async function getWorkTokenRaw(forceRefresh = false) {
 
 async function getRuntimeToken(forceRefresh = false) {
   return run("token", async () => {
-    const token = await getWorkTokenRaw(forceRefresh);
-    if (!token) throw new Error("No token returned. Sign in and open the published Work.");
+    const token = await getAppTokenRaw(forceRefresh);
+    if (!token) throw new Error("No token returned. Sign in and open the published App.");
     log("ok", forceRefresh ? "Runtime token refreshed" : "Runtime token minted", `${token.length} chars`);
     return token;
   });
@@ -273,15 +313,15 @@ async function requestAuth(scopes) {
     if (state.client.auth?.request) {
       ok = await state.client.auth.request({
         scopes,
-        reason: "Work SDK Lab wants to verify viewer-granted prompt access through the Cohub SDK.",
+        reason: "App SDK Lab wants to verify viewer-granted prompt access through the Cohub SDK.",
       });
       if (ok) log("ok", "cohub.auth.request() granted", scopes.join(", "));
     } else {
-      log("warn", "SDK auth helper missing", "falling back to Work runtime wire protocol");
+      log("warn", "SDK auth helper missing", "falling back to App runtime wire protocol");
       const response = await runtimeRequest({
-        type: "cohub.work.authorize",
+        type: "cohub.app.authorize",
         scopes,
-        reason: "Work SDK Lab wants to verify viewer-granted prompt access through the runtime protocol.",
+        reason: "App SDK Lab wants to verify viewer-granted prompt access through the runtime protocol.",
       }, 120000);
       ok = Boolean(response?.token);
       if (response?.token) applyToken(response.token);
@@ -298,7 +338,7 @@ async function sendPrompt(accessMode) {
     const result = await space.prompt({
       accessMode,
       intent: "followup",
-      title: "Work SDK Lab",
+      title: "App SDK Lab",
       content: [{ type: "text", text: $("promptText").value.trim() || "Say one concise observation." }],
     });
     log("ok", `space.prompt(${accessMode}) accepted`, result.sessionId || "session created");
@@ -375,6 +415,8 @@ $("promptFull").onclick = () => sendPrompt("full_access").catch(() => {});
 $("accountSpacesBtn").onclick = () => accountSpaces().catch(() => {});
 $("accountSessionsBtn").onclick = () => accountSessions().catch(() => {});
 $("accountUsageBtn").onclick = () => accountUsage().catch(() => {});
+$("incrementState").onclick = () => handleSurfaceMethod("counter.increment", { amount: 1 }).catch((error) => log("bad", "State update failed", error.message));
+$("resetState").onclick = () => handleSurfaceMethod("counter.reset").catch((error) => log("bad", "State reset failed", error.message));
 $("runReadSuite").onclick = async () => {
   try { await ensureSpace(); } catch (error) { log("warn", "Read suite stopped", error?.message || String(error)); return; }
   await spaceConfig().catch(() => {});

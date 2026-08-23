@@ -48,11 +48,14 @@ export type AppRuntimeRequestOptions = {
  * (broker mode). The transport is responsible for posting the request and
  * resolving with the first matching response (or null on timeout).
  */
+export type AppContextChangedListener = (context: AppRuntimeContext) => void;
+
 export interface AppRuntimeTransport {
   request<T>(
     message: Record<string, unknown>,
     options?: AppRuntimeRequestOptions,
   ): Promise<T | null>;
+  subscribeContextChanged?: (listener: AppContextChangedListener) => () => void;
 }
 
 const isBrowser = () => typeof window !== "undefined" && typeof window.parent !== "undefined";
@@ -79,6 +82,31 @@ const generateRequestId = () =>
  */
 export class ParentBridgeTransport implements AppRuntimeTransport {
   private trustedParentOrigin: string | null = null;
+  private contextListeners = new Set<AppContextChangedListener>();
+  private contextListener: ((event: MessageEvent) => void) | null = null;
+
+  subscribeContextChanged(listener: AppContextChangedListener) {
+    if (!hasParent()) return () => {};
+    this.contextListeners.add(listener);
+    if (!this.contextListener) {
+      this.contextListener = (event) => {
+        if (event.source !== window.parent) return;
+        const parentOrigin = this.trustedParentOrigin ?? getParentOrigin();
+        if (parentOrigin && event.origin !== parentOrigin) return;
+        const data = event.data as { type?: string; context?: AppRuntimeContext };
+        if (data?.type !== "cohub.app.context.changed" || !data.context) return;
+        for (const current of this.contextListeners) current(data.context);
+      };
+      window.addEventListener("message", this.contextListener);
+    }
+    return () => {
+      this.contextListeners.delete(listener);
+      if (this.contextListeners.size === 0 && this.contextListener) {
+        window.removeEventListener("message", this.contextListener);
+        this.contextListener = null;
+      }
+    };
+  }
 
   request<T>(
     message: Record<string, unknown>,
@@ -404,6 +432,10 @@ export class AppRuntimeApi {
       { timeoutMs: 8_000, retryIntervalMs: 250 },
     );
     return response?.context ?? null;
+  }
+
+  onContextChanged(listener: AppContextChangedListener) {
+    return this.transport.subscribeContextChanged?.(listener) ?? (() => {});
   }
 
   async getAccessToken(options?: { forceRefresh?: boolean }) {
