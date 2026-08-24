@@ -1,3 +1,4 @@
+import { buildAppRuntimeReady } from "@cohub/protocol/app-runtime";
 import type { Permission } from "./types.js";
 
 export type AppRuntimeInvocationContext = {
@@ -98,6 +99,14 @@ export class ParentBridgeTransport implements AppRuntimeTransport {
         for (const current of this.contextListeners) current(data.context);
       };
       window.addEventListener("message", this.contextListener);
+      const parentOrigin = this.trustedParentOrigin ?? getParentOrigin();
+      if (parentOrigin) {
+        try {
+          window.parent.postMessage(buildAppRuntimeReady(), parentOrigin);
+        } catch {
+          // The host may have been disposed during app startup.
+        }
+      }
     }
     return () => {
       this.contextListeners.delete(listener);

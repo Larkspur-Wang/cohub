@@ -90,7 +90,7 @@ test("preview kinds share one workspace pane", () => {
 	assert.match(previewPane, /@starting-style/);
 	assert.doesNotMatch(previewPane, /visibility:\s*hidden/);
 	assert.doesNotMatch(previewPane, /previewPanelClip|in:|out:/);
-	assert.equal(domain.match(/<Windows\b/g)?.length, 1);
+	assert.equal(domain.match(/<WindowTabs\b/g)?.length, 1);
 	for (const panel of panels) {
 		assert.doesNotMatch(panel, /WorkspaceWindowsPane/);
 		assert.doesNotMatch(panel, /<Windows\b/);

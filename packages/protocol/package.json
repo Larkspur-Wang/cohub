@@ -123,6 +123,10 @@
       "types": "./dist/app-surface.d.ts",
       "default": "./dist/app-surface.js"
     },
+    "./app-runtime": {
+      "types": "./dist/app-runtime.d.ts",
+      "default": "./dist/app-runtime.js"
+    },
     "./public-identifiers": {
       "types": "./dist/public-identifiers.d.ts",
       "default": "./dist/public-identifiers.js"

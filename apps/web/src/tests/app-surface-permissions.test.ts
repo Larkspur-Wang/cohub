@@ -37,6 +37,16 @@ test("composer context alone enables the Work Surface message host", () => {
 	);
 });
 
+test("runtime context waits for the embedded document handshake", () => {
+	assert.match(source, /let runtimeReady = \$state\(false\)/);
+	assert.match(source, /if \(!runtimeReady \|\| !frameOrigin\) return/);
+	assert.match(source, /parseAppRuntimeReady\(event\.data\)/);
+	assert.match(
+		source,
+		/runtimeReady = false;\s+surfaceHost\?\.reset\(\);\s+reportReady\(\);/,
+	);
+});
+
 test("all Work frames delegate low-risk user-activated capabilities", () => {
 	assert.match(
 		source,

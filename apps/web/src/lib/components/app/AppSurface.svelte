@@ -1,4 +1,5 @@
 <script lang="ts">
+import { parseAppRuntimeReady } from "@cohub/protocol/app-runtime";
 import type { AppComposerChip } from "@cohub/protocol/app-surface";
 import type {
 	AppContent,
@@ -84,6 +85,7 @@ const {
 
 let frame: HTMLIFrameElement | null = $state(null);
 let bridgeReady = $state(false);
+let runtimeReady = $state(false);
 let readyReported = false;
 let contextSyncWarningReported = false;
 
@@ -151,6 +153,7 @@ const framePreconnectOrigin = $derived.by(() => {
 // A new document invalidates any announced methods.
 $effect(() => {
 	void iframeSrc;
+	runtimeReady = false;
 	surfaceHost?.reset();
 });
 
@@ -171,7 +174,9 @@ const host = untrack(() =>
 		invocation,
 		getInvocation: () => invocation,
 		notify: (payload) => {
-			if (!frameOrigin) return;
+			// Only a ready runtime can receive unsolicited context updates. The
+			// iframe may have navigated without changing iframeSrc.
+			if (!runtimeReady || !frameOrigin) return;
 			frame?.contentWindow?.postMessage(payload, frameReplyTarget);
 		},
 		reply: (requestId, payload) => {
@@ -230,6 +235,12 @@ async function onFrameMessage(event: MessageEvent) {
 			return;
 		}
 	}
+	const readyMessage = parseAppRuntimeReady(event.data);
+	if (readyMessage) {
+		runtimeReady = true;
+		pushSurfaceContext();
+		return;
+	}
 	if (surfaceHost?.handleMessage(event)) return;
 	await host.handleMessage(event);
 }
@@ -276,8 +287,11 @@ onMount(() => {
 			allow={framePermissions}
 			src={iframeSrc}
 			onload={() => {
+				// load only marks the document as visually ready. Context waits for
+				// the new document's runtime handshake.
+				runtimeReady = false;
+				surfaceHost?.reset();
 				reportReady();
-				pushSurfaceContext();
 			}}
 		></iframe>
 	{:else if !hasFrameSource}

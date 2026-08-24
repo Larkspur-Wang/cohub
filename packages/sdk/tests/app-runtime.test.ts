@@ -63,6 +63,46 @@ test("work runtime ignores non-string ancestor origins", async () => {
 	assert.equal(context?.space.id, "space-1");
 });
 
+test("ParentBridgeTransport announces runtime readiness when context changes are subscribed", () => {
+	let posted: { origin: string; protocol?: string; type?: string } | null = null;
+	const parent = {
+		postMessage: (message: Record<string, unknown>, origin: string) => {
+			posted = { origin, protocol: String(message.protocol), type: String(message.type) };
+		},
+	};
+	globalThis.window = {
+		parent,
+		location: { ancestorOrigins: ["https://dev.cohub.live"] },
+		addEventListener: () => {},
+		removeEventListener: () => {},
+	} as unknown as Window & typeof globalThis;
+	globalThis.document = { referrer: "" } as Document;
+
+	const transport = new ParentBridgeTransport();
+	transport.subscribeContextChanged(() => {});
+
+	assert.deepEqual(posted, {
+		origin: "https://dev.cohub.live",
+		protocol: "cohub.app.runtime",
+		type: "ready",
+	});
+});
+
+test("ParentBridgeTransport does not announce readiness without a trusted parent origin", () => {
+	let posts = 0;
+	const parent = { postMessage: () => { posts += 1; } };
+	globalThis.window = {
+		parent,
+		location: { ancestorOrigins: [] },
+		addEventListener: () => {},
+		removeEventListener: () => {},
+	} as unknown as Window & typeof globalThis;
+	globalThis.document = { referrer: "" } as Document;
+
+	new ParentBridgeTransport().subscribeContextChanged(() => {});
+	assert.equal(posts, 0);
+});
+
 test("AppRuntimeApi delegates context change subscriptions to its transport", () => {
 	let subscribed: AppContextChangedListener | null = null;
 	const transport: AppRuntimeTransport = {

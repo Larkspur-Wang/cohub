@@ -188,6 +188,7 @@ export function createAppBridgeCore(
 
 	let appToken: string | null = null;
 	let activeInvocation: AppRuntimeInvocationContext | undefined;
+	let contextChangeVersion = 0;
 
 	async function getContext(): Promise<AppRuntimeContext> {
 		const invocation =
@@ -217,10 +218,13 @@ export function createAppBridgeCore(
 		invocation?: AppRuntimeInvocationContext,
 	) {
 		activeInvocation = invocation;
+		const version = ++contextChangeVersion;
 		if (!config.notify) return;
+		const context = await getContext();
+		if (version !== contextChangeVersion) return;
 		config.notify({
 			type: "cohub.app.context.changed",
-			context: await getContext(),
+			context,
 		});
 	}
 
