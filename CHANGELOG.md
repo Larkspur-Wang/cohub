@@ -6,18 +6,12 @@ All notable changes to Cohub are documented in this file.
 
 ## v2.28 — 2026-08-24
 
-- **Work-to-App rename**: Rename the Work vocabulary to App/Desktop across protocol, SDK, API, CLI, and web, making the canonical App wire surface (`/api/apps`, `app`/`apps`/`appId`/`appScopes`) the default. SDK bumps to 8.0.0 and CLI to 6.0.0; legacy `/api/works`, `/w/` URLs, `work://` refs, and `cohub.work.*` bridge messages stay as deprecated aliases so existing consumers keep working.
-- **Desktop commands**: Add a new `client.desktop` (DesktopCommandsApi) and `cohub desktop open` CLI that lets an agent drive the Cohub desktop that originated an App, with routing derived from request provenance. The canonical command is `desktop.open`, with the legacy `ui preview` form accepted and normalized for backward compatibility.
-- **Chinese UI localization**: Introduce a full i18n layer (locale resolution, format helpers, localized theme labels) and ship English + Simplified Chinese message packs across the workspace and settings UI, including localized usage-cost and action labels with a system-following locale preference.
-- **Live App runtime context**: Keep embedded App runtime context live across calls and make context updates handshake-aware, so handoffs are resilient to iframe navigation races and context changes propagate to subscribed App surfaces without a rebuild.
-- **Session chat reliability**: Harden session scroll restore across refreshes, add turn-rail markers and rendering optimizations, and fix effect self-invalidation/loop regressions that caused scroll ping-pong and layout thrash during streaming.
+- **Desktop realtime domain**: Introduce a dedicated `desktop` domain in `REALTIME_DOMAINS`, distinct from `ui`, so desktop command events route cleanly to the correct frontend instance.
+- **Compile-time domain assertion**: Add a type-level assertion requiring every realtime server event to carry a valid domain, catching misconfigured event domains at build time.
 
 ### Bug Fixes
 
-- Persist App Promotion attribution metadata in Billing Order records and keep the paid-order integration point for a future reliable Billing event trigger.
-- Make the 0063_work_to_app DB migration apply robustly on both dev and prod by correcting the inversed migration journal entries.
-- Resolve dangling App/Desktop rename imports that broke the web build, and keep dev deployments readable via sourcemaps.
-- Stop clearTurnMarkers and chrome-resize handlers from feeding effect ping-pong loops that defeated the turn-rail scroll marker throttle.
+- Realtime desktop command events previously used the `ui` domain and could route to the wrong client; they now use the dedicated `desktop` domain.
 
 ## v2.27 — 2026-08-21
 
