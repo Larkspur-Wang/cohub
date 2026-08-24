@@ -232,12 +232,20 @@ export function createAppBridgeCore(
 	}
 
 	function toLegacyWorkContext(context: AppRuntimeContext) {
+		const permissions = context.permissions
+			? {
+					scopes: context.permissions.scopes,
+					workScopes: context.permissions.appScopes,
+					appScopes: context.permissions.appScopes,
+					viewerScopes: context.permissions.viewerScopes,
+				}
+			: undefined;
 		return {
 			work: context.app,
 			space: context.space,
 			...(context.viewer !== undefined ? { viewer: context.viewer } : {}),
 			...(context.invocation ? { invocation: context.invocation } : {}),
-			...(context.permissions ? { permissions: context.permissions } : {}),
+			...(permissions ? { permissions } : {}),
 		};
 	}
 

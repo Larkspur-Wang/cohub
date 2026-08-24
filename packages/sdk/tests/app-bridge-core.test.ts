@@ -121,6 +121,12 @@ test("legacy work context replies with the projected work context", async () => 
 	});
 	assert.equal("app" in context, false);
 	assert.deepEqual(context.space, { id: "space_1" });
+	assert.deepEqual(context.permissions, {
+		scopes: ["space.view", "session.view"],
+		workScopes: ["space.view", "session.view"],
+		appScopes: ["space.view", "session.view"],
+		viewerScopes: [],
+	});
 });
 
 test("legacy work token reuses the current app session path", async () => {
