@@ -324,11 +324,12 @@ router.post(`/${resource}/:id/commerce/purchase`, async (c) => {
         success_redirect_url: provisionalRedirects.successRedirectUrl,
         failed_redirect_url: provisionalRedirects.failedRedirectUrl,
         cancel_redirect_url: provisionalRedirects.cancelRedirectUrl,
-        metadata: {
+        meta: {
           source: "cohub",
           source_type: "app",
           cohub_space_id: resolved.app.spaceId,
           cohub_app_id: resolved.app.appId,
+          cohub_app_version_id: resolved.app.currentVersionId,
           cohub_purchase_attempt_id: purchaseAttemptId,
           cohub_purchase_idempotency_version: "app-purchase-v1",
           ...(promotion && promotionAttribution ? {
