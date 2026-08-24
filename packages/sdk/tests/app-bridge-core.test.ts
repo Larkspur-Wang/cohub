@@ -104,6 +104,70 @@ test("context message replies with app, viewer, and invocation metadata", async 
 	});
 });
 
+test("legacy work context replies with the projected work context", async () => {
+	const config = makeConfig();
+	const core = createAppBridgeCore(config);
+
+	await core.handleMessage(
+		messageEvent({ type: "cohub.work.context", requestId: "legacy-context" }),
+	);
+
+	assert.equal(config.replies[0].payload.type, "cohub.work.context.result");
+	const context = config.replies[0].payload.context as Record<string, unknown>;
+	assert.deepEqual(context.work, {
+		id: "work_123",
+		slug: "my-work",
+		url: "",
+	});
+	assert.equal("app" in context, false);
+	assert.deepEqual(context.space, { id: "space_1" });
+});
+
+test("legacy work token reuses the current app session path", async () => {
+	const originalFetch = globalThis.fetch;
+	globalThis.fetch = (() =>
+		Promise.resolve(new Response(JSON.stringify({ token: "legacy-token" }), { status: 200 }))) as typeof fetch;
+
+	try {
+		const config = makeConfig();
+		const core = createAppBridgeCore(config);
+		await core.handleMessage(
+			messageEvent({ type: "cohub.work.token", requestId: "legacy-token" }),
+		);
+		assert.equal(config.replies[0].payload.type, "cohub.work.token.result");
+		assert.equal(config.replies[0].payload.token, "legacy-token");
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
+test("legacy work authorize and purchase replies preserve their protocol", async () => {
+	const config = makeConfig({ viewerUuid: "viewer-uuid" });
+	const core = createAppBridgeCore(config);
+
+	await core.handleMessage(
+		messageEvent({
+			type: "cohub.work.authorize",
+			requestId: "legacy-auth",
+			scopes: ["session.prompt.readonly"],
+		}),
+	);
+	core.cancelAuth();
+	assert.equal(config.replies[0].payload.type, "cohub.work.authorize.result");
+	assert.equal(config.replies[0].payload.token, null);
+
+	await core.handleMessage(
+		messageEvent({
+			type: "cohub.work.purchase",
+			requestId: "legacy-purchase",
+			productKey: "pro-monthly",
+		}),
+	);
+	core.cancelPurchase();
+	assert.equal(config.replies[1].payload.type, "cohub.work.purchase.result");
+	assert.equal(config.replies[1].payload.checkout, null);
+});
+
 test("context requests read the latest invocation and notify full snapshots", async () => {
 	const notifications: Record<string, unknown>[] = [];
 	let invocation = { surface: "app" as const, source: "route" as const, sessionId: "first" };

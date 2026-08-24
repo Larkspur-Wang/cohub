@@ -189,6 +189,7 @@ export function createAppBridgeCore(
 	let appToken: string | null = null;
 	let activeInvocation: AppRuntimeInvocationContext | undefined;
 	let contextChangeVersion = 0;
+	const legacyRequestIds = new Set<string>();
 
 	async function getContext(): Promise<AppRuntimeContext> {
 		const invocation =
@@ -211,6 +212,32 @@ export function createAppBridgeCore(
 				appScopes,
 				viewerScopes: [],
 			},
+		};
+	}
+
+	function replyForRequest(
+		requestId: string,
+		payload: Record<string, unknown>,
+		complete = false,
+	) {
+		const namespace = legacyRequestIds.has(requestId) ? "work" : "app";
+		const type = payload.type;
+		reply(requestId, {
+			...payload,
+			...(typeof type === "string" && type.startsWith("cohub.app.")
+				? { type: type.replace("cohub.app.", `cohub.${namespace}.`) }
+				: {}),
+		});
+		if (complete) legacyRequestIds.delete(requestId);
+	}
+
+	function toLegacyWorkContext(context: AppRuntimeContext) {
+		return {
+			work: context.app,
+			space: context.space,
+			...(context.viewer !== undefined ? { viewer: context.viewer } : {}),
+			...(context.invocation ? { invocation: context.invocation } : {}),
+			...(context.permissions ? { permissions: context.permissions } : {}),
 		};
 	}
 
@@ -411,38 +438,44 @@ export function createAppBridgeCore(
 			purchaseAttemptId?: string;
 		};
 		if (!data?.requestId) return;
+		const isLegacyWork = data.type?.startsWith("cohub.work.") === true;
+		if (isLegacyWork) legacyRequestIds.add(data.requestId);
 		try {
-			if (data.type === "cohub.app.context") {
-				reply(data.requestId, {
+			if (data.type === "cohub.app.context" || data.type === "cohub.work.context") {
+				const context = await getContext();
+				replyForRequest(data.requestId, {
 					type: "cohub.app.context.result",
-					context: await getContext(),
-				});
+					context: isLegacyWork ? toLegacyWorkContext(context) : context,
+				}, true);
 			}
-			if (data.type === "cohub.app.token") {
+			if (data.type === "cohub.app.token" || data.type === "cohub.work.token") {
 				const token = await ensureBaseToken(Boolean(data.forceRefresh));
-				reply(data.requestId, { type: "cohub.app.token.result", token });
+				replyForRequest(data.requestId, { type: "cohub.app.token.result", token }, true);
 			}
-			if (data.type === "cohub.app.checkout-state") {
+			if (
+				data.type === "cohub.app.checkout-state" ||
+				data.type === "cohub.work.checkout-state"
+			) {
 				const pending = readPendingPurchase();
 				const checkoutState = getCheckoutState();
 				const orderId =
 					checkoutState.orderId ?? pending?.orderId ?? null;
 				if (checkoutState.status && checkoutState.orderId)
 					clearPendingPurchase();
-				reply(data.requestId, {
+				replyForRequest(data.requestId, {
 					type: "cohub.app.checkout-state.result",
 					status: checkoutState.status,
 					orderId,
-				});
+				}, true);
 			}
-			if (data.type === "cohub.app.purchase") {
+			if (data.type === "cohub.app.purchase" || data.type === "cohub.work.purchase") {
 				const productKey =
 					typeof data.productKey === "string" ? data.productKey.trim() : "";
 				if (!productKey) {
-					reply(data.requestId, {
+					replyForRequest(data.requestId, {
 						type: "cohub.app.error",
 						message: "Product key is required.",
-					});
+					}, true);
 					return;
 				}
 				const suppliedPurchaseAttemptId =
@@ -453,10 +486,10 @@ export function createAppBridgeCore(
 					.replace(/[^a-zA-Z0-9_-]/g, "_")
 					.slice(0, 128);
 				if (!/^[a-zA-Z0-9_-]{1,128}$/.test(purchaseAttemptId)) {
-					reply(data.requestId, {
+					replyForRequest(data.requestId, {
 						type: "cohub.app.error",
 						message: "Purchase attempt id is invalid.",
-					});
+					}, true);
 					return;
 				}
 				state.pendingPurchase = {
@@ -469,7 +502,7 @@ export function createAppBridgeCore(
 				notify();
 				config.onPurchaseRequested?.({ ...state.pendingPurchase });
 			}
-			if (data.type === "cohub.app.authorize") {
+			if (data.type === "cohub.app.authorize" || data.type === "cohub.work.authorize") {
 				const allowedViewerScopes = clonePermissionScopes(
 					app.allowedViewerScopes,
 				);
@@ -477,10 +510,10 @@ export function createAppBridgeCore(
 					allowedViewerScopes.includes(scope),
 				);
 				if (scopes.length === 0) {
-					reply(data.requestId, {
+					replyForRequest(data.requestId, {
 						type: "cohub.app.error",
 						message: "No allowed scopes requested.",
-					});
+					}, true);
 					return;
 				}
 				if (
@@ -488,10 +521,10 @@ export function createAppBridgeCore(
 					(await isCurrentViewerAppOwner())
 				) {
 					const token = await authorize(scopes);
-					reply(data.requestId, {
+					replyForRequest(data.requestId, {
 						type: "cohub.app.authorize.result",
 						token,
-					});
+					}, true);
 					return;
 				}
 				// Returning viewers who previously granted the requested scopes are
@@ -503,10 +536,10 @@ export function createAppBridgeCore(
 				) {
 					try {
 						const token = await authorize(scopes);
-						reply(data.requestId, {
+						replyForRequest(data.requestId, {
 							type: "cohub.app.authorize.result",
 							token,
-						});
+						}, true);
 						return;
 					} catch {
 						// Granted scopes may have changed server-side; clear the stale
@@ -525,20 +558,20 @@ export function createAppBridgeCore(
 				notify();
 			}
 		} catch (error) {
-			reply(data.requestId, {
+			replyForRequest(data.requestId, {
 				type: "cohub.app.error",
 				message: error instanceof Error ? error.message : "Request failed.",
-			});
+			}, true);
 		}
 	}
 
 	function cancelAuth() {
 		if (state.authSaving) return;
 		if (!state.pendingAuth) return;
-		reply(state.pendingAuth.requestId, {
+		replyForRequest(state.pendingAuth.requestId, {
 			type: "cohub.app.authorize.result",
 			token: null,
-		});
+		}, true);
 		state.authOpen = false;
 		state.pendingAuth = null;
 		state.authError = null;
@@ -549,10 +582,10 @@ export function createAppBridgeCore(
 	function cancelPurchase() {
 		if (state.purchaseSaving) return;
 		if (!state.pendingPurchase) return;
-		reply(state.pendingPurchase.requestId, {
+		replyForRequest(state.pendingPurchase.requestId, {
 			type: "cohub.app.purchase.result",
 			checkout: null,
-		});
+		}, true);
 		state.purchaseOpen = false;
 		state.purchaseError = null;
 		state.pendingPurchase = null;
@@ -570,10 +603,10 @@ export function createAppBridgeCore(
 				state.pendingPurchase.productKey,
 				state.pendingPurchase.purchaseAttemptId,
 			);
-			reply(state.pendingPurchase.requestId, {
+			replyForRequest(state.pendingPurchase.requestId, {
 				type: "cohub.app.purchase.result",
 				checkout,
-			});
+			}, true);
 			if (checkout && typeof checkout === "object") {
 				const next = checkout as {
 					checkoutUrl?: unknown;
@@ -627,10 +660,10 @@ export function createAppBridgeCore(
 				app.id,
 				state.pendingAuth.scopes,
 			);
-			reply(state.pendingAuth.requestId, {
+			replyForRequest(state.pendingAuth.requestId, {
 				type: "cohub.app.authorize.result",
 				token,
-			});
+			}, true);
 			state.authOpen = false;
 			state.pendingAuth = null;
 		} catch (error) {
