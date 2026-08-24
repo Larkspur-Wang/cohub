@@ -186,9 +186,9 @@ function userTitle(
 								{@render CopyIdMetaItem(taskRunDetail.id, taskCopiedField === "id", () => void taskDetail.copyField("id", taskRunDetail!.id), m.copy_task_id({}, { locale }))}
 							</div>
 							<div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-text-tertiary">
-								<span>{taskContextLabel(taskRunDetail)}</span>
+								<span>{taskContextLabel(taskRunDetail, locale)}</span>
 								<span class="text-text-placeholder">·</span>
-								<span>{taskAttemptsLabel(taskRunDetail)}</span>
+								<span>{taskAttemptsLabel(taskRunDetail, locale)}</span>
 								{#if taskRunDetail.cronJobId}
 									<span class="text-text-placeholder">·</span>
 									<a
@@ -205,7 +205,7 @@ function userTitle(
 				{#if taskIsStreaming(taskRunDetail) && taskRunProgress !== null && taskRunProgress !== undefined}
 					<section class="space-y-2">
 						<div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">{m.task_section_progress({}, { locale })}</div>
-						<pre class="max-h-[42vh] overflow-auto rounded-[7px] bg-bg-elevated/35 p-3 text-[12px] font-mono leading-relaxed text-text-secondary whitespace-pre-wrap break-all sm:max-h-80">{displaySafeJson(taskRunProgress, { maxStringLength: 12_000 })}</pre>
+						<pre class="max-h-[42vh] overflow-auto rounded-[7px] bg-bg-elevated/35 p-3 text-[12px] font-mono leading-relaxed text-text-secondary whitespace-pre-wrap break-all sm:max-h-80">{displaySafeJson(taskRunProgress, { maxStringLength: 12_000, locale })}</pre>
 					</section>
 				{/if}
 
@@ -280,7 +280,7 @@ function userTitle(
 													title={generationBlockLabel(block, index)}
 												/>
 											{:else}
-												<pre class="max-h-[40vh] overflow-auto text-[12px] font-mono leading-relaxed text-text-secondary whitespace-pre-wrap break-all">{displaySafeJson(block, { maxStringLength: 12_000 })}</pre>
+												<pre class="max-h-[40vh] overflow-auto text-[12px] font-mono leading-relaxed text-text-secondary whitespace-pre-wrap break-all">{displaySafeJson(block, { maxStringLength: 12_000, locale })}</pre>
 											{/if}
 										</div>
 									{/each}
@@ -309,7 +309,7 @@ function userTitle(
 									{#if taskCopiedField === "payload"}<Check class="h-3 w-3 text-success-soft" /><span class="text-success-soft">{m.copied({}, { locale })}</span>{:else}<Copy class="h-3 w-3" /><span>{m.copy({}, { locale })}</span>{/if}
 								</button>
 							</div>
-							<pre class="max-h-[48vh] overflow-auto rounded-[7px] bg-bg-elevated/35 p-3 text-[12px] font-mono leading-relaxed text-text-secondary whitespace-pre-wrap break-all sm:max-h-[520px]">{displaySafeJson(taskRunDetail.payload)}</pre>
+							<pre class="max-h-[48vh] overflow-auto rounded-[7px] bg-bg-elevated/35 p-3 text-[12px] font-mono leading-relaxed text-text-secondary whitespace-pre-wrap break-all sm:max-h-[520px]">{displaySafeJson(taskRunDetail.payload, { locale })}</pre>
 						</div>
 
 						{#if rawResult}
@@ -320,7 +320,7 @@ function userTitle(
 										{#if taskCopiedField === "result"}<Check class="h-3 w-3 text-success-soft" /><span class="text-success-soft">{m.copied({}, { locale })}</span>{:else}<Copy class="h-3 w-3" /><span>{m.copy({}, { locale })}</span>{/if}
 									</button>
 								</div>
-								<pre class="max-h-[48vh] overflow-auto rounded-[7px] bg-bg-elevated/35 p-3 text-[12px] font-mono leading-relaxed text-text-secondary whitespace-pre-wrap break-all sm:max-h-[520px]">{displaySafeJson(rawResult)}</pre>
+								<pre class="max-h-[48vh] overflow-auto rounded-[7px] bg-bg-elevated/35 p-3 text-[12px] font-mono leading-relaxed text-text-secondary whitespace-pre-wrap break-all sm:max-h-[520px]">{displaySafeJson(rawResult, { locale })}</pre>
 							</div>
 						{/if}
 
