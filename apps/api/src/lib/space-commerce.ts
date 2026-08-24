@@ -183,6 +183,7 @@ export async function getAppCommerceContextById(appId: string) {
       appSlug: apps.slug,
       appStatus: apps.status,
       appVisibility: apps.visibility,
+      currentVersionId: apps.currentVersionId,
       spaceId: apps.spaceId,
     })
     .from(apps)
@@ -202,6 +203,7 @@ export async function getAppCommerceContextBySpaceAndSlug(input: {
       appSlug: apps.slug,
       appStatus: apps.status,
       appVisibility: apps.visibility,
+      currentVersionId: apps.currentVersionId,
       spaceId: apps.spaceId,
     })
     .from(apps)

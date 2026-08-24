@@ -101,7 +101,7 @@ importers:
         version: 2.0.0
       drizzle-orm:
         specifier: ^0.45.2
-        version: 0.45.2(@cloudflare/workers-types@4.20260529.1)(@opentelemetry/api@1.9.1)(postgres@3.4.9)
+        version: 0.45.2(@cloudflare/workers-types@4.20260529.1)(@opentelemetry/api@1.9.1)(kysely@0.28.17)(postgres@3.4.9)
       ignore:
         specifier: ^7.0.6
         version: 7.0.6
@@ -165,7 +165,7 @@ importers:
         version: link:../../packages/sandbox-controller
       '@earendil-works/pi-ai':
         specifier: 0.81.1
-        version: 0.81.1(ws@8.21.1)(zod@4.4.3)
+        version: 0.81.1(ws@8.21.0)(zod@4.4.3)
       '@hono/node-server':
         specifier: 2.0.9
         version: 2.0.9(hono@4.12.30)
@@ -219,7 +219,7 @@ importers:
         version: 17.4.2
       drizzle-orm:
         specifier: ^0.45.2
-        version: 0.45.2(@cloudflare/workers-types@4.20260529.1)(@opentelemetry/api@1.9.1)(postgres@3.4.9)
+        version: 0.45.2(@cloudflare/workers-types@4.20260529.1)(@opentelemetry/api@1.9.1)(kysely@0.28.17)(postgres@3.4.9)
       hono:
         specifier: 4.12.30
         version: 4.12.30
@@ -256,8 +256,8 @@ importers:
         version: 7.0.2
     optionalDependencies:
       '@talesofai-billing/sdk':
-        specifier: ^1.13.4
-        version: 1.13.4
+        specifier: ^1.16.0
+        version: 1.16.0
 
   apps/gateway:
     dependencies:
@@ -574,7 +574,7 @@ importers:
         version: 17.4.2
       drizzle-orm:
         specifier: ^0.45.2
-        version: 0.45.2(@cloudflare/workers-types@4.20260529.1)(@opentelemetry/api@1.9.1)(postgres@3.4.9)
+        version: 0.45.2(@cloudflare/workers-types@4.20260529.1)(@opentelemetry/api@1.9.1)(kysely@0.28.17)(postgres@3.4.9)
       ignore:
         specifier: ^7.0.6
         version: 7.0.6
@@ -615,8 +615,8 @@ importers:
         version: 7.0.2
     optionalDependencies:
       '@talesofai-billing/sdk':
-        specifier: ^1.13.4
-        version: 1.13.4
+        specifier: ^1.16.0
+        version: 1.16.0
 
   packages/cli:
     dependencies:
@@ -663,7 +663,7 @@ importers:
         version: link:../sandbox-controller
       drizzle-orm:
         specifier: ^0.45.2
-        version: 0.45.2(@cloudflare/workers-types@4.20260529.1)(@opentelemetry/api@1.9.1)(postgres@3.4.9)
+        version: 0.45.2(@cloudflare/workers-types@4.20260529.1)(@opentelemetry/api@1.9.1)(kysely@0.28.17)(postgres@3.4.9)
       picomatch:
         specifier: ^4.0.5
         version: 4.0.5
@@ -685,7 +685,7 @@ importers:
         version: link:../protocol
       drizzle-orm:
         specifier: ^0.45.2
-        version: 0.45.2(@cloudflare/workers-types@4.20260529.1)(@opentelemetry/api@1.9.1)(postgres@3.4.9)
+        version: 0.45.2(@cloudflare/workers-types@4.20260529.1)(@opentelemetry/api@1.9.1)(kysely@0.28.17)(postgres@3.4.9)
     devDependencies:
       typescript:
         specifier: ^7.0.2
@@ -711,7 +711,7 @@ importers:
         version: link:../protocol
       '@kubiks/otel-drizzle':
         specifier: ^2.1.0
-        version: 2.1.0(@opentelemetry/api@1.9.1)(drizzle-orm@0.45.2(@cloudflare/workers-types@4.20260529.1)(@opentelemetry/api@1.9.1)(postgres@3.4.9))
+        version: 2.1.0(@opentelemetry/api@1.9.1)(drizzle-orm@0.45.2(@cloudflare/workers-types@4.20260529.1)(@opentelemetry/api@1.9.1)(kysely@0.28.17)(postgres@3.4.9))
       '@neta-art/generation':
         specifier: ^0.1.21
         version: 0.1.21
@@ -810,7 +810,7 @@ importers:
         version: link:../protocol
       drizzle-orm:
         specifier: ^0.45.2
-        version: 0.45.2(@cloudflare/workers-types@4.20260529.1)(@opentelemetry/api@1.9.1)(postgres@3.4.9)
+        version: 0.45.2(@cloudflare/workers-types@4.20260529.1)(@opentelemetry/api@1.9.1)(kysely@0.28.17)(postgres@3.4.9)
     devDependencies:
       '@types/node':
         specifier: 26.1.1
@@ -1808,11 +1808,11 @@ packages:
 
   '@esbuild-kit/core-utils@3.3.2':
     resolution: {integrity: sha512-sPRAnw9CdSsRmEtnsl2WXWdyquogVpB3yZ3dgwJfe8zrOzTsV7cJvmwrKVa+0ma5BoiGJ+BoqkMvawbayKUsqQ==}
-    deprecated: 'Merged into tsx: https://tsx.is'
+    deprecated: 'Merged into tsx: https://tsx.hirok.io'
 
   '@esbuild-kit/esm-loader@2.6.5':
     resolution: {integrity: sha512-FxEMIkJKnodyA1OaCUoEvbYRkoZlLZ4d/eXFu9Fh8CbBBgP5EmZxrfTRyN0qpXZ4vOvqnE5YdRdcrmUUXuU+dA==}
-    deprecated: 'Merged into tsx: https://tsx.is'
+    deprecated: 'Merged into tsx: https://tsx.hirok.io'
 
   '@esbuild/aix-ppc64@0.25.12':
     resolution: {integrity: sha512-Hhmwd6CInZ3dwpuGTF8fJG6yoWmsToE+vYgD4nytZVxcu1ulHpUQRAB1UJ8+N1Am3Mz4+xOByoQoSZf4D+CpkA==}
@@ -3765,8 +3765,8 @@ packages:
     peerDependencies:
       vite: ^5.2.0 || ^6 || ^7 || ^8
 
-  '@talesofai-billing/sdk@1.13.4':
-    resolution: {integrity: sha512-zLgaTW50HP6zCwe/QkMOjqw4XlWwY4iz2ySXW8QvKiOSRjRmBZ2r8R/plf0s9WXT8UaFofPyTlgKtYpYm/OvFA==, tarball: https://git.talesofai.com/api/packages/talesofai/npm/%40talesofai-billing%2Fsdk/-/1.13.4/sdk-1.13.4.tgz}
+  '@talesofai-billing/sdk@1.16.0':
+    resolution: {integrity: sha512-Uw8rX88Ya8LIr3SFsaQZwR1yNXl5N/GFT9MfNHi/n0JH/YIGmA1ssvXaHAl902yqLlxpmmBbhJHp3CH/H9zRcA==, tarball: https://git.talesofai.com/api/packages/talesofai/npm/%40talesofai-billing%2Fsdk/-/1.16.0/sdk-1.16.0.tgz}
 
   '@trickfilm400/rollup-plugin-off-main-thread@3.0.0-pre1':
     resolution: {integrity: sha512-/67zpWDBLV+oYAEL682s1ktXL0HgqX76f6gaVGkGnVZlBbm1zd0v4Bz8MFF2GGhoX9rvfq3KSQHubFHwa6w6/Q==}
@@ -4592,10 +4592,12 @@ packages:
   cron-parser@4.9.0:
     resolution: {integrity: sha512-p0SaNjrHOnQeR8/VnfGbmg9te2kfyYSQ7Sc/j/6DtPL3JQvKxmjO9TSjNFpujqV3vEYYBvNNvXSxzyksBWAx1Q==}
     engines: {node: '>=12.0.0'}
+    deprecated: v4 is no longer maintained, upgrade to v5
 
   cron-parser@5.6.2:
     resolution: {integrity: sha512-yJ/G1LVir6CnlkLI40CsampPLKl1SprGGlUagWtGJxewytRVYezv5xVyzzbT+Pvzx+VIRvZVF7/a0eEMTxdnTA==}
     engines: {node: '>=18'}
+    deprecated: 'Published tarball was built from a stale dist/ and is missing the fixes from #414 and #415 — its contents are effectively v5.6.1. Upgrade to v5.7.0.'
 
   cross-spawn@7.0.6:
     resolution: {integrity: sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA==}
@@ -5833,6 +5835,7 @@ packages:
 
   lucide-svelte@1.0.1:
     resolution: {integrity: sha512-WvzZgk0pqzgda+AErLvgWxHkfg/+GgUwqKMRHvzt0IqyMdmyEDzDCk3Z+Wo/3y753oIgx8u9Q4eUbWkghFa8Jg==}
+    deprecated: Package deprecated. Please use @lucide/svelte instead.
     peerDependencies:
       svelte: ^3 || ^4 || ^5.0.0-next.42
 
@@ -8540,6 +8543,27 @@ snapshots:
       - ws
       - zod
 
+  '@earendil-works/pi-ai@0.81.1(ws@8.21.0)(zod@4.4.3)':
+    dependencies:
+      '@anthropic-ai/sdk': 0.91.1(zod@4.4.3)
+      '@aws-sdk/client-bedrock-runtime': 3.1048.0
+      '@google/genai': 1.52.0
+      '@mistralai/mistralai': 2.2.6(@opentelemetry/api@1.9.0)
+      '@opentelemetry/api': 1.9.0
+      '@smithy/node-http-handler': 4.7.3
+      http-proxy-agent: 7.0.2
+      https-proxy-agent: 7.0.6
+      openai: 6.26.0(ws@8.21.0)(zod@4.4.3)
+      partial-json: 0.1.7
+      typebox: 1.1.38
+    transitivePeerDependencies:
+      - '@modelcontextprotocol/sdk'
+      - bufferutil
+      - supports-color
+      - utf-8-validate
+      - ws
+      - zod
+
   '@earendil-works/pi-ai@0.81.1(ws@8.21.1)(zod@4.4.3)':
     dependencies:
       '@anthropic-ai/sdk': 0.91.1(zod@4.4.3)
@@ -9226,10 +9250,10 @@ snapshots:
       - supports-color
       - utf-8-validate
 
-  '@kubiks/otel-drizzle@2.1.0(@opentelemetry/api@1.9.1)(drizzle-orm@0.45.2(@cloudflare/workers-types@4.20260529.1)(@opentelemetry/api@1.9.1)(postgres@3.4.9))':
+  '@kubiks/otel-drizzle@2.1.0(@opentelemetry/api@1.9.1)(drizzle-orm@0.45.2(@cloudflare/workers-types@4.20260529.1)(@opentelemetry/api@1.9.1)(kysely@0.28.17)(postgres@3.4.9))':
     dependencies:
       '@opentelemetry/api': 1.9.1
-      drizzle-orm: 0.45.2(@cloudflare/workers-types@4.20260529.1)(@opentelemetry/api@1.9.1)(postgres@3.4.9)
+      drizzle-orm: 0.45.2(@cloudflare/workers-types@4.20260529.1)(@opentelemetry/api@1.9.1)(kysely@0.28.17)(postgres@3.4.9)
 
   '@larksuiteoapi/node-sdk@1.71.1':
     dependencies:
@@ -10044,7 +10068,7 @@ snapshots:
       tailwindcss: 4.3.2
       vite: 8.1.4(@types/node@26.1.1)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.1)(yaml@2.9.0)
 
-  '@talesofai-billing/sdk@1.13.4':
+  '@talesofai-billing/sdk@1.16.0':
     dependencies:
       zod: 4.4.3
     optional: true
@@ -11050,10 +11074,11 @@ snapshots:
       esbuild: 0.25.12
       tsx: 4.23.1
 
-  drizzle-orm@0.45.2(@cloudflare/workers-types@4.20260529.1)(@opentelemetry/api@1.9.1)(postgres@3.4.9):
+  drizzle-orm@0.45.2(@cloudflare/workers-types@4.20260529.1)(@opentelemetry/api@1.9.1)(kysely@0.28.17)(postgres@3.4.9):
     optionalDependencies:
       '@cloudflare/workers-types': 4.20260529.1
       '@opentelemetry/api': 1.9.1
+      kysely: 0.28.17
       postgres: 3.4.9
 
   dts-resolver@3.0.0: {}
@@ -12241,6 +12266,11 @@ snapshots:
       oniguruma-parser: 0.12.2
       regex: 6.1.0
       regex-recursion: 6.0.2
+
+  openai@6.26.0(ws@8.21.0)(zod@4.4.3):
+    optionalDependencies:
+      ws: 8.21.0
+      zod: 4.4.3
 
   openai@6.26.0(ws@8.21.1)(zod@4.4.3):
     optionalDependencies:
