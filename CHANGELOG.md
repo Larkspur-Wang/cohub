@@ -4,6 +4,21 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v2.28 — 2026-08-24
+
+- **Work-to-App rename**: Rename the Work vocabulary to App/Desktop across protocol, SDK, API, CLI, and web, making the canonical App wire surface (`/api/apps`, `app`/`apps`/`appId`/`appScopes`) the default. SDK bumps to 8.0.0 and CLI to 6.0.0; legacy `/api/works`, `/w/` URLs, `work://` refs, and `cohub.work.*` bridge messages stay as deprecated aliases so existing consumers keep working.
+- **Desktop commands**: Add a new `client.desktop` (DesktopCommandsApi) and `cohub desktop open` CLI that lets an agent drive the Cohub desktop that originated an App, with routing derived from request provenance. The canonical command is `desktop.open`, with the legacy `ui preview` form accepted and normalized for backward compatibility.
+- **Chinese UI localization**: Introduce a full i18n layer (locale resolution, format helpers, localized theme labels) and ship English + Simplified Chinese message packs across the workspace and settings UI, including localized usage-cost and action labels with a system-following locale preference.
+- **Live App runtime context**: Keep embedded App runtime context live across calls and make context updates handshake-aware, so handoffs are resilient to iframe navigation races and context changes propagate to subscribed App surfaces without a rebuild.
+- **Session chat reliability**: Harden session scroll restore across refreshes, add turn-rail markers and rendering optimizations, and fix effect self-invalidation/loop regressions that caused scroll ping-pong and layout thrash during streaming.
+
+### Bug Fixes
+
+- Persist App Promotion attribution metadata in Billing Order records and keep the paid-order integration point for a future reliable Billing event trigger.
+- Make the 0063_work_to_app DB migration apply robustly on both dev and prod by correcting the inversed migration journal entries.
+- Resolve dangling App/Desktop rename imports that broke the web build, and keep dev deployments readable via sourcemaps.
+- Stop clearTurnMarkers and chrome-resize handlers from feeding effect ping-pong loops that defeated the turn-rail scroll marker throttle.
+
 ## v2.27 — 2026-08-21
 
 - **Board semantic authoring protocol**: Unified the semantic authoring path across API, SDK, CLI, and Web. Semantic mutations now accept `board.patch`, `connection.*`, `effect.*`, and `composition.*` commands alongside `item.*`, all compiled into one atomic transaction with `dryRun` server-side validation, idempotent mutation replay via persisted receipts, and row-diffed composition re-apply that no-ops unchanged tracks.
