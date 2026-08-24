@@ -8,6 +8,8 @@ export type AppSessionPayload = {
   appId: string;
   spaceId: string;
   appScopes: Permission[];
+  /** @deprecated Legacy Work clients read the publisher scopes under this name. */
+  workScopes: Permission[];
   viewerScopes: Permission[];
   scopes: Permission[];
   appViewerGrantId?: string;
@@ -48,6 +50,8 @@ export function createAppSessionToken(input: {
     appId: input.appId,
     spaceId: input.spaceId,
     appScopes,
+    // Keep the old claim name for published Work clients that inspect JWTs.
+    workScopes: appScopes,
     viewerScopes,
     scopes,
     appViewerGrantId: input.appViewerGrantId,
@@ -82,6 +86,7 @@ export function verifyAppSessionToken(token: string): AppSessionPrincipal | null
     ...payload,
     scopes: normalizePermissionScopes(payload.scopes),
     appScopes: normalizePermissionScopes(payload.appScopes),
+    workScopes: normalizePermissionScopes(payload.workScopes ?? payload.appScopes),
     viewerScopes: normalizePermissionScopes(payload.viewerScopes),
     type: "app_session",
   };

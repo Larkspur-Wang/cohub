@@ -120,6 +120,11 @@ async function init() {
 		{ type: "cohub.app.broker.ready" },
 		validatedOpenerOrigin ?? openerOrigin,
 	);
+	// Older published Work SDKs wait for the pre-rename handshake name.
+	window.opener.postMessage(
+		{ type: "cohub.work.broker.ready" },
+		validatedOpenerOrigin ?? openerOrigin,
+	);
 }
 
 function onMessage(event: MessageEvent) {
