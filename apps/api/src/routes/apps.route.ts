@@ -19,7 +19,7 @@ import {
 import { hasPermission } from "../permissions.js";
 import { createAppSessionToken, APP_SESSION_TTL_SECONDS } from "../app-sessions.js";
 import { getSandboxPublicEndpoints } from "../sandbox-public-network.js";
-import type { AppArtifactDescriptor, AppContentKind } from "@cohub/protocol";
+import type { AppArtifactDescriptor } from "@cohub/protocol";
 import { SANDBOX_PUBLIC_PORTS } from "@cohub/protocol/ports";
 import { config, isHostAllowedBySuffix } from "../config.js";
 import {

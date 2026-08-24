@@ -99,7 +99,7 @@ function mountedRoutes(): string[] {
       /\.route\(\s*"(?<sub>\/[^"]*)"\s*,\s*\w+\s*\)|\.(?:get|post|patch|put|delete)\(\s*[`"](?<path>\/[^`"]*)[`"]/g,
     )) {
       let path = inner.groups?.sub ?? inner.groups?.path ?? "";
-      if (resource) path = path.replaceAll("${resource}", resource);
+      if (resource) path = path.replaceAll(`\${resource}`, resource);
       mounted.push(path && path !== "/" ? normalizePath(`${prefix}${path}`) : normalizePath(prefix));
     }
   };
