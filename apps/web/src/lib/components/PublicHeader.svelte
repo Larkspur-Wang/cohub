@@ -1,6 +1,8 @@
 <script lang="ts">
 import { ChevronRight, Menu, X } from "lucide-svelte";
 import { page } from "$app/state";
+import { resolvePublicLocale } from "$lib/i18n/public-locale";
+import { m } from "$lib/paraglide/messages.js";
 
 type Cta = "start" | "open-app" | "none";
 
@@ -15,10 +17,17 @@ const {
 } = $props();
 
 const path = $derived(page.url.pathname);
-const isDocs = $derived(path === "/docs" || path.startsWith("/docs/"));
-const isPricing = $derived(path === "/pricing" || path.startsWith("/pricing/"));
+const zh = $derived(resolvePublicLocale(path) === "zh-CN");
+// Changelog stays English-only; everything else is localized under /zh.
+const docsHref = $derived(zh ? "/zh/docs" : "/docs");
+const pricingHref = $derived(zh ? "/zh/pricing" : "/pricing");
+const changelogHref = "/changelog";
+const isDocs = $derived(path === docsHref || path.startsWith(`${docsHref}/`));
+const isPricing = $derived(
+	path === pricingHref || path.startsWith(`${pricingHref}/`),
+);
 const isChangelog = $derived(
-	path === "/changelog" || path.startsWith("/changelog/"),
+	path === changelogHref || path.startsWith(`${changelogHref}/`),
 );
 
 let mobileMenuOpen = $state(false);
@@ -42,7 +51,7 @@ function navClass(active: boolean): string {
 		: "h-12 border-b border-border-subtle"}
 >
 	<div class="flex h-full w-full items-center justify-between gap-3 px-3">
-		<a href="/" class="group inline-flex shrink-0 items-center gap-2" aria-label="Cohub home">
+		<a href={zh ? "/zh" : "/"} class="group inline-flex shrink-0 items-center gap-2" aria-label={m.head_home_aria({}, { locale: zh ? "zh-CN" : "en" })}>
 			<div
 				class="flex h-7 w-7 shrink-0 items-center justify-center rounded-[6px] bg-brand text-[11px] font-bold text-brand-contrast-fg transition-colors group-hover:bg-brand-hover"
 			>
@@ -55,14 +64,14 @@ function navClass(active: boolean): string {
 
 		<!-- Desktop nav -->
 		<nav class="hidden items-center gap-2 text-[13px] sm:flex">
-			<a href="/docs" class={navClass(isDocs)} aria-current={isDocs ? "page" : undefined}>Docs</a>
-			<a href="/pricing" class={navClass(isPricing)} aria-current={isPricing ? "page" : undefined}
-				>Pricing</a
+			<a href={docsHref} class={navClass(isDocs)} aria-current={isDocs ? "page" : undefined}>{m.head_docs({}, { locale: zh ? "zh-CN" : "en" })}</a>
+			<a href={pricingHref} class={navClass(isPricing)} aria-current={isPricing ? "page" : undefined}
+				>{m.head_pricing({}, { locale: zh ? "zh-CN" : "en" })}</a
 			>
 			<a
-				href="/changelog"
+				href={changelogHref}
 				class={navClass(isChangelog)}
-				aria-current={isChangelog ? "page" : undefined}>Changelog</a
+				aria-current={isChangelog ? "page" : undefined}>{m.head_changelog({}, { locale: zh ? "zh-CN" : "en" })}</a
 			>
 
 			{#if cta === "start"}
@@ -71,14 +80,14 @@ function navClass(active: boolean): string {
 					onclick={() => void onStart?.()}
 					class="inline-flex cursor-pointer items-center gap-1.5 rounded-full bg-brand px-4 py-2 font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover"
 				>
-					Start
+					{m.head_start({}, { locale: zh ? "zh-CN" : "en" })}
 				</button>
 			{:else if cta === "open-app"}
 				<a
 					href="/"
 					class="inline-flex items-center gap-1.5 whitespace-nowrap rounded-[5px] border border-border-subtle bg-bg-input px-2.5 py-1.5 text-[12px] font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary"
 				>
-					Open app
+					{m.head_open_app({}, { locale: zh ? "zh-CN" : "en" })}
 					<ChevronRight class="h-3.5 w-3.5" />
 				</a>
 			{/if}
@@ -92,14 +101,14 @@ function navClass(active: boolean): string {
 					onclick={() => void onStart?.()}
 					class="inline-flex cursor-pointer items-center gap-1.5 rounded-full bg-brand px-3 py-1.5 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover"
 				>
-					Start
+					{m.head_start({}, { locale: zh ? "zh-CN" : "en" })}
 				</button>
 			{:else if cta === "open-app"}
 				<a
 					href="/"
 					class="inline-flex items-center gap-1 whitespace-nowrap rounded-[5px] border border-border-subtle bg-bg-input px-2 py-1.5 text-[12px] font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary"
 				>
-					Open app
+					{m.head_open_app({}, { locale: zh ? "zh-CN" : "en" })}
 					<ChevronRight class="h-3 w-3" />
 				</a>
 			{/if}
@@ -108,7 +117,9 @@ function navClass(active: boolean): string {
 				class="inline-flex h-8 w-8 items-center justify-center rounded-[6px] border border-border-subtle bg-bg-input text-text-secondary transition-colors hover:text-text-primary"
 				onclick={() => (mobileMenuOpen = !mobileMenuOpen)}
 				aria-expanded={mobileMenuOpen}
-				aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
+				aria-label={mobileMenuOpen
+					? m.head_close_menu({}, { locale: zh ? "zh-CN" : "en" })
+					: m.head_open_menu({}, { locale: zh ? "zh-CN" : "en" })}
 			>
 				{#if mobileMenuOpen}
 					<X class="h-4 w-4" />
@@ -125,26 +136,26 @@ function navClass(active: boolean): string {
 			<ul class="space-y-0.5">
 				<li>
 					<a
-						href="/docs"
+						href={docsHref}
 						class="block rounded-[6px] px-3 py-2 text-[13px] font-medium transition-colors {isDocs ? 'bg-brand/10 text-brand' : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary'}"
 						aria-current={isDocs ? "page" : undefined}
-					>Docs</a
+					>{m.head_docs({}, { locale: zh ? "zh-CN" : "en" })}</a
 					>
 				</li>
 				<li>
 					<a
-						href="/pricing"
+						href={pricingHref}
 						class="block rounded-[6px] px-3 py-2 text-[13px] font-medium transition-colors {isPricing ? 'bg-brand/10 text-brand' : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary'}"
 						aria-current={isPricing ? "page" : undefined}
-					>Pricing</a
+					>{m.head_pricing({}, { locale: zh ? "zh-CN" : "en" })}</a
 					>
 				</li>
 				<li>
 					<a
-						href="/changelog"
+						href={changelogHref}
 						class="block rounded-[6px] px-3 py-2 text-[13px] font-medium transition-colors {isChangelog ? 'bg-brand/10 text-brand' : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary'}"
 						aria-current={isChangelog ? "page" : undefined}
-					>Changelog</a
+					>{m.head_changelog({}, { locale: zh ? "zh-CN" : "en" })}</a
 					>
 				</li>
 			</ul>

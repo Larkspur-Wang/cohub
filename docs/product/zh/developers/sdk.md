@@ -109,16 +109,16 @@ await client.auth.request({
 - 它们不会在任意静态托管或本地直接打开文件时工作
 - Work scopes 与 viewer-consent scopes 会被强制执行
 
-启用 commerce 且 Work 已发布时，commerce helpers 在 `client.work.commerce.*`。
+启用 commerce 且 Work 已发布时，commerce helpers 在 `client.app.commerce.*`。
 
 ### Realtime rooms
 
-在已发布 Work 内，`client.work.realtime` 提供临时房间，用于多人状态、
+在已发布 Work 内，`client.app.realtime` 提供临时房间，用于多人状态、
 presence 与通用 JSON 事件。它使用 Work runtime 身份，无需额外 scope 或
 授权弹窗。
 
 ```ts
-const room = await client.work.realtime.createRoom({
+const room = await client.app.realtime.createRoom({
   code: "TEAM-ALPHA", // 可选
   expiresInSeconds: 2 * 60 * 60,
 });
@@ -145,7 +145,7 @@ Work 可以向嵌入它的 Cohub 宿主暴露具名方法，Agent 便能通过
 `cohub ui preview <work> --call <method>` 调用正在运行的 Work。
 
 ```ts
-client.work.surface.handle("image.open", async (input, { commandId }) => {
+client.app.surface.handle("image.open", async (input, { commandId }) => {
   openImageStudio(input, commandId);
 });
 
@@ -167,7 +167,7 @@ Work 通过同一个 UI command 调用 `client.ui.reportResult()` 上报最终�
 上。自建部署与本地开发需显式放开：
 
 ```ts
-client.work.surface.allowHostOrigins(["https://cohub.internal"]);
+client.app.surface.allowHostOrigins(["https://cohub.internal"]);
 ```
 
 ## 主要 client 表面
@@ -184,7 +184,7 @@ Client 按产品区域分组：
 | Tasks / cron | `client.tasks`、`client.cronJobs` |
 | Channels | `client.channels` |
 | Billing / commerce | `client.billing`、`client.workCommerce` |
-| Work runtime | `client.context()`、`client.auth`、`client.work` |
+| Work runtime | `client.context()`、`client.auth`、`client.app` |
 | Cohub 界面命令 | `client.ui` |
 
 只使用你需要的表面。从 Spaces、sessions 和 Works 开始。
@@ -212,6 +212,6 @@ Client 按产品区域分组：
 
 ## 相关
 
-- [CLI](/docs/zh/developers/cli)
-- [Works](/docs/zh/create/works)
-- [核心概念](/docs/zh/learn/core-concepts)
+- [CLI](/zh/docs/developers/cli)
+- [Works](/zh/docs/create/works)
+- [核心概念](/zh/docs/learn/core-concepts)

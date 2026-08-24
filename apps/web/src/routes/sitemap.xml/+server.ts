@@ -12,8 +12,10 @@ export const prerender = true;
 const STATIC_PATHS = [
 	"/",
 	"/docs",
-	"/docs/zh",
+	"/zh/docs",
 	"/pricing",
+	"/zh/pricing",
+	"/zh",
 	"/changelog",
 ] as const;
 
@@ -84,14 +86,32 @@ export function GET() {
 	const latest = entries[0]?.date ?? null;
 
 	const staticEntries: SitemapUrl[] = STATIC_PATHS.map((path) => {
-		const isDocsHome = path === "/docs" || path === "/docs/zh";
+		const isDocsHome = path === "/docs" || path === "/zh/docs";
+		const isLocalizedPair =
+			path === "/zh" ||
+			path === "/zh/pricing" ||
+			path === "/docs" ||
+			path === "/zh/docs" ||
+			path === "/pricing";
 		const alternates = isDocsHome
 			? [
 					{ hreflang: "en", path: "/docs" },
-					{ hreflang: "zh-CN", path: "/docs/zh" },
+					{ hreflang: "zh-CN", path: "/zh/docs" },
 					{ hreflang: "x-default", path: "/docs" },
 				]
-			: undefined;
+			: isLocalizedPair && (path === "/pricing" || path === "/zh/pricing")
+				? [
+						{ hreflang: "en", path: "/pricing" },
+						{ hreflang: "zh-CN", path: "/zh/pricing" },
+						{ hreflang: "x-default", path: "/pricing" },
+					]
+				: isLocalizedPair && path === "/zh"
+					? [
+							{ hreflang: "en", path: "/" },
+							{ hreflang: "zh-CN", path: "/zh" },
+							{ hreflang: "x-default", path: "/" },
+						]
+					: undefined;
 		return {
 			path,
 			priority:

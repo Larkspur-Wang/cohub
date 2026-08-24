@@ -8,9 +8,13 @@ import {
 	sanitizeRedirectPath,
 } from "$lib/auth";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
+import type { Locale } from "$lib/i18n/locale";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 import { sdk } from "$lib/sdk";
 
 let error = $state("");
+const locale: Locale = $derived(getLocale());
 
 onMount(async () => {
 	try {
@@ -60,14 +64,14 @@ onMount(async () => {
 </script>
 
 <svelte:head>
-	<title>Authenticating — Cohub</title>
+	<title>{m.callback_seo_title({}, { locale })}</title>
 </svelte:head>
 
 <div class="flex-1 flex items-center justify-center min-h-100dvh">
   {#if error}
     <div class="text-center max-w-sm px-4">
       <p class="text-sm text-error-soft">{error}</p>
-      <a href="/" class="mt-4 inline-block text-xs text-text-tertiary hover:text-text-secondary underline">Back to home</a>
+      <a href="/" class="mt-4 inline-block text-xs text-text-tertiary hover:text-text-secondary underline">{m.callback_back_home({}, { locale })}</a>
     </div>
   {:else}
     <CenteredLoading label="Authenticating…" size="page" />

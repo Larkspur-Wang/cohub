@@ -77,7 +77,7 @@ Work 目标类型：
 
 - 在 Space settings 邀请协作者
 - 如需 Discord / Telegram / 飞书 / 微信入口，绑定 Channel
-- 通过 [CLI](/docs/zh/developers/cli) 在终端走同一闭环
+- 通过 [CLI](/zh/docs/developers/cli) 在终端走同一闭环
 - 需要可复用工具时挂载 Mods 或 skills
 
 ## 完成标准
@@ -89,4 +89,4 @@ Work 目标类型：
 3. 我创建了可恢复或可继续的 Save
 4. 我知道输出就绪后如何发布 Work
 
-接下来可深入 [Spaces](/docs/zh/workspace/spaces)、[Chats](/docs/zh/workspace/chats) 或 [Works](/docs/zh/create/works)。
+接下来可深入 [Spaces](/zh/docs/workspace/spaces)、[Chats](/zh/docs/workspace/chats) 或 [Works](/zh/docs/create/works)。

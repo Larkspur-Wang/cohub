@@ -109,7 +109,7 @@ cohub works stats <workId|url|username/space/work>
 ```
 
 Realtime rooms 使用已发布 Work 的 runtime 身份。请在 Work 内使用
-`client.work.realtime`；CLI 不提供房间命令。
+`client.app.realtime`；CLI 不提供房间命令。
 
 ### 操作 Cohub 界面
 
@@ -126,7 +126,7 @@ cohub ui preview <work> --call board.focus --data '{"nodeId":"n1"}'
 
 打开预览是幂等的：重复执行只会重新激活同一个标签页。`--call` 会等待 Work 声明就绪
 后再调用方法。具体有哪些方法由 Work 作者决定，通过
-`client.work.surface.handle(name, handler)` 注册。
+`client.app.surface.handle(name, handler)` 注册。
 
 命令只会到达发起当前工作的那个前端实例，目标从请求 provenance 推导得出。它无法作用于
 其他用户，也不提供 DOM 访问或脚本执行能力。
@@ -162,6 +162,6 @@ cohub -s <spaceId> spaces sessions ls --json
 
 ## 下一步
 
-- UI 产品闭环：[快速开始](/docs/zh/learn/quick-start)
-- 程序化访问：[SDK](/docs/zh/developers/sdk)
-- 发布细节：[Works](/docs/zh/create/works)
+- UI 产品闭环：[快速开始](/zh/docs/learn/quick-start)
+- 程序化访问：[SDK](/zh/docs/developers/sdk)
+- 发布细节：[Works](/zh/docs/create/works)

@@ -102,7 +102,7 @@ Cohub 的强模式是分屏协作：
 - 决定是否 Save
 - 发现意外删除
 
-Save 会冻结当前里程碑。详见 [Saves](/docs/zh/workspace/saves)。
+Save 会冻结当前里程碑。详见 [Saves](/zh/docs/workspace/saves)。
 
 ## 本地目录作为 Sandbox
 
@@ -112,7 +112,7 @@ Save 会冻结当前里程碑。详见 [Saves](/docs/zh/workspace/saves)。
 cohub sandbox up ./my-project
 ```
 
-这适合让 Cohub Agents 直接面对本地工作树。详见 [CLI](/docs/zh/developers/cli)。
+这适合让 Cohub Agents 直接面对本地工作树。详见 [CLI](/zh/docs/developers/cli)。
 
 ## 实用建议
 
@@ -123,6 +123,6 @@ cohub sandbox up ./my-project
 
 ## 相关
 
-- [Chats](/docs/zh/workspace/chats)
-- [Saves](/docs/zh/workspace/saves)
-- [Works](/docs/zh/create/works)
+- [Chats](/zh/docs/workspace/chats)
+- [Saves](/zh/docs/workspace/saves)
+- [Works](/zh/docs/create/works)

@@ -2228,15 +2228,15 @@ onMount(() => {
 	spacePresence.start();
 	sessionChat.loadSessionScrollAnchors();
 	window.addEventListener("keydown", handleSessionVimKeydown);
-	const handleWorksChanged = (event: Event) => {
+	const handleAppsChanged = (event: Event) => {
 		const detail = (
-			event as CustomEvent<{ spaceId?: string; work?: { id?: string } }>
+			event as CustomEvent<{ spaceId?: string; app?: { id?: string } }>
 		).detail;
-		if (detail?.spaceId !== spaceId || typeof detail.work?.id !== "string")
+		if (detail?.spaceId !== spaceId || typeof detail.app?.id !== "string")
 			return;
-		appPreview.refreshIfOpen(detail.work.id);
+		appPreview.refreshIfOpen(detail.app.id);
 	};
-	window.addEventListener(APPS_CHANGED_EVENT, handleWorksChanged);
+	window.addEventListener(APPS_CHANGED_EVENT, handleAppsChanged);
 	const offSessionListCacheUpdated = onSessionListCacheUpdated(
 		({ spaceId: updatedSpaceId, sessions }) => {
 			if (updatedSpaceId !== spaceId) return;
@@ -2409,7 +2409,7 @@ onMount(() => {
 		if (activeSessionId)
 			sessionChat.captureCurrentScrollAnchor(activeSessionId);
 		window.removeEventListener("keydown", handleSessionVimKeydown);
-		window.removeEventListener(APPS_CHANGED_EVENT, handleWorksChanged);
+		window.removeEventListener(APPS_CHANGED_EVENT, handleAppsChanged);
 		offSessionListCacheUpdated();
 		offBoardTxApplied();
 		offBoardPlaybackChanged();

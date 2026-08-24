@@ -10,6 +10,9 @@ import AppAuthorizeDialog from "$lib/features/app/AppAuthorizeDialog.svelte";
 import AppPurchaseDialog from "$lib/features/app/AppPurchaseDialog.svelte";
 import { isAllowedAppOrigin } from "$lib/features/app/app-origin-allowlist";
 import { createAppBridgeHost } from "$lib/features/app/bridge-host.svelte";
+import type { Locale } from "$lib/i18n/locale";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 
 type BrokerState = "loading" | "need-login" | "ready" | "error";
 
@@ -27,6 +30,8 @@ const openerOrigin = $derived(params.get("origin") ?? "");
 
 let phase = $state<BrokerState>("loading");
 let errorMessage = $state("");
+
+let locale: Locale = $derived(getLocale());
 let appDetail = $state<AppDetail | null>(null);
 let host = $state<ReturnType<typeof createAppBridgeHost> | null>(null);
 
@@ -152,20 +157,20 @@ onDestroy(() => window.removeEventListener("message", onMessage));
 </script>
 
 <svelte:head>
-	<title>Authorize — Cohub</title>
+	<title>{m.app_auth_seo_title({}, { locale })}</title>
 </svelte:head>
 
 <div class="broker-page">
 	{#if phase === "loading"}
 		<div class="broker-center">
 			<Loader2 class="h-5 w-5 animate-spin text-text-tertiary" />
-			<p class="broker-status">Preparing authorization…</p>
+			<p class="broker-status">{m.app_auth_preparing({}, { locale })}</p>
 		</div>
 	{:else if phase === "need-login"}
 		<div class="broker-center">
 			<div class="broker-login-icon"><ShieldCheck class="h-5 w-5" /></div>
-			<p class="broker-login-title">Sign in to Cohub</p>
-			<p class="broker-login-copy">Sign in to continue the authorization flow.</p>
+			<p class="broker-login-title">{m.app_auth_sign_in({}, { locale })}</p>
+			<p class="broker-login-copy">{m.app_auth_continue({}, { locale })}</p>
 			<button type="button" class="broker-login-btn" onclick={handleLogin}>
 				Sign in with Cohub
 			</button>
@@ -174,7 +179,7 @@ onDestroy(() => window.removeEventListener("message", onMessage));
 		<div class="broker-center">
 			<AlertTriangle class="h-5 w-5 text-error-soft" />
 			<p class="broker-error-msg">{errorMessage}</p>
-			<p class="broker-error-hint">You can close this window.</p>
+			<p class="broker-error-hint">{m.app_auth_close({}, { locale })}</p>
 		</div>
 	{/if}
 

@@ -228,30 +228,30 @@ Confirm before enabling, disabling, updating, or deleting recurring scheduled pr
 cohub cron-jobs -h
 ```
 
-## Works
+## Apps
 
-For publishing files, directory sites, or sandbox ports as shareable Works, use the `cohub-works-share` skill.
+Apps publish files, directory sites, or sandbox ports as shareable public pages. For publishing and sharing, use the `cohub-apps` skill.
 
-For Works with stronger capabilities (Cohub agent, generation, etc.), use the `@neta-art/cohub` SDK — install a fresh copy and read its README before writing any SDK code.
+For Apps with stronger capabilities (Cohub agent, generation, etc.), use the `@neta-art/cohub` SDK — install a fresh copy and read its README before writing any SDK code.
 
-Discover existing Works and resolve Work mentions or public links:
+Discover existing Apps and resolve App mentions or public links:
 
 ```bash
-cohub works ls
-cohub works get <workId|url|username/space/work>
-cohub works get cohub://works/<username>/<spaceSlug>/<workSlug> --json
+cohub apps ls
+cohub apps get <appId|url|username/space/app>
+cohub apps get cohub://apps/<username>/<spaceSlug>/<appSlug> --json
 ```
 
-Download a published file or directory Work before inspecting it with file tools:
+Download a published file or directory App before inspecting it with file tools:
 
 ```bash
-cohub works download <workId|url|mentionUri> --output <path> --json
+cohub apps download <appId|url|mentionUri> --output <path> --json
 ```
 
-HTML files with companion assets download as directory bundles. Board and port Works are not downloadable; open their public URL with browser tooling when rendered inspection is needed.
+HTML files with companion assets download as directory bundles. Board and port Apps are not downloadable; open their public URL with browser tooling when rendered inspection is needed.
 
 ```bash
-cohub works -h
+cohub apps -h
 ```
 
 ## Search
@@ -350,9 +350,8 @@ cohub sandbox -h
 
 Confirm before:
 
-- deleting files, directories, or Works
+- deleting files, directories, or Apps
 - creating scheduled or recurring prompts with side effects
 - enabling, disabling, updating, or deleting recurring scheduled prompts
 - changing Space config, access policies, member roles, or membership
 - sending prompts that may trigger recursive agent behavior
-

@@ -1,17 +1,16 @@
 import type { Handle } from "@sveltejs/kit";
+import { resolvePublicLocale } from "$lib/i18n/public-locale";
 import {
 	isPublicSharePath,
 	PUBLIC_NOT_FOUND_CACHE_CONTROL,
 } from "$lib/server/public-cache";
 
-function isPublicWorkPath(pathname: string): boolean {
-	const segments = pathname.split("/").filter(Boolean);
-	return segments.length === 4 && segments[2] === "w";
-}
-
 function resolveHtmlLang(pathname: string, html: string): string {
-	if (pathname.startsWith("/docs/zh")) return "zh-CN";
-	if (isPublicWorkPath(pathname)) {
+	const urlLocale = resolvePublicLocale(pathname);
+	if (urlLocale !== "en") return urlLocale;
+
+	const segments = pathname.split("/").filter(Boolean);
+	if (segments.length === 4 && segments[2] === "w") {
 		const match =
 			html.match(
 				/<meta\b[^>]*\bname=["']cohub-app-lang["'][^>]*\bcontent=["']([^"']+)["'][^>]*>/i,
@@ -27,13 +26,14 @@ function resolveHtmlLang(pathname: string, html: string): string {
 	return "en";
 }
 
-/** Set <html lang> for prerendered / SSR HTML (client SPA nav is handled in docs layout). */
+/** Set <html lang> for SSR / prerendered HTML (client nav handled in pages). */
 export const handle: Handle = async ({ event, resolve }) => {
 	const response = await resolve(event, {
-		transformPageChunk: ({ html }) => {
-			const lang = resolveHtmlLang(event.url.pathname, html);
-			return html.replace(/<html lang="[^"]*">/, `<html lang="${lang}">`);
-		},
+		transformPageChunk: ({ html }) =>
+			html.replace(
+				/<html lang="[^"]*">/,
+				`<html lang="${resolveHtmlLang(event.url.pathname, html)}">`,
+			),
 	});
 
 	// error() paths drop load setHeaders(); apply a short public 404 cache here.

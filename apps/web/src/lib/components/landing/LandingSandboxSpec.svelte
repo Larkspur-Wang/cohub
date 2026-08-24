@@ -11,24 +11,31 @@
  * Scoped to what the heading and lede do not already cover — isolation and
  * "a real computer" are stated up there, so repeating them here wastes a slot.
  */
-const specs = [
+import type { PublicLocale } from "$lib/i18n/public-locale";
+import { m } from "$lib/paraglide/messages.js";
+
+type Props = { locale?: PublicLocale };
+
+let { locale = "en" }: Props = $props();
+
+const specs = $derived([
 	{
-		term: "Ports and live preview",
-		desc: "A process listening on a public port becomes a preview you can watch, and an App you can publish.",
+		term: m.sb_ports_title({}, { locale }),
+		desc: m.sb_ports_desc({}, { locale }),
 	},
 	{
-		term: "Scheduled prompts",
-		desc: "Send a prompt once at a set time, or on a recurring schedule, so an agent picks up routine work without being asked.",
+		term: m.sb_scheduled_title({}, { locale }),
+		desc: m.sb_scheduled_desc({}, { locale }),
 	},
 	{
-		term: "Space hooks",
-		desc: "Run scripts on Space events — a finished turn, a file change — with filters that decide exactly when they fire.",
+		term: m.sb_hooks_title({}, { locale }),
+		desc: m.sb_hooks_desc({}, { locale }),
 	},
 	{
-		term: "Built on pi",
-		desc: "The agent runtime is built on the open-source pi harness.",
+		term: m.sb_pi_title({}, { locale }),
+		desc: m.sb_pi_desc({}, { locale }),
 	},
-];
+]);
 </script>
 
 <dl class="specs">

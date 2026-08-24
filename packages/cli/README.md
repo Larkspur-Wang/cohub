@@ -297,7 +297,7 @@ cohub works resolve <workSlug> --owner <username> --space-slug <spaceSlug>
 Use `--json` for machine-readable output. `works get`, `works stats`, and `works download` also accept `cohub://works/<username>/<space>/<work>` mention URIs. `works stats` reports total, 24-hour, 7-day, and 30-day views with a source breakdown. Download restores newly published file and directory artifacts directly from the CDN with checksum verification. HTML files with companion assets are restored as directory bundles; Board and port Works are not downloadable. The resolve command remains available for explicit slug-based lookup.
 
 Realtime rooms use a published Work's runtime identity, so they are available
-through `client.work.realtime` in the SDK rather than as CLI commands.
+through `client.app.realtime` in the SDK rather than as CLI commands.
 
 ## Drive the Cohub UI
 
@@ -323,7 +323,7 @@ and waits for the Work to complete the same UI command with `client.ui.reportRes
 Work authors decide what is callable by registering handlers inside the Work:
 
 ```ts
-client.work.surface.handle("image.open", async (input, { commandId }) => {
+client.app.surface.handle("image.open", async (input, { commandId }) => {
   openImageStudio(input, commandId);
 });
 ```

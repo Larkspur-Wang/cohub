@@ -68,7 +68,7 @@ export function docsJsonLd(input: {
 	const pageUrl = canonicalUrl(origin, input.path);
 	const docsHome =
 		input.locale === "zh"
-			? canonicalUrl(origin, "/docs/zh")
+			? canonicalUrl(origin, "/zh/docs")
 			: canonicalUrl(origin, "/docs");
 	const inLanguage = input.locale === "zh" ? "zh-CN" : "en";
 

@@ -224,7 +224,7 @@ cohub ui preview <work> --call board.focus --data '{"nodeId":"n1"}'
 Register a method that receives the UI command id and completes it later:
 
 ```ts
-client.work.surface.handle("image.open", async (input, { commandId }) => {
+client.app.surface.handle("image.open", async (input, { commandId }) => {
   openImageStudio(input, commandId);
 });
 

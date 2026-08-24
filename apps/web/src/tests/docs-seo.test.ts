@@ -31,12 +31,12 @@ describe("docs seo helpers", () => {
 			origin: "https://cohub.run",
 			title: "快速开始",
 			description: "走通主循环。",
-			path: "/docs/zh/learn/quick-start",
+			path: "/zh/docs/learn/quick-start",
 			locale: "zh",
 			sectionTitle: "入门",
 			breadcrumbs: [
-				{ name: "文档", path: "/docs/zh" },
-				{ name: "快速开始", path: "/docs/zh/learn/quick-start" },
+				{ name: "文档", path: "/zh/docs" },
+				{ name: "快速开始", path: "/zh/docs/learn/quick-start" },
 			],
 		});
 		const data = JSON.parse(raw) as {

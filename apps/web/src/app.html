@@ -42,8 +42,23 @@
 
         // Resolve the UI language before paint. The reactive locale store takes
         // over after hydration and keeps this attribute in sync.
+        var pathForLocale = location.pathname;
+        function isPublicLangPath(path) {
+          if (path === '/' || path === '') return true;
+          if (path.indexOf('/docs') === 0 || path.indexOf('/pricing') === 0 || path.indexOf('/changelog') === 0 || path.indexOf('/trending') === 0) return true;
+          if (path.indexOf('/invite') === 0 || path.indexOf('/referrals') === 0 || path.indexOf('/app-auth') === 0 || path === '/callback') return true;
+          var seg = path.split('/').filter(Boolean);
+          if (seg.length === 4 && (seg[2] === 'w' || seg[2] === 'join')) return true;
+          if (seg[0] === 'zh') return true;
+          return false;
+        }
         var localePreference = readStoredValue('cohub-locale') || 'system';
-        var locale = resolveUiLocale(localePreference, navigator.languages || [navigator.language]);
+        var pubSeg = pathForLocale.split('/').filter(Boolean);
+        // Public pages derive lang from the URL (set by SSR); the app shell
+        // uses the persisted / browser preference.
+        var locale = isPublicLangPath(pathForLocale)
+          ? (pubSeg[0] === 'zh' ? 'zh-CN' : 'en')
+          : resolveUiLocale(localePreference, navigator.languages || [navigator.language]);
         document.documentElement.lang = locale;
 
         var themeColors = {

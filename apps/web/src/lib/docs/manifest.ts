@@ -140,7 +140,7 @@ export function docsHref(slug: string, locale: DocsLocale = "en"): string {
 	if (locale === "en") {
 		return normalized ? `/docs/${normalized}` : "/docs";
 	}
-	return normalized ? `/docs/zh/${normalized}` : "/docs/zh";
+	return normalized ? `/zh/docs/${normalized}` : "/zh/docs";
 }
 
 export function alternateDocsHref(slug: string, locale: DocsLocale): string {
@@ -191,14 +191,14 @@ export function parseDocsPath(pathname: string): {
 	if (path === "/docs" || path === "/docs/") {
 		return { locale: "en", slug: "" };
 	}
-	if (path === "/docs/zh") {
-		return { locale: "zh", slug: "" };
-	}
-	if (path.startsWith("/docs/zh/")) {
-		return { locale: "zh", slug: path.slice("/docs/zh/".length) };
-	}
 	if (path.startsWith("/docs/")) {
 		return { locale: "en", slug: path.slice("/docs/".length) };
+	}
+	if (path === "/zh/docs" || path === "/zh/docs/") {
+		return { locale: "zh", slug: "" };
+	}
+	if (path.startsWith("/zh/docs/")) {
+		return { locale: "zh", slug: path.slice("/zh/docs/".length) };
 	}
 	return { locale: "en", slug: "" };
 }

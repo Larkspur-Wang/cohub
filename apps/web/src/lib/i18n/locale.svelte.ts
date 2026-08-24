@@ -6,6 +6,7 @@ import {
 	type LocalePreference,
 	resolvePreferredLocale,
 } from "./locale";
+import { isPublicLocalePath } from "./public-locale";
 
 function browserLanguages(): readonly string[] {
 	return typeof navigator === "undefined" ? [] : navigator.languages;
@@ -33,7 +34,11 @@ function applyLocale(nextLocale: Locale) {
 	locale = nextLocale;
 	void setParaglideLocale(nextLocale, { reload: false });
 	if (typeof document !== "undefined") {
-		document.documentElement.lang = nextLocale;
+		// Public pages derive lang from the URL (set by SSR); don't let the app
+		// shell preference override it on those pages (hydration consistency).
+		if (!isPublicLocalePath(window.location.pathname)) {
+			document.documentElement.lang = nextLocale;
+		}
 		document.documentElement.dir = "ltr";
 	}
 }

@@ -42,6 +42,7 @@ export const RESERVED_PLATFORM_PATH_SEGMENTS = Object.freeze([
   "users",
   "work-auth",
   "app-auth",
+  "zh",
 ] as const);
 
 const RESERVED_PLATFORM_PATH_SEGMENT_SET = new Set<string>(

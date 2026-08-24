@@ -8,24 +8,30 @@
  * makes publicly in its own README.
  */
 import { ArrowUpRight } from "lucide-svelte";
+import type { PublicLocale } from "$lib/i18n/public-locale";
+import { m } from "$lib/paraglide/messages.js";
 
-const proofs = [
+type Props = { locale?: PublicLocale };
+
+let { locale = "en" }: Props = $props();
+
+const proofs = $derived([
 	{
-		value: "Billions of tokens",
-		label: "run through Spaces every week",
-		href: null,
+		value: m.proof_tokens({}, { locale }),
+		label: m.proof_tokens_sub({}, { locale }),
+		href: null as string | null,
 	},
 	{
-		value: "Built in the open",
-		label: "Cohub is developed inside a public Cohub Space",
+		value: m.proof_built_open({}, { locale }),
+		label: m.proof_built_open_sub({}, { locale }),
 		href: "https://cohub.live/tzwm/cohub",
 	},
 	{
-		value: "Apache-2.0",
-		label: "open source, and self-hostable",
+		value: m.proof_apache({}, { locale }),
+		label: m.proof_apache_sub({}, { locale }),
 		href: "https://github.com/talesofai/cohub",
 	},
-];
+]);
 </script>
 
 <div class="strip">

@@ -57,6 +57,7 @@ import Sheet from "$lib/components/Sheet.svelte";
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
 import UploadProgress from "$lib/components/UploadProgress.svelte";
 import UserAvatar from "$lib/components/UserAvatar.svelte";
+import { formatDateTime } from "$lib/i18n/format";
 import { getLocale } from "$lib/i18n/locale.svelte";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { m } from "$lib/paraglide/messages.js";
@@ -432,9 +433,7 @@ function getSandboxMetaValue(key: string): string {
 
 function formatTime(value?: string | null): string {
 	if (!value) return "—";
-	const date = new Date(value);
-	if (Number.isNaN(date.getTime())) return "—";
-	return date.toLocaleString();
+	return formatDateTime(value, locale) || "—";
 }
 
 function formatRelativeTime(value?: string | null): string {
@@ -447,11 +446,19 @@ function formatRelativeTime(value?: string | null): string {
 	const minute = 60_000;
 	const hour = 60 * minute;
 	const day = 24 * hour;
-	const suffix = diffMs >= 0 ? "ago" : "from now";
-	if (absMs < minute) return "just now";
-	if (absMs < hour) return `${Math.round(absMs / minute)}m ${suffix}`;
-	if (absMs < day) return `${Math.round(absMs / hour)}h ${suffix}`;
-	return `${Math.round(absMs / day)}d ${suffix}`;
+	const ahead = diffMs < 0;
+	if (absMs < minute) return m.time_just_now({}, { locale });
+	if (absMs < hour)
+		return ahead
+			? m.time_ahead_min({ n: Math.round(absMs / minute) }, { locale })
+			: m.time_ago_min({ n: Math.round(absMs / minute) }, { locale });
+	if (absMs < day)
+		return ahead
+			? m.time_ahead_hour({ n: Math.round(absMs / hour) }, { locale })
+			: m.time_ago_hour({ n: Math.round(absMs / hour) }, { locale });
+	return ahead
+		? m.time_ahead_day({ n: Math.round(absMs / day) }, { locale })
+		: m.time_ago_day({ n: Math.round(absMs / day) }, { locale });
 }
 
 function getSandboxLifecycleLabel(status?: string | null): string {

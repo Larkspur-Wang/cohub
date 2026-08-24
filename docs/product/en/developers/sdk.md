@@ -109,16 +109,16 @@ Important:
 - They do not work from arbitrary static hosting or local file open
 - Work scopes and viewer-consent scopes are enforced
 
-Commerce helpers live under `client.work.commerce.*` when commerce is enabled and the Work is published.
+Commerce helpers live under `client.app.commerce.*` when commerce is enabled and the Work is published.
 
 ### Realtime rooms
 
-Inside a published Work, `client.work.realtime` provides temporary rooms for
+Inside a published Work, `client.app.realtime` provides temporary rooms for
 multiplayer state, presence, and generic JSON events. It uses the Work runtime
 identity and needs no additional scope or consent dialog.
 
 ```ts
-const room = await client.work.realtime.createRoom({
+const room = await client.app.realtime.createRoom({
   code: "TEAM-ALPHA", // optional
   expiresInSeconds: 2 * 60 * 60,
 });
@@ -146,7 +146,7 @@ A Work can expose named methods to the Cohub host embedding it, so an Agent can
 call into the running Work with `cohub ui preview <work> --call <method>`.
 
 ```ts
-client.work.surface.handle("image.open", async (input, { commandId }) => {
+client.app.surface.handle("image.open", async (input, { commandId }) => {
   openImageStudio(input, commandId);
 });
 
@@ -170,13 +170,13 @@ one compact context chip to the Cohub composer. The label stays short while the
 full content is available to the user and sent with each message while attached:
 
 ```ts
-client.work.composer.setChip({
+client.app.composer.setChip({
   key: "selection",
   label: "3 selected",
   content: "Selected records:\n- customer_123\n- customer_456\n- customer_789",
 });
 
-client.work.composer.clearChip("selection");
+client.app.composer.clearChip("selection");
 ```
 
 Calling `setChip()` again with the same key updates the existing chip. Cohub owns
@@ -197,7 +197,7 @@ registers its methods but never answers. The list is deliberately not a
 subdomain. Self-hosted deployments and local development widen it explicitly:
 
 ```ts
-client.work.surface.allowHostOrigins(["https://cohub.internal"]);
+client.app.surface.allowHostOrigins(["https://cohub.internal"]);
 ```
 
 ## Main client surfaces
@@ -214,7 +214,7 @@ The client groups product APIs intentionally:
 | Tasks / cron | `client.tasks`, `client.cronJobs` |
 | Channels | `client.channels` |
 | Billing / commerce | `client.billing`, `client.workCommerce` |
-| Work runtime | `client.context()`, `client.auth`, `client.work` |
+| Work runtime | `client.context()`, `client.auth`, `client.app` |
 | Cohub UI commands | `client.ui` |
 
 Use only the surfaces you need. Start with Spaces, sessions, and Works.

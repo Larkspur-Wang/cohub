@@ -84,6 +84,6 @@ Cohub 可展示：
 
 ## 相关
 
-- [Files 与 Sandbox](/docs/zh/workspace/files-and-sandbox)
-- [Works](/docs/zh/create/works)
-- [快速开始](/docs/zh/learn/quick-start)
+- [Files 与 Sandbox](/zh/docs/workspace/files-and-sandbox)
+- [Works](/zh/docs/create/works)
+- [快速开始](/zh/docs/learn/quick-start)

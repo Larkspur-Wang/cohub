@@ -117,6 +117,6 @@ cohub works publish-version <workId>
 
 ## 相关
 
-- [快速开始](/docs/zh/learn/quick-start)
-- [Files 与 Sandbox](/docs/zh/workspace/files-and-sandbox)
-- [SDK](/docs/zh/developers/sdk)
+- [快速开始](/zh/docs/learn/quick-start)
+- [Files 与 Sandbox](/zh/docs/workspace/files-and-sandbox)
+- [SDK](/zh/docs/developers/sdk)

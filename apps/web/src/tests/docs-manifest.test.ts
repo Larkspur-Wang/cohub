@@ -17,10 +17,10 @@ describe("docs manifest", () => {
 		assert.equal(items[0]?.slug, "");
 		assert.equal(docsHref(""), "/docs");
 		assert.equal(docsHref("learn/quick-start"), "/docs/learn/quick-start");
-		assert.equal(docsHref("", "zh"), "/docs/zh");
+		assert.equal(docsHref("", "zh"), "/zh/docs");
 		assert.equal(
 			docsHref("learn/quick-start", "zh"),
-			"/docs/zh/learn/quick-start",
+			"/zh/docs/learn/quick-start",
 		);
 	});
 
@@ -36,7 +36,7 @@ describe("docs manifest", () => {
 		const zh = getDocsSections("zh");
 		assert.equal(zh[0]?.title, "入门");
 		assert.equal(getDocsNavTitle("learn/quick-start", "zh"), "快速开始");
-		assert.equal(zh[0]?.items[0]?.href, "/docs/zh");
+		assert.equal(zh[0]?.items[0]?.href, "/zh/docs");
 	});
 
 	it("finds nav items by slug", () => {
@@ -47,18 +47,18 @@ describe("docs manifest", () => {
 
 	it("parses locale paths", () => {
 		assert.deepEqual(parseDocsPath("/docs"), { locale: "en", slug: "" });
-		assert.deepEqual(parseDocsPath("/docs/zh"), { locale: "zh", slug: "" });
+		assert.deepEqual(parseDocsPath("/zh/docs"), { locale: "zh", slug: "" });
 		assert.deepEqual(parseDocsPath("/docs/learn/quick-start"), {
 			locale: "en",
 			slug: "learn/quick-start",
 		});
-		assert.deepEqual(parseDocsPath("/docs/zh/workspace/chats"), {
+		assert.deepEqual(parseDocsPath("/zh/docs/workspace/chats"), {
 			locale: "zh",
 			slug: "workspace/chats",
 		});
 		assert.equal(
 			alternateDocsHref("workspace/chats", "en"),
-			"/docs/zh/workspace/chats",
+			"/zh/docs/workspace/chats",
 		);
 		assert.equal(
 			alternateDocsHref("workspace/chats", "zh"),

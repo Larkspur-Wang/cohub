@@ -11,7 +11,7 @@ export const entries: EntryGenerator = () =>
 		.map((item) => ({ slug: item.slug }));
 
 export const load: PageLoad = async ({ params }) => {
-	const doc = await loadDocsPage(params.slug ?? "", "en");
+	const doc = await loadDocsPage(params.slug ?? "", "zh");
 	if (!doc) error(404, "Docs page not found");
 	return { doc };
 };

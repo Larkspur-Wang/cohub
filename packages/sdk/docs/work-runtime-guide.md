@@ -62,8 +62,8 @@ Four runtime-only APIs form the foundation; everything else is standard SDK:
 |---|---|---|
 | `client.context()` | Asks the host for the Work's identity | `{ work, space, viewer?, permissions }` or `null` |
 | `client.auth.request({ scopes, reason })` | Requests viewer authorization and caches a scoped token; Cohub may silently approve the publisher's own workspace preview or background | `true` / `false` |
-| `client.work.commerce.*` | Entitlement checks, credit consumption, purchases | (see Commerce section) |
-| `client.work.realtime.*` | Temporary rooms, events, presence, and membership | (see Realtime rooms section) |
+| `client.app.commerce.*` | Entitlement checks, credit consumption, purchases | (see Commerce section) |
+| `client.app.realtime.*` | Temporary rooms, events, presence, and membership | (see Realtime rooms section) |
 
 > **Runtime-only constraint.** These APIs only work inside a **published**
 > Work. Outside that context (a static asset URL, a local `file://` preview,
@@ -235,10 +235,10 @@ from viewer authorization checked against the requested Space or Session.
 | List viewer's spaces | `client.spaces.list()` | `user.space.list` | viewer |
 | List viewer's sessions | `client.user.listSessions()` | `user.session.list` | viewer |
 | Read viewer's activity | `client.user.getActivity()` | `user.usage.read` | viewer |
-| Commerce: entitlements | `client.work.commerce.getEntitlements()` | *(runtime only, no scope)* | — |
-| Commerce: consume credits | `client.work.commerce.consumeCredits()` | *(runtime only, no scope)* | — |
-| Commerce: purchase | `client.work.commerce.purchase()` | *(runtime only, no scope)* | — |
-| Realtime rooms | `client.work.realtime.createRoom()` / `joinRoom()` | *(runtime only, no scope)* | — |
+| Commerce: entitlements | `client.app.commerce.getEntitlements()` | *(runtime only, no scope)* | — |
+| Commerce: consume credits | `client.app.commerce.consumeCredits()` | *(runtime only, no scope)* | — |
+| Commerce: purchase | `client.app.commerce.purchase()` | *(runtime only, no scope)* | — |
+| Realtime rooms | `client.app.realtime.createRoom()` / `joinRoom()` | *(runtime only, no scope)* | — |
 
 ### Minimal scope sets for common Work types
 
@@ -649,29 +649,29 @@ in a published Work.
 
 ```js
 // Check entitlements and credit balance in one call
-const { entitlements, credits } = await client.work.commerce.getEntitlements();
+const { entitlements, credits } = await client.app.commerce.getEntitlements();
 
 // Feature unlock: purchase if not entitled
 const unlocked = entitlements.some(e => e.benefitKey === "space_pro" && e.enabled);
 if (!unlocked) {
-  await client.work.commerce.purchase({ productKey: "pro_unlock" });
+  await client.app.commerce.purchase({ productKey: "pro_unlock" });
   // purchase() redirects to checkout; after return, re-check entitlements
 }
 
 // Credit consumption for a metered action
-const result = await client.work.commerce.consumeCredits({
+const result = await client.app.commerce.consumeCredits({
   amount: 10,
   operationId: crypto.randomUUID(),  // idempotency key
   reason: "Export high-res image",
 });
 if (result.status === "insufficient") {
-  await client.work.commerce.purchase({ productKey: "credit_pack" });
+  await client.app.commerce.purchase({ productKey: "credit_pack" });
 }
 
 // After checkout return, query the order
-const checkoutState = await client.work.commerce.getCheckoutState();
+const checkoutState = await client.app.commerce.getCheckoutState();
 if (checkoutState.orderId) {
-  const { order } = await client.work.commerce.getOrder(checkoutState.orderId);
+  const { order } = await client.app.commerce.getOrder(checkoutState.orderId);
 }
 ```
 
@@ -686,7 +686,7 @@ additional consent dialog. The CLI and ordinary server auth cannot create or
 join these rooms.
 
 ```js
-const room = await client.work.realtime.createRoom({
+const room = await client.app.realtime.createRoom({
   code: "TEAM-ALPHA", // optional; generated when omitted
   maxParticipants: 64,
   expiresInSeconds: 2 * 60 * 60,
@@ -709,7 +709,7 @@ await room.leave();
 ```
 
 Join an existing room with
-`client.work.realtime.joinRoom({ code: "TEAM-ALPHA" })`. Codes are scoped to
+`client.app.realtime.joinRoom({ code: "TEAM-ALPHA" })`. Codes are scoped to
 one Work and are identifiers, not credentials; the runtime session and a
 short-lived admission ticket provide authorization.
 
@@ -776,7 +776,7 @@ letting an application group connections without seeing the account ID.
 Set `seatPerUser: true` when each viewer should occupy at most one seat:
 
 ```js
-const room = await client.work.realtime.createRoom({
+const room = await client.app.realtime.createRoom({
   maxParticipants: 2,
   seatPerUser: true,
 });
@@ -797,7 +797,7 @@ acknowledgement immediately:
 ```js
 let activeCommandId = null;
 
-client.work.surface.handle("image.open", async (input, { commandId }) => {
+client.app.surface.handle("image.open", async (input, { commandId }) => {
   if (!commandId) throw new Error("image.open must be called by a UI command");
   activeCommandId = commandId;
   openImageStudio(input);
@@ -817,7 +817,7 @@ async function useImage(result) {
 
 The Work should persist the command id alongside its local/server-backed draft
 so a reload can restore the pending interaction. A Work session may only report a command that targets that same Work. Existing
-`client.work.surface.handle(method, handler)` usage remains unchanged.
+`client.app.surface.handle(method, handler)` usage remains unchanged.
 
 ---
 

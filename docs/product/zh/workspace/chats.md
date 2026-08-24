@@ -124,6 +124,6 @@ Chats 可以有超出 Space 默认策略的访问控制。
 
 ## 相关
 
-- [Spaces](/docs/zh/workspace/spaces)
-- [Files 与 Sandbox](/docs/zh/workspace/files-and-sandbox)
-- [Saves](/docs/zh/workspace/saves)
+- [Spaces](/zh/docs/workspace/spaces)
+- [Files 与 Sandbox](/zh/docs/workspace/files-and-sandbox)
+- [Saves](/zh/docs/workspace/saves)

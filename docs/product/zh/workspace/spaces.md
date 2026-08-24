@@ -98,7 +98,7 @@ Spaces 可以把其他 Spaces 挂为 Mods。
 
 ## 相关
 
-- [Chats](/docs/zh/workspace/chats)
-- [Files 与 Sandbox](/docs/zh/workspace/files-and-sandbox)
-- [Saves](/docs/zh/workspace/saves)
-- [Works](/docs/zh/create/works)
+- [Chats](/zh/docs/workspace/chats)
+- [Files 与 Sandbox](/zh/docs/workspace/files-and-sandbox)
+- [Saves](/zh/docs/workspace/saves)
+- [Works](/zh/docs/create/works)

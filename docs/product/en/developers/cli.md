@@ -109,7 +109,7 @@ cohub works stats <workId|url|username/space/work>
 ```
 
 Realtime rooms use a published Work's runtime identity. Use
-`client.work.realtime` inside the Work; the CLI intentionally has no room
+`client.app.realtime` inside the Work; the CLI intentionally has no room
 commands.
 
 ### Drive the Cohub UI
@@ -128,7 +128,7 @@ cohub ui preview <work> --call board.focus --data '{"nodeId":"n1"}'
 Showing a preview is idempotent: repeating it re-activates the same tab. `--call`
 waits for the Work to announce readiness, then invokes the method. Which methods
 exist is up to the Work author, registered with
-`client.work.surface.handle(name, handler)`.
+`client.app.surface.handle(name, handler)`.
 
 Commands only ever reach the frontend instance that originated the current work,
 resolved from request provenance. They cannot target another user, and there is

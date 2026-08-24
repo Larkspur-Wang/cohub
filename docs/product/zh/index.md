@@ -37,11 +37,11 @@ Cohub 是一个让人和 Agent 共同创作的共享工作区。
 
 | 目标 | 页面 |
 | --- | --- |
-| 弄清核心词汇 | [核心概念](/docs/zh/learn/core-concepts) |
-| 看懂界面结构 | [产品地图](/docs/zh/learn/product-map) |
-| 几分钟走通闭环 | [快速开始](/docs/zh/learn/quick-start) |
-| 使用终端 | [CLI](/docs/zh/developers/cli) |
-| 做集成 | [SDK](/docs/zh/developers/sdk) |
+| 弄清核心词汇 | [核心概念](/zh/docs/learn/core-concepts) |
+| 看懂界面结构 | [产品地图](/zh/docs/learn/product-map) |
+| 几分钟走通闭环 | [快速开始](/zh/docs/learn/quick-start) |
+| 使用终端 | [CLI](/zh/docs/developers/cli) |
+| 做集成 | [SDK](/zh/docs/developers/sdk) |
 
 ## 产品语言
 

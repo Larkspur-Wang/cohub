@@ -238,9 +238,9 @@ Four runtime-only APIs are available **exclusively inside a published Work**:
   Returns `null` outside a Work runtime.
 - `client.auth.request({ scopes, reason })` — shows the viewer a consent dialog
   and caches a token with the approved scopes.
-- `client.work.commerce.*` — entitlement checks, credit consumption,
+- `client.app.commerce.*` — entitlement checks, credit consumption,
   purchases.
-- `client.work.realtime.*` — temporary rooms, typed events, presence, and
+- `client.app.realtime.*` — temporary rooms, typed events, presence, and
   membership.
 
 ### Quick start (inside a Work)
@@ -293,7 +293,7 @@ type Events = {
   "activity.submitted": { itemId: string };
 };
 
-const room = await client.work.realtime.createRoom<Events>({
+const room = await client.app.realtime.createRoom<Events>({
   code: "TEAM-ALPHA", // optional; generated when omitted
   maxParticipants: 64,
   expiresInSeconds: 2 * 60 * 60,
