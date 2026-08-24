@@ -2,6 +2,29 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { realtimeEnvelopeSchema, wsClientEventSchema } from "./src/realtime/schema.js";
 
+test("accepts desktop command events", () => {
+  const event = realtimeEnvelopeSchema.safeParse({
+    id: "desktop-event-1",
+    timestamp: Date.now(),
+    domain: "desktop",
+    type: "desktop.command.dispatched",
+    rooms: ["user:user-1"],
+    payload: {
+      commandId: "command-1",
+      targetClientId: "client-1",
+      command: {
+        type: "desktop.open",
+        target: {
+          kind: "app",
+          appId: "123e4567-e89b-42d3-a456-426614174000",
+        },
+      },
+      source: null,
+    },
+  });
+  assert.equal(event.success, true);
+});
+
 test("accepts generic realtime room events and room routes", () => {
   const request = wsClientEventSchema.safeParse({
     type: "realtime.room.publish",

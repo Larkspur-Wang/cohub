@@ -43,7 +43,7 @@ const waitFor = async (predicate: () => boolean) => {
   assert.fail("condition was not met");
 };
 
-test("emits UI command envelopes as user events", async () => {
+test("emits desktop command envelopes as user events", async () => {
   FakeWebSocket.instance = null;
   const client = new WebsocketClient({
     url: "ws://localhost",
@@ -70,17 +70,17 @@ test("emits UI command envelopes as user events", async () => {
   events.length = 0;
 
   socket.receive({
-    id: "ui-event-1",
+    id: "desktop-event-1",
     timestamp: Date.now(),
-    domain: "ui",
+    domain: "desktop",
     type: "desktop.command.dispatched",
     payload: {
       commandId: "command-1",
       targetClientId: "client-1",
       command: {
-        type: "preview.show",
-        preview: {
-          kind: "work",
+        type: "desktop.open",
+        target: {
+          kind: "app",
           appId: "123e4567-e89b-42d3-a456-426614174000",
         },
       },

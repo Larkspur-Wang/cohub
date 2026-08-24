@@ -23,7 +23,7 @@ export const REALTIME_OUTBOUND_CHANNEL = "pubsub:realtime:outbound";
 export const AGENT_REALTIME_PATCH_CHANNEL = "pubsub:realtime:agent_patches";
 export const REALTIME_ROOM_KEY_PREFIX = "cohub:realtime-room:v1";
 
-export const REALTIME_DOMAINS = ["system", "session", "space", "label", "room", "ui"] as const;
+export const REALTIME_DOMAINS = ["system", "session", "space", "label", "room", "ui", "desktop"] as const;
 export type RealtimeDomain = (typeof REALTIME_DOMAINS)[number];
 
 export const isRealtimeDomain = (value: unknown): value is RealtimeDomain =>
@@ -822,9 +822,9 @@ export type LabelAssignmentsUpdatedEvent = {
 };
 
 /**
- * A UI command addressed at one frontend instance of the acting user. Delivered
- * to the user room; every client compares `targetClientId` with its own client
- * id and ignores commands that are not for it.
+ * A desktop command addressed at one frontend instance of the acting user.
+ * Delivered to the user room; every client compares `targetClientId` with its
+ * own client id and ignores commands that are not for it.
  */
 export type DesktopCommandDispatchedEvent = {
   id: string;
@@ -876,6 +876,11 @@ export type RealtimeServerEvent =
   | RealtimeRoomRequestEvent
   | RealtimeRoomRequestErrorEvent
   | RealtimeRoomClosedEvent;
+
+type Assert<T extends true> = T;
+export type RealtimeServerEventDomainsAreValid = Assert<
+  RealtimeServerEvent extends { domain: RealtimeDomain } ? true : false
+>;
 
 export type WsServerEnvelope = RealtimeEnvelope;
 export type ChannelServerEnvelope = ChannelEnvelope;
