@@ -1,6 +1,6 @@
 # 課金殿 — The Whale Shrine
 
-A Cohub Work that turns $5 payments into gacha-style echo summons. Pay-to-win,
+A Cohub App that turns $5 payments into gacha-style echo summons. Pay-to-win,
 pay-to-shout, pay-to-feel-important. The more you spend, the higher your whale
 rank — from Passerby NPC all the way to 👑 Whale King.
 
@@ -37,13 +37,15 @@ Viewer clicks "Burn $5 to Summon"
 
 The `!` prefix makes Cohub run the prompt text as a **direct shell command** —
 no LLM interpretation, fully deterministic. The script is idempotent (duplicate
-shout IDs are silently skipped), so retries are safe.
+shout IDs are silently skipped), so retries are safe. The viewer's identity
+comes from `context.viewer.userUuid`, so each echo is attributed correctly
+without decoding the session token manually.
 
 ## File structure
 
 ```
 docs/examples/work-capability-lab/whale-shrine/
-├─ index.html              Work entry point (no-build)
+├─ index.html              App entry point (no-build)
 ├─ styles.css              Shrine gacha theme
 ├─ app.js                  Commerce + prompt + polling + animations
 ├─ post-shout.mjs          Shell script (!-called) — committed
@@ -62,20 +64,20 @@ python3 -m http.server 8080
 ```
 
 In preview mode the page shows local `data/shouts.jsonl` content and a banner
-explaining that summoning requires a published Work. Commerce, auth, and prompt
-calls only function inside a published Cohub Work iframe.
+explaining that summoning requires a published App. Commerce, auth, and prompt
+calls only function inside a published Cohub App iframe.
 
-## Publish as a Cohub Work
+## Publish as a Cohub App
 
 1. Upload these files to your Space (root or a subdirectory).
 2. If using a subdirectory, update `CONFIG.DATA_PATH` and `CONFIG.SCRIPT_PATH`
    in `app.js` to match (e.g. `docs/examples/work-capability-lab/whale-shrine/data/shouts.jsonl`).
-3. Open the directory preview and click **Publish**.
-4. Set Work scopes and viewer scopes:
+3. Open the directory preview and click **Publish**. (Or publish from the CLI: `cohub -s <space-id> apps publish whale-shrine --dir docs/examples/work-capability-lab/whale-shrine --app-scope file.view --viewer-scope session.prompt.fullaccess`.)
+4. Set App scopes and viewer scopes:
 
    | Setting | Value |
    |---------|-------|
-   | **Work can** (direct) | `file.view` |
+   | **App can** (direct) | `file.view` |
    | **Viewers can allow** | `session.prompt.fullaccess` |
 
 5. Run the commerce setup (below) to create the $5 credit product.

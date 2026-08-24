@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device=device-width, initial-scale=1">
-  <title>Work Commerce Demo</title>
+  <title>App Commerce Demo</title>
   <style>
     :root { color-scheme: light dark; font-family: ui-sans-serif, system-ui, sans-serif; }
     body { margin: 0; padding: 24px; background: #11100e; color: #f4efe5; }
@@ -24,7 +24,7 @@
 <body>
   <main class="card">
     <div class="eyebrow">Credit consumption example</div>
-    <h1>Work Commerce Demo</h1>
+    <h1>App Commerce Demo</h1>
     <p>Hardcode a Space-owned credit pack key, check the viewer's balance, consume credits for metered actions, and prompt purchase when empty.</p>
     <div class="meta">
       <div class="row"><span class="label">Balance</span><span id="balance" class="value">Loading…</span></div>
@@ -36,7 +36,7 @@
       <button id="action">Export (10 credits)</button>
       <button id="buy">Buy credits</button>
     </div>
-    <div class="hint">Set <span class="mono">CREDIT_PRODUCT_KEY</span> for your own Work.</div>
+    <div class="hint">Set <span class="mono">CREDIT_PRODUCT_KEY</span> for your own App.</div>
   </main>
 
   <script type="module">
@@ -55,9 +55,9 @@
 
     async function render() {
       const [{ products }, { credits }, checkoutState] = await Promise.all([
-        cohub.work.commerce.resolveProducts({ productKeys: [CREDIT_PRODUCT_KEY] }),
-        cohub.work.commerce.getEntitlements(),
-        cohub.work.commerce.getCheckoutState(),
+        cohub.app.commerce.resolveProducts({ productKeys: [CREDIT_PRODUCT_KEY] }),
+        cohub.app.commerce.getEntitlements(),
+        cohub.app.commerce.getCheckoutState(),
       ]);
 
       const product = products[0] ?? null;
@@ -68,7 +68,7 @@
 
       if (checkoutState.orderId) {
         try {
-          const { order } = await cohub.work.commerce.getOrder(checkoutState.orderId);
+          const { order } = await cohub.app.commerce.getOrder(checkoutState.orderId);
           checkoutEl.textContent = `${checkoutState.status ?? "returned"} · ${order.status}`;
           orderEl.textContent = order.id;
           if (order.status === "paid") {
@@ -86,7 +86,7 @@
     actionBtn.onclick = async () => {
       actionBtn.disabled = true;
       try {
-        const result = await cohub.work.commerce.consumeCredits({
+        const result = await cohub.app.commerce.consumeCredits({
           amount: 10,
           operationId: crypto.randomUUID(),
           reason: "Export high-res image",
@@ -109,7 +109,7 @@
     buyBtn.onclick = async () => {
       buyBtn.disabled = true;
       try {
-        const checkout = await cohub.work.commerce.purchase({ productKey: CREDIT_PRODUCT_KEY });
+        const checkout = await cohub.app.commerce.purchase({ productKey: CREDIT_PRODUCT_KEY });
         if (!checkout?.checkoutUsable) {
           checkoutEl.textContent = checkout?.message ?? "Checkout unavailable";
           buyBtn.disabled = false;

@@ -1,28 +1,28 @@
-# Work Commerce Demo
+# App Commerce Demo
 
-This demo shows the smallest recommended purchase and consumption flow inside a Cohub Work.
+This demo shows the smallest recommended purchase and consumption flow inside a Cohub App.
 
 ## Best practice
 
-The Work commerce loop has two patterns. Both share the same setup, checkout, and return flow — they differ in what the Work checks and what happens after purchase.
+The App commerce loop has two patterns. Both share the same setup, checkout, and return flow — they differ in what the App checks and what happens after purchase.
 
 ### Feature unlock pattern
 
 1. Hardcode a known `productKey` and `benefitKey`.
-2. Resolve product details through `cohub.work.commerce.resolveProducts()`.
-3. Check viewer entitlements through `cohub.work.commerce.getEntitlements()`.
-4. If not entitled, start checkout through `cohub.work.commerce.purchase()`.
-5. Read the return state through `cohub.work.commerce.getCheckoutState()`.
-6. If an `orderId` is present, query the order through `cohub.work.commerce.getOrder(orderId)`.
+2. Resolve product details through `cohub.app.commerce.resolveProducts()`.
+3. Check viewer entitlements through `cohub.app.commerce.getEntitlements()`.
+4. If not entitled, start checkout through `cohub.app.commerce.purchase()`.
+5. Read the return state through `cohub.app.commerce.getCheckoutState()`.
+6. If an `orderId` is present, query the order through `cohub.app.commerce.getOrder(orderId)`.
 
 ### Credit consumption pattern
 
 1. Hardcode a known `productKey` for a credit pack.
-2. Resolve product details through `cohub.work.commerce.resolveProducts()`.
-3. Check credit balance through `cohub.work.commerce.getEntitlements()`.
-4. If the user has credits, consume through `cohub.work.commerce.consumeCredits()`.
-5. If `status` is `"insufficient"` or balance is zero, start checkout through `cohub.work.commerce.purchase()`.
-6. Read the return state through `cohub.work.commerce.getCheckoutState()`.
+2. Resolve product details through `cohub.app.commerce.resolveProducts()`.
+3. Check credit balance through `cohub.app.commerce.getEntitlements()`.
+4. If the user has credits, consume through `cohub.app.commerce.consumeCredits()`.
+5. If `status` is `"insufficient"` or balance is zero, start checkout through `cohub.app.commerce.purchase()`.
+6. Read the return state through `cohub.app.commerce.getCheckoutState()`.
 7. Re-check balance — credits are granted automatically when the order is paid.
 
 The outer host owns:
@@ -33,7 +33,7 @@ The outer host owns:
 - pending order cache
 - return URL parsing
 
-The Work owns:
+The App owns:
 
 - product selection
 - entitlement and credit balance display
@@ -42,7 +42,7 @@ The Work owns:
 
 ## Prepare with the CLI
 
-Commerce is configured on the Space, then consumed by the Work.
+Commerce is configured on the Space, then consumed by the App.
 
 ### Feature benefit setup
 
@@ -93,31 +93,37 @@ cohub -s <space-id> spaces commerce benefits list
 cohub -s <space-id> spaces commerce orders list --limit 10
 ```
 
-## Operate a published Work
+## Operate a published App
 
-Use the Work commerce commands to test the full server-side flow.
+Use the App commerce commands to test the full server-side flow. The CLI
+command is `cohub apps`; `cohub works` still works but is a deprecated alias.
 
 ```bash
+# Resolve public products
+cohub apps commerce products resolve \
+  --app-id <app-id> \
+  --product-key pro_unlock
+
 # Feature: check entitlements
-cohub works commerce entitlements --work-id <work-id>
+cohub apps commerce entitlements --app-id <app-id>
 
 # Credits: check balance
-cohub works commerce entitlements --work-id <work-id>
+cohub apps commerce entitlements --app-id <app-id>
 
 # Credits: consume
-cohub works commerce credits consume \
-  --work-id <work-id> \
+cohub apps commerce credits consume \
+  --app-id <app-id> \
   --amount 100 \
   --reason "High-res export"
 
 # Purchase (feature or credits)
-cohub works commerce purchase \
-  --work-id <work-id> \
+cohub apps commerce purchase \
+  --app-id <app-id> \
   --product-key pro_unlock
 
 # Order follow-up
-cohub works commerce orders get \
-  --work-id <work-id> \
+cohub apps commerce orders get \
+  --app-id <app-id> \
   --order-id <order-id>
 ```
 
@@ -137,9 +143,9 @@ cohub works commerce orders get \
 
   async function load() {
     const [{ products }, { entitlements }, checkoutState] = await Promise.all([
-      cohub.work.commerce.resolveProducts({ productKeys: [PRODUCT_KEY] }),
-      cohub.work.commerce.getEntitlements(),
-      cohub.work.commerce.getCheckoutState(),
+      cohub.app.commerce.resolveProducts({ productKeys: [PRODUCT_KEY] }),
+      cohub.app.commerce.getEntitlements(),
+      cohub.app.commerce.getCheckoutState(),
     ]);
 
     const product = products[0] ?? null;
@@ -160,7 +166,7 @@ cohub works commerce orders get \
     }
 
     if (checkoutState.status && checkoutState.orderId) {
-      const { order } = await cohub.work.commerce.getOrder(checkoutState.orderId);
+      const { order } = await cohub.app.commerce.getOrder(checkoutState.orderId);
       statusEl.textContent = `Checkout ${checkoutState.status} · ${order.status}`;
     } else if (checkoutState.status) {
       statusEl.textContent = `Checkout ${checkoutState.status}`;
@@ -172,7 +178,7 @@ cohub works commerce orders get \
   buyBtn.onclick = async () => {
     buyBtn.disabled = true;
     try {
-      const checkout = await cohub.work.commerce.purchase({ productKey: PRODUCT_KEY });
+      const checkout = await cohub.app.commerce.purchase({ productKey: PRODUCT_KEY });
       if (!checkout?.checkoutUsable) {
         statusEl.textContent = checkout?.message ?? "Checkout unavailable";
       }
@@ -209,16 +215,16 @@ cohub works commerce orders get \
 
   async function load() {
     const [{ products }, { credits }, checkoutState] = await Promise.all([
-      cohub.work.commerce.resolveProducts({ productKeys: [CREDIT_PRODUCT_KEY] }),
-      cohub.work.commerce.getEntitlements(),
-      cohub.work.commerce.getCheckoutState(),
+      cohub.app.commerce.resolveProducts({ productKeys: [CREDIT_PRODUCT_KEY] }),
+      cohub.app.commerce.getEntitlements(),
+      cohub.app.commerce.getCheckoutState(),
     ]);
 
     const product = products[0] ?? null;
     balanceEl.textContent = `${credits.available} credits`;
 
     if (checkoutState.status && checkoutState.orderId) {
-      const { order } = await cohub.work.commerce.getOrder(checkoutState.orderId);
+      const { order } = await cohub.app.commerce.getOrder(checkoutState.orderId);
       statusEl.textContent = order.status === "paid"
         ? "Credits added — refresh balance"
         : `Checkout ${checkoutState.status} · ${order.status}`;
@@ -231,7 +237,7 @@ cohub works commerce orders get \
   actionBtn.onclick = async () => {
     actionBtn.disabled = true;
     try {
-      const result = await cohub.work.commerce.consumeCredits({
+      const result = await cohub.app.commerce.consumeCredits({
         amount: 10,
         operationId: crypto.randomUUID(),
         reason: "Export high-res image",
@@ -253,7 +259,7 @@ cohub works commerce orders get \
   buyBtn.onclick = async () => {
     buyBtn.disabled = true;
     try {
-      const checkout = await cohub.work.commerce.purchase({ productKey: CREDIT_PRODUCT_KEY });
+      const checkout = await cohub.app.commerce.purchase({ productKey: CREDIT_PRODUCT_KEY });
       if (!checkout?.checkoutUsable) {
         statusEl.textContent = checkout?.message ?? "Checkout unavailable";
         buyBtn.disabled = false;
@@ -283,5 +289,5 @@ cohub works commerce orders get \
 - Treat `getOrder(orderId)` as the authoritative order-specific follow-up check.
 - Always pass a unique `operationId` to `consumeCredits()` for idempotent retries.
 - After a credit pack purchase returns, re-check balance — credits are granted automatically on payment.
-- Keep Work copy simple and short.
+- Keep App copy simple and short.
 - Keep Space setup explicit in scripts: use `-s <space-id>` or `COHUB_SPACE_ID`.

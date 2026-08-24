@@ -33,7 +33,7 @@ const statusMap = {
 
 function detectParentOrigin() {
   try {
-    const ancestor = window.location.ancestorOrigins && window.location.ancestorOrigins[0];
+    const ancestor = window.location.ancestorOrigins?.[0];
     if (ancestor) return ancestor;
     return document.referrer ? new URL(document.referrer).origin : null;
   } catch {
@@ -44,13 +44,13 @@ function detectParentOrigin() {
 function setStatus(key, kind, text) {
   const pair = statusMap[key];
   if (!pair) return;
-  $(pair[0]).className = "dot" + (kind ? " " + kind : "");
+  $(pair[0]).className = `dot${kind ? ` ${kind}` : ""}`;
   $(pair[1]).textContent = text;
 }
 
 function log(kind, message, detail) {
   const row = document.createElement("div");
-  row.className = "event " + kind;
+  row.className = `event ${kind}`;
   row.innerHTML = `<time>${new Date().toLocaleTimeString()}</time><span class="kind">${kind}</span><span class="message"></span>`;
   row.querySelector(".message").textContent = detail ? `${message} ${detail}` : message;
   $("log").prepend(row);
@@ -66,19 +66,19 @@ function renderChips(id, values, granted = true) {
   }
   for (const value of list) {
     const chip = document.createElement("span");
-    chip.className = "chip " + (granted ? "ok" : "warn");
+    chip.className = `chip ${granted ? "ok" : "warn"}`;
     chip.textContent = value;
     el.appendChild(chip);
   }
 }
 
 function decodeJwtPayload(token) {
-  const part = token && token.split(".")[1];
+  const part = token?.split(".")[1];
   if (!part) return null;
   try {
     const normalized = part.replace(/-/g, "+").replace(/_/g, "/");
     const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
-    const json = decodeURIComponent(Array.from(atob(padded)).map((char) => "%" + char.charCodeAt(0).toString(16).padStart(2, "0")).join(""));
+    const json = decodeURIComponent(Array.from(atob(padded)).map((char) => `%${char.charCodeAt(0).toString(16).padStart(2, "0")}`).join(""));
     return JSON.parse(json);
   } catch {
     return null;
@@ -104,25 +104,44 @@ function renderSurfaceState(source = "local") {
   $("surfaceStateMeta").textContent = `${source} · iframe state is still mounted`;
 }
 
-async function handleSurfaceMethod(method, input) {
+async function handleSurfaceMethod(method, input, context = {}) {
+  let result;
   if (method === "counter.increment") {
     const amount = Math.max(1, Math.min(100, Number(input?.amount) || 1));
     state.surfaceCounter += amount;
+    result = { value: state.surfaceCounter };
   } else if (method === "counter.reset") {
     state.surfaceCounter = 0;
+    result = { value: state.surfaceCounter };
   } else {
     throw new Error(`Unknown App Surface method: ${method}`);
   }
   renderSurfaceState(method);
   log("ok", `App Surface ${method}`, `counter=${state.surfaceCounter}`);
-  return { value: state.surfaceCounter };
+
+  // Called by a desktop command: settle the pending command so `--call` returns
+  // promptly with the result instead of waiting for the CLI timeout.
+  const commandId = context?.commandId;
+  if (commandId && state.client?.desktop?.reportResult) {
+    try {
+      await state.client.desktop.reportResult(commandId, {
+        status: "applied",
+        result,
+        error: null,
+      });
+      log("ok", `App Surface ${method} settled`, `commandId=${commandId}`);
+    } catch (reportError) {
+      log("bad", `App Surface ${method} report failed`, reportError?.message || String(reportError));
+    }
+  }
+  return result;
 }
 
 function registerSurface() {
   if (state.surfaceRegistered || !state.client?.app?.surface?.handle) return;
   state.surfaceRegistered = true;
-  state.client.app.surface.handle("counter.increment", (input) => handleSurfaceMethod("counter.increment", input));
-  state.client.app.surface.handle("counter.reset", () => handleSurfaceMethod("counter.reset"));
+  state.client.app.surface.handle("counter.increment", (input, context) => handleSurfaceMethod("counter.increment", input, context));
+  state.client.app.surface.handle("counter.reset", (input, context) => handleSurfaceMethod("counter.reset", input, context));
   renderSurfaceState("ready");
   log("ok", "App Surface ready", "counter.increment, counter.reset");
 }
@@ -202,9 +221,12 @@ async function createClient() {
   return run("client", async () => {
     if (!state.module) await importSdk();
     const baseUrl = $("apiBase").value.trim().replace(/\/+$/, "");
-    const options = {
-      getAccessToken: (tokenOptions) => getAppTokenRaw(Boolean(tokenOptions?.forceRefresh)),
-    };
+    // Do NOT override getAccessToken. The SDK's default appRuntime
+    // getAccessToken() re-authorizes viewer-granted scopes (e.g.
+    // session.prompt.readonly) after auth.request, so prompt calls carry a
+    // token with the granted viewerScopes. Replacing it with a raw
+    // cohub.app.token mint produces an appScopes-only token -> 403 on prompt.
+    const options = {};
     if (baseUrl) options.baseUrl = baseUrl;
     state.client = state.module.createCohubClient(options);
     registerSurface();
@@ -313,7 +335,7 @@ async function requestAuth(scopes) {
     if (state.client.auth?.request) {
       ok = await state.client.auth.request({
         scopes,
-        reason: "App SDK Lab wants to verify viewer-granted prompt access through the Cohub SDK.",
+        reason: "App SDK Lab wants to verify viewer-granted prompts and account access through the Cohub SDK.",
       });
       if (ok) log("ok", "cohub.auth.request() granted", scopes.join(", "));
     } else {
@@ -321,7 +343,7 @@ async function requestAuth(scopes) {
       const response = await runtimeRequest({
         type: "cohub.app.authorize",
         scopes,
-        reason: "App SDK Lab wants to verify viewer-granted prompt access through the runtime protocol.",
+        reason: "App SDK Lab wants to verify viewer-granted prompts and account access through the runtime protocol.",
       }, 120000);
       ok = Boolean(response?.token);
       if (response?.token) applyToken(response.token);
@@ -374,8 +396,10 @@ async function accountSessions() {
 async function accountUsage() {
   return run("accountUsage", async () => {
     const client = await ensureClient();
-    const result = await client.user.getUsage(30);
-    log("ok", "user.getUsage() accepted", `${result.summary?.totalTokens ?? 0} tokens, ${result.summary?.costTotal ?? 0}`);
+    // `user.getUsage` does not exist in the current SDK; account usage is
+    // served by `user.getActivity({ days })` with a `summary` payload.
+    const result = await client.user.getActivity({ days: 30 });
+    log("ok", "user.getActivity({ days: 30 }) accepted", `${result.summary?.totalTokens ?? 0} tokens, ${result.summary?.costTotal ?? 0}`);
     return result;
   });
 }
@@ -410,6 +434,7 @@ $("fileTree").onclick = () => fileTree().catch(() => {});
 $("sessionsList").onclick = () => sessionsList().catch(() => {});
 $("authReadonly").onclick = () => requestAuth(["session.prompt.readonly"]).catch(() => {});
 $("authFull").onclick = () => requestAuth(["session.prompt.fullaccess"]).catch(() => {});
+$("authAccount").onclick = () => requestAuth(["user.space.list", "user.session.list", "user.usage.read"]).catch(() => {});
 $("promptReadonly").onclick = () => sendPrompt("read_only").catch(() => {});
 $("promptFull").onclick = () => sendPrompt("full_access").catch(() => {});
 $("accountSpacesBtn").onclick = () => accountSpaces().catch(() => {});

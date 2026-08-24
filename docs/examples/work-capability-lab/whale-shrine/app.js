@@ -1,18 +1,18 @@
 /**
  * 課金殿 — The Whale Shrine
  *
- * A Cohub Work where viewers pay $5 to summon an echo into the void.
- * Payment via work commerce (credit consumption), writing via a direct
+ * A Cohub App where viewers pay $5 to summon an echo into the void.
+ * Payment via App commerce (credit consumption), writing via a direct
  * `!` shell-command prompt (deterministic, no LLM), display via file reads.
  */
 
 // ─── Config ──────────────────────────────────────────────────────────────
 
 const CONFIG = {
-  SDK_URL: "https://esm.sh/@neta-art/cohub@latest?bundle&target=es2022",
+  SDK_URL: "https://esm.sh/@neta-art/cohub?bundle&target=es2022",
   /** Space-root-relative path for files.read() and shell commands. */
   DATA_PATH: "docs/examples/work-capability-lab/whale-shrine/data/shouts.jsonl",
-  /** Work-root-relative path for standalone preview fetch(). */
+  /** App-root-relative path for standalone preview fetch(). */
   PREVIEW_DATA_PATH: "data/shouts.jsonl",
   /** Space-root-relative path for the shell script (!-command). */
   SCRIPT_PATH: "docs/examples/work-capability-lab/whale-shrine/post-shout.mjs",
@@ -55,7 +55,7 @@ const TICKER_LINES = [
 
 // ─── State ────────────────────────────────────────────────────────────────
 
-const state = { cohub: null, context: null, space: null, isWork: false, userUuid: null, shouts: [], busy: false };
+const state = { cohub: null, context: null, space: null, isApp: false, userUuid: null, shouts: [], busy: false };
 const $ = (id) => document.getElementById(id);
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
@@ -66,16 +66,6 @@ function b64(str) {
   let bin = "";
   for (const b of bytes) bin += String.fromCharCode(b);
   return btoa(bin);
-}
-
-/** Decode a JWT payload (without verification — identity only). */
-function decodeJwtPayload(token) {
-  const part = token?.split(".")[1];
-  if (!part) return null;
-  try {
-    const json = atob(part.replace(/-/g, "+").replace(/_/g, "/"));
-    return JSON.parse(decodeURIComponent(Array.from(json).map((c) => `%${c.charCodeAt(0).toString(16).padStart(2, "0")}`).join("")));
-  } catch { return null; }
 }
 
 function escapeHtml(str) {
@@ -116,39 +106,6 @@ function computeLeaderboard(shouts) {
 function rarityForRank(rank) { return rank >= 1 && rank <= 5 ? RARITIES[rank - 1] : RARITIES[5]; }
 function rarityForUser(userId, lb) { const i = lb.findIndex((e) => e.userId === userId); return i === -1 ? RARITIES[5] : rarityForRank(i + 1); }
 
-// ─── Work runtime (postMessage bridge to Cohub shell) ─────────────────────
-
-/**
- * Send a request to the parent Cohub shell via postMessage and await reply.
- * Same protocol the SDK uses internally — we need it to fetch the work token
- * directly, because WorkSurface doesn't populate `viewer` in the context.
- */
-function runtimeRequest(message, timeoutMs = 8000) {
-  if (window.parent === window) return Promise.resolve(null);
-  const requestId = crypto.randomUUID();
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => { window.removeEventListener("message", onMessage); resolve(null); }, timeoutMs);
-    function onMessage(event) {
-      if (event.source !== window.parent) return;
-      if (event.data?.requestId !== requestId) return;
-      clearTimeout(timer);
-      window.removeEventListener("message", onMessage);
-      if (event.data.type === "cohub.work.error") reject(new Error(event.data.message || "Runtime error."));
-      else resolve(event.data);
-    }
-    window.addEventListener("message", onMessage);
-    window.parent.postMessage({ ...message, requestId }, "*");
-  });
-}
-
-async function fetchUserUuid() {
-  // WorkSurface omits `viewer` from the context, but the work session token
-  // (JWT) encodes userUuid. We request it via the runtime bridge and decode.
-  const res = await runtimeRequest({ type: "cohub.work.token" });
-  const payload = decodeJwtPayload(res?.token);
-  return payload?.userUuid ?? null;
-}
-
 // ─── Runtime init ─────────────────────────────────────────────────────────
 
 async function initRuntime() {
@@ -157,13 +114,14 @@ async function initRuntime() {
     state.cohub = createCohubClient();
     state.context = await state.cohub.context();
     if (state.context) {
-      state.isWork = true;
+      state.isApp = true;
       state.space = state.cohub.space(state.context.space.id);
-      state.userUuid = await fetchUserUuid();
+      // The App runtime context already carries the current viewer identity.
+      state.userUuid = state.context.viewer?.userUuid ?? null;
     }
   } catch { /* standalone preview */ }
-  if (!state.isWork) {
-    $("banner").textContent = "Preview mode — Publish as a Cohub Work to summon.";
+  if (!state.isApp) {
+    $("banner").textContent = "Preview mode — Publish as a Cohub App to summon.";
     $("banner").classList.add("visible");
   }
 }
@@ -172,7 +130,7 @@ async function initRuntime() {
 
 async function loadShouts() {
   try {
-    if (state.isWork) {
+    if (state.isApp) {
       const file = await state.space.files.read(CONFIG.DATA_PATH);
       if ("content" in file) state.shouts = parseShouts(file.content);
     } else {
@@ -272,18 +230,18 @@ async function summon(shout) {
   localStorage.setItem(CONFIG.PENDING_KEY, JSON.stringify(shout));
   try {
     // Credits
-    const { credits } = await state.cohub.work.commerce.getEntitlements();
+    const { credits } = await state.cohub.app.commerce.getEntitlements();
     if (credits.available <= 0) {
-      const co = await state.cohub.work.commerce.purchase({ productKey: CONFIG.PRODUCT_KEY });
-      if (!co?.checkout?.checkoutUsable) throw new Error(co?.checkout?.message || "Checkout unavailable.");
+      const co = await state.cohub.app.commerce.purchase({ productKey: CONFIG.PRODUCT_KEY });
+      if (!co?.checkoutUsable) throw new Error(co?.message || "Checkout unavailable.");
       return; // host redirects — will resume on return
     }
 
     // Consume (idempotent via shout.id)
-    const result = await state.cohub.work.commerce.consumeCredits({ amount: 1, operationId: shout.id, reason: `Echo: ${shout.id}` });
+    const result = await state.cohub.app.commerce.consumeCredits({ amount: 1, operationId: shout.id, reason: `Echo: ${shout.id}` });
     if (result.status === "insufficient") {
-      const co = await state.cohub.work.commerce.purchase({ productKey: CONFIG.PRODUCT_KEY });
-      if (!co?.checkout?.checkoutUsable) throw new Error("Checkout unavailable.");
+      const co = await state.cohub.app.commerce.purchase({ productKey: CONFIG.PRODUCT_KEY });
+      if (!co?.checkoutUsable) throw new Error("Checkout unavailable.");
       return;
     }
 
@@ -331,13 +289,13 @@ async function pollForShout(shoutId) {
 
 /** On page load, check if we're returning from a successful checkout. */
 async function checkCheckoutReturn() {
-  if (!state.isWork) return;
+  if (!state.isApp) return;
   const pending = localStorage.getItem(CONFIG.PENDING_KEY);
   if (!pending) return;
   try {
-    const cs = await state.cohub.work.commerce.getCheckoutState();
+    const cs = await state.cohub.app.commerce.getCheckoutState();
     if (cs?.orderId) {
-      const { order } = await state.cohub.work.commerce.getOrder(cs.orderId);
+      const { order } = await state.cohub.app.commerce.getOrder(cs.orderId);
       if (order?.status === "paid") {
         await summon(JSON.parse(pending));
         return;
@@ -413,7 +371,7 @@ async function handleSummonClick() {
   const name = $("nameInput").value.trim();
   const message = $("messageInput").value.trim();
   if (!name || !message) { flashError("A whale needs a name and a message."); return; }
-  if (!state.isWork) { flashError("Publish as a Cohub Work to summon."); return; }
+  if (!state.isApp) { flashError("Publish as a Cohub App to summon."); return; }
   if (!state.userUuid) { flashError("Unable to identify viewer."); return; }
 
   const shout = {

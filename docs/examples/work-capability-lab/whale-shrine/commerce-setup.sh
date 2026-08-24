@@ -31,14 +31,16 @@ echo "→ Creating credit benefit: Whale Offering (1 credit) ..."
 cohub -s "$SPACE_ID" spaces commerce benefits create \
   --type credits \
   --name "Whale Offering" \
-  --amount 1
+  --amount 1 \
+  --benefit-key whale_offering
 
 echo "→ Creating product: Burn One Offering (\$5) ..."
 cohub -s "$SPACE_ID" spaces commerce products create \
   --name "Burn One Offering" \
   --amount-usd 5 \
   --visibility public \
-  --status active
+  --status active \
+  --product-key burn_one_offering
 
 echo "→ Binding product to benefit ..."
 cohub -s "$SPACE_ID" spaces commerce bind \
