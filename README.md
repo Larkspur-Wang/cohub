@@ -12,7 +12,7 @@
 ---
 
 <p align="center">
-  <img src="https://public.cohub.live/s/cf327f11-5065-4f3a-bfe5-cdb0a70f3377/cohub/readme/screenshot.4bcbcab1.webp" alt="Cohub Space — a project chat with the repo README open in preview" width="800" />
+  <img src="https://public.cohub.run/s/f7000115-55d8-4d97-a0e4-d2a55b6ffa41/uploads/screenshot.4bcbcab1.webp" alt="Cohub Space — a project chat with the repo README open in preview" width="800" />
 </p>
 
 We burn 100 billion tokens per week inside our company within Cohub Spaces.
