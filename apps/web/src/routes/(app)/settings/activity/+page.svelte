@@ -5,6 +5,8 @@ import { onMount } from "svelte";
 import { page } from "$app/state";
 import { ensureAuth } from "$lib/auth";
 import { handleUnauthorizedError } from "$lib/auth-redirect";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 import { sdk } from "$lib/sdk";
 import { authStore } from "$lib/stores/auth.svelte";
 import {
@@ -30,10 +32,13 @@ const EMPTY_RANKINGS: UserActivityRankings = {
 	apps: [],
 };
 type HeatmapMode = "llm" | "generation";
-const heatmapModes: Array<{ value: HeatmapMode; label: string }> = [
-	{ value: "llm", label: "LLM" },
-	{ value: "generation", label: "Generation" },
-];
+const heatmapModes: HeatmapMode[] = ["llm", "generation"];
+
+function heatmapModeLabel(mode: HeatmapMode): string {
+	return mode === "generation"
+		? m.activity_mode_generation({}, { locale })
+		: "LLM";
+}
 
 let selectedDays = $state(365);
 let heatmapMode = $state<HeatmapMode>("llm");
@@ -45,15 +50,19 @@ let refreshing = $state(false);
 let loadError = $state("");
 let requestId = 0;
 
+const locale = $derived(getLocale());
+
 const displayedDays = $derived(activityDays ?? []);
 const displayedRankings = $derived(rankings ?? EMPTY_RANKINGS);
 const identityLabel = $derived(
 	authStore.profile?.username
 		? `@${authStore.profile.username}`
-		: authStore.profile?.displayName || "Your account",
+		: authStore.profile?.displayName || m.activity_your_account({}, { locale }),
 );
 const rangeLabel = $derived(
-	selectedDays === 365 ? "Last year" : `Last ${selectedDays} days`,
+	selectedDays === 365
+		? m.activity_last_year({}, { locale })
+		: m.activity_last_days({ days: selectedDays }, { locale }),
 );
 const stats = $derived(getActivityStats(displayedDays));
 const heatmapTotal = $derived(
@@ -97,10 +106,16 @@ function heatLevel(day: ActivityDay) {
 }
 
 function dayTitle(day: ActivityDay) {
-	const value = formatCompact(heatValue(day));
+	const value = formatCompact(heatValue(day), locale);
 	return heatmapMode === "llm"
-		? `${formatDay(day.date)} · ${value} LLM tokens`
-		: `${formatDay(day.date)} · ${value} generation calls`;
+		? m.activity_day_title_llm(
+				{ date: formatDay(day.date, locale), value },
+				{ locale },
+			)
+		: m.activity_day_title_generation(
+				{ date: formatDay(day.date, locale), value },
+				{ locale },
+			);
 }
 
 function getSelectedRange(days: number) {
@@ -151,7 +166,9 @@ async function loadActivity({ force = false } = {}) {
 		if (id !== requestId) return;
 		if (await handleUnauthorizedError(error, page.url.pathname)) return;
 		loadError =
-			error instanceof Error ? error.message : "Failed to load activity";
+			error instanceof Error
+				? error.message
+				: m.activity_load_failed({}, { locale });
 	} finally {
 		if (id === requestId) {
 			loading = false;
@@ -176,7 +193,7 @@ onMount(async () => {
 </script>
 
 <svelte:head>
-	<title>Activity — Cohub</title>
+	<title>{m.page_title_activity({}, { locale })} — Cohub</title>
 </svelte:head>
 
 <div class="flex min-h-0 flex-1 flex-col overflow-y-auto">
@@ -184,10 +201,10 @@ onMount(async () => {
 		<header class="flex flex-wrap items-end justify-between gap-4 border-b border-border-subtle pb-5">
 			<div>
 				<p class="text-[11px] font-semibold text-brand">Cohub</p>
-				<h1 class="mt-1 text-[20px] font-semibold text-text-primary">Activity</h1>
+				<h1 class="mt-1 text-[20px] font-semibold text-text-primary">{m.page_title_activity({}, { locale })}</h1>
 				<p class="mt-1 text-[12px] text-text-tertiary" title={activityRange ? `${activityRange.from} to ${activityRange.to}` : undefined}>{identityLabel} · {rangeLabel}</p>
 			</div>
-			<div class="flex rounded-md bg-bg-surface p-0.5" aria-label="Activity range">
+			<div class="flex rounded-md bg-bg-surface p-0.5" aria-label={m.activity_range_aria({}, { locale })}>
 				{#each ranges as range (range.days)}
 					<button type="button" class="min-w-11 rounded-[4px] px-2.5 py-1.5 text-[11px] font-medium transition-colors {selectedDays === range.days ? 'bg-bg-active text-text-primary' : 'text-text-placeholder hover:text-text-secondary'}" aria-pressed={selectedDays === range.days} onclick={() => selectRange(range.days)}>{range.label}</button>
 				{/each}
@@ -198,88 +215,88 @@ onMount(async () => {
 			<div class="flex min-h-72 items-center justify-center"><Loader2 class="h-5 w-5 animate-spin text-text-placeholder" /></div>
 		{:else if !activityDays}
 			<div class="py-16 text-center">
-				<p class="text-[13px] text-text-secondary">Activity is unavailable.</p>
+				<p class="text-[13px] text-text-secondary">{m.activity_unavailable({}, { locale })}</p>
 				{#if loadError}<p class="mt-2 text-[12px] text-error-soft">{loadError}</p>{/if}
-				<button type="button" class="mt-4 text-[12px] font-medium text-brand hover:underline" onclick={() => void loadActivity({ force: true })}>Try again</button>
+				<button type="button" class="mt-4 text-[12px] font-medium text-brand hover:underline" onclick={() => void loadActivity({ force: true })}>{m.activity_try_again({}, { locale })}</button>
 			</div>
 		{:else}
-			<section class="grid grid-cols-2 border-b border-border-subtle py-6 sm:grid-cols-4" aria-label="Activity summary">
-				<div class="border-r border-border-subtle pr-3 sm:pr-5"><div class="font-mono text-[20px] text-text-primary sm:text-[22px]">{formatCompact(stats.totalTokens)}</div><div class="mt-1 text-[11px] text-text-placeholder">Tokens</div></div>
-				<div class="pl-3 sm:border-r sm:border-border-subtle sm:px-5"><div class="font-mono text-[20px] text-text-primary sm:text-[22px]">{formatCompact(stats.totalRequests)}</div><div class="mt-1 text-[11px] text-text-placeholder">Requests</div></div>
-				<div class="mt-5 border-r border-border-subtle pr-3 sm:mt-0 sm:px-5"><div class="font-mono text-[20px] text-text-primary sm:text-[22px]">{stats.activeDays}</div><div class="mt-1 text-[11px] text-text-placeholder">Active days</div></div>
-				<div class="mt-5 pl-3 sm:mt-0 sm:pl-5"><div class="font-mono text-[20px] text-text-primary sm:text-[22px]">{stats.currentStreak}</div><div class="mt-1 text-[11px] text-text-placeholder">Current streak</div></div>
+			<section class="grid grid-cols-2 border-b border-border-subtle py-6 sm:grid-cols-4" aria-label={m.activity_summary_aria({}, { locale })}>
+				<div class="border-r border-border-subtle pr-3 sm:pr-5"><div class="font-mono text-[20px] text-text-primary sm:text-[22px]">{formatCompact(stats.totalTokens, locale)}</div><div class="mt-1 text-[11px] text-text-placeholder">{m.activity_tokens({}, { locale })}</div></div>
+				<div class="pl-3 sm:border-r sm:border-border-subtle sm:px-5"><div class="font-mono text-[20px] text-text-primary sm:text-[22px]">{formatCompact(stats.totalRequests, locale)}</div><div class="mt-1 text-[11px] text-text-placeholder">{m.activity_requests({}, { locale })}</div></div>
+				<div class="mt-5 border-r border-border-subtle pr-3 sm:mt-0 sm:px-5"><div class="font-mono text-[20px] text-text-primary sm:text-[22px]">{stats.activeDays}</div><div class="mt-1 text-[11px] text-text-placeholder">{m.activity_active_days({}, { locale })}</div></div>
+				<div class="mt-5 pl-3 sm:mt-0 sm:pl-5"><div class="font-mono text-[20px] text-text-primary sm:text-[22px]">{stats.currentStreak}</div><div class="mt-1 text-[11px] text-text-placeholder">{m.activity_current_streak({}, { locale })}</div></div>
 			</section>
 
 			<section class="border-b border-border-subtle py-7">
 				<div class="mb-4 flex flex-wrap items-center justify-between gap-3">
-					<h2 class="text-[13px] font-medium text-text-primary">Daily activity</h2>
+					<h2 class="text-[13px] font-medium text-text-primary">{m.activity_daily_activity({}, { locale })}</h2>
 					<div class="flex flex-wrap items-center justify-end gap-3">
-						<div class="flex rounded-md bg-bg-surface p-0.5" aria-label="Activity type">
-							{#each heatmapModes as mode (mode.value)}
-								<button type="button" class="rounded-[4px] px-2.5 py-1 text-[10px] font-medium transition-colors {heatmapMode === mode.value ? 'bg-bg-active text-text-primary' : 'text-text-placeholder hover:text-text-secondary'}" aria-pressed={heatmapMode === mode.value} onclick={() => heatmapMode = mode.value}>{mode.label}</button>
+						<div class="flex rounded-md bg-bg-surface p-0.5" aria-label={m.activity_type_aria({}, { locale })}>
+							{#each heatmapModes as mode (mode)}
+								<button type="button" class="rounded-[4px] px-2.5 py-1 text-[10px] font-medium transition-colors {heatmapMode === mode ? 'bg-bg-active text-text-primary' : 'text-text-placeholder hover:text-text-secondary'}" aria-pressed={heatmapMode === mode} onclick={() => heatmapMode = mode}>{heatmapModeLabel(mode)}</button>
 							{/each}
 						</div>
-						<div class="flex items-center gap-1.5 text-[10px] text-text-placeholder"><span>Less</span>{#each [0, 1, 2, 3, 4] as level}<span class="heat-cell" data-mode={heatmapMode} data-level={level}></span>{/each}<span>More</span></div>
+						<div class="flex items-center gap-1.5 text-[10px] text-text-placeholder"><span>{m.activity_less({}, { locale })}</span>{#each [0, 1, 2, 3, 4] as level}<span class="heat-cell" data-mode={heatmapMode} data-level={level}></span>{/each}<span>{m.activity_more({}, { locale })}</span></div>
 					</div>
 				</div>
 				<div class="heatmap-scroll overflow-x-auto pb-1">
-					<div class="heatmap" style:--weeks={heatmapDays.length / 7} role="img" aria-label={`${heatmapMode === 'llm' ? 'LLM token' : 'Generation call'} activity over the last ${selectedDays} days`}>
+					<div class="heatmap" style:--weeks={heatmapDays.length / 7} role="img" aria-label={heatmapMode === 'llm' ? m.activity_heatmap_llm_aria({ days: selectedDays }, { locale }) : m.activity_heatmap_generation_aria({ days: selectedDays }, { locale })}>
 						{#each heatmapDays as day, index (day?.date ?? `blank-${index}`)}
 							{#if day}<div class="heat-cell" data-mode={heatmapMode} data-level={heatLevel(day)} title={dayTitle(day)}></div>{:else}<div></div>{/if}
 						{/each}
 					</div>
 				</div>
-				{#if heatmapTotal === 0}<p class="mt-4 text-[12px] text-text-placeholder">{heatmapMode === "llm" ? "LLM token activity" : "Generation calls"} will appear here after your first request.</p>{/if}
+				{#if heatmapTotal === 0}<p class="mt-4 text-[12px] text-text-placeholder">{heatmapMode === "llm" ? m.activity_llm_empty_hint({}, { locale }) : m.activity_generation_empty_hint({}, { locale })}</p>{/if}
 			</section>
 
 			<div class="grid gap-8 py-7 md:grid-cols-2 md:gap-x-10 lg:grid-cols-3">
 				<section>
-					<div class="mb-4 flex items-center justify-between"><h2 class="text-[13px] font-medium text-text-primary">LLM models</h2><span class="text-[10px] text-text-placeholder">Tokens · Cost</span></div>
+					<div class="mb-4 flex items-center justify-between"><h2 class="text-[13px] font-medium text-text-primary">{m.activity_llm_models({}, { locale })}</h2><span class="text-[10px] text-text-placeholder">{m.activity_tokens_cost({}, { locale })}</span></div>
 					{#if displayedRankings.llmModels.length}
 						<ol class="space-y-3">
 							{#each displayedRankings.llmModels as row, index (`${row.provider}:${row.model}`)}
 								<li class="grid grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-2 text-[12px]">
 									<span class="font-mono text-[10px] text-text-placeholder">{index + 1}</span>
 									<div class="min-w-0" title={`${row.provider}/${row.model}`}><div class="truncate text-text-secondary">{row.model}</div><div class="truncate text-[10px] text-text-placeholder">{row.provider}</div></div>
-									<div class="whitespace-nowrap text-right font-mono text-text-secondary">{formatCompact(row.totalTokens)} · {formatCost(row.costTotal)}</div>
+									<div class="whitespace-nowrap text-right font-mono text-text-secondary">{formatCompact(row.totalTokens, locale)} · {formatCost(row.costTotal, locale)}</div>
 								</li>
 							{/each}
 						</ol>
-					{:else}<p class="text-[12px] text-text-placeholder">No LLM usage in this range.</p>{/if}
+					{:else}<p class="text-[12px] text-text-placeholder">{m.activity_no_llm_usage({}, { locale })}</p>{/if}
 				</section>
 
 				<section class="border-t border-border-subtle pt-7 md:border-0 md:pt-0">
-					<div class="mb-4 flex items-center justify-between"><h2 class="text-[13px] font-medium text-text-primary">Generation models</h2><span class="text-[10px] text-text-placeholder">Calls · Cost</span></div>
+					<div class="mb-4 flex items-center justify-between"><h2 class="text-[13px] font-medium text-text-primary">{m.activity_generation_models({}, { locale })}</h2><span class="text-[10px] text-text-placeholder">{m.activity_calls_cost({}, { locale })}</span></div>
 					{#if displayedRankings.generationModels.length}
 						<ol class="space-y-3">
 							{#each displayedRankings.generationModels as row, index (`${row.provider}:${row.model}`)}
 								<li class="grid grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-2 text-[12px]">
 									<span class="font-mono text-[10px] text-text-placeholder">{index + 1}</span>
 									<div class="min-w-0 truncate text-text-secondary" title={`${row.provider}/${row.model}`}>{row.model}</div>
-									<div class="whitespace-nowrap text-right font-mono text-text-secondary">{formatCompact(row.requestCount)} · {formatCost(row.costTotal)}</div>
+									<div class="whitespace-nowrap text-right font-mono text-text-secondary">{formatCompact(row.requestCount, locale)} · {formatCost(row.costTotal, locale)}</div>
 								</li>
 							{/each}
 						</ol>
-					{:else}<p class="text-[12px] text-text-placeholder">No generation usage in this range.</p>{/if}
+					{:else}<p class="text-[12px] text-text-placeholder">{m.activity_no_generation_usage({}, { locale })}</p>{/if}
 				</section>
 
 				<section class="border-t border-border-subtle pt-7 md:col-span-2 lg:col-span-1 lg:border-0 lg:pt-0">
-					<div class="mb-4 flex items-center justify-between"><h2 class="text-[13px] font-medium text-text-primary">Apps</h2><span class="text-[10px] text-text-placeholder">Views</span></div>
+					<div class="mb-4 flex items-center justify-between"><h2 class="text-[13px] font-medium text-text-primary">{m.activity_apps({}, { locale })}</h2><span class="text-[10px] text-text-placeholder">{m.activity_views({}, { locale })}</span></div>
 					{#if displayedRankings.apps.length}
 						<ol class="space-y-3">
 							{#each displayedRankings.apps as row, index (row.appId)}
 								<li class="grid grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-2 text-[12px]">
 									<span class="font-mono text-[10px] text-text-placeholder">{index + 1}</span>
 									<div class="min-w-0"><a class="block truncate text-text-secondary transition-colors hover:text-brand" href={`/spaces/${row.spaceId}/apps/${row.appId}`} title={row.title}>{row.title}</a><div class="truncate text-[10px] text-text-placeholder">{row.spaceName}</div></div>
-									<span class="font-mono text-text-secondary">{formatCompact(row.viewCount)}</span>
+									<span class="font-mono text-text-secondary">{formatCompact(row.viewCount, locale)}</span>
 								</li>
 							{/each}
 						</ol>
-					{:else}<p class="text-[12px] text-text-placeholder">No App views in this range.</p>{/if}
+					{:else}<p class="text-[12px] text-text-placeholder">{m.activity_no_app_views({}, { locale })}</p>{/if}
 				</section>
 			</div>
 
-			{#if loadError}<p class="border-t border-border-subtle pt-4 text-[11px] text-text-placeholder">Showing saved activity. Refresh failed.</p>{/if}
+			{#if loadError}<p class="border-t border-border-subtle pt-4 text-[11px] text-text-placeholder">{m.activity_showing_saved({}, { locale })}</p>{/if}
 		{/if}
 	</div>
 </div>

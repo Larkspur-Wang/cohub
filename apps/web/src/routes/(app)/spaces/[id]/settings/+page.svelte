@@ -57,7 +57,9 @@ import Sheet from "$lib/components/Sheet.svelte";
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
 import UploadProgress from "$lib/components/UploadProgress.svelte";
 import UserAvatar from "$lib/components/UserAvatar.svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
+import { m } from "$lib/paraglide/messages.js";
 import { uploadSpaceAvatarImage } from "$lib/public-asset-images";
 import { sdk } from "$lib/sdk";
 import { validateSpaceSlugInput } from "$lib/slug-rules";
@@ -67,6 +69,7 @@ import { invalidateCachedSpaceMembers } from "$lib/stores/space-profile-cache";
 import { cacheSpaceRecordSoon } from "$lib/stores/space-record-cache";
 import SandboxSpecPicker from "./SandboxSpecPicker.svelte";
 
+const locale = $derived(getLocale());
 type SandboxSpecOption = {
 	id: SandboxSpecId;
 	rank: number;
@@ -244,11 +247,11 @@ const canManageSpaceMods = $derived(
 const canManageSpaceSandbox = $derived(
 	space?.access?.permissions.includes("sandbox.manage") === true,
 );
-const memberRoleOptions: { value: SpaceRole; label: string }[] = [
-	{ value: "guest", label: "Guest" },
-	{ value: "builder", label: "Builder" },
-	{ value: "host", label: "Host" },
-];
+const memberRoleOptions = $derived([
+	{ value: "guest", label: m.space_role_guest({}, { locale }) },
+	{ value: "builder", label: m.space_role_builder({}, { locale }) },
+	{ value: "host", label: m.space_role_host({}, { locale }) },
+]);
 
 onDestroy(() => {
 	if (inviteNoticeTimer) clearTimeout(inviteNoticeTimer);
@@ -302,7 +305,10 @@ async function loadSandboxConfig() {
 }
 
 function getSandboxSpecLabel(specId: SandboxSpecId | null | undefined) {
-	return sandboxSpecs[specId ?? ""]?.label ?? (specId ? specId : "Standard");
+	return (
+		sandboxSpecs[specId ?? ""]?.label ??
+		(specId ? specId : m.space_spec_standard({}, { locale }))
+	);
 }
 
 function getSandboxSpecSummary(specId: SandboxSpecId | null | undefined) {
@@ -318,9 +324,19 @@ function openSandboxSpecUpgrade(specId: SandboxSpecId) {
 		reason: "feature_not_entitled",
 		audience: "unknown",
 		preferredOfferKind: "upgrade",
-		title: `Upgrade for ${spec?.label ?? "better"} sandboxes`,
-		message: `Choose a higher plan to use ${spec?.label ?? specId} with ${spec?.resources?.limits?.cpu ?? "more"} vCPU and ${spec?.resources?.limits?.memory ?? "more memory"}.`,
-		primaryAction: { label: "View plans", action: "open_billing_conversion" },
+		title: m.space_upgrade_title({ spec: spec?.label ?? "better" }, { locale }),
+		message: m.space_upgrade_message(
+			{
+				spec: spec?.label ?? specId,
+				cpu: spec?.resources?.limits?.cpu ?? "more",
+				memory: spec?.resources?.limits?.memory ?? "more",
+			},
+			{ locale },
+		),
+		primaryAction: {
+			label: m.space_view_plans({}, { locale }),
+			action: "open_billing_conversion",
+		},
 		source: "sandbox_spec_picker",
 	});
 }
@@ -357,14 +373,16 @@ async function saveSandboxSpec(spec: SandboxSpecId) {
 		if (sandboxResult?.pendingRestart) sandboxSpecPendingRestart = true;
 		setSandboxSpecMessage(
 			sandboxResult?.pendingRestart
-				? "Saved. Restart the sandbox to apply."
-				: "Spec updated.",
+				? m.space_saved_restart({}, { locale })
+				: m.space_spec_updated({}, { locale }),
 		);
 	} catch (err) {
 		sandboxSpec = previousSpec;
 		if (!billingConversion.handleHttpError(err)) {
 			sandboxSpecError =
-				err instanceof Error ? err.message : "Failed to save sandbox spec";
+				err instanceof Error
+					? err.message
+					: m.space_failed_sandbox_spec({}, { locale });
 		}
 	} finally {
 		savingSandboxSpec = false;
@@ -394,10 +412,12 @@ async function saveSandboxConfig() {
 		space = result.space;
 		cacheSpaceRecordSoon(result.space);
 		applySandboxConfigFromSpace(result.space);
-		sandboxConfigMessage = "Hibernation policy saved.";
+		sandboxConfigMessage = m.space_hibernation_saved({}, { locale });
 	} catch (err) {
 		sandboxConfigError =
-			err instanceof Error ? err.message : "Failed to save sandbox config";
+			err instanceof Error
+				? err.message
+				: m.space_failed_sandbox_config({}, { locale });
 	} finally {
 		savingSandboxConfig = false;
 	}
@@ -438,35 +458,35 @@ function getSandboxLifecycleLabel(status?: string | null): string {
 	switch (status) {
 		case "running":
 		case "ready":
-			return "Running";
+			return m.space_health_running({}, { locale });
 		case "provisioning":
 		case "pending":
-			return "Provisioning";
+			return m.space_health_provisioning({}, { locale });
 		case "stopping":
-			return "Stopping";
+			return m.space_health_stopping({}, { locale });
 		case "stopped":
-			return "Stopped";
+			return m.space_health_stopped({}, { locale });
 		case "error":
-			return "Error";
+			return m.space_health_error({}, { locale });
 		case "terminated":
-			return "Terminated";
+			return m.space_health_terminated({}, { locale });
 		default:
-			return "Unknown";
+			return m.space_health_unknown({}, { locale });
 	}
 }
 
 function getSandboxRuntimeLabel(status?: string | null): string {
 	switch (status) {
 		case "healthy":
-			return "Healthy";
+			return m.space_health_healthy({}, { locale });
 		case "starting":
-			return "Starting";
+			return m.space_health_starting({}, { locale });
 		case "degraded":
-			return "Degraded";
+			return m.space_health_degraded({}, { locale });
 		case "unhealthy":
-			return "Unhealthy";
+			return m.space_health_unhealthy({}, { locale });
 		default:
-			return "Unknown";
+			return m.space_health_unknown({}, { locale });
 	}
 }
 
@@ -492,18 +512,20 @@ function getSandboxActivityText(): string {
 }
 
 function getSandboxActivityLabel(): string {
-	return sandbox?.lastActivityAt ? "Last RPC activity" : "No RPC activity yet";
+	return sandbox?.lastActivityAt
+		? m.space_last_rpc({}, { locale })
+		: m.space_no_rpc_yet({}, { locale });
 }
 
 function getSandboxActivityTitle(): string {
 	const label = getSandboxActivityLabel();
 	const activityTime = formatTime(sandbox?.lastActivityAt);
 	const heartbeatTime = formatTime(sandbox?.lastHeartbeatAt);
-	return `${label}\nLast RPC activity: ${activityTime}\nHeartbeat: ${heartbeatTime}\nIdle hibernation is driven by sandbox RPC / tool calls.`;
+	return `${label}\n${m.space_last_rpc({}, { locale })}: ${activityTime}\n${m.space_heartbeat({}, { locale })}: ${heartbeatTime}\n${m.space_idle_hibernation_note({}, { locale })}`;
 }
 
 function getSandboxHeartbeatTitle(): string {
-	return `Sandbox self-report\nLast heartbeat: ${formatTime(sandbox?.lastHeartbeatAt)}\nHeartbeat only means the sandbox runtime recently reported itself alive.`;
+	return `${m.space_sandbox_self_report({}, { locale })}\n${m.space_heartbeat({}, { locale })}: ${formatTime(sandbox?.lastHeartbeatAt)}\n${m.space_heartbeat_note({}, { locale })}`;
 }
 
 function getSpaceOwnerUsername(record: SpaceRecord | null): string {
@@ -524,11 +546,9 @@ function getSpacePrettyUrlHint(record: SpaceRecord | null): string {
 	const hasUsername = Boolean(getSpaceOwnerUsername(record));
 	const hasSlug = Boolean(getSpaceSlug(record));
 	if (hasUsername && hasSlug) return "";
-	if (!hasUsername && !hasSlug)
-		return "Add a space slug and username for a cleaner URL.";
-	if (!hasUsername)
-		return "Add username in Profile to complete the pretty URL.";
-	return "Add a space slug for a cleaner URL.";
+	if (!hasUsername && !hasSlug) return m.space_slug_hint_user({}, { locale });
+	if (!hasUsername) return m.space_slug_hint_profile({}, { locale });
+	return m.space_slug_hint({}, { locale });
 }
 
 function formatCompactId(id: string): string {
@@ -546,7 +566,10 @@ async function handleRenameSpace(newName: string) {
 		cacheSpaceRecordSoon(result.space);
 		renamingSpace = false;
 	} catch (err) {
-		renameError = err instanceof Error ? err.message : "Failed to rename space";
+		renameError =
+			err instanceof Error
+				? err.message
+				: m.space_failed_rename({}, { locale });
 	} finally {
 		renameSaving = false;
 	}
@@ -602,7 +625,7 @@ async function saveSpaceSlug() {
 		spaceSlugDraft = "";
 	} catch (err) {
 		spaceSlugError =
-			err instanceof Error ? err.message : "Failed to save space slug";
+			err instanceof Error ? err.message : m.space_failed_slug({}, { locale });
 	} finally {
 		spaceSlugSaving = false;
 	}
@@ -648,7 +671,9 @@ async function saveSpaceDescription() {
 		cacheSpaceRecordSoon(result.space);
 	} catch (err) {
 		spaceProfileError =
-			err instanceof Error ? err.message : "Failed to save space profile";
+			err instanceof Error
+				? err.message
+				: m.space_failed_profile({}, { locale });
 	} finally {
 		spaceDescriptionSaving = false;
 	}
@@ -689,7 +714,9 @@ async function uploadSpaceAvatar(file: File) {
 		cacheSpaceRecordSoon(result.space);
 	} catch (err) {
 		spaceProfileError =
-			err instanceof Error ? err.message : "Failed to upload space avatar";
+			err instanceof Error
+				? err.message
+				: m.space_failed_avatar({}, { locale });
 	} finally {
 		spaceAvatarUploading = false;
 		spaceAvatarUploadStage = "idle";
@@ -713,13 +740,11 @@ async function loadSandbox() {
 }
 
 function confirmModRestart(): boolean {
-	return window.confirm(
-		"Changing Space Mods will restart the Sandbox and may interrupt running commands or agent turns. Continue?",
-	);
+	return window.confirm(m.space_mod_restart_confirm({}, { locale }));
 }
 
 function noteModRestart() {
-	modRestartMessage = "Restarting sandbox to apply mod changes.";
+	modRestartMessage = m.space_mod_restarting({}, { locale });
 	if (modRestartTimer) clearTimeout(modRestartTimer);
 	modRestartTimer = setTimeout(() => {
 		modRestartMessage = "";
@@ -733,9 +758,7 @@ async function loadMods() {
 
 async function forceRecoverSandbox() {
 	if (recoveringSandbox || !canManageSpaceSandbox) return;
-	const confirmed = window.confirm(
-		"Force recovery will recreate the Sandbox and stop any running processes. Workspace files will be preserved. Continue?",
-	);
+	const confirmed = window.confirm(m.space_recovery_confirm({}, { locale }));
 	if (!confirmed) return;
 	recoveringSandbox = true;
 	sandboxRecoveryMessage = "";
@@ -743,12 +766,14 @@ async function forceRecoverSandbox() {
 	try {
 		const result = await sdk.space(spaceId).sandbox.recreate();
 		sandboxRecoveryMessage = result.verified
-			? "Sandbox recovered."
-			: "Recovery completed.";
+			? m.space_sandbox_recovered({}, { locale })
+			: m.space_recovery_completed({}, { locale });
 		await Promise.all([loadSandbox(), loadSandboxConfig()]);
 	} catch (err) {
 		sandboxRecoveryError =
-			err instanceof Error ? err.message : "Sandbox recovery failed";
+			err instanceof Error
+				? err.message
+				: m.space_recovery_failed({}, { locale });
 	} finally {
 		recoveringSandbox = false;
 	}
@@ -767,7 +792,9 @@ async function loadPage() {
 					return (await sdk.space(spaceId).invitations.list()).items;
 				} catch (err) {
 					invitationsError =
-						err instanceof Error ? err.message : "Failed to load invitations";
+						err instanceof Error
+							? err.message
+							: m.space_failed_invite_load({}, { locale });
 					return [];
 				}
 			},
@@ -843,7 +870,8 @@ async function loadPage() {
 			void refreshChannelHealth();
 		}, 15_000);
 	} catch (err) {
-		error = err instanceof Error ? err.message : "Failed to load settings";
+		error =
+			err instanceof Error ? err.message : m.space_failed_load({}, { locale });
 	} finally {
 		loading = false;
 	}
@@ -869,7 +897,10 @@ async function setAccess(body: {
 	try {
 		access = await sdk.space(spaceId).access.set(body);
 	} catch (err) {
-		accessError = err instanceof Error ? err.message : "Failed to save access";
+		accessError =
+			err instanceof Error
+				? err.message
+				: m.space_failed_access({}, { locale });
 	}
 }
 
@@ -884,7 +915,10 @@ async function addEnv() {
 		envName = "";
 		envValue = "";
 	} catch (err) {
-		envError = err instanceof Error ? err.message : "Failed to add variable";
+		envError =
+			err instanceof Error
+				? err.message
+				: m.space_failed_var_add({}, { locale });
 	}
 }
 
@@ -895,7 +929,10 @@ async function removeEnv(name: string) {
 		const result = await sdk.space(spaceId).env.remove(name);
 		env = result.env;
 	} catch (err) {
-		envError = err instanceof Error ? err.message : "Failed to remove variable";
+		envError =
+			err instanceof Error
+				? err.message
+				: m.space_failed_var_remove({}, { locale });
 	}
 }
 
@@ -907,11 +944,19 @@ function toggleEnvReveal(name: string) {
 }
 
 function formatInviteExpiry(seconds: number | null): string {
-	if (seconds === null) return "No expiry";
-	if (seconds < 60) return "Expires in <1m";
-	if (seconds < 3600) return `Expires in ${Math.ceil(seconds / 60)}m`;
-	if (seconds < 86400) return `Expires in ${Math.ceil(seconds / 3600)}h`;
-	return `Expires in ${Math.ceil(seconds / 86400)}d`;
+	if (seconds === null) return m.space_no_expiry({}, { locale });
+	if (seconds < 60) return m.space_invite_expires_lt1m({}, { locale });
+	if (seconds < 3600)
+		return m.space_invite_expires_m({ n: Math.ceil(seconds / 60) }, { locale });
+	if (seconds < 86400)
+		return m.space_invite_expires_h(
+			{ n: Math.ceil(seconds / 3600) },
+			{ locale },
+		);
+	return m.space_invite_expires_d(
+		{ n: Math.ceil(seconds / 86400) },
+		{ locale },
+	);
 }
 
 async function loadMembers() {
@@ -933,14 +978,16 @@ async function addMember() {
 		await loadMembers();
 	} catch (err) {
 		addingMemberError =
-			err instanceof Error ? err.message : "Failed to add member";
+			err instanceof Error
+				? err.message
+				: m.space_failed_member_add({}, { locale });
 	} finally {
 		savingMember = false;
 	}
 }
 
 function getMemberDisplayName(member: SpaceMember): string {
-	return member.profile?.displayName?.trim() || "User";
+	return member.profile?.displayName?.trim() || m.space_user({}, { locale });
 }
 
 function getInitials(name: string): string {
@@ -1038,7 +1085,9 @@ async function updateMemberRole(userId: string, role: SpaceRole) {
 		await loadMembers();
 	} catch (err) {
 		addingMemberError =
-			err instanceof Error ? err.message : "Failed to update member";
+			err instanceof Error
+				? err.message
+				: m.space_failed_member_update({}, { locale });
 	} finally {
 		updatingMemberUserId = null;
 	}
@@ -1046,7 +1095,7 @@ async function updateMemberRole(userId: string, role: SpaceRole) {
 
 async function removeMember(userId: string) {
 	if (!canManageSpaceMembers) return;
-	if (!window.confirm("Remove this member from the space?")) return;
+	if (!window.confirm(m.space_remove_member_confirm({}, { locale }))) return;
 	removingMemberUserId = userId;
 	addingMemberError = "";
 	try {
@@ -1055,7 +1104,9 @@ async function removeMember(userId: string) {
 		await loadMembers();
 	} catch (err) {
 		addingMemberError =
-			err instanceof Error ? err.message : "Failed to remove member";
+			err instanceof Error
+				? err.message
+				: m.space_failed_member_remove({}, { locale });
 	} finally {
 		removingMemberUserId = null;
 	}
@@ -1074,7 +1125,9 @@ async function loadInvitations() {
 		invitations = result.items;
 	} catch (err) {
 		invitationsError =
-			err instanceof Error ? err.message : "Failed to load invitations";
+			err instanceof Error
+				? err.message
+				: m.space_failed_invite_load({}, { locale });
 	} finally {
 		loadingInvitations = false;
 	}
@@ -1083,7 +1136,7 @@ async function loadInvitations() {
 async function createInvite() {
 	if (creatingInvite || !canManageSpaceMembers) return;
 	if (inviteMaxUses < 0 || inviteMaxUses > 10000) {
-		inviteCreateError = "Max uses must be between 0 and 10000";
+		inviteCreateError = m.space_invite_max_uses_error({}, { locale });
 		return;
 	}
 	creatingInvite = true;
@@ -1097,8 +1150,8 @@ async function createInvite() {
 		});
 		const copied = await copyInviteLink(created.token);
 		inviteCreateNotice = copied
-			? "Invite link copied to clipboard."
-			: "Invite link created — copy it from the list below.";
+			? m.space_invite_copied({}, { locale })
+			: m.space_invite_created({}, { locale });
 		if (inviteNoticeTimer) clearTimeout(inviteNoticeTimer);
 		inviteNoticeTimer = setTimeout(() => {
 			inviteCreateNotice = "";
@@ -1107,7 +1160,9 @@ async function createInvite() {
 		await loadInvitations();
 	} catch (err) {
 		inviteCreateError =
-			err instanceof Error ? err.message : "Failed to create invitation";
+			err instanceof Error
+				? err.message
+				: m.space_failed_invite_create({}, { locale });
 	} finally {
 		creatingInvite = false;
 	}
@@ -1149,15 +1204,16 @@ async function copyInviteLink(token: string) {
 
 async function revokeInvite(token: string) {
 	if (!canManageSpaceMembers) return;
-	if (!window.confirm("Revoke this invitation link? It will no longer work."))
-		return;
+	if (!window.confirm(m.space_revoke_confirm({}, { locale }))) return;
 	invitationsError = "";
 	try {
 		await sdk.space(spaceId).invitations.revoke(token);
 		await loadInvitations();
 	} catch (err) {
 		invitationsError =
-			err instanceof Error ? err.message : "Failed to revoke invitation";
+			err instanceof Error
+				? err.message
+				: m.space_failed_invite_revoke({}, { locale });
 	}
 }
 
@@ -1192,7 +1248,11 @@ async function saveChannelModel(
 	model: { provider: string; id: string } | null,
 ) {
 	const nextConfig = { ...(binding.config ?? {}), model };
-	await saveChannelConfig(binding, nextConfig, "Failed to save channel model");
+	await saveChannelConfig(
+		binding,
+		nextConfig,
+		m.space_failed_channel_model({}, { locale }),
+	);
 }
 
 async function saveDiscordRequireMention(
@@ -1209,7 +1269,7 @@ async function saveDiscordRequireMention(
 				requireMentionInGuild,
 			},
 		},
-		"Failed to save Discord mention setting",
+		m.space_failed_channel_discord({}, { locale }),
 	);
 }
 
@@ -1227,7 +1287,7 @@ async function saveFeishuRequireMention(
 				requireMentionInGroup,
 			},
 		},
-		"Failed to save Feishu mention setting",
+		m.space_failed_channel_feishu({}, { locale }),
 	);
 }
 
@@ -1240,7 +1300,9 @@ async function bindChannel() {
 		selectedChannelId = "";
 	} catch (err) {
 		channelError =
-			err instanceof Error ? err.message : "Failed to bind channel";
+			err instanceof Error
+				? err.message
+				: m.space_failed_channel_bind({}, { locale });
 	}
 }
 
@@ -1252,7 +1314,9 @@ async function unbindChannel(channelId: string) {
 		channels = await sdk.space(spaceId).channels.list();
 	} catch (err) {
 		channelError =
-			err instanceof Error ? err.message : "Failed to unbind channel";
+			err instanceof Error
+				? err.message
+				: m.space_failed_channel_unbind({}, { locale });
 	}
 }
 
@@ -1261,7 +1325,7 @@ async function addMod() {
 	const target = modSpaceId.trim();
 	if (!target || modSaving) return;
 	if (mods.some((mod) => mod.modSpaceId === target)) {
-		modError = "Mod space is already mounted";
+		modError = m.space_mod_already_mounted({}, { locale });
 		return;
 	}
 	if (!confirmModRestart()) return;
@@ -1282,7 +1346,10 @@ async function addMod() {
 		noteModRestart();
 		await loadSandbox();
 	} catch (err) {
-		modError = err instanceof Error ? err.message : "Failed to add mod";
+		modError =
+			err instanceof Error
+				? err.message
+				: m.space_failed_mod_add({}, { locale });
 	} finally {
 		modSaving = false;
 	}
@@ -1309,7 +1376,10 @@ async function toggleMod(mod: SpaceModListItem) {
 		noteModRestart();
 		await loadSandbox();
 	} catch (err) {
-		modError = err instanceof Error ? err.message : "Failed to update mod";
+		modError =
+			err instanceof Error
+				? err.message
+				: m.space_failed_mod_update({}, { locale });
 	} finally {
 		modUpdatingId = null;
 	}
@@ -1328,7 +1398,10 @@ async function updateModMountSlug(mod: SpaceModListItem, mountSlug: string) {
 		noteModRestart();
 		await loadSandbox();
 	} catch (err) {
-		modError = err instanceof Error ? err.message : "Failed to update mod";
+		modError =
+			err instanceof Error
+				? err.message
+				: m.space_failed_mod_update({}, { locale });
 	} finally {
 		modUpdatingId = null;
 	}
@@ -1345,7 +1418,10 @@ async function removeMod(mod: SpaceModListItem) {
 		noteModRestart();
 		await loadSandbox();
 	} catch (err) {
-		modError = err instanceof Error ? err.message : "Failed to remove mod";
+		modError =
+			err instanceof Error
+				? err.message
+				: m.space_failed_mod_remove({}, { locale });
 	} finally {
 		modUpdatingId = null;
 	}
@@ -1358,17 +1434,33 @@ type SettingsSection =
 	| "channels"
 	| "sandbox";
 
-const settingsSections: {
-	id: SettingsSection;
-	label: string;
-	icon: typeof Globe;
-}[] = [
-	{ id: "profile", label: "Profile", icon: Globe },
-	{ id: "access", label: "Access", icon: Users },
-	{ id: "environment", label: "Environment", icon: Terminal },
-	{ id: "channels", label: "Channels", icon: Network },
-	{ id: "sandbox", label: "Sandbox", icon: Settings },
-];
+const settingsSections = $derived([
+	{
+		id: "profile",
+		label: m.space_section_profile({}, { locale }),
+		icon: Globe,
+	} as const,
+	{
+		id: "access",
+		label: m.space_section_access({}, { locale }),
+		icon: Users,
+	} as const,
+	{
+		id: "environment",
+		label: m.space_section_env({}, { locale }),
+		icon: Terminal,
+	} as const,
+	{
+		id: "channels",
+		label: m.space_section_channels({}, { locale }),
+		icon: Network,
+	} as const,
+	{
+		id: "sandbox",
+		label: m.space_section_sandbox({}, { locale }),
+		icon: Settings,
+	} as const,
+]);
 
 function isSettingsSection(
 	value: string | null | undefined,
@@ -1485,7 +1577,7 @@ $effect(() => {
 });
 </script>
 
-<svelte:head><title>Space settings — Cohub</title></svelte:head>
+<svelte:head><title>{m.space_title({}, { locale })} — Cohub</title></svelte:head>
 
 <div class="flex min-h-0 flex-1 flex-col overflow-hidden bg-bg-primary">
 	<header class="flex h-[44px] shrink-0 items-center justify-between border-b border-border-subtle px-3 sm:px-4">
@@ -1493,7 +1585,7 @@ $effect(() => {
 			<button
 				type="button"
 				class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[6px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
-				aria-label="Back to space"
+				aria-label={m.space_back({}, { locale })}
 				onclick={() => {
 					if (typeof window !== "undefined" && window.history.length > 1) {
 						window.history.back();
@@ -1504,14 +1596,14 @@ $effect(() => {
 			>
 				<ArrowLeft class="h-4 w-4" />
 			</button>
-			<div class="min-w-0 truncate text-[13px] font-medium text-text-primary">Space settings</div>
+			<div class="min-w-0 truncate text-[13px] font-medium text-text-primary">{m.space_title({}, { locale })}</div>
 		</div>
-		<a href={`/spaces/${spaceId}/settings/commerce`} class="inline-flex h-8 items-center justify-center gap-1.5 rounded-[5px] px-2.5 text-[12px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary"><PackagePlus class="h-3.5 w-3.5" /> Commerce</a>
+		<a href={`/spaces/${spaceId}/settings/commerce`} class="inline-flex h-8 items-center justify-center gap-1.5 rounded-[5px] px-2.5 text-[12px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary"><PackagePlus class="h-3.5 w-3.5" /> {m.space_section_commerce({}, { locale })}</a>
 	</header>
 
 	<div class="flex min-h-0 flex-1 flex-col lg:flex-row">
 		<!-- Section nav — desktop sidebar -->
-		<nav class="hidden w-44 shrink-0 flex-col gap-[2px] border-r border-border-subtle px-2 py-3 lg:flex" aria-label="Settings sections">
+		<nav class="hidden w-44 shrink-0 flex-col gap-[2px] border-r border-border-subtle px-2 py-3 lg:flex" aria-label={m.space_sections({}, { locale })}>
 			{#each settingsSections as section (section.id)}
 				<a
 					href={`#${section.id}`}
@@ -1525,7 +1617,7 @@ $effect(() => {
 		</nav>
 
 		<!-- Section nav — mobile tabs -->
-		<div class="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border-subtle px-3 py-1.5 lg:hidden" role="navigation" aria-label="Settings sections">
+		<div class="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border-subtle px-3 py-1.5 lg:hidden" role="navigation" aria-label={m.space_sections({}, { locale })}>
 			{#each settingsSections as section (section.id)}
 				<a
 					href={`#${section.id}`}
@@ -1559,14 +1651,14 @@ $effect(() => {
 						<!-- ════════ Profile ════════ -->
 						<section id={sectionElementId("profile")} class="scroll-mt-6">
 						<div class="border-b border-border-subtle pb-5">
-							<h1 class="text-[18px] font-semibold tracking-tight text-text-primary">Profile</h1>
-							<p class="mt-1 text-[13px] leading-5 text-text-tertiary">Public identity of this space.</p>
+							<h1 class="text-[18px] font-semibold tracking-tight text-text-primary">{m.space_section_profile({}, { locale })}</h1>
+							<p class="mt-1 text-[13px] leading-5 text-text-tertiary">{m.space_profile_desc({}, { locale })}</p>
 						</div>
 
 						<div class="flex items-start gap-4 py-6">
 							<div class="flex w-16 shrink-0 flex-col items-center gap-1.5">
 								{#if canEditSpaceProfile}
-									<label class="group relative h-14 w-14 cursor-pointer overflow-hidden rounded-full border border-border-subtle bg-bg-hover-strong transition-colors hover:border-brand/50 focus-within:border-brand/50" title="Change space avatar" aria-label="Change space avatar">
+									<label class="group relative h-14 w-14 cursor-pointer overflow-hidden rounded-full border border-border-subtle bg-bg-hover-strong transition-colors hover:border-brand/50 focus-within:border-brand/50" title={m.space_change_avatar({}, { locale })} aria-label={m.space_change_avatar({}, { locale })}>
 										<SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="lg" class="h-full w-full rounded-full border-0 shadow-none" />
 										<span class="absolute inset-0 flex items-center justify-center bg-overlay-scrim-strong opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
 											{#if spaceAvatarUploading}<Loader2 class="h-4 w-4 animate-spin text-overlay-control-text" />{:else}<Upload class="h-4 w-4 text-overlay-control-text" />{/if}
@@ -1575,11 +1667,11 @@ $effect(() => {
 									</label>
 									<label class="inline-flex cursor-pointer items-center gap-1 rounded-[4px] px-1 py-0.5 text-[11px] leading-none text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary {spaceAvatarUploading ? 'pointer-events-none opacity-70' : ''}">
 										{#if spaceAvatarUploading}<Loader2 class="h-3 w-3 animate-spin" />{:else}<Upload class="h-3 w-3" />{/if}
-										<span aria-live="polite">{spaceAvatarUploadStage === "preparing" ? "Preparing" : spaceAvatarUploadStage === "uploading" ? `${spaceAvatarUploadProgress}%` : spaceAvatarUploadStage === "saving" ? "Saving" : space?.publicProfile?.avatarUrl ? "Change" : "Upload"}</span>
+										<span aria-live="polite">{spaceAvatarUploadStage === "preparing" ? m.space_preparing({}, { locale }) : spaceAvatarUploadStage === "uploading" ? `${spaceAvatarUploadProgress}%` : spaceAvatarUploadStage === "saving" ? m.space_saving({}, { locale }) : space?.publicProfile?.avatarUrl ? m.space_change({}, { locale }) : m.space_upload({}, { locale })}</span>
 										<input type="file" accept="image/jpeg,image/png,image/gif,image/webp" class="sr-only" disabled={spaceAvatarUploading} onchange={handleSpaceAvatarFileChange} />
 									</label>
 									{#if spaceAvatarUploading}
-										<UploadProgress class="w-12 rounded-full" value={spaceAvatarUploadStage === "uploading" ? spaceAvatarUploadProgress : null} label="Space avatar upload progress" />
+										<UploadProgress class="w-12 rounded-full" value={spaceAvatarUploadStage === "uploading" ? spaceAvatarUploadProgress : null} label={m.space_avatar_progress({}, { locale })} />
 									{/if}
 								{:else}
 									<SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="lg" class="h-14 w-14 rounded-full" />
@@ -1590,12 +1682,12 @@ $effect(() => {
 								<!-- Name -->
 								{#if renamingSpace && canEditSpaceProfile}
 									<div class="flex min-w-0 items-center gap-2">
-										<input type="text" bind:value={renameInput} disabled={renameSaving} aria-label="Space name" class="min-w-0 flex-1 rounded-[5px] border border-brand/40 bg-bg-input px-2.5 py-1.5 text-[15px] font-medium text-text-primary transition-colors focus:outline-none disabled:opacity-60" onkeydown={(event) => { if (event.key === 'Enter' && !renameSaving && !isComposingKeyboardEvent(event)) { event.preventDefault(); const trimmed = renameInput.trim(); if (trimmed && trimmed !== space?.name) void handleRenameSpace(trimmed); else { renamingSpace = false; renameError = ''; } } if (event.key === 'Escape' && !renameSaving) { renamingSpace = false; renameError = ''; } }} />
-										<button type="button" class="shrink-0 rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title="Save name" disabled={renameSaving} onclick={() => { const trimmed = renameInput.trim(); if (trimmed && trimmed !== space?.name) void handleRenameSpace(trimmed); else { renamingSpace = false; renameError = ''; } }}>{#if renameSaving}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Check class="h-3.5 w-3.5" />{/if}</button>
-										<button type="button" class="shrink-0 rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title="Cancel" disabled={renameSaving} onclick={() => { renamingSpace = false; renameError = ''; }}><X class="h-3.5 w-3.5" /></button>
+										<input type="text" bind:value={renameInput} disabled={renameSaving} aria-label={m.space_name({}, { locale })} class="min-w-0 flex-1 rounded-[5px] border border-brand/40 bg-bg-input px-2.5 py-1.5 text-[15px] font-medium text-text-primary transition-colors focus:outline-none disabled:opacity-60" onkeydown={(event) => { if (event.key === 'Enter' && !renameSaving && !isComposingKeyboardEvent(event)) { event.preventDefault(); const trimmed = renameInput.trim(); if (trimmed && trimmed !== space?.name) void handleRenameSpace(trimmed); else { renamingSpace = false; renameError = ''; } } if (event.key === 'Escape' && !renameSaving) { renamingSpace = false; renameError = ''; } }} />
+										<button type="button" class="shrink-0 rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title={m.space_save_name({}, { locale })} disabled={renameSaving} onclick={() => { const trimmed = renameInput.trim(); if (trimmed && trimmed !== space?.name) void handleRenameSpace(trimmed); else { renamingSpace = false; renameError = ''; } }}>{#if renameSaving}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Check class="h-3.5 w-3.5" />{/if}</button>
+										<button type="button" class="shrink-0 rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title={m.space_cancel({}, { locale })} disabled={renameSaving} onclick={() => { renamingSpace = false; renameError = ''; }}><X class="h-3.5 w-3.5" /></button>
 									</div>
 								{:else if canEditSpaceProfile}
-									<button type="button" onclick={() => { renameInput = space?.name ?? ''; renamingSpace = true; renameError = ''; }} class="group/edit -ml-1 flex max-w-full items-center gap-1.5 rounded-[5px] px-1 py-0.5 text-left transition-colors hover:bg-bg-hover" title="Rename space"><span class="min-w-0 truncate text-[15px] font-medium text-text-primary group-hover/edit:text-brand">{space?.name || space?.title || spaceId}</span><Pencil class="h-3 w-3 shrink-0 text-text-placeholder opacity-0 transition-opacity group-hover/edit:opacity-100" /></button>
+									<button type="button" onclick={() => { renameInput = space?.name ?? ''; renamingSpace = true; renameError = ''; }} class="group/edit -ml-1 flex max-w-full items-center gap-1.5 rounded-[5px] px-1 py-0.5 text-left transition-colors hover:bg-bg-hover" title={m.space_rename_space({}, { locale })}><span class="min-w-0 truncate text-[15px] font-medium text-text-primary group-hover/edit:text-brand">{space?.name || space?.title || spaceId}</span><Pencil class="h-3 w-3 shrink-0 text-text-placeholder opacity-0 transition-opacity group-hover/edit:opacity-100" /></button>
 								{:else}
 									<h2 class="min-w-0 truncate text-[15px] font-medium text-text-primary">{space?.name || space?.title || spaceId}</h2>
 								{/if}
@@ -1603,32 +1695,32 @@ $effect(() => {
 
 								<!-- ID -->
 								<div class="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] text-text-tertiary">
-									<span class="shrink-0 uppercase tracking-wider">ID</span>
+									<span class="shrink-0 uppercase tracking-wider">{m.space_id({}, { locale })}</span>
 									<code class="min-w-0 truncate font-mono" title={spaceId}>{formatCompactId(spaceId)}</code>
-									<button type="button" onclick={() => void copySpaceId()} class="shrink-0 rounded-[4px] p-1 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary" title="Copy space ID">
+									<button type="button" onclick={() => void copySpaceId()} class="shrink-0 rounded-[4px] p-1 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary" title={m.space_copy_space_id({}, { locale })}>
 										{#if copiedSpaceId}<Check class="h-3 w-3 text-status-running" />{:else}<Copy class="h-3 w-3" />{/if}
 									</button>
 								</div>
 
 								<!-- URL -->
 								<div class="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] text-text-tertiary">
-									<span class="shrink-0 uppercase tracking-wider">URL</span>
+									<span class="shrink-0 uppercase tracking-wider">{m.space_url({}, { locale })}</span>
 									{#if editingSpaceSlug && canEditSpaceProfile}
 										<div class="flex min-w-0 flex-1 items-center gap-1.5">
-											<div class="flex min-w-0 flex-1 items-center rounded-[5px] border border-brand/40 bg-bg-input px-2 py-1"><span class="shrink-0 font-mono {getSpaceOwnerUsername(space) ? 'text-text-tertiary' : 'text-text-placeholder'}">/{getSpaceOwnerUsername(space) || 'username'}/</span><input aria-label="Space slug" bind:value={spaceSlugDraft} placeholder="my-space" maxlength="80" onkeydown={handleSpaceSlugKeydown} disabled={spaceSlugSaving} class="min-w-0 flex-1 bg-transparent font-mono text-text-primary placeholder:text-text-placeholder focus:outline-none" /></div>
-											<button type="button" onclick={() => void saveSpaceSlug()} disabled={spaceSlugSaving} class="shrink-0 rounded-[4px] p-1 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title="Save slug">{#if spaceSlugSaving}<Loader2 class="h-3 w-3 animate-spin" />{:else}<Check class="h-3 w-3" />{/if}</button>
-											<button type="button" onclick={cancelSpaceSlugEdit} disabled={spaceSlugSaving} class="shrink-0 rounded-[4px] p-1 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title="Cancel"><X class="h-3 w-3" /></button>
+											<div class="flex min-w-0 flex-1 items-center rounded-[5px] border border-brand/40 bg-bg-input px-2 py-1"><span class="shrink-0 font-mono {getSpaceOwnerUsername(space) ? 'text-text-tertiary' : 'text-text-placeholder'}">/{getSpaceOwnerUsername(space) || 'username'}/</span><input aria-label={m.space_slug({}, { locale })} bind:value={spaceSlugDraft} placeholder="my-space" maxlength="80" onkeydown={handleSpaceSlugKeydown} disabled={spaceSlugSaving} class="min-w-0 flex-1 bg-transparent font-mono text-text-primary placeholder:text-text-placeholder focus:outline-none" /></div>
+											<button type="button" onclick={() => void saveSpaceSlug()} disabled={spaceSlugSaving} class="shrink-0 rounded-[4px] p-1 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title={m.space_save_slug({}, { locale })}>{#if spaceSlugSaving}<Loader2 class="h-3 w-3 animate-spin" />{:else}<Check class="h-3 w-3" />{/if}</button>
+											<button type="button" onclick={cancelSpaceSlugEdit} disabled={spaceSlugSaving} class="shrink-0 rounded-[4px] p-1 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title={m.space_cancel({}, { locale })}><X class="h-3 w-3" /></button>
 										</div>
 									{:else}
 										{#if getSpacePublicPath(space)}
-											<button type="button" onclick={() => void copySpacePublicLink()} class="inline-flex min-w-0 items-center gap-1 truncate font-mono transition-colors hover:text-text-secondary" title="Copy public URL"><span class="min-w-0 truncate">{getSpacePublicPath(space)}</span>{#if copiedSpaceSlugLink}<Check class="h-3 w-3 shrink-0 text-status-running" />{:else}<Copy class="h-3 w-3 shrink-0" />{/if}</button>
+											<button type="button" onclick={() => void copySpacePublicLink()} class="inline-flex min-w-0 items-center gap-1 truncate font-mono transition-colors hover:text-text-secondary" title={m.space_copy_public_url({}, { locale })}><span class="min-w-0 truncate">{getSpacePublicPath(space)}</span>{#if copiedSpaceSlugLink}<Check class="h-3 w-3 shrink-0 text-status-running" />{:else}<Copy class="h-3 w-3 shrink-0" />{/if}</button>
 										{:else if getSpaceSlug(space)}
 											<code class="min-w-0 truncate font-mono"><span class="text-text-placeholder">/username/</span>{getSpaceSlug(space)}</code>
 										{:else}
-											<span class="text-text-placeholder">Not set</span>
+											<span class="text-text-placeholder">{m.space_not_set({}, { locale })}</span>
 										{/if}
 										{#if canEditSpaceProfile}
-											<button type="button" onclick={beginSpaceSlugEdit} class="shrink-0 rounded-[4px] p-1 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary" title="Edit slug"><Pencil class="h-3 w-3" /></button>
+											<button type="button" onclick={beginSpaceSlugEdit} class="shrink-0 rounded-[4px] p-1 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary" title={m.space_edit_slug({}, { locale })}><Pencil class="h-3 w-3" /></button>
 										{/if}
 									{/if}
 								</div>
@@ -1639,11 +1731,11 @@ $effect(() => {
 
 						<!-- Description -->
 						<div class="border-t border-border-subtle py-6">
-							<label class="block text-[13px] font-medium text-text-primary" for="space-description">Description</label>
-							<textarea id="space-description" bind:value={spaceDescriptionDraft} rows="3" maxlength="2000" disabled={!canEditSpaceProfile || spaceDescriptionSaving} onkeydown={handleDescriptionKeydown} class="mt-2 w-full resize-y rounded-[5px] border border-border-subtle bg-bg-input px-2.5 py-2 text-[13px] leading-5 text-text-primary placeholder:text-text-placeholder transition-colors focus:border-brand/40 focus:outline-none disabled:opacity-60" placeholder="What is this space for? Shown on the public page."></textarea>
+							<label class="block text-[13px] font-medium text-text-primary" for="space-description">{m.space_description({}, { locale })}</label>
+							<textarea id="space-description" bind:value={spaceDescriptionDraft} rows="3" maxlength="2000" disabled={!canEditSpaceProfile || spaceDescriptionSaving} onkeydown={handleDescriptionKeydown} class="mt-2 w-full resize-y rounded-[5px] border border-border-subtle bg-bg-input px-2.5 py-2 text-[13px] leading-5 text-text-primary placeholder:text-text-placeholder transition-colors focus:border-brand/40 focus:outline-none disabled:opacity-60" placeholder={m.space_what_for({}, { locale })}></textarea>
 							{#if canEditSpaceProfile}
 								<div class="mt-3">
-									<button type="button" onclick={() => void saveSpaceDescription()} disabled={spaceDescriptionSaving || spaceDescriptionDraft.trim() === (space?.description ?? '').trim()} class="inline-flex h-8 items-center justify-center gap-1.5 rounded-[5px] bg-brand px-3 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover disabled:opacity-50">{#if spaceDescriptionSaving}<Loader2 class="h-3.5 w-3.5 animate-spin" /> Saving…{:else}Save{/if}</button>
+									<button type="button" onclick={() => void saveSpaceDescription()} disabled={spaceDescriptionSaving || spaceDescriptionDraft.trim() === (space?.description ?? '').trim()} class="inline-flex h-8 items-center justify-center gap-1.5 rounded-[5px] bg-brand px-3 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover disabled:opacity-50">{#if spaceDescriptionSaving}<Loader2 class="h-3.5 w-3.5 animate-spin" /> {m.space_saving({}, { locale })}{:else}{m.space_save({}, { locale })}{/if}</button>
 								</div>
 							{/if}
 							{#if spaceProfileError}<p class="mt-2 text-[12px] text-error-soft break-words">{spaceProfileError}</p>{/if}
@@ -1654,11 +1746,11 @@ $effect(() => {
 						<section id={sectionElementId("access")} class="scroll-mt-6 border-t border-border-subtle pt-10">
 						<div class="flex items-start justify-between gap-3 border-b border-border-subtle pb-5">
 							<div class="min-w-0">
-								<h1 class="text-[18px] font-semibold tracking-tight text-text-primary">Access</h1>
-								<p class="mt-1 text-[13px] leading-5 text-text-tertiary">Who can view and build here.</p>
+								<h1 class="text-[18px] font-semibold tracking-tight text-text-primary">{m.space_section_access({}, { locale })}</h1>
+								<p class="mt-1 text-[13px] leading-5 text-text-tertiary">{m.space_access_desc({}, { locale })}</p>
 							</div>
 							{#if canManageSpaceMembers}
-								<button type="button" onclick={() => { showInvitePanel = true; inviteCreateError = ""; }} class="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-[5px] border border-brand-border bg-brand-muted px-2.5 text-[12px] font-medium text-brand transition-colors hover:bg-brand-muted-hover"><Link class="h-3.5 w-3.5" /> Invite</button>
+								<button type="button" onclick={() => { showInvitePanel = true; inviteCreateError = ""; }} class="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-[5px] border border-brand-border bg-brand-muted px-2.5 text-[12px] font-medium text-brand transition-colors hover:bg-brand-muted-hover"><Link class="h-3.5 w-3.5" /> {m.space_invite({}, { locale })}</button>
 							{/if}
 						</div>
 
@@ -1666,24 +1758,24 @@ $effect(() => {
 						<div class="divide-y divide-border-subtle border-b border-border-subtle">
 							<div class="flex items-center justify-between gap-4 py-4">
 								<div class="min-w-0">
-									<div class="text-[13px] text-text-primary">Signed-in users</div>
-									<p class="mt-0.5 text-[12px] leading-4 text-text-tertiary">Anyone signed in to Cohub.</p>
+									<div class="text-[13px] text-text-primary">{m.space_signed_in_users({}, { locale })}</div>
+									<p class="mt-0.5 text-[12px] leading-4 text-text-tertiary">{m.space_access_any_signed_in({}, { locale })}</p>
 								</div>
-								<select value={access?.signed_in_user ?? ""} disabled={!canManageSpaceMembers} onchange={(e) => { const value = (e.currentTarget as HTMLSelectElement).value as SpaceRole | ""; void setAccess({ signed_in_user: value || null }); }} class="h-8 w-28 shrink-0 rounded-[5px] border border-border-subtle bg-bg-input px-2 text-[12px] text-text-primary focus:border-brand/40 focus:outline-none disabled:opacity-60" aria-label="Default role for signed-in users"><option value="">No access</option><option value="guest">Guest</option><option value="builder">Builder</option></select>
+								<select value={access?.signed_in_user ?? ""} disabled={!canManageSpaceMembers} onchange={(e) => { const value = (e.currentTarget as HTMLSelectElement).value as SpaceRole | ""; void setAccess({ signed_in_user: value || null }); }} class="h-8 w-28 shrink-0 rounded-[5px] border border-border-subtle bg-bg-input px-2 text-[12px] text-text-primary focus:border-brand/40 focus:outline-none disabled:opacity-60" aria-label={m.space_default_signed_in({}, { locale })}><option value="">{m.space_role_no_access({}, { locale })}</option><option value="guest">{m.space_role_guest({}, { locale })}</option><option value="builder">{m.space_role_builder({}, { locale })}</option></select>
 							</div>
 							<div class="flex items-center justify-between gap-4 py-4">
 								<div class="min-w-0">
-									<div class="text-[13px] text-text-primary">Anonymous visitors</div>
-									<p class="mt-0.5 text-[12px] leading-4 text-text-tertiary">Visitors without an account.</p>
+									<div class="text-[13px] text-text-primary">{m.space_access_anon({}, { locale })}</div>
+									<p class="mt-0.5 text-[12px] leading-4 text-text-tertiary">{m.space_access_no_account({}, { locale })}</p>
 								</div>
-								<select value={access?.anonymous_user ?? ""} disabled={!canManageSpaceMembers} onchange={(e) => { const value = (e.currentTarget as HTMLSelectElement).value as SpaceRole | ""; void setAccess({ anonymous_user: value || null }); }} class="h-8 w-28 shrink-0 rounded-[5px] border border-border-subtle bg-bg-input px-2 text-[12px] text-text-primary focus:border-brand/40 focus:outline-none disabled:opacity-60" aria-label="Default role for anonymous visitors"><option value="">No access</option><option value="guest">Guest</option></select>
+								<select value={access?.anonymous_user ?? ""} disabled={!canManageSpaceMembers} onchange={(e) => { const value = (e.currentTarget as HTMLSelectElement).value as SpaceRole | ""; void setAccess({ anonymous_user: value || null }); }} class="h-8 w-28 shrink-0 rounded-[5px] border border-border-subtle bg-bg-input px-2 text-[12px] text-text-primary focus:border-brand/40 focus:outline-none disabled:opacity-60" aria-label={m.space_default_anon({}, { locale })}><option value="">{m.space_role_no_access({}, { locale })}</option><option value="guest">{m.space_role_guest({}, { locale })}</option></select>
 							</div>
 						</div>
 						{#if accessError}<p class="mt-3 text-[12px] text-error-soft break-words">{accessError}</p>{/if}
 
 						<!-- Members -->
 						<div class="py-6">
-							<h2 class="text-[13px] font-medium text-text-primary">Members <span class="font-normal text-text-tertiary">· {members.length}</span></h2>
+							<h2 class="text-[13px] font-medium text-text-primary">{m.space_members_caption({}, { locale })}<span class="font-normal text-text-tertiary">· {members.length}</span></h2>
 							<div class="mt-3 overflow-hidden rounded-md border border-border-subtle">
 								<div class="divide-y divide-border-subtle">
 									{#each members as member (member.userId)}
@@ -1692,24 +1784,24 @@ $effect(() => {
 											<div class="min-w-0 flex-1">
 												<div class="flex items-center gap-1.5">
 													<span class="truncate text-[13px] font-medium text-text-primary">{getMemberDisplayName(member)}</span>
-													{#if getMemberRoleIcon(member.role)}<span class="shrink-0 text-[11px]" title="Host">{getMemberRoleIcon(member.role)}</span>{/if}
+													{#if getMemberRoleIcon(member.role)}<span class="shrink-0 text-[11px]" title={m.space_role_host({}, { locale })}>{getMemberRoleIcon(member.role)}</span>{/if}
 												</div>
-												<button type="button" onclick={() => { void copyMemberUuid(member); }} title="Copy user UUID" class="mt-0.5 inline-flex max-w-full items-center gap-1 font-mono text-[10px] text-text-placeholder transition-colors hover:text-text-secondary"><span class="min-w-0 truncate">{getMemberUuid(member)}</span>{#if copiedMemberUserId === member.userId}<Check class="h-3 w-3 shrink-0 text-status-running" />{/if}</button>
+												<button type="button" onclick={() => { void copyMemberUuid(member); }} title={m.space_copy_user_uuid({}, { locale })} class="mt-0.5 inline-flex max-w-full items-center gap-1 font-mono text-[10px] text-text-placeholder transition-colors hover:text-text-secondary"><span class="min-w-0 truncate">{getMemberUuid(member)}</span>{#if copiedMemberUserId === member.userId}<Check class="h-3 w-3 shrink-0 text-status-running" />{/if}</button>
 											</div>
 											<select value={member.role} disabled={!canManageSpaceMembers || updatingMemberUserId === member.userId || removingMemberUserId === member.userId} onchange={(e) => { const role = (e.currentTarget as HTMLSelectElement).value as SpaceRole; void selectMemberRole(member.userId, member.role, role); }} class="h-8 w-24 shrink-0 rounded-[5px] border border-border-subtle bg-bg-input px-2 text-[12px] text-text-primary focus:border-brand/40 focus:outline-none disabled:opacity-50" aria-label={`${getMemberDisplayName(member)} role`}>
 												{#each memberRoleOptions as option (option.value)}<option value={option.value}>{option.label}</option>{/each}
 											</select>
-											<button type="button" onclick={() => { void removeMember(member.userId); }} disabled={!canManageSpaceMembers || removingMemberUserId === member.userId} title="Remove member" class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[5px] text-text-tertiary transition-colors hover:bg-error-bg hover:text-error-soft disabled:opacity-40">{#if removingMemberUserId === member.userId}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Trash2 class="h-3.5 w-3.5" />{/if}</button>
+											<button type="button" onclick={() => { void removeMember(member.userId); }} disabled={!canManageSpaceMembers || removingMemberUserId === member.userId} title={m.space_remove_member({}, { locale })} class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[5px] text-text-tertiary transition-colors hover:bg-error-bg hover:text-error-soft disabled:opacity-40">{#if removingMemberUserId === member.userId}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Trash2 class="h-3.5 w-3.5" />{/if}</button>
 										</div>
 									{:else}
-										<div class="px-3 py-4 text-center text-[12px] text-text-tertiary">No members yet.</div>
+										<div class="px-3 py-4 text-center text-[12px] text-text-tertiary">{m.space_no_members({}, { locale })}</div>
 									{/each}
 								</div>
 								{#if canManageSpaceMembers}
 									<div class="flex flex-col gap-2 border-t border-border-subtle bg-bg-header-alt px-3 py-2.5 sm:flex-row sm:items-center">
-										<input type="text" bind:value={addingMemberUuid} placeholder="User UUID" onkeydown={(event) => { if (event.key === 'Enter' && !isComposingKeyboardEvent(event)) { event.preventDefault(); void addMember(); } }} class="h-8 min-w-0 flex-1 rounded-[5px] border border-border-subtle bg-bg-input px-2.5 font-mono text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none" />
+										<input type="text" bind:value={addingMemberUuid} placeholder={m.space_user_uuid({}, { locale })} onkeydown={(event) => { if (event.key === 'Enter' && !isComposingKeyboardEvent(event)) { event.preventDefault(); void addMember(); } }} class="h-8 min-w-0 flex-1 rounded-[5px] border border-border-subtle bg-bg-input px-2.5 font-mono text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none" />
 										<div class="flex items-center gap-2">
-											<select bind:value={addingMemberRole} class="h-8 w-24 rounded-[5px] border border-border-subtle bg-bg-input px-2 text-[12px] text-text-primary focus:border-brand/40 focus:outline-none" aria-label="New member role">
+											<select bind:value={addingMemberRole} class="h-8 w-24 rounded-[5px] border border-border-subtle bg-bg-input px-2 text-[12px] text-text-primary focus:border-brand/40 focus:outline-none" aria-label={m.space_new_member_role({}, { locale })}>
 												{#each memberRoleOptions as option (option.value)}<option value={option.value}>{option.label}</option>{/each}
 											</select>
 											<button type="button" onclick={() => { void addMember(); }} disabled={savingMember || !addingMemberUuid.trim()} class="inline-flex h-8 items-center justify-center gap-1.5 rounded-[5px] border border-border-subtle bg-bg-input px-3 text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:opacity-50">{#if savingMember}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Plus class="h-3.5 w-3.5" />{/if} Add</button>
@@ -1724,13 +1816,13 @@ $effect(() => {
 						<!-- Invite links -->
 						<div class="border-t border-border-subtle py-6">
 							<div class="flex items-center justify-between gap-3">
-								<h2 class="text-[13px] font-medium text-text-primary">Invite links <span class="font-normal text-text-tertiary">· {invitations.filter((item) => item.status === 'active').length} active</span></h2>
-								<button type="button" onclick={() => { void loadInvitations(); }} disabled={loadingInvitations} class="inline-flex h-7 items-center gap-1.5 rounded-[5px] px-2 text-[11px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50"><RefreshCw class="h-3 w-3 {loadingInvitations ? 'animate-spin' : ''}" /> Refresh</button>
+								<h2 class="text-[13px] font-medium text-text-primary">{m.space_invite_links({}, { locale })}<span class="font-normal text-text-tertiary">· {m.space_active({ count: invitations.filter((item) => item.status === 'active').length }, { locale })}</span></h2>
+								<button type="button" onclick={() => { void loadInvitations(); }} disabled={loadingInvitations} class="inline-flex h-7 items-center gap-1.5 rounded-[5px] px-2 text-[11px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50"><RefreshCw class="h-3 w-3 {loadingInvitations ? 'animate-spin' : ''}" /> {m.space_refresh({}, { locale })}</button>
 							</div>
 							{#if inviteCreateNotice}<div class="mt-3 rounded-md border border-success-soft/30 bg-success-bg px-3 py-2 text-[12px] text-success-soft">{inviteCreateNotice}</div>{/if}
 							{#if invitationsError}<div class="mt-3 rounded-md border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] text-error-soft break-words">{invitationsError}</div>{/if}
 							{#if invitations.length === 0 && !loadingInvitations}
-								<p class="mt-3 text-[12px] text-text-tertiary">No invite links.</p>
+								<p class="mt-3 text-[12px] text-text-tertiary">{m.space_no_invite_links({}, { locale })}</p>
 							{:else if invitations.length > 0}
 								<div class="mt-3 divide-y divide-border-subtle rounded-md border border-border-subtle">
 									{#each invitations as invitation (invitation.token)}
@@ -1738,14 +1830,14 @@ $effect(() => {
 											<div class="min-w-0 flex-1">
 												<div class="flex flex-wrap items-center gap-2">
 													<span class="inline-flex rounded bg-brand-bg px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-brand-muted-fg">{invitation.role}</span>
-													<span class="text-[11px] text-text-tertiary">{invitation.useCount} use{invitation.useCount !== 1 ? 's' : ''}{invitation.maxUses ? ` / ${invitation.maxUses}` : ''}</span>
+													<span class="text-[11px] text-text-tertiary">{invitation.useCount === 1 ? m.space_uses_one({ count: invitation.useCount }, { locale }) : m.space_uses_many({ count: invitation.useCount }, { locale })}{invitation.maxUses ? ` / ${invitation.maxUses}` : ''}</span>
 												</div>
-												<div class="mt-0.5 text-[10px] text-text-placeholder">{invitation.status === 'active' ? formatInviteExpiry(invitation.expiresInSeconds) : invitation.status === 'revoked' ? 'Revoked' : 'All uses exhausted'}</div>
+												<div class="mt-0.5 text-[10px] text-text-placeholder">{invitation.status === 'active' ? formatInviteExpiry(invitation.expiresInSeconds) : invitation.status === 'revoked' ? m.space_revoke({}, { locale }) : m.space_exhausted({}, { locale })}</div>
 											</div>
 											{#if invitation.status === 'active'}
 												<div class="flex shrink-0 items-center gap-0.5">
-													<button type="button" title="Copy invite link" onclick={() => { void copyInviteLink(invitation.token); }} class="inline-flex h-8 w-8 items-center justify-center rounded-[5px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary">{#if copiedInviteToken === invitation.token}<Check class="h-3.5 w-3.5 text-status-running" />{:else}<Copy class="h-3.5 w-3.5" />{/if}</button>
-													<button type="button" title="Revoke invite" onclick={() => { void revokeInvite(invitation.token); }} class="inline-flex h-8 w-8 items-center justify-center rounded-[5px] text-text-tertiary transition-colors hover:bg-error-bg hover:text-error-soft"><Trash2 class="h-3.5 w-3.5" /></button>
+													<button type="button" title={m.space_copy_invite({}, { locale })} onclick={() => { void copyInviteLink(invitation.token); }} class="inline-flex h-8 w-8 items-center justify-center rounded-[5px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary">{#if copiedInviteToken === invitation.token}<Check class="h-3.5 w-3.5 text-status-running" />{:else}<Copy class="h-3.5 w-3.5" />{/if}</button>
+													<button type="button" title={m.space_revoke_invite({}, { locale })} onclick={() => { void revokeInvite(invitation.token); }} class="inline-flex h-8 w-8 items-center justify-center rounded-[5px] text-text-tertiary transition-colors hover:bg-error-bg hover:text-error-soft"><Trash2 class="h-3.5 w-3.5" /></button>
 												</div>
 											{/if}
 										</div>
@@ -1759,34 +1851,34 @@ $effect(() => {
 						<!-- ════════ Environment ════════ -->
 						<section id={sectionElementId("environment")} class="scroll-mt-6 border-t border-border-subtle pt-10">
 						<div class="border-b border-border-subtle pb-5">
-							<h1 class="text-[18px] font-semibold tracking-tight text-text-primary">Environment</h1>
-							<p class="mt-1 text-[13px] leading-5 text-text-tertiary">What the agent sees inside the sandbox: env vars and mounted spaces.</p>
+							<h1 class="text-[18px] font-semibold tracking-tight text-text-primary">{m.space_section_env({}, { locale })}</h1>
+							<p class="mt-1 text-[13px] leading-5 text-text-tertiary">{m.space_env_desc({}, { locale })}</p>
 						</div>
 
 						<!-- Env vars -->
 						<div class="py-6">
-							<h2 class="text-[13px] font-medium text-text-primary">Variables <span class="font-normal text-text-tertiary">· {env.length}</span></h2>
-							<p class="mt-0.5 text-[12px] leading-5 text-text-tertiary">Available to every sandbox process.</p>
+							<h2 class="text-[13px] font-medium text-text-primary">{m.space_variables({}, { locale })}<span class="font-normal text-text-tertiary">· {env.length}</span></h2>
+							<p class="mt-0.5 text-[12px] leading-5 text-text-tertiary">{m.space_available_to_process({}, { locale })}</p>
 							<div class="mt-3 overflow-hidden rounded-md border border-border-subtle">
 								<div class="divide-y divide-border-subtle">
 									{#each env as item (item.name)}
 										<div class="flex items-center gap-3 px-3 py-2">
 											<code class="w-32 shrink-0 truncate font-mono text-[11px] text-text-primary sm:w-40" title={item.name}>{item.name}</code>
 											<code class="min-w-0 flex-1 truncate font-mono text-[11px] text-text-tertiary">{revealedEnvNames.has(item.name) ? item.value : '••••••••'}</code>
-											<button type="button" onclick={() => toggleEnvReveal(item.name)} class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[5px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary" title={revealedEnvNames.has(item.name) ? 'Hide value' : 'Reveal value'}>{#if revealedEnvNames.has(item.name)}<EyeOff class="h-3.5 w-3.5" />{:else}<Eye class="h-3.5 w-3.5" />{/if}</button>
+											<button type="button" onclick={() => toggleEnvReveal(item.name)} class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[5px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary" title={revealedEnvNames.has(item.name) ? m.space_hide({}, { locale }) : m.space_reveal({}, { locale })}>{#if revealedEnvNames.has(item.name)}<EyeOff class="h-3.5 w-3.5" />{:else}<Eye class="h-3.5 w-3.5" />{/if}</button>
 											{#if canEditSpaceProfile}
-												<button type="button" onclick={() => removeEnv(item.name)} class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[5px] text-text-tertiary transition-colors hover:bg-error-bg hover:text-error-soft" title="Remove variable"><Trash2 class="h-3.5 w-3.5" /></button>
+												<button type="button" onclick={() => removeEnv(item.name)} class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[5px] text-text-tertiary transition-colors hover:bg-error-bg hover:text-error-soft" title={m.space_remove_variable({}, { locale })}><Trash2 class="h-3.5 w-3.5" /></button>
 											{/if}
 										</div>
 									{:else}
-										<div class="px-3 py-4 text-center text-[12px] text-text-tertiary">No variables.</div>
+										<div class="px-3 py-4 text-center text-[12px] text-text-tertiary">{m.space_no_vars({}, { locale })}</div>
 									{/each}
 								</div>
 								{#if canEditSpaceProfile}
 									<div class="flex flex-col gap-2 border-t border-border-subtle bg-bg-header-alt px-3 py-2.5 sm:flex-row sm:items-center">
-										<input bind:value={envName} placeholder="NAME" onkeydown={(event) => { if (event.key === 'Enter' && !isComposingKeyboardEvent(event)) { event.preventDefault(); addEnv(); } }} class="h-8 w-full min-w-0 rounded-[5px] border border-border-subtle bg-bg-input px-2.5 font-mono text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none sm:w-40" />
+										<input bind:value={envName} placeholder={m.space_name_label({}, { locale })} onkeydown={(event) => { if (event.key === 'Enter' && !isComposingKeyboardEvent(event)) { event.preventDefault(); addEnv(); } }} class="h-8 w-full min-w-0 rounded-[5px] border border-border-subtle bg-bg-input px-2.5 font-mono text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none sm:w-40" />
 										<input bind:value={envValue} placeholder="value" onkeydown={(event) => { if (event.key === 'Enter' && !isComposingKeyboardEvent(event)) { event.preventDefault(); addEnv(); } }} class="h-8 min-w-0 flex-1 rounded-[5px] border border-border-subtle bg-bg-input px-2.5 font-mono text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none" />
-										<button type="button" onclick={addEnv} disabled={!envName.trim()} class="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-[5px] border border-border-subtle bg-bg-input px-3 text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:opacity-50"><Plus class="h-3.5 w-3.5" /> Add</button>
+										<button type="button" onclick={addEnv} disabled={!envName.trim()} class="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-[5px] border border-border-subtle bg-bg-input px-3 text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:opacity-50"><Plus class="h-3.5 w-3.5" /> {m.space_add({}, { locale })}</button>
 									</div>
 								{/if}
 							</div>
@@ -1795,16 +1887,16 @@ $effect(() => {
 
 						<!-- Mounted spaces -->
 						<div class="border-t border-border-subtle py-6">
-							<h2 class="text-[13px] font-medium text-text-primary">Mounted spaces <span class="font-normal text-text-tertiary">· {mods.length}</span></h2>
-							<p class="mt-0.5 max-w-xl text-[12px] leading-5 text-text-tertiary">Mounted read-only at <code class="font-mono text-text-secondary">/mods/&lt;slug&gt;</code>. Changes restart the sandbox.</p>
+							<h2 class="text-[13px] font-medium text-text-primary">{m.space_mounted_spaces({}, { locale })}<span class="font-normal text-text-tertiary">· {mods.length}</span></h2>
+							<p class="mt-0.5 max-w-xl text-[12px] leading-5 text-text-tertiary">{m.space_mounted_readonly({}, { locale })} <code class="font-mono text-text-secondary">/mods/&lt;slug&gt;</code>. {m.space_mount_changes_restart({}, { locale })}</p>
 							{#if shouldShowBaseModRecommendation && recommendedBaseMod && canManageSpaceMods}
 								<div class="mt-3 flex flex-col gap-2 rounded-md border border-brand-border bg-brand-muted px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
 									<div class="min-w-0">
-										<div class="text-[12px] font-medium text-text-primary">{recommendedBaseMod.name} <span class="font-normal text-text-tertiary">— recommended</span></div>
+										<div class="text-[12px] font-medium text-text-primary">{recommendedBaseMod.name} <span class="font-normal text-text-tertiary">— {m.space_recommended({}, { locale })}</span></div>
 										<div class="mt-0.5 break-all font-mono text-[10px] text-text-tertiary">/mods/{recommendedBaseMod.mountSlug}</div>
-										<button type="button" onclick={() => { void copyModSpaceId(recommendedBaseMod.modSpaceId); }} title="Copy mod space ID" class="mt-0.5 inline-flex max-w-full items-center gap-1 font-mono text-[10px] text-text-placeholder transition-colors hover:text-text-secondary"><span class="min-w-0 truncate">{recommendedBaseMod.modSpaceId}</span>{#if copiedModSpaceId === recommendedBaseMod.modSpaceId}<Check class="h-3 w-3 shrink-0 text-status-running" />{/if}</button>
+										<button type="button" onclick={() => { void copyModSpaceId(recommendedBaseMod.modSpaceId); }} title={m.space_copy_mod_space_id({}, { locale })} class="mt-0.5 inline-flex max-w-full items-center gap-1 font-mono text-[10px] text-text-placeholder transition-colors hover:text-text-secondary"><span class="min-w-0 truncate">{recommendedBaseMod.modSpaceId}</span>{#if copiedModSpaceId === recommendedBaseMod.modSpaceId}<Check class="h-3 w-3 shrink-0 text-status-running" />{/if}</button>
 									</div>
-									<button type="button" onclick={() => fillRecommendedMod(recommendedBaseMod)} class="inline-flex h-7 shrink-0 items-center justify-center rounded-[5px] border border-brand-border px-2.5 text-[11px] font-medium text-brand transition-colors hover:bg-brand-muted-hover">Use</button>
+									<button type="button" onclick={() => fillRecommendedMod(recommendedBaseMod)} class="inline-flex h-7 shrink-0 items-center justify-center rounded-[5px] border border-brand-border px-2.5 text-[11px] font-medium text-brand transition-colors hover:bg-brand-muted-hover">{m.space_use({}, { locale })}</button>
 								</div>
 							{/if}
 							<div class="mt-3 overflow-hidden rounded-md border border-border-subtle">
@@ -1814,32 +1906,32 @@ $effect(() => {
 											<div class="min-w-0 flex-1">
 												<div class="flex flex-wrap items-center gap-2">
 													<span class="truncate text-[13px] font-medium text-text-primary">{mod.name ?? mod.modSpaceName ?? mod.modSpaceId}</span>
-													<span class="shrink-0 rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wider {mod.enabled ? 'bg-success-bg text-success-soft' : 'bg-bg-hover text-text-placeholder'}">{mod.enabled ? 'on' : 'off'}</span>
+													<span class="shrink-0 rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wider {mod.enabled ? 'bg-success-bg text-success-soft' : 'bg-bg-hover text-text-placeholder'}">{mod.enabled ? m.space_on({}, { locale }) : m.space_off({}, { locale })}</span>
 												</div>
 												<div class="mt-0.5 break-all font-mono text-[10px] text-text-placeholder">{mod.mountPath}</div>
-												<button type="button" onclick={() => { void copyModSpaceId(mod.modSpaceId); }} title="Copy mod space ID" class="mt-0.5 inline-flex max-w-full items-center gap-1 font-mono text-[10px] text-text-placeholder transition-colors hover:text-text-secondary"><span class="min-w-0 truncate">{mod.modSpaceId}</span>{#if copiedModSpaceId === mod.modSpaceId}<Check class="h-3 w-3 shrink-0 text-status-running" />{/if}</button>
+												<button type="button" onclick={() => { void copyModSpaceId(mod.modSpaceId); }} title={m.space_copy_mod_space_id({}, { locale })} class="mt-0.5 inline-flex max-w-full items-center gap-1 font-mono text-[10px] text-text-placeholder transition-colors hover:text-text-secondary"><span class="min-w-0 truncate">{mod.modSpaceId}</span>{#if copiedModSpaceId === mod.modSpaceId}<Check class="h-3 w-3 shrink-0 text-status-running" />{/if}</button>
 												{#if canManageSpaceMods}
-													<input value={mod.mountSlug} onblur={(event) => { const slug = (event.currentTarget as HTMLInputElement).value.trim(); if (slug !== mod.mountSlug) { void updateModMountSlug(mod, slug); } }} onkeydown={(event) => { if (event.key === 'Enter' && !isComposingKeyboardEvent(event)) { event.preventDefault(); const slug = (event.currentTarget as HTMLInputElement).value.trim(); if (slug !== mod.mountSlug) { void updateModMountSlug(mod, slug); } } }} placeholder="mount slug" aria-label="Mount slug" class="mt-1.5 w-full max-w-[200px] rounded-[4px] border border-border-subtle bg-bg-input px-2 py-1 font-mono text-[11px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none" />
+													<input value={mod.mountSlug} onblur={(event) => { const slug = (event.currentTarget as HTMLInputElement).value.trim(); if (slug !== mod.mountSlug) { void updateModMountSlug(mod, slug); } }} onkeydown={(event) => { if (event.key === 'Enter' && !isComposingKeyboardEvent(event)) { event.preventDefault(); const slug = (event.currentTarget as HTMLInputElement).value.trim(); if (slug !== mod.mountSlug) { void updateModMountSlug(mod, slug); } } }} placeholder="mount slug" aria-label={m.space_mount_slug({}, { locale })} class="mt-1.5 w-full max-w-[200px] rounded-[4px] border border-border-subtle bg-bg-input px-2 py-1 font-mono text-[11px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none" />
 												{/if}
 											</div>
 											{#if canManageSpaceMods}
 												<div class="flex shrink-0 items-center gap-0.5">
-													<button type="button" onclick={() => toggleMod(mod)} disabled={modUpdatingId === mod.id} class="inline-flex h-7 items-center rounded-[5px] px-2 text-[11px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50">{mod.enabled ? 'Disable' : 'Enable'}</button>
-													<button type="button" onclick={() => removeMod(mod)} disabled={modUpdatingId === mod.id} title="Remove mod" class="inline-flex h-7 w-7 items-center justify-center rounded-[5px] text-text-tertiary transition-colors hover:bg-error-bg hover:text-error-soft disabled:opacity-50"><Trash2 class="h-3.5 w-3.5" /></button>
+													<button type="button" onclick={() => toggleMod(mod)} disabled={modUpdatingId === mod.id} class="inline-flex h-7 items-center rounded-[5px] px-2 text-[11px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50">{mod.enabled ? m.space_disable({}, { locale }) : m.space_enable({}, { locale })}</button>
+													<button type="button" onclick={() => removeMod(mod)} disabled={modUpdatingId === mod.id} title={m.space_remove_mod({}, { locale })} class="inline-flex h-7 w-7 items-center justify-center rounded-[5px] text-text-tertiary transition-colors hover:bg-error-bg hover:text-error-soft disabled:opacity-50"><Trash2 class="h-3.5 w-3.5" /></button>
 												</div>
 											{/if}
 										</div>
 									{:else}
-										<div class="px-3 py-4 text-center text-[12px] text-text-tertiary">No mounted spaces.</div>
+										<div class="px-3 py-4 text-center text-[12px] text-text-tertiary">{m.space_no_mounted({}, { locale })}</div>
 									{/each}
 								</div>
 								{#if canManageSpaceMods}
 									<div class="flex flex-col gap-2 border-t border-border-subtle bg-bg-header-alt px-3 py-2.5">
 										<div class="flex flex-col gap-2 sm:flex-row sm:items-center">
-											<input bind:value={modSpaceId} placeholder="Mod Space UUID" class="h-8 min-w-0 flex-1 rounded-[5px] border border-border-subtle bg-bg-input px-2.5 font-mono text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none" />
+											<input bind:value={modSpaceId} placeholder={m.space_mod_space_id({}, { locale })} class="h-8 min-w-0 flex-1 rounded-[5px] border border-border-subtle bg-bg-input px-2.5 font-mono text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none" />
 											<div class="flex items-center gap-2">
-												<input bind:value={modName} placeholder="Name (optional)" class="h-8 w-full min-w-0 rounded-[5px] border border-border-subtle bg-bg-input px-2.5 text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none sm:w-32" />
-												<input bind:value={modMountSlug} placeholder="Slug (optional)" class="h-8 w-full min-w-0 rounded-[5px] border border-border-subtle bg-bg-input px-2.5 font-mono text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none sm:w-32" />
+												<input bind:value={modName} placeholder={m.space_name_optional({}, { locale })} class="h-8 w-full min-w-0 rounded-[5px] border border-border-subtle bg-bg-input px-2.5 text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none sm:w-32" />
+												<input bind:value={modMountSlug} placeholder={m.space_slug_optional({}, { locale })} class="h-8 w-full min-w-0 rounded-[5px] border border-border-subtle bg-bg-input px-2.5 font-mono text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none sm:w-32" />
 												<button type="button" onclick={addMod} disabled={modSaving || !modSpaceId.trim()} class="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-[5px] border border-border-subtle bg-bg-input px-3 text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:opacity-50">{#if modSaving}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Plus class="h-3.5 w-3.5" />{/if} Add</button>
 											</div>
 										</div>
@@ -1854,8 +1946,8 @@ $effect(() => {
 						<!-- ════════ Channels ════════ -->
 						<section id={sectionElementId("channels")} class="scroll-mt-6 border-t border-border-subtle pt-10">
 						<div class="border-b border-border-subtle pb-5">
-							<h1 class="text-[18px] font-semibold tracking-tight text-text-primary">Channels</h1>
-							<p class="mt-1 text-[13px] leading-5 text-text-tertiary">Let this space send and receive messages on external platforms.</p>
+							<h1 class="text-[18px] font-semibold tracking-tight text-text-primary">{m.space_section_channels({}, { locale })}</h1>
+							<p class="mt-1 text-[13px] leading-5 text-text-tertiary">{m.space_channels_desc({}, { locale })}</p>
 						</div>
 
 						<div class="py-6">
@@ -1881,7 +1973,7 @@ $effect(() => {
 													{/if}
 												</div>
 												{#if canManageSpaceChannels}
-													<button type="button" onclick={() => unbindChannel(binding.channelId)} class="inline-flex h-7 shrink-0 items-center rounded-[5px] px-2 text-[11px] text-text-tertiary transition-colors hover:bg-error-bg hover:text-error-soft">Unbind</button>
+													<button type="button" onclick={() => unbindChannel(binding.channelId)} class="inline-flex h-7 shrink-0 items-center rounded-[5px] px-2 text-[11px] text-text-tertiary transition-colors hover:bg-error-bg hover:text-error-soft">{m.space_unbind({}, { locale })}</button>
 												{/if}
 											</div>
 											<div class="mt-2"><ChannelModelPicker model={binding.config?.model ?? null} disabled={!canManageSpaceChannels} saving={savingChannelConfigIds.has(binding.id)} onSelect={(model) => saveChannelModel(binding, model)} /></div>
@@ -1895,7 +1987,7 @@ $effect(() => {
 														onchange={(event) => saveDiscordRequireMention(binding, event.currentTarget.checked)}
 														class="rounded-sm border-border-subtle bg-bg-input checked:bg-brand disabled:opacity-50"
 													/>
-													<span class="min-w-0">Require @mention in Discord server channels</span>
+													<span class="min-w-0">{m.space_require_discord_mention({}, { locale })}</span>
 												</label>
 											{:else if binding.channel?.provider === "feishu"}
 												{@const feishuConfig = (binding.config ?? {}) as FeishuChannelConfig}
@@ -1907,21 +1999,21 @@ $effect(() => {
 														onchange={(event) => saveFeishuRequireMention(binding, event.currentTarget.checked)}
 														class="rounded-sm border-border-subtle bg-bg-input checked:bg-brand disabled:opacity-50"
 													/>
-													<span class="min-w-0">Require @mention in Feishu groups</span>
+													<span class="min-w-0">{m.space_require_feishu_mention({}, { locale })}</span>
 												</label>
 											{/if}
 										</div>
 									{:else}
-										<div class="px-3 py-4 text-center text-[12px] text-text-tertiary">No channels bound. <a href="/settings/channels" class="text-text-secondary underline underline-offset-2 hover:text-text-primary">Manage channels</a></div>
+										<div class="px-3 py-4 text-center text-[12px] text-text-tertiary">{m.space_no_channels({}, { locale })}<a href="/settings/channels" class="text-text-secondary underline underline-offset-2 hover:text-text-primary">{m.space_manage_channels({}, { locale })}</a></div>
 									{/each}
 								</div>
 								{#if canManageSpaceChannels && allChannels.filter((ch) => !channels.some((binding) => binding.channelId === ch.id)).length > 0}
 									<div class="flex flex-col gap-2 border-t border-border-subtle bg-bg-header-alt px-3 py-2.5 sm:flex-row sm:items-center">
-										<select bind:value={selectedChannelId} class="h-8 min-w-0 flex-1 rounded-[5px] border border-border-subtle bg-bg-input px-2.5 text-[12px] text-text-primary focus:border-brand/40 focus:outline-none" aria-label="Channel to bind">
-											<option value="">Select a channel…</option>
+										<select bind:value={selectedChannelId} class="h-8 min-w-0 flex-1 rounded-[5px] border border-border-subtle bg-bg-input px-2.5 text-[12px] text-text-primary focus:border-brand/40 focus:outline-none" aria-label={m.space_channel_to_bind({}, { locale })}>
+											<option value="">{m.space_select_channel({}, { locale })}</option>
 											{#each allChannels.filter((ch) => !channels.some((binding) => binding.channelId === ch.id)) as channel (channel.id)}<option value={channel.id}>{channel.provider} · {channel.name}</option>{/each}
 										</select>
-										<button type="button" onclick={bindChannel} disabled={!selectedChannelId} class="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-[5px] border border-border-subtle bg-bg-input px-3 text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:opacity-50"><Plus class="h-3.5 w-3.5" /> Bind</button>
+										<button type="button" onclick={bindChannel} disabled={!selectedChannelId} class="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-[5px] border border-border-subtle bg-bg-input px-3 text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:opacity-50"><Plus class="h-3.5 w-3.5" /> {m.space_bind({}, { locale })}</button>
 									</div>
 								{/if}
 							</div>
@@ -1933,10 +2025,10 @@ $effect(() => {
 						<section id={sectionElementId("sandbox")} class="scroll-mt-6 border-t border-border-subtle pt-10">
 						<div class="flex items-start justify-between gap-3 border-b border-border-subtle pb-5">
 							<div class="min-w-0">
-								<h1 class="text-[18px] font-semibold tracking-tight text-text-primary">Sandbox</h1>
-								<p class="mt-1 text-[13px] leading-5 text-text-tertiary">Compute size, hibernation, and health.</p>
+								<h1 class="text-[18px] font-semibold tracking-tight text-text-primary">{m.space_section_sandbox({}, { locale })}</h1>
+								<p class="mt-1 text-[13px] leading-5 text-text-tertiary">{m.space_sandbox_desc({}, { locale })}</p>
 							</div>
-							<button type="button" onclick={forceRecoverSandbox} disabled={!canManageSpaceSandbox || recoveringSandbox} class="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-[5px] border border-border-subtle bg-bg-input px-2.5 text-[12px] font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:opacity-50">{#if recoveringSandbox}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<RefreshCw class="h-3.5 w-3.5" />{/if} Force recover</button>
+							<button type="button" onclick={forceRecoverSandbox} disabled={!canManageSpaceSandbox || recoveringSandbox} class="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-[5px] border border-border-subtle bg-bg-input px-2.5 text-[12px] font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:opacity-50">{#if recoveringSandbox}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<RefreshCw class="h-3.5 w-3.5" />{/if} {m.space_force_recovery({}, { locale })}</button>
 						</div>
 
 						<!-- Settings rows -->
@@ -1945,21 +2037,21 @@ $effect(() => {
 							<div class="py-4">
 								<div class="flex items-center justify-between gap-4">
 									<div class="min-w-0">
-										<div class="text-[13px] text-text-primary">Compute spec</div>
+										<div class="text-[13px] text-text-primary">{m.space_compute_spec({}, { locale })}</div>
 										<div class="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
 											<span class="text-[12px] font-medium text-text-secondary">{getSandboxSpecLabel(sandboxSpec)}</span>
 											<span class="font-mono text-[11px] text-text-tertiary">{getSandboxSpecSummary(sandboxSpec)}</span>
 											{#if savingSandboxSpec}
 												<Loader2 class="h-3 w-3 animate-spin text-text-tertiary" />
 											{:else if sandboxSpecPendingRestart || (appliedSandboxSpec && appliedSandboxSpec !== sandboxSpec)}
-												<span class="rounded-full bg-warning-bg px-2 py-0.5 text-[10px] font-medium text-warning-soft">Restart to apply</span>
+												<span class="rounded-full bg-warning-bg px-2 py-0.5 text-[10px] font-medium text-warning-soft">{m.space_restart_to_apply({}, { locale })}</span>
 												{#if canManageSpaceSandbox}
-													<button type="button" onclick={forceRecoverSandbox} disabled={recoveringSandbox} class="inline-flex items-center gap-1 text-[11px] font-medium text-brand transition-colors hover:text-brand-hover disabled:opacity-50">{#if recoveringSandbox}<Loader2 class="h-3 w-3 animate-spin" />{:else}<RefreshCw class="h-3 w-3" />{/if} Restart now</button>
+													<button type="button" onclick={forceRecoverSandbox} disabled={recoveringSandbox} class="inline-flex items-center gap-1 text-[11px] font-medium text-brand transition-colors hover:text-brand-hover disabled:opacity-50">{#if recoveringSandbox}<Loader2 class="h-3 w-3 animate-spin" />{:else}<RefreshCw class="h-3 w-3" />{/if} {m.space_restart_now({}, { locale })}</button>
 												{/if}
 											{/if}
 										</div>
 									</div>
-									<button type="button" onclick={() => (specPickerOpen = true)} disabled={!canManageSpaceSandbox} class="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-[5px] border border-border-subtle bg-bg-input px-3 text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:opacity-50"><Zap class="h-3.5 w-3.5" /> Change</button>
+									<button type="button" onclick={() => (specPickerOpen = true)} disabled={!canManageSpaceSandbox} class="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-[5px] border border-border-subtle bg-bg-input px-3 text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:opacity-50"><Zap class="h-3.5 w-3.5" /> {m.space_change({}, { locale })}</button>
 								</div>
 								{#if sandboxSpecError}<p class="mt-1.5 text-[12px] text-error-soft break-words">{sandboxSpecError}</p>{/if}
 								{#if sandboxSpecMessage}<p class="mt-1.5 text-[12px] text-success-soft">{sandboxSpecMessage}</p>{/if}
@@ -1969,19 +2061,19 @@ $effect(() => {
 							<div class="py-4">
 								<div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
 									<div class="min-w-0">
-										<div class="text-[13px] text-text-primary">Hibernation</div>
-										<p class="mt-0.5 text-[12px] leading-4 text-text-tertiary">Pause the sandbox when idle to free compute.</p>
+										<div class="text-[13px] text-text-primary">{m.space_hibernation({}, { locale })}</div>
+										<p class="mt-0.5 text-[12px] leading-4 text-text-tertiary">{m.space_hibernation_desc({}, { locale })}</p>
 									</div>
 									<div class="flex shrink-0 items-center gap-2">
-										<select bind:value={sandboxAutoDestroyMode} disabled={!canManageSpaceSandbox} class="h-8 rounded-[5px] border border-border-subtle bg-bg-input px-2 text-[12px] text-text-primary focus:border-brand/40 focus:outline-none disabled:opacity-60" aria-label="Hibernate mode">
-											<option value="idle">After idle</option>
-											<option value="never">Never</option>
+										<select bind:value={sandboxAutoDestroyMode} disabled={!canManageSpaceSandbox} class="h-8 rounded-[5px] border border-border-subtle bg-bg-input px-2 text-[12px] text-text-primary focus:border-brand/40 focus:outline-none disabled:opacity-60" aria-label={m.space_hibernate_mode({}, { locale })}>
+											<option value="idle">{m.space_after_idle({}, { locale })}</option>
+											<option value="never">{m.space_never({}, { locale })}</option>
 										</select>
 										{#if sandboxAutoDestroyMode === "idle"}
-											<input type="number" min="60" max="2592000" step="60" bind:value={sandboxIdleTtlSeconds} disabled={!canManageSpaceSandbox} class="h-8 w-24 rounded-[5px] border border-border-subtle bg-bg-input px-2 text-[12px] text-text-primary focus:border-brand/40 focus:outline-none disabled:opacity-60" aria-label="Idle seconds" />
-											<span class="text-[11px] text-text-tertiary">sec</span>
+											<input type="number" min="60" max="2592000" step="60" bind:value={sandboxIdleTtlSeconds} disabled={!canManageSpaceSandbox} class="h-8 w-24 rounded-[5px] border border-border-subtle bg-bg-input px-2 text-[12px] text-text-primary focus:border-brand/40 focus:outline-none disabled:opacity-60" aria-label={m.space_idle_seconds({}, { locale })} />
+											<span class="text-[11px] text-text-tertiary">{m.space_sec({}, { locale })}</span>
 										{/if}
-										<button type="button" onclick={saveSandboxConfig} disabled={!canManageSpaceSandbox || savingSandboxConfig} class="inline-flex h-8 items-center justify-center rounded-[5px] bg-brand px-3 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover disabled:opacity-50">{savingSandboxConfig ? "Saving…" : "Save"}</button>
+										<button type="button" onclick={saveSandboxConfig} disabled={!canManageSpaceSandbox || savingSandboxConfig} class="inline-flex h-8 items-center justify-center rounded-[5px] bg-brand px-3 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover disabled:opacity-50">{savingSandboxConfig ? m.space_saving({}, { locale }) : m.space_save({}, { locale })}</button>
 									</div>
 								</div>
 								{#if sandboxAutoDestroyMode === "idle"}<p class="mt-1.5 text-[11px] text-text-placeholder sm:text-right">{formatTtl(sandboxIdleTtlSeconds)} · max 30d</p>{/if}
@@ -1992,19 +2084,19 @@ $effect(() => {
 
 						<!-- Health -->
 						<div class="py-6">
-							<h2 class="text-[13px] font-medium text-text-primary">Health</h2>
+							<h2 class="text-[13px] font-medium text-text-primary">{m.space_health_heading({}, { locale })}</h2>
 							<div class="mt-3 flex flex-wrap items-center gap-2">
 								<span class={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ${getSandboxStatusClass(sandbox?.status)}`}>{getSandboxLifecycleLabel(sandbox?.status)}</span>
 								<span class={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ${getSandboxStatusClass(sandbox?.runtimeStatus)}`}>{getSandboxRuntimeLabel(sandbox?.runtimeStatus)}</span>
 								{#if sandbox?.stopReason}<span class="inline-flex max-w-full items-center rounded-full bg-bg-hover px-2 py-0.5 text-[11px] text-text-tertiary ring-1 ring-border-subtle"><span class="truncate">{sandbox.stopReason}</span></span>{/if}
 							</div>
 							<div class="mt-4 grid grid-cols-2 gap-x-6 gap-y-4 text-[12px] sm:grid-cols-4">
-								<div title={getSandboxActivityTitle()}><div class="text-[10px] uppercase tracking-[0.14em] text-text-placeholder">Activity</div><div class="mt-0.5 text-text-primary">{getSandboxActivityText()}</div></div>
-								<div title={getSandboxHeartbeatTitle()}><div class="text-[10px] uppercase tracking-[0.14em] text-text-placeholder">Heartbeat</div><div class="mt-0.5 text-text-primary">{formatRelativeTime(sandbox?.lastHeartbeatAt)}</div></div>
-								<div><div class="text-[10px] uppercase tracking-[0.14em] text-text-placeholder">Stopped</div><div class="mt-0.5 text-text-primary">{formatRelativeTime(sandbox?.stoppedAt)}</div></div>
-								<div class="min-w-0"><div class="text-[10px] uppercase tracking-[0.14em] text-text-placeholder">Pod</div><div class="mt-0.5 min-w-0 truncate font-mono text-[11px] text-text-primary" title={sandbox?.podName ?? ''}>{sandbox?.podName ?? '—'}</div></div>
-								<div class="col-span-2 min-w-0"><div class="text-[10px] uppercase tracking-[0.14em] text-text-placeholder">Desired image</div><div class="mt-0.5 break-all font-mono text-[11px] leading-relaxed text-text-secondary">{sandbox?.desiredImage ?? '—'}</div></div>
-								<div class="col-span-2 min-w-0"><div class="text-[10px] uppercase tracking-[0.14em] text-text-placeholder">Reported image</div><div class="mt-0.5 break-all font-mono text-[11px] leading-relaxed text-text-secondary">{(sandbox?.reportedImageVersion ?? getSandboxMetaValue('imageVersion')) || '—'}</div></div>
+								<div title={getSandboxActivityTitle()}><div class="text-[10px] uppercase tracking-[0.14em] text-text-placeholder">{m.space_activity({}, { locale })}</div><div class="mt-0.5 text-text-primary">{getSandboxActivityText()}</div></div>
+								<div title={getSandboxHeartbeatTitle()}><div class="text-[10px] uppercase tracking-[0.14em] text-text-placeholder">{m.space_heartbeat({}, { locale })}</div><div class="mt-0.5 text-text-primary">{formatRelativeTime(sandbox?.lastHeartbeatAt)}</div></div>
+								<div><div class="text-[10px] uppercase tracking-[0.14em] text-text-placeholder">{m.space_health_stopped({}, { locale })}</div><div class="mt-0.5 text-text-primary">{formatRelativeTime(sandbox?.stoppedAt)}</div></div>
+								<div class="min-w-0"><div class="text-[10px] uppercase tracking-[0.14em] text-text-placeholder">{m.space_pod({}, { locale })}</div><div class="mt-0.5 min-w-0 truncate font-mono text-[11px] text-text-primary" title={sandbox?.podName ?? ''}>{sandbox?.podName ?? '—'}</div></div>
+								<div class="col-span-2 min-w-0"><div class="text-[10px] uppercase tracking-[0.14em] text-text-placeholder">{m.space_desired_image({}, { locale })}</div><div class="mt-0.5 break-all font-mono text-[11px] leading-relaxed text-text-secondary">{sandbox?.desiredImage ?? '—'}</div></div>
+								<div class="col-span-2 min-w-0"><div class="text-[10px] uppercase tracking-[0.14em] text-text-placeholder">{m.space_reported_image({}, { locale })}</div><div class="mt-0.5 break-all font-mono text-[11px] leading-relaxed text-text-secondary">{(sandbox?.reportedImageVersion ?? getSandboxMetaValue('imageVersion')) || '—'}</div></div>
 							</div>
 							{#if sandboxRecoveryMessage}<div class="mt-4 rounded-md border border-success-soft/30 bg-success-bg px-3 py-2 text-[12px] text-success-soft">{sandboxRecoveryMessage}</div>{/if}
 							{#if sandboxRecoveryError}<div class="mt-4 rounded-md border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] text-error-soft break-words">{sandboxRecoveryError}</div>{/if}
@@ -2022,20 +2114,20 @@ $effect(() => {
 	<div class="p-5 pb-safe">
 		<div class="mb-4 flex items-start justify-between gap-3">
 			<div>
-				<h3 class="text-[15px] font-medium text-text-primary">Create invite link</h3>
-				<p class="mt-1 text-[12px] text-text-tertiary">Share the link to grant access.</p>
+				<h3 class="text-[15px] font-medium text-text-primary">{m.space_create_invite({}, { locale })}</h3>
+				<p class="mt-1 text-[12px] text-text-tertiary">{m.space_access_share({}, { locale })}</p>
 			</div>
-			<button type="button" onclick={() => { showInvitePanel = false; }} class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[5px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary" aria-label="Close"><X class="h-4 w-4" /></button>
+			<button type="button" onclick={() => { showInvitePanel = false; }} class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[5px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary" aria-label={m.space_close({}, { locale })}><X class="h-4 w-4" /></button>
 		</div>
 		{#if inviteCreateError}<div class="mb-3 rounded-md border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] text-error-soft break-words">{inviteCreateError}</div>{/if}
 		<div class="space-y-3">
-			<div><label class="mb-1.5 block text-[12px] text-text-tertiary" for="invite-role">Role</label><select id="invite-role" bind:value={inviteRole} class="h-9 w-full rounded-[5px] border border-border-subtle bg-bg-input px-2.5 text-[13px] text-text-primary focus:border-brand/40 focus:outline-none"><option value="builder">Builder</option><option value="guest">Guest</option><option value="host">Host</option></select></div>
-			<div><label class="mb-1.5 block text-[12px] text-text-tertiary" for="invite-ttl">Valid for</label><select id="invite-ttl" bind:value={inviteTtlDays} class="h-9 w-full rounded-[5px] border border-border-subtle bg-bg-input px-2.5 text-[13px] text-text-primary focus:border-brand/40 focus:outline-none"><option value={1}>1 day</option><option value={7}>7 days</option><option value={14}>14 days</option><option value={30}>30 days</option></select></div>
-			<div><label class="mb-1.5 block text-[12px] text-text-tertiary" for="invite-max-uses">Max uses <span class="text-text-placeholder">(0 = unlimited)</span></label><input id="invite-max-uses" type="number" bind:value={inviteMaxUses} min="0" max="10000" step="1" class="h-9 w-full rounded-[5px] border border-border-subtle bg-bg-input px-2.5 text-[13px] text-text-primary focus:border-brand/40 focus:outline-none" /></div>
+			<div><label class="mb-1.5 block text-[12px] text-text-tertiary" for="invite-role">{m.space_role_label({}, { locale })}</label><select id="invite-role" bind:value={inviteRole} class="h-9 w-full rounded-[5px] border border-border-subtle bg-bg-input px-2.5 text-[13px] text-text-primary focus:border-brand/40 focus:outline-none"><option value="builder">{m.space_role_builder({}, { locale })}</option><option value="guest">{m.space_role_guest({}, { locale })}</option><option value="host">{m.space_role_host({}, { locale })}</option></select></div>
+			<div><label class="mb-1.5 block text-[12px] text-text-tertiary" for="invite-ttl">{m.space_valid_for({}, { locale })}</label><select id="invite-ttl" bind:value={inviteTtlDays} class="h-9 w-full rounded-[5px] border border-border-subtle bg-bg-input px-2.5 text-[13px] text-text-primary focus:border-brand/40 focus:outline-none"><option value={1}>{m.space_day({ count: 1 }, { locale })}</option><option value={7}>{m.space_days({ count: 7 }, { locale })}</option><option value={14}>{m.space_days({ count: 14 }, { locale })}</option><option value={30}>{m.space_days({ count: 30 }, { locale })}</option></select></div>
+			<div><label class="mb-1.5 block text-[12px] text-text-tertiary" for="invite-max-uses">{m.space_max_uses({}, { locale })} <span class="text-text-placeholder">{m.space_max_uses_hint({}, { locale })}</span></label><input id="invite-max-uses" type="number" bind:value={inviteMaxUses} min="0" max="10000" step="1" class="h-9 w-full rounded-[5px] border border-border-subtle bg-bg-input px-2.5 text-[13px] text-text-primary focus:border-brand/40 focus:outline-none" /></div>
 		</div>
 		<div class="mt-5 flex justify-end gap-2">
-			<button type="button" onclick={() => { showInvitePanel = false; }} class="inline-flex h-9 items-center rounded-[5px] px-3 text-[12px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary">Cancel</button>
-			<button type="button" onclick={() => { void createInvite(); }} disabled={creatingInvite} class="inline-flex h-9 items-center gap-1.5 rounded-[5px] bg-brand px-4 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover disabled:opacity-50">{#if creatingInvite}<Loader2 class="h-3.5 w-3.5 animate-spin" /> Creating…{:else}<Link class="h-3.5 w-3.5" /> Create link{/if}</button>
+			<button type="button" onclick={() => { showInvitePanel = false; }} class="inline-flex h-9 items-center rounded-[5px] px-3 text-[12px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary">{m.common_cancel({}, { locale })}</button>
+			<button type="button" onclick={() => { void createInvite(); }} disabled={creatingInvite} class="inline-flex h-9 items-center gap-1.5 rounded-[5px] bg-brand px-4 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover disabled:opacity-50">{#if creatingInvite}<Loader2 class="h-3.5 w-3.5 animate-spin" /> {m.space_invite_creating({}, { locale })}{:else}<Link class="h-3.5 w-3.5" /> {m.space_invite_create_link({}, { locale })}{/if}</button>
 		</div>
 	</div>
 </Sheet>

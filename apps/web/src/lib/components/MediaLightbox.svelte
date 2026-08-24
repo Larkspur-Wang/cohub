@@ -8,7 +8,10 @@ import {
 	ZoomOut,
 } from "lucide-svelte";
 import { mediaLightbox } from "$lib/components/media-lightbox.svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 
+const locale = $derived(getLocale());
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 4;
 const ZOOM_STEP = 0.25;
@@ -429,7 +432,7 @@ const imageCursor = $derived(
 		tabindex="-1"
 		role="dialog"
 		aria-modal="true"
-		aria-label="Media preview"
+		aria-label={m.media_preview({}, { locale })}
 	>
 		<!-- Top toolbar -->
 		<div class="absolute top-3 right-3 z-10 flex items-center gap-2 sm:top-4 sm:right-4">
@@ -440,8 +443,8 @@ const imageCursor = $derived(
 						class="flex items-center justify-center w-7 h-7 rounded-full text-overlay-control-text hover:bg-overlay-control-hover transition-colors disabled:opacity-40"
 						onclick={() => zoomBy(-ZOOM_STEP)}
 						disabled={zoom <= MIN_ZOOM}
-						title="Zoom out"
-						aria-label="Zoom out"
+						title={m.media_zoom_out({}, { locale })}
+						aria-label={m.media_zoom_out({}, { locale })}
 					>
 						<ZoomOut class="w-4 h-4" />
 					</button>
@@ -449,7 +452,7 @@ const imageCursor = $derived(
 						type="button"
 						class="min-w-11 px-1 text-center text-[12px] tabular-nums text-overlay-control-text hover:bg-overlay-control-hover rounded-full transition-colors"
 						onclick={resetView}
-						title="Reset zoom"
+						title={m.media_reset_zoom({}, { locale })}
 						aria-label={`Zoom ${Math.round(zoom * 100)} percent. Click to reset`}
 					>
 						{Math.round(zoom * 100)}%
@@ -459,8 +462,8 @@ const imageCursor = $derived(
 						class="flex items-center justify-center w-7 h-7 rounded-full text-overlay-control-text hover:bg-overlay-control-hover transition-colors disabled:opacity-40"
 						onclick={() => zoomBy(ZOOM_STEP)}
 						disabled={zoom >= MAX_ZOOM}
-						title="Zoom in"
-						aria-label="Zoom in"
+						title={m.media_zoom_in({}, { locale })}
+						aria-label={m.media_zoom_in({}, { locale })}
 					>
 						<ZoomIn class="w-4 h-4" />
 					</button>
@@ -472,7 +475,7 @@ const imageCursor = $derived(
 				class="flex items-center justify-center w-9 h-9 rounded-full bg-overlay-control text-overlay-control-text hover:bg-overlay-control-hover transition-colors disabled:opacity-50"
 				onclick={handleDownload}
 				disabled={downloading}
-				title="Download"
+				title={m.media_download({}, { locale })}
 			>
 				{#if downloading}
 					<svg class="w-5 h-5 animate-spin" viewBox="0 0 24 24" fill="none">
@@ -518,7 +521,7 @@ const imageCursor = $derived(
 				class="absolute inset-0 z-0 flex items-center justify-center overflow-hidden"
 				role="button"
 				tabindex="0"
-				aria-label="Image preview — scroll or pinch to zoom, drag to pan, double-click to reset"
+				aria-label={m.media_image_hint({}, { locale })}
 				style:cursor={imageCursor}
 				onclick={onStageClick}
 				onkeydown={(e) => {

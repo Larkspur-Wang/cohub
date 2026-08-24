@@ -2,29 +2,34 @@ import type {
 	ChannelHealth,
 	ChannelRuntimeState,
 } from "@cohub/protocol/gateway/types";
+import type { Locale } from "$lib/i18n/locale";
+import { m } from "$lib/paraglide/messages.js";
 
 export function channelHealthLabel(
 	health: ChannelHealth | null | undefined,
 	options?: { bound?: boolean },
+	locale: Locale = "en",
 ): string {
 	if (!health) {
-		return options?.bound ? "Connecting" : "Not bound";
+		return options?.bound
+			? m.channel_health_connecting({}, { locale })
+			: m.channel_health_not_bound({}, { locale });
 	}
 	switch (health.state) {
 		case "ready":
-			return "Ready";
+			return m.channel_health_ready({}, { locale });
 		case "connecting":
-			return "Connecting";
+			return m.channel_health_connecting({}, { locale });
 		case "degraded":
-			return "Degraded";
+			return m.channel_health_degraded({}, { locale });
 		case "error":
-			return "Error";
+			return m.channel_health_error({}, { locale });
 		case "stopped":
-			return "Stopped";
+			return m.channel_health_stopped({}, { locale });
 		case "unbound":
-			return "Not bound";
+			return m.channel_health_not_bound({}, { locale });
 		default:
-			return "Unknown";
+			return m.channel_health_unknown({}, { locale });
 	}
 }
 

@@ -36,7 +36,9 @@ import type { CommandPaletteItem } from "$lib/command-palette/types";
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
 import ToolCallList from "$lib/components/ToolCallList.svelte";
 import UserAvatar from "$lib/components/UserAvatar.svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
+import { m } from "$lib/paraglide/messages.js";
 import { sdk } from "$lib/sdk";
 import { buildUserNewSessionRoute } from "$lib/space-routes";
 import { authStore } from "$lib/stores/auth.svelte";
@@ -65,12 +67,14 @@ function syncPinStateInItems(spaceId: string, isPinned: boolean) {
 }
 
 const MIN_QUERY_LENGTH = 2;
+const locale = $derived(getLocale());
 const RESULT_LIMIT = 30;
 const DEBOUNCE_MS = 180;
 const POINTER_HOVER_ARM_MS = 220;
 const SPACE_LIST_REFRESH_MIN_INTERVAL_MS = 15_000;
-const DEFAULT_PLACEHOLDER =
-	"Search turns, sessions, spaces, labels… Try label:bug";
+function defaultPlaceholder() {
+	return m.command_placeholder({}, { locale });
+}
 
 type CommandPaletteIntent = "navigate" | "new-chat";
 
@@ -85,8 +89,8 @@ type OpenCommandPaletteDetail = {
 
 let open = $state(false);
 let query = $state("");
-let title = $state("Command search");
-let placeholder = $state(DEFAULT_PLACEHOLDER);
+let title = $state("");
+let placeholder = $state("");
 let openIntent = $state<CommandPaletteIntent>("navigate");
 let inputEl = $state<HTMLInputElement | null>(null);
 let resultsEl = $state<HTMLDivElement | null>(null);
@@ -244,19 +248,31 @@ const showingSpaceRefreshStatus = $derived(
 );
 const runBlocks = $derived(runResult ?? runProgress ?? []);
 const statusText = $derived.by(() => {
-	const label = typeLabel ?? "Turns, Sessions, Spaces, Labels, and Commands";
+	const label = typeLabel ?? m.command_type_default({}, { locale });
 	if (trimmedQuery.length < MIN_QUERY_LENGTH && !hasLabelScope) {
-		if (showingSpaceRefreshStatus) return `${label} · syncing spaces…`;
+		if (showingSpaceRefreshStatus)
+			return m.command_status_syncing({ label }, { locale });
 		return renderedItems.length > 0
-			? `${label} · type to filter`
-			: `Search ${label.toLowerCase()}`;
+			? m.command_status_filter({ label }, { locale })
+			: m.command_status_search_initial(
+					{ label: label.toLowerCase() },
+					{ locale },
+				);
 	}
-	if (showingSettledItems) return `${label} · searching…`;
-	if (remoteError) return `${label} · local results only · ${remoteError}`;
+	if (showingSettledItems)
+		return m.command_status_searching({ label }, { locale });
+	if (remoteError)
+		return m.command_status_local({ label, error: remoteError }, { locale });
 	if (!remoteDone)
-		return `${label} · local ${localItems.length + localCommands.length} · syncing server…`;
-	if (!localDone) return `${label} · searching indexed cache…`;
-	return `${label} · ${renderedItems.length} result${renderedItems.length === 1 ? "" : "s"} · indexed cache + server`;
+		return m.command_status_server(
+			{ label, count: localItems.length + localCommands.length },
+			{ locale },
+		);
+	if (!localDone) return m.command_status_cache({ label }, { locale });
+	const count = renderedItems.length;
+	return count === 1
+		? m.command_status_done({ label, count }, { locale })
+		: m.command_status_done_many({ label, count }, { locale });
 });
 
 function profileFor(item: CommandPaletteItem) {
@@ -315,12 +331,15 @@ function typeMeta(type: CommandPaletteItem["type"]) {
 }
 
 function contextFor(item: CommandPaletteItem) {
-	if (item.type === "command") return item.excerpt ?? "Command";
-	if (item.type === "space") return item.excerpt ?? "Space";
+	if (item.type === "command")
+		return item.excerpt ?? m.command_ctx_command({}, { locale });
+	if (item.type === "space")
+		return item.excerpt ?? m.command_ctx_space({}, { locale });
 	if (item.type === "label")
-		return `Label: ${item.labelRef ?? item.labelName ?? "Label"}${item.spaceName ? ` · ${item.spaceName}` : ""}`;
-	if (item.type === "session") return item.spaceName ?? "Session";
-	return `${item.spaceName ?? "Space"}${item.sessionTitle ? ` / ${item.sessionTitle}` : ""} · Turn #${item.sequence ?? "?"}`;
+		return `${m.command_ctx_label({ label: item.labelRef ?? item.labelName ?? "Label" }, { locale })}${item.spaceName ? ` · ${item.spaceName}` : ""}`;
+	if (item.type === "session")
+		return item.spaceName ?? m.command_ctx_session({}, { locale });
+	return `${item.spaceName ?? "Space"}${item.sessionTitle ? ` / ${item.sessionTitle}` : ""} · ${m.command_ctx_turn({ n: item.sequence ?? "?" }, { locale })}`;
 }
 
 function itemTimestamp(item: CommandPaletteItem) {
@@ -362,8 +381,8 @@ function resetRunState() {
 }
 
 function openPalette(detail?: OpenCommandPaletteDetail) {
-	title = detail?.title ?? "Command search";
-	placeholder = detail?.placeholder ?? DEFAULT_PLACEHOLDER;
+	title = detail?.title ?? m.command_title({}, { locale });
+	placeholder = detail?.placeholder ?? defaultPlaceholder();
 	query = detail?.query ?? "";
 	openIntent = detail?.intent ?? "navigate";
 	spaceFilter = getCachedSpaceFilterPref();
@@ -378,8 +397,8 @@ function openPalette(detail?: OpenCommandPaletteDetail) {
 function closePalette() {
 	open = false;
 	query = "";
-	title = "Command search";
-	placeholder = DEFAULT_PLACEHOLDER;
+	title = m.command_title({}, { locale });
+	placeholder = defaultPlaceholder();
 	openIntent = "navigate";
 	spaceFilter = getCachedSpaceFilterPref();
 	activeIndex = 0;
@@ -535,8 +554,8 @@ function scheduleSearch(plan: typeof searchPlan, spaceId: string | null) {
 
 function openRunCommandMode() {
 	runMode = true;
-	title = "Run Command";
-	placeholder = "Type a command…";
+	title = m.command_run_title({}, { locale });
+	placeholder = m.command_run_placeholder({}, { locale });
 	runCommand = "";
 	runTaskId = null;
 	runProgress = null;
@@ -549,7 +568,7 @@ function openRunCommandMode() {
 
 async function submitRunCommand() {
 	if (!currentSpaceId) {
-		runError = "Open a space first.";
+		runError = m.command_open_space({}, { locale });
 		runStatus = "failed";
 		return;
 	}
@@ -583,7 +602,7 @@ async function submitRunCommand() {
 				}
 				if (run.status === "failed") {
 					runStatus = "failed";
-					runError = run.errorMessage ?? "Command failed";
+					runError = run.errorMessage ?? m.command_failed({}, { locale });
 					if (runPollTimer != null) window.clearInterval(runPollTimer);
 					runPollTimer = null;
 				}
@@ -595,7 +614,10 @@ async function submitRunCommand() {
 		runPollTimer = window.setInterval(() => void poll(), 1000);
 	} catch (error) {
 		runStatus = "failed";
-		runError = error instanceof Error ? error.message : "Failed to run command";
+		runError =
+			error instanceof Error
+				? error.message
+				: m.command_run_failed({}, { locale });
 	}
 }
 
@@ -659,8 +681,8 @@ function handlePaletteKeydown(event: KeyboardEvent) {
 			}
 			if (runCommand.trim()) {
 				runMode = false;
-				title = "Command search";
-				placeholder = DEFAULT_PLACEHOLDER;
+				title = m.command_title({}, { locale });
+				placeholder = defaultPlaceholder();
 				runStatus = "idle";
 				return;
 			}
@@ -782,15 +804,15 @@ onMount(() => {
 					oninput={handleCommandInput}
 				/>
 				{#if runMode}
-					<div class="command-shortcut">↵ Run</div>
+					<div class="command-shortcut">↵ {m.command_run({}, { locale })}</div>
 				{:else}
 					<div class="command-shortcut">⌘K</div>
 				{/if}
 			</div>
 
 			{#if isSpacePickerMode && !runMode}
-				<div class="space-filter-bar" role="tablist" aria-label="Filter spaces">
-					{#each [{ key: "all", label: "All" }, { key: "mine", label: "Mine" }, { key: "pinned", label: "Pinned" }] as filter}
+				<div class="space-filter-bar" role="tablist" aria-label={m.command_filter_spaces({}, { locale })}>
+					{#each [{ key: "all", label: m.command_all({}, { locale }) }, { key: "mine", label: m.command_mine({}, { locale }) }, { key: "pinned", label: m.command_pinned({}, { locale }) }] as filter}
 						<button
 							type="button"
 							class="space-filter-btn"
@@ -809,7 +831,7 @@ onMount(() => {
 						<div class="command-empty">
 							<div class="command-empty-mark"><CornerDownRight class="h-4 w-4" /></div>
 							<div>
-								<div class="text-[13px] font-medium text-text-secondary">{runStatus === "failed" ? "Command failed" : "Run command ready"}</div>
+								<div class="text-[13px] font-medium text-text-secondary">{runStatus === "failed" ? m.command_failed({}, { locale }) : m.command_run_ready({}, { locale })}</div>
 								<div class="mt-1 text-[12px] text-text-tertiary">{runError}</div>
 							</div>
 						</div>
@@ -817,16 +839,16 @@ onMount(() => {
 						<div class="command-empty">
 							<div class="command-empty-mark"><CornerDownRight class="h-4 w-4" /></div>
 							<div>
-								<div class="text-[13px] font-medium text-text-secondary">Open a space first</div>
-								<div class="mt-1 text-[12px] text-text-tertiary">Run commands need a space context.</div>
+								<div class="text-[13px] font-medium text-text-secondary">{m.command_open_space({}, { locale })}</div>
+								<div class="mt-1 text-[12px] text-text-tertiary">{m.command_run_needs_space({}, { locale })}</div>
 							</div>
 						</div>
 					{:else if runBlocks.length === 0}
 						<div class="command-empty">
 							<div class="command-empty-mark"><CornerDownRight class="h-4 w-4" /></div>
 							<div>
-								<div class="text-[13px] font-medium text-text-secondary">Ready to run</div>
-								<div class="mt-1 text-[12px] text-text-tertiary">Enter a bash command and press ↵.</div>
+								<div class="text-[13px] font-medium text-text-secondary">{m.command_ready({}, { locale })}</div>
+								<div class="mt-1 text-[12px] text-text-tertiary">{m.command_run_hint({}, { locale })}</div>
 							</div>
 						</div>
 					{:else}
@@ -834,29 +856,29 @@ onMount(() => {
 					{/if}
 				</div>
 			{:else}
-				<div bind:this={resultsEl} class:searching={showingSettledItems} class="command-results" role="listbox" aria-label="Search results" onscroll={handleResultsScroll}>
+				<div bind:this={resultsEl} class:searching={showingSettledItems} class="command-results" role="listbox" aria-label={m.command_search_results({}, { locale })} onscroll={handleResultsScroll}>
 					{#if renderedItems.length === 0}
 						<div class="command-empty">
 							<div class="command-empty-mark"><CornerDownRight class="h-4 w-4" /></div>
 							<div>
 								<div class="text-[13px] font-medium text-text-secondary">
 									{#if isSpacePickerMode && spaceFilter === "pinned"}
-										No pinned spaces
+										{m.command_no_pinned({}, { locale })}
 									{:else if isSpacePickerMode && spaceFilter === "mine"}
-										No spaces you own
+										{m.command_no_owned({}, { locale })}
 									{:else if trimmedQuery.length < MIN_QUERY_LENGTH && !hasLabelScope}
-										Command lens ready
+										{m.command_lens_ready({}, { locale })}
 									{:else}
-										No matching results
+										{m.command_no_matching({}, { locale })}
 									{/if}
 								</div>
 								<div class="mt-1 text-[12px] text-text-tertiary">
 									{#if isSpacePickerMode && spaceFilter === "pinned"}
-										Pin a space to bookmark it here.
+										{m.command_pin_hint({}, { locale })}
 									{:else if trimmedQuery.length < MIN_QUERY_LENGTH && !hasLabelScope}
-										Try label:bug for labels, a: for spaces, or t: for turns.
+										{m.command_try_filters({}, { locale })}
 									{:else}
-										Try a different phrase or type filter.
+										{m.command_try_other({}, { locale })}
 									{/if}
 								</div>
 							</div>
@@ -913,8 +935,8 @@ onMount(() => {
 										type="button"
 										class="command-pin-btn"
 										class:pinned={item.isPinned}
-										title={item.isPinned ? "Unpin" : "Pin"}
-										aria-label={item.isPinned ? `Unpin ${item.title}` : `Pin ${item.title}`}
+										title={item.isPinned ? m.command_unpin({}, { locale }) : m.command_pin({}, { locale })}
+										aria-label={item.isPinned ? m.command_unpin_item({ title: item.title }, { locale }) : m.command_pin_item({ title: item.title }, { locale })}
 										onclick={(e) => {
 									e.stopPropagation();
 									const wasPinned = item.isPinned ?? false;
@@ -932,7 +954,7 @@ onMount(() => {
 						{/each}
 						{#if isSpacePickerMode && mergedItemsRaw.length > spaceDisplayLimit}
 							<div class="flex items-center justify-center py-2 text-[11px] text-text-tertiary">
-								<span>Showing {spaceDisplayLimit} of {mergedItemsRaw.length} spaces · scroll for more</span>
+								<span>{m.command_showing({ shown: spaceDisplayLimit, total: mergedItemsRaw.length }, { locale })}</span>
 							</div>
 						{/if}
 					{/if}
@@ -943,13 +965,13 @@ onMount(() => {
 				<div class:error={Boolean(runError)} class="command-status" role="status" aria-live="polite">
 					{#if runMode}
 						{#if runStatus === "queued" || runStatus === "running"}<Loader2 class="h-3 w-3 animate-spin text-brand" />{/if}
-						<span>{runError || (runStatus === "done" ? `Done · ${runTaskId}` : runStatus === "running" ? "Running…" : runStatus === "queued" ? "Queued…" : currentSpaceId ? "Press ↵ to run" : "Open a space first")}</span>
+						<span>{runError || (runStatus === "done" ? m.command_done({ id: runTaskId ?? "" }, { locale }) : runStatus === "running" ? m.command_running({}, { locale }) : runStatus === "queued" ? m.command_queued({}, { locale }) : currentSpaceId ? m.command_press_run({}, { locale }) : m.command_open_space({}, { locale }))}</span>
 					{:else}
 						{#if isSearching || showingSpaceRefreshStatus}<Loader2 class="h-3 w-3 animate-spin text-brand" />{/if}
 						<span>{statusText}</span>
 					{/if}
 				</div>
-				<div class="hidden items-center gap-2 sm:flex"><span>↑↓</span><span>C-n/p</span><span>navigate</span><span>↵</span><span>open</span><span>esc</span><span>close</span></div>
+				<div class="hidden items-center gap-2 sm:flex"><span>↑↓</span><span>C-n/p</span><span>{m.command_navigate({}, { locale })}</span><span>↵</span><span>{m.command_open_verb({}, { locale })}</span><span>esc</span><span>{m.command_close({}, { locale })}</span></div>
 			</div>
 		</div>
 	</div>

@@ -23,9 +23,13 @@ import { page } from "$app/state";
 import { ensureAuth } from "$lib/auth";
 import { handleUnauthorizedError } from "$lib/auth-redirect";
 import BillingCheckoutSheet from "$lib/components/BillingCheckoutSheet.svelte";
+import { formatCurrency, formatDateTime } from "$lib/i18n/format";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 import { sdk } from "$lib/sdk";
 import { billingCatalogStore } from "$lib/stores/billing-catalog.svelte";
 
+const locale = $derived(getLocale());
 const currentPath = $derived(page.url.pathname);
 const currentSearch = $derived(page.url.search);
 type BillingTab = "balance" | "plans" | "redeem";
@@ -107,12 +111,11 @@ const pendingCheckoutExpirations = $derived.by(() => {
 });
 
 function formatUsdAmount(value: number): string {
-	const sign = value < 0 ? "-" : "";
-	const absolute = Math.abs(value);
-	return `${sign}$${absolute.toLocaleString("en-US", {
+	return formatCurrency(value, "USD", {
+		locale,
 		minimumFractionDigits: 0,
 		maximumFractionDigits: 8,
-	})}`;
+	});
 }
 
 function parseBillingTab(value: string | null): BillingTab {
@@ -140,10 +143,11 @@ $effect(() => {
 });
 
 function formatProductPrice(value: number): string {
-	return `$${value.toLocaleString("en-US", {
+	return formatCurrency(value, "USD", {
+		locale,
 		minimumFractionDigits: 2,
 		maximumFractionDigits: 2,
-	})}`;
+	});
 }
 
 function formatCreditAmount(value: number): string {
@@ -155,19 +159,19 @@ function getExpiryGroupLabel(
 ): string {
 	switch (key) {
 		case "expired":
-			return "Expired";
+			return m.billing_expired({}, { locale });
 		case "lt_7d":
-			return "Expires within 7 days";
+			return m.billing_expires_within_7d({}, { locale });
 		case "lt_30d":
-			return "Expires within 30 days";
+			return m.billing_expires_within_30d({}, { locale });
 		case "gte_30d":
-			return "Expires after 30 days";
+			return m.billing_expires_after_30d({}, { locale });
 		case "never":
-			return "No expiration";
+			return m.billing_no_expiration({}, { locale });
 	}
 }
 
-function getDiscountText(product: BillingCatalogProduct): string | null {
+function getDiscountText(product: BillingCatalogProduct): string {
 	const discountLabel = product.pricing.discountLabel?.trim();
 	if (
 		discountLabel &&
@@ -179,12 +183,15 @@ function getDiscountText(product: BillingCatalogProduct): string | null {
 		typeof product.pricing.discountRate === "number" &&
 		product.pricing.discountRate > 0
 	) {
-		return `${Math.round(product.pricing.discountRate * 100)}% off`;
+		return m.billing_discount_rate(
+			{ rate: Math.round(product.pricing.discountRate * 100) },
+			{ locale },
+		);
 	}
-	return null;
+	return "";
 }
 
-function getProductBalanceText(product: BillingCatalogProduct): string | null {
+function getProductBalanceText(product: BillingCatalogProduct): string {
 	if (product.display.creditBenefits.length > 0) {
 		return product.display.creditBenefits
 			.map((benefit) => {
@@ -192,7 +199,13 @@ function getProductBalanceText(product: BillingCatalogProduct): string | null {
 					benefit.grantKind === "plan_period" &&
 					benefit.periodAmount !== benefit.cycleAmount
 				) {
-					return `${formatUsdAmount(benefit.periodAmountUsd)} per period (${formatUsdAmount(benefit.cycleAmountUsd)} per cycle)`;
+					return m.billing_credits_body(
+						{
+							amount: formatUsdAmount(benefit.periodAmountUsd),
+							cycle: formatUsdAmount(benefit.cycleAmountUsd),
+						},
+						{ locale },
+					);
 				}
 				return formatUsdAmount(benefit.periodAmountUsd);
 			})
@@ -205,7 +218,7 @@ function getProductBalanceText(product: BillingCatalogProduct): string | null {
 	) {
 		return formatCreditAmount(product.display.creditsAmount);
 	}
-	return null;
+	return "";
 }
 
 function sortProductsByPrice(products: BillingCatalogProduct[]) {
@@ -244,8 +257,14 @@ function currentSubscriptionLine(): string {
 	if (!currentSubscription.currentPeriodEnd) return parts.join(" - ");
 	parts.push(
 		currentSubscription.cancelAtPeriodEnd
-			? `auto-renew canceled, ends ${formatBillingDate(currentSubscription.currentPeriodEnd)}`
-			: `renews ${formatBillingDate(currentSubscription.currentPeriodEnd)}`,
+			? m.billing_auto_renew_canceled_ends(
+					{ date: formatBillingDate(currentSubscription.currentPeriodEnd) },
+					{ locale },
+				)
+			: m.billing_renews(
+					{ date: formatBillingDate(currentSubscription.currentPeriodEnd) },
+					{ locale },
+				),
 	);
 	return parts.join(" - ");
 }
@@ -256,33 +275,45 @@ function returnUrl() {
 }
 
 function formatBillingDate(value: string | null | undefined): string {
-	if (!value) return "No expiration";
+	if (!value) return m.billing_no_expiration({}, { locale });
 	const date = new Date(value);
 	if (Number.isNaN(date.getTime())) return value;
-	return new Intl.DateTimeFormat("en-US", {
-		month: "short",
-		day: "numeric",
-		year: "numeric",
-		hour: "numeric",
-		minute: "2-digit",
-	}).format(date);
+	return formatDateTime(date, locale, {
+		dateStyle: "medium",
+		timeStyle: "short",
+	});
 }
 
 function formatHistoryStatus(value: string): string {
-	return value
-		.split(/[._-]/g)
-		.filter(Boolean)
-		.map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-		.join(" ");
+	switch (value) {
+		case "active":
+			return m.billing_status_active({}, { locale });
+		case "trialing":
+			return m.billing_status_trialing({}, { locale });
+		case "pending_checkout":
+			return m.billing_status_pending_checkout({}, { locale });
+		default:
+			return value
+				.split(/[._-]/g)
+				.filter(Boolean)
+				.map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+				.join(" ");
+	}
 }
 
 function formatPeriod(subscription: BillingSubscriptionHistoryStatus): string {
 	if (!subscription.currentPeriodStart && !subscription.currentPeriodEnd)
-		return "No active period";
+		return m.billing_no_active_period({}, { locale });
 	if (!subscription.currentPeriodStart)
-		return `Until ${formatBillingDate(subscription.currentPeriodEnd)}`;
+		return m.billing_until(
+			{ date: formatBillingDate(subscription.currentPeriodEnd) },
+			{ locale },
+		);
 	if (!subscription.currentPeriodEnd)
-		return `From ${formatBillingDate(subscription.currentPeriodStart)}`;
+		return m.billing_from(
+			{ date: formatBillingDate(subscription.currentPeriodStart) },
+			{ locale },
+		);
 	return `${formatBillingDate(subscription.currentPeriodStart)} - ${formatBillingDate(subscription.currentPeriodEnd)}`;
 }
 
@@ -305,18 +336,20 @@ function getPendingCheckoutRefreshKey(
 
 function formatCheckoutCountdown(
 	item: BillingSubscriptionHistoryStatus,
-): string | null {
+): string {
 	const expiresAt = getPendingCheckoutExpiration(item);
-	if (expiresAt === null) return null;
+	if (expiresAt === null) return "";
 	const remainingMs = expiresAt - checkoutNow;
-	if (remainingMs <= 0) return "Expired";
+	if (remainingMs <= 0) return m.billing_checkout_expired({}, { locale });
 	const totalSeconds = Math.ceil(remainingMs / 1000);
 	const hours = Math.floor(totalSeconds / 3600);
 	const minutes = Math.floor((totalSeconds % 3600) / 60);
 	const seconds = totalSeconds % 60;
-	if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
-	if (minutes > 0) return `${minutes}m ${seconds}s`;
-	return `${seconds}s`;
+	if (hours > 0)
+		return m.billing_countdown_hms({ hours, minutes, seconds }, { locale });
+	if (minutes > 0)
+		return m.billing_countdown_ms({ minutes, seconds }, { locale });
+	return m.billing_countdown_s({ seconds }, { locale });
 }
 
 function isCheckoutExpired(item: BillingSubscriptionHistoryStatus): boolean {
@@ -342,8 +375,8 @@ function historyAmount(value: {
 }
 
 function activityStatusLabel(value: string | null): string {
-	if (value === "overage") return "Overage";
-	if (value === "partial") return "Partial";
+	if (value === "overage") return m.billing_status_overage({}, { locale });
+	if (value === "partial") return m.billing_status_partial({}, { locale });
 	return "";
 }
 
@@ -359,6 +392,7 @@ function grantConsumedPercent(value: number | null): number {
 }
 
 function formatGrantStatus(value: string): string {
+	if (value === "active") return m.billing_status_active({}, { locale });
 	return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
@@ -367,7 +401,7 @@ function getGrantDisplayStatus(grant: {
 	daysRemaining: number | null;
 }): string {
 	if (grant.daysRemaining !== null && grant.daysRemaining <= 0)
-		return "Expired";
+		return m.billing_expired({}, { locale });
 	return formatGrantStatus(grant.status);
 }
 
@@ -403,7 +437,9 @@ async function loadCreditStatus(options: { force?: boolean } = {}) {
 				return;
 			}
 			creditError =
-				error instanceof Error ? error.message : "Failed to load balance";
+				error instanceof Error
+					? error.message
+					: m.billing_load_failed({}, { locale });
 			console.error("[balance] Failed to load credit status:", error);
 		} finally {
 			creditLoading = false;
@@ -444,7 +480,9 @@ async function loadActivityPage(
 				return;
 			}
 			activityError =
-				error instanceof Error ? error.message : "Failed to load activity";
+				error instanceof Error
+					? error.message
+					: m.billing_activity_load_failed({}, { locale });
 			console.error("[balance] Failed to load activity:", error);
 		} finally {
 			activityLoading = false;
@@ -478,7 +516,7 @@ async function loadCatalog(options: { force?: boolean } = {}) {
 			catalogError =
 				error instanceof Error
 					? error.message
-					: "Failed to load billing catalog";
+					: m.billing_catalog_load_failed({}, { locale });
 			console.error("[billing] Failed to load catalog:", error);
 		} finally {
 			catalogLoading = false;
@@ -519,7 +557,9 @@ async function loadSubscriptionsPage(
 				return;
 			}
 			subscriptionsError =
-				error instanceof Error ? error.message : "Failed to load subscriptions";
+				error instanceof Error
+					? error.message
+					: m.billing_subscriptions_load_failed({}, { locale });
 			console.error("[billing] Failed to load subscriptions:", error);
 		} finally {
 			subscriptionsLoading = false;
@@ -552,11 +592,12 @@ async function createRedemption(event: SubmitEvent) {
 	try {
 		const { redemption } = await sdk.billing.createRedemption({ code });
 		if (!redemption.redeemed) {
-			redemptionError = redemption.message ?? "Redemption is not available";
+			redemptionError =
+				redemption.message ?? m.billing_redeem_failed({}, { locale });
 			return;
 		}
 		redemptionCode = "";
-		redemptionSuccess = "Code redeemed successfully";
+		redemptionSuccess = m.billing_redeem_success({}, { locale });
 		await Promise.all([
 			loadCatalog({ force: true }),
 			loadCreditStatus({ force: true }),
@@ -570,7 +611,9 @@ async function createRedemption(event: SubmitEvent) {
 			return;
 		}
 		redemptionError =
-			error instanceof Error ? error.message : "Failed to redeem code";
+			error instanceof Error
+				? error.message
+				: m.billing_redeem_failed({}, { locale });
 	} finally {
 		redemptionLoading = false;
 	}
@@ -598,7 +641,8 @@ async function cancelSubscriptionCheckout(
 	subscription: BillingSubscriptionHistoryStatus,
 ) {
 	if (!subscription.actions.canCancelCheckout || billingActionBusyKey) return;
-	if (!window.confirm("Cancel this checkout?")) return;
+	if (!window.confirm(m.billing_cancel_checkout_confirm({}, { locale })))
+		return;
 	billingActionBusyKey = `subscription:${subscription.id}:cancel-checkout`;
 	checkoutError = "";
 	try {
@@ -615,7 +659,9 @@ async function cancelSubscriptionCheckout(
 			return;
 		}
 		checkoutError =
-			error instanceof Error ? error.message : "Failed to cancel checkout";
+			error instanceof Error
+				? error.message
+				: m.billing_cancel_checkout_failed({}, { locale });
 	} finally {
 		billingActionBusyKey = null;
 	}
@@ -625,7 +671,8 @@ async function cancelSubscriptionAutoRenew(
 	subscription: BillingSubscriptionHistoryStatus,
 ) {
 	if (!subscription.actions.canCancelAutoRenew || billingActionBusyKey) return;
-	if (!window.confirm("Cancel auto-renew for this subscription?")) return;
+	if (!window.confirm(m.billing_cancel_autorenew_confirm({}, { locale })))
+		return;
 	billingActionBusyKey = `subscription:${subscription.id}:cancel-auto-renew`;
 	checkoutError = "";
 	try {
@@ -641,7 +688,9 @@ async function cancelSubscriptionAutoRenew(
 			return;
 		}
 		checkoutError =
-			error instanceof Error ? error.message : "Failed to cancel auto-renew";
+			error instanceof Error
+				? error.message
+				: m.billing_cancel_autorenew_failed({}, { locale });
 	} finally {
 		billingActionBusyKey = null;
 	}
@@ -698,7 +747,7 @@ $effect(() => {
 </script>
 
 <svelte:head>
-	<title>Billing — Cohub</title>
+	<title>{m.page_title_billing({}, { locale })} — Cohub</title>
 </svelte:head>
 
 <div class="flex-1 flex flex-col min-h-0 overflow-y-auto">
@@ -706,8 +755,8 @@ $effect(() => {
 		<section class="max-w-5xl">
 			<div class="flex flex-col gap-3 border-b border-border-subtle pb-5 sm:flex-row sm:items-center sm:justify-between">
 				<div>
-					<h1 class="text-[18px] font-semibold text-text-primary tracking-tight">Billing</h1>
-					<p class="mt-1 max-w-xl text-[13px] leading-5 text-text-tertiary">Usage balance, subscriptions, and payment history.</p>
+					<h1 class="text-[18px] font-semibold text-text-primary tracking-tight">{m.page_title_billing({}, { locale })}</h1>
+					<p class="mt-1 max-w-xl text-[13px] leading-5 text-text-tertiary">{m.billing_description({}, { locale })}</p>
 				</div>
 			</div>
 
@@ -727,16 +776,16 @@ $effect(() => {
 
 			<section class="grid gap-3 py-5 md:grid-cols-3">
 				<div class="rounded-[6px] border border-border-subtle px-3 py-3 md:col-span-2">
-					<div class="text-[11px] uppercase tracking-wider text-text-tertiary">Subscription</div>
+					<div class="text-[11px] uppercase tracking-wider text-text-tertiary">{m.billing_subscription({}, { locale })}</div>
 					<div class="mt-2 truncate text-[14px] font-semibold text-text-primary">
 						{#if catalogLoading && !billingCatalog}
-							<span class="text-text-tertiary">Loading</span>
+							<span class="text-text-tertiary">{m.billing_loading({}, { locale })}</span>
 						{:else if currentSubscription}
-							{currentSubscription.productName ?? currentSubscription.productKey ?? "Active plan"}
+							{currentSubscription.productName ?? currentSubscription.productKey ?? m.billing_active_plan({}, { locale })}
 						{:else if defaultPlanProduct}
 							{defaultPlanProduct.name}
 						{:else}
-							No active subscription
+							{m.billing_no_subscription({}, { locale })}
 						{/if}
 					</div>
 					{#if currentSubscription}
@@ -745,22 +794,25 @@ $effect(() => {
 						</div>
 					{:else if defaultPlanProduct}
 						<div class="mt-1 truncate text-[11px] text-text-tertiary">
-							Default subscription
+							{m.billing_default_subscription({}, { locale })}
 						</div>
 					{:else if billingCatalog?.payment.available === false}
 						<div class="mt-1 truncate text-[11px] text-text-tertiary">
-							Payment unavailable: {billingCatalog.payment.reason ?? "No available payment provider"}
+							{m.billing_payment_unavailable(
+								{ reason: billingCatalog.payment.reason ?? m.billing_no_provider({}, { locale }) },
+								{ locale },
+							)}
 						</div>
 					{/if}
 				</div>
 				<div class="rounded-[6px] border border-border-subtle px-3 py-3">
 					<div class="flex items-center gap-2 text-[11px] uppercase tracking-wider text-text-tertiary">
 						<Wallet class="h-3.5 w-3.5" />
-						<span>Balance</span>
+						<span>{m.billing_balance({}, { locale })}</span>
 					</div>
 					<div class="mt-2 font-mono text-[18px] font-semibold tracking-tight {balanceCredit && balanceCredit.netUsd < 0 ? 'text-error-soft' : 'text-text-primary'}">
 						{#if creditLoading && !balanceCredit}
-							<span class="text-text-tertiary">Loading</span>
+							<span class="text-text-tertiary">{m.billing_loading({}, { locale })}</span>
 						{:else}
 							{formatUsdAmount(balanceCredit?.netUsd ?? 0)}
 						{/if}
@@ -770,9 +822,9 @@ $effect(() => {
 
 			<div class="border-b border-border-subtle">
 				<div class="flex gap-1">
-					<button type="button" onclick={() => setBillingTab("balance")} class="border-b-2 px-3 py-2 text-[12px] font-medium transition-colors {activeBillingTab === 'balance' ? 'border-brand text-text-primary' : 'border-transparent text-text-tertiary hover:text-text-secondary'}">Balance</button>
-					<button type="button" onclick={() => setBillingTab("plans")} class="border-b-2 px-3 py-2 text-[12px] font-medium transition-colors {activeBillingTab === 'plans' ? 'border-brand text-text-primary' : 'border-transparent text-text-tertiary hover:text-text-secondary'}">Plans</button>
-					<button type="button" onclick={() => setBillingTab("redeem")} class="border-b-2 px-3 py-2 text-[12px] font-medium transition-colors {activeBillingTab === 'redeem' ? 'border-brand text-text-primary' : 'border-transparent text-text-tertiary hover:text-text-secondary'}">Redeem</button>
+					<button type="button" onclick={() => setBillingTab("balance")} class="border-b-2 px-3 py-2 text-[12px] font-medium transition-colors {activeBillingTab === 'balance' ? 'border-brand text-text-primary' : 'border-transparent text-text-tertiary hover:text-text-secondary'}">{m.billing_tab_balance({}, { locale })}</button>
+					<button type="button" onclick={() => setBillingTab("plans")} class="border-b-2 px-3 py-2 text-[12px] font-medium transition-colors {activeBillingTab === 'plans' ? 'border-brand text-text-primary' : 'border-transparent text-text-tertiary hover:text-text-secondary'}">{m.billing_tab_plans({}, { locale })}</button>
+					<button type="button" onclick={() => setBillingTab("redeem")} class="border-b-2 px-3 py-2 text-[12px] font-medium transition-colors {activeBillingTab === 'redeem' ? 'border-brand text-text-primary' : 'border-transparent text-text-tertiary hover:text-text-secondary'}">{m.billing_tab_redeem({}, { locale })}</button>
 				</div>
 			</div>
 
@@ -780,11 +832,11 @@ $effect(() => {
 			<section class="py-5">
 				<div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
 					<div>
-						<h2 class="text-[14px] font-medium text-text-primary">Plans</h2>
+						<h2 class="text-[14px] font-medium text-text-primary">{m.billing_plans_heading({}, { locale })}</h2>
 					</div>
 					<div class="inline-flex w-fit rounded-[6px] border border-border-subtle bg-bg-subtle p-0.5 text-[12px]">
-						<button type="button" onclick={() => (selectedPlanInterval = "monthly")} class="rounded-[5px] px-2.5 py-1.5 transition-colors {selectedPlanInterval === 'monthly' ? 'bg-bg-input text-text-primary shadow-sm' : 'text-text-tertiary hover:text-text-secondary'}">Monthly</button>
-						<button type="button" onclick={() => (selectedPlanInterval = "yearly")} class="rounded-[5px] px-2.5 py-1.5 transition-colors {selectedPlanInterval === 'yearly' ? 'bg-bg-input text-text-primary shadow-sm' : 'text-text-tertiary hover:text-text-secondary'}">Yearly</button>
+						<button type="button" onclick={() => (selectedPlanInterval = "monthly")} class="rounded-[5px] px-2.5 py-1.5 transition-colors {selectedPlanInterval === 'monthly' ? 'bg-bg-input text-text-primary shadow-sm' : 'text-text-tertiary hover:text-text-secondary'}">{m.billing_monthly({}, { locale })}</button>
+						<button type="button" onclick={() => (selectedPlanInterval = "yearly")} class="rounded-[5px] px-2.5 py-1.5 transition-colors {selectedPlanInterval === 'yearly' ? 'bg-bg-input text-text-primary shadow-sm' : 'text-text-tertiary hover:text-text-secondary'}">{m.billing_yearly({}, { locale })}</button>
 					</div>
 				</div>
 
@@ -795,7 +847,7 @@ $effect(() => {
 						<div class="h-48 rounded-[6px] bg-bg-hover-strong" aria-hidden="true"></div>
 					</div>
 				{:else if billingCatalog && billingCatalog.plans.length === 0}
-					<p class="mt-4 text-[12px] text-text-tertiary">No available subscription plans.</p>
+					<p class="mt-4 text-[12px] text-text-tertiary">{m.billing_no_plans({}, { locale })}</p>
 				{:else if selectedPlanProducts.length > 0}
 					<div class="mt-3 grid gap-3 md:grid-cols-3">
 						{#each selectedPlanProducts as product (product.key)}
@@ -803,26 +855,26 @@ $effect(() => {
 								<div class="flex min-w-0 items-center gap-2">
 									<h3 class="min-w-0 truncate text-[13px] font-semibold text-text-primary">{product.name}</h3>
 									{#if product.isDefaultPlan}
-										<span class="shrink-0 rounded-[4px] border border-border-subtle px-1.5 py-0.5 text-[10px] uppercase leading-none tracking-wider text-text-tertiary">Default plan</span>
+										<span class="shrink-0 rounded-[4px] border border-border-subtle px-1.5 py-0.5 text-[10px] uppercase leading-none tracking-wider text-text-tertiary">{m.billing_default_plan({}, { locale })}</span>
 									{/if}
 								</div>
 								<div class="mt-3 space-y-1">
-									<div class="text-[11px] text-text-tertiary">List price {formatProductPrice(product.pricing.compareAtAmountUsd ?? product.pricing.amountUsd)}</div>
+									<div class="text-[11px] text-text-tertiary">{m.billing_list_price({ price: formatProductPrice(product.pricing.compareAtAmountUsd ?? product.pricing.amountUsd) }, { locale })}</div>
 									{#if getDiscountText(product)}
-										<div class="text-[11px] text-text-tertiary">Discount {getDiscountText(product)}</div>
+										<div class="text-[11px] text-text-tertiary">{m.billing_discount_label({ discount: getDiscountText(product) }, { locale })}</div>
 									{/if}
 									<div class="text-[18px] font-semibold text-text-primary">{formatProductPrice(product.pricing.amountUsd)}</div>
 									{#if getProductBalanceText(product)}
-										<div class="text-[11px] text-text-secondary">Balance included: {getProductBalanceText(product)}</div>
+										<div class="text-[11px] text-text-secondary">{m.billing_balance_included({ amount: getProductBalanceText(product) }, { locale })}</div>
 									{/if}
 								</div>
 								<button type="button" onclick={() => startCheckout(product)} disabled={isCurrentPlanProduct(product) || billingCatalog?.hasActiveSubscription || billingCatalog?.payment.available === false} class="mt-3 inline-flex h-8 items-center justify-center rounded-[5px] border border-border-subtle bg-bg-input px-3 text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-55">
 									{#if isCurrentPlanProduct(product)}
-										<span>Current subscription</span>
+										<span>{m.billing_current_subscription({}, { locale })}</span>
 									{:else if billingCatalog?.hasActiveSubscription || billingCatalog?.payment.available === false}
-										<span>Not available</span>
+										<span>{m.billing_not_available({}, { locale })}</span>
 									{:else}
-										<span>Subscribe</span>
+										<span>{m.billing_subscribe({}, { locale })}</span>
 									{/if}
 								</button>
 								{#if productDescription(product)}
@@ -842,12 +894,12 @@ $effect(() => {
 						{/each}
 					</div>
 				{:else}
-					<p class="mt-4 text-[12px] text-text-tertiary">No available plans in this billing period.</p>
+					<p class="mt-4 text-[12px] text-text-tertiary">{m.billing_no_plans_period({}, { locale })}</p>
 				{/if}
 
 				{#if addonProducts.length > 0}
 					<section class="mt-6 border-t border-border-subtle pt-5">
-						<h2 class="text-[14px] font-medium text-text-primary">Credit packages</h2>
+						<h2 class="text-[14px] font-medium text-text-primary">{m.billing_credit_packages({}, { locale })}</h2>
 						<div class="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
 							{#each addonProducts as product (product.key)}
 								<div class="flex min-h-36 flex-col rounded-[6px] border border-border-subtle px-3 py-3">
@@ -855,19 +907,19 @@ $effect(() => {
 										<div class="min-w-0">
 											<h3 class="truncate text-[13px] font-semibold text-text-primary">{product.name}</h3>
 											{#if getProductBalanceText(product)}
-												<p class="mt-1 text-[11px] text-text-tertiary">{getProductBalanceText(product)} balance</p>
+												<p class="mt-1 text-[11px] text-text-tertiary">{m.billing_balance_suffix({ amount: getProductBalanceText(product) }, { locale })}</p>
 											{/if}
 										</div>
 										<div class="shrink-0 text-right">
 											{#if product.offer}
 												<div class="font-mono text-[13px] font-semibold text-text-primary">{formatProductPrice(product.offer.pricing.paidAmountUsd)}</div>
-												<div class="mt-0.5 text-[10px] text-brand">First purchase 50% off</div>
+												<div class="mt-0.5 text-[10px] text-brand">{m.billing_first_purchase_off({}, { locale })}</div>
 											{:else}
 												<div class="font-mono text-[13px] font-semibold text-text-primary">{formatProductPrice(product.pricing.amountUsd)}</div>
 											{/if}
 										</div>
 									</div>
-									<button type="button" onclick={() => startCheckout(product)} disabled={billingCatalog?.payment.available === false} class="mt-auto inline-flex h-9 items-center justify-center rounded-[5px] border border-border-subtle bg-bg-input px-3 text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-55">Buy package</button>
+									<button type="button" onclick={() => startCheckout(product)} disabled={billingCatalog?.payment.available === false} class="mt-auto inline-flex h-9 items-center justify-center rounded-[5px] border border-border-subtle bg-bg-input px-3 text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-55">{m.billing_buy_package({}, { locale })}</button>
 								</div>
 							{/each}
 						</div>
@@ -877,14 +929,14 @@ $effect(() => {
 				<div class="mt-6 border-t border-border-subtle pt-5">
 					<div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
 						<div>
-							<h2 class="text-[14px] font-medium text-text-primary">Subscriptions</h2>
+							<h2 class="text-[14px] font-medium text-text-primary">{m.billing_subscriptions_heading({}, { locale })}</h2>
 						</div>
 						<div class="flex items-center gap-2 text-[11px] text-text-tertiary">
-							<button type="button" onclick={() => goToSubscriptionsPage(subscriptionsPage - 1)} disabled={subscriptionsLoading || subscriptionsPage <= 1} class="inline-flex h-7 w-7 items-center justify-center rounded-[5px] border border-border-subtle bg-bg-input transition-colors hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-45" title="Previous subscriptions page">
+							<button type="button" onclick={() => goToSubscriptionsPage(subscriptionsPage - 1)} disabled={subscriptionsLoading || subscriptionsPage <= 1} class="inline-flex h-7 w-7 items-center justify-center rounded-[5px] border border-border-subtle bg-bg-input transition-colors hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-45" title={m.billing_prev_subs_title({}, { locale })}>
 								<ChevronLeft class="h-3.5 w-3.5" />
 							</button>
-							<span>Page {subscriptionsPage}</span>
-							<button type="button" onclick={() => goToSubscriptionsPage(subscriptionsPage + 1)} disabled={subscriptionsLoading || !subscriptionsHasMore} class="inline-flex h-7 w-7 items-center justify-center rounded-[5px] border border-border-subtle bg-bg-input transition-colors hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-45" title="Next subscriptions page">
+							<span>{m.billing_page({ page: subscriptionsPage }, { locale })}</span>
+							<button type="button" onclick={() => goToSubscriptionsPage(subscriptionsPage + 1)} disabled={subscriptionsLoading || !subscriptionsHasMore} class="inline-flex h-7 w-7 items-center justify-center rounded-[5px] border border-border-subtle bg-bg-input transition-colors hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-45" title={m.billing_next_subs_title({}, { locale })}>
 								<ChevronRight class="h-3.5 w-3.5" />
 							</button>
 						</div>
@@ -900,7 +952,7 @@ $effect(() => {
 					{#if subscriptionsLoading && !billingSubscriptions}
 						<div class="mt-3 h-32 rounded-[6px] bg-bg-hover-strong" aria-hidden="true"></div>
 					{:else if !billingSubscriptions || billingSubscriptions.items.length === 0}
-						<p class="mt-4 text-[12px] text-text-tertiary">No subscriptions yet.</p>
+						<p class="mt-4 text-[12px] text-text-tertiary">{m.billing_no_subscriptions_yet({}, { locale })}</p>
 					{:else}
 						<div class="mt-3 divide-y divide-border-subtle rounded-[6px] border border-border-subtle">
 							{#each billingSubscriptions.items as subscription (subscription.id)}
@@ -912,39 +964,39 @@ $effect(() => {
 									<div class="min-w-0">
 										<div class="truncate text-text-secondary">{formatHistoryStatus(subscription.status)}</div>
 										{#if subscription.cancelAtPeriodEnd}
-											<div class="mt-0.5 text-[11px] text-text-tertiary">Auto-renew canceled</div>
+											<div class="mt-0.5 text-[11px] text-text-tertiary">{m.billing_auto_renew_canceled({}, { locale })}</div>
 										{/if}
 									</div>
 									<div class="min-w-0 text-text-tertiary">
 										<div class="truncate">{formatPeriod(subscription)}</div>
 										{#if formatCheckoutCountdown(subscription)}
-											<div class="mt-0.5 flex items-center gap-1.5 text-[11px] {formatCheckoutCountdown(subscription) === 'Expired' ? 'text-error-soft' : 'text-text-tertiary'}">
+											<div class="mt-0.5 flex items-center gap-1.5 text-[11px] {isCheckoutExpired(subscription) ? 'text-error-soft' : 'text-text-tertiary'}">
 												<Clock class="h-3 w-3 shrink-0" />
-												<span>Checkout {formatCheckoutCountdown(subscription)}</span>
+												<span>{m.billing_checkout({ countdown: formatCheckoutCountdown(subscription) }, { locale })}</span>
 											</div>
 										{/if}
 									</div>
 									<div class="font-mono text-text-primary md:text-right">{historyAmount(subscription)}</div>
 									<div class="flex flex-wrap gap-2 md:justify-end">
 										{#if canPayCheckout(subscription)}
-											<button type="button" onclick={() => payCheckout(subscription)} class="inline-flex h-7 items-center justify-center rounded-[5px] border border-border-subtle bg-bg-input px-2.5 text-[11px] font-medium text-text-primary transition-colors hover:bg-bg-hover">Pay</button>
+											<button type="button" onclick={() => payCheckout(subscription)} class="inline-flex h-7 items-center justify-center rounded-[5px] border border-border-subtle bg-bg-input px-2.5 text-[11px] font-medium text-text-primary transition-colors hover:bg-bg-hover">{m.billing_pay({}, { locale })}</button>
 										{/if}
 										{#if subscription.actions.canCancelCheckout}
 											<button type="button" onclick={() => cancelSubscriptionCheckout(subscription)} disabled={billingActionBusyKey !== null} class="inline-flex h-7 items-center justify-center rounded-[5px] border border-border-subtle bg-bg-input px-2.5 text-[11px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-55">
 												{#if billingActionBusyKey === `subscription:${subscription.id}:cancel-checkout`}
 													<Loader2 class="mr-1 h-3 w-3 animate-spin" />
 												{/if}
-												<span>Cancel</span>
+												<span>{m.billing_cancel({}, { locale })}</span>
 											</button>
 										{:else if subscription.actions.canCancelAutoRenew}
 											<button type="button" onclick={() => cancelSubscriptionAutoRenew(subscription)} disabled={billingActionBusyKey !== null} class="inline-flex h-7 items-center justify-center rounded-[5px] border border-border-subtle bg-bg-input px-2.5 text-[11px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-55">
 												{#if billingActionBusyKey === `subscription:${subscription.id}:cancel-auto-renew`}
 													<Loader2 class="mr-1 h-3 w-3 animate-spin" />
 												{/if}
-												<span>Cancel auto-renew</span>
+												<span>{m.billing_cancel_auto_renew({}, { locale })}</span>
 											</button>
 										{:else}
-											<span class="self-center text-[11px] text-text-placeholder">No actions</span>
+											<span class="self-center text-[11px] text-text-placeholder">{m.billing_no_actions({}, { locale })}</span>
 										{/if}
 									</div>
 								</div>
@@ -958,17 +1010,17 @@ $effect(() => {
 			{#if activeBillingTab === "redeem"}
 			<section class="border-t border-border-subtle py-5">
 				<div class="max-w-xl">
-					<h2 class="text-[14px] font-medium text-text-primary">Redeem Code</h2>
+					<h2 class="text-[14px] font-medium text-text-primary">{m.billing_redeem_code({}, { locale })}</h2>
 					<form class="mt-4 flex flex-col gap-2 sm:flex-row" onsubmit={createRedemption}>
-						<label class="sr-only" for="billing-redemption-code">Redemption code</label>
-						<input id="billing-redemption-code" bind:value={redemptionCode} autocomplete="off" spellcheck="false" disabled={redemptionLoading} class="h-9 min-w-0 flex-1 rounded-[5px] border border-border-subtle bg-bg-input px-3 font-mono text-[13px] text-text-primary outline-none transition-colors placeholder:text-text-placeholder focus:border-brand disabled:cursor-not-allowed disabled:opacity-55" placeholder="Redemption code" />
+						<label class="sr-only" for="billing-redemption-code">{m.billing_redemption_code_label({}, { locale })}</label>
+						<input id="billing-redemption-code" bind:value={redemptionCode} autocomplete="off" spellcheck="false" disabled={redemptionLoading} class="h-9 min-w-0 flex-1 rounded-[5px] border border-border-subtle bg-bg-input px-3 font-mono text-[13px] text-text-primary outline-none transition-colors placeholder:text-text-placeholder focus:border-brand disabled:cursor-not-allowed disabled:opacity-55" placeholder={m.billing_redemption_code_placeholder({}, { locale })} />
 						<button type="submit" disabled={redemptionLoading || !redemptionCode.trim()} class="inline-flex h-9 items-center justify-center rounded-[5px] border border-border-subtle bg-bg-input px-3 text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-55">
 							{#if redemptionLoading}
 								<Loader2 class="mr-1.5 h-3.5 w-3.5 animate-spin" />
-								<span>Redeeming</span>
+								<span>{m.billing_redeeming({}, { locale })}</span>
 							{:else}
 								<Gift class="mr-1.5 h-3.5 w-3.5" />
-								<span>Redeem</span>
+								<span>{m.billing_redeem({}, { locale })}</span>
 							{/if}
 						</button>
 					</form>
@@ -989,7 +1041,7 @@ $effect(() => {
 
 			{#if activeBillingTab === "balance"}
 			<section class="border-t border-border-subtle py-5">
-				<h2 class="text-[14px] font-medium text-text-primary">Balance</h2>
+				<h2 class="text-[14px] font-medium text-text-primary">{m.billing_balance_heading({}, { locale })}</h2>
 			{#if creditError}
 				<div class="mt-4 flex items-start gap-2 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] text-error-soft">
 					<AlertCircle class="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -1001,9 +1053,9 @@ $effect(() => {
 				<div class="mt-3 h-24 rounded-[6px] bg-bg-hover-strong" aria-hidden="true"></div>
 			{:else if balanceCredit}
 				<section class="py-5">
-					<h2 class="text-[13px] font-medium text-text-primary">Balance by Expiration</h2>
+					<h2 class="text-[13px] font-medium text-text-primary">{m.billing_balance_by_expiration({}, { locale })}</h2>
 					{#if balanceCredit.groups.length === 0}
-						<p class="mt-3 text-[12px] text-text-tertiary">No balance sources.</p>
+						<p class="mt-3 text-[12px] text-text-tertiary">{m.billing_no_balance_sources({}, { locale })}</p>
 					{:else}
 						<div class="mt-3 divide-y divide-border-subtle rounded-[6px] border border-border-subtle">
 							{#each balanceCredit.groups as group (group.key)}
@@ -1011,7 +1063,7 @@ $effect(() => {
 									<div class="flex min-w-0 items-center justify-between gap-3">
 										<div class="min-w-0">
 											<div class="truncate text-[12px] font-medium text-text-primary">{getExpiryGroupLabel(group.key)}</div>
-											<div class="mt-0.5 text-[11px] text-text-tertiary">{group.grants.length} grant{group.grants.length === 1 ? "" : "s"}</div>
+											<div class="mt-0.5 truncate text-[11px] text-text-tertiary">{group.grants.length === 1 ? m.billing_grants_one({ count: group.grants.length }, { locale }) : m.billing_grants_many({ count: group.grants.length }, { locale })}</div>
 										</div>
 										<div class="shrink-0 font-mono text-[13px] text-text-primary">{formatUsdAmount(group.remainingAmountUsd)}</div>
 									</div>
@@ -1021,7 +1073,7 @@ $effect(() => {
 												<div class="grid gap-1 sm:grid-cols-[1fr_auto]">
 													<div class="min-w-0">
 														<div class="flex min-w-0 items-center gap-2">
-															<div class="truncate text-text-secondary">{grant.benefitName ?? grant.grantKind ?? "Balance source"}</div>
+															<div class="truncate text-text-secondary">{grant.benefitName ?? grant.grantKind ?? m.billing_balance_source({}, { locale })}</div>
 															<span class="shrink-0 rounded-[4px] border border-border-subtle px-1.5 py-0.5 text-[10px] leading-none {isGrantDisplayActive(grant) ? 'text-text-tertiary' : 'text-text-placeholder'}">{getGrantDisplayStatus(grant)}</span>
 														</div>
 														<div class="mt-0.5 flex min-w-0 items-center gap-1.5 text-text-tertiary">
@@ -1034,9 +1086,9 @@ $effect(() => {
 												<div class="mt-2">
 													<div class="flex min-w-0 items-center justify-between gap-3 text-[10px]">
 														<span class="truncate text-text-tertiary">
-															Used {formatUsdAmount(grant.consumedAmountUsd ?? 0)}
+															{m.billing_used({ amount: formatUsdAmount(grant.consumedAmountUsd ?? 0) }, { locale })}
 															{#if grant.originalAmountUsd !== null}
-																of {formatUsdAmount(grant.originalAmountUsd)}
+																{m.billing_of({ amount: formatUsdAmount(grant.originalAmountUsd) }, { locale })}
 															{/if}
 														</span>
 														<span class="shrink-0 font-mono text-text-tertiary">{grant.consumedPercent === null ? "0%" : `${grant.consumedPercent}%`}</span>
@@ -1046,9 +1098,9 @@ $effect(() => {
 													</div>
 													{#if (grant.usageConsumedAmountUsd ?? 0) > 0 || (grant.settledOverageAmountUsd ?? 0) > 0}
 														<div class="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 font-mono text-[10px] text-text-placeholder">
-															<span>usage {formatUsdAmount(grant.usageConsumedAmountUsd ?? 0)}</span>
+															<span>{m.billing_usage({ amount: formatUsdAmount(grant.usageConsumedAmountUsd ?? 0) }, { locale })}</span>
 															{#if (grant.settledOverageAmountUsd ?? 0) > 0}
-																<span>overage settled {formatUsdAmount(grant.settledOverageAmountUsd ?? 0)}</span>
+																<span>{m.billing_overage_settled({ amount: formatUsdAmount(grant.settledOverageAmountUsd ?? 0) }, { locale })}</span>
 															{/if}
 														</div>
 													{/if}
@@ -1065,14 +1117,14 @@ $effect(() => {
 				<section class="border-t border-border-subtle py-5">
 					<div class="flex items-center justify-between gap-3">
 						<div>
-							<h2 class="text-[13px] font-medium text-text-primary">Activity</h2>
+							<h2 class="text-[13px] font-medium text-text-primary">{m.billing_activity_heading({}, { locale })}</h2>
 						</div>
 						<div class="flex items-center gap-1">
-							<button type="button" onclick={() => goToActivityPage(activityPage - 1)} disabled={activityLoading || activityPage <= 1} class="rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-40" title="Previous page">
+							<button type="button" onclick={() => goToActivityPage(activityPage - 1)} disabled={activityLoading || activityPage <= 1} class="rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-40" title={m.billing_prev_page({}, { locale })}>
 								<ChevronLeft class="h-3.5 w-3.5" />
 							</button>
-							<span class="min-w-14 text-center font-mono text-[11px] text-text-tertiary">Page {activityPage}</span>
-							<button type="button" onclick={() => goToActivityPage(activityPage + 1)} disabled={activityLoading || !activityHasMore} class="rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-40" title="Next page">
+							<span class="min-w-14 text-center font-mono text-[11px] text-text-tertiary">{m.billing_page({ page: activityPage }, { locale })}</span>
+							<button type="button" onclick={() => goToActivityPage(activityPage + 1)} disabled={activityLoading || !activityHasMore} class="rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-40" title={m.billing_next_page({}, { locale })}>
 								<ChevronRight class="h-3.5 w-3.5" />
 							</button>
 						</div>
@@ -1086,13 +1138,13 @@ $effect(() => {
 					{:else if activityLoading && !balanceActivities}
 						<div class="mt-3 h-20 rounded-[6px] bg-bg-hover-strong" aria-hidden="true"></div>
 					{:else if !balanceActivities || balanceActivities.items.length === 0}
-						<p class="mt-4 text-[12px] text-text-tertiary">No activity yet.</p>
+						<p class="mt-4 text-[12px] text-text-tertiary">{m.billing_no_activity({}, { locale })}</p>
 					{:else}
 						<div class="mt-3 overflow-hidden rounded-[6px] border border-border-subtle">
 							<div class="grid grid-cols-[minmax(0,1fr)_8rem] gap-3 border-b border-border-subtle bg-bg-subtle px-3 py-2 text-[11px] font-medium uppercase tracking-wider text-text-tertiary sm:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_8rem]">
-								<span>Activity</span>
-								<span class="hidden sm:block">Reference</span>
-								<span class="text-right">Change</span>
+								<span>{m.billing_activity_header({}, { locale })}</span>
+								<span class="hidden sm:block">{m.billing_reference_header({}, { locale })}</span>
+								<span class="text-right">{m.billing_change_header({}, { locale })}</span>
 							</div>
 							<div class="divide-y divide-border-subtle">
 								{#each balanceActivities.items as item (item.id)}

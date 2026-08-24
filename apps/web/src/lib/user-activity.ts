@@ -3,6 +3,8 @@ import type {
 	UserActivityRange,
 	UserActivityRankings,
 } from "@neta-art/cohub";
+import { formatCurrency, formatDate, toIntlTag } from "$lib/i18n/format";
+import type { Locale } from "$lib/i18n/locale";
 
 export type ActivityDay = {
 	date: string;
@@ -325,27 +327,24 @@ export function getActivityStats(days: ActivityDay[]) {
 	};
 }
 
-export function formatCompact(value: number) {
+export function formatCompact(value: number, locale: Locale = "en") {
+	const tag = toIntlTag(locale);
 	if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1)}B`;
 	if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
 	if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
-	return new Intl.NumberFormat("en-US").format(Math.round(value));
+	return new Intl.NumberFormat(tag).format(Math.round(value));
 }
 
-export function formatCost(value: number) {
-	if (!value) return "$0";
-	if (value < 0.01) return "<$0.01";
-	return new Intl.NumberFormat("en-US", {
-		style: "currency",
-		currency: "USD",
+export function formatCost(value: number, locale: Locale = "en") {
+	if (!value) return formatCurrency(0, "USD", { locale });
+	if (value < 0.01) return `<${formatCurrency(0.01, "USD", { locale })}`;
+	return formatCurrency(value, "USD", {
+		locale,
+		minimumFractionDigits: 2,
 		maximumFractionDigits: 2,
-	}).format(value);
+	});
 }
 
-export function formatDay(date: string) {
-	return new Intl.DateTimeFormat("en-US", {
-		month: "short",
-		day: "numeric",
-		year: "numeric",
-	}).format(new Date(`${date}T12:00:00`));
+export function formatDay(date: string, locale: Locale = "en") {
+	return formatDate(new Date(`${date}T12:00:00`), locale);
 }

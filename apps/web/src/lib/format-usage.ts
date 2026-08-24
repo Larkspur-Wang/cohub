@@ -1,4 +1,6 @@
 import type { Usage } from "@cohub/protocol/core";
+import { formatCurrency } from "$lib/i18n/format";
+import type { Locale } from "$lib/i18n/locale";
 
 /** Compact token count for message/process meta bars (matches chat bubble style). */
 export function formatTokenCount(n: number): string {
@@ -8,11 +10,9 @@ export function formatTokenCount(n: number): string {
 }
 
 /** Precise USD cost for per-message / process summaries. */
-export function formatUsageCost(n: number): string {
+export function formatUsageCost(n: number, locale?: Locale): string {
 	if (!Number.isFinite(n) || n <= 0) return "";
-	const formatted =
-		n >= 1 ? n.toFixed(2) : n >= 0.01 ? n.toFixed(3) : n.toFixed(4);
-	return `$${formatted}`;
+	return formatCurrency(n, "USD", { locale });
 }
 
 export function getUsageCostTotal(

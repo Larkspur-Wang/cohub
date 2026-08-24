@@ -2,6 +2,10 @@
 import type { SandboxSpecId } from "@neta-art/cohub";
 import { Check, Lock, Zap } from "lucide-svelte";
 import Sheet from "$lib/components/Sheet.svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
+
+const locale = $derived(getLocale());
 
 type SandboxSpec = {
 	id: SandboxSpecId;
@@ -44,6 +48,19 @@ function choose(spec: SandboxSpec) {
 	}
 	props.onSelect(spec.id);
 }
+
+function specDescription(id: SandboxSpecId, fallback: string): string {
+	switch (id) {
+		case "standard":
+			return m.sandbox_spec_desc_standard({}, { locale });
+		case "boost":
+			return m.sandbox_spec_desc_boost({}, { locale });
+		case "ultra":
+			return m.sandbox_spec_desc_ultra({}, { locale });
+		default:
+			return fallback;
+	}
+}
 </script>
 
 <Sheet open={props.open} onClose={props.onClose} maxWidth="520px">
@@ -54,8 +71,8 @@ function choose(spec: SandboxSpec) {
 				<Zap class="h-4 w-4" />
 			</span>
 			<div>
-				<div class="text-[15px] font-semibold text-text-primary">Compute spec</div>
-				<div class="mt-0.5 text-[12px] text-text-tertiary">Changes apply to the running sandbox.</div>
+				<div class="text-[15px] font-semibold text-text-primary">{m.sandbox_spec_title({}, { locale })}</div>
+				<div class="mt-0.5 text-[12px] text-text-tertiary">{m.sandbox_spec_subtitle({}, { locale })}</div>
 			</div>
 		</div>
 
@@ -78,14 +95,14 @@ function choose(spec: SandboxSpec) {
 								<span class="text-[14px] font-semibold text-text-primary">{spec.label}</span>
 								{#if selected}
 									<span class="inline-flex items-center gap-1 rounded-full bg-success-bg px-2 py-0.5 text-[11px] font-medium text-success-soft">
-										<Check class="h-3 w-3" /> Current
+										<Check class="h-3 w-3" /> {m.sandbox_spec_current({}, { locale })}
 									</span>
 								{/if}
 								{#if props.appliedSpec === spec.id && !selected}
-									<span class="rounded-full bg-bg-hover px-2 py-0.5 text-[11px] text-text-secondary">Running</span>
+									<span class="rounded-full bg-bg-hover px-2 py-0.5 text-[11px] text-text-secondary">{m.sandbox_spec_running({}, { locale })}</span>
 								{/if}
 							</div>
-							<div class="mt-1 text-[12px] text-text-tertiary">{spec.description}</div>
+							<div class="mt-1 text-[12px] text-text-tertiary">{specDescription(spec.id, spec.description)}</div>
 						</div>
 						<div class="flex shrink-0 items-center gap-1.5">
 							<span class="rounded-[5px] bg-bg-hover px-2 py-1 font-mono text-[12px] font-medium text-text-secondary">{spec.resources.limits.cpu} <span class="text-text-tertiary">vCPU</span></span>
@@ -96,7 +113,7 @@ function choose(spec: SandboxSpec) {
 					{#if locked}
 						<div class="mt-2.5 flex items-center gap-1.5 border-t border-border-subtle pt-2.5 text-[12px] font-medium text-brand">
 							<Lock class="h-3.5 w-3.5" />
-							<span>Upgrade to {spec.requiredPlan} to unlock</span>
+							<span>{m.sandbox_spec_unlock({ plan: spec.requiredPlan ?? "" }, { locale })}</span>
 						</div>
 					{/if}
 				</button>

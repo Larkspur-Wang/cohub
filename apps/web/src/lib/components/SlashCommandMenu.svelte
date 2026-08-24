@@ -1,6 +1,8 @@
 <script lang="ts">
 import type { SkillCatalogEntry } from "@neta-art/cohub";
 import { CornerDownLeft, Loader2, SearchSlash } from "lucide-svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 
 export type SlashCommandMenuItem = {
 	kind: "prompt" | "skill";
@@ -41,6 +43,7 @@ let {
 let desktopListEl = $state<HTMLDivElement | null>(null);
 let mobileListEl = $state<HTMLDivElement | null>(null);
 
+const locale = $derived(getLocale());
 const normalizedQuery = $derived(query.trim().toLowerCase());
 const selectedItem = $derived(items[selectedIndex]);
 const groupedCommands = $derived.by<GroupedCommand[]>(() => {
@@ -86,8 +89,9 @@ function commandLabel(item: SlashCommandMenuItem) {
 function commandSourceLabel(item: SlashCommandMenuItem) {
 	if (item.kind !== "skill") return item.category ?? item.scope;
 	if (item.category) return item.category;
-	if (item.source?.type === "mod") return `Mod · ${item.source.mountSlug}`;
-	return `Skill · ${item.scope}`;
+	if (item.source?.type === "mod")
+		return m.slash_mod({ slug: item.source.mountSlug }, { locale });
+	return m.slash_skill({ scope: item.scope }, { locale });
 }
 
 function commandScopeLabel(item: SlashCommandMenuItem) {
@@ -125,24 +129,24 @@ $effect(() => {
 		<div
 			class="pointer-events-auto mx-1 w-[min(560px,calc(100vw-3rem))] overflow-hidden rounded-[18px] border border-border-subtle/90 bg-bg-content shadow-[0_18px_60px_rgba(15,23,42,0.18)] outline-none transition-all duration-150 ease-out motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-1"
 			role="listbox"
-			aria-label="Slash commands"
+			aria-label={m.slash_aria({}, { locale })}
 			aria-activedescendant={selectedItem ? itemId(selectedIndex) : undefined}
 			tabindex="-1"
 		>
 			<div class="flex items-center justify-between gap-3 border-b border-border-subtle/70 px-3 py-2.5">
 				<div class="min-w-0">
-					<div class="text-[12px] font-medium leading-4 text-text-primary">Commands</div>
+					<div class="text-[12px] font-medium leading-4 text-text-primary">{m.slash_commands({}, { locale })}</div>
 					<div class="mt-0.5 truncate text-[11px] leading-4 text-text-tertiary">
 						{#if normalizedQuery}
-							Filtering /{normalizedQuery}
+							{m.slash_filtering({ q: normalizedQuery }, { locale })}
 						{:else}
-							Type to narrow · use ↑↓ to move
+							{m.slash_narrow({}, { locale })}
 						{/if}
 					</div>
 				</div>
 				<div class="flex shrink-0 items-center gap-1.5 rounded-full border border-border-subtle bg-bg-primary px-2 py-1 text-[10px] text-text-tertiary">
-					<span>Tab</span>
-					<span class="text-text-placeholder">or</span>
+					<span>{m.slash_tab({}, { locale })}</span>
+					<span class="text-text-placeholder">{m.slash_or({}, { locale })}</span>
 					<CornerDownLeft class="h-3 w-3" />
 				</div>
 			</div>
@@ -151,15 +155,15 @@ $effect(() => {
 				{#if loading && items.length === 0}
 					<div class="flex items-center gap-2 px-3 py-3 text-[12px] text-text-tertiary">
 						<Loader2 class="h-3.5 w-3.5 animate-spin text-brand" />
-						<span>Loading commands…</span>
+						<span>{m.slash_loading({}, { locale })}</span>
 					</div>
 				{:else if items.length === 0}
 					<div class="px-4 py-7 text-center">
 						<div class="mx-auto flex h-9 w-9 items-center justify-center rounded-full border border-border-subtle bg-bg-primary text-text-tertiary">
 							<SearchSlash class="h-4 w-4" />
 						</div>
-						<div class="mt-3 text-[12px] font-medium text-text-primary">No command found</div>
-						<div class="mt-1 text-[11px] text-text-tertiary">Keep typing to send it as a normal message.</div>
+						<div class="mt-3 text-[12px] font-medium text-text-primary">{m.slash_none({}, { locale })}</div>
+						<div class="mt-1 text-[11px] text-text-tertiary">{m.slash_hint_msg({}, { locale })}</div>
 					</div>
 				{:else}
 					{#each groupedCommands as group (group.label)}
@@ -217,9 +221,9 @@ $effect(() => {
 			<div class="border-b border-border-subtle px-4 py-3">
 				<div class="flex items-center justify-between gap-3">
 					<div class="min-w-0">
-						<div class="text-[12px] font-medium text-text-primary">Commands</div>
+						<div class="text-[12px] font-medium text-text-primary">{m.slash_commands({}, { locale })}</div>
 						<div class="mt-0.5 truncate text-[11px] text-text-tertiary">
-							{normalizedQuery ? `Filtering /${normalizedQuery}` : 'Tap to insert, then add arguments'}
+							{normalizedQuery ? `Filtering /${normalizedQuery}` : '{m.slash_tap_insert({}, { locale })}'}
 						</div>
 					</div>
 					{#if loading}
@@ -231,12 +235,12 @@ $effect(() => {
 				{#if loading && items.length === 0}
 					<div class="flex min-h-16 items-center gap-2 px-4 py-3 text-[12px] text-text-tertiary">
 						<Loader2 class="h-3.5 w-3.5 animate-spin text-brand" />
-						<span>Loading commands…</span>
+						<span>{m.slash_loading({}, { locale })}</span>
 					</div>
 				{:else if items.length === 0}
 					<div class="px-4 py-6 text-center">
-						<div class="text-[12px] font-medium text-text-primary">No command found</div>
-						<div class="mt-1 text-[11px] text-text-tertiary">Keep typing to send it as a message.</div>
+						<div class="text-[12px] font-medium text-text-primary">{m.slash_none({}, { locale })}</div>
+						<div class="mt-1 text-[11px] text-text-tertiary">{m.slash_hint_msg_mobile({}, { locale })}</div>
 					</div>
 				{:else}
 					{#each items as item, index (itemKey(item))}

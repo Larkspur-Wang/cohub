@@ -2,6 +2,10 @@
 import type { SpaceCommerceBenefit } from "@neta-art/cohub";
 import { Loader2, Plus, Trash2 } from "lucide-svelte";
 import { untrack } from "svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
+
+const locale = $derived(getLocale());
 
 type BenefitType = "feature" | "credits";
 type MetaType = "string" | "number" | "boolean";
@@ -204,7 +208,10 @@ async function submit() {
 			});
 		}
 	} catch (err) {
-		error = err instanceof Error ? err.message : "Failed to save benefit.";
+		error =
+			err instanceof Error
+				? err.message
+				: m.benefit_editor_save_failed({}, { locale });
 	}
 }
 
@@ -219,7 +226,7 @@ const readonlyClass =
 <div class="flex flex-col gap-4 p-4 sm:p-5">
 	<!-- Type selector -->
 	<div class="flex flex-col gap-1.5">
-		<span class={labelClass}>Benefit type</span>
+		<span class={labelClass}>{m.benefit_editor_type({}, { locale })}</span>
 		<div class="inline-flex w-fit rounded-[6px] border border-border-subtle bg-bg-subtle p-0.5 text-[12px]">
 			<button
 				type="button"
@@ -227,7 +234,7 @@ const readonlyClass =
 				onclick={() => switchType("feature")}
 				disabled={typeLocked || busy}
 			>
-				Feature
+				{m.benefit_editor_feature({}, { locale })}
 			</button>
 			<button
 				type="button"
@@ -235,52 +242,52 @@ const readonlyClass =
 				onclick={() => switchType("credits")}
 				disabled={typeLocked || busy}
 			>
-				Credits
+				{m.benefit_editor_credits({}, { locale })}
 			</button>
 		</div>
 		<span class="text-[11px] text-text-tertiary">
 			{isCredits
-				? "Credit benefits grant consumable credits at business scope."
-				: "Feature benefits gate access to product capabilities."}
+				? m.benefit_editor_credits_hint({}, { locale })
+				: m.benefit_editor_feature_hint({}, { locale })}
 		</span>
 	</div>
 
 	{#if isEdit}
 		<div class="grid gap-4 sm:grid-cols-2">
 			<div class="flex flex-col gap-1.5">
-				<label class={labelClass} for="benefit-name">Name</label>
+				<label class={labelClass} for="benefit-name">{m.benefit_editor_name({}, { locale })}</label>
 				<input
 					id="benefit-name"
 					class={inputClass}
 					bind:value={name}
 					disabled={busy}
-					placeholder="Premium Export"
+					placeholder={m.benefit_editor_name_placeholder_edit({}, { locale })}
 					autocomplete="off"
 				/>
 			</div>
 			<div class="flex flex-col gap-1.5">
-				<span class={labelClass}>System key</span>
+				<span class={labelClass}>{m.benefit_editor_system_key({}, { locale })}</span>
 				<div class={readonlyClass}>{systemKey}</div>
-				<span class="text-[11px] text-text-tertiary">Generated at creation and immutable.</span>
+				<span class="text-[11px] text-text-tertiary">{m.benefit_editor_system_key_hint({}, { locale })}</span>
 			</div>
 		</div>
 	{:else}
 		<div class="flex flex-col gap-1.5">
-			<label class={labelClass} for="benefit-name">Name</label>
+			<label class={labelClass} for="benefit-name">{m.benefit_editor_name({}, { locale })}</label>
 			<input
 				id="benefit-name"
 				class={inputClass}
 				bind:value={name}
 				disabled={busy}
-				placeholder={isCredits ? "500 Credits" : "Premium Export"}
+				placeholder={isCredits ? m.benefit_editor_name_placeholder_credits({}, { locale }) : m.benefit_editor_name_placeholder_edit({}, { locale })}
 				autocomplete="off"
 			/>
-			<span class="text-[11px] text-text-tertiary">A stable key is generated from this name.</span>
+			<span class="text-[11px] text-text-tertiary">{m.benefit_editor_key_hint({}, { locale })}</span>
 		</div>
 	{/if}
 
 	<div class="flex flex-col gap-1.5">
-		<label class={labelClass} for="benefit-description">Description</label>
+		<label class={labelClass} for="benefit-description">{m.benefit_editor_description({}, { locale })}</label>
 		<textarea
 			id="benefit-description"
 			class="min-h-16 w-full resize-y rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[13px] leading-5 text-text-primary placeholder:text-text-placeholder transition-colors focus:border-brand/50 focus:outline-none disabled:opacity-60"
@@ -288,7 +295,7 @@ const readonlyClass =
 			disabled={busy}
 			rows={2}
 			maxlength="2048"
-			placeholder="What this benefit grants (optional)"
+			placeholder={m.benefit_editor_desc_placeholder({}, { locale })}
 		></textarea>
 	</div>
 
@@ -296,7 +303,7 @@ const readonlyClass =
 		<!-- Credits configuration -->
 		<div class="grid gap-4 sm:grid-cols-2">
 			<div class="flex flex-col gap-1.5">
-				<label class={labelClass} for="credit-amount">Credit amount</label>
+				<label class={labelClass} for="credit-amount">{m.benefit_editor_amount({}, { locale })}</label>
 				<input
 					id="credit-amount"
 					class={inputClass + " font-mono"}
@@ -305,13 +312,13 @@ const readonlyClass =
 					step="1"
 					bind:value={creditAmount}
 					disabled={busy || isEdit}
-					placeholder="500"
+					placeholder={m.benefit_editor_amount_placeholder({}, { locale })}
 					autocomplete="off"
 				/>
-				<span class="text-[11px] text-text-tertiary">Positive integer. Immutable after creation.</span>
+				<span class="text-[11px] text-text-tertiary">{m.benefit_editor_amount_hint({}, { locale })}</span>
 			</div>
 			<div class="flex flex-col gap-1.5">
-				<label class={labelClass} for="credit-expires">Expires in (days, optional)</label>
+				<label class={labelClass} for="credit-expires">{m.benefit_editor_expires({}, { locale })}</label>
 				<input
 					id="credit-expires"
 					class={inputClass + " font-mono"}
@@ -320,27 +327,27 @@ const readonlyClass =
 					step="1"
 					bind:value={creditExpiresInDays}
 					disabled={busy || isEdit}
-					placeholder="365"
+					placeholder={m.benefit_editor_expires_placeholder({}, { locale })}
 					autocomplete="off"
 				/>
-				<span class="text-[11px] text-text-tertiary">Leave blank for no expiry. Immutable after creation.</span>
+				<span class="text-[11px] text-text-tertiary">{m.benefit_editor_expires_hint({}, { locale })}</span>
 			</div>
 		</div>
 	{:else}
 		<!-- Metadata editor -->
 		<div class="flex flex-col gap-2">
 			<div class="flex items-center justify-between">
-				<span class={labelClass}>Metadata</span>
+				<span class={labelClass}>{m.benefit_editor_metadata({}, { locale })}</span>
 				<button
 					type="button"
 					class="inline-flex h-7 items-center gap-1 rounded-[5px] px-2 text-[11px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:opacity-50"
 					onclick={addRow}
 					disabled={busy}
 				>
-					<Plus class="h-3 w-3" /> Add field
+					<Plus class="h-3 w-3" /> {m.benefit_editor_add_field({}, { locale })}
 				</button>
 			</div>
-			<span class="text-[11px] text-text-tertiary">Configure the entitlement. <code class="font-mono text-text-secondary">enabled</code> toggles access; numeric values set limits.</span>
+			<span class="text-[11px] text-text-tertiary">{m.benefit_editor_metadata_hint_before({}, { locale })}<code class="font-mono text-text-secondary">enabled</code>{m.benefit_editor_metadata_hint_after({}, { locale })}</span>
 
 			<div class="flex flex-col gap-2">
 				{#each rows as row (row.id)}
@@ -358,7 +365,7 @@ const readonlyClass =
 							value={row.type}
 							onchange={(e) => changeType(row.id, e.currentTarget.value as MetaType)}
 							disabled={busy}
-							aria-label="Field type"
+							aria-label={m.benefit_editor_field_type({}, { locale })}
 						>
 							<option value="string">text</option>
 							<option value="number">number</option>
@@ -394,14 +401,14 @@ const readonlyClass =
 							class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[6px] text-text-placeholder transition-colors hover:bg-bg-hover hover:text-error-soft disabled:opacity-50"
 							onclick={() => removeRow(row.id)}
 							disabled={busy}
-							aria-label="Remove field"
+							aria-label={m.benefit_editor_remove_field({}, { locale })}
 						>
 							<Trash2 class="h-3.5 w-3.5" />
 						</button>
 					</div>
 				{:else}
 					<div class="rounded-[6px] border border-dashed border-border-subtle px-3 py-4 text-center text-[12px] text-text-tertiary">
-						No metadata fields. Add one to configure the entitlement.
+						{m.benefit_editor_no_fields({}, { locale })}
 					</div>
 				{/each}
 			</div>
@@ -419,7 +426,7 @@ const readonlyClass =
 			onclick={onCancel}
 			disabled={busy}
 		>
-			Cancel
+			{m.benefit_editor_cancel({}, { locale })}
 		</button>
 		<button
 			type="button"
@@ -428,7 +435,7 @@ const readonlyClass =
 			disabled={busy || formInvalid}
 		>
 			{#if busy}<Loader2 class="h-3.5 w-3.5 animate-spin" />{/if}
-			{isEdit ? "Save changes" : "Create benefit"}
+			{isEdit ? m.benefit_editor_save({}, { locale }) : m.benefit_editor_create({}, { locale })}
 		</button>
 	</div>
 </div>

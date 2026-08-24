@@ -20,8 +20,13 @@ import CommerceBenefitEditor from "$lib/components/commerce/CommerceBenefitEdito
 import CommerceProductEditor from "$lib/components/commerce/CommerceProductEditor.svelte";
 import Dialog from "$lib/components/Dialog.svelte";
 import UserAvatar from "$lib/components/UserAvatar.svelte";
+import { formatCurrency, formatDateTime } from "$lib/i18n/format";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 import { sdk } from "$lib/sdk";
 import { buildSpaceSettingsRoute } from "$lib/space-routes";
+
+const locale = $derived(getLocale());
 
 type MetaValue = string | number | boolean;
 
@@ -76,9 +81,21 @@ const bindableBenefits = $derived(
 );
 
 const readinessSteps = $derived([
-	{ label: "Setup", done: commerceInitialized, count: null as number | null },
-	{ label: "Benefits", done: benefits.length > 0, count: benefits.length },
-	{ label: "Products", done: products.length > 0, count: products.length },
+	{
+		label: m.commerce_step_setup({}, { locale }),
+		done: commerceInitialized,
+		count: null as number | null,
+	},
+	{
+		label: m.commerce_step_benefits({}, { locale }),
+		done: benefits.length > 0,
+		count: benefits.length,
+	},
+	{
+		label: m.commerce_step_products({}, { locale }),
+		done: products.length > 0,
+		count: products.length,
+	},
 ]);
 const productsWithoutBenefitsHint = $derived(
 	commerceInitialized && products.length > 0 && benefits.length === 0,
@@ -151,7 +168,7 @@ async function loadInitial(targetSpaceId: string = spaceId) {
 			ordersHasMore = false;
 			ordersNextPage = null;
 		} else {
-			loadError = messageOf(error, "Failed to load commerce.");
+			loadError = messageOf(error, m.commerce_load_failed({}, { locale }));
 		}
 	} finally {
 		if (!stale) loading = false;
@@ -163,7 +180,10 @@ async function refreshProducts() {
 		const { products: next } = await sdk.space(spaceId).commerce.listProducts();
 		products = next;
 	} catch (error) {
-		actionError = messageOf(error, "Failed to refresh products.");
+		actionError = messageOf(
+			error,
+			m.commerce_refresh_products_failed({}, { locale }),
+		);
 	}
 }
 
@@ -172,7 +192,10 @@ async function refreshBenefits() {
 		const { benefits: next } = await sdk.space(spaceId).commerce.listBenefits();
 		benefits = next as SpaceCommerceBenefit[];
 	} catch (error) {
-		actionError = messageOf(error, "Failed to refresh benefits.");
+		actionError = messageOf(
+			error,
+			m.commerce_refresh_benefits_failed({}, { locale }),
+		);
 	}
 }
 
@@ -183,7 +206,10 @@ async function refreshProductBenefits() {
 			.commerce.listProductBenefits();
 		productBenefits = next as SpaceCommerceProductBenefitBinding[];
 	} catch (error) {
-		actionError = messageOf(error, "Failed to refresh bindings.");
+		actionError = messageOf(
+			error,
+			m.commerce_refresh_bindings_failed({}, { locale }),
+		);
 	}
 }
 
@@ -197,7 +223,10 @@ async function refreshOrders() {
 		ordersHasMore = pagination.hasMore;
 		ordersNextPage = pagination.nextPage;
 	} catch (error) {
-		actionError = messageOf(error, "Failed to refresh orders.");
+		actionError = messageOf(
+			error,
+			m.commerce_refresh_orders_failed({}, { locale }),
+		);
 	} finally {
 		ordersLoading = false;
 	}
@@ -215,7 +244,10 @@ async function loadMoreOrders() {
 		ordersHasMore = pagination.hasMore;
 		ordersNextPage = pagination.nextPage;
 	} catch (error) {
-		actionError = messageOf(error, "Failed to load more orders.");
+		actionError = messageOf(
+			error,
+			m.commerce_load_more_orders_failed({}, { locale }),
+		);
 	} finally {
 		ordersLoadingMore = false;
 	}
@@ -240,10 +272,10 @@ async function setupCommerce() {
 	try {
 		await sdk.space(spaceId).commerce.setup();
 		commerceInitialized = true;
-		notice = "Commerce is ready.";
+		notice = m.commerce_setup_ready({}, { locale });
 		await loadInitial();
 	} catch (error) {
-		actionError = messageOf(error, "Failed to initialize commerce.");
+		actionError = messageOf(error, m.commerce_setup_failed({}, { locale }));
 	} finally {
 		setupSaving = false;
 	}
@@ -276,10 +308,10 @@ async function submitBenefit(
 				description: input.description ?? null,
 				metadata: input.type === "feature" ? input.metadata : undefined,
 			});
-			notice = "Benefit updated.";
+			notice = m.commerce_benefit_updated({}, { locale });
 		} else {
 			await sdk.space(spaceId).commerce.createBenefit(input);
-			notice = "Benefit created.";
+			notice = m.commerce_benefit_created({}, { locale });
 		}
 		dialog = { kind: "none" };
 		await refreshBenefits();
@@ -292,17 +324,25 @@ async function submitBenefit(
 
 async function archiveBenefit(benefit: SpaceCommerceBenefit) {
 	if (benefitActionBusyKey || benefit.status === "archived") return;
-	if (!window.confirm(`Archive benefit "${benefit.name}"?`)) return;
+	if (
+		!window.confirm(
+			m.commerce_archive_benefit_confirm({ name: benefit.name }, { locale }),
+		)
+	)
+		return;
 	benefitActionBusyKey = benefit.key;
 	clearNotice();
 	try {
 		await sdk
 			.space(spaceId)
 			.commerce.updateBenefit(benefit.key, { status: "archived" });
-		notice = "Benefit archived.";
+		notice = m.commerce_benefit_archived({}, { locale });
 		await refreshBenefits();
 	} catch (error) {
-		actionError = messageOf(error, "Failed to archive benefit.");
+		actionError = messageOf(
+			error,
+			m.commerce_archive_benefit_failed({}, { locale }),
+		);
 	} finally {
 		benefitActionBusyKey = null;
 	}
@@ -326,7 +366,7 @@ async function submitProduct(input: {
 				description: input.description ?? null,
 				status: input.status,
 			});
-			notice = "Product updated.";
+			notice = m.commerce_product_updated({}, { locale });
 		} else {
 			await sdk.space(spaceId).commerce.createProduct({
 				name: input.name,
@@ -336,7 +376,7 @@ async function submitProduct(input: {
 				status: input.status,
 				visibility: "public",
 			});
-			notice = "Product created.";
+			notice = m.commerce_product_created({}, { locale });
 		}
 		dialog = { kind: "none" };
 		await refreshProducts();
@@ -349,17 +389,25 @@ async function submitProduct(input: {
 
 async function archiveProduct(product: SpaceCommerceProduct) {
 	if (productActionBusyKey || product.status === "archived") return;
-	if (!window.confirm(`Archive product "${product.name}"?`)) return;
+	if (
+		!window.confirm(
+			m.commerce_archive_product_confirm({ name: product.name }, { locale }),
+		)
+	)
+		return;
 	productActionBusyKey = product.key;
 	clearNotice();
 	try {
 		await sdk
 			.space(spaceId)
 			.commerce.updateProduct(product.key, { status: "archived" });
-		notice = "Product archived.";
+		notice = m.commerce_product_archived({}, { locale });
 		await refreshProducts();
 	} catch (error) {
-		actionError = messageOf(error, "Failed to archive product.");
+		actionError = messageOf(
+			error,
+			m.commerce_archive_product_failed({}, { locale }),
+		);
 	} finally {
 		productActionBusyKey = null;
 	}
@@ -382,13 +430,16 @@ async function bindBenefit() {
 			productKey,
 			benefitKey,
 		});
-		notice = `Benefit “${benefitKey}” bound to “${productKey}”.`;
+		notice = m.commerce_benefit_bound(
+			{ benefit: benefitKey, product: productKey },
+			{ locale },
+		);
 		bindProductKey = "";
 		bindBenefitKey = "";
 		bindFormOpen = false;
 		await refreshProductBenefits();
 	} catch (error) {
-		actionError = messageOf(error, "Failed to bind benefit.");
+		actionError = messageOf(error, m.commerce_bind_failed({}, { locale }));
 	} finally {
 		bindingSaving = false;
 	}
@@ -404,10 +455,13 @@ async function unbindBenefit(binding: SpaceCommerceProductBenefitBinding) {
 			productKey: binding.productKey,
 			benefitKey: binding.benefitKey,
 		});
-		notice = `Benefit “${binding.benefitKey}” unbound from “${binding.productKey}”.`;
+		notice = m.commerce_benefit_unbound(
+			{ benefit: binding.benefitKey, product: binding.productKey },
+			{ locale },
+		);
 		await refreshProductBenefits();
 	} catch (error) {
-		actionError = messageOf(error, "Failed to unbind benefit.");
+		actionError = messageOf(error, m.commerce_unbind_failed({}, { locale }));
 	} finally {
 		bindingBusyKey = null;
 	}
@@ -416,13 +470,11 @@ async function unbindBenefit(binding: SpaceCommerceProductBenefitBinding) {
 // ---- Formatting helpers ----
 
 function formatPrice(product: SpaceCommerceProduct): string {
-	return (
-		"$" +
-		product.pricing.amountUsd.toLocaleString("en-US", {
-			minimumFractionDigits: 2,
-			maximumFractionDigits: 2,
-		})
-	);
+	return formatCurrency(product.pricing.amountUsd, "USD", {
+		locale,
+		minimumFractionDigits: 2,
+		maximumFractionDigits: 2,
+	});
 }
 
 function metadataEntries(
@@ -452,21 +504,23 @@ function orderAmount(order: SpaceCommerceOrder): string {
 		order.paidAmountSnapshot > 0
 			? order.paidAmountSnapshot
 			: order.amountSnapshot;
-	return `$${(amount / 100).toLocaleString("en-US", {
+	return formatCurrency(amount / 100, "USD", {
+		locale,
 		minimumFractionDigits: 2,
 		maximumFractionDigits: 2,
-	})}`;
+	});
 }
 
 function formatDate(value: string): string {
 	const date = new Date(value);
 	if (Number.isNaN(date.getTime())) return value;
-	return new Intl.DateTimeFormat("en-US", {
+	return formatDateTime(date, locale, {
+		year: undefined,
 		month: "short",
 		day: "numeric",
 		hour: "numeric",
 		minute: "2-digit",
-	}).format(date);
+	});
 }
 
 $effect(() => {
@@ -496,13 +550,13 @@ $effect(() => {
 });
 </script>
 
-<svelte:head><title>Commerce — Cohub</title></svelte:head>
+<svelte:head><title>{m.page_title_commerce({}, { locale })} — Cohub</title></svelte:head>
 
 <div class="flex min-h-0 flex-1 flex-col overflow-hidden bg-bg-primary">
 	<header class="flex h-[44px] shrink-0 items-center justify-between border-b border-border-subtle bg-bg-primary px-3 sm:px-4">
 		<div class="flex min-w-0 items-center gap-3">
-			<button type="button" class="inline-flex h-8 items-center justify-center rounded-[6px] px-2.5 text-[12px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary" onclick={() => goto(buildSpaceSettingsRoute(spaceId))}>Back</button>
-			<div class="truncate text-[13px] font-medium text-text-primary">Commerce</div>
+			<button type="button" class="inline-flex h-8 items-center justify-center rounded-[6px] px-2.5 text-[12px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary" onclick={() => goto(buildSpaceSettingsRoute(spaceId))}>{m.commerce_back({}, { locale })}</button>
+			<div class="truncate text-[13px] font-medium text-text-primary">{m.commerce_header({}, { locale })}</div>
 		</div>
 	</header>
 
@@ -512,14 +566,14 @@ $effect(() => {
 				<div class="flex items-center gap-2.5 rounded-[8px] border border-brand/30 bg-brand/5 p-3">
 					<Sparkles class="h-4 w-4 shrink-0 text-brand" />
 					<div class="min-w-0 flex-1">
-						<div class="text-[13px] font-medium text-text-primary">Managing commerce requires a Max plan</div>
-						<div class="text-[12px] text-text-tertiary">Upgrade to set up and configure space commerce.</div>
+						<div class="text-[13px] font-medium text-text-primary">{m.commerce_max_plan({}, { locale })}</div>
+						<div class="text-[12px] text-text-tertiary">{m.commerce_upgrade_hint({}, { locale })}</div>
 					</div>
-					<a href="/settings/billing" class="inline-flex min-h-8 shrink-0 items-center rounded-[6px] bg-brand px-3 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand/90">Upgrade</a>
+					<a href="/settings/billing" class="inline-flex min-h-8 shrink-0 items-center rounded-[6px] bg-brand px-3 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand/90">{m.commerce_upgrade({}, { locale })}</a>
 				</div>
 			{/if}
 			{#if loading}
-				<CenteredLoading label="Loading commerce…" size="compact" variant="surface" />
+				<CenteredLoading label={m.commerce_loading({}, { locale })} size="compact" variant="surface" />
 			{:else if loadError}
 				<div class="rounded-[8px] border border-error-soft/30 bg-error-bg p-3 text-[12px] text-error-soft">{loadError}</div>
 			{:else if !commerceInitialized}
@@ -528,16 +582,16 @@ $effect(() => {
 						<div class="flex items-center gap-2.5">
 							<Sparkles class="h-4 w-4 text-text-tertiary" />
 							<div>
-								<div class="text-[15px] font-medium text-text-primary">Commerce is not set up</div>
-								<div class="text-[12px] text-text-tertiary">Set up billing for this space to start selling products.</div>
+								<div class="text-[15px] font-medium text-text-primary">{m.commerce_not_setup({}, { locale })}</div>
+								<div class="text-[12px] text-text-tertiary">{m.commerce_setup_hint({}, { locale })}</div>
 							</div>
 						</div>
 					</div>
 					<div class="flex items-center justify-between gap-3 p-4 sm:p-5">
-						<div class="text-[12px] text-text-tertiary">This is a one-time setup for the current space.</div>
+						<div class="text-[12px] text-text-tertiary">{m.commerce_setup_one_time({}, { locale })}</div>
 						<button type="button" class="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-[6px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg disabled:opacity-50" onclick={() => void setupCommerce()} disabled={setupSaving || !canManage}>
 							{#if setupSaving}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Sparkles class="h-3.5 w-3.5" />{/if}
-							Set up
+							{m.commerce_setup({}, { locale })}
 						</button>
 					</div>
 				</section>
@@ -558,7 +612,7 @@ $effect(() => {
 						{/each}
 					</div>
 					{#if productsWithoutBenefitsHint}
-						<div class="mt-2.5 text-[11px] text-text-tertiary">Tip: add a benefit, then bind it to a product so purchases grant access.</div>
+						<div class="mt-2.5 text-[11px] text-text-tertiary">{m.commerce_tip_bind({}, { locale })}</div>
 					{/if}
 				</div>
 
@@ -575,8 +629,8 @@ $effect(() => {
 						<div class="flex items-center gap-2.5">
 							<Sparkles class="h-4 w-4 text-text-tertiary" />
 							<div>
-								<div class="text-[15px] font-medium text-text-primary">Benefits</div>
-								<div class="text-[12px] text-text-tertiary">Feature and credit benefits bound to products.</div>
+								<div class="text-[15px] font-medium text-text-primary">{m.commerce_benefits({}, { locale })}</div>
+								<div class="text-[12px] text-text-tertiary">{m.commerce_benefits_desc({}, { locale })}</div>
 							</div>
 						</div>
 						<button type="button" class="inline-flex min-h-9 shrink-0 items-center justify-center gap-1.5 rounded-[6px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg disabled:opacity-50" onclick={() => { clearNotice(); dialog = { kind: "benefit-create" }; }} disabled={!canManage}>
@@ -586,10 +640,10 @@ $effect(() => {
 					<div class="p-4 sm:p-5">
 						{#if benefits.length === 0}
 							<div class="rounded-[8px] border border-dashed border-border-subtle px-4 py-6 text-center">
-								<div class="text-[13px] font-medium text-text-secondary">No benefits yet</div>
-								<div class="mt-1 text-[12px] text-text-tertiary">Create a feature benefit to gate access, or a credits benefit to sell consumable credits.</div>
+								<div class="text-[13px] font-medium text-text-secondary">{m.commerce_no_benefits({}, { locale })}</div>
+								<div class="mt-1 text-[12px] text-text-tertiary">{m.commerce_no_benefits_hint({}, { locale })}</div>
 								<button type="button" class="mt-3 inline-flex min-h-9 items-center justify-center gap-1.5 rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover" onclick={() => { clearNotice(); dialog = { kind: "benefit-create" }; }} disabled={!canManage}>
-									<Plus class="h-3.5 w-3.5" /> Create benefit
+									<Plus class="h-3.5 w-3.5" /> {m.commerce_create_benefit({}, { locale })}
 								</button>
 							</div>
 						{:else}
@@ -603,8 +657,8 @@ $effect(() => {
 												<div class="flex flex-wrap items-center gap-2">
 													<span class="inline-flex h-1.5 w-1.5 shrink-0 rounded-full {archived ? 'bg-text-placeholder' : 'bg-brand'}" aria-hidden="true"></span>
 													<span class="text-[13px] font-medium text-text-primary {archived ? 'line-through' : ''}">{benefit.name}</span>
-													<span class="rounded-[4px] border border-border-subtle px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-text-tertiary">{benefit.type === 'credits' ? 'Credits' : 'Feature'}</span>
-													{#if archived}<span class="rounded-[4px] border border-border-subtle px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-text-placeholder">Archived</span>{/if}
+													<span class="rounded-[4px] border border-border-subtle px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-text-tertiary">{benefit.type === 'credits' ? m.commerce_credits({}, { locale }) : m.commerce_feature({}, { locale })}</span>
+													{#if archived}<span class="rounded-[4px] border border-border-subtle px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-text-placeholder">{m.commerce_archived({}, { locale })}</span>{/if}
 												</div>
 												<div class="mt-0.5 truncate font-mono text-[11px] text-text-tertiary">{benefit.key}</div>
 												{#if benefit.description}<div class="mt-1 text-[12px] text-text-secondary">{benefit.description}</div>{/if}
@@ -615,17 +669,17 @@ $effect(() => {
 																<span class="text-text-tertiary">{entry.key}</span><span class="mx-1 text-text-placeholder">:</span>{entry.value}
 															</span>
 														{/each}
-														{#if entries.length > 4}<span class="inline-flex items-center px-1 py-0.5 text-[10px] text-text-placeholder">+{entries.length - 4} more</span>{/if}
+														{#if entries.length > 4}<span class="inline-flex items-center px-1 py-0.5 text-[10px] text-text-placeholder">+{entries.length - 4}{" "}{m.commerce_more({ count: entries.length - 4 }, { locale })}</span>{/if}
 													</div>
 												{/if}
 											</div>
 											<div class="flex shrink-0 items-center gap-1">
 												<button type="button" class="inline-flex h-8 items-center justify-center gap-1.5 rounded-[6px] border border-border-subtle bg-bg-input px-2.5 text-[11px] font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:opacity-50" onclick={() => { clearNotice(); dialog = { kind: "benefit-edit", benefit }; }} disabled={benefitActionBusyKey !== null || archived || !canManage}>
-													<Pencil class="h-3 w-3" /> Edit
+													<Pencil class="h-3 w-3" /> {m.commerce_edit({}, { locale })}
 												</button>
 												<button type="button" class="inline-flex h-8 items-center justify-center gap-1.5 rounded-[6px] px-2.5 text-[11px] font-medium text-text-placeholder transition-colors hover:bg-bg-hover hover:text-error-soft disabled:opacity-50" onclick={() => void archiveBenefit(benefit)} disabled={benefitActionBusyKey !== null || archived || !canManage}>
 													{#if benefitActionBusyKey === benefit.key}<Loader2 class="h-3 w-3 animate-spin" />{:else}<Archive class="h-3 w-3" />{/if}
-													Archive
+													{m.commerce_archive({}, { locale })}
 												</button>
 											</div>
 										</div>
@@ -642,8 +696,8 @@ $effect(() => {
 						<div class="flex items-center gap-2.5">
 							<Package class="h-4 w-4 text-text-tertiary" />
 							<div>
-								<div class="text-[15px] font-medium text-text-primary">Products</div>
-								<div class="text-[12px] text-text-tertiary">Public one-time products for checkout.</div>
+								<div class="text-[15px] font-medium text-text-primary">{m.commerce_products({}, { locale })}</div>
+								<div class="text-[12px] text-text-tertiary">{m.commerce_products_desc({}, { locale })}</div>
 							</div>
 						</div>
 						<button type="button" class="inline-flex min-h-9 shrink-0 items-center justify-center gap-1.5 rounded-[6px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg disabled:opacity-50" onclick={() => { clearNotice(); dialog = { kind: "product-create" }; }} disabled={!canManage}>
@@ -653,10 +707,10 @@ $effect(() => {
 					<div class="p-4 sm:p-5">
 						{#if products.length === 0}
 							<div class="rounded-[8px] border border-dashed border-border-subtle px-4 py-6 text-center">
-								<div class="text-[13px] font-medium text-text-secondary">No products yet</div>
-								<div class="mt-1 text-[12px] text-text-tertiary">Create a product to start selling.</div>
+								<div class="text-[13px] font-medium text-text-secondary">{m.commerce_no_products({}, { locale })}</div>
+								<div class="mt-1 text-[12px] text-text-tertiary">{m.commerce_no_products_hint({}, { locale })}</div>
 								<button type="button" class="mt-3 inline-flex min-h-9 items-center justify-center gap-1.5 rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover" onclick={() => { clearNotice(); dialog = { kind: "product-create" }; }} disabled={!canManage}>
-									<Plus class="h-3.5 w-3.5" /> Create product
+									<Plus class="h-3.5 w-3.5" /> {m.commerce_create_product({}, { locale })}
 								</button>
 							</div>
 						{:else}
@@ -669,7 +723,7 @@ $effect(() => {
 											<div class="min-w-0">
 												<div class="flex flex-wrap items-center gap-2">
 													<span class="text-[13px] font-medium text-text-primary {archived ? 'line-through' : ''}">{product.name}</span>
-													<span class="rounded-[4px] border border-border-subtle px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-text-tertiary">One-time</span>
+													<span class="rounded-[4px] border border-border-subtle px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-text-tertiary">{m.commerce_one_time({}, { locale })}</span>
 												</div>
 												<div class="mt-0.5 truncate font-mono text-[11px] text-text-tertiary">{product.key}</div>
 											</div>
@@ -684,10 +738,10 @@ $effect(() => {
 												{product.status}
 											</span>
 											{#if product.cohubBalance}
-												<span class="rounded-[4px] border border-border-subtle px-1.5 py-0.5 text-[10px] text-text-secondary">{"$" + product.cohubBalance.amountUsd} Balance</span>
+												<span class="rounded-[4px] border border-border-subtle px-1.5 py-0.5 text-[10px] text-text-secondary">{m.commerce_balance({ amount: formatCurrency(product.cohubBalance.amountUsd, "USD", { locale, minimumFractionDigits: 2, maximumFractionDigits: 2 }) }, { locale })}</span>
 											{/if}
 											{#if product.display.creditsAmount != null && product.display.creditsAmount > 0}
-												<span class="rounded-[4px] border border-border-subtle px-1.5 py-0.5 text-[10px] text-text-secondary">{product.display.creditsAmount} credits</span>
+												<span class="rounded-[4px] border border-border-subtle px-1.5 py-0.5 text-[10px] text-text-secondary">{m.commerce_credits_amount({ count: product.display.creditsAmount }, { locale })}</span>
 											{/if}
 										</div>
 
@@ -697,11 +751,11 @@ $effect(() => {
 
 										<div class="mt-3 flex items-center gap-1 border-t border-border-subtle pt-2.5">
 											<button type="button" class="inline-flex h-8 items-center justify-center gap-1.5 rounded-[6px] border border-border-subtle bg-bg-input px-2.5 text-[11px] font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:opacity-50" onclick={() => { clearNotice(); dialog = { kind: "product-edit", product }; }} disabled={productActionBusyKey !== null || archived || !canManage}>
-												<Pencil class="h-3 w-3" /> Edit
+												<Pencil class="h-3 w-3" /> {m.commerce_edit({}, { locale })}
 											</button>
 											<button type="button" class="inline-flex h-8 items-center justify-center gap-1.5 rounded-[6px] px-2.5 text-[11px] font-medium text-text-placeholder transition-colors hover:bg-bg-hover hover:text-error-soft disabled:opacity-50" onclick={() => void archiveProduct(product)} disabled={productActionBusyKey !== null || archived || !canManage}>
 												{#if productActionBusyKey === product.key}<Loader2 class="h-3 w-3 animate-spin" />{:else}<Archive class="h-3 w-3" />{/if}
-												Archive
+												{m.commerce_archive({}, { locale })}
 											</button>
 										</div>
 									</div>
@@ -717,46 +771,46 @@ $effect(() => {
 						<div class="flex items-center gap-2.5">
 							<Link2 class="h-4 w-4 text-text-tertiary" />
 							<div>
-								<div class="text-[15px] font-medium text-text-primary">Bindings</div>
-								<div class="text-[12px] text-text-tertiary">Benefits currently granted by product purchases.</div>
+								<div class="text-[15px] font-medium text-text-primary">{m.commerce_bindings({}, { locale })}</div>
+								<div class="text-[12px] text-text-tertiary">{m.commerce_bindings_desc({}, { locale })}</div>
 							</div>
 						</div>
 						<button type="button" class="inline-flex min-h-9 shrink-0 items-center justify-center gap-1.5 rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:opacity-50" onclick={() => { bindFormOpen = !bindFormOpen; bindProductKey = ""; bindBenefitKey = ""; }} disabled={!canManage || bindableProducts.length === 0 || bindableBenefits.length === 0}>
-							<Plus class="h-3.5 w-3.5" /> Bind benefit
+							<Plus class="h-3.5 w-3.5" /> {m.commerce_bind_benefit({}, { locale })}
 						</button>
 					</div>
 					<div class="space-y-3 p-4 sm:p-5">
 						{#if bindableProducts.length === 0 || bindableBenefits.length === 0}
 							<div class="rounded-[8px] border border-dashed border-border-subtle px-4 py-5 text-center text-[12px] text-text-tertiary">
 								{#if bindableProducts.length === 0 && bindableBenefits.length === 0}
-									Create at least one product and one benefit to bind them.
+									{m.commerce_bind_hint_none({}, { locale })}
 								{:else if bindableProducts.length === 0}
-									Create a product to bind benefits to it.
+									{m.commerce_bind_hint_product({}, { locale })}
 								{:else}
-									Create a benefit to bind it to a product.
+									{m.commerce_bind_hint_benefit({}, { locale })}
 								{/if}
 							</div>
 						{:else}
 							{#if bindFormOpen}
 								<div class="rounded-[8px] border border-border-subtle bg-bg-primary p-3">
 									<div class="mb-3 flex items-center justify-between gap-2">
-										<div class="text-[12px] font-medium text-text-primary">New binding</div>
-										<button type="button" class="text-[11px] text-text-tertiary transition-colors hover:text-text-primary" onclick={() => { bindFormOpen = false; bindProductKey = ""; bindBenefitKey = ""; }} disabled={bindingSaving}>Cancel</button>
+										<div class="text-[12px] font-medium text-text-primary">{m.commerce_new_binding({}, { locale })}</div>
+										<button type="button" class="text-[11px] text-text-tertiary transition-colors hover:text-text-primary" onclick={() => { bindFormOpen = false; bindProductKey = ""; bindBenefitKey = ""; }} disabled={bindingSaving}>{m.commerce_cancel({}, { locale })}</button>
 									</div>
 									<div class="grid gap-3 sm:grid-cols-2">
 										<label class="flex flex-col gap-1.5">
-											<span class="text-[11px] font-medium uppercase tracking-wide text-text-tertiary">Product</span>
+											<span class="text-[11px] font-medium uppercase tracking-wide text-text-tertiary">{m.commerce_product_label({}, { locale })}</span>
 											<select bind:value={bindProductKey} disabled={bindingSaving || !canManage} class="h-9 w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none disabled:opacity-60" onchange={() => { bindBenefitKey = ""; }}>
-												<option value="">Select a product…</option>
+												<option value="">{m.commerce_select_product({}, { locale })}</option>
 												{#each bindableProducts as product (product.key)}
 													<option value={product.key}>{product.name} · {product.key}</option>
 												{/each}
 											</select>
 										</label>
 										<label class="flex flex-col gap-1.5">
-											<span class="text-[11px] font-medium uppercase tracking-wide text-text-tertiary">Benefit</span>
+											<span class="text-[11px] font-medium uppercase tracking-wide text-text-tertiary">{m.commerce_benefit_label({}, { locale })}</span>
 											<select bind:value={bindBenefitKey} disabled={bindingSaving || !canManage || !bindProductKey} class="h-9 w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none disabled:opacity-60">
-												<option value="">Select a benefit…</option>
+												<option value="">{m.commerce_select_benefit({}, { locale })}</option>
 												{#each bindingCandidates as benefit (benefit.key)}
 													<option value={benefit.key}>{benefit.name} · {benefit.key}</option>
 												{/each}
@@ -764,10 +818,10 @@ $effect(() => {
 										</label>
 									</div>
 									<div class="mt-3 flex items-center justify-between gap-3">
-										<span class="text-[11px] text-text-tertiary">Bindings apply immediately and are verified at checkout.</span>
+										<span class="text-[11px] text-text-tertiary">{m.commerce_bind_hint_immediate({}, { locale })}</span>
 										<button type="button" class="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-[6px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg disabled:opacity-50" onclick={() => void bindBenefit()} disabled={bindingSaving || !bindingReady || !canManage}>
 											{#if bindingSaving}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Link2 class="h-3.5 w-3.5" />{/if}
-											Bind
+											{m.commerce_bind({}, { locale })}
 										</button>
 									</div>
 								</div>
@@ -775,7 +829,7 @@ $effect(() => {
 
 							{#if productBenefits.length === 0}
 								<div class="rounded-[8px] border border-dashed border-border-subtle px-4 py-5 text-center text-[12px] text-text-tertiary">
-									No bindings yet. Bind a benefit to a product to grant access after purchase.
+									{m.commerce_no_bindings({}, { locale })}
 								</div>
 							{:else}
 								<div class="grid gap-2">
@@ -798,7 +852,7 @@ $effect(() => {
 											</div>
 											<button type="button" class="inline-flex h-8 items-center justify-center gap-1.5 rounded-[6px] px-2.5 text-[11px] font-medium text-text-placeholder transition-colors hover:bg-bg-hover hover:text-error-soft disabled:opacity-50" onclick={() => void unbindBenefit(binding)} disabled={bindingBusyKey !== null || !canManage}>
 												{#if bindingBusyKey === bindingKey}<Loader2 class="h-3 w-3 animate-spin" />{/if}
-												Unbind
+												{m.commerce_unbind({}, { locale })}
 											</button>
 										</div>
 									{/each}
@@ -811,13 +865,13 @@ $effect(() => {
 				<section class="overflow-hidden rounded-[10px] border border-border-subtle bg-bg-surface">
 					<div class="flex items-center gap-2.5 px-4 py-3 sm:px-5">
 						<Package class="h-4 w-4 text-text-tertiary" />
-						<div class="text-[15px] font-medium text-text-primary">Orders</div>
+						<div class="text-[15px] font-medium text-text-primary">{m.commerce_orders({}, { locale })}</div>
 					</div>
 					<div class="border-t border-border-subtle p-4 sm:p-5">
 						{#if ordersLoading}
-							<div class="flex items-center gap-2 py-4 text-[12px] text-text-tertiary"><Loader2 class="h-3.5 w-3.5 animate-spin" /> Loading orders…</div>
+							<div class="flex items-center gap-2 py-4 text-[12px] text-text-tertiary"><Loader2 class="h-3.5 w-3.5 animate-spin" /> {m.commerce_loading_orders({}, { locale })}</div>
 						{:else if orders.length === 0}
-							<div class="py-4 text-center text-[12px] text-text-tertiary">No orders yet.</div>
+							<div class="py-4 text-center text-[12px] text-text-tertiary">{m.commerce_no_orders({}, { locale })}</div>
 						{:else}
 							<div class="grid gap-2">
 								{#each orders as order (order.id)}
@@ -853,7 +907,7 @@ $effect(() => {
 								<div class="mt-3 flex justify-center">
 									<button type="button" class="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:opacity-50" onclick={() => void loadMoreOrders()} disabled={ordersLoadingMore}>
 										{#if ordersLoadingMore}<Loader2 class="h-3.5 w-3.5 animate-spin" />{/if}
-										Load more
+										{m.commerce_load_more({}, { locale })}
 									</button>
 								</div>
 							{/if}
@@ -870,7 +924,7 @@ $effect(() => {
 	<Dialog
 		open
 		onClose={closeDialog}
-		title={dialog.kind === "benefit-edit" ? "Edit benefit" : "New benefit"}
+		title={dialog.kind === "benefit-edit" ? m.commerce_edit_benefit({}, { locale }) : m.commerce_new_benefit({}, { locale })}
 		maxWidth="520px"
 	>
 		<CommerceBenefitEditor
@@ -884,7 +938,7 @@ $effect(() => {
 	<Dialog
 		open
 		onClose={closeDialog}
-		title={dialog.kind === "product-edit" ? "Edit product" : "New product"}
+		title={dialog.kind === "product-edit" ? m.commerce_edit_product({}, { locale }) : m.commerce_new_product({}, { locale })}
 		maxWidth="520px"
 	>
 		<CommerceProductEditor

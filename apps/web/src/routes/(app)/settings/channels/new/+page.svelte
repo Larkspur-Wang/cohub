@@ -14,8 +14,11 @@ import { goto } from "$app/navigation";
 import { page } from "$app/state";
 import { ensureAuth } from "$lib/auth";
 import { handleUnauthorizedError } from "$lib/auth-redirect";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 import { sdk } from "$lib/sdk";
 
+const locale = $derived(getLocale());
 const currentPath = $derived(page.url.pathname);
 const currentSearch = $derived(page.url.search);
 
@@ -156,11 +159,11 @@ async function pollWeChatLogin(sessionKey: string, verifyCode?: string) {
 			}
 			if (result.expired) {
 				stopWeChatPolling();
-				wechatStatus = "QR code expired. Generate a new one.";
+				wechatStatus = m.channel_new_wechat_qr_expired({}, { locale });
 				return;
 			}
 			if (result.status === "confirming") {
-				wechatStatus = "Finalizing connection...";
+				wechatStatus = m.channel_new_wechat_finalizing({}, { locale });
 			}
 			if (result.status === "scaned") wechatNeedsVerifyCode = false;
 			await new Promise((resolve) => setTimeout(resolve, 1200));
@@ -168,13 +171,15 @@ async function pollWeChatLogin(sessionKey: string, verifyCode?: string) {
 	} catch (error) {
 		wechatPolling = false;
 		submitError =
-			error instanceof Error ? error.message : "Failed to connect WeChat";
+			error instanceof Error
+				? error.message
+				: m.channel_new_error_connect_wechat({}, { locale });
 	}
 }
 
 async function startWeChatLogin() {
 	if (!formName.trim()) {
-		submitError = "Channel name is required.";
+		submitError = m.channel_new_error_required_name({}, { locale });
 		return;
 	}
 	if (!(await ensureAuth({ redirectPath: `${currentPath}${currentSearch}` })))
@@ -202,7 +207,9 @@ async function startWeChatLogin() {
 			return;
 		}
 		submitError =
-			error instanceof Error ? error.message : "Failed to start WeChat login";
+			error instanceof Error
+				? error.message
+				: m.channel_new_error_start_wechat({}, { locale });
 	} finally {
 		isSubmitting = false;
 	}
@@ -211,7 +218,7 @@ async function startWeChatLogin() {
 async function submitWeChatVerifyCode() {
 	const code = wechatVerifyCode.trim();
 	if (!wechatSessionKey || !code) {
-		submitError = "Verification code is required.";
+		submitError = m.channel_new_error_verify_code({}, { locale });
 		return;
 	}
 	submitError = "";
@@ -225,25 +232,25 @@ async function handleSubmit(e: Event) {
 
 	// Validate
 	if (!formName.trim()) {
-		submitError = "Channel name is required.";
+		submitError = m.channel_new_error_required_name({}, { locale });
 		return;
 	}
 
 	if (selectedProvider === "discord" && !formToken.trim()) {
-		submitError = "Bot Token is required.";
+		submitError = m.channel_new_error_required_token({}, { locale });
 		return;
 	}
 
 	if (selectedProvider === "feishu" || selectedProvider === "qq") {
 		if (!formAppId.trim()) {
-			submitError = "App ID is required.";
+			submitError = m.channel_new_error_required_app_id({}, { locale });
 			return;
 		}
 		if (!formAppSecret.trim()) {
 			submitError =
 				selectedProvider === "qq"
-					? "Client Secret is required."
-					: "App Secret is required.";
+					? m.channel_new_error_required_client_secret({}, { locale })
+					: m.channel_new_error_required_app_secret({}, { locale });
 			return;
 		}
 	}
@@ -292,7 +299,9 @@ async function handleSubmit(e: Event) {
 			return;
 		}
 		submitError =
-			error instanceof Error ? error.message : "Failed to create channel";
+			error instanceof Error
+				? error.message
+				: m.channel_new_error_create({}, { locale });
 	} finally {
 		isSubmitting = false;
 	}
@@ -300,7 +309,7 @@ async function handleSubmit(e: Event) {
 </script>
 
 <svelte:head>
-	<title>New channel — Cohub</title>
+	<title>{m.page_title_new_channel({}, { locale })} — Cohub</title>
 </svelte:head>
 
 <div class="flex-1 flex flex-col min-h-0 overflow-y-auto">
@@ -312,7 +321,7 @@ async function handleSubmit(e: Event) {
         <ArrowLeft class="w-4 h-4" />
       </a>
       <div class="w-[1px] h-4 bg-border-subtle shrink-0"></div>
-      <span class="text-[11px] font-medium text-text-secondary">New Channel</span>
+      <span class="text-[11px] font-medium text-text-secondary">{m.channel_new_header({}, { locale })}</span>
     </div>
   </div>
 
@@ -321,8 +330,8 @@ async function handleSubmit(e: Event) {
       <!-- Step 1: Provider Selection -->
       <div class="space-y-3">
         <div>
-          <div class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium">Select Platform</div>
-          <p class="text-[13px] text-text-tertiary mt-1">Choose the messaging platform you want to connect.</p>
+          <div class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium">{m.channel_new_select_platform({}, { locale })}</div>
+          <p class="text-[13px] text-text-tertiary mt-1">{m.channel_new_select_hint({}, { locale })}</p>
         </div>
 
         <!-- Discord Card -->
@@ -337,7 +346,7 @@ async function handleSubmit(e: Event) {
             </div>
             <div class="flex-1 min-w-0">
               <div class="text-[14px] font-medium text-text-primary group-hover:text-text-primary">Discord</div>
-              <p class="text-[12px] text-text-tertiary mt-0.5">Connect to a Discord server via bot. Requires a bot token and appropriate server permissions.</p>
+              <p class="text-[12px] text-text-tertiary mt-0.5">{m.channel_new_discord_desc({}, { locale })}</p>
             </div>
             <div class="text-text-placeholder group-hover:text-text-secondary transition-colors mt-1">
               <ChevronDown class="w-4 h-4 -rotate-90" />
@@ -357,7 +366,7 @@ async function handleSubmit(e: Event) {
             </div>
             <div class="flex-1 min-w-0">
               <div class="text-[14px] font-medium text-text-primary group-hover:text-text-primary">Feishu / Lark</div>
-              <p class="text-[12px] text-text-tertiary mt-0.5">Connect via Feishu open platform app. Requires App ID and App Secret from the developer console.</p>
+              <p class="text-[12px] text-text-tertiary mt-0.5">{m.channel_new_feishu_desc({}, { locale })}</p>
             </div>
             <div class="text-text-placeholder group-hover:text-text-secondary transition-colors mt-1">
               <ChevronDown class="w-4 h-4 -rotate-90" />
@@ -377,7 +386,7 @@ async function handleSubmit(e: Event) {
             </div>
             <div class="flex-1 min-w-0">
               <div class="text-[14px] font-medium text-text-primary group-hover:text-text-primary">WeChat</div>
-              <p class="text-[12px] text-text-tertiary mt-0.5">Connect by scanning a QR code with WeChat. Supports direct text conversations.</p>
+              <p class="text-[12px] text-text-tertiary mt-0.5">{m.channel_new_wechat_desc({}, { locale })}</p>
             </div>
             <div class="text-text-placeholder group-hover:text-text-secondary transition-colors mt-1">
               <ChevronDown class="w-4 h-4 -rotate-90" />
@@ -397,7 +406,7 @@ async function handleSubmit(e: Event) {
             </div>
             <div class="flex-1 min-w-0">
               <div class="text-[14px] font-medium text-text-primary group-hover:text-text-primary">QQ Bot</div>
-              <p class="text-[12px] text-text-tertiary mt-0.5">Connect via QQ Open Platform Bot. Requires App ID and Client Secret.</p>
+              <p class="text-[12px] text-text-tertiary mt-0.5">{m.channel_new_qq_desc({}, { locale })}</p>
             </div>
             <div class="text-text-placeholder group-hover:text-text-secondary transition-colors mt-1">
               <ChevronDown class="w-4 h-4 -rotate-90" />
@@ -412,51 +421,51 @@ async function handleSubmit(e: Event) {
         <!-- Provider Header -->
         <div class="flex items-center gap-2 mb-2">
           <button type="button" onclick={goBack} class="text-text-tertiary hover:text-text-secondary transition-colors text-[12px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand/50">
-            ← Back
+            {m.channel_new_back({}, { locale })}
           </button>
         </div>
 
         {#if selectedProvider === "discord"}
           <div class="space-y-2">
             <div>
-              <div class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium">Discord Binding</div>
-              <p class="text-[13px] text-text-tertiary mt-1">Create or select a Discord bot, paste its token, then save the channel.</p>
+              <div class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium">{m.channel_new_binding_discord({}, { locale })}</div>
+              <p class="text-[13px] text-text-tertiary mt-1">{m.channel_new_discord_step_intro({}, { locale })}</p>
             </div>
             <ol class="grid gap-1.5 text-[12px] text-text-tertiary sm:grid-cols-3">
               <li class="flex items-center gap-2">
                 <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border-subtle bg-bg-surface text-[10px] text-text-secondary">1</span>
-                Create a Discord bot
+                {m.channel_new_step_discord_bot({}, { locale })}
               </li>
               <li class="flex items-center gap-2">
                 <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border-subtle bg-bg-surface text-[10px] text-text-secondary">2</span>
-                Copy the bot token
+                {m.channel_new_step_copy_token({}, { locale })}
               </li>
               <li class="flex items-center gap-2">
                 <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border-subtle bg-bg-surface text-[10px] text-text-secondary">3</span>
-                Save the channel
+                {m.channel_new_step_save({}, { locale })}
               </li>
             </ol>
             <div class="space-y-1.5 text-[12px] text-text-tertiary">
-              <p>Go to the <a href="https://discord.com/developers/applications" target="_blank" rel="noopener" class="text-brand hover:underline">Discord Developer Portal</a>, create or select an application, then open the Bot page.</p>
-              <p>Reset and copy the bot token. Enable Message Content Intent, then invite the bot with the OAuth2 bot scope.</p>
+              <p>{m.channel_new_help_before({}, { locale })}<a href="https://discord.com/developers/applications" target="_blank" rel="noopener" class="text-brand hover:underline">Discord Developer Portal</a>{m.channel_new_discord_help_after({}, { locale })}</p>
+              <p>{m.channel_new_discord_help_2({}, { locale })}</p>
             </div>
           </div>
 
           <form onsubmit={handleSubmit} class="space-y-4">
             <div>
-              <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="ch-name">Channel Name</label>
+              <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="ch-name">{m.channel_new_label_channel_name({}, { locale })}</label>
               <input
                 id="ch-name"
                 type="text"
                 bind:value={formName}
-                placeholder="e.g. Support Bot"
+                placeholder={m.channel_new_placeholder_bot_name({}, { locale })}
                 class="w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none transition-colors"
                 required
               />
             </div>
 
             <div>
-              <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="ch-token">Bot Token</label>
+              <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="ch-token">{m.channel_new_label_bot_token({}, { locale })}</label>
               <input
                 id="ch-token"
                 type="password"
@@ -477,7 +486,7 @@ async function handleSubmit(e: Event) {
                 onclick={cancelToChannels}
                 class="px-4 py-[6px] rounded-[5px] bg-bg-hover hover:bg-bg-hover-strong border border-border-subtle text-[12px] text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand/50"
               >
-                Cancel
+                {m.channel_new_cancel({}, { locale })}
               </button>
               <button
                 type="submit"
@@ -486,9 +495,9 @@ async function handleSubmit(e: Event) {
               >
                 {#if isSubmitting}
                   <Loader2 class="w-3.5 h-3.5 animate-spin" />
-                  Saving channel
+                  {m.channel_new_saving({}, { locale })}
                 {:else}
-                  Save Channel
+                  {m.channel_new_save({}, { locale })}
                 {/if}
               </button>
             </div>
@@ -498,46 +507,46 @@ async function handleSubmit(e: Event) {
           <form onsubmit={handleSubmit} class="space-y-4">
             <div class="space-y-2">
               <div>
-                <div class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium">WeChat Binding</div>
-                <p class="text-[13px] text-text-tertiary mt-1">Start a binding session, open the scan page, then confirm in WeChat.</p>
+                <div class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium">{m.channel_new_binding_wechat({}, { locale })}</div>
+                <p class="text-[13px] text-text-tertiary mt-1">{m.channel_new_wechat_intro({}, { locale })}</p>
               </div>
               <ol class="grid gap-1.5 text-[12px] text-text-tertiary sm:grid-cols-3">
                 <li class="flex items-center gap-2">
                   <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border-subtle bg-bg-surface text-[10px] text-text-secondary">1</span>
-                  Enter Channel Name and start binding
+                  {m.channel_new_step_wechat_start({}, { locale })}
                 </li>
                 <li class="flex items-center gap-2">
                   <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border-subtle bg-bg-surface text-[10px] text-text-secondary">2</span>
-                  Open the scan page and scan with WeChat
+                  {m.channel_new_step_wechat_scan({}, { locale })}
                 </li>
                 <li class="flex items-center gap-2">
                   <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border-subtle bg-bg-surface text-[10px] text-text-secondary">3</span>
-                  Scan and confirm
+                  {m.channel_new_step_wechat_confirm({}, { locale })}
                 </li>
               </ol>
             </div>
 
             <div>
-              <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="ch-name">Channel Name</label>
+              <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="ch-name">{m.channel_new_label_channel_name({}, { locale })}</label>
               <input
                 id="ch-name"
                 type="text"
                 bind:value={formName}
-                placeholder="e.g. Personal WeChat"
+                placeholder={m.channel_new_wechat_placeholder({}, { locale })}
                 class="w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none transition-colors"
                 required
               />
-              <p class="mt-1.5 text-[11px] text-text-placeholder">Shown in Cohub to help you identify this channel.</p>
+              <p class="mt-1.5 text-[11px] text-text-placeholder">{m.channel_new_wechat_shown({}, { locale })}</p>
             </div>
 
             {#if wechatNeedsVerifyCode}
               <div class="space-y-2 rounded-md border border-border-subtle bg-bg-surface p-3">
-                <p class="text-[12px] text-text-tertiary">Enter the verification code shown in WeChat.</p>
+                <p class="text-[12px] text-text-tertiary">{m.channel_new_verify_intro({}, { locale })}</p>
                 <div class="flex gap-2">
                   <input
                     type="text"
                     bind:value={wechatVerifyCode}
-                    placeholder="6-digit code"
+                    placeholder={m.channel_new_placeholder_code({}, { locale })}
                     class="min-w-0 flex-1 px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none font-mono transition-colors"
                   />
                   <button
@@ -545,7 +554,7 @@ async function handleSubmit(e: Event) {
                     onclick={submitWeChatVerifyCode}
                     class="inline-flex min-h-8 items-center justify-center rounded-[5px] bg-brand px-4 py-[6px] text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover active:bg-brand-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand/50"
                   >
-                    Continue
+                    {m.channel_new_continue({}, { locale })}
                   </button>
                 </div>
               </div>
@@ -561,12 +570,12 @@ async function handleSubmit(e: Event) {
                 onclick={cancelToChannels}
                 class="px-4 py-[6px] rounded-[5px] bg-bg-hover hover:bg-bg-hover-strong border border-border-subtle text-[12px] text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand/50"
               >
-                Cancel
+                {m.channel_new_cancel({}, { locale })}
               </button>
               {#if wechatQrDataUrl}
                 <div class="flex flex-col items-end gap-1">
                   <p class="text-[11px] font-medium text-text-secondary">
-                    {wechatRemainingSeconds > 0 ? `Expires in ${formatWeChatCountdown(wechatRemainingSeconds)}` : "Scan page expired"}
+                    {wechatRemainingSeconds > 0 ? m.channel_new_expires_in({ time: formatWeChatCountdown(wechatRemainingSeconds) }, { locale }) : m.channel_new_scan_expired({}, { locale })}
                   </p>
                   <a
                     href={wechatQrDataUrl}
@@ -574,7 +583,7 @@ async function handleSubmit(e: Event) {
                     rel="noopener noreferrer"
                     class="inline-flex min-h-8 items-center justify-center rounded-[5px] bg-brand px-4 py-[6px] text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover active:bg-brand-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand/50"
                   >
-                    Open scan page to bind
+                    {m.channel_new_open_scan({}, { locale })}
                   </a>
                 </div>
               {:else if !wechatNeedsVerifyCode}
@@ -586,9 +595,9 @@ async function handleSubmit(e: Event) {
                 >
                   {#if isSubmitting || wechatPolling}
                     <Loader2 class="w-3.5 h-3.5 animate-spin" />
-                    Starting binding
+                    {m.channel_new_starting_binding({}, { locale })}
                   {:else}
-                    Start WeChat binding
+                    {m.channel_new_start_wechat({}, { locale })}
                   {/if}
                 </button>
               {/if}
@@ -598,45 +607,45 @@ async function handleSubmit(e: Event) {
         {:else if selectedProvider === "qq"}
           <div class="space-y-2">
             <div>
-              <div class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium">QQ Bot Binding</div>
-              <p class="text-[13px] text-text-tertiary mt-1">Create a QQ bot, copy its credentials, then save the channel.</p>
+              <div class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium">{m.channel_new_binding_qq({}, { locale })}</div>
+              <p class="text-[13px] text-text-tertiary mt-1">{m.channel_new_qq_intro({}, { locale })}</p>
             </div>
             <ol class="grid gap-1.5 text-[12px] text-text-tertiary sm:grid-cols-3">
               <li class="flex items-center gap-2">
                 <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border-subtle bg-bg-surface text-[10px] text-text-secondary">1</span>
-                Create a QQ bot
+                {m.channel_new_step_qq_bot({}, { locale })}
               </li>
               <li class="flex items-center gap-2">
                 <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border-subtle bg-bg-surface text-[10px] text-text-secondary">2</span>
-                Copy App ID and Client Secret
+                {m.channel_new_step_qq_copy({}, { locale })}
               </li>
               <li class="flex items-center gap-2">
                 <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border-subtle bg-bg-surface text-[10px] text-text-secondary">3</span>
-                Save the channel
+                {m.channel_new_step_save({}, { locale })}
               </li>
             </ol>
             <div class="space-y-1.5 text-[12px] text-text-tertiary">
-              <p>Go to the <a href="https://q.qq.com/" target="_blank" rel="noopener" class="text-brand hover:underline">QQ Open Platform</a>, create or select a bot, then open Developer Settings.</p>
-              <p>Copy the App ID and Client Secret. Enable message events for C2C and group chats before connecting.</p>
-              <p class="text-warning">QQ WebSocket access depends on platform permissions. Use a bot that has gateway access enabled.</p>
+              <p>{m.channel_new_help_before({}, { locale })}<a href="https://q.qq.com/" target="_blank" rel="noopener" class="text-brand hover:underline">QQ Open Platform</a>{m.channel_new_qq_help_after({}, { locale })}</p>
+              <p>{m.channel_new_qq_help_2({}, { locale })}</p>
+              <p class="text-warning">{m.channel_new_qq_warning({}, { locale })}</p>
             </div>
           </div>
 
           <form onsubmit={handleSubmit} class="space-y-4">
             <div>
-              <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="ch-name">Channel Name</label>
+              <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="ch-name">{m.channel_new_label_channel_name({}, { locale })}</label>
               <input
                 id="ch-name"
                 type="text"
                 bind:value={formName}
-                placeholder="e.g. QQ Bot"
+                placeholder={m.channel_new_placeholder_qq_name({}, { locale })}
                 class="w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none transition-colors"
                 required
               />
             </div>
 
             <div>
-              <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="ch-app-id">App ID</label>
+              <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="ch-app-id">{m.channel_new_label_app_id({}, { locale })}</label>
               <input
                 id="ch-app-id"
                 type="text"
@@ -648,12 +657,12 @@ async function handleSubmit(e: Event) {
             </div>
 
             <div>
-              <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="ch-client-secret">Client Secret</label>
+              <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="ch-client-secret">{m.channel_new_label_client_secret({}, { locale })}</label>
               <input
                 id="ch-client-secret"
                 type="password"
                 bind:value={formAppSecret}
-                placeholder="Enter your Client Secret..."
+                placeholder={m.channel_new_placeholder_client_secret({}, { locale })}
                 class="w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none font-mono transition-colors"
                 required
               />
@@ -669,7 +678,7 @@ async function handleSubmit(e: Event) {
                 onclick={cancelToChannels}
                 class="px-4 py-[6px] rounded-[5px] bg-bg-hover hover:bg-bg-hover-strong border border-border-subtle text-[12px] text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand/50"
               >
-                Cancel
+                {m.channel_new_cancel({}, { locale })}
               </button>
               <button
                 type="submit"
@@ -678,9 +687,9 @@ async function handleSubmit(e: Event) {
               >
                 {#if isSubmitting}
                   <Loader2 class="w-3.5 h-3.5 animate-spin" />
-                  Saving channel
+                  {m.channel_new_saving({}, { locale })}
                 {:else}
-                  Save Channel
+                  {m.channel_new_save({}, { locale })}
                 {/if}
               </button>
             </div>
@@ -689,45 +698,45 @@ async function handleSubmit(e: Event) {
         {:else if selectedProvider === "feishu"}
           <div class="space-y-2">
             <div>
-              <div class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium">Feishu / Lark Binding</div>
-              <p class="text-[13px] text-text-tertiary mt-1">Create a platform app, copy its credentials, then save the channel.</p>
+              <div class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium">{m.channel_new_binding_feishu({}, { locale })}</div>
+              <p class="text-[13px] text-text-tertiary mt-1">{m.channel_new_feishu_intro({}, { locale })}</p>
             </div>
             <ol class="grid gap-1.5 text-[12px] text-text-tertiary sm:grid-cols-3">
               <li class="flex items-center gap-2">
                 <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border-subtle bg-bg-surface text-[10px] text-text-secondary">1</span>
-                Create a platform app
+                {m.channel_new_step_app({}, { locale })}
               </li>
               <li class="flex items-center gap-2">
                 <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border-subtle bg-bg-surface text-[10px] text-text-secondary">2</span>
-                Copy App ID and Secret
+                {m.channel_new_step_copy_app({}, { locale })}
               </li>
               <li class="flex items-center gap-2">
                 <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border-subtle bg-bg-surface text-[10px] text-text-secondary">3</span>
-                Save the channel
+                {m.channel_new_step_save({}, { locale })}
               </li>
             </ol>
             <div class="space-y-1.5 text-[12px] text-text-tertiary">
-              <p>Go to the <a href="https://open.feishu.cn/app" target="_blank" rel="noopener" class="text-brand hover:underline">Feishu Open Platform</a>, create an Enterprise Self-built app, then open Credentials & Basic Info.</p>
-              <p>Copy the App ID and App Secret. Enable Bot capability, use Long Connection event subscriptions, then publish the app.</p>
-              <p class="text-warning">If using international Lark, select Lark below.</p>
+              <p>{m.channel_new_help_before({}, { locale })}<a href="https://open.feishu.cn/app" target="_blank" rel="noopener" class="text-brand hover:underline">Feishu Open Platform</a>{m.channel_new_feishu_help_after({}, { locale })}</p>
+              <p>{m.channel_new_feishu_help_2({}, { locale })}</p>
+              <p class="text-warning">{m.channel_new_feishu_warning({}, { locale })}</p>
             </div>
           </div>
 
           <form onsubmit={handleSubmit} class="space-y-4">
             <div>
-              <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="ch-name">Channel Name</label>
+              <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="ch-name">{m.channel_new_label_channel_name({}, { locale })}</label>
               <input
                 id="ch-name"
                 type="text"
                 bind:value={formName}
-                placeholder="e.g. Feishu Bot"
+                placeholder={m.channel_new_placeholder_feishu_name({}, { locale })}
                 class="w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none transition-colors"
                 required
               />
             </div>
 
             <div>
-              <p id="channel-platform-label" class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5">Platform</p>
+              <p id="channel-platform-label" class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5">{m.channel_new_label_platform({}, { locale })}</p>
               <div class="flex gap-2" aria-labelledby="channel-platform-label">
                 <button
                   type="button"
@@ -738,7 +747,7 @@ async function handleSubmit(e: Event) {
                       : 'border-border-subtle bg-bg-code text-text-tertiary hover:border-border-primary'
                   }"
                 >
-                  Feishu
+                  {m.channel_new_feishu({}, { locale })}
                 </button>
                 <button
                   type="button"
@@ -749,13 +758,13 @@ async function handleSubmit(e: Event) {
                       : 'border-border-subtle bg-bg-code text-text-tertiary hover:border-border-primary'
                   }"
                 >
-                  Lark (International)
+                  {m.channel_new_lark({}, { locale })}
                 </button>
               </div>
             </div>
 
             <div>
-              <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="ch-app-id">App ID</label>
+              <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="ch-app-id">{m.channel_new_label_app_id({}, { locale })}</label>
               <div class="relative">
                 <input
                   id="ch-app-id"
@@ -769,7 +778,7 @@ async function handleSubmit(e: Event) {
                   type="button"
                   onclick={() => copyToClipboard("cli_a5xxxxxxxxx", "appId")}
                   class="absolute right-2 top-1/2 -translate-y-1/2 text-text-placeholder hover:text-text-secondary transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand/50"
-                  title="Copy format hint"
+                  title={m.channel_new_copy_format_hint({}, { locale })}
                 >
                   {#if copiedField === "appId"}
                     <Check class="w-4 h-4 text-success" />
@@ -781,12 +790,12 @@ async function handleSubmit(e: Event) {
             </div>
 
             <div>
-              <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="ch-app-secret">App Secret</label>
+              <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="ch-app-secret">{m.channel_new_label_app_secret({}, { locale })}</label>
               <input
                 id="ch-app-secret"
                 type="password"
                 bind:value={formAppSecret}
-                placeholder="Enter your App Secret..."
+                placeholder={m.channel_new_placeholder_app_secret({}, { locale })}
                 class="w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none font-mono transition-colors"
                 required
               />
@@ -802,7 +811,7 @@ async function handleSubmit(e: Event) {
                 onclick={cancelToChannels}
                 class="px-4 py-[6px] rounded-[5px] bg-bg-hover hover:bg-bg-hover-strong border border-border-subtle text-[12px] text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand/50"
               >
-                Cancel
+                {m.channel_new_cancel({}, { locale })}
               </button>
               <button
                 type="submit"
@@ -811,9 +820,9 @@ async function handleSubmit(e: Event) {
               >
                 {#if isSubmitting}
                   <Loader2 class="w-3.5 h-3.5 animate-spin" />
-                  Saving channel
+                  {m.channel_new_saving({}, { locale })}
                 {:else}
-                  Save Channel
+                  {m.channel_new_save({}, { locale })}
                 {/if}
               </button>
             </div>

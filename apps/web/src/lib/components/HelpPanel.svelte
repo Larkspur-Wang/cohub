@@ -1,6 +1,10 @@
 <script lang="ts">
 import { latestEntry } from "$lib/changelog";
 import Dialog from "$lib/components/Dialog.svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
+
+const locale = $derived(getLocale());
 
 type ShortcutCombo = string[];
 type ShortcutItem = {
@@ -22,108 +26,114 @@ const {
 	onClose: () => void;
 } = $props();
 
-const sections: ShortcutSection[] = [
+const sections: ShortcutSection[] = $derived([
 	{
-		title: "Global",
-		description: "Available across Cohub.",
+		title: m.help_global({}, { locale }),
+		description: m.help_global_desc({}, { locale }),
 		items: [
 			{
-				label: "Search everywhere",
+				label: m.help_search_everywhere({}, { locale }),
 				keys: [
 					["⌘", "K"],
 					["Ctrl", "K"],
 				],
 			},
 			{
-				label: "New chat",
+				label: m.help_new_chat({}, { locale }),
 				keys: [
 					["⌘", "O"],
 					["Ctrl", "O"],
 				],
 			},
 			{
-				label: "Focus my chats",
+				label: m.help_focus_chats({}, { locale }),
 				keys: [
 					["⌘", "⇧", "U"],
 					["Ctrl", "Shift", "U"],
 				],
 			},
 			{
-				label: "Capture & mark",
+				label: m.help_capture_mark({}, { locale }),
 				keys: [
 					["⌘", "⇧", "S"],
 					["Ctrl", "Shift", "S"],
 				],
 			},
 			{
-				label: "Toggle left sidebar",
+				label: m.help_toggle_left({}, { locale }),
 				keys: [
 					["Ctrl", "⌥", "←"],
 					["Ctrl", "Alt", "←"],
 				],
 			},
 			{
-				label: "Toggle right sidebar",
+				label: m.help_toggle_right({}, { locale }),
 				keys: [
 					["Ctrl", "⌥", "→"],
 					["Ctrl", "Alt", "→"],
 				],
 			},
-			{ label: "Open help", keys: [["?"]] },
+			{ label: m.help_open_help({}, { locale }), keys: [["?"]] },
 		],
 	},
 	{
-		title: "Session page",
-		description: "Vim-style reading and turn navigation.",
+		title: m.help_session_page({}, { locale }),
+		description: m.help_session_desc({}, { locale }),
 		items: [
 			{
-				label: "Open model selector",
+				label: m.help_open_model_selector({}, { locale }),
 				keys: [
 					["⌘", "Shift", "M"],
 					["Ctrl", "Shift", "M"],
 				],
 			},
-			{ label: "Focus composer", keys: [["i"]] },
-			{ label: "Scroll down", keys: [["j"]] },
-			{ label: "Scroll up", keys: [["k"]] },
-			{ label: "Next turn", keys: [["Shift", "J"]] },
-			{ label: "Previous turn", keys: [["Shift", "K"]] },
-			{ label: "Top", keys: [["g", "g"]] },
-			{ label: "Bottom", keys: [["G"]] },
+			{ label: m.help_focus_composer({}, { locale }), keys: [["i"]] },
+			{ label: m.help_scroll_down({}, { locale }), keys: [["j"]] },
+			{ label: m.help_scroll_up({}, { locale }), keys: [["k"]] },
+			{ label: m.help_next_turn({}, { locale }), keys: [["Shift", "J"]] },
+			{ label: m.help_prev_turn({}, { locale }), keys: [["Shift", "K"]] },
+			{ label: m.help_top({}, { locale }), keys: [["g", "g"]] },
+			{ label: m.help_bottom({}, { locale }), keys: [["G"]] },
 		],
 	},
 	{
-		title: "Model selector",
-		description: "When choosing a model.",
+		title: m.help_model_selector({}, { locale }),
+		description: m.help_model_desc({}, { locale }),
 		items: [
-			{ label: "Next model", keys: [["↓"], ["Ctrl", "N"]] },
-			{ label: "Previous model", keys: [["↑"], ["Ctrl", "P"]] },
-			{ label: "Select", keys: [["Enter"]] },
-			{ label: "Close", keys: [["Esc"]] },
-		],
-	},
-	{
-		title: "Composer",
-		description: "When the message input is focused.",
-		items: [
-			{ label: "Send", keys: [["Enter"]] },
 			{
-				label: "Force send",
+				label: m.help_next_model({}, { locale }),
+				keys: [["↓"], ["Ctrl", "N"]],
+			},
+			{
+				label: m.help_prev_model({}, { locale }),
+				keys: [["↑"], ["Ctrl", "P"]],
+			},
+			{ label: m.help_select({}, { locale }), keys: [["Enter"]] },
+			{ label: m.help_close({}, { locale }), keys: [["Esc"]] },
+		],
+	},
+	{
+		title: m.help_composer({}, { locale }),
+		description: m.help_composer_desc({}, { locale }),
+		items: [
+			{ label: m.help_send({}, { locale }), keys: [["Enter"]] },
+			{
+				label: m.help_force_send({}, { locale }),
 				keys: [
 					["⌘", "↵"],
 					["Ctrl", "↵"],
 				],
 			},
-			{ label: "New line", keys: [["Shift", "↵"]] },
-			{ label: "Blur", keys: [["Esc"]] },
+			{ label: m.help_new_line({}, { locale }), keys: [["Shift", "↵"]] },
+			{ label: m.help_blur({}, { locale }), keys: [["Esc"]] },
 		],
 	},
 	{
-		title: "Files",
-		description: "File preview and editor shortcuts.",
+		title: m.help_files({}, { locale }),
+		description: m.help_files_desc({}, { locale }),
 		items: [
 			{
-				label: "Save file",
+				label: m.help_save_file({}, { locale }),
 				keys: [
 					["⌘", "S"],
 					["Ctrl", "S"],
@@ -131,10 +141,10 @@ const sections: ShortcutSection[] = [
 			},
 		],
 	},
-];
+]);
 </script>
 
-<Dialog {open} {onClose} title="Help" maxWidth="680px">
+<Dialog {open} {onClose} title={m.help_title({}, { locale })} maxWidth="680px">
 	<div class="help-sheet">
 		<div class="shortcut-stack">
 			{#each sections as section (section.title)}
@@ -164,23 +174,23 @@ const sections: ShortcutSection[] = [
 
 			<section class="shortcut-section doc-section" aria-labelledby="help-section-docs">
 				<div class="section-meta">
-					<h3 id="help-section-docs">Product</h3>
-					<p>Updates and resources.</p>
+					<h3 id="help-section-docs">{m.help_product({}, { locale })}</h3>
+					<p>{m.help_product_desc({}, { locale })}</p>
 				</div>
 				<div class="doc-stack">
 					<a href="/changelog" class="doc-card doc-card-link" onclick={onClose}>
 						<div class="doc-copy-wrap">
-							<div class="doc-title">Changelog</div>
-							<div class="doc-copy">What's new in Cohub.</div>
+							<div class="doc-title">{m.help_changelog({}, { locale })}</div>
+							<div class="doc-copy">{m.help_changelog_copy({}, { locale })}</div>
 						</div>
-						<span class="doc-status">{latestEntry ? `v${latestEntry.version}` : "Open"}</span>
+						<span class="doc-status">{latestEntry ? `v${latestEntry.version}` : m.help_open({}, { locale })}</span>
 					</a>
 					<div class="doc-card">
 						<div class="doc-copy-wrap">
-							<div class="doc-title">Project documentation</div>
-							<div class="doc-copy">Deeper guides will appear here.</div>
+							<div class="doc-title">{m.help_docs({}, { locale })}</div>
+							<div class="doc-copy">{m.help_docs_copy({}, { locale })}</div>
 						</div>
-						<span class="doc-status">Soon</span>
+						<span class="doc-status">{m.help_soon({}, { locale })}</span>
 					</div>
 				</div>
 			</section>
