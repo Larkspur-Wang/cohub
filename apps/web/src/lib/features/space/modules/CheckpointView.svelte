@@ -365,10 +365,10 @@ onDestroy(() => {
 					<header class="space-y-1.5">
 						<div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">{m.cp_new_save({}, { locale })}</div>
 						<h1 class="text-[18px] font-semibold tracking-tight text-text-primary sm:text-[20px]">
-							Save workspace
+							{m.cp_save_workspace({}, { locale })}
 						</h1>
 						<p class="text-[13px] leading-5 text-text-tertiary">
-							Create a reusable Save of
+							{m.cp_create_save_of({}, { locale })}
 							<span class="font-medium text-text-secondary">{space?.name ?? space?.title ?? spaceId}</span>.
 						</p>
 					</header>
@@ -377,7 +377,7 @@ onDestroy(() => {
 						<label
 							class="block text-[11px] font-medium text-text-secondary"
 							for="checkpoint-description"
-						>Description <span class="font-normal text-text-placeholder">optional</span></label
+						>{m.cp_description({}, { locale })} <span class="font-normal text-text-placeholder">{m.cp_optional({}, { locale })}</span></label
 						>
 						<textarea
 							id="checkpoint-description"
@@ -387,7 +387,7 @@ onDestroy(() => {
 							class="w-full resize-y rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2.5 text-[13px] leading-5 text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none transition-colors"
 						></textarea>
 						<p class="text-[11px] leading-4 text-text-placeholder">
-							Empty descriptions fall back to the commit hash in lists.
+							{m.cp_desc_fallback_hint({}, { locale })}
 						</p>
 					</div>
 
@@ -397,7 +397,7 @@ onDestroy(() => {
 							summary={pendingDiff}
 							loading={pendingDiffLoading}
 							error={pendingDiffError}
-							emptyLabel={space?.headCheckpointId ? "No changes since last save" : "Workspace will be saved as-is"}
+							emptyLabel={space?.headCheckpointId ? m.cp_no_changes_since_save({}, { locale }) : m.cp_workspace_as_is({}, { locale })}
 							collapsible={true}
 							defaultExpanded={false}
 							title={m.cp_review_changes({}, { locale })}
@@ -418,7 +418,7 @@ onDestroy(() => {
 							class="min-h-9 rounded-[6px] px-3 py-2 text-[12px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary"
 							onclick={() => goto(buildSpaceNewSessionRoute(spaceId))}
 						>
-							Cancel
+							{m.common_cancel({}, { locale })}
 						</button>
 						<button
 							type="submit"
@@ -430,7 +430,7 @@ onDestroy(() => {
 							{:else}
 								<Save class="h-3.5 w-3.5" />
 							{/if}
-							<span>Save</span>
+							<span>{m.common_save({}, { locale })}</span>
 						</button>
 					</div>
 				</form>
@@ -441,7 +441,7 @@ onDestroy(() => {
 	<div class="flex-1 min-h-0 overflow-y-auto px-3 py-4 sm:px-6 sm:py-5 lg:px-8">
 		<div class="max-w-4xl">
 			{#if checkpointDetailLoading && checkpointDetail?.id !== checkpointId}
-				<CenteredLoading label="Loading save…" size="panel" />
+				<CenteredLoading label={m.cp_loading_save({}, { locale })} size="panel" />
 			{:else if checkpointDetailError}
 				<AccessStateView
 					state={checkpointDetailError}
@@ -463,7 +463,7 @@ onDestroy(() => {
 							<div class="flex flex-wrap items-center gap-2">
 								<span class="inline-flex items-center gap-1.5 rounded-full bg-brand/10 px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-brand">
 									<GitCommitHorizontal class="h-3 w-3" />
-									Save
+									{m.common_save({}, { locale })}
 								</span>
 								<span class="font-mono text-[11px] text-text-placeholder">{formatCheckpointTimestamp(checkpointDetail.createdAt)}</span>
 							</div>
@@ -492,7 +492,7 @@ onDestroy(() => {
 							>
 								{#if checkpointIdCopied}
 									<Check class="w-3.5 h-3.5 text-success-soft" />
-									<span class="text-success-soft">Copied</span>
+									<span class="text-success-soft">{m.copied({}, { locale })}</span>
 								{:else}
 									<Copy class="w-3.5 h-3.5" />
 									<span>{m.cp_copy_id({}, { locale })}</span>
@@ -506,7 +506,7 @@ onDestroy(() => {
 							<div class="space-y-2">
 								<div class="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wider text-text-placeholder">
 									<GitCommitHorizontal class="w-3.5 h-3.5 shrink-0" />
-									Commit
+									{m.cp_commit({}, { locale })}
 								</div>
 								<div class="group flex flex-col gap-2 rounded-[6px] bg-bg-elevated/35 px-3 py-2.5 sm:flex-row sm:items-start sm:justify-between">
 									<div class="min-w-0 font-mono text-[12px] leading-snug text-text-secondary break-all">{checkpointDetail.commitHash}</div>
@@ -528,42 +528,42 @@ onDestroy(() => {
 							<div class="space-y-2">
 								<div class="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wider text-text-placeholder">
 									<BarChart3 class="w-3.5 h-3.5 shrink-0" />
-									Stats
+									{m.cp_stats({}, { locale })}
 								</div>
 								<div class="rounded-[6px] bg-bg-elevated/25 px-3 py-3">
 									<div class="grid grid-cols-3 gap-x-4 gap-y-3">
 										<div class="min-w-0">
-											<div class="text-[10px] uppercase tracking-wider text-text-placeholder">Files</div>
+											<div class="text-[10px] uppercase tracking-wider text-text-placeholder">{m.cp_files({}, { locale })}</div>
 											<div class="mt-1 font-mono text-[16px] font-semibold tabular-nums text-text-primary">{formatCheckpointCount(fileCount)}</div>
 										</div>
 										<div class="min-w-0">
-											<div class="text-[10px] uppercase tracking-wider text-text-placeholder">Changed</div>
+											<div class="text-[10px] uppercase tracking-wider text-text-placeholder">{m.cp_changed({}, { locale })}</div>
 											<div class="mt-1 font-mono text-[16px] font-semibold tabular-nums text-text-primary">{formatCheckpointCount(changedFileCount)}</div>
 										</div>
 										<div class="min-w-0">
-											<div class="text-[10px] uppercase tracking-wider text-text-placeholder">Size</div>
+											<div class="text-[10px] uppercase tracking-wider text-text-placeholder">{m.cp_size({}, { locale })}</div>
 											<div class="mt-1 font-mono text-[16px] font-semibold tabular-nums text-text-primary">{formatCheckpointBytes(fileBytes)}</div>
 										</div>
 									</div>
 									<div class="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 border-t border-border-subtle/60 pt-3 text-[12px] sm:grid-cols-5">
 										<div class="flex items-center justify-between gap-2 sm:block">
-											<span class="text-text-tertiary">Added</span>
+											<span class="text-text-tertiary">{m.cp_added({}, { locale })}</span>
 											<span class="font-mono tabular-nums text-text-secondary sm:mt-1 sm:block">{formatCheckpointCount(addedFileCount)}</span>
 										</div>
 										<div class="flex items-center justify-between gap-2 sm:block">
-											<span class="text-text-tertiary">Modified</span>
+											<span class="text-text-tertiary">{m.cp_modified({}, { locale })}</span>
 											<span class="font-mono tabular-nums text-text-secondary sm:mt-1 sm:block">{formatCheckpointCount(modifiedFileCount)}</span>
 										</div>
 										<div class="flex items-center justify-between gap-2 sm:block">
-											<span class="text-text-tertiary">Deleted</span>
+											<span class="text-text-tertiary">{m.cp_deleted({}, { locale })}</span>
 											<span class="font-mono tabular-nums text-text-secondary sm:mt-1 sm:block">{formatCheckpointCount(deletedFileCount)}</span>
 										</div>
 										<div class="flex items-center justify-between gap-2 sm:block">
-											<span class="text-text-tertiary">Renamed</span>
+											<span class="text-text-tertiary">{m.cp_renamed({}, { locale })}</span>
 											<span class="font-mono tabular-nums text-text-secondary sm:mt-1 sm:block">{formatCheckpointCount(renamedFileCount)}</span>
 										</div>
 										<div class="flex items-center justify-between gap-2 sm:block">
-											<span class="text-text-tertiary">Copied</span>
+											<span class="text-text-tertiary">{m.copied({}, { locale })}</span>
 											<span class="font-mono tabular-nums text-text-secondary sm:mt-1 sm:block">{formatCheckpointCount(copiedFileCount)}</span>
 										</div>
 									</div>
@@ -574,7 +574,7 @@ onDestroy(() => {
 								<div class="flex flex-wrap items-center gap-x-3 gap-y-1">
 									{#if detailDiffBase && detailDiffBase !== checkpointDetail.parentCheckpointId}
 										<div class="text-[12px] text-text-tertiary">
-											Comparing against
+											{m.cp_comparing_against({}, { locale })}
 											<a
 												href="/spaces/{spaceId}/checkpoints/{detailDiffBase}"
 												class="font-mono text-[11px] text-brand transition-colors hover:text-brand-hover"
@@ -584,7 +584,7 @@ onDestroy(() => {
 												type="button"
 												class="ml-1 text-[11px] text-text-placeholder transition-colors hover:text-text-secondary"
 												onclick={() => applyCompareBase(null)}
-											>Reset</button
+											>{m.cp_reset({}, { locale })}</button
 											>
 										</div>
 									{:else if checkpointDetail.parentCheckpointId}
@@ -597,7 +597,7 @@ onDestroy(() => {
 											onclick={openComparePicker}
 											aria-expanded={compareOpen}
 										>
-											Compare
+											{m.cp_compare({}, { locale })}
 										</button>
 										{#if compareOpen}
 											<div
@@ -605,7 +605,7 @@ onDestroy(() => {
 												role="listbox"
 											>
 												<div class="border-b border-border-subtle/60 px-2.5 py-1.5 text-[10px] font-medium uppercase tracking-wider text-text-placeholder">
-													Compare against
+													{m.cp_compare_against({}, { locale })}
 												</div>
 												{#if checkpointDetail.parentCheckpointId}
 													<button
@@ -613,9 +613,9 @@ onDestroy(() => {
 														class="flex w-full items-center justify-between gap-2 px-2.5 py-2 text-left text-[12px] text-text-secondary transition-colors hover:bg-bg-hover"
 														onclick={() => applyCompareBase(null)}
 													>
-														<span>Parent (default)</span>
+														<span>{m.cp_parent_default({}, { locale })}</span>
 														{#if !detailDiffBase || detailDiffBase === checkpointDetail.parentCheckpointId}
-															<span class="text-[10px] text-brand">Active</span>
+															<span class="text-[10px] text-brand">{m.cp_active({}, { locale })}</span>
 														{/if}
 													</button>
 												{/if}
@@ -623,7 +623,7 @@ onDestroy(() => {
 													{#if compareOptionsLoading && compareOptions.length === 0}
 														<div class="flex items-center gap-2 px-2.5 py-3 text-[12px] text-text-tertiary">
 															<Loader2 class="h-3.5 w-3.5 animate-spin" />
-															Loading…
+															{m.common_loading({}, { locale })}
 														</div>
 													{:else if compareOptions.length === 0}
 														<div class="px-2.5 py-3 text-[12px] text-text-tertiary">{m.cp_no_other_saves({}, { locale })}</div>
@@ -648,7 +648,7 @@ onDestroy(() => {
 									summary={detailDiff}
 									loading={detailDiffLoading}
 									error={detailDiffError}
-									emptyLabel={checkpointDetail.parentCheckpointId ? "No changes from parent" : "Initial save"}
+									emptyLabel={checkpointDetail.parentCheckpointId ? m.cp_no_changes_from_parent({}, { locale }) : m.cp_initial_save({}, { locale })}
 									cacheKey={`${checkpointDetail.id}:${detailDiffBase ?? "parent"}`}
 									loadFile={loadDetailFileDiff}
 								/>
@@ -657,11 +657,11 @@ onDestroy(() => {
 							<div class="space-y-2">
 								<div class="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wider text-text-placeholder">
 									<Network class="w-3.5 h-3.5 shrink-0" />
-									Lineage
+									{m.cp_lineage({}, { locale })}
 								</div>
 								<div class="space-y-2 text-[13px]">
 									<div class="flex items-start gap-3">
-										<span class="w-20 shrink-0 text-text-tertiary">Parent</span>
+										<span class="w-20 shrink-0 text-text-tertiary">{m.cp_parent({}, { locale })}</span>
 										{#if checkpointDetail.parentCheckpointId}
 											<a
 												href="/spaces/{spaceId}/checkpoints/{checkpointDetail.parentCheckpointId}"
@@ -673,7 +673,7 @@ onDestroy(() => {
 										{/if}
 									</div>
 									<div class="flex items-start gap-3">
-										<span class="w-20 shrink-0 text-text-tertiary">Forks</span>
+										<span class="w-20 shrink-0 text-text-tertiary">{m.cp_forks({}, { locale })}</span>
 										<span class="text-text-secondary">{checkpointDetail.forkCount}</span>
 									</div>
 								</div>

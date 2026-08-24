@@ -6,6 +6,7 @@ import type {
 import { Loader2 } from "lucide-svelte";
 import { onDestroy } from "svelte";
 import TurnNavigatorPanel from "$lib/components/TurnNavigatorPanel.svelte";
+import { toIntlTag } from "$lib/i18n/format";
 import { getLocale } from "$lib/i18n/locale.svelte";
 import { m } from "$lib/paraglide/messages.js";
 
@@ -194,9 +195,13 @@ function statusClass(status: SessionTurnIndexItem["status"]) {
 	return "bg-text-tertiary";
 }
 
+const compactCountFormatter = $derived(
+	new Intl.NumberFormat(toIntlTag(locale), { notation: "compact" }),
+);
+
 function countLabel(count: number) {
-	if (count <= 0) return "more";
-	return Intl.NumberFormat("en", { notation: "compact" }).format(count);
+	if (count <= 0) return m.turnrail_more({}, { locale });
+	return compactCountFormatter.format(count);
 }
 
 function clearCloseTimer() {

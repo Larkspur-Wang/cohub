@@ -9,6 +9,8 @@ import {
 	X,
 } from "lucide-svelte";
 import type { Snippet } from "svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 import WindowSyncStatus from "./WindowSyncStatus.svelte";
 import type { Window } from "./windows";
 
@@ -39,6 +41,8 @@ let {
 	trailing,
 }: Props = $props();
 
+const locale = $derived(getLocale());
+
 const kindIcon = {
 	file: FileIcon,
 	board: MousePointer2,
@@ -56,7 +60,7 @@ const showChrome = $derived(
 		class="preview-tabs"
 		class:preview-tabs--embedded={embedded}
 		role="tablist"
-		aria-label="Open windows"
+		aria-label={m.window_open({}, { locale })}
 	>
 		<div class="preview-tabs-scroll">
 			{#each tabs as tab (`${tab.kind}:${tab.key}`)}
@@ -81,7 +85,7 @@ const showChrome = $derived(
 					<button
 						type="button"
 						class="preview-tab-close"
-						aria-label={`Close ${tab.label}`}
+						aria-label={m.window_close_tab({ label: tab.label }, { locale })}
 						onclick={() => onClose(tab.kind, tab.key)}
 					>
 						<X class="w-3 h-3" />
@@ -98,8 +102,8 @@ const showChrome = $derived(
 				<button
 					type="button"
 					class="preview-tree-toggle"
-					title={treeVisible ? "Collapse file tree" : "Show file tree"}
-					aria-label={treeVisible ? "Collapse file tree" : "Show file tree"}
+					title={treeVisible ? m.files_collapse_tree({}, { locale }) : m.files_show_tree({}, { locale })}
+					aria-label={treeVisible ? m.files_collapse_tree({}, { locale }) : m.files_show_tree({}, { locale })}
 					aria-pressed={treeVisible}
 					onclick={onToggleTree}
 				>

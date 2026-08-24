@@ -4,7 +4,9 @@ import { page } from "$app/state";
 import { type CohubAppUrl, parseCohubAppUrl } from "$lib/app-url";
 import NewChatAppBackground from "$lib/components/NewChatAppBackground.svelte";
 import NewChatSpaceBackground from "$lib/components/NewChatSpaceBackground.svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
 import { parseNewChatBackgroundAction } from "$lib/new-chat-background-bridge";
+import { m } from "$lib/paraglide/messages.js";
 import type { NewChatBackgroundConfig } from "$lib/space-config";
 import { emitSpaceConfigBackgroundAction } from "$lib/space-config";
 import { isDecorativeNewChatBackground } from "$lib/space-config-parse";
@@ -17,6 +19,8 @@ type Props = {
 };
 
 const { background, spaceId = null, onAppComposerChip }: Props = $props();
+
+const locale = $derived(getLocale());
 
 const externalUrl = $derived(
 	background.source.kind === "url" ? background.source.url : null,
@@ -124,13 +128,13 @@ $effect(() => {
     <svelte:boundary onerror={handleWorkBackgroundError}>
       <NewChatAppBackground appUrl={appUrl} onComposerChip={onAppComposerChip} />
       {#snippet failed()}
-        <div class="new-chat-background-state">App background is unavailable.</div>
+        <div class="new-chat-background-state">{m.newchat_bg_app_unavailable({}, { locale })}</div>
       {/snippet}
     </svelte:boundary>
   {:else if externalUrl}
-    <iframe bind:this={iframeEl} src={externalUrl} title="New chat content" sandbox={sandbox} referrerpolicy="no-referrer" loading="eager"></iframe>
+    <iframe bind:this={iframeEl} src={externalUrl} title={m.newchat_bg_title({}, { locale })} sandbox={sandbox} referrerpolicy="no-referrer" loading="eager"></iframe>
   {:else}
-    <div class="new-chat-background-state">Background is unavailable.</div>
+    <div class="new-chat-background-state">{m.newchat_bg_unavailable({}, { locale })}</div>
   {/if}
 </div>
 

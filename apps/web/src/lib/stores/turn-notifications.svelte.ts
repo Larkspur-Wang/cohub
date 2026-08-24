@@ -1,6 +1,8 @@
 import type { ChannelEnvelope, SpaceRecord } from "@neta-art/cohub";
 import { goto } from "$app/navigation";
 import { page } from "$app/state";
+import type { Locale } from "$lib/i18n/locale";
+import { m } from "$lib/paraglide/messages.js";
 import { sdk } from "$lib/sdk";
 import { buildSpaceSessionRoute } from "$lib/space-routes";
 import { authStore } from "$lib/stores/auth.svelte";
@@ -132,37 +134,47 @@ function notificationHref(
 	return buildSpaceSessionRoute(notification.spaceId, notification.sessionId);
 }
 
-function statusLabel(status: string) {
-	if (status === "completed") return "Completed";
-	if (status === "failed") return "Failed";
-	if (status === "interrupted") return "Interrupted";
-	if (status === "cancelled") return "Cancelled";
-	if (status === "merged") return "Merged";
-	return status ? status[0]?.toUpperCase() + status.slice(1) : "Finished";
+function statusLabel(status: string, locale?: Locale) {
+	if (status === "completed") return m.notif_status_completed({}, { locale });
+	if (status === "failed") return m.notif_status_failed({}, { locale });
+	if (status === "interrupted")
+		return m.notif_status_interrupted({}, { locale });
+	if (status === "cancelled") return m.notif_status_cancelled({}, { locale });
+	if (status === "merged") return m.notif_status_merged({}, { locale });
+	return status
+		? status[0]?.toUpperCase() + status.slice(1)
+		: m.notif_status_finished({}, { locale });
 }
 
-function formatDuration(durationMs: number | null) {
+function formatDuration(durationMs: number | null, locale?: Locale) {
 	if (
 		typeof durationMs !== "number" ||
 		!Number.isFinite(durationMs) ||
 		durationMs < 0
 	)
 		return null;
-	if (durationMs < 1000) return "<1s";
-	if (durationMs < 60_000) return `${Math.round(durationMs / 100) / 10}s`;
+	if (durationMs < 1000) return m.notif_dur_lt_1s({}, { locale });
+	if (durationMs < 60_000) {
+		return m.notif_dur_s({ n: Math.round(durationMs / 100) / 10 }, { locale });
+	}
 	const minutes = Math.floor(durationMs / 60_000);
 	const seconds = Math.round((durationMs % 60_000) / 1000);
-	return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+	return seconds > 0
+		? m.notif_dur_m_s({ m: minutes, s: seconds }, { locale })
+		: m.notif_dur_m({ n: minutes }, { locale });
 }
 
 export function getTurnNotificationMeta(
 	notification: Pick<TurnNotification, "status" | "durationMs" | "stepCount">,
+	locale?: Locale,
 ) {
 	return [
-		statusLabel(notification.status),
-		formatDuration(notification.durationMs),
+		statusLabel(notification.status, locale),
+		formatDuration(notification.durationMs, locale),
 		typeof notification.stepCount === "number" && notification.stepCount > 0
-			? `${notification.stepCount} ${notification.stepCount === 1 ? "step" : "steps"}`
+			? notification.stepCount === 1
+				? m.notif_steps_one({ n: notification.stepCount }, { locale })
+				: m.notif_steps_many({ n: notification.stepCount }, { locale })
 			: null,
 	]
 		.filter(Boolean)

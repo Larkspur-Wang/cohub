@@ -1,4 +1,9 @@
 <script lang="ts">
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
+
+const locale = $derived(getLocale());
+
 const {
 	width = 480,
 	ariaLabel = "Workspace preview",
@@ -45,8 +50,8 @@ $effect(() => {
 		<button
 			type="button"
 			class="preview-resize-handle hidden lg:block"
-			aria-label="Resize window panel"
-			title="Resize window panel"
+			aria-label={m.window_resize_panel({}, { locale })}
+			title={m.window_resize_panel({}, { locale })}
 			onpointerdown={onResizeStart}
 		></button>
 	{/if}

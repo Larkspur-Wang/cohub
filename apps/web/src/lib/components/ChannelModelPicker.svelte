@@ -1,10 +1,12 @@
 <script lang="ts">
 import { Loader2, Settings } from "lucide-svelte";
 import ModelSelector from "$lib/components/ModelSelector.svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
 import {
 	getModelDisplayName,
 	type ModelThinkingLevel,
 } from "$lib/model-catalog";
+import { m } from "$lib/paraglide/messages.js";
 import { modelsCatalogStore } from "$lib/stores/models-catalog.svelte";
 
 type ModelRef = {
@@ -22,12 +24,14 @@ type Props = {
 
 const { model, disabled = false, saving = false, onSelect }: Props = $props();
 
+const locale = $derived(getLocale());
+
 let selectorOpen = $state(false);
 
 const modelsCatalog = $derived(modelsCatalogStore.items);
 
 function label(): string {
-	if (!model) return "Default model";
+	if (!model) return m.model_default({}, { locale });
 	return (
 		getModelDisplayName(modelsCatalog, {
 			provider: model.provider,
@@ -65,7 +69,7 @@ function clearModel() {
 		class="flex min-h-9 w-full items-center justify-between gap-3 rounded-[6px] border border-border-subtle bg-bg-input px-3 py-1.5 text-left transition-colors hover:bg-bg-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand/40 disabled:cursor-not-allowed disabled:opacity-60"
 		onclick={openSelector}
 		disabled={disabled || saving}
-		title="Choose model"
+		title={m.model_choose({}, { locale })}
 	>
 		<span
 			class="min-w-0 truncate text-[12px] {model
@@ -86,7 +90,7 @@ function clearModel() {
 			class="text-[11px] text-text-placeholder transition-colors hover:text-text-secondary"
 			onclick={clearModel}
 		>
-			Use default model
+			{m.cron_use_default_model({}, { locale })}
 		</button>
 	{/if}
 </div>

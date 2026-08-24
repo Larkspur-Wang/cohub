@@ -327,7 +327,7 @@ $effect(() => {
 				{:else}
 					<Video class="h-3.5 w-3.5 shrink-0 text-text-tertiary" />
 				{/if}
-				<span class="sr-only">Tasks</span>
+				<span class="sr-only">{m.task_tray_tasks({}, { locale })}</span>
 				{#if collapsed}
 					{#if counts.running > 0}
 						<span class="inline-flex shrink-0 items-center gap-1" title={`Running ${counts.running}`}>

@@ -3,6 +3,9 @@ import type { SpaceFsFileResponse } from "@neta-art/cohub";
 import { Download, Eye, FileWarning, Pencil, Save, X } from "lucide-svelte";
 import CodeEditor from "$lib/components/CodeEditor.svelte";
 import MarkdownView from "$lib/components/MarkdownView.svelte";
+import type { Locale } from "$lib/i18n/locale";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 import { isTextFileResponse } from "$lib/space-file-text";
 
 const {
@@ -32,6 +35,8 @@ const {
 	downloadUrl?: string;
 	children?: import("svelte").Snippet;
 } = $props();
+
+const locale: Locale = $derived(getLocale());
 
 let fileEdit = $state(true);
 
@@ -74,7 +79,7 @@ const editorLanguage = $derived.by(() => {
         title="Preview"
       >
         <Eye class="w-3.5 h-3.5" />
-        <span class="hidden sm:inline">Preview</span>
+        <span class="hidden sm:inline">{m.common_preview({}, { locale })}</span>
       </button>
       <button
         type="button"
@@ -84,7 +89,7 @@ const editorLanguage = $derived.by(() => {
         title="Edit"
       >
         <Pencil class="w-3.5 h-3.5" />
-        <span class="hidden sm:inline">Edit</span>
+        <span class="hidden sm:inline">{m.common_edit({}, { locale })}</span>
       </button>
     {/if}
 
@@ -97,7 +102,7 @@ const editorLanguage = $derived.by(() => {
         title="Save (Ctrl+S)"
       >
         <Save class="w-3.5 h-3.5 shrink-0" />
-        <span class="hidden sm:inline">Save</span>
+        <span class="hidden sm:inline">{m.common_save({}, { locale })}</span>
       </button>
     {/if}
 
@@ -127,7 +132,7 @@ const editorLanguage = $derived.by(() => {
 
   <div class="min-h-0 flex-1 overflow-auto">
     {#if loading}
-      <div class="flex h-full items-center justify-center text-[12px] text-text-tertiary">Loading file…</div>
+      <div class="flex h-full items-center justify-center text-[12px] text-text-tertiary">{m.file_loading_content({}, { locale })}</div>
     {:else if !file}
       {@render children?.()}
     {:else if isText}
@@ -152,10 +157,10 @@ const editorLanguage = $derived.by(() => {
       </div>
     {:else}
       <div class="m-4 rounded-md border border-border-subtle bg-bg-primary p-4 text-[12px] text-text-secondary">
-        <div><strong>Name:</strong> {file.name}</div>
+        <div><strong>{m.file_name({}, { locale })}</strong> {file.name}</div>
         <div><strong>Type:</strong> {file.mimeType ?? "application/octet-stream"}</div>
         <div><strong>Size:</strong> {file.size} bytes</div>
-        <div class="mt-3 text-text-tertiary">This file type cannot be previewed in the browser.</div>
+        <div class="mt-3 text-text-tertiary">{m.file_unpreviewable({}, { locale })}</div>
       </div>
     {/if}
   </div>

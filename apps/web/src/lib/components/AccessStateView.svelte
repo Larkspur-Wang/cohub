@@ -97,7 +97,7 @@ function signIn() {
 							<button type="button" class="access-btn-primary" onclick={signIn}>{m.access_sign_in({}, { locale })}</button>
 						{/if}
 						{#if showRetry}
-							<button type="button" class="access-btn-secondary" onclick={retry}>Retry</button>
+							<button type="button" class="access-btn-secondary" onclick={retry}>{m.common_retry({}, { locale })}</button>
 						{/if}
 						{#if showHome}
 							<button type="button" class="access-btn-secondary" onclick={goHome}>{m.access_go_home({}, { locale })}</button>
@@ -122,7 +122,7 @@ function signIn() {
 							<button type="button" class="access-btn-primary" onclick={signIn}>{m.access_sign_in({}, { locale })}</button>
 						{/if}
 						{#if showRetry}
-							<button type="button" class="access-btn-secondary" onclick={retry}>Retry</button>
+							<button type="button" class="access-btn-secondary" onclick={retry}>{m.common_retry({}, { locale })}</button>
 						{/if}
 						{#if showHome}
 							<button type="button" class="access-btn-secondary" onclick={goHome}>{m.access_go_home({}, { locale })}</button>

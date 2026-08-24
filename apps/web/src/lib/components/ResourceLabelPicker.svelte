@@ -9,6 +9,7 @@ import { fade, scale, slide } from "svelte/transition";
 import { floatNear, portal } from "$lib/actions/portal";
 import LabelCreateForm from "$lib/components/LabelCreateForm.svelte";
 import UserAvatar from "$lib/components/UserAvatar.svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
 import { COMPACT_SHELL_MAX_WIDTH_PX } from "$lib/layout/breakpoints";
 import {
 	DURATION_MODAL_IN,
@@ -16,6 +17,7 @@ import {
 	svelteEaseIn,
 	svelteEaseOut,
 } from "$lib/motion.svelte";
+import { m } from "$lib/paraglide/messages.js";
 import {
 	createSpaceLabel,
 	fetchResourceLabelsFresh,
@@ -48,6 +50,8 @@ const {
 	anchorEl?: HTMLElement | null;
 	onClose: () => void;
 } = $props();
+
+const locale = $derived(getLocale());
 
 let labels = $state<LabelListItem[]>([]);
 let assignments = $state<LabelAssignmentRecord[]>([]);
@@ -290,8 +294,8 @@ $effect(() => {
 	<div class="label-picker-body">
 		{#if initialLoadSettled && flatLabels.length === 0 && !showCreate}
 			<div class="px-2 py-5 text-[12px] text-text-tertiary">
-				<div class="font-medium text-text-secondary">No labels yet</div>
-				<div class="mt-1">Create one to group chats, files, and checkpoints.</div>
+				<div class="font-medium text-text-secondary">{m.sidebar_no_labels({}, { locale })}</div>
+				<div class="mt-1">{m.label_create_hint({}, { locale })}</div>
 			</div>
 		{:else if flatLabels.length > 0}
 			<div class="space-y-[1px]">
@@ -329,26 +333,26 @@ $effect(() => {
 
 	<div class="label-picker-footer">
 		<button type="button" class="label-action secondary" onclick={() => { showCreate = !showCreate; }}>
-			<Plus class="h-3.5 w-3.5" /> New label
+			<Plus class="h-3.5 w-3.5" /> {m.sidebar_new_label({}, { locale })}
 		</button>
-		<div class="selected-count" aria-live="polite">{selectedCount} selected</div>
+		<div class="selected-count" aria-live="polite">{m.label_selected_count({ count: selectedCount }, { locale })}</div>
 		<button type="button" class="label-action primary" disabled={saving} onclick={() => void save()}>
 			{#if saving}<Loader2 class="h-3 w-3 animate-spin" />{:else}<Check class="h-3 w-3" />{/if}
-			Apply
+			{m.common_apply({}, { locale })}
 		</button>
 	</div>
 {/snippet}
 
-{#snippet pickerHeader(closeAriaLabel = "Close")}
+{#snippet pickerHeader(closeAriaLabel = m.common_close({}, { locale }))}
 	<div class="flex items-start justify-between border-b border-border-subtle px-3 py-2.5">
 		<div class="min-w-0">
 			<div class="flex min-w-0 items-center gap-1.5">
-				<div class="text-[13px] font-medium text-text-primary">Label as</div>
+				<div class="text-[13px] font-medium text-text-primary">{m.inline_label_as({}, { locale })}</div>
 				{#if loading}
-					<Loader2 class="h-3 w-3 animate-spin text-text-placeholder" aria-label="Loading labels" />
+					<Loader2 class="h-3 w-3 animate-spin text-text-placeholder" aria-label={m.label_loading({}, { locale })} />
 				{/if}
 			</div>
-			<div class="mt-0.5 text-[11px] text-text-tertiary">Choose labels for this item.</div>
+			<div class="mt-0.5 text-[11px] text-text-tertiary">{m.label_choose_hint({}, { locale })}</div>
 		</div>
 		<button type="button" class="close-button" onclick={onClose} aria-label={closeAriaLabel}>
 			<X class="h-3.5 w-3.5" />
@@ -367,7 +371,7 @@ $effect(() => {
 		type="button"
 		class="label-picker-backdrop"
 		class:is-soft={useAnchoredPopover}
-		aria-label="Dismiss label picker"
+		aria-label={m.label_dismiss_picker({}, { locale })}
 		onclick={onClose}
 		in:fade={FADE_IN}
 		out:fade={FADE_OUT}
@@ -378,7 +382,7 @@ $effect(() => {
 			class="label-picker label-picker--popover"
 			role="dialog"
 			aria-modal="true"
-			aria-label="Label as"
+			aria-label={m.inline_label_as({}, { locale })}
 			tabindex="-1"
 			use:floatNear={{
 				getAnchor: () => anchorEl,
@@ -398,7 +402,7 @@ $effect(() => {
 			class="label-picker label-picker--sheet"
 			role="dialog"
 			aria-modal="true"
-			aria-label="Label as"
+			aria-label={m.inline_label_as({}, { locale })}
 			tabindex="-1"
 			in:slide|local={{ axis: "y", ...FADE_IN }}
 			out:slide|local={{ axis: "y", ...FADE_OUT }}
@@ -412,7 +416,7 @@ $effect(() => {
 			class="label-picker label-picker--modal"
 			role="dialog"
 			aria-modal="true"
-			aria-label="Label as"
+			aria-label={m.inline_label_as({}, { locale })}
 			tabindex="-1"
 			in:scale|local={SCALE_IN}
 			out:scale|local={SCALE_OUT}

@@ -1,7 +1,9 @@
 <script lang="ts">
 import type { SessionRecord } from "@neta-art/cohub";
 import UserAvatar from "$lib/components/UserAvatar.svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
 import type { ModelCatalogItem } from "$lib/model-catalog";
+import { m } from "$lib/paraglide/messages.js";
 import { getSessionSidebarActivity } from "$lib/session-sidebar-activity";
 import { getSessionActivityAt } from "$lib/session-sort";
 import { authStore } from "$lib/stores/auth.svelte";
@@ -22,6 +24,8 @@ const {
 	modelsCatalog?: ModelCatalogItem[] | null;
 	showSourceBadge?: boolean;
 } = $props();
+
+const locale = $derived(getLocale());
 
 const activity = $derived(
 	getSessionSidebarActivity(
@@ -148,7 +152,7 @@ function getSessionParticipantLabel(participants: Participant[]) {
 		<span class="min-w-0 flex flex-1 items-center gap-1.5 overflow-hidden">
 			<span class="min-w-0 truncate leading-4">{title}</span>
 			{#if isUnread}
-				<span class="h-1.5 w-1.5 shrink-0 rounded-full bg-brand/70" aria-label="Unread"></span>
+				<span class="h-1.5 w-1.5 shrink-0 rounded-full bg-brand/70" aria-label={m.sidebar_unread({}, { locale })}></span>
 			{/if}
 		</span>
 		<span class="inline-flex min-w-0 shrink-0 items-center gap-1.5 group-hover/session:hidden group-focus-within/session:hidden">

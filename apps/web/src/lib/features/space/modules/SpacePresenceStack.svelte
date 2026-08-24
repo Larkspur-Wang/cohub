@@ -3,6 +3,8 @@ import type { SpacePresenceUser } from "@neta-art/cohub";
 import { onMount } from "svelte";
 import { floatNear, portal } from "$lib/actions/portal";
 import UserAvatar from "$lib/components/UserAvatar.svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 import { displayUserName } from "../space-utils";
 import {
 	isDanmakuEnabled,
@@ -16,6 +18,8 @@ type Props = {
 };
 
 let { users, limit = 4 }: Props = $props();
+
+const locale = $derived(getLocale());
 
 let open = $state(false);
 let presenceRootEl: HTMLDivElement | null = $state(null);
@@ -207,7 +211,7 @@ $effect(() => {
 					{/each}
 				</div>
 				<div class="presence-popover-footer">
-					<span class="presence-popover-footer-label">Live messages</span>
+					<span class="presence-popover-footer-label">{m.presence_live_messages({}, { locale })}</span>
 					<button
 						type="button"
 						role="switch"
@@ -215,7 +219,7 @@ $effect(() => {
 						class="danmaku-switch"
 						class:on={danmakuEnabled}
 						onclick={toggleDanmaku}
-						aria-label="Toggle live messages"
+						aria-label={m.presence_toggle_live({}, { locale })}
 					>
 						<span class="danmaku-switch-thumb"></span>
 					</button>

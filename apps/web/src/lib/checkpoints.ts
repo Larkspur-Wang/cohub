@@ -1,4 +1,6 @@
 import { type CheckpointRecord, HttpError } from "@neta-art/cohub";
+import { formatDateTime } from "$lib/i18n/format";
+import type { Locale } from "$lib/i18n/locale";
 import { sdk } from "$lib/sdk";
 
 export async function pollCheckpointJob(taskRunId: string) {
@@ -27,6 +29,11 @@ export function getCheckpointTitle(checkpoint: CheckpointRecord) {
 		: `Save ${checkpoint.commitHash.slice(0, 12)}`;
 }
 
-export function formatCheckpointTimestamp(value: string) {
-	return new Date(value).toLocaleString();
+/**
+ * Pure, locale-aware timestamp helper. Omitted locale resolves to the
+ * deterministic base locale (`en`) so non-reactive callers stay stable;
+ * reactive components pass their current `locale` explicitly.
+ */
+export function formatCheckpointTimestamp(value: string, locale?: Locale) {
+	return formatDateTime(value, locale);
 }

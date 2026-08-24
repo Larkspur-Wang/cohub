@@ -204,7 +204,9 @@ const automation = $derived.by(() => {
 				activity,
 				kind: activity.kind,
 				label,
-				title: actionable ? `${label} \u2014 open chat` : label,
+				title: actionable
+					? `${label} \u2014 ${m.collab_open_chat({}, { locale })}`
+					: label,
 				color: `var(${collaborationColorToken(activity.actorId)})`,
 				avatar: avatarUrl(activity.actorId),
 				name,

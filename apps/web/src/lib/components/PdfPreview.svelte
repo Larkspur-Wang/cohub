@@ -7,6 +7,8 @@ import type {
 } from "pdfjs-dist";
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { untrack } from "svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 
 export type PdfPreviewControls = {
 	page: number;
@@ -56,6 +58,8 @@ let {
 	isMobile = false,
 	onControlsChange,
 }: Props = $props();
+
+const locale = $derived(getLocale());
 
 let viewportElement: HTMLDivElement | null = $state(null);
 let pagesElement: HTMLDivElement | null = $state(null);
@@ -604,7 +608,7 @@ $effect(() => {
 				onsubmit={submitPassword}
 			>
 				<label for="pdf-password" class="block text-xs font-medium text-text-primary">
-					Password protected
+					{m.pdf_password_protected({}, { locale })}
 				</label>
 				{#if passwordError}
 					<div class="mt-1 text-[11px] text-error-soft">{passwordError}</div>
@@ -617,9 +621,9 @@ $effect(() => {
 						bind:value={passwordValue}
 						autocomplete="off"
 						class="h-8 min-w-0 flex-1 rounded-md border border-border-subtle bg-bg-input px-2.5 text-xs text-text-primary focus:border-brand/50 focus:outline-none"
-						placeholder="Password"
+						placeholder={m.pdf_password({}, { locale })}
 					/>
-					<button type="submit" class="action-btn primary" disabled={!passwordValue}>Open</button>
+					<button type="submit" class="action-btn primary" disabled={!passwordValue}>{m.pdf_open({}, { locale })}</button>
 				</div>
 			</form>
 		</div>
@@ -627,7 +631,7 @@ $effect(() => {
 		<div class="absolute inset-0 flex items-center justify-center bg-bg-primary/90 p-4">
 			<div class="max-w-xs text-center">
 				<div class="text-xs text-error-soft">{error}</div>
-				<button type="button" class="action-btn mt-3" onclick={() => (loadAttempt += 1)}>Retry</button>
+				<button type="button" class="action-btn mt-3" onclick={() => (loadAttempt += 1)}>{m.common_retry({}, { locale })}</button>
 			</div>
 		</div>
 	{/if}

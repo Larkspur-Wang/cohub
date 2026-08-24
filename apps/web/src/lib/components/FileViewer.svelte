@@ -1,4 +1,8 @@
 <script lang="ts">
+import type { Locale } from "$lib/i18n/locale";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
+
 const {
 	filePath,
 	fileContent,
@@ -14,21 +18,23 @@ const {
 	loading: boolean;
 	error: string | null;
 } = $props();
+
+const locale: Locale = $derived(getLocale());
 </script>
 
 <section class="viewer">
   <header class="viewer-header">
-    <span class="label">File</span>
-    <strong>{filePath || "Select a file"}</strong>
+    <span class="label">{m.file_viewer_title({}, { locale })}</span>
+    <strong>{filePath || m.file_select_a_file({}, { locale })}</strong>
   </header>
 
   <div class="viewer-body">
     {#if loading}
-      <p class="hint">Loading file content...</p>
+      <p class="hint">{m.file_viewer_loading({}, { locale })}</p>
     {:else if error}
       <p class="error">{error}</p>
     {:else if !filePath}
-      <p class="hint">Pick a file from the left tree.</p>
+      <p class="hint">{m.file_viewer_pick_hint({}, { locale })}</p>
     {:else if isMarkdown}
       <article class="markdown">{@html markdownHtml}</article>
     {:else}

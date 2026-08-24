@@ -80,7 +80,7 @@ function handleCardKeydown(
 					</div>
 					<span class={`h-1.5 w-1.5 shrink-0 rounded-full ${statusTone(notification.status)}`}></span>
 					<div class="hidden max-w-[150px] shrink-0 truncate text-[11px] leading-5 text-text-tertiary sm:block">
-						{getTurnNotificationMeta(notification)}
+						{getTurnNotificationMeta(notification, locale)}
 					</div>
 					<a
 						class="hidden h-6 w-6 shrink-0 items-center justify-center rounded-[5px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary sm:inline-flex"
@@ -107,7 +107,7 @@ function handleCardKeydown(
 						{notification.userPreview || m.notif_turn_completed({}, { locale })}
 					</p>
 					<div class="shrink-0 text-[11px] leading-5 text-text-tertiary sm:hidden">
-						{getTurnNotificationMeta(notification)}
+						{getTurnNotificationMeta(notification, locale)}
 					</div>
 				</div>
 			</div>

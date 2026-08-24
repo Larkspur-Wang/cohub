@@ -68,8 +68,10 @@ export function taskHasResult(run: TaskRunRecord): boolean {
 	return run.result !== null && run.result !== undefined;
 }
 
-export function taskAttemptsLabel(run: TaskRunRecord): string {
-	return `${run.attemptCount} attempt${run.attemptCount === 1 ? "" : "s"}`;
+export function taskAttemptsLabel(run: TaskRunRecord, locale?: Locale): string {
+	return run.attemptCount === 1
+		? m.task_attempts_one({ count: run.attemptCount }, { locale })
+		: m.task_attempts_many({ count: run.attemptCount }, { locale });
 }
 
 export type DisplaySafeJsonOptions = {
@@ -77,9 +79,17 @@ export type DisplaySafeJsonOptions = {
 	maxArrayItems?: number;
 	maxObjectKeys?: number;
 	maxDepth?: number;
+	/** User-visible truncation counts follow this locale; defaults to base (`en`). */
+	locale?: Locale;
 };
 
-const DEFAULT_DISPLAY_SAFE_JSON_OPTIONS: Required<DisplaySafeJsonOptions> = {
+type DisplaySafeJsonResolvedOptions = Required<
+	Omit<DisplaySafeJsonOptions, "locale">
+> & {
+	locale?: Locale;
+};
+
+const DEFAULT_DISPLAY_SAFE_JSON_OPTIONS: DisplaySafeJsonResolvedOptions = {
 	maxStringLength: 24_000,
 	maxArrayItems: 200,
 	maxObjectKeys: 200,
@@ -88,14 +98,15 @@ const DEFAULT_DISPLAY_SAFE_JSON_OPTIONS: Required<DisplaySafeJsonOptions> = {
 
 function toDisplaySafeJsonValue(
 	value: unknown,
-	options: Required<DisplaySafeJsonOptions> = DEFAULT_DISPLAY_SAFE_JSON_OPTIONS,
+	options: DisplaySafeJsonResolvedOptions = DEFAULT_DISPLAY_SAFE_JSON_OPTIONS,
 	depth = 0,
 	seen = new WeakSet<object>(),
 ): unknown {
+	const tag = toIntlTag(options.locale);
 	if (typeof value === "string") {
 		if (value.length <= options.maxStringLength) return value;
 		const omitted = value.length - options.maxStringLength;
-		return `${value.slice(0, options.maxStringLength)}\n… [truncated ${omitted.toLocaleString()} chars]`;
+		return `${value.slice(0, options.maxStringLength)}\n… [truncated ${omitted.toLocaleString(tag)} chars]`;
 	}
 	if (
 		value === null ||
@@ -116,7 +127,9 @@ function toDisplaySafeJsonValue(
 			.slice(0, options.maxArrayItems)
 			.map((item) => toDisplaySafeJsonValue(item, options, depth + 1, seen));
 		if (value.length > options.maxArrayItems) {
-			items.push(`[truncated ${value.length - options.maxArrayItems} items]`);
+			items.push(
+				`[truncated ${(value.length - options.maxArrayItems).toLocaleString(tag)} items]`,
+			);
 		}
 		seen.delete(value);
 		return items;
@@ -131,7 +144,7 @@ function toDisplaySafeJsonValue(
 	if (entries.length > options.maxObjectKeys) {
 		safeEntries.push([
 			"__truncated__",
-			`truncated ${entries.length - options.maxObjectKeys} keys`,
+			`truncated ${(entries.length - options.maxObjectKeys).toLocaleString(tag)} keys`,
 		]);
 	}
 	seen.delete(value);

@@ -78,7 +78,7 @@ $effect(() => {
 <div
 	class="turn-navigator-panel flex w-[min(420px,calc(100vw-72px))] max-h-[min(680px,72vh)] flex-col overflow-hidden rounded-lg border border-border-subtle bg-bg-primary shadow-xl shadow-bg-primary/20"
 	role="dialog"
-	aria-label="Turns"
+	aria-label={m.navigator_turns_aria({}, { locale })}
 >
 	<div class="shrink-0 border-b border-border-subtle/70 px-2 py-2">
 		<label class="flex h-8 items-center gap-2 rounded-md border border-border-subtle bg-bg-input px-2 text-text-placeholder transition-colors duration-150 focus-within:border-border-strong focus-within:text-text-tertiary">
@@ -134,7 +134,7 @@ $effect(() => {
 								</span>
 							{:else if !hasMeta}
 								<span class="line-clamp-3 block text-[12px] leading-relaxed tracking-[-0.01em] text-text-placeholder">
-									Empty message
+									{m.navigator_empty_msg({}, { locale })}
 								</span>
 							{/if}
 							{#if hasMeta}

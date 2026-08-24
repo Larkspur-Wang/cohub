@@ -11,6 +11,8 @@ import {
 	type BoardRuntimeViewState,
 	resolveBoardRuntime,
 } from "$lib/board/runtime/board-runtime";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 import MobileWindowTabsChrome from "./MobileWindowTabsChrome.svelte";
 import WindowFloatChrome from "./WindowFloatChrome.svelte";
 import type { Window } from "./windows";
@@ -78,6 +80,8 @@ let {
 	onOpenTask,
 }: Props = $props();
 
+const locale = $derived(getLocale());
+
 let boardRuntimeLoadAttempt = $state(0);
 const boardRuntimeModulePromise = $derived.by(() => {
 	boardRuntimeLoadAttempt;
@@ -108,7 +112,7 @@ const boardRuntimeModulePromise = $derived.by(() => {
 {#snippet LoadingPanel()}
 	<div class="flex h-full min-w-0 flex-col bg-bg-primary">
 		{@render TabsChrome()}
-		<div class="flex flex-1 items-center justify-center text-xs text-text-tertiary">Loading…</div>
+		<div class="flex flex-1 items-center justify-center text-xs text-text-tertiary">{m.common_loading({}, { locale })}</div>
 	</div>
 {/snippet}
 
@@ -154,14 +158,14 @@ const boardRuntimeModulePromise = $derived.by(() => {
 		<div class="flex h-full min-w-0 flex-col bg-bg-primary">
 			{@render TabsChrome()}
 			<div class="m-4 flex flex-col items-start gap-2 rounded-lg border border-error-soft/30 bg-error-bg p-4 text-sm text-error-soft">
-				<span>Board failed to load.</span>
-				<button type="button" class="action-btn" onclick={() => { boardRuntimeLoadAttempt += 1; }}>Retry</button>
+				<span>{m.board_failed_load({}, { locale })}</span>
+				<button type="button" class="action-btn" onclick={() => { boardRuntimeLoadAttempt += 1; }}>{m.common_retry({}, { locale })}</button>
 			</div>
 		</div>
 	{/await}
 {:else}
 	<div class="flex h-full min-w-0 flex-col bg-bg-primary">
 		{@render TabsChrome()}
-		<div class="m-4 rounded-lg border border-error-soft/30 bg-error-bg p-4 text-sm text-error-soft">Board data is unavailable.</div>
+		<div class="m-4 rounded-lg border border-error-soft/30 bg-error-bg p-4 text-sm text-error-soft">{m.board_data_unavailable({}, { locale })}</div>
 	</div>
 {/if}

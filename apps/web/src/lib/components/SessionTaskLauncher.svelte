@@ -26,8 +26,10 @@ const failed = $derived(
   <button
     type="button"
     class="pointer-events-auto inline-flex h-8 items-center gap-1.5 rounded-[6px] border border-border-primary bg-bg-elevated px-2.5 text-[11px] font-medium text-text-secondary shadow-[0_8px_24px_rgba(0,0,0,0.1)] transition-colors hover:bg-bg-hover hover:text-text-primary"
-    aria-label={running > 0 ? `Open tasks, ${running} running` : "Open tasks"}
-    title="Tasks"
+    aria-label={running > 0
+      ? m.task_launcher_open_running({ count: running }, { locale })
+      : m.task_launcher_open({}, { locale })}
+    title={m.sidebar_tasks({}, { locale })}
     onclick={onOpen}
   >
     {#if running > 0}
@@ -37,7 +39,7 @@ const failed = $derived(
     {:else}
       <ListTodo class="h-3.5 w-3.5 text-text-tertiary" />
     {/if}
-    <span>Tasks</span>
+    <span>{m.sidebar_tasks({}, { locale })}</span>
     {#if running > 0}
       <span class="font-mono text-[10px] text-brand tabular-nums">{running}</span>
     {/if}
