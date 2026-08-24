@@ -27,9 +27,10 @@ export function getUsageCostTotal(
 
 export function formatUsageCostFromUsage(
 	usage: Usage | null | undefined,
+	locale?: Locale,
 ): string {
 	const total = getUsageCostTotal(usage);
-	return total == null ? "" : formatUsageCost(total);
+	return total == null ? "" : formatUsageCost(total, locale);
 }
 
 /** Display input tokens include cache-read (same rule as ChatMessageBubble). */

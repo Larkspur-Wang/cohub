@@ -3,6 +3,11 @@ import type { SpaceFsFileResponse, WorkContent } from "@neta-art/cohub";
 import { Download } from "lucide-svelte";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import FilePreviewSurface from "$lib/components/FilePreviewSurface.svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
+
+const locale = $derived(getLocale());
+
 import { isTextMime, tryResolveTextFileResponse } from "$lib/space-file-text";
 
 const { content }: { content: Extract<WorkContent, { kind: "file" }> } =
@@ -61,8 +66,8 @@ $effect(() => {
 			class="icon-btn"
 			href={content.url}
 			download={content.name}
-			title="Download"
-			aria-label="Download"
+			title={m.download({}, { locale })}
+			aria-label={m.download({}, { locale })}
 		>
 			<Download class="h-4 w-4" />
 		</a>

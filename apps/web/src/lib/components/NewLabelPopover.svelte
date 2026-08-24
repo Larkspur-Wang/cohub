@@ -2,6 +2,8 @@
 import type { LabelListItem } from "@neta-art/cohub";
 import { X } from "lucide-svelte";
 import LabelCreateForm from "$lib/components/LabelCreateForm.svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 import { createSpaceLabel } from "$lib/stores/space-labels";
 
 function portal(node: HTMLElement) {
@@ -26,6 +28,8 @@ const {
 	onClose: () => void;
 } = $props();
 
+const locale = $derived(getLocale());
+
 async function createLabel(input: { name: string; parentRef: string | null }) {
 	await createSpaceLabel(
 		spaceId,
@@ -46,7 +50,7 @@ async function createLabel(input: { name: string; parentRef: string | null }) {
 			<div class="text-[13px] font-medium text-text-primary">New label</div>
 			<div class="mt-0.5 text-[11px] text-text-tertiary">Group chats, files, and checkpoints.</div>
 		</div>
-		<button type="button" class="close-button" onclick={onClose} aria-label="Close">
+		<button type="button" class="close-button" onclick={onClose} aria-label={m.common_close({}, { locale })}>
 			<X class="h-3.5 w-3.5" />
 		</button>
 	</div>

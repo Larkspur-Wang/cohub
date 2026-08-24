@@ -289,7 +289,7 @@ function startCheckout(product: BillingCatalogProduct) {
 				<div class="min-w-0">
 					<h2 class="truncate text-[16px] font-semibold leading-6 text-text-primary">{headline}</h2>
 				</div>
-				<button type="button" class="shrink-0 cursor-pointer rounded-[6px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary focus:outline-none focus:ring-1 focus:ring-brand/40" onclick={() => billingConversion.close()} aria-label="Close">
+				<button type="button" class="shrink-0 cursor-pointer rounded-[6px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary focus:outline-none focus:ring-1 focus:ring-brand/40" onclick={() => billingConversion.close()} aria-label={m.common_close({}, { locale })}>
 					<X class="h-4 w-4" />
 				</button>
 			</header>

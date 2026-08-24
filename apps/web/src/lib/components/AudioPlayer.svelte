@@ -211,7 +211,7 @@ onDestroy(() => {
 				class="audio-icon-btn"
 				href={downloadUrl}
 				download={downloadName ?? title ?? "audio"}
-				title="Download"
+				title={m.download({}, { locale })}
 				aria-label={m.audio_download({}, { locale })}
 			>
 				<Download class="h-4 w-4" />
@@ -255,7 +255,7 @@ onDestroy(() => {
 						class="audio-icon-btn"
 						href={downloadUrl}
 						download={downloadName ?? title ?? "audio"}
-						title="Download"
+						title={m.download({}, { locale })}
 						aria-label={m.audio_download({}, { locale })}
 					>
 						<Download class="h-4 w-4" />

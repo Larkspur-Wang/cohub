@@ -223,7 +223,7 @@ const cropMode = $derived(tool === "crop");
 		<button
 			type="button"
 			class="mark-icon"
-			title="Close"
+			title={m.common_close({}, { locale })}
 			aria-label={m.mark_close({}, { locale })}
 			disabled={busy}
 			onclick={onClose}

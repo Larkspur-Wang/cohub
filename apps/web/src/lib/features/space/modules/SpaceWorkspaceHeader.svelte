@@ -279,10 +279,10 @@ function handleSessionRenameKeydown(event: KeyboardEvent) {
 								}}
 								onkeydown={handleSessionRenameKeydown}
 							/>
-							<button type="button" class="shrink-0 rounded p-0.5 text-status-running transition-colors hover:bg-bg-hover" disabled={sessionRename.saving} onclick={() => void actions.submitSessionRename()} title="Save">
+							<button type="button" class="shrink-0 rounded p-0.5 text-status-running transition-colors hover:bg-bg-hover" disabled={sessionRename.saving} onclick={() => void actions.submitSessionRename()} title={m.common_save({}, { locale })}>
 								<Check class="h-3.5 w-3.5" />
 							</button>
-							<button type="button" class="shrink-0 rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary" disabled={sessionRename.saving} onclick={actions.cancelSessionRename} title="Cancel">
+							<button type="button" class="shrink-0 rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary" disabled={sessionRename.saving} onclick={actions.cancelSessionRename} title={m.common_cancel({}, { locale })}>
 								<X class="h-3.5 w-3.5" />
 							</button>
 						{:else}
