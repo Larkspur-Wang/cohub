@@ -25,6 +25,8 @@ import {
 	pointerDropZone,
 } from "$lib/drag/pointer-drag.svelte";
 import { resolveFsMoveDestination } from "$lib/features/space/modules/file-workspace-utils";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 import type { SpaceFsNode } from "$lib/space-fs";
 import {
 	entriesFromDataTransfer,
@@ -75,6 +77,7 @@ const {
 	canWrite?: boolean;
 } = $props();
 
+const locale = $derived(getLocale());
 const indent = $derived(6 + depth * 14);
 const isActive = $derived(selectedPath === node.path);
 const isDir = $derived(node.type === "dir");
@@ -330,7 +333,7 @@ $effect(() => {
       const [item] = payload.items;
       if (!item || payload.items.length !== 1) return null;
       if (!resolveFsMoveDestination(item.path, node.path)) return null;
-      return { label: `Move to ${node.name}`, effect: "move" };
+      return { label: m.file_move_to({ name: node.name }, { locale }), effect: "move" };
     },
     drop: (payload) => {
       const [item] = payload.items;
@@ -385,54 +388,54 @@ $effect(() => {
   </span>
   <span class="name">{node.name}</span>
   {#if node.isLoading}
-    <Loader2 class="h-3 w-3 shrink-0 animate-spin text-text-placeholder" aria-label="Loading" />
+    <Loader2 class="h-3 w-3 shrink-0 animate-spin text-text-placeholder" aria-label={m.file_loading({}, { locale })} />
   {/if}
 
   {#if showItemActions && (canWrite || (!isDir && onDownload))}
     <span class="actions">
       {#if canWrite && onInsertReference}
-        <button type="button" class="action" title="Insert" onclick={stop(() => onInsertReference(node.path))}><TextCursorInput class="w-3.5 h-3.5" /></button>
+        <button type="button" class="action" title={m.file_insert({}, { locale })} onclick={stop(() => onInsertReference(node.path))}><TextCursorInput class="w-3.5 h-3.5" /></button>
       {/if}
       {#if canWrite}
-        <button type="button" class="action" title="Rename" onclick={stop(() => onRename(node))}><Pencil class="w-3.5 h-3.5" /></button>
+        <button type="button" class="action" title={m.file_rename({}, { locale })} onclick={stop(() => onRename(node))}><Pencil class="w-3.5 h-3.5" /></button>
       {/if}
       {#if isDir}
         {#if onUpload}
-          <button type="button" class="action" title="Upload files" onclick={stop(handleUploadClick)}><Upload class="w-3.5 h-3.5" /></button>
+          <button type="button" class="action" title={m.files_upload_files({}, { locale })} onclick={stop(handleUploadClick)}><Upload class="w-3.5 h-3.5" /></button>
         {/if}
         <span class="relative">
-          <button type="button" class="action" title="More actions" onclick={stop(openMenu)}>
+          <button type="button" class="action" title={m.file_more({}, { locale })} onclick={stop(openMenu)}>
             <MoreHorizontal class="w-3.5 h-3.5" />
           </button>
           {#if menuOpen}
             <div class="dropdown" bind:this={menuEl}>
               {#if onUpload}
-                <button type="button" class="dropdown-item" onclick={stopAndCloseMenu(handleFolderUploadClick)}><svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/><path d="M12 10V16"/><path d="m15 13-3-3-3 3"/></svg> Upload folder</button>
+                <button type="button" class="dropdown-item" onclick={stopAndCloseMenu(handleFolderUploadClick)}><svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/><path d="M12 10V16"/><path d="m15 13-3-3-3 3"/></svg> {m.files_upload_folder({}, { locale })}</button>
               {/if}
               <div class="dropdown-sep"></div>
-              <button type="button" class="dropdown-item" onclick={stopAndCloseMenu(() => onCreateFile(node.path))}>New file</button>
+              <button type="button" class="dropdown-item" onclick={stopAndCloseMenu(() => onCreateFile(node.path))}>{m.files_new_file({}, { locale })}</button>
               {#if onCreateBoard}
-                <button type="button" class="dropdown-item" onclick={stopAndCloseMenu(() => onCreateBoard(node.path))}>New board</button>
+                <button type="button" class="dropdown-item" onclick={stopAndCloseMenu(() => onCreateBoard(node.path))}>{m.files_new_board({}, { locale })}</button>
               {/if}
-              <button type="button" class="dropdown-item" onclick={stopAndCloseMenu(() => onCreateDir(node.path))}>New folder</button>
+              <button type="button" class="dropdown-item" onclick={stopAndCloseMenu(() => onCreateDir(node.path))}>{m.files_new_folder({}, { locale })}</button>
               {#if onPublishDirectory}
                 <div class="dropdown-sep"></div>
-                <button type="button" class="dropdown-item" onclick={stopAndCloseMenu(() => onPublishDirectory(node.path))}><Rocket class="w-3.5 h-3.5" /> Publish</button>
+                <button type="button" class="dropdown-item" onclick={stopAndCloseMenu(() => onPublishDirectory(node.path))}><Rocket class="w-3.5 h-3.5" /> {m.file_publish({}, { locale })}</button>
               {/if}
               <div class="dropdown-sep"></div>
-              <button type="button" class="dropdown-item danger" onclick={stopAndCloseMenu(() => onDelete(node))}>Delete</button>
+              <button type="button" class="dropdown-item danger" onclick={stopAndCloseMenu(() => onDelete(node))}>{m.file_delete({}, { locale })}</button>
             </div>
           {/if}
         </span>
       {:else}
         <span class="relative">
-          <button type="button" class="action" title="More actions" onclick={stop(openMenu)}>
+          <button type="button" class="action" title={m.file_more({}, { locale })} onclick={stop(openMenu)}>
             <MoreHorizontal class="w-3.5 h-3.5" />
           </button>
           {#if menuOpen}
             <div class="dropdown" bind:this={menuEl}>
               {#if onDownload}
-                <button type="button" class="dropdown-item" onclick={stopAndCloseMenu(() => onDownload(node))}><Download class="w-3.5 h-3.5" /> Download</button>
+                <button type="button" class="dropdown-item" onclick={stopAndCloseMenu(() => onDownload(node))}><Download class="w-3.5 h-3.5" /> {m.file_download({}, { locale })}</button>
                 {#if canWrite}
                   <div class="dropdown-sep"></div>
                 {/if}

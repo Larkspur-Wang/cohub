@@ -15,6 +15,7 @@ import {
 	getUsageCostTotal,
 } from "$lib/format-usage";
 import { getGenerationCostPresentation } from "$lib/generation-cost";
+import { getLocale } from "$lib/i18n/locale.svelte";
 import {
 	findModelCatalogItem,
 	formatThinkingLevelShort,
@@ -22,6 +23,7 @@ import {
 	getRequestedThinkingLevel,
 	type ModelCatalogItem,
 } from "$lib/model-catalog";
+import { m } from "$lib/paraglide/messages.js";
 import type { ChatMessage } from "$lib/session-tree";
 import {
 	formatCompactAbsoluteTime,
@@ -52,6 +54,8 @@ const {
 	forkDisabled = false,
 	forking = false,
 }: Props = $props();
+
+const locale = $derived(getLocale());
 let pendingMarkdownSegments = $state(0);
 let markdownStartedForSignature = $state("");
 
@@ -98,7 +102,7 @@ function handleMarkdownSegmentStart() {
 
 const assistantAbortMessage = $derived(
 	message.role === "assistant" && message.meta?.stopReason === "aborted"
-		? "Generation was stopped by a user"
+		? m.chat_user_stopped_generation({}, { locale })
 		: "",
 );
 
@@ -107,7 +111,7 @@ const assistantErrorMessage = $derived(
 		!assistantAbortMessage &&
 		(message.meta?.messageKind === "assistant_error" ||
 			message.meta?.stopReason === "error")
-		? (message.meta?.errorMessage ?? "Unknown error")
+		? (message.meta?.errorMessage ?? m.chat_unknown_error({}, { locale }))
 		: "",
 );
 
@@ -153,8 +157,8 @@ const backgroundTaskRunId = $derived.by(() => {
 
 const backgroundTaskDetail = $derived(
 	backgroundTaskRunId
-		? `Background bash task ${backgroundTaskRunId}`
-		: "Background bash task",
+		? m.chat_bg_bash_task_id({ id: backgroundTaskRunId }, { locale })
+		: m.chat_bg_bash_task({}, { locale }),
 );
 
 const messageContainerClass = $derived(
@@ -221,9 +225,9 @@ const canFork = $derived(
 );
 
 function fallbackUserName(uuid?: string | null): string {
-	if (!uuid) return "User";
+	if (!uuid) return m.common_user({}, { locale });
 	const compact = uuid.replaceAll("-", "");
-	return compact.slice(0, 8) || "User";
+	return compact.slice(0, 8) || m.common_user({}, { locale });
 }
 
 const userDisplayName = $derived(
@@ -285,13 +289,17 @@ const hasDuration = $derived.by(() => {
 });
 
 const durationDisplay = $derived(
-	hasDuration ? formatDurationMs(message.meta?.durationMs ?? 0) : "",
+	hasDuration ? formatDurationMs(message.meta?.durationMs ?? 0, locale) : "",
 );
 
 const durationDetailText = $derived.by(() => {
 	const durationMs = message.meta?.durationMs;
 	if (!hasDuration || typeof durationMs !== "number") return "";
-	return formatDurationDetail(durationMs);
+	return formatDurationDetail(
+		durationMs,
+		m.chat_duration({}, { locale }),
+		locale,
+	);
 });
 
 const hasUsage = $derived.by(() => {
@@ -317,10 +325,13 @@ const isDirectGeneration = $derived(
 
 const visibleCost = $derived(
 	isDirectGeneration
-		? getGenerationCostPresentation({
-				usage: message.meta?.usage,
-				generation: turnMeta?.generation,
-			})
+		? getGenerationCostPresentation(
+				{
+					usage: message.meta?.usage,
+					generation: turnMeta?.generation,
+				},
+				locale,
+			)
 		: null,
 );
 
@@ -341,18 +352,27 @@ const tokenDisplay = $derived.by(() => {
 		const inputLabel = `↑${formatTokenCount(displayInputTokens)}`;
 		parts.push(
 			cachedInputTokens > 0
-				? `${inputLabel} (${formatTokenCount(cachedInputTokens)} cached)`
+				? `${inputLabel} (${m.chat_cached({ count: formatTokenCount(cachedInputTokens) }, { locale })})`
 				: inputLabel,
 		);
 	}
 	if (u.output) parts.push(`↓${formatTokenCount(u.output)}`);
 	if (parts.length > 0) return parts.join(" ");
-	if (u.totalTokens) return `${formatTokenCount(u.totalTokens)} tokens`;
-	if (u.cacheRead) return `cache ${formatTokenCount(u.cacheRead)}`;
-	if (u.cacheWrite) return `cache write ${formatTokenCount(u.cacheWrite)}`;
+	if (u.totalTokens)
+		return m.chat_tokens(
+			{ count: formatTokenCount(u.totalTokens) },
+			{ locale },
+		);
+	if (u.cacheRead)
+		return m.chat_cache({ count: formatTokenCount(u.cacheRead) }, { locale });
+	if (u.cacheWrite)
+		return m.chat_cache_write(
+			{ count: formatTokenCount(u.cacheWrite) },
+			{ locale },
+		);
 	if (!isDirectGeneration) {
 		const costTotal = getUsageCostTotal(u);
-		if (costTotal != null) return formatUsageCost(costTotal);
+		if (costTotal != null) return formatUsageCost(costTotal, locale);
 	}
 	return "";
 });
@@ -364,16 +384,44 @@ const tokenDetailText = $derived.by(() => {
 	if (displayInputTokens > 0) {
 		parts.push(
 			cachedInputTokens > 0
-				? `Input: ${formatTokenCount(displayInputTokens)} (${formatTokenCount(cachedInputTokens)} cached)`
-				: `Input: ${formatTokenCount(displayInputTokens)}`,
+				? m.chat_input_label(
+						{
+							value: `${formatTokenCount(displayInputTokens)} (${formatTokenCount(cachedInputTokens)} cached)`,
+						},
+						{ locale },
+					)
+				: m.chat_input_label(
+						{ value: formatTokenCount(displayInputTokens) },
+						{ locale },
+					),
 		);
 	}
-	if (u.output) parts.push(`Output: ${formatTokenCount(u.output)}`);
+	if (u.output)
+		parts.push(
+			m.chat_output_label({ value: formatTokenCount(u.output) }, { locale }),
+		);
 	if (u.cacheWrite)
-		parts.push(`Cache write: ${formatTokenCount(u.cacheWrite)}`);
-	if (u.totalTokens) parts.push(`Total: ${formatTokenCount(u.totalTokens)}`);
+		parts.push(
+			m.chat_cache_write_label(
+				{ value: formatTokenCount(u.cacheWrite) },
+				{ locale },
+			),
+		);
+	if (u.totalTokens)
+		parts.push(
+			m.chat_total_label(
+				{ value: formatTokenCount(u.totalTokens) },
+				{ locale },
+			),
+		);
 	const costTotal = getUsageCostTotal(u);
-	if (costTotal != null) parts.push(`Cost: ${formatUsageCost(costTotal)}`);
+	if (costTotal != null)
+		parts.push(
+			m.chat_cost_label(
+				{ value: formatUsageCost(costTotal, locale) },
+				{ locale },
+			),
+		);
 	return parts.join("  ·  ");
 });
 
@@ -453,7 +501,7 @@ function handleCopy() {
 
       {#if assistantErrorMessage}
         <div class="mt-3 rounded-lg border border-status-error/30 bg-status-error/8 px-3 py-2 text-[12px] text-status-error whitespace-pre-wrap break-words">
-          <div class="font-medium">Error</div>
+          <div class="font-medium">{m.chat_error_header({}, { locale })}</div>
           <div class="mt-1">{assistantErrorMessage}</div>
         </div>
       {/if}
@@ -468,7 +516,7 @@ function handleCopy() {
           type="button"
           class="shrink-0 inline-flex items-center p-1 rounded cursor-pointer opacity-60 hover:opacity-100 transition-opacity"
           onclick={(e) => { e.stopPropagation(); handleCopy(); }}
-          title="Copy message"
+          title={m.chat_copy_message({}, { locale })}
         >
           {#if copied}
             <Check class="w-3.5 h-3.5 text-status-running" />
@@ -482,7 +530,7 @@ function handleCopy() {
             type="button"
             class="shrink-0 inline-flex items-center p-1 rounded cursor-pointer opacity-60 hover:opacity-100 transition-opacity disabled:cursor-default disabled:opacity-50"
             onclick={(e) => { e.stopPropagation(); if (!forkDisabled) onForkTurn?.(); }}
-            title="Fork from here"
+            title={m.chat_fork_here({}, { locale })}
             disabled={forkDisabled}
           >
             {#if forking}
@@ -497,7 +545,7 @@ function handleCopy() {
           {#if isBackgroundTaskUserMessage}
             <span class="inline-flex min-w-0 items-center gap-1.5 cursor-default text-text-placeholder/70" title={backgroundTaskDetail}>
               <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-text-placeholder/55"></span>
-              <span class="min-w-0 truncate font-medium">Background task</span>
+              <span class="min-w-0 truncate font-medium">{m.chat_bg_task_label({}, { locale })}</span>
             </span>
           {:else}
             <!-- User identity -->
@@ -512,7 +560,9 @@ function handleCopy() {
             />
           {/if}
           {#if isCancelledBeforeDispatch}
-            <span class="shrink-0 text-[11px] font-medium text-text-placeholder/65" title={cancelledByDisplay ? `Cancelled by ${cancelledByDisplay}. Not sent to agent.` : 'Not sent to agent.'}>cancelled</span>
+            <span class="shrink-0 text-[11px] font-medium text-text-placeholder/65" title={cancelledByDisplay
+							? m.chat_cancelled_by({ name: cancelledByDisplay }, { locale })
+							: m.chat_not_sent_to_agent({}, { locale })}>{m.chat_cancelled({}, { locale })}</span>
           {/if}
         {:else}
           <!-- Model (truncates when space is tight) -->
@@ -548,7 +598,7 @@ function handleCopy() {
           {/if}
 
           {#if assistantAbortMessage}
-            <span class="shrink-0 text-[11px] font-medium text-warning-soft/75" title={assistantAbortMessage}>user stopped</span>
+            <span class="shrink-0 text-[11px] font-medium text-warning-soft/75" title={assistantAbortMessage}>{m.chat_user_stopped({}, { locale })}</span>
           {/if}
         {/if}
 

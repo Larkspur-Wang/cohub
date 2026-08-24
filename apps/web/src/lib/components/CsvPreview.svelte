@@ -4,6 +4,8 @@ import {
 	CSV_PREVIEW_MAX_ROWS,
 	parseCsv,
 } from "$lib/csv-parse";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 
 let {
 	source = "",
@@ -12,6 +14,8 @@ let {
 	source?: string;
 	name?: string;
 } = $props();
+
+const locale = $derived(getLocale());
 
 const parsed = $derived(parseCsv(source, { maxRows: CSV_PREVIEW_MAX_ROWS }));
 const columns = $derived(parsed.headers.length);
@@ -34,7 +38,7 @@ function isBlank(value: string): boolean {
 		class="flex h-8 shrink-0 items-center gap-3 border-b border-border-subtle px-3 text-[11px] text-text-tertiary"
 	>
 		{#if isEmpty}
-			<span>Empty CSV</span>
+			<span>{m.csv_empty({}, { locale })}</span>
 		{:else}
 			<span class="tabular-nums">
 				{parsed.truncated

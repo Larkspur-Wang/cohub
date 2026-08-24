@@ -12,10 +12,12 @@ import AttachmentBlocks from "$lib/components/TextAttachmentBlocks.svelte";
 import ThinkingBlocks from "$lib/components/ThinkingBlocks.svelte";
 import ToolCallList from "$lib/components/ToolCallList.svelte";
 import ViewportContextBlocks from "$lib/components/ViewportContextBlocks.svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
 import {
 	type ResourceMentionTextToken,
 	tokenizeResourceMentionText,
 } from "$lib/mentions/resource";
+import { m } from "$lib/paraglide/messages.js";
 import type { OpenWorkspaceFileTarget } from "$lib/workspace-file-links";
 
 type TextBlock = Extract<ContentBlock, { type: "text" }>;
@@ -57,6 +59,8 @@ const {
 	onLoadToolCalls,
 	onOpenFile,
 }: Props = $props();
+
+const locale = $derived(getLocale());
 
 function isTextAttachment(block: TextBlock) {
 	return block._meta?.attachmentKind === "text";
@@ -231,8 +235,12 @@ const segments = $derived.by(() => {
 					<button
 						type="button"
 						class={userMentionButtonClass}
-						title={`Open ${token.label} in a new window`}
-						aria-label={`Open ${token.type === 'appMention' ? 'app' : 'space'} ${token.label} in a new window`}
+						title={m.message_open_in_new({ label: token.label }, { locale })}
+						aria-label={
+							token.type === "appMention"
+								? m.message_open_aria_app({ label: token.label }, { locale })
+								: m.message_open_aria_space({ label: token.label }, { locale })
+						}
 						onclick={(event) => openUserMention(token, event)}
 					>{token.text}</button>
 				{:else}{token.text}{/if}
@@ -260,9 +268,9 @@ const segments = $derived.by(() => {
 						{#each generationMedia as media (media.url)}
 							{#if media.type === "video"}
 								<!-- svelte-ignore a11y_media_has_caption: generated media does not provide caption tracks. -->
-								<video src={media.url} controls playsinline preload="metadata" class="max-h-[min(60vh,32rem)] max-w-full rounded-lg border border-border-subtle" aria-label={`Generated video ${media.index + 1}`}></video>
+								<video src={media.url} controls playsinline preload="metadata" class="max-h-[min(60vh,32rem)] max-w-full rounded-lg border border-border-subtle" aria-label={m.message_generated_video({ index: media.index + 1 }, { locale })}></video>
 							{:else}
-								<audio src={media.url} controls preload="metadata" class="w-full" aria-label={`Generated audio ${media.index + 1}`}></audio>
+								<audio src={media.url} controls preload="metadata" class="w-full" aria-label={m.message_generated_audio({ index: media.index + 1 }, { locale })}></audio>
 							{/if}
 						{/each}
 					</div>

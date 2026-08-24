@@ -3,6 +3,8 @@ import type { ContentBlock } from "@cohub/protocol/core";
 import type { MessageToolCallsFile } from "@cohub/protocol/model";
 import ToolCallItem from "$lib/components/ToolCallItem.svelte";
 import { buildToolCallViewModels } from "$lib/components/tool-call-format";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 import type { OpenWorkspaceFileTarget } from "$lib/workspace-file-links";
 
 type Props = {
@@ -24,6 +26,9 @@ const {
 	flush = false,
 	onOpenFile,
 }: Props = $props();
+
+const locale = $derived(getLocale());
+
 let loading = $state(false);
 let loadError = $state<string | null>(null);
 let loadedFile = $state<MessageToolCallsFile | null>(null);
@@ -43,7 +48,9 @@ async function ensureLoaded() {
 		loadedFile = await onLoadToolCalls();
 	} catch (error) {
 		loadError =
-			error instanceof Error ? error.message : "Failed to load tool details";
+			error instanceof Error
+				? error.message
+				: m.tool_load_failed({}, { locale });
 	} finally {
 		loading = false;
 	}
@@ -59,7 +66,7 @@ function retryLoad() {
 	<div class={flush ? "space-y-0.5" : "mt-2 space-y-0.5"}>
 		{#if loadError}
 			<button type="button" class="ml-[26px] mb-1 rounded-md border border-status-error/30 bg-status-error/5 px-2 py-1 text-left text-[12px] leading-snug text-status-error hover:bg-status-error/10" onclick={retryLoad}>
-				{loadError} · Retry
+				{loadError} · {m.common_retry({}, { locale })}
 			</button>
 		{/if}
 		{#each tools as tool (tool.id)}

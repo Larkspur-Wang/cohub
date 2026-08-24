@@ -11,6 +11,8 @@ import {
 	X,
 } from "lucide-svelte";
 import type { Snippet } from "svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 import WindowSyncStatus from "./WindowSyncStatus.svelte";
 import type { Window } from "./windows";
 
@@ -31,6 +33,8 @@ const {
 	onExit: () => void | Promise<void>;
 	context?: Snippet;
 } = $props();
+
+const locale = $derived(getLocale());
 
 const kindIcon = {
 	file: FileIcon,
@@ -75,14 +79,14 @@ $effect(() => {
 });
 </script>
 
-<div class="preview-float-chrome" aria-label="Float window controls">
+<div class="preview-float-chrome" aria-label={m.window_float_controls({}, { locale })}>
 	<div class="preview-float-bar">
 		<div bind:this={switcherEl} class="preview-switcher">
 			<button
 				type="button"
 				class="preview-switcher-trigger"
 				title={activeTab?.title ?? "Open previews"}
-				aria-label="Switch window"
+				aria-label={m.window_switch({}, { locale })}
 				aria-haspopup="menu"
 				aria-expanded={menuOpen}
 				onclick={() => (menuOpen = !menuOpen)}
@@ -101,7 +105,7 @@ $effect(() => {
 			</button>
 
 			{#if menuOpen}
-				<div class="preview-switcher-menu" role="menu" aria-label="Open windows">
+				<div class="preview-switcher-menu" role="menu" aria-label={m.window_open({}, { locale })}>
 					{#each tabs as tab (`${tab.kind}:${tab.key}`)}
 						{@const Icon = kindIcon[tab.kind]}
 						<div class="preview-switcher-item" class:active={tab.active}>
@@ -143,7 +147,7 @@ $effect(() => {
 		<button
 			type="button"
 			class="preview-float-control"
-			title="Exit Float"
+			title={m.window_exit_float({}, { locale })}
 			aria-label="Exit Float"
 			onclick={() => run(onExit)}
 		>

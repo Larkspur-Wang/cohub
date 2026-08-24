@@ -11,6 +11,8 @@ import {
 } from "lucide-svelte";
 import Dialog from "$lib/components/Dialog.svelte";
 import { getGenerationModelPickerItems } from "$lib/generation-model-catalog";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 
 const {
 	open,
@@ -34,6 +36,8 @@ const {
 	onRetry: () => void;
 } = $props();
 
+const locale = $derived(getLocale());
+
 let query = $state("");
 
 const visibleModels = $derived(
@@ -53,10 +57,10 @@ function title(model: PublicGenerationDeclaration) {
 
 function kind(model: PublicGenerationDeclaration) {
 	const inputs = new Set(model.content.input.map((item) => item.type));
-	if (inputs.has("video")) return "Video";
-	if (inputs.has("audio")) return "Audio";
-	if (inputs.has("image")) return "Image";
-	return "Multimodal";
+	if (inputs.has("video")) return m.model_kind_video({}, { locale });
+	if (inputs.has("audio")) return m.model_kind_audio({}, { locale });
+	if (inputs.has("image")) return m.model_kind_image({}, { locale });
+	return m.model_kind_multimodal({}, { locale });
 }
 
 function select(modelId: string) {
@@ -73,15 +77,15 @@ function handleKeydown(event: KeyboardEvent) {
 
 <svelte:window onkeydown={handleKeydown} />
 
-<Dialog {open} {onClose} title="Create model" maxWidth="440px">
+<Dialog {open} {onClose} title={m.create_model_title({}, { locale })} maxWidth="440px">
 	<div class="border-b border-border-subtle/70 p-3">
 		<label class="flex h-9 items-center gap-2 rounded-md bg-bg-input px-3 ring-1 ring-border-subtle focus-within:ring-brand/45">
 			<Search class="h-3.5 w-3.5 shrink-0 text-text-placeholder" />
 			<input
 				type="text"
 				bind:value={query}
-				placeholder="Search models"
-				aria-label="Search create models"
+				placeholder={m.model_selector_search_placeholder({}, { locale })}
+				aria-label={m.create_model_search_aria({}, { locale })}
 				class="min-w-0 flex-1 bg-transparent text-[13px] text-text-primary outline-none placeholder:text-text-placeholder"
 			/>
 		</label>
@@ -92,7 +96,7 @@ function handleKeydown(event: KeyboardEvent) {
 			{#if loading || (!loaded && !error)}
 				<div class="flex items-center justify-center gap-2 px-4 py-8 text-[13px] text-text-tertiary" role="status">
 					<LoaderCircle class="h-3.5 w-3.5 animate-spin" />
-					<span>Loading models...</span>
+					<span>{m.create_model_loading({}, { locale })}</span>
 				</div>
 			{:else if error}
 				<div class="flex flex-col items-center gap-3 px-4 py-8 text-center">
@@ -103,12 +107,14 @@ function handleKeydown(event: KeyboardEvent) {
 						onclick={onRetry}
 					>
 						<RotateCcw class="h-3 w-3" />
-						Retry
+						{m.common_retry({}, { locale })}
 					</button>
 				</div>
 			{:else}
 				<div class="px-4 py-8 text-center text-[13px] text-text-tertiary">
-					{query ? "No matching models" : "No create models available"}
+					{query
+						? m.model_selector_no_matching({}, { locale })
+						: m.create_model_no_models({}, { locale })}
 				</div>
 			{/if}
 		{:else}

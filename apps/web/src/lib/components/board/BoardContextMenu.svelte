@@ -16,6 +16,8 @@ import {
 import { onDestroy, onMount, untrack } from "svelte";
 import { portal } from "$lib/actions/portal";
 import type { BoardEditor } from "$lib/board/editor.svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 
 const {
 	editor,
@@ -39,6 +41,8 @@ const {
 	/** Opens the export dialog; absent until the stage can render one. */
 	onExport?: () => void;
 } = $props();
+
+const locale = $derived(getLocale());
 
 let menu: HTMLDivElement | null = $state(null);
 // The menu is recreated each time it opens, so capture the opening position once.
@@ -83,26 +87,29 @@ const actions = $derived.by<MenuAction[]>(() => {
 	const task = singleTask;
 	if (canGenerate && onAddToGeneration)
 		list.push({
-			label: "Add to generation",
+			label: m.board_add_to_generation({}, { locale }),
 			icon: Sparkles,
 			run: onAddToGeneration,
 		});
 	if (task && onOpenTask)
 		list.push({
-			label: "Open task",
+			label: m.board_open_task({}, { locale }),
 			icon: LayoutDashboard,
 			run: () => onOpenTask(task.taskRunId),
 		});
 	if (task?.snapshot.taskType === "generation" && onRegenerateTask)
 		list.push({
-			label: regeneratingNodeId === task.id ? "Regenerating…" : "Regenerate",
+			label:
+				regeneratingNodeId === task.id
+					? m.board_regenerating_ellipsis({}, { locale })
+					: m.board_regenerate({}, { locale }),
 			icon: RefreshCw,
 			disabled: regeneratingNodeId !== null,
 			run: () => onRegenerateTask(task.id),
 		});
 	if (file && onOpenFile)
 		list.push({
-			label: "Open file",
+			label: m.board_open_file({}, { locale }),
 			icon: ExternalLink,
 			run: () => {
 				void onOpenFile(file.ref.path);
@@ -110,7 +117,7 @@ const actions = $derived.by<MenuAction[]>(() => {
 		});
 	if (singleText)
 		list.push({
-			label: "Edit text",
+			label: m.board_edit_text({}, { locale }),
 			icon: Pencil,
 			run: () => {
 				editor.editingId = editor.selectedItems[0]?.id ?? null;
@@ -119,22 +126,22 @@ const actions = $derived.by<MenuAction[]>(() => {
 	if (hasSelection) {
 		list.push(
 			{
-				label: "Duplicate",
+				label: m.board_duplicate({}, { locale }),
 				icon: Copy,
 				run: () => editor.duplicateSelection(),
 			},
 			{
-				label: "Bring to front",
+				label: m.board_bring_front({}, { locale }),
 				icon: ArrowUpToLine,
 				run: () => editor.bringToFront(),
 			},
 			{
-				label: "Send to back",
+				label: m.board_send_back({}, { locale }),
 				icon: ArrowDownToLine,
 				run: () => editor.sendToBack(),
 			},
 			{
-				label: "Delete",
+				label: m.board_delete({}, { locale }),
 				icon: Trash2,
 				danger: true,
 				run: () => editor.deleteSelection(),
@@ -142,8 +149,16 @@ const actions = $derived.by<MenuAction[]>(() => {
 		);
 	}
 	list.push(
-		{ label: "Select all", icon: BoxSelect, run: () => editor.selectAll() },
-		{ label: "Zoom to fit", icon: LocateFixed, run: () => editor.fitView() },
+		{
+			label: m.board_select_all({}, { locale }),
+			icon: BoxSelect,
+			run: () => editor.selectAll(),
+		},
+		{
+			label: m.board_zoom_fit({}, { locale }),
+			icon: LocateFixed,
+			run: () => editor.fitView(),
+		},
 	);
 	if (onExport)
 		list.push({

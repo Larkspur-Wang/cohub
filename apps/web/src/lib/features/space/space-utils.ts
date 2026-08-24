@@ -1,29 +1,35 @@
 import type { SpaceRecord, UserProfile } from "@neta-art/cohub";
+import { formatCurrency, toIntlTag } from "$lib/i18n/format";
+import type { Locale } from "$lib/i18n/locale";
 import type { SpaceSandboxSnapshot } from "./modules/space-status-controller.svelte";
 
-export function formatDateTime(dateStr: string | null | undefined): string {
+export function formatDateTime(
+	dateStr: string | null | undefined,
+	locale?: Locale,
+): string {
 	if (!dateStr) return "—";
 	const d = new Date(dateStr);
-	return d.toLocaleString("en-US", {
+	return new Intl.DateTimeFormat(toIntlTag(locale), {
 		month: "2-digit",
 		day: "2-digit",
 		hour: "2-digit",
 		minute: "2-digit",
 		second: "2-digit",
-	});
+	}).format(d);
 }
 
 export function formatShortDateTime(
 	dateStr: string | null | undefined,
+	locale?: Locale,
 ): string {
 	if (!dateStr) return "—";
 	const d = new Date(dateStr);
-	return d.toLocaleString("en-US", {
+	return new Intl.DateTimeFormat(toIntlTag(locale), {
 		month: "short",
 		day: "numeric",
 		hour: "2-digit",
 		minute: "2-digit",
-	});
+	}).format(d);
 }
 
 export function asRecord(value: unknown): Record<string, unknown> | null {
@@ -66,10 +72,14 @@ export function formatTokenCount(n: number): string {
 	return String(n);
 }
 
-export function formatUsageCost(n: number): string {
-	if (n <= 0) return "$0";
-	if (n < 0.01) return "<$0.01";
-	return `$${n.toFixed(2)}`;
+export function formatUsageCost(n: number, locale?: Locale): string {
+	if (n <= 0) return formatCurrency(0, "USD", { locale });
+	if (n < 0.01) return `<${formatCurrency(0.01, "USD", { locale })}`;
+	return formatCurrency(n, "USD", {
+		locale,
+		minimumFractionDigits: 2,
+		maximumFractionDigits: 2,
+	});
 }
 
 export function getSpaceOwnerUsername(record: SpaceRecord | null): string {

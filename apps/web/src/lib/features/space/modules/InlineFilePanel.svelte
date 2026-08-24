@@ -28,7 +28,9 @@ import MarkdownView from "$lib/components/MarkdownView.svelte";
 import type { PdfPreviewControls } from "$lib/components/PdfPreview.svelte";
 import type { PreviewCaptureTarget } from "$lib/features/preview-mark";
 import PreviewMarkHost from "$lib/features/preview-mark/ui/PreviewMarkHost.svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
 import { createLazyModuleLoader } from "$lib/lazy-module";
+import { m } from "$lib/paraglide/messages.js";
 import type { ResolveWorkspaceAsset } from "$lib/workspace-assets";
 import type {
 	OpenWorkspaceFileTarget,
@@ -183,6 +185,8 @@ let {
 	onVisibleLinesChange,
 }: Props = $props();
 
+const locale = $derived(getLocale());
+
 const loadCodeEditorModule = createLazyModuleLoader(
 	() => import("$lib/components/CodeEditor.svelte"),
 );
@@ -309,7 +313,7 @@ $effect(() => {
 				fileActionMenuAnchorEl = nextOpen ? event.currentTarget : null;
 				fileActionMenuOpenPath = nextOpen ? path : null;
 			}}
-			title="More actions"
+			title={m.inline_more_actions({}, { locale })}
 			aria-haspopup="menu"
 			aria-expanded={fileActionMenuOpenPath === path}
 		>
@@ -328,12 +332,12 @@ $effect(() => {
 					zIndex: 120,
 				}}
 			>
-				<button type="button" class="menu-item" onclick={() => { void onLabelFile(path, fileActionMenuAnchorEl); fileActionMenuOpenPath = null; fileActionMenuAnchorEl = null; }} role="menuitem"><ListTree class="w-3.5 h-3.5" /><span>Label as…</span></button>
-				<button type="button" class="menu-item" onclick={() => { onInsertFilePathReference(path); fileActionMenuOpenPath = null; fileActionMenuAnchorEl = null; }} role="menuitem"><TextCursorInput class="w-3.5 h-3.5" /><span>Insert reference</span></button>
-				<button type="button" class="menu-item" onclick={() => { void onDownloadFilePath(path); fileActionMenuOpenPath = null; fileActionMenuAnchorEl = null; }} role="menuitem"><Download class="w-3.5 h-3.5" /><span>Download</span></button>
+				<button type="button" class="menu-item" onclick={() => { void onLabelFile(path, fileActionMenuAnchorEl); fileActionMenuOpenPath = null; fileActionMenuAnchorEl = null; }} role="menuitem"><ListTree class="w-3.5 h-3.5" /><span>{m.inline_label_as({}, { locale })}</span></button>
+				<button type="button" class="menu-item" onclick={() => { onInsertFilePathReference(path); fileActionMenuOpenPath = null; fileActionMenuAnchorEl = null; }} role="menuitem"><TextCursorInput class="w-3.5 h-3.5" /><span>{m.inline_insert_reference({}, { locale })}</span></button>
+				<button type="button" class="menu-item" onclick={() => { void onDownloadFilePath(path); fileActionMenuOpenPath = null; fileActionMenuAnchorEl = null; }} role="menuitem"><Download class="w-3.5 h-3.5" /><span>{m.file_download({}, { locale })}</span></button>
 				{#if canEditFiles && !activeFsReadonly}
-					<button type="button" class="menu-item" onclick={() => { void onRenameFilePath(path); fileActionMenuOpenPath = null; fileActionMenuAnchorEl = null; }} role="menuitem"><Pencil class="w-3.5 h-3.5" /><span>Rename</span></button>
-					<button type="button" class="menu-item danger" onclick={() => { void onDeleteFilePath(path); fileActionMenuOpenPath = null; fileActionMenuAnchorEl = null; }} role="menuitem"><Trash2 class="w-3.5 h-3.5" /><span>Delete</span></button>
+					<button type="button" class="menu-item" onclick={() => { void onRenameFilePath(path); fileActionMenuOpenPath = null; fileActionMenuAnchorEl = null; }} role="menuitem"><Pencil class="w-3.5 h-3.5" /><span>{m.file_rename({}, { locale })}</span></button>
+					<button type="button" class="menu-item danger" onclick={() => { void onDeleteFilePath(path); fileActionMenuOpenPath = null; fileActionMenuAnchorEl = null; }} role="menuitem"><Trash2 class="w-3.5 h-3.5" /><span>{m.file_delete({}, { locale })}</span></button>
 				{/if}
 			</div>
 		{/if}
@@ -346,8 +350,8 @@ $effect(() => {
 			type="button"
 			class="icon-btn"
 			onclick={() => void onBackInlineFile()}
-			title="Back"
-			aria-label="Back"
+			title={m.inline_back({}, { locale })}
+			aria-label={m.inline_back({}, { locale })}
 		>
 			<ArrowLeft class="h-4 w-4" />
 		</button>
@@ -363,8 +367,8 @@ $effect(() => {
 				class="segmented-btn"
 				class:active={inlineFileViewMode === "source"}
 				onclick={() => (inlineFileViewMode = "source")}
-				title="Edit source"
-			>Source</button>
+				title={m.inline_edit_source({}, { locale })}
+			>{m.inline_source({}, { locale })}</button>
 			{#if inlineFileHasRenderedPreview}
 				<button
 					type="button"
@@ -372,11 +376,11 @@ $effect(() => {
 					class:active={inlineFileViewMode === "preview"}
 					onclick={() => (inlineFileViewMode = "preview")}
 					title={inlineFileIsMarkdown
-						? "Preview markdown"
+						? m.inline_preview_markdown({}, { locale })
 						: inlineFileIsCsv
-							? "Preview table"
-							: "Preview HTML"}
-				>Preview</button>
+							? m.inline_preview_table({}, { locale })
+							: m.inline_preview_html({}, { locale })}
+				>{m.inline_preview({}, { locale })}</button>
 			{/if}
 			{#if showDiffMode}
 				<button
@@ -384,8 +388,8 @@ $effect(() => {
 					class="segmented-btn"
 					class:active={inlineFileViewMode === "diff"}
 					onclick={() => (inlineFileViewMode = "diff")}
-					title="Diff since last save"
-				>Diff</button>
+					title={m.inline_diff_since_save({}, { locale })}
+				>{m.inline_diff({}, { locale })}</button>
 			{/if}
 		</div>
 	{/if}
@@ -394,8 +398,8 @@ $effect(() => {
 			type="button"
 			class="icon-btn preview-context-secondary"
 			onclick={onPublishInlineFile}
-			title="Publish app"
-			aria-label="Publish app"
+			title={m.inline_publish_app({}, { locale })}
+			aria-label={m.inline_publish_app({}, { locale })}
 		>
 			<Rocket class="h-4 w-4" />
 		</button>
@@ -410,8 +414,8 @@ $effect(() => {
 			type="button"
 			class="icon-btn preview-context-secondary"
 			onclick={() => void onCopyInlineFileContent()}
-			title="Copy content"
-			aria-label="Copy content"
+			title={m.inline_copy_content({}, { locale })}
+			aria-label={m.inline_copy_content({}, { locale })}
 		>
 			{#if inlineFileCopied}
 				<Check class="h-4 w-4 text-success-soft" />
@@ -433,8 +437,8 @@ $effect(() => {
 					inlineFilePanX = 0;
 					inlineFilePanY = 0;
 				}}
-				title="Zoom out"
-				aria-label="Zoom out"
+				title={m.inline_zoom_out({}, { locale })}
+				aria-label={m.inline_zoom_out({}, { locale })}
 			>
 				<Minus class="h-4 w-4" />
 			</button>
@@ -449,8 +453,8 @@ $effect(() => {
 					inlineFilePanX = 0;
 					inlineFilePanY = 0;
 				}}
-				title="Zoom in"
-				aria-label="Zoom in"
+				title={m.inline_zoom_in({}, { locale })}
+				aria-label={m.inline_zoom_in({}, { locale })}
 			>
 				<Plus class="h-4 w-4" />
 			</button>
@@ -465,7 +469,7 @@ $effect(() => {
 				class="pdf-page-input"
 				type="text"
 				inputmode="numeric"
-				aria-label="Page number"
+				aria-label={m.inline_page_number({}, { locale })}
 				value={pdfPageValue}
 				oninput={(event) => {
 					pdfPageDraft = event.currentTarget.value;
@@ -485,19 +489,19 @@ $effect(() => {
 			/>
 			<span class="pdf-page-total">/ {pdfControls.pageCount}</span>
 			<span class="pdf-header-divider"></span>
-			<button type="button" class="icon-btn" title="Zoom out" aria-label="Zoom out" onclick={() => pdfControls?.zoomOut()}>
+			<button type="button" class="icon-btn" title={m.inline_zoom_out({}, { locale })} aria-label={m.inline_zoom_out({}, { locale })} onclick={() => pdfControls?.zoomOut()}>
 				<Minus class="h-4 w-4" />
 			</button>
 			<span class="pdf-scale">{Math.round(pdfControls.scale * 100)}%</span>
-			<button type="button" class="icon-btn" title="Zoom in" aria-label="Zoom in" onclick={() => pdfControls?.zoomIn()}>
+			<button type="button" class="icon-btn" title={m.inline_zoom_in({}, { locale })} aria-label={m.inline_zoom_in({}, { locale })} onclick={() => pdfControls?.zoomIn()}>
 				<Plus class="h-4 w-4" />
 			</button>
 			<button
 				type="button"
 				class="icon-btn"
 				class:active={pdfControls.fitWidth}
-				title="Fit width"
-				aria-label="Fit width"
+				title={m.inline_fit_width({}, { locale })}
+				aria-label={m.inline_fit_width({}, { locale })}
 				aria-pressed={pdfControls.fitWidth}
 				onclick={() => pdfControls?.fitPageWidth()}
 			>
@@ -510,7 +514,7 @@ $effect(() => {
 {#snippet LazyLoadError(label: string, onRetry: () => void)}
 	<div class="flex h-full flex-col items-center justify-center gap-2 px-4 text-center">
 		<div class="text-[12px] text-error-soft">{label}</div>
-		<button type="button" class="action-btn" onclick={onRetry}>Retry</button>
+		<button type="button" class="action-btn" onclick={onRetry}>{m.common_retry({}, { locale })}</button>
 	</div>
 {/snippet}
 
@@ -540,14 +544,14 @@ $effect(() => {
 			<div class="mb-1 break-words text-xs text-text-secondary">{options.detail}</div>
 			{#if inlineFile.response}
 				<div class="mt-3 space-y-0.5 text-left text-[11px] text-text-tertiary">
-					<div><span class="text-text-secondary">Name</span> · {inlineFile.response.name}</div>
-					<div><span class="text-text-secondary">Type</span> · {inlineFile.response.mimeType ?? "application/octet-stream"}</div>
-					<div><span class="text-text-secondary">Size</span> · {formatFileSize(inlineFile.response.size)}</div>
+					<div><span class="text-text-secondary">{m.inline_name({}, { locale })}</span> · {inlineFile.response.name}</div>
+					<div><span class="text-text-secondary">{m.inline_type({}, { locale })}</span> · {inlineFile.response.mimeType ?? "application/octet-stream"}</div>
+					<div><span class="text-text-secondary">{m.inline_size({}, { locale })}</span> · {formatFileSize(inlineFile.response.size)}</div>
 				</div>
 			{/if}
 			<div class="mt-4 flex flex-wrap items-center justify-center gap-2">
 				{#if options.showRetry !== false && onRetryInlineFile}
-					<button type="button" class="action-btn" onclick={() => void onRetryInlineFile()}>Retry</button>
+					<button type="button" class="action-btn" onclick={() => void onRetryInlineFile()}>{m.common_retry({}, { locale })}</button>
 				{/if}
 				<a
 					href={inlineFileDownloadUrl}
@@ -559,7 +563,7 @@ $effect(() => {
 					}}
 				>
 					<Download class="w-3.5 h-3.5" />
-					Download
+					{m.download({}, { locale })}
 				</a>
 			</div>
 		</div>
@@ -571,11 +575,11 @@ $effect(() => {
 		<div class="file-status-banner flex shrink-0 items-center gap-2 border-b border-error-soft/20 bg-error-bg px-3 py-1.5 text-[11px] text-error-soft">
 			<span class="min-w-0 flex-1 truncate">{inlineFile.error}</span>
 			{#if onRetryInlineFile}
-				<button type="button" class="action-btn" onclick={() => void onRetryInlineFile()}>Retry</button>
+				<button type="button" class="action-btn" onclick={() => void onRetryInlineFile()}>{m.common_retry({}, { locale })}</button>
 			{/if}
 			<button type="button" class="action-btn" onclick={() => void onDownloadInlineFile()}>
 				<Download class="w-3.5 h-3.5" />
-				Download
+				{m.download({}, { locale })}
 			</button>
 		</div>
 	{/if}
@@ -586,10 +590,10 @@ $effect(() => {
 		<div class="file-status-banner flex shrink-0 items-center gap-2 border-b border-error-soft/20 bg-error-bg px-3 py-1.5 text-[11px] text-error-soft">
 			<span class="min-w-0 flex-1 truncate">{inlineFile.saveError}</span>
 			{#if inlineFile.syncStatus === "conflict"}
-				<button type="button" class="action-btn" onclick={() => void onReloadInlineFile()}>Reload</button>
-				<button type="button" class="action-btn" onclick={() => void onOverwriteInlineFile()}>Keep mine</button>
+				<button type="button" class="action-btn" onclick={() => void onReloadInlineFile()}>{m.inline_reload({}, { locale })}</button>
+				<button type="button" class="action-btn" onclick={() => void onOverwriteInlineFile()}>{m.inline_keep_mine({}, { locale })}</button>
 			{:else}
-				<button type="button" class="action-btn" onclick={() => void onRetryInlineFileSave()}>Retry</button>
+				<button type="button" class="action-btn" onclick={() => void onRetryInlineFileSave()}>{m.common_retry({}, { locale })}</button>
 			{/if}
 		</div>
 	{/if}
@@ -623,7 +627,7 @@ $effect(() => {
 				onOpenFile={onOpenLinkedInlineFile}
 			/>
 		{:catch}
-			{@render LazyLoadError("Preview failed to load.", () => {
+			{@render LazyLoadError(m.preview_failed({}, { locale }), () => {
 				htmlPreviewLoadAttempt += 1;
 			})}
 		{/await}
@@ -639,7 +643,7 @@ $effect(() => {
 				name={inlineFile.response.name}
 			/>
 		{:catch}
-			{@render LazyLoadError("Preview failed to load.", () => {
+			{@render LazyLoadError(m.preview_failed({}, { locale }), () => {
 				csvPreviewLoadAttempt += 1;
 			})}
 		{/await}
@@ -665,7 +669,7 @@ $effect(() => {
 				}}
 			/>
 		{:catch}
-			{@render LazyLoadError("PDF preview failed to load.", () => {
+			{@render LazyLoadError(m.pdf_preview_failed({}, { locale }), () => {
 				pdfPreviewLoadAttempt += 1;
 			})}
 		{/await}
@@ -682,7 +686,7 @@ $effect(() => {
 				error={inlineFileDiffError}
 			/>
 		{:catch}
-			{@render LazyLoadError("Diff failed to load.", () => {
+			{@render LazyLoadError(m.inline_diff_failed({}, { locale }), () => {
 				fileDiffLoadAttempt += 1;
 			})}
 		{/await}
@@ -712,7 +716,7 @@ $effect(() => {
 				readonly={!canEditFiles || activeFsReadonly}
 			/>
 		{:catch}
-			{@render LazyLoadError("Editor failed to load.", () => {
+			{@render LazyLoadError(m.inline_editor_failed({}, { locale }), () => {
 				codeEditorLoadAttempt += 1;
 			})}
 		{/await}
@@ -735,8 +739,8 @@ $effect(() => {
 							type="button"
 							class="icon-btn"
 							onclick={() => void onBackInlineFile()}
-							title="Back"
-							aria-label="Back"
+							title={m.inline_back({}, { locale })}
+							aria-label={m.inline_back({}, { locale })}
 						>
 							<ArrowLeft class="h-4 w-4" />
 						</button>
@@ -745,18 +749,18 @@ $effect(() => {
 				{/snippet}
 			</MobileWindowTabsChrome>
       {#if inlineFile?.loading}
-        <CenteredLoading label="Loading file…" size="panel" />
+        <CenteredLoading label={m.inline_loading_file({}, { locale })} size="panel" />
       {:else if inlineFile?.tooLarge}
         {@render FileOpenFallback({
-          title: "File too large to preview",
-          detail: "This file exceeds 10MB and cannot be opened in the web editor.",
+          title: m.inline_too_large_title({}, { locale }),
+          detail: m.inline_too_large_detail({}, { locale }),
           variant: "warning",
           showRetry: false,
         })}
       {:else if showExclusiveFallback}
         {@render FileOpenFallback({
-          title: "Couldn't open file",
-          detail: inlineFile?.error ?? "Failed to open file",
+          title: m.inline_couldnt_open({}, { locale }),
+          detail: inlineFile?.error ?? m.inline_failed_open({}, { locale }),
           variant: "error",
         })}
       {:else if inlineFile?.response}
@@ -766,12 +770,12 @@ $effect(() => {
           <div class="flex h-11 shrink-0 items-center gap-2 border-b border-border-subtle bg-bg-surface px-3">
             {#if inlineFileHasRenderedPreview || showDiffMode}
               <div class="flex items-center gap-0 rounded-md border border-border-subtle bg-bg-input p-[2px]">
-                <button type="button" class="segmented-btn" class:active={inlineFileViewMode === "source"} onclick={() => inlineFileViewMode = "source"} title="Edit source">Source</button>
+                <button type="button" class="segmented-btn" class:active={inlineFileViewMode === "source"} onclick={() => inlineFileViewMode = "source"} title={m.inline_edit_source({}, { locale })}>{m.inline_source({}, { locale })}</button>
                 {#if inlineFileHasRenderedPreview}
-                  <button type="button" class="segmented-btn" class:active={inlineFileViewMode === "preview"} onclick={() => inlineFileViewMode = "preview"} title={inlineFileIsMarkdown ? "Preview markdown" : inlineFileIsCsv ? "Preview table" : "Preview HTML"}>Preview</button>
+                  <button type="button" class="segmented-btn" class:active={inlineFileViewMode === "preview"} onclick={() => inlineFileViewMode = "preview"} title={inlineFileIsMarkdown ? m.inline_preview_markdown({}, { locale }) : inlineFileIsCsv ? m.inline_preview_table({}, { locale }) : m.inline_preview_html({}, { locale })}>{m.inline_preview({}, { locale })}</button>
                 {/if}
                 {#if showDiffMode}
-                  <button type="button" class="segmented-btn" class:active={inlineFileViewMode === "diff"} onclick={() => inlineFileViewMode = "diff"} title="Diff since last save">Diff</button>
+                  <button type="button" class="segmented-btn" class:active={inlineFileViewMode === "diff"} onclick={() => inlineFileViewMode = "diff"} title={m.inline_diff_since_save({}, { locale })}>{m.inline_diff({}, { locale })}</button>
                 {/if}
               </div>
             {/if}
@@ -782,11 +786,11 @@ $effect(() => {
                 target={htmlMarkTarget}
               />
             {/if}
-            <button type="button" class="icon-btn" onclick={() => void onCopyInlineFileContent()} title="Copy content">
+            <button type="button" class="icon-btn" onclick={() => void onCopyInlineFileContent()} title={m.inline_copy_content({}, { locale })}>
               {#if inlineFileCopied}<Check class="w-4 h-4 text-success-soft" />{:else}<Copy class="w-4 h-4" />{/if}
             </button>
             {#if activeFsReadonly}
-              <span class="rounded-md border border-border-subtle px-2 py-1 text-[11px] text-text-tertiary">Read-only snapshot</span>
+              <span class="rounded-md border border-border-subtle px-2 py-1 text-[11px] text-text-tertiary">{m.inline_read_only_snapshot({}, { locale })}</span>
             {/if}
           </div>
           <div class="flex-1 min-h-0">
@@ -827,14 +831,14 @@ $effect(() => {
           </div>
         {:else}
           {@render FileOpenFallback({
-            title: "Preview not available",
-            detail: "This file type cannot be previewed in the browser.",
+            title: m.preview_not_available({}, { locale }),
+            detail: m.inline_preview_not_available_detail({}, { locale }),
             variant: "neutral",
             showRetry: false,
           })}
         {/if}
       {:else}
-        <div class="flex-1 flex items-center justify-center text-sm text-text-tertiary">No file selected</div>
+        <div class="flex-1 flex items-center justify-center text-sm text-text-tertiary">{m.inline_no_file_selected({}, { locale })}</div>
       {/if}
 		</div>
 	{:else}
@@ -855,22 +859,22 @@ $effect(() => {
           <div class="preview-chrome flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
             <span class="preview-chrome-path flex-1 truncate text-xs text-text-secondary">{activeFilePath}</span>
             {@render FileHeaderCoreActions(activeFilePath)}
-            <button type="button" class="icon-btn" onclick={onCloseInlineFile} title="Close file">
+            <button type="button" class="icon-btn" onclick={onCloseInlineFile} title={m.inline_close_file({}, { locale })}>
               <X class="w-4 h-4" />
             </button>
           </div>
-          <CenteredLoading label="Loading file…" size="panel" />
+          <CenteredLoading label={m.inline_loading_file({}, { locale })} size="panel" />
         {:else if inlineFile?.tooLarge}
           <div class="preview-chrome flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
             <span class="preview-chrome-path flex-1 truncate text-xs text-text-secondary">{activeFilePath}</span>
             {@render FileHeaderCoreActions(activeFilePath)}
-            <button type="button" class="icon-btn" onclick={onCloseInlineFile} title="Close file">
+            <button type="button" class="icon-btn" onclick={onCloseInlineFile} title={m.inline_close_file({}, { locale })}>
               <X class="w-4 h-4" />
             </button>
           </div>
           {@render FileOpenFallback({
-            title: "File too large to preview",
-            detail: "This file exceeds 10MB and cannot be opened in the web editor.",
+            title: m.inline_too_large_title({}, { locale }),
+            detail: m.inline_too_large_detail({}, { locale }),
             variant: "warning",
             showRetry: false,
           })}
@@ -878,13 +882,13 @@ $effect(() => {
           <div class="preview-chrome flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
             <span class="preview-chrome-path flex-1 truncate text-xs text-text-secondary">{activeFilePath}</span>
             {@render FileHeaderCoreActions(activeFilePath)}
-            <button type="button" class="icon-btn" onclick={onCloseInlineFile} title="Close file">
+            <button type="button" class="icon-btn" onclick={onCloseInlineFile} title={m.inline_close_file({}, { locale })}>
               <X class="w-4 h-4" />
             </button>
           </div>
           {@render FileOpenFallback({
-            title: "Couldn't open file",
-            detail: inlineFile?.error ?? "Failed to open file",
+            title: m.inline_couldnt_open({}, { locale }),
+            detail: inlineFile?.error ?? m.inline_failed_open({}, { locale }),
             variant: "error",
           })}
         {:else if inlineFile?.response}
@@ -893,7 +897,7 @@ $effect(() => {
           {#if hasUsableText}
             <div class="preview-chrome flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
               {#if inlineFileCanGoBack}
-                <button type="button" class="icon-btn" onclick={() => void onBackInlineFile()} title="Back">
+                <button type="button" class="icon-btn" onclick={() => void onBackInlineFile()} title={m.inline_back({}, { locale })}>
                   <ArrowLeft class="w-4 h-4" />
                 </button>
               {/if}
@@ -902,9 +906,9 @@ $effect(() => {
               </div>
               {@render FileHeaderCoreActions(activeResponsePath)}
               {#if inlineFileIsHtml && inlineFileViewMode === "preview"}
-                <button type="button" class="action-btn" onclick={onPublishInlineFile} title="Publish app">
+                <button type="button" class="action-btn" onclick={onPublishInlineFile} title={m.inline_publish_app({}, { locale })}>
                   <Rocket class="w-3.5 h-3.5 shrink-0" />
-                  <span class="hidden sm:inline">Publish</span>
+                  <span class="hidden sm:inline">{m.file_publish({}, { locale })}</span>
                 </button>
               {/if}
               {#if inlineFileHasRenderedPreview || showDiffMode}
@@ -914,9 +918,9 @@ $effect(() => {
                     class="segmented-btn"
                     class:active={inlineFileViewMode === "source"}
                     onclick={() => inlineFileViewMode = "source"}
-                    title="Edit source"
+                    title={m.inline_edit_source({}, { locale })}
                   >
-                    Source
+                    {m.inline_source({}, { locale })}
                   </button>
                   {#if inlineFileHasRenderedPreview}
                     <button
@@ -924,9 +928,9 @@ $effect(() => {
                       class="segmented-btn"
                       class:active={inlineFileViewMode === "preview"}
                       onclick={() => inlineFileViewMode = "preview"}
-                      title={inlineFileIsMarkdown ? "Preview markdown" : inlineFileIsCsv ? "Preview table" : "Preview HTML"}
+                      title={inlineFileIsMarkdown ? m.inline_preview_markdown({}, { locale }) : inlineFileIsCsv ? m.inline_preview_table({}, { locale }) : m.inline_preview_html({}, { locale })}
                     >
-                      Preview
+                      {m.inline_preview({}, { locale })}
                     </button>
                   {/if}
                   {#if showDiffMode}
@@ -935,9 +939,9 @@ $effect(() => {
                       class="segmented-btn"
                       class:active={inlineFileViewMode === "diff"}
                       onclick={() => inlineFileViewMode = "diff"}
-                      title="Diff since last save"
+                      title={m.inline_diff_since_save({}, { locale })}
                     >
-                      Diff
+                      {m.inline_diff({}, { locale })}
                     </button>
                   {/if}
                 </div>
@@ -948,7 +952,7 @@ $effect(() => {
                   target={htmlMarkTarget}
                 />
               {/if}
-              <button type="button" class="icon-btn" onclick={() => void onCopyInlineFileContent()} title="Copy content">
+              <button type="button" class="icon-btn" onclick={() => void onCopyInlineFileContent()} title={m.inline_copy_content({}, { locale })}>
                 {#if inlineFileCopied}
                   <Check class="w-4 h-4 text-success-soft" />
                 {:else}
@@ -956,9 +960,9 @@ $effect(() => {
                 {/if}
               </button>
               {#if activeFsReadonly}
-                <span class="rounded-md border border-border-subtle px-2 py-1 text-[11px] text-text-tertiary">Read-only snapshot</span>
+                <span class="rounded-md border border-border-subtle px-2 py-1 text-[11px] text-text-tertiary">{m.inline_read_only_snapshot({}, { locale })}</span>
               {/if}
-              <button type="button" class="icon-btn" onclick={onCloseInlineFile} title="Close file">
+              <button type="button" class="icon-btn" onclick={onCloseInlineFile} title={m.inline_close_file({}, { locale })}>
                 <X class="w-4 h-4" />
               </button>
             </div>
@@ -976,19 +980,19 @@ $effect(() => {
                 {#if imageMarkTarget}
                   <PreviewMarkHost bind:open={imageMarkOpen} target={imageMarkTarget} />
                 {/if}
-                <button type="button" class="zoom-btn" onclick={() => { inlineFileZoom = Math.max(0.25, inlineFileZoom - 0.25); inlineFilePanX = 0; inlineFilePanY = 0; }} title="Zoom out">
+                <button type="button" class="zoom-btn" onclick={() => { inlineFileZoom = Math.max(0.25, inlineFileZoom - 0.25); inlineFilePanX = 0; inlineFilePanY = 0; }} title={m.inline_zoom_out({}, { locale })}>
                   <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="7" y1="11" x2="15" y2="11"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                 </button>
                 <span class="text-xs text-text-tertiary tabular-nums w-10 text-center">{Math.round(inlineFileZoom * 100)}%</span>
-                <button type="button" class="zoom-btn" onclick={() => { inlineFileZoom = Math.min(4, inlineFileZoom + 0.25); inlineFilePanX = 0; inlineFilePanY = 0; }} title="Zoom in">
+                <button type="button" class="zoom-btn" onclick={() => { inlineFileZoom = Math.min(4, inlineFileZoom + 0.25); inlineFilePanX = 0; inlineFilePanY = 0; }} title={m.inline_zoom_in({}, { locale })}>
                   <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="11" y1="7" x2="11" y2="15"/><line x1="7" y1="11" x2="15" y2="11"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                 </button>
-                <button type="button" class="icon-btn" onclick={onCloseInlineFile} title="Close file">
+                <button type="button" class="icon-btn" onclick={onCloseInlineFile} title={m.inline_close_file({}, { locale })}>
                   <X class="w-4 h-4" />
                 </button>
               </div>
               <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-              <div class="flex flex-1 items-center justify-center overflow-hidden p-4" tabindex="-1" role="group" aria-label="Image preview — scroll to zoom, drag to pan, double-click to reset" onwheel={(e) => {
+              <div class="flex flex-1 items-center justify-center overflow-hidden p-4" tabindex="-1" role="group" aria-label={m.inline_image_preview_aria({}, { locale })} onwheel={(e) => {
                 if (e.ctrlKey || e.metaKey) {
                   e.preventDefault();
                   inlineFileZoom = Math.max(0.25, Math.min(4, inlineFileZoom + (e.deltaY < 0 ? 0.1 : -0.1)));
@@ -1006,7 +1010,7 @@ $effect(() => {
               </div>
               <div class="text-xs text-text-tertiary hidden sm:inline">{formatFileSize(inlineFile.response.size)}</div>
               {@render FileHeaderCoreActions(activeResponsePath)}
-              <button type="button" class="icon-btn" onclick={onCloseInlineFile} title="Close file">
+              <button type="button" class="icon-btn" onclick={onCloseInlineFile} title={m.inline_close_file({}, { locale })}>
                 <X class="w-4 h-4" />
               </button>
             </div>
@@ -1022,7 +1026,7 @@ $effect(() => {
               </div>
               <div class="text-xs text-text-tertiary hidden sm:inline">{formatFileSize(inlineFile.response.size)}</div>
               {@render FileHeaderCoreActions(activeResponsePath)}
-              <button type="button" class="icon-btn" onclick={onCloseInlineFile} title="Close file">
+              <button type="button" class="icon-btn" onclick={onCloseInlineFile} title={m.inline_close_file({}, { locale })}>
                 <X class="w-4 h-4" />
               </button>
             </div>
@@ -1044,7 +1048,7 @@ $effect(() => {
               </div>
               <div class="hidden text-xs text-text-tertiary sm:inline">{formatFileSize(inlineFile.response.size)}</div>
               {@render FileHeaderCoreActions(activeResponsePath)}
-              <button type="button" class="icon-btn" onclick={onCloseInlineFile} title="Close file">
+              <button type="button" class="icon-btn" onclick={onCloseInlineFile} title={m.inline_close_file({}, { locale })}>
                 <X class="h-4 w-4" />
               </button>
             </div>
@@ -1058,19 +1062,19 @@ $effect(() => {
               </div>
               <div class="text-xs text-text-tertiary hidden sm:inline">{formatFileSize(inlineFile?.response ? inlineFile.response.size : 0)}</div>
               {@render FileHeaderCoreActions(activeResponsePath)}
-              <button type="button" class="icon-btn" onclick={onCloseInlineFile} title="Close file">
+              <button type="button" class="icon-btn" onclick={onCloseInlineFile} title={m.inline_close_file({}, { locale })}>
                 <X class="w-4 h-4" />
               </button>
             </div>
             {@render FileOpenFallback({
-              title: "Preview not available",
-              detail: "This file type cannot be previewed in the browser.",
+              title: m.preview_not_available({}, { locale }),
+              detail: m.inline_preview_not_available_detail({}, { locale }),
               variant: "neutral",
               showRetry: false,
             })}
           {/if}
         {:else}
-          <div class="flex-1 flex items-center justify-center text-xs text-text-tertiary">No file selected</div>
+          <div class="flex-1 flex items-center justify-center text-xs text-text-tertiary">{m.inline_no_file_selected({}, { locale })}</div>
         {/if}
       </div>
 {/if}

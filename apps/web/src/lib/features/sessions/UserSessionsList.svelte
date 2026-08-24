@@ -4,7 +4,9 @@ import { Loader2, Search } from "lucide-svelte";
 import SessionSidebarRowContent from "$lib/components/SessionSidebarRowContent.svelte";
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
 import { getSessionTitle } from "$lib/features/session-chat";
+import { getLocale } from "$lib/i18n/locale.svelte";
 import type { ModelCatalogItem } from "$lib/model-catalog";
+import { m } from "$lib/paraglide/messages.js";
 import {
 	buildSpaceSessionRoute,
 	buildUserSessionRoute,
@@ -43,6 +45,8 @@ const {
 	onNewChat: () => void;
 } = $props();
 
+const locale = $derived(getLocale());
+
 function hrefFor(session: UserSessionListItem) {
 	return isDesktop
 		? buildUserSessionRoute(session.id)
@@ -64,7 +68,7 @@ function spaceName(session: UserSessionListItem) {
 					onclick={() => {
 						uiState.mobileDrawerOpen = !uiState.mobileDrawerOpen;
 					}}
-					aria-label="Open navigation"
+					aria-label={m.sessions_open_nav({}, { locale })}
 				>
 					<span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-[6px] bg-brand text-[11px] font-bold text-brand-contrast-fg transition-colors group-hover:bg-brand-hover">
 						C
@@ -84,7 +88,7 @@ function spaceName(session: UserSessionListItem) {
 					type="button"
 					class="group/search flex h-7 shrink-0 items-center justify-center rounded-[6px] bg-bg-surface px-2 text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"
 					onclick={openCommandPalette}
-					title="Search everywhere"
+					title={m.sessions_search_everywhere({}, { locale })}
 					aria-label="Search everywhere"
 				>
 					<Search class="h-3.5 w-3.5 text-text-placeholder transition-colors group-hover/search:text-brand" />
@@ -110,8 +114,8 @@ function spaceName(session: UserSessionListItem) {
 			<div class="px-2 py-3 text-[12px] text-error-soft">{error}</div>
 		{:else if sessions.length === 0}
 			<div class="px-2 py-8 text-center">
-				<p class="text-[13px] text-text-secondary">No chats yet</p>
-				<p class="mt-1 text-[12px] text-text-placeholder">Start a chat in any space to see it here.</p>
+				<p class="text-[13px] text-text-secondary">{m.sessions_no_chats({}, { locale })}</p>
+				<p class="mt-1 text-[12px] text-text-placeholder">{m.sessions_no_chats_hint({}, { locale })}</p>
 				<button
 					type="button"
 					class="sessions-empty-new-chat mt-4 inline-flex items-center rounded-[6px] bg-bg-hover px-3 py-1.5 text-[12px] text-text-secondary transition-colors hover:bg-bg-hover-strong hover:text-text-primary"

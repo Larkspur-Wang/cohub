@@ -44,6 +44,8 @@ import BoardSelectionToolbar from "$lib/components/board/BoardSelectionToolbar.s
 import BoardStage from "$lib/components/board/BoardStage.svelte";
 import BoardTextEditor from "$lib/components/board/BoardTextEditor.svelte";
 import BoardZoomMenu from "$lib/components/board/BoardZoomMenu.svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 import { sdk } from "$lib/sdk";
 import { watchGenerationTask } from "$lib/stores/generation-task-watch";
 import {
@@ -74,6 +76,8 @@ const {
 }: BoardRuntimeProps & {
 	onOpenTask?: (taskRunId: string) => void;
 } = $props();
+
+const locale = $derived(getLocale());
 
 const readonly = $derived(mode === "view");
 /** Live Space by default; a published Board supplies an artifact-backed source. */
@@ -162,7 +166,7 @@ async function regenerateTask(nodeId: string) {
 		const created = await sdk.generations.create(request);
 		createdTaskRunId = created.taskRunId;
 		if (getCacheUserKey() !== submittingUserKey) {
-			showRegenerationError("Task created. Find it in Tasks list.");
+			showRegenerationError(m.board_task_created({}, { locale }));
 			return;
 		}
 
@@ -187,10 +191,10 @@ async function regenerateTask(nodeId: string) {
 	} catch (cause) {
 		showRegenerationError(
 			createdTaskRunId
-				? "Generation started. Open it from Tasks."
+				? m.board_generation_started_detail({}, { locale })
 				: cause instanceof Error
 					? cause.message
-					: "Generation could not start.",
+					: m.board_generation_start_failed({}, { locale }),
 		);
 	} finally {
 		regeneratingNodeId = null;
@@ -711,8 +715,8 @@ onDestroy(() => {
 			class="board-sync-notice flex shrink-0 items-center gap-2 border-b border-error-soft/20 bg-error-bg px-3 py-1.5 text-[11px] text-error-soft"
 			class:board-sync-notice--immersive={immersive}
 		>
-			<span class="min-w-0 flex-1 truncate">Sync paused</span>
-			<button type="button" class="action-btn" onclick={retrySync}>Retry</button>
+			<span class="min-w-0 flex-1 truncate">{m.board_sync_paused({}, { locale })}</span>
+			<button type="button" class="action-btn" onclick={retrySync}>{m.common_retry({}, { locale })}</button>
 		</div>
 	{/if}
 

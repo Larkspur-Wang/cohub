@@ -1,7 +1,9 @@
 <script lang="ts">
 import { Check, ChevronDown, Copy } from "lucide-svelte";
 import { onDestroy } from "svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
 import type { MarkdownFrontmatterEntry } from "$lib/markdown-frontmatter";
+import { m } from "$lib/paraglide/messages.js";
 
 type Props = {
 	raw: string;
@@ -9,6 +11,8 @@ type Props = {
 };
 
 const { raw, entries = [] }: Props = $props();
+
+const locale = $derived(getLocale());
 
 let expanded = $state(false);
 let copied = $state(false);
@@ -45,7 +49,7 @@ onDestroy(() => {
 });
 </script>
 
-<section class="frontmatter-panel" aria-label="Markdown frontmatter">
+<section class="frontmatter-panel" aria-label={m.md_frontmatter_aria({}, { locale })}>
 	<div class="frontmatter-bar">
 		<div class="frontmatter-title">Frontmatter</div>
 		<div class="frontmatter-actions">
@@ -64,7 +68,7 @@ onDestroy(() => {
 				type="button"
 				class="frontmatter-action frontmatter-copy"
 				onclick={() => void copyRaw()}
-				aria-label="Copy frontmatter"
+				aria-label={m.md_frontmatter_copy({}, { locale })}
 				title="Copy frontmatter"
 			>
 				{#if copied}

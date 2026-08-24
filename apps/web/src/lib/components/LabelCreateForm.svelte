@@ -2,6 +2,8 @@
 import type { LabelListItem } from "@neta-art/cohub";
 import { ChevronDown, Loader2, Plus } from "lucide-svelte";
 import { tick } from "svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 import {
 	flattenLabels,
 	flattenLabelsWithRefs,
@@ -27,6 +29,8 @@ const {
 	errorLabel?: string;
 	autofocus?: boolean;
 } = $props();
+
+const locale = $derived(getLocale());
 
 let name = $state("");
 let parentId = $state("");
@@ -115,7 +119,7 @@ async function submit() {
 
 	<div class="label-create-actions">
 		{#if onCancel}
-			<button type="button" class="label-dialog-button ghost" onclick={onCancel}>Cancel</button>
+			<button type="button" class="label-dialog-button ghost" onclick={onCancel}>{m.common_cancel({}, { locale })}</button>
 		{/if}
 		<button type="button" class="label-dialog-button primary" disabled={!name.trim() || saving} onclick={() => void submit()}>
 			{#if saving}<Loader2 class="h-3 w-3 animate-spin" />{:else}<Plus class="h-3 w-3" />{/if}

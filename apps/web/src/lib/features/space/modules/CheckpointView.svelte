@@ -26,6 +26,8 @@ import { classifyAccessError } from "$lib/access/access-state";
 import AccessStateView from "$lib/components/AccessStateView.svelte";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import CheckpointDiffPanel from "$lib/components/CheckpointDiffPanel.svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 import { sdk } from "$lib/sdk";
 import {
 	buildSpaceNewSessionRoute,
@@ -53,6 +55,8 @@ let {
 	checkpointId,
 	onDetailLoaded,
 }: Props = $props();
+
+const locale = $derived(getLocale());
 
 let checkpointDetail = $state<CheckpointRecord | null>(null);
 let checkpointDetailLoading = $state(false);
@@ -82,13 +86,13 @@ let pendingDiffError = $state<string | null>(null);
 function formatCheckpointTimestamp(dateStr: string | null | undefined): string {
 	if (!dateStr) return "—";
 	const d = new Date(dateStr);
-	return d.toLocaleString("en-US", {
+	return new Intl.DateTimeFormat(locale === "zh-CN" ? "zh-CN" : "en-US", {
 		month: "short",
 		day: "numeric",
 		year: "numeric",
 		hour: "2-digit",
 		minute: "2-digit",
-	});
+	}).format(d);
 }
 
 function sourceTaskRunIdFromCheckpoint(
@@ -111,12 +115,14 @@ function readCheckpointStat(
 }
 
 function formatCheckpointCount(value: number | null): string {
-	return value === null ? "—" : value.toLocaleString("en-US");
+	return value === null
+		? "—"
+		: value.toLocaleString(locale === "zh-CN" ? "zh-CN" : "en-US");
 }
 
 function formatCheckpointBytes(value: number | null): string {
 	if (value === null) return "—";
-	return new Intl.NumberFormat("en-US", {
+	return new Intl.NumberFormat(locale === "zh-CN" ? "zh-CN" : "en-US", {
 		maximumFractionDigits: value >= 1024 * 1024 ? 1 : 0,
 		style: "unit",
 		unit: "byte",
@@ -357,7 +363,7 @@ onDestroy(() => {
 			{:else}
 				<form onsubmit={handleCreateCheckpointSubmit} class="space-y-6">
 					<header class="space-y-1.5">
-						<div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">New save</div>
+						<div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">{m.cp_new_save({}, { locale })}</div>
 						<h1 class="text-[18px] font-semibold tracking-tight text-text-primary sm:text-[20px]">
 							Save workspace
 						</h1>
@@ -377,7 +383,7 @@ onDestroy(() => {
 							id="checkpoint-description"
 							bind:value={checkpointCreateDescription}
 							rows="3"
-							placeholder="What changed?"
+							placeholder={m.cp_what_changed_ph({}, { locale })}
 							class="w-full resize-y rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2.5 text-[13px] leading-5 text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none transition-colors"
 						></textarea>
 						<p class="text-[11px] leading-4 text-text-placeholder">
@@ -394,7 +400,7 @@ onDestroy(() => {
 							emptyLabel={space?.headCheckpointId ? "No changes since last save" : "Workspace will be saved as-is"}
 							collapsible={true}
 							defaultExpanded={false}
-							title="Review changes"
+							title={m.cp_review_changes({}, { locale })}
 							onExpand={loadPendingDiff}
 							loadFile={loadPendingFileDiff}
 						/>
@@ -466,7 +472,7 @@ onDestroy(() => {
 								{#if checkpointDetail.description?.trim()}
 									<p class="max-w-2xl text-[14px] leading-6 text-text-secondary">{checkpointDetail.description.trim()}</p>
 								{:else}
-									<p class="text-[13px] text-text-tertiary">Saved from <span class="text-text-primary">{space?.name ?? space?.title ?? spaceId}</span>.</p>
+									<p class="text-[13px] text-text-tertiary">{m.cp_saved_from({}, { locale })} <span class="text-text-primary">{space?.name ?? space?.title ?? spaceId}</span>.</p>
 								{/if}
 							</div>
 						</div>
@@ -477,7 +483,7 @@ onDestroy(() => {
 								onclick={handleForkCheckpoint}
 							>
 								<Rocket class="w-3.5 h-3.5" />
-								<span>New space</span>
+								<span>{m.cp_new_space({}, { locale })}</span>
 							</button>
 							<button
 								type="button"
@@ -489,7 +495,7 @@ onDestroy(() => {
 									<span class="text-success-soft">Copied</span>
 								{:else}
 									<Copy class="w-3.5 h-3.5" />
-									<span>Copy ID</span>
+									<span>{m.cp_copy_id({}, { locale })}</span>
 								{/if}
 							</button>
 						</div>
@@ -508,7 +514,7 @@ onDestroy(() => {
 										type="button"
 										class="shrink-0 rounded-[4px] p-1.5 text-text-placeholder transition-colors hover:bg-bg-hover hover:text-text-secondary"
 										onclick={handleCopyCheckpointCommitHash}
-										title="Copy commit hash"
+										title={m.cp_copy_commit_hash({}, { locale })}
 									>
 										{#if checkpointCopied}
 											<Check class="w-3 h-3 text-success-soft" />
@@ -582,7 +588,7 @@ onDestroy(() => {
 											>
 										</div>
 									{:else if checkpointDetail.parentCheckpointId}
-										<div class="text-[12px] text-text-placeholder">vs parent</div>
+										<div class="text-[12px] text-text-placeholder">{m.cp_vs_parent({}, { locale })}</div>
 									{/if}
 									<div class="relative ml-auto">
 										<button
@@ -620,7 +626,7 @@ onDestroy(() => {
 															Loading…
 														</div>
 													{:else if compareOptions.length === 0}
-														<div class="px-2.5 py-3 text-[12px] text-text-tertiary">No other saves</div>
+														<div class="px-2.5 py-3 text-[12px] text-text-tertiary">{m.cp_no_other_saves({}, { locale })}</div>
 													{:else}
 														{#each compareOptions as cp (cp.id)}
 															<button
@@ -663,7 +669,7 @@ onDestroy(() => {
 												data-sveltekit-preload-data="hover"
 											>{checkpointDetail.parentCheckpointId}</a>
 										{:else}
-											<span class="text-text-secondary">Root save</span>
+											<span class="text-text-secondary">{m.cp_root_save({}, { locale })}</span>
 										{/if}
 									</div>
 									<div class="flex items-start gap-3">
@@ -676,7 +682,7 @@ onDestroy(() => {
 
 						<aside class="space-y-3 text-[12px] text-text-tertiary">
 							<div class="space-y-1.5">
-								<div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">Saved from</div>
+								<div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">{m.cp_saved_from({}, { locale })}</div>
 								<div class="truncate text-text-secondary" title={space?.name ?? space?.title ?? spaceId}>{space?.name ?? space?.title ?? spaceId}</div>
 							</div>
 							{#if sourceTaskRunId}
@@ -686,14 +692,14 @@ onDestroy(() => {
 									onclick={(e) => { e.preventDefault(); goto(buildSpaceTaskRoute(spaceId, sourceTaskRunId)); }}
 								>
 									<Activity class="w-3.5 h-3.5" />
-									<span>View save task</span>
+									<span>{m.cp_view_save_task({}, { locale })}</span>
 								</a>
 							{/if}
 						</aside>
 					</section>
 				</div>
 			{:else}
-				<div class="text-[13px] text-text-tertiary">Save not found.</div>
+				<div class="text-[13px] text-text-tertiary">{m.cp_save_not_found({}, { locale })}</div>
 			{/if}
 		</div>
 	</div>

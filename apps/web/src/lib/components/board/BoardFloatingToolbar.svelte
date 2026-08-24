@@ -27,6 +27,8 @@ import {
 } from "lucide-svelte";
 import type { BoardEditor, BoardToolId } from "$lib/board/editor.svelte";
 import BoardNumberControl from "$lib/components/board/BoardNumberControl.svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 
 const {
 	editor,
@@ -44,6 +46,8 @@ const {
 	onToggleAppearance?: () => void;
 } = $props();
 
+const locale = $derived(getLocale());
+
 let styleOpen = $state(false);
 let previousTool = $state<BoardToolId | null>(null);
 
@@ -56,33 +60,57 @@ type ToolDef = {
 	hasStyle: boolean;
 };
 
-const TOOLS: ToolDef[] = [
+const TOOLS = $derived<ToolDef[]>([
 	{
 		id: "select",
-		label: "Select",
+		label: m.board_select({}, { locale }),
 		shortcut: "V",
 		icon: MousePointer2,
 		hasStyle: false,
 	},
-	{ id: "hand", label: "Hand", shortcut: "H", icon: Hand, hasStyle: false },
-	{ id: "draw", label: "Draw", shortcut: "D", icon: Pencil, hasStyle: true },
+	{
+		id: "hand",
+		label: m.board_hand({}, { locale }),
+		shortcut: "H",
+		icon: Hand,
+		hasStyle: false,
+	},
+	{
+		id: "draw",
+		label: m.board_draw({}, { locale }),
+		shortcut: "D",
+		icon: Pencil,
+		hasStyle: true,
+	},
 	{
 		id: "arrow",
-		label: "Arrow",
+		label: m.board_arrow({}, { locale }),
 		shortcut: "A",
 		icon: ArrowUpRight,
 		hasStyle: true,
 	},
-	{ id: "text", label: "Text", shortcut: "T", icon: Type, hasStyle: true },
-	{ id: "geo", label: "Shape", shortcut: "G", icon: Square, hasStyle: true },
+	{
+		id: "text",
+		label: m.board_text_tool({}, { locale }),
+		shortcut: "T",
+		icon: Type,
+		hasStyle: true,
+	},
+	{
+		id: "geo",
+		label: m.board_shape({}, { locale }),
+		shortcut: "G",
+		icon: Square,
+		hasStyle: true,
+	},
 	{
 		id: "frame",
-		label: "Frame",
+		label: m.board_frame({}, { locale }),
 		shortcut: "F",
 		icon: Frame,
 		hasStyle: true,
 	},
-];
+]);
 
 const activeTool = $derived(
 	TOOLS.find((candidate) => candidate.id === editor.tool),
@@ -98,13 +126,18 @@ $effect(() => {
 	);
 });
 
-const GEO_OPTIONS: Record<GeoKind, { label: string; icon: typeof Square }> = {
-	rectangle: { label: "Rectangle", icon: Square },
-	rounded: { label: "Rounded rectangle", icon: SquareRoundCorner },
-	ellipse: { label: "Ellipse", icon: Circle },
-	diamond: { label: "Diamond", icon: Diamond },
-	triangle: { label: "Triangle", icon: Triangle },
-};
+const GEO_OPTIONS = $derived<
+	Record<GeoKind, { label: string; icon: typeof Square }>
+>({
+	rectangle: { label: m.board_rectangle({}, { locale }), icon: Square },
+	rounded: {
+		label: m.board_rounded_rect({}, { locale }),
+		icon: SquareRoundCorner,
+	},
+	ellipse: { label: m.board_ellipse({}, { locale }), icon: Circle },
+	diamond: { label: m.board_diamond({}, { locale }), icon: Diamond },
+	triangle: { label: m.board_triangle({}, { locale }), icon: Triangle },
+});
 
 function selectTool(id: BoardToolId) {
 	const tool = TOOLS.find((candidate) => candidate.id === id);
@@ -123,7 +156,7 @@ function toolTitle(tool: ToolDef) {
 	{#if showStyles}
 		<div class="board-style-row" role="toolbar" aria-label="{activeTool?.label ?? 'Tool'} style">
 			{#if editor.tool === "draw" || editor.tool === "arrow"}
-				<span class="style-kind" title="Stroke width" aria-hidden="true">
+				<span class="style-kind" title={m.board_stroke_width({}, { locale })} aria-hidden="true">
 					{#if editor.tool === "draw"}
 						<Pencil class="h-3.5 w-3.5" />
 					{:else}
@@ -138,13 +171,13 @@ function toolTitle(tool: ToolDef) {
 					min={BOARD_STROKE_MIN_SIZE}
 					max={BOARD_STROKE_MAX_SIZE}
 					step={editor.tool === "draw" ? 1 : 0.5}
-					label="Stroke width"
+					label={m.board_stroke_width({}, { locale })}
 					onChange={(value) => { editor.activeStrokeSize = value; }}
 				/>
 				<div class="style-divider"></div>
 			{/if}
 
-			<div class="color-list" role="group" aria-label="Color">
+			<div class="color-list" role="group" aria-label={m.board_color({}, { locale })}>
 				{#each BOARD_COLORS as color (color.id)}
 					<button
 						type="button"
@@ -177,7 +210,7 @@ function toolTitle(tool: ToolDef) {
 		</div>
 	{/if}
 
-	<div class="board-floating-toolbar" role="toolbar" aria-label="Board tools">
+	<div class="board-floating-toolbar" role="toolbar" aria-label={m.board_tools({}, { locale })}>
 		{#each TOOLS as tool (tool.id)}
 			<button
 				type="button"
@@ -201,8 +234,8 @@ function toolTitle(tool: ToolDef) {
 			type="button"
 			class="tool-btn"
 			class:tool-btn--active={generationOpen}
-			title="Generate media"
-			aria-label="Generate media"
+			title={m.board_generate_media({}, { locale })}
+			aria-label={m.board_generate_media({}, { locale })}
 			aria-pressed={generationOpen}
 			onclick={onToggleGeneration}
 		>
@@ -212,8 +245,8 @@ function toolTitle(tool: ToolDef) {
 			type="button"
 			class="tool-btn"
 			class:tool-btn--active={appearanceOpen}
-			title="Board appearance"
-			aria-label="Board appearance"
+			title={m.board_appearance({}, { locale })}
+			aria-label={m.board_appearance({}, { locale })}
 			aria-pressed={appearanceOpen}
 			onclick={onToggleAppearance}
 		>
@@ -225,8 +258,8 @@ function toolTitle(tool: ToolDef) {
 		<button
 			type="button"
 			class="tool-btn history-btn"
-			title="Undo"
-			aria-label="Undo"
+			title={m.common_undo({}, { locale })}
+			aria-label={m.common_undo({}, { locale })}
 			disabled={!editor.canUndo}
 			onclick={() => editor.undo()}
 		>
@@ -235,8 +268,8 @@ function toolTitle(tool: ToolDef) {
 		<button
 			type="button"
 			class="tool-btn history-btn"
-			title="Redo"
-			aria-label="Redo"
+			title={m.board_redo({}, { locale })}
+			aria-label={m.board_redo({}, { locale })}
 			disabled={!editor.canRedo}
 			onclick={() => editor.redo()}
 		>

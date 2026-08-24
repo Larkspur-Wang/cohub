@@ -1,6 +1,8 @@
 <script lang="ts">
 import type { SessionTurnIndexItem } from "@cohub/protocol/model";
 import { Search } from "lucide-svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 import {
 	formatCompactAbsoluteTime,
 	formatFullAbsoluteTime,
@@ -36,6 +38,8 @@ let {
 	onLoadOlder,
 	onLoadNewer,
 }: Props = $props();
+
+const locale = $derived(getLocale());
 
 let query = $state("");
 let scrollEl = $state<HTMLDivElement | null>(null);
@@ -83,8 +87,8 @@ $effect(() => {
 				bind:value={query}
 				type="search"
 				class="min-w-0 flex-1 bg-transparent text-[12px] text-text-primary outline-none placeholder:text-text-placeholder"
-				placeholder="Search turns"
-				aria-label="Search turns"
+				placeholder={m.navigator_search({}, { locale })}
+				aria-label={m.navigator_search({}, { locale })}
 			/>
 		</label>
 	</div>
@@ -97,12 +101,12 @@ $effect(() => {
 				disabled={loadingOlder}
 				onclick={() => onLoadOlder?.()}
 			>
-				{loadingOlder ? "Loading…" : "Load older"}
+				{loadingOlder ? m.cdp_loading({}, { locale }) : m.navigator_load_older({}, { locale })}
 			</button>
 		{/if}
 
 		{#if filteredTurns.length === 0}
-			<div class="flex min-h-28 items-center justify-center text-[12px] text-text-placeholder">No turns found</div>
+			<div class="flex min-h-28 items-center justify-center text-[12px] text-text-placeholder">{m.navigator_no_turns({}, { locale })}</div>
 		{:else}
 			<div class="space-y-0.5">
 				{#each filteredTurns as turn (`${turn.sequence}:${turn.id}`)}
@@ -167,7 +171,7 @@ $effect(() => {
 				disabled={loadingNewer}
 				onclick={() => onLoadNewer?.()}
 			>
-				{loadingNewer ? "Loading…" : "Load newer"}
+				{loadingNewer ? m.cdp_loading({}, { locale }) : m.navigator_load_newer({}, { locale })}
 			</button>
 		{/if}
 	</div>

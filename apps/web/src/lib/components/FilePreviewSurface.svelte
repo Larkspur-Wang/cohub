@@ -4,7 +4,9 @@ import { Download } from "lucide-svelte";
 import AudioPlayer from "$lib/components/AudioPlayer.svelte";
 import MarkdownView from "$lib/components/MarkdownView.svelte";
 import { filePreviewModel } from "$lib/file-preview-model";
+import { getLocale } from "$lib/i18n/locale.svelte";
 import { createLazyModuleLoader } from "$lib/lazy-module";
+import { m } from "$lib/paraglide/messages.js";
 
 const {
 	file,
@@ -18,6 +20,7 @@ const {
 	isMobile?: boolean;
 } = $props();
 
+const locale = $derived(getLocale());
 const model = $derived(filePreviewModel(file));
 const loadCodeEditor = createLazyModuleLoader(
 	() => import("$lib/components/CodeEditor.svelte"),
@@ -58,21 +61,21 @@ function formatSize(bytes: number) {
 				readonly
 			/>
 		{:catch}
-			<div class="preview-message">Preview failed to load.</div>
+			<div class="preview-message">{m.preview_failed({}, { locale })}</div>
 		{/await}
 	{:else if model.kind === "csv"}
 		{#await loadCsvPreview() then module}
 			{@const CsvPreview = module.default}
 			<CsvPreview source={source} name={file.name} />
 		{:catch}
-			<div class="preview-message">Preview failed to load.</div>
+			<div class="preview-message">{m.preview_failed({}, { locale })}</div>
 		{/await}
 	{:else if model.kind === "text"}
 		{#await loadCodeEditor() then module}
 			{@const CodeEditor = module.default}
 			<CodeEditor value={source} language={model.language} readonly />
 		{:catch}
-			<div class="preview-message">Preview failed to load.</div>
+			<div class="preview-message">{m.preview_failed({}, { locale })}</div>
 		{/await}
 	{:else if model.kind === "image" && model.mediaUrl}
 		<div class="media-preview">
@@ -105,16 +108,16 @@ function formatSize(bytes: number) {
 				{isMobile}
 			/>
 		{:catch}
-			<div class="preview-message">PDF preview failed to load.</div>
+			<div class="preview-message">{m.pdf_preview_failed({}, { locale })}</div>
 		{/await}
 	{:else}
 		<div class="fallback-preview">
-			<div class="fallback-title">Preview not available</div>
+			<div class="fallback-title">{m.preview_not_available({}, { locale })}</div>
 			<div class="fallback-detail">{file.mimeType ?? "application/octet-stream"} · {formatSize(file.size)}</div>
 			{#if downloadUrl}
 				<a class="action-btn primary" href={downloadUrl} download={file.name}>
 					<Download class="h-3.5 w-3.5" />
-					Download
+					{m.download({}, { locale })}
 				</a>
 			{/if}
 		</div>

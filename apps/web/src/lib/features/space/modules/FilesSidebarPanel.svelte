@@ -5,7 +5,9 @@ import MobileRightDrawer from "$lib/components/MobileRightDrawer.svelte";
 import SpaceFileSidebar from "$lib/components/SpaceFileSidebar.svelte";
 import { createDeferredMount } from "$lib/deferred-mount.svelte";
 import { pointerDrag } from "$lib/drag/pointer-drag.svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
 import { DURATION_PANEL } from "$lib/motion.svelte";
+import { m } from "$lib/paraglide/messages.js";
 import type { SpaceFsNode } from "$lib/space-fs";
 import { uiState } from "$lib/stores/ui.svelte";
 import type { LocalUploadEntry } from "$lib/upload-entries";
@@ -91,6 +93,8 @@ let {
 	onUploadComplete,
 	onResizeStart,
 }: Props = $props();
+
+const locale = $derived(getLocale());
 
 /**
  * Keep the desktop tree mounted through the collapse width tween so the
@@ -178,8 +182,8 @@ $effect(() => {
 				<button
 					type="button"
 					class="right-sidebar-resize-handle"
-					aria-label="Resize files sidebar"
-					title="Resize files sidebar"
+					aria-label={m.files_resize_sidebar({}, { locale })}
+					title={m.files_resize_sidebar({}, { locale })}
 					onpointerdown={onResizeStart}
 				></button>
 			{/if}

@@ -13,6 +13,8 @@ import {
 	Undo2,
 	X,
 } from "lucide-svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 import type { MarkColor, MarkTool } from "../types";
 import { MARK_COLOR_HEX } from "../types";
 
@@ -64,6 +66,8 @@ let {
 	onClose,
 }: Props = $props();
 
+const locale = $derived(getLocale());
+
 const tools: Array<{ id: MarkTool; label: string; icon: typeof Pencil }> = [
 	{ id: "pen", label: "Pen", icon: Pencil },
 	{ id: "arrow", label: "Arrow", icon: ArrowUpRight },
@@ -75,9 +79,9 @@ const colors: MarkColor[] = ["brand", "red", "yellow", "white"];
 const cropMode = $derived(tool === "crop");
 </script>
 
-<div class="mark-toolbar" role="toolbar" aria-label="Mark tools">
+<div class="mark-toolbar" role="toolbar" aria-label={m.mark_tools({}, { locale })}>
 	<div class="mark-toolbar-main">
-		<div class="mark-segment" role="group" aria-label="Drawing tools">
+		<div class="mark-segment" role="group" aria-label={m.mark_drawing_tools({}, { locale })}>
 			{#each tools as item (item.id)}
 				{@const Icon = item.icon}
 				<button
@@ -122,7 +126,7 @@ const cropMode = $derived(tool === "crop");
 				{/if}
 			</div>
 		{:else}
-			<div class="mark-cluster" role="group" aria-label="Stroke color">
+			<div class="mark-cluster" role="group" aria-label={m.mark_stroke_color({}, { locale })}>
 				{#each colors as c (c)}
 					<button
 						type="button"
@@ -144,7 +148,7 @@ const cropMode = $derived(tool === "crop");
 					title="Reset crop"
 				>
 					<RotateCcw class="h-3.5 w-3.5" />
-					<span class="mark-chip-label">Reset crop</span>
+					<span class="mark-chip-label">{m.mark_reset_crop({}, { locale })}</span>
 				</button>
 			{/if}
 		{/if}
@@ -153,8 +157,8 @@ const cropMode = $derived(tool === "crop");
 			<button
 				type="button"
 				class="mark-icon"
-				title="Undo"
-				aria-label="Undo"
+				title={m.common_undo({}, { locale })}
+				aria-label={m.common_undo({}, { locale })}
 				disabled={!canUndo}
 				onclick={onUndo}
 			>
@@ -163,8 +167,8 @@ const cropMode = $derived(tool === "crop");
 			<button
 				type="button"
 				class="mark-icon"
-				title="Clear marks"
-				aria-label="Clear marks"
+				title={m.mark_clear_marks({}, { locale })}
+				aria-label={m.mark_clear_marks({}, { locale })}
 				disabled={!canClear}
 				onclick={onClear}
 			>
@@ -174,8 +178,8 @@ const cropMode = $derived(tool === "crop");
 				<button
 					type="button"
 					class="mark-icon"
-					title="Recapture"
-					aria-label="Recapture"
+					title={m.mark_recapture({}, { locale })}
+					aria-label={m.mark_recapture({}, { locale })}
 					onclick={onRecapture}
 				>
 					<RefreshCw class="h-3.5 w-3.5" />
@@ -207,7 +211,7 @@ const cropMode = $derived(tool === "crop");
 			class="mark-attach"
 			disabled={busy}
 			onclick={onAttach}
-			title="Attach to chat"
+			title={m.mark_attach_chat({}, { locale })}
 		>
 			{#if attaching}
 				<Loader2 class="h-3.5 w-3.5 animate-spin" />
@@ -220,7 +224,7 @@ const cropMode = $derived(tool === "crop");
 			type="button"
 			class="mark-icon"
 			title="Close"
-			aria-label="Close mark"
+			aria-label={m.mark_close({}, { locale })}
 			disabled={busy}
 			onclick={onClose}
 		>

@@ -20,10 +20,15 @@ import { PUBLIC_COHUB_ENV } from "$env/static/public";
 import { ensureAuth } from "$lib/auth";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import ChannelModelPicker from "$lib/components/ChannelModelPicker.svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
+import { m } from "$lib/paraglide/messages.js";
 import { sdk } from "$lib/sdk";
 import { buildSpaceLandingRoute } from "$lib/space-routes";
 import { billingConversion } from "$lib/stores/billing-conversion.svelte";
+
+const locale = $derived(getLocale());
+
 import { cacheSpaceRecordSoon } from "$lib/stores/space-record-cache";
 
 const currentPath = $derived(page.url.pathname);
@@ -273,7 +278,7 @@ async function handleSubmit(event: SubmitEvent) {
         <ArrowLeft class="w-4 h-4" />
       </a>
       <div class="w-[1px] h-4 bg-border-subtle shrink-0"></div>
-      <span class="text-[11px] font-medium text-text-secondary">New Space</span>
+      <span class="text-[11px] font-medium text-text-secondary">{m.space_new_title({}, { locale })}</span>
     </div>
   </div>
 
@@ -335,7 +340,7 @@ async function handleSubmit(event: SubmitEvent) {
                 </label>
                 <label class="flex items-center gap-2 rounded-[5px] border border-border-subtle bg-bg-input px-3 py-2 text-[12px] text-text-secondary">
                   <input type="radio" bind:group={selectedBootstrapType} value="git_repo" />
-                  <span>Git Repo</span>
+                  <span>{m.space_new_git_repo({}, { locale })}</span>
                 </label>
                 <label class="flex items-center gap-2 rounded-[5px] border border-border-subtle bg-bg-input px-3 py-2 text-[12px] text-text-secondary">
                   <input type="radio" bind:group={selectedBootstrapType} value="checkpoint" />
@@ -384,7 +389,7 @@ async function handleSubmit(event: SubmitEvent) {
         <div class="border border-border-subtle rounded-md bg-bg-surface p-4 space-y-3">
           <div>
             <div class="flex items-center gap-2 text-[10px] uppercase tracking-wider text-text-placeholder font-medium"><PackagePlus class="h-3.5 w-3.5" /> Mounted spaces</div>
-            <p class="text-[13px] text-text-tertiary mt-1">Mounted spaces are read-only under <code class="font-mono text-text-secondary">/mods/&lt;slug&gt;</code>. Prompts and skills are available to the agent.</p>
+            <p class="text-[13px] text-text-tertiary mt-1">{m.space_new_mounted_readonly({ path: "/mods/<slug>" }, { locale })}</p>
           </div>
 
           <div class="grid gap-2 lg:grid-cols-[1fr_1fr_1fr_auto]">
@@ -410,19 +415,19 @@ async function handleSubmit(event: SubmitEvent) {
                 </div>
               </div>
             {:else}
-              <div class="rounded-[7px] bg-bg-primary px-3 py-2 text-[12px] text-text-tertiary">No mounted spaces.</div>
+              <div class="rounded-[7px] bg-bg-primary px-3 py-2 text-[12px] text-text-tertiary">{m.space_new_no_mounted({}, { locale })}</div>
             {/each}
           </div>
         </div>
 
         <div class="border border-border-subtle rounded-md bg-bg-surface p-4 space-y-3">
           <div>
-            <div class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium">Environment Variables</div>
+            <div class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium">{m.space_new_env_vars({}, { locale })}</div>
             <p class="text-[13px] text-text-tertiary mt-1">Optional env vars injected into the space environment.</p>
           </div>
 
           {#if extraEnv.length === 0}
-            <div class="text-[13px] text-text-placeholder py-1">No extra env configured</div>
+            <div class="text-[13px] text-text-placeholder py-1">{m.space_new_no_env({}, { locale })}</div>
           {:else}
             <div class="space-y-2">
               {#each extraEnv as envItem, index}
@@ -462,7 +467,7 @@ async function handleSubmit(event: SubmitEvent) {
           </div>
 
           {#if channels.length === 0}
-            <div class="text-[13px] text-text-placeholder py-1">No channels available</div>
+            <div class="text-[13px] text-text-placeholder py-1">{m.space_new_no_channels({}, { locale })}</div>
           {:else}
             <div class="space-y-2">
               {#each channels as channel (channel.id)}
@@ -537,7 +542,7 @@ async function handleSubmit(event: SubmitEvent) {
         {/if}
 
         <div class="flex items-center justify-end gap-2 pt-1">
-          <button type="button" class="px-3 py-1.5 rounded-[5px] border border-border-subtle text-[13px] text-text-secondary hover:text-text-primary transition-colors" onclick={() => goto("/")}>Cancel</button>
+          <button type="button" class="px-3 py-1.5 rounded-[5px] border border-border-subtle text-[13px] text-text-secondary hover:text-text-primary transition-colors" onclick={() => goto("/")}>{m.common_cancel({}, { locale })}</button>
           <button
             type="submit"
             class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[5px] bg-brand-muted border border-brand-border text-[13px] text-brand font-medium hover:bg-brand-muted-hover transition-colors disabled:opacity-60"
@@ -545,9 +550,9 @@ async function handleSubmit(event: SubmitEvent) {
           >
             {#if isSubmitting}
               <Loader2 class="w-3.5 h-3.5 animate-spin" />
-              Creating...
+              {m.space_new_creating({}, { locale })}
             {:else}
-              Create Space
+              {m.space_new_create({}, { locale })}
             {/if}
           </button>
         </div>

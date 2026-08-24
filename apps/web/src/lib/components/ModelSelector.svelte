@@ -4,9 +4,11 @@ import type { ModelStatusEntry } from "@cohub/protocol/model/status";
 import { Brain, Check, ChevronDown, Image } from "lucide-svelte";
 import Dialog from "$lib/components/Dialog.svelte";
 import { getGenerationModelPickerItems } from "$lib/generation-model-catalog";
+import { formatCurrency } from "$lib/i18n/format";
+import type { Locale } from "$lib/i18n/locale";
+import { getLocale } from "$lib/i18n/locale.svelte";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import {
-	AVAILABILITY_LABEL,
 	type AvailabilityLevel,
 	availabilityLevel,
 } from "$lib/model-availability";
@@ -18,6 +20,7 @@ import {
 	getSupportedThinkingLevels,
 	type ModelThinkingLevel,
 } from "$lib/model-catalog";
+import { m } from "$lib/paraglide/messages.js";
 
 type ModelItem = {
 	provider: string;
@@ -103,6 +106,8 @@ const {
 	onGenerationBooleanConstraintChange,
 	onGenerationTabOpen,
 }: Props = $props();
+
+const locale = $derived(getLocale());
 
 let searchQuery = $state("");
 let generationSearchQuery = $state("");
@@ -267,8 +272,6 @@ function isHiddenModel(item: ModelItem): boolean {
 	return item.model.hidden === true;
 }
 
-const MODEL_COST_CURRENCY_PREFIX = "$";
-
 type ModelCost = {
 	input?: unknown;
 	output?: unknown;
@@ -281,27 +284,47 @@ function getModelCost(item: ModelItem): ModelCost | null {
 	return cost && typeof cost === "object" ? (cost as ModelCost) : null;
 }
 
-function formatModelCostValue(value: unknown): string | null {
+function formatModelCostValue(value: unknown, locale: Locale): string | null {
 	if (typeof value !== "number" || !Number.isFinite(value) || value === 0)
 		return null;
-	if (Math.abs(value) < 0.01)
-		return `${MODEL_COST_CURRENCY_PREFIX}${value.toFixed(4)}`;
-	if (Math.abs(value) < 1)
-		return `${MODEL_COST_CURRENCY_PREFIX}${value.toFixed(2)}`;
-	return `${MODEL_COST_CURRENCY_PREFIX}${value.toFixed(2).replace(/\.00$/, "")}`;
+	const magnitude = Math.abs(value);
+	if (magnitude < 0.01)
+		return formatCurrency(value, "USD", {
+			locale,
+			minimumFractionDigits: 4,
+			maximumFractionDigits: 4,
+		});
+	if (magnitude < 1)
+		return formatCurrency(value, "USD", {
+			locale,
+			minimumFractionDigits: 2,
+			maximumFractionDigits: 2,
+		});
+	// Whole-dollar values drop fractional digits; otherwise keep 2 decimals.
+	if (value === Math.floor(value))
+		return formatCurrency(value, "USD", {
+			locale,
+			minimumFractionDigits: 0,
+			maximumFractionDigits: 0,
+		});
+	return formatCurrency(value, "USD", {
+		locale,
+		minimumFractionDigits: 2,
+		maximumFractionDigits: 2,
+	});
 }
 
-function formatModelCost(item: ModelItem): string {
+function formatModelCost(item: ModelItem, locale: Locale): string {
 	const cost = getModelCost(item);
 	if (!cost) return "";
 
 	const parts = [
-		["input", cost.input],
-		["output", cost.output],
-		["cache read", cost.cacheRead],
-		["cache write", cost.cacheWrite],
-	].flatMap(([label, value]) => {
-		const formatted = formatModelCostValue(value);
+		[cost.input, m.model_cost_input({}, { locale })],
+		[cost.output, m.model_cost_output({}, { locale })],
+		[cost.cacheRead, m.model_cost_cache_read({}, { locale })],
+		[cost.cacheWrite, m.model_cost_cache_write({}, { locale })],
+	].flatMap(([value, label]) => {
+		const formatted = formatModelCostValue(value, locale);
 		return formatted ? [`${formatted}/M ${label}`] : [];
 	});
 
@@ -314,9 +337,9 @@ function getGenerationModelTitle(model: PublicGenerationDeclaration): string {
 
 function getGenerationKind(model: PublicGenerationDeclaration): string {
 	const inputTypes = new Set(model.content.input.map((item) => item.type));
-	if (inputTypes.has("video")) return "Video";
-	if (inputTypes.has("image")) return "Image";
-	return "Multimodal";
+	if (inputTypes.has("video")) return m.model_kind_video({}, { locale });
+	if (inputTypes.has("image")) return m.model_kind_image({}, { locale });
+	return m.model_kind_multimodal({}, { locale });
 }
 
 function isEnumParameterSpec(spec: unknown): spec is { enum: unknown[] } {
@@ -419,7 +442,7 @@ function getParameterRows(
 		) {
 			return [];
 		}
-		return [{ name, detail: "Auto" }];
+		return [{ name, detail: m.model_value_auto_detail({}, { locale }) }];
 	});
 }
 
@@ -434,8 +457,11 @@ function getEnumParameterDetail(
 		values,
 	).size;
 	return selectedCount >= values.length
-		? "All values"
-		: `${selectedCount}/${values.length} values`;
+		? m.model_value_all_values({}, { locale })
+		: m.model_value_n_values(
+				{ count: selectedCount, total: values.length },
+				{ locale },
+			);
 }
 
 function getSelectedEnumValues(
@@ -488,16 +514,20 @@ function formatNumericConstraintDetail(
 	const constraint = getNumericConstraint(model, parameter);
 	const min = constraint.min ?? bounds.min;
 	const max = constraint.max ?? bounds.max;
-	if (min === undefined && max === undefined) return "Any value";
-	if (min !== undefined && max !== undefined) return `${min}–${max}`;
-	return min !== undefined ? `≥ ${min}` : `≤ ${max}`;
+	if (min === undefined && max === undefined)
+		return m.model_value_any_value({}, { locale });
+	if (min !== undefined && max !== undefined)
+		return m.model_value_range({ min, max }, { locale });
+	return min !== undefined
+		? m.model_value_ge({ min }, { locale })
+		: m.model_value_le({ max: max as number }, { locale });
 }
 
 function formatBooleanConstraintDetail(model: string, parameter: string) {
 	const value = getBooleanConstraint(model, parameter).value;
-	if (value === true) return "True only";
-	if (value === false) return "False only";
-	return "Any value";
+	if (value === true) return m.model_value_true_only({}, { locale });
+	if (value === false) return m.model_value_false_only({}, { locale });
+	return m.model_value_any_value({}, { locale });
 }
 
 function updateNumericConstraint(
@@ -735,10 +765,10 @@ function fmtMs(ms: number | null | undefined): string {
 
 function fmtAgoSec(s: number): string {
 	s = Math.max(0, Math.round(s));
-	if (s < 60) return `${s}s ago`;
-	const m = Math.floor(s / 60);
-	if (m < 60) return `${m}m ago`;
-	return `${Math.floor(m / 60)}h ago`;
+	if (s < 60) return m.model_avail_ago_s({ n: s }, { locale });
+	const minutes = Math.floor(s / 60);
+	if (minutes < 60) return m.model_avail_ago_m({ n: minutes }, { locale });
+	return m.model_avail_ago_h({ n: Math.floor(minutes / 60) }, { locale });
 }
 
 function fmtAgo(iso: string | null | undefined): string {
@@ -748,6 +778,19 @@ function fmtAgo(iso: string | null | undefined): string {
 
 function fmtAgoMs(ms: number): string {
 	return fmtAgoSec(ms / 1000);
+}
+
+function availabilityLabel(level: AvailabilityLevel): string {
+	switch (level) {
+		case "available":
+			return m.model_avail_operational({}, { locale });
+		case "degraded":
+			return m.model_avail_degraded({}, { locale });
+		case "outage":
+			return m.model_avail_outage({}, { locale });
+		default:
+			return m.model_avail_unknown({}, { locale });
+	}
 }
 
 function fmtRate(rate: number | null | undefined): string {
@@ -853,7 +896,7 @@ const hoverCardPos = $derived.by(() => {
 });
 </script>
 
-<Dialog {open} {onClose} title="Models" maxWidth="540px">
+<Dialog {open} {onClose} title={m.model_selector_title({}, { locale })} maxWidth="540px">
 	<div class="border-b border-border-subtle/70 px-3 py-2">
 		<div class="inline-flex rounded-md bg-bg-subtle/70 p-0.5 text-[12px]">
 			<button
@@ -864,7 +907,7 @@ const hoverCardPos = $derived.by(() => {
 					focusSearchInputSoon();
 				}}
 			>
-				Chat
+				{m.model_selector_tab_chat({}, { locale })}
 			</button>
 			<button
 				type="button"
@@ -874,7 +917,7 @@ const hoverCardPos = $derived.by(() => {
 					onGenerationTabOpen?.();
 				}}
 			>
-				Generation
+				{m.model_selector_tab_generation({}, { locale })}
 			</button>
 		</div>
 	</div>
@@ -885,7 +928,7 @@ const hoverCardPos = $derived.by(() => {
 				bind:this={searchInputEl}
 				data-model-selector-search="true"
 				type="text"
-				placeholder="Search models"
+				placeholder={m.model_selector_search_placeholder({}, { locale })}
 				bind:value={searchQuery}
 				onkeydown={handleKeyDown}
 				class="w-full rounded-md border-0 bg-bg-input px-3 py-2 text-[13px] text-text-primary outline-none ring-1 ring-border-subtle placeholder:text-text-placeholder transition-shadow duration-100 focus:ring-brand/45"
@@ -895,11 +938,13 @@ const hoverCardPos = $derived.by(() => {
 		<div bind:this={containerEl} class="flex-1 overflow-y-auto py-1">
 			{#if filteredModels.length === 0}
 				<div class="px-4 py-8 text-center text-[13px] text-text-tertiary">
-					{searchQuery ? "No matching models" : "No models available"}
+					{searchQuery
+						? m.model_selector_no_matching({}, { locale })
+						: m.model_selector_no_models({}, { locale })}
 				</div>
 			{:else}
 				{#each filteredModels as item, index (item.provider + "/" + item.id)}
-					{@const costText = formatModelCost(item)}
+					{@const costText = formatModelCost(item, locale)}
 					{@const tLevels = thinkingLevels(item)}
 					{@const showThinking = tLevels.length > 1}
 					{@const tMenuKey = thinkingMenuKey(item)}
@@ -966,8 +1011,8 @@ const hoverCardPos = $derived.by(() => {
 													? "border-border-subtle bg-bg-surface text-text-secondary"
 													: "border-transparent text-text-tertiary hover:border-border-subtle/80 hover:bg-bg-surface hover:text-text-secondary"
 											}`}
-											title={`Thinking: ${formatThinkingLevelFull(activeLevel)}`}
-											aria-label={`Thinking level ${formatThinkingLevelFull(activeLevel)}`}
+											title={m.model_selector_thinking_title({ level: formatThinkingLevelFull(activeLevel) }, { locale })}
+											aria-label={m.model_selector_thinking_aria({ level: formatThinkingLevelFull(activeLevel) }, { locale })}
 											aria-expanded={thinkingOpen}
 											aria-haspopup="listbox"
 											onclick={(e) => toggleThinkingMenu(item, e)}
@@ -991,7 +1036,7 @@ const hoverCardPos = $derived.by(() => {
 												class="fixed z-[121] min-w-[8.5rem] overflow-hidden rounded-md border border-border-subtle bg-bg-surface py-0.5 shadow-lg"
 												style={`top: ${thinkingMenuPos.top}px; right: ${thinkingMenuPos.right}px;`}
 												role="listbox"
-												aria-label="Thinking level"
+												aria-label={m.model_selector_thinking_menu_aria({}, { locale })}
 												use:thinkingMenuAnchor
 											>
 												{#each tLevels as level (level)}
@@ -1017,7 +1062,7 @@ const hoverCardPos = $derived.by(() => {
 														</span>
 														<span class="min-w-0 flex-1">{formatThinkingLevelFull(level)}</span>
 														{#if isDefaultLevel(item, level)}
-															<span class="shrink-0 text-[9px] uppercase tracking-wide text-text-placeholder">Default</span>
+															<span class="shrink-0 text-[9px] uppercase tracking-wide text-text-placeholder">{m.model_selector_thinking_default({}, { locale })}</span>
 														{/if}
 													</button>
 												{/each}
@@ -1039,7 +1084,7 @@ const hoverCardPos = $derived.by(() => {
 					class={`flex items-center justify-between gap-2 rounded px-2.5 py-1.5 text-left transition-colors duration-100 ${generationPolicyMode === "auto" ? "bg-bg-surface text-text-primary shadow-sm" : "text-text-tertiary hover:text-text-primary"}`}
 					onclick={() => setGenerationMode("auto")}
 				>
-					<span class="text-[13px] font-medium">Auto</span>
+					<span class="text-[13px] font-medium">{m.model_selector_generation_auto({}, { locale })}</span>
 					{#if generationPolicyMode === "auto"}<span class="h-1.5 w-1.5 rounded-full bg-brand"></span>{/if}
 				</button>
 
@@ -1048,7 +1093,7 @@ const hoverCardPos = $derived.by(() => {
 					class={`flex items-center justify-between gap-2 rounded px-2.5 py-1.5 text-left transition-colors duration-100 ${generationPolicyMode === "limited" ? "bg-bg-surface text-text-primary shadow-sm" : "text-text-tertiary hover:text-text-primary"}`}
 					onclick={() => setGenerationMode("limited")}
 				>
-					<span class="text-[13px] font-medium">Limited</span>
+					<span class="text-[13px] font-medium">{m.model_selector_generation_limited({}, { locale })}</span>
 					<span class={`text-[11px] ${generationPolicyMode === "limited" ? "text-brand-muted-fg" : "text-text-tertiary"}`}>{selectedGenerationCount}</span>
 				</button>
 			</div>
@@ -1056,20 +1101,22 @@ const hoverCardPos = $derived.by(() => {
 			<div class="mt-3">
 				<input
 					type="text"
-					placeholder="Search generation models"
-					aria-label="Search generation models"
+					placeholder={m.model_selector_generation_search({}, { locale })}
+					aria-label={m.model_selector_generation_search({}, { locale })}
 					bind:value={generationSearchQuery}
 					class="w-full rounded-md border-0 bg-bg-input px-3 py-2 text-[13px] text-text-primary outline-none ring-1 ring-border-subtle placeholder:text-text-placeholder transition-shadow duration-100 focus:ring-brand/45"
 				/>
 			</div>
 
 			<div class="mt-3 px-1 text-[11px] font-medium uppercase tracking-wider text-text-tertiary">
-				Generation models
+				{m.model_selector_generation_header({}, { locale })}
 			</div>
 
 			{#if filteredGenerationModels.length === 0}
 				<div class="mt-2 px-3 py-6 text-center text-[13px] text-text-tertiary">
-					{generationSearchQuery ? "No matching models" : "No generation models available"}
+					{generationSearchQuery
+						? m.model_selector_generation_no_matching({}, { locale })
+						: m.model_selector_generation_no_models({}, { locale })}
 				</div>
 			{:else}
 				<div class="mt-1.5 -mx-3">
@@ -1078,7 +1125,7 @@ const hoverCardPos = $derived.by(() => {
 							<div class="flex items-start gap-2.5">
 								<input
 									type="checkbox"
-									aria-label={`Use ${getGenerationModelTitle(model)} for this turn`}
+									aria-label={m.model_selector_generation_use_aria({ model: getGenerationModelTitle(model) }, { locale })}
 									class="mt-1 h-3.5 w-3.5 accent-brand"
 									checked={selectedGenerationModels.has(model.model)}
 									onchange={(event) => toggleGenerationModel(model.model, event.currentTarget.checked)}
@@ -1099,7 +1146,7 @@ const hoverCardPos = $derived.by(() => {
 											<div class="mt-0.5 truncate pl-5 text-[11px] text-text-tertiary">{model.model}</div>
 										</button>
 										{#if generationPolicyMode === "limited" && selectedGenerationModels.has(model.model)}
-											<span class="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand" aria-label="Selected"></span>
+											<span class="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand" aria-label={m.model_selector_selected({}, { locale })}></span>
 										{/if}
 									</div>
 
@@ -1121,7 +1168,11 @@ const hoverCardPos = $derived.by(() => {
 													</button>
 													{#if isGenerationParameterExpanded(model.model, param.name)}
 														<div class="grid grid-cols-3 gap-1 px-2 pb-2 pt-0.5">
-															{#each [{ label: 'Any', value: undefined }, { label: 'True', value: true }, { label: 'False', value: false }] as option (option.label)}
+															{#each [
+									{ label: m.model_value_any({}, { locale }), value: undefined },
+									{ label: m.model_value_true({}, { locale }), value: true },
+									{ label: m.model_value_false({}, { locale }), value: false },
+								] as option (option.label)}
 																<button type="button" class={`min-h-7 rounded px-2 text-[11px] transition-colors duration-100 ${getBooleanConstraint(model.model, param.name).value === option.value ? "bg-brand-bg text-brand-muted-fg" : "bg-bg-surface text-text-tertiary hover:text-text-primary"}`} disabled={generationPolicyMode !== "limited" || !selectedGenerationModels.has(model.model)} onclick={() => updateBooleanConstraint(model.model, param.name, { value: option.value })}>{option.label}</button>
 															{/each}
 														</div>
@@ -1139,8 +1190,8 @@ const hoverCardPos = $derived.by(() => {
 													</button>
 													{#if isGenerationParameterExpanded(model.model, param.name)}
 														<div class="grid grid-cols-2 gap-2 px-2 pb-2 pt-0.5">
-															<label class="min-w-0 text-[10px] text-text-tertiary"><span>Min</span><input type="number" step={param.kind === "integer" ? "1" : "any"} placeholder={param.min === undefined ? "Any" : String(param.min)} value={constraint.min ?? ""} disabled={generationPolicyMode !== "limited" || !selectedGenerationModels.has(model.model)} class="mt-1 min-h-7 w-full rounded border border-border-subtle bg-bg-input px-2 text-[11px] text-text-primary outline-none focus:border-brand/45 disabled:opacity-50" oninput={(event) => updateNumericConstraint(model.model, param.name, { ...constraint, min: event.currentTarget.value === "" ? undefined : Number(event.currentTarget.value) })} /></label>
-															<label class="min-w-0 text-[10px] text-text-tertiary"><span>Max</span><input type="number" step={param.kind === "integer" ? "1" : "any"} placeholder={param.max === undefined ? "Any" : String(param.max)} value={constraint.max ?? ""} disabled={generationPolicyMode !== "limited" || !selectedGenerationModels.has(model.model)} class="mt-1 min-h-7 w-full rounded border border-border-subtle bg-bg-input px-2 text-[11px] text-text-primary outline-none focus:border-brand/45 disabled:opacity-50" oninput={(event) => updateNumericConstraint(model.model, param.name, { ...constraint, max: event.currentTarget.value === "" ? undefined : Number(event.currentTarget.value) })} /></label>
+															<label class="min-w-0 text-[10px] text-text-tertiary"><span>{m.model_value_min({}, { locale })}</span><input type="number" step={param.kind === "integer" ? "1" : "any"} placeholder={param.min === undefined ? m.model_value_any({}, { locale }) : String(param.min)} value={constraint.min ?? ""} disabled={generationPolicyMode !== "limited" || !selectedGenerationModels.has(model.model)} class="mt-1 min-h-7 w-full rounded border border-border-subtle bg-bg-input px-2 text-[11px] text-text-primary outline-none focus:border-brand/45 disabled:opacity-50" oninput={(event) => updateNumericConstraint(model.model, param.name, { ...constraint, min: event.currentTarget.value === "" ? undefined : Number(event.currentTarget.value) })} /></label>
+															<label class="min-w-0 text-[10px] text-text-tertiary"><span>{m.model_value_max({}, { locale })}</span><input type="number" step={param.kind === "integer" ? "1" : "any"} placeholder={param.max === undefined ? m.model_value_any({}, { locale }) : String(param.max)} value={constraint.max ?? ""} disabled={generationPolicyMode !== "limited" || !selectedGenerationModels.has(model.model)} class="mt-1 min-h-7 w-full rounded border border-border-subtle bg-bg-input px-2 text-[11px] text-text-primary outline-none focus:border-brand/45 disabled:opacity-50" oninput={(event) => updateNumericConstraint(model.model, param.name, { ...constraint, max: event.currentTarget.value === "" ? undefined : Number(event.currentTarget.value) })} /></label>
 														</div>
 													{/if}
 												</div>
@@ -1186,16 +1237,16 @@ const hoverCardPos = $derived.by(() => {
 		<div class="flex items-center justify-between gap-2">
 			<span class="flex items-center gap-1.5 text-[12px] font-semibold text-text-primary">
 				<span class={`avail-dot avail-dot--${hoveredLevel}`}></span>
-				{AVAILABILITY_LABEL[hoveredLevel]}
+				{availabilityLabel(hoveredLevel)}
 			</span>
 			<span class="text-[16px] font-semibold tabular-nums leading-none {`avail-rate--${hoveredLevel}`}">
-				{hoveredEntry?.successRate5m != null ? fmtRate(hoveredEntry.successRate5m) : "—"}{#if hoveredEntry?.successRate5m != null}<span class="text-[10px] font-medium text-text-tertiary">% 5m</span>{/if}
+				{hoveredEntry?.successRate5m != null ? fmtRate(hoveredEntry.successRate5m) : "—"}{#if hoveredEntry?.successRate5m != null}<span class="text-[10px] font-medium text-text-tertiary">{m.model_avail_rate_5m({}, { locale })}</span>{/if}
 			</span>
 		</div>
 		<div class="mt-0.5 font-mono text-[10px] text-text-tertiary">{hoveredModelId}</div>
 		<div class="my-2 h-px bg-border-subtle"></div>
 		{#if hoveredEntry}
-			<div class="mb-1 text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">Past {hoveredHeartbeatHours} hours</div>
+			<div class="mb-1 text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">{m.model_avail_past_hours({ hours: hoveredHeartbeatHours }, { locale })}</div>
 			{#if hoveredHeartbeats.length}
 				<div class="flex items-stretch gap-px h-[26px]">
 					{#each hoveredHeartbeats as rate, i}
@@ -1207,10 +1258,10 @@ const hoverCardPos = $derived.by(() => {
 					{/each}
 				</div>
 				<div class="mt-1 flex justify-between text-[9px] text-text-tertiary">
-					<span>{hoveredHeartbeatHours}h ago</span><span>now</span>
+					<span>{m.model_avail_hours_ago({ hours: hoveredHeartbeatHours }, { locale })}</span><span>{m.model_avail_now({}, { locale })}</span>
 				</div>
 			{:else}
-				<div class="text-[11px] text-text-tertiary">No history</div>
+				<div class="text-[11px] text-text-tertiary">{m.model_avail_no_history({}, { locale })}</div>
 			{/if}
 			<div class="mt-1.5 flex gap-3 text-[11px] tabular-nums">
 				{#if hoveredEntry.successRate2h != null}
@@ -1222,19 +1273,19 @@ const hoverCardPos = $derived.by(() => {
 			</div>
 			<div class="my-2 h-px bg-border-subtle"></div>
 			<dl class="grid grid-cols-[auto_1fr] gap-x-2.5 gap-y-0.5">
-				<dt class="text-[11px] text-text-tertiary">Latency 1h</dt>
+				<dt class="text-[11px] text-text-tertiary">{m.model_avail_latency({}, { locale })}</dt>
 				<dd class="text-right text-[11px] tabular-nums text-text-secondary">
-					{hoveredEntry.latencyAvgMs != null ? `${fmtMs(hoveredEntry.latencyAvgMs)} avg · ${fmtMs(hoveredEntry.latencyP90Ms)} p90` : "—"}
+					{hoveredEntry.latencyAvgMs != null ? `m.model_avail_latency_value({ avg: fmtMs(hoveredEntry.latencyAvgMs), p90: fmtMs(hoveredEntry.latencyP90Ms) }, { locale })` : "—"}
 				</dd>
-				<dt class="text-[11px] text-text-tertiary">Checked</dt>
+				<dt class="text-[11px] text-text-tertiary">{m.model_avail_checked({}, { locale })}</dt>
 				<dd class="text-right text-[11px] text-text-secondary">
-					{hoveredEntry.checkedAt ? `${fmtAgo(hoveredEntry.checkedAt)}${hoveredEntry.probeIntervalSeconds ? ` · every ${hoveredEntry.probeIntervalSeconds}s` : ''}` : '—'}
+					{hoveredEntry.checkedAt ? `${fmtAgo(hoveredEntry.checkedAt)}${hoveredEntry.probeIntervalSeconds ? `${m.model_avail_every_seconds({ s: hoveredEntry.probeIntervalSeconds }, { locale })}` : ''}` : '—'}
 				</dd>
-				<dt class="text-[11px] text-text-tertiary">Samples 1h</dt>
+				<dt class="text-[11px] text-text-tertiary">{m.model_avail_samples({}, { locale })}</dt>
 				<dd class="text-right text-[11px] tabular-nums text-text-secondary">{hoveredEntry.samples1h ?? '—'}</dd>
 			</dl>
 		{:else}
-			<div class="py-1 text-[11px] text-text-tertiary">No status data available for this model yet.</div>
+			<div class="py-1 text-[11px] text-text-tertiary">{m.model_avail_no_status({}, { locale })}</div>
 		{/if}
 	</div>
 {/if}

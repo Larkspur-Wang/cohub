@@ -1,6 +1,8 @@
 <script lang="ts">
 import type { SpacePublicEndpoints } from "@cohub/protocol/ports";
 import { ExternalLink } from "lucide-svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 
 const {
 	endpoints = {},
@@ -12,6 +14,8 @@ const {
 	onOpen?: (port: string, url: string) => void;
 } = $props();
 
+const locale = $derived(getLocale());
+
 const items = $derived.by(() =>
 	Object.entries(endpoints)
 		.map(([port, endpoint]) => ({ port, ...endpoint }))
@@ -19,16 +23,16 @@ const items = $derived.by(() =>
 );
 
 function statusTooltip(status: string | undefined) {
-	if (status === "listening") return "Listening";
-	if (status === "closed") return "Closed";
-	return "Detecting";
+	if (status === "listening") return m.port_listening({}, { locale });
+	if (status === "closed") return m.port_closed({}, { locale });
+	return m.port_detecting({}, { locale });
 }
 </script>
 
 {#if items.length > 0}
 	<div class="border-b border-border-subtle px-1.5 py-2">
 		<div class="mb-1.5 flex items-center justify-between gap-2">
-			<div class="text-[11px] uppercase tracking-[0.14em] text-text-tertiary">Ports</div>
+			<div class="text-[11px] uppercase tracking-[0.14em] text-text-tertiary">{m.ports_title({}, { locale })}</div>
 		</div>
 		<div class="flex flex-wrap gap-1.5">
 			{#each items as item (item.port)}
@@ -49,7 +53,7 @@ function statusTooltip(status: string | undefined) {
 						href={item.url}
 						target="_blank"
 						rel="noreferrer"
-						title={`Open :${item.port} externally`}
+						title={m.port_open_external({ port: item.port }, { locale })}
 						onclick={(event) => event.stopPropagation()}
 					>
 						<ExternalLink class="h-3 w-3" />

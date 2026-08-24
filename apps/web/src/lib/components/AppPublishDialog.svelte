@@ -11,6 +11,8 @@ import { Check, Copy, ExternalLink, Loader2, Rocket } from "lucide-svelte";
 import Dialog from "$lib/components/Dialog.svelte";
 import { dispatchAppsChanged } from "$lib/features/app/app-realtime";
 import { APP_VIEWER_SCOPE_OPTIONS } from "$lib/features/space/modules/app-utils";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 import { sdk } from "$lib/sdk";
 import {
 	normalizePublicSlugInput,
@@ -42,6 +44,8 @@ const {
 	onClose: () => void;
 	onSpaceUpdated?: (space: SpaceRecord) => void;
 } = $props();
+
+const locale = $derived(getLocale());
 
 let slug = $state("");
 let usernameDraft = $state("");
@@ -253,7 +257,7 @@ async function copyUrl() {
 }
 </script>
 
-<Dialog {open} onClose={onClose} title="Publish app" maxWidth="560px">
+<Dialog {open} onClose={onClose} title={m.publish_app({}, { locale })} maxWidth="560px">
 	<div class="publish-panel">
 		{#if published}
 			<div class="success-block">
@@ -285,7 +289,7 @@ async function copyUrl() {
 						{/if}
 					</label>
 					<label class="field" class:field-required={Boolean(spaceSlugValidation.error)}>
-						<span>Space slug</span>
+						<span>{m.app_publish_space_slug({}, { locale })}</span>
 						{#if missingSpaceSlug}
 							<input class="form-input font-mono" bind:value={spaceSlugDraft} oninput={() => spaceSlugDraft = normalizePublicSlugInput(spaceSlugDraft)} placeholder="Required" maxlength="80" aria-invalid={Boolean(spaceSlugValidation.error)} title={spaceSlugValidation.error ?? "Space slug"} aria-label={spaceSlugValidation.error ?? "Space slug"} />
 						{:else}
@@ -293,7 +297,7 @@ async function copyUrl() {
 						{/if}
 					</label>
 					<label class="field" class:field-required={Boolean(appSlugValidation.error)}>
-						<span>App slug</span>
+						<span>{m.app_publish_app_slug({}, { locale })}</span>
 						<input class="form-input font-mono" bind:value={slug} oninput={() => slug = normalizePublicSlugInput(slug)} placeholder="Required" maxlength="80" aria-invalid={Boolean(appSlugValidation.error)} title={appSlugValidation.error ?? "App slug"} aria-label={appSlugValidation.error ?? "App slug"} />
 					</label>
 				</div>
@@ -310,24 +314,24 @@ async function copyUrl() {
 				<div class="section-label">Access</div>
 				<label class="access-row">
 					<input type="radio" bind:group={visibility} value="public" />
-					<span><span class="access-title">Anyone with the link</span><span class="access-copy">The app page is fully public.</span></span>
+					<span><span class="access-title">{m.anyone_with_link({}, { locale })}</span><span class="access-copy">{m.app_publish_fully_public({}, { locale })}</span></span>
 				</label>
 				<label class="access-row">
 					<input type="radio" bind:group={visibility} value="space" />
-					<span><span class="access-title">Use space access</span><span class="access-copy">Viewers need this Space's access.</span></span>
+					<span><span class="access-title">{m.app_publish_space_access({}, { locale })}</span><span class="access-copy">{m.app_publish_space_access_detail({}, { locale })}</span></span>
 				</label>
 			</section>
 
 			<section class="permissions-grid">
 				<div>
-					<div class="section-label">App can</div>
+					<div class="section-label">{m.app_publish_app_can({}, { locale })}</div>
 					<label class="permission-row"><input type="checkbox" bind:checked={appScopes["space.view"]} /> View space</label>
 					<label class="permission-row"><input type="checkbox" bind:checked={appScopes["session.view"]} /> View sessions</label>
 					<label class="permission-row"><input type="checkbox" bind:checked={appScopes["file.view"]} /> View files</label>
 					<label class="permission-row"><input type="checkbox" bind:checked={appScopes["taskrun.view"]} /> View task runs</label>
 				</div>
 				<div>
-					<div class="section-label">Viewers can allow</div>
+					<div class="section-label">{m.app_publish_viewers_allow({}, { locale })}</div>
 					{#each APP_VIEWER_SCOPE_OPTIONS as option (option.scope)}
 						<label class="permission-row"><input type="checkbox" bind:checked={allowedViewerScopes[option.scope]} /> {option.label}</label>
 					{/each}
@@ -339,21 +343,21 @@ async function copyUrl() {
 				<label class="presentation-row" class:disabled-option={!hideCohubBarAllowed || hideCohubBarLoading}>
 					<input type="checkbox" bind:checked={hideCohubBar} disabled={!hideCohubBarAllowed || hideCohubBarLoading} />
 					<span class="min-w-0 flex-1">
-						<span class="presentation-title">Hide Cohub bar</span>
-						<span class="presentation-copy">Remove the Cohub footer bar from the public app page.</span>
+						<span class="presentation-title">{m.app_publish_hide_cohub_bar({}, { locale })}</span>
+						<span class="presentation-copy">{m.app_publish_hide_cohub_bar_detail({}, { locale })}</span>
 					</span>
 					{#if !hideCohubBarAllowed && !hideCohubBarLoading}
 						<span class="plan-badge">Pro / Max</span>
 					{/if}
 				</label>
 				{#if !hideCohubBarAllowed && !hideCohubBarLoading}
-					<div class="presentation-hint">Included with Pro and Max.</div>
+					<div class="presentation-hint">{m.app_publish_included_pro_max({}, { locale })}</div>
 				{/if}
 			</section>
 
 			{#if error}<div class="error-box">{error}</div>{/if}
 			<div class="button-row footer-row">
-				<button type="button" class="secondary-btn" onclick={onClose}>Cancel</button>
+				<button type="button" class="secondary-btn" onclick={onClose}>{m.common_cancel({}, { locale })}</button>
 				<button type="button" class="primary-btn" onclick={() => void publish()} disabled={!canPublish}>
 					{#if publishing}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Rocket class="h-3.5 w-3.5" />{/if}
 					Publish

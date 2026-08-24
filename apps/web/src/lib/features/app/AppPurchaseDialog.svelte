@@ -1,6 +1,8 @@
 <script lang="ts">
 import { CreditCard, Loader2 } from "lucide-svelte";
 import Dialog from "$lib/components/Dialog.svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 
 const {
 	open,
@@ -17,6 +19,8 @@ const {
 	onConfirm: () => void;
 	onCancel: () => void;
 } = $props();
+
+const locale = $derived(getLocale());
 </script>
 
 <Dialog {open} onClose={onCancel} title="Complete purchase" maxWidth="420px">
@@ -33,7 +37,7 @@ const {
 				<div class="mt-3 rounded-[8px] border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] text-error-soft">{error}</div>
 			{/if}
 			<div class="auth-actions">
-				<button type="button" class="auth-cancel" onclick={onCancel} disabled={saving}>Cancel</button>
+				<button type="button" class="auth-cancel" onclick={onCancel} disabled={saving}>{m.common_cancel({}, { locale })}</button>
 				<button type="button" class="auth-confirm" onclick={onConfirm} disabled={saving}>
 					{#if saving}<Loader2 class="h-3.5 w-3.5 animate-spin" />{/if}
 					<span>{saving ? 'Opening…' : 'Continue'}</span>

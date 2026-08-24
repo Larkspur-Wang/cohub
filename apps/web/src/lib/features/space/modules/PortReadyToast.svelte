@@ -1,5 +1,7 @@
 <script lang="ts">
 import { ExternalLink, X } from "lucide-svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 
 type Props = {
 	port: string;
@@ -9,6 +11,8 @@ type Props = {
 };
 
 let { port, url, onPreview, onClose }: Props = $props();
+
+const locale = $derived(getLocale());
 </script>
 
 <div class="pointer-events-none fixed bottom-4 right-4 z-40 max-w-[calc(100vw-2rem)] sm:bottom-5 sm:right-5">
@@ -23,7 +27,7 @@ let { port, url, onPreview, onClose }: Props = $props();
 				<ExternalLink class="h-3 w-3" />
 				<span>Open externally</span>
 			</a>
-			<button type="button" class="port-ready-close" onclick={onClose} title="Dismiss port notification" aria-label="Dismiss port notification">
+			<button type="button" class="port-ready-close" onclick={onClose} title={m.port_ready_dismiss({}, { locale })} aria-label="Dismiss port notification">
 				<X class="h-3.5 w-3.5" />
 			</button>
 		</div>

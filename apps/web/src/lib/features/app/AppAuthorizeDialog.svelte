@@ -2,6 +2,8 @@
 import type { Permission } from "@neta-art/cohub";
 import { AlertTriangle, Check, Loader2, ShieldCheck } from "lucide-svelte";
 import Dialog from "$lib/components/Dialog.svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 
 const {
 	open,
@@ -22,6 +24,8 @@ const {
 	onConfirm: () => void;
 	onCancel: () => void;
 } = $props();
+
+const locale = $derived(getLocale());
 
 type OperationGroup = {
 	title: string;
@@ -86,7 +90,7 @@ const displayName = $derived(appName?.trim() || "this app");
 			<div class="auth-intro">
 				<div class="auth-icon"><ShieldCheck class="h-4 w-4" /></div>
 				<div class="min-w-0">
-					<div class="auth-title">Authorization request</div>
+					<div class="auth-title">{m.app_auth_title({}, { locale })}</div>
 					<p class="auth-copy">"{displayName}" is requesting to use Cohub as you</p>
 					{#if authorName}
 						<p class="auth-author">Author: {authorName}</p>
@@ -97,7 +101,7 @@ const displayName = $derived(appName?.trim() || "this app");
 			<hr class="auth-divider" />
 
 			<section class="auth-section">
-				<div class="auth-section-label">Once authorized, this app can:</div>
+				<div class="auth-section-label">{m.app_auth_once_authorized({}, { locale })}</div>
 				<div class="auth-scope-list">
 					{#each operationGroups as group (group.title)}
 						<div class="auth-scope-row">
@@ -112,7 +116,7 @@ const displayName = $derived(appName?.trim() || "this app");
 			</section>
 
 			<section class="auth-usage">
-				<div class="auth-usage-label">About usage</div>
+				<div class="auth-usage-label">{m.app_auth_about_usage({}, { locale })}</div>
 				<p class="auth-usage-copy">
 					How often and when generation runs is decided by the app. Each call uses your
 					quota.

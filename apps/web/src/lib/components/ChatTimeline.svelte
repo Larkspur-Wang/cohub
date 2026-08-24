@@ -10,7 +10,9 @@ import CompactionDivider from "$lib/components/CompactionDivider.svelte";
 import GenerationRuntimeStatusRow from "$lib/components/GenerationRuntimeStatusRow.svelte";
 import ProcessCard from "$lib/components/ProcessCard.svelte";
 import ToolExecutionCard from "$lib/components/ToolExecutionCard.svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
 import { getModelDisplayName, type ModelCatalogItem } from "$lib/model-catalog";
+import { m } from "$lib/paraglide/messages.js";
 import type { ChatMessage, TimelineItem } from "$lib/session-tree";
 import type { OpenWorkspaceFileTarget } from "$lib/workspace-file-links";
 
@@ -61,6 +63,8 @@ let {
 	onForkTurn,
 	forkingTurnId = null,
 }: Props = $props();
+
+const locale = $derived(getLocale());
 
 let observedNodes = new Map<HTMLElement, number>();
 let observer: IntersectionObserver | null = null;
@@ -176,8 +180,8 @@ $effect(() => {
 	<div class={`mx-auto max-w-4xl flex flex-col [&>*]:mt-2 pt-6 pb-6`}>
 		{#if loading && timeline.length === 0}
 			<div class="flex min-h-[42vh] items-center justify-center gap-2 text-[12px] text-text-tertiary">
-				<Loader2 class="h-4 w-4 animate-spin" aria-label="Loading turns" />
-				<span>Loading turns…</span>
+				<Loader2 class="h-4 w-4 animate-spin" aria-label={m.chat_loading_turns({}, { locale })} />
+				<span>{m.chat_loading_turns({}, { locale })}</span>
 			</div>
 		{/if}
 		{#each timeline as item, idx (item.id)}
@@ -220,11 +224,11 @@ $effect(() => {
 					{@const footerLabel =
 						item.phase === 'waiting_model'
 							? modelName
-								? `waiting ${modelName}…`
-								: 'waiting model…'
+								? m.chat_waiting_model_name({ model: modelName }, { locale })
+								: m.chat_waiting_model({}, { locale })
 						: item.phase === 'starting_generation'
-							? 'starting generation…'
-							: 'starting agent…'}
+							? m.chat_starting_generation({}, { locale })
+							: m.chat_starting_agent({}, { locale })}
 					<div class="px-2 py-1">
 						<GenerationRuntimeStatusRow label={footerLabel} compact />
 					</div>
@@ -237,7 +241,7 @@ $effect(() => {
 		{/each}
 		{#if loadingOlder}
 			<div class="flex items-center justify-center py-3">
-				<Loader2 class="w-3.5 h-3.5 animate-spin text-text-tertiary" aria-label="Loading turns" />
+				<Loader2 class="w-3.5 h-3.5 animate-spin text-text-tertiary" aria-label={m.chat_loading_turns({}, { locale })} />
 			</div>
 		{/if}
 	</div>

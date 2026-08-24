@@ -4,6 +4,8 @@ import {
 	describeTextValue,
 	isLongTextValue,
 } from "$lib/components/tool-call-format";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 
 type Props = {
 	value: string;
@@ -19,11 +21,13 @@ const {
 	idPrefix = "tool-output",
 }: Props = $props();
 
+const locale = $derived(getLocale());
+
 let expanded = $state(false);
 let outputElement = $state<HTMLPreElement | null>(null);
 let tailPinned = $state(true);
 
-const summary = $derived(describeTextValue(value));
+const summary = $derived(describeTextValue(value, locale));
 const tailMode = $derived(partial);
 const collapsible = $derived(!tailMode && isLongTextValue(value));
 const collapsed = $derived(collapsible && !expanded);
@@ -70,7 +74,9 @@ $effect(() => {
 			aria-controls={bodyId}
 			onclick={() => (expanded = !expanded)}
 		>
-			{expanded ? 'Collapse' : 'Show full'}
+			{expanded
+				? m.common_collapse({}, { locale })
+				: m.common_show_full({}, { locale })}
 		</button>
 	{/if}
 </div>

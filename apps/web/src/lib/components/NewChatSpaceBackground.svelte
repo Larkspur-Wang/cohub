@@ -1,7 +1,9 @@
 <script lang="ts">
 import { untrack } from "svelte";
 import * as publicEnv from "$env/static/public";
+import { getLocale } from "$lib/i18n/locale.svelte";
 import { parseNewChatBackgroundAction } from "$lib/new-chat-background-bridge";
+import { m } from "$lib/paraglide/messages.js";
 import { emitSpaceConfigBackgroundAction } from "$lib/space-config";
 import {
 	createSpacePreviewSessionController,
@@ -16,6 +18,7 @@ type Props = {
 
 const { spaceId, path }: Props = $props();
 
+const locale = $derived(getLocale());
 const previewOrigin =
 	publicEnv.PUBLIC_PREVIEW_ORIGIN?.replace(/\/+$/, "") ?? "";
 let frame = $state<HTMLIFrameElement | null>(null);
@@ -25,7 +28,7 @@ const previewKey = $derived(`${previewOrigin}:${spaceId}:${path}`);
 const previewSession = createSpacePreviewSessionController({
 	getTarget: (): SpacePreviewTarget | null =>
 		canPreview ? { origin: previewOrigin, spaceId, path } : null,
-	errorMessage: "Background failed to load.",
+	errorMessage: () => m.preview_background_failed({}, { locale }),
 });
 
 function handleFrameMessage(event: MessageEvent) {

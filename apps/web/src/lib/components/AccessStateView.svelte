@@ -3,6 +3,8 @@ import { AlertTriangle, Eye, Ghost, Lock, LogIn, WifiOff } from "lucide-svelte";
 import { goto } from "$app/navigation";
 import type { AccessState } from "$lib/access/access-state";
 import { redirectToSignIn } from "$lib/auth-redirect";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 
 const {
 	state,
@@ -13,6 +15,8 @@ const {
 	size?: "full" | "compact";
 	retry?: () => void;
 } = $props();
+
+const locale = $derived(getLocale());
 
 const config = $derived.by(() => {
 	switch (state.kind) {
@@ -90,13 +94,13 @@ function signIn() {
 				{#if showSignIn || showHome || showRetry}
 					<div class="mt-2 flex flex-wrap items-center gap-2">
 						{#if showSignIn}
-							<button type="button" class="access-btn-primary" onclick={signIn}>Sign in</button>
+							<button type="button" class="access-btn-primary" onclick={signIn}>{m.access_sign_in({}, { locale })}</button>
 						{/if}
 						{#if showRetry}
 							<button type="button" class="access-btn-secondary" onclick={retry}>Retry</button>
 						{/if}
 						{#if showHome}
-							<button type="button" class="access-btn-secondary" onclick={goHome}>Go home</button>
+							<button type="button" class="access-btn-secondary" onclick={goHome}>{m.access_go_home({}, { locale })}</button>
 						{/if}
 					</div>
 				{/if}
@@ -115,13 +119,13 @@ function signIn() {
 				{#if showSignIn || showHome || showRetry}
 					<div class="mt-1 flex flex-wrap items-center justify-center gap-2">
 						{#if showSignIn}
-							<button type="button" class="access-btn-primary" onclick={signIn}>Sign in</button>
+							<button type="button" class="access-btn-primary" onclick={signIn}>{m.access_sign_in({}, { locale })}</button>
 						{/if}
 						{#if showRetry}
 							<button type="button" class="access-btn-secondary" onclick={retry}>Retry</button>
 						{/if}
 						{#if showHome}
-							<button type="button" class="access-btn-secondary" onclick={goHome}>Go home</button>
+							<button type="button" class="access-btn-secondary" onclick={goHome}>{m.access_go_home({}, { locale })}</button>
 						{/if}
 					</div>
 				{/if}

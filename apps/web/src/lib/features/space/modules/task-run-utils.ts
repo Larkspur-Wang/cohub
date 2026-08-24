@@ -1,10 +1,15 @@
 import type { ContentBlock } from "@cohub/protocol/core";
 import type { TaskRunRecord } from "@neta-art/cohub";
+import { toIntlTag } from "$lib/i18n/format";
+import type { Locale } from "$lib/i18n/locale";
+import { m } from "$lib/paraglide/messages.js";
 import { asRecord } from "../space-utils";
 
-export function taskTypeLabel(taskType: string) {
-	if (taskType === "run_command") return "Run Command";
-	if (taskType === "save_checkpoint") return "Save Checkpoint";
+export function taskTypeLabel(taskType: string, locale?: Locale) {
+	if (taskType === "run_command")
+		return m.task_type_run_command({}, { locale });
+	if (taskType === "save_checkpoint")
+		return m.task_type_save_checkpoint({}, { locale });
 	return taskType;
 }
 
@@ -151,19 +156,22 @@ export function checkpointIdFromTaskRun(
 		: null;
 }
 
-export function saveCheckpointProgressLabel(progress: unknown): string | null {
+export function saveCheckpointProgressLabel(
+	progress: unknown,
+	locale?: Locale,
+): string | null {
 	const stage = asRecord(progress)?.stage;
 	if (typeof stage !== "string" || !stage.trim()) return null;
 	const labels: Record<string, string> = {
-		prepare: "Preparing workspace",
-		scan_workspace: "Scanning workspace",
-		upload_assets: "Uploading assets",
-		bundle_git_repos: "Bundling git repositories",
-		commit_checkpoint: "Committing checkpoint",
-		materialize_latest: "Materializing latest files",
-		write_checkpoint_record: "Writing checkpoint record",
-		mirror_gitea: "Mirroring repository",
-		completed: "Completed",
+		prepare: m.task_stage_preparing({}, { locale }),
+		scan_workspace: m.task_stage_scanning({}, { locale }),
+		upload_assets: m.task_stage_uploading({}, { locale }),
+		bundle_git_repos: m.task_stage_bundling({}, { locale }),
+		commit_checkpoint: m.task_stage_commit({}, { locale }),
+		materialize_latest: m.task_stage_materialize({}, { locale }),
+		write_checkpoint_record: m.task_stage_write({}, { locale }),
+		mirror_gitea: m.task_stage_mirror({}, { locale }),
+		completed: m.task_stage_completed({}, { locale }),
 	};
 	return labels[stage] ?? stage.replaceAll("_", " ");
 }
@@ -292,9 +300,9 @@ export function taskRawResult(run: TaskRunRecord): unknown {
 	return run.result ?? null;
 }
 
-export function taskContextLabel(run: TaskRunRecord): string {
-	if (run.cronJobId) return "From cronjob";
-	return "One-time task";
+export function taskContextLabel(run: TaskRunRecord, locale?: Locale): string {
+	if (run.cronJobId) return m.task_from_cronjob({}, { locale });
+	return m.task_one_time({}, { locale });
 }
 
 export function taskIsStreaming(run: TaskRunRecord): boolean {
@@ -329,30 +337,39 @@ export function runCommandResultMeta(run: TaskRunRecord) {
 	};
 }
 
-export function formatDurationMs(ms: number | null) {
+export function formatDurationMs(ms: number | null, locale?: Locale) {
 	if (ms === null) return "—";
-	if (ms < 1000) return `${ms}ms`;
-	return `${(ms / 1000).toFixed(1)}s`;
+	const zh = toIntlTag(locale) === "zh-CN";
+	if (ms < 1000) return `${ms}${zh ? "毫秒" : "ms"}`;
+	return `${(ms / 1000).toFixed(1)}${zh ? "秒" : "s"}`;
 }
 
-export function taskRunStatusBadge(run: TaskRunRecord) {
+export function taskRunStatusBadge(run: TaskRunRecord, locale?: Locale) {
 	switch (run.status) {
 		case "completed":
 			return {
-				label: "Completed",
+				label: m.task_status_completed({}, { locale }),
 				color: "text-status-running",
 				dot: "bg-status-running",
 			};
 		case "failed":
 			return {
-				label: "Failed",
+				label: m.task_status_failed({}, { locale }),
 				color: "text-status-error",
 				dot: "bg-status-error",
 			};
 		case "running":
-			return { label: "Running", color: "text-info", dot: "bg-info" };
+			return {
+				label: m.task_status_running({}, { locale }),
+				color: "text-info",
+				dot: "bg-info",
+			};
 		case "pending":
-			return { label: "Pending", color: "text-warning", dot: "bg-warning" };
+			return {
+				label: m.task_status_pending({}, { locale }),
+				color: "text-warning",
+				dot: "bg-warning",
+			};
 		default:
 			return {
 				label: run.status,
@@ -362,11 +379,11 @@ export function taskRunStatusBadge(run: TaskRunRecord) {
 	}
 }
 
-export function taskRunDuration(run: TaskRunRecord): string {
+export function taskRunDuration(run: TaskRunRecord, locale?: Locale): string {
 	if (!run.startedAt || !run.finishedAt) return "—";
 	const ms = Math.max(
 		0,
 		new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime(),
 	);
-	return `${(ms / 1000).toFixed(1)}s`;
+	return formatDurationMs(ms, locale);
 }

@@ -18,6 +18,8 @@ import { browser } from "$app/environment";
 import { goto } from "$app/navigation";
 import { type MediaItem, mediaLightbox } from "$lib/components/media-lightbox";
 import { setCohubResourceDragData } from "$lib/drag/cohub-resource-drag";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 import { buildSpaceTaskRoute } from "$lib/space-routes";
 
 export type SessionTaskNotice = {
@@ -49,6 +51,8 @@ type Props = {
 };
 
 const props: Props = $props();
+
+const locale = $derived(getLocale());
 const TICK_MS = 1000;
 const INITIAL_VISIBLE_NOTICE_COUNT = 12;
 const NOTICE_PAGE_SIZE = 12;
@@ -404,14 +408,14 @@ $effect(() => {
 			{#if first.deferred || isInlineMediaSrc(first.src) || isInlineMediaSrc(first.poster)}
 				<div class="flex flex-col items-center gap-2 px-3 text-center">
 					<Video class="h-5 w-5" />
-					<div class="text-[11px] font-medium text-text-secondary">Media ready</div>
-					<div class="text-[10px] leading-snug text-text-placeholder">Open preview to load media</div>
+					<div class="text-[11px] font-medium text-text-secondary">{m.task_tray_media_ready({}, { locale })}</div>
+					<div class="text-[10px] leading-snug text-text-placeholder">{m.task_tray_open_preview({}, { locale })}</div>
 				</div>
 			{:else if first.type === "image"}
-				<img src={withPreviewOssProcess(first.src)} alt={first.alt ?? "Generation preview"} class="block h-auto w-full object-cover" />
+				<img src={withPreviewOssProcess(first.src)} alt={first.alt ?? m.task_tray_generation_preview({}, { locale })} class="block h-auto w-full object-cover" />
 			{:else}
 				{#if first.poster}
-					<img src={withPreviewOssProcess(first.poster)} alt={first.alt ?? "Video preview"} class="block h-auto w-full object-cover" />
+					<img src={withPreviewOssProcess(first.poster)} alt={first.alt ?? m.task_tray_video_preview({}, { locale })} class="block h-auto w-full object-cover" />
 				{:else}
 					<video src={first.src} muted playsinline preload="metadata" class="block w-full object-cover"></video>
 				{/if}

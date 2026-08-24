@@ -4,6 +4,8 @@ import { onMount } from "svelte";
 import type { BoardAssetSource } from "$lib/board/board-asset-source";
 import { playableBoardMediaList } from "$lib/board/board-media-playback";
 import type { BoardEditor } from "$lib/board/editor.svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 
 const {
 	editor,
@@ -20,6 +22,8 @@ const {
 	surface: { width: number; height: number };
 	onClose: () => void;
 } = $props();
+
+const locale = $derived(getLocale());
 
 let mediaEl: HTMLMediaElement | null = $state(null);
 let activeMediaId = $state<string | null>(null);
@@ -80,13 +84,13 @@ $effect(() => {
 		.then((url) => {
 			if (cancelled) return;
 			if (!url) {
-				error = "Media is not ready";
+				error = m.board_media_not_ready({}, { locale });
 				return;
 			}
 			src = url;
 		})
 		.catch(() => {
-			if (!cancelled) error = "Could not load media";
+			if (!cancelled) error = m.board_media_load_failed({}, { locale });
 		})
 		.finally(() => {
 			if (!cancelled) loading = false;
@@ -160,7 +164,7 @@ function handleMediaError() {
 	media?.invalidateUrl();
 	src = null;
 	loading = false;
-	error = "Could not load media";
+	error = m.board_media_load_failed({}, { locale });
 }
 
 function stopPropagation(event: Event) {
@@ -190,8 +194,8 @@ function stopPropagation(event: Event) {
 				<button
 					type="button"
 					class="board-media-action"
-					title="Previous output"
-					aria-label="Previous output"
+					title={m.board_prev_output({}, { locale })}
+					aria-label={m.board_prev_output({}, { locale })}
 					disabled={activeIndex <= 0}
 					onclick={() => selectMedia(activeIndex - 1)}
 				>
@@ -200,8 +204,8 @@ function stopPropagation(event: Event) {
 				<button
 					type="button"
 					class="board-media-action"
-					title="Next output"
-					aria-label="Next output"
+					title={m.board_next_output({}, { locale })}
+					aria-label={m.board_next_output({}, { locale })}
 					disabled={activeIndex >= playlist.length - 1}
 					onclick={() => selectMedia(activeIndex + 1)}
 				>
@@ -211,8 +215,8 @@ function stopPropagation(event: Event) {
 			<button
 				type="button"
 				class="board-media-action"
-				title="Close player"
-				aria-label="Close player"
+				title={m.board_close_player({}, { locale })}
+				aria-label={m.board_close_player({}, { locale })}
 				onclick={onClose}
 			>
 				<X size={14} strokeWidth={2} />

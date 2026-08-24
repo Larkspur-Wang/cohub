@@ -2,8 +2,12 @@
 import { TEXT_FONT_SIZE, TEXT_LINE_HEIGHT } from "@neta-art/cohub/board";
 import { tick, untrack } from "svelte";
 import type { BoardEditor } from "$lib/board/editor.svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 
 const { editor }: { editor: BoardEditor } = $props();
+
+const locale = $derived(getLocale());
 
 let textarea: HTMLTextAreaElement | null = $state(null);
 let draft = $state("");
@@ -109,7 +113,7 @@ function handleKeydown(event: KeyboardEvent) {
 		oninput={handleInput}
 		onblur={commit}
 		onkeydown={handleKeydown}
-		aria-label="Edit text"
+		aria-label={m.board_edit_text({}, { locale })}
 	></textarea>
 {/if}
 

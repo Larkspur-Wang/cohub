@@ -13,6 +13,8 @@ import {
 	getUsageCostTotal,
 	getUsageTotalTokens,
 } from "$lib/format-usage";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 
 type Props = {
 	variant: "turn-boundary" | "turn-inline";
@@ -29,6 +31,8 @@ const {
 	usage = null,
 	durationMs = null,
 }: Props = $props();
+
+const locale = $derived(getLocale());
 
 let expanded = $state(false);
 
@@ -53,7 +57,9 @@ const model = $derived(
 	typeof compaction.model === "string" ? compaction.model : "",
 );
 const triggerLabel = $derived(
-	compaction.triggerReason === "overflow_recovery" ? "Overflow recovery" : "",
+	compaction.triggerReason === "overflow_recovery"
+		? m.compact_overflow_recovery({}, { locale })
+		: "",
 );
 const ordinalLabel = $derived(
 	variant === "turn-inline" && typeof compaction.ordinalInTurn === "number"
@@ -63,8 +69,17 @@ const ordinalLabel = $derived(
 const contextLabel = $derived.by(() => {
 	if (tokensBefore == null) return "";
 	if (estimatedTokensAfter == null)
-		return `${formatTokenCount(tokensBefore)} context`;
-	return `${formatTokenCount(tokensBefore)} → ~${formatTokenCount(estimatedTokensAfter)}`;
+		return m.compact_context_before(
+			{ tokens: formatTokenCount(tokensBefore) },
+			{ locale },
+		);
+	return m.compact_context_range(
+		{
+			before: formatTokenCount(tokensBefore),
+			after: formatTokenCount(estimatedTokensAfter),
+		},
+		{ locale },
+	);
 });
 const rootClass = $derived(
 	variant === "turn-boundary"
@@ -74,10 +89,16 @@ const rootClass = $derived(
 const workLabel = $derived.by(() => {
 	const parts: string[] = [];
 	if (compactionTokens > 0)
-		parts.push(`${formatTokenCount(compactionTokens)} compact tokens`);
-	if (compactionCost != null) parts.push(formatUsageCost(compactionCost));
+		parts.push(
+			m.compact_tokens_label(
+				{ count: formatTokenCount(compactionTokens) },
+				{ locale },
+			),
+		);
+	if (compactionCost != null)
+		parts.push(formatUsageCost(compactionCost, locale));
 	if (isDisplayableDurationMs(durationMs))
-		parts.push(formatDurationMs(durationMs ?? 0));
+		parts.push(formatDurationMs(durationMs ?? 0, locale));
 	return parts.join(" · ");
 });
 </script>
@@ -90,10 +111,10 @@ const workLabel = $derived.by(() => {
 		aria-expanded={expanded}
 	>
 		<Archive class="h-3.5 w-3.5 shrink-0" />
-		<span class="shrink-0 font-medium text-text-secondary">Context compacted{ordinalLabel ? ` ${ordinalLabel}` : ""}</span>
+		<span class="shrink-0 font-medium text-text-secondary">{m.compact_title({}, { locale })}{ordinalLabel ? ` ${ordinalLabel}` : ""}</span>
 		<span class="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-0.5 tabular-nums">
 			{#if summarizedMessageCount != null}
-				<span>{summarizedMessageCount} msgs</span>
+				<span>{m.compact_messages({ count: summarizedMessageCount }, { locale })}</span>
 			{/if}
 			{#if contextLabel}<span>{contextLabel}</span>{/if}
 			{#if workLabel}<span class="text-text-placeholder">{workLabel}</span>{/if}

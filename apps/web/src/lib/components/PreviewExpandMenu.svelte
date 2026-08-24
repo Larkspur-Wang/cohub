@@ -2,6 +2,8 @@
 import { Layers2, Maximize2, Minimize2 } from "lucide-svelte";
 import { onDestroy } from "svelte";
 import { floatNear } from "$lib/actions/portal";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 
 const {
 	focused = false,
@@ -18,16 +20,18 @@ const {
 	onToggleImmersive: () => void | Promise<void>;
 } = $props();
 
+const locale = $derived(getLocale());
+
 let open = $state(false);
 let rootEl = $state<HTMLDivElement | null>(null);
 const expanded = $derived(focused || immersive);
 const iconClass = $derived(size === "sm" ? "h-3.5 w-3.5" : "h-4 w-4");
 const title = $derived(
 	immersive
-		? "Exit immersive preview"
+		? m.preview_exit_immersive({}, { locale })
 		: focused
-			? "Exit preview focus"
-			: "Expand preview",
+			? m.preview_exit_focus({}, { locale })
+			: m.preview_expand({}, { locale }),
 );
 
 function runAction(action: () => void | Promise<void>) {
@@ -123,11 +127,11 @@ onDestroy(() => {
 		>
 			<button type="button" class="preview-expand-item" onclick={() => choose(onToggleFocus)} role="menuitem">
 				<Maximize2 class="h-3.5 w-3.5" />
-				<span>Focus</span>
+				<span>{m.preview_focus({}, { locale })}</span>
 			</button>
 			<button type="button" class="preview-expand-item" onclick={() => choose(onToggleImmersive)} role="menuitem">
 				<Layers2 class="h-3.5 w-3.5" />
-				<span>Float</span>
+				<span>{m.preview_float({}, { locale })}</span>
 			</button>
 		</div>
 	{/if}

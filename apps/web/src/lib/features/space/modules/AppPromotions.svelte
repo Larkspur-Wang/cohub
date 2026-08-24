@@ -14,6 +14,8 @@ import {
 	X,
 } from "lucide-svelte";
 import { onMount } from "svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 import { sdk } from "$lib/sdk";
 
 type Props = {
@@ -22,6 +24,8 @@ type Props = {
 };
 
 let { appId, publicRoute }: Props = $props();
+
+const locale = $derived(getLocale());
 let promotions = $state<WorkPromotionRecord[]>([]);
 let providers = $state<WorkPromotionProviderStatus[]>([]);
 let selectedId = $state<string | null>(null);
@@ -138,7 +142,7 @@ onMount(() => {
 	<div class="mb-4 flex items-center justify-between gap-3">
 		<div class="flex items-center gap-2">
 			<BarChart3 class="h-3.5 w-3.5 text-text-tertiary" />
-			<h2 id="app-promotions-heading" class="text-[10px] font-medium uppercase tracking-[0.18em] text-text-placeholder">Promotions</h2>
+			<h2 id="app-promotions-heading" class="text-[10px] font-medium uppercase tracking-[0.18em] text-text-placeholder">{m.app_promotions_title({}, { locale })}</h2>
 		</div>
 		<button
 			type="button"
@@ -153,11 +157,11 @@ onMount(() => {
 	{#if createOpen}
 		<form class="mb-5 grid gap-3 border-b border-border-subtle/60 pb-5 lg:grid-cols-[minmax(0,1fr)_180px]" onsubmit={createPromotion}>
 			<div class="space-y-1.5">
-				<label for="promotion-name" class="block text-[10px] font-medium text-text-tertiary">Name</label>
-				<input id="promotion-name" required maxlength="120" bind:value={name} placeholder="Meta launch creative A" class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[12px] text-text-primary focus:border-brand/50 focus:outline-none" />
+				<label for="promotion-name" class="block text-[10px] font-medium text-text-tertiary">{m.app_promo_name({}, { locale })}</label>
+				<input id="promotion-name" required maxlength="120" bind:value={name} placeholder={m.app_promo_placeholder_creative({}, { locale })} class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[12px] text-text-primary focus:border-brand/50 focus:outline-none" />
 			</div>
 			<div class="space-y-1.5">
-				<label for="promotion-provider" class="block text-[10px] font-medium text-text-tertiary">Provider</label>
+				<label for="promotion-provider" class="block text-[10px] font-medium text-text-tertiary">{m.app_promo_provider({}, { locale })}</label>
 				<select id="promotion-provider" bind:value={provider} class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[12px] text-text-primary focus:border-brand/50 focus:outline-none">
 					{#each providers as item (item.key)}
 						<option value={item.key} disabled={!item.configured}>{item.key}{item.configured ? "" : " (unavailable)"}</option>
@@ -166,25 +170,25 @@ onMount(() => {
 			</div>
 			<details class="group border-y border-border-subtle/60 lg:col-span-2">
 				<summary class="flex min-h-9 cursor-pointer list-none items-center gap-2 py-2 text-[11px] text-text-tertiary transition-colors hover:text-text-secondary">
-					<span class="font-medium">URL parameters</span>
-					<span class="text-[10px] text-text-placeholder">Optional</span>
+					<span class="font-medium">{m.app_promo_url_params({}, { locale })}</span>
+					<span class="text-[10px] text-text-placeholder">{m.app_promo_optional({}, { locale })}</span>
 					<ChevronDown class="ml-auto h-3.5 w-3.5 transition-transform group-open:rotate-180" />
 				</summary>
 				<div class="grid gap-3 pb-3 pt-1 sm:grid-cols-2">
 					<div class="space-y-1.5">
-						<label for="promotion-source" class="block text-[10px] font-medium text-text-tertiary">UTM source</label>
+						<label for="promotion-source" class="block text-[10px] font-medium text-text-tertiary">{m.app_promo_utm_source({}, { locale })}</label>
 						<input id="promotion-source" bind:value={utmSource} placeholder="instagram" class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 font-mono text-[12px] text-text-primary focus:border-brand/50 focus:outline-none" />
 					</div>
 					<div class="space-y-1.5">
-						<label for="promotion-medium" class="block text-[10px] font-medium text-text-tertiary">UTM medium</label>
+						<label for="promotion-medium" class="block text-[10px] font-medium text-text-tertiary">{m.app_promo_utm_medium({}, { locale })}</label>
 						<input id="promotion-medium" bind:value={utmMedium} placeholder="paid_social" class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 font-mono text-[12px] text-text-primary focus:border-brand/50 focus:outline-none" />
 					</div>
 					<div class="space-y-1.5">
-						<label for="promotion-campaign" class="block text-[10px] font-medium text-text-tertiary">UTM campaign</label>
+						<label for="promotion-campaign" class="block text-[10px] font-medium text-text-tertiary">{m.app_promo_utm_campaign({}, { locale })}</label>
 						<input id="promotion-campaign" bind:value={utmCampaign} placeholder="launch_2026" class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 font-mono text-[12px] text-text-primary focus:border-brand/50 focus:outline-none" />
 					</div>
 					<div class="space-y-1.5">
-						<label for="promotion-content" class="block text-[10px] font-medium text-text-tertiary">UTM content</label>
+						<label for="promotion-content" class="block text-[10px] font-medium text-text-tertiary">{m.app_promo_utm_content({}, { locale })}</label>
 						<input id="promotion-content" bind:value={utmContent} placeholder="video_a" class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 font-mono text-[12px] text-text-primary focus:border-brand/50 focus:outline-none" />
 					</div>
 				</div>
@@ -192,7 +196,7 @@ onMount(() => {
 			<div class="flex justify-end lg:col-span-2">
 				<button type="submit" disabled={creating || !name.trim()} class="inline-flex min-h-9 items-center gap-1.5 rounded-[5px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover disabled:opacity-50">
 					{#if creating}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Plus class="h-3.5 w-3.5" />{/if}
-					<span>Create</span>
+					<span>{m.app_promo_create({}, { locale })}</span>
 				</button>
 			</div>
 		</form>
@@ -215,7 +219,7 @@ onMount(() => {
 							<div class="truncate text-[12px] font-medium {selectedId === promotion.id ? 'text-text-primary' : 'text-text-secondary'}">{promotion.name}</div>
 							<div class="mt-0.5 font-mono text-[10px] text-text-placeholder">{promotion.provider}</div>
 						</button>
-						<button type="button" class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[5px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary" onclick={() => void copyPromotion(promotion)} title="Copy promotion link" aria-label="Copy promotion link">
+						<button type="button" class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[5px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary" onclick={() => void copyPromotion(promotion)} title={m.app_promo_copy_link({}, { locale })} aria-label="Copy promotion link">
 							{#if copiedId === promotion.id}<Check class="h-3.5 w-3.5 text-success-soft" />{:else}<Copy class="h-3.5 w-3.5" />{/if}
 						</button>
 					</div>
@@ -232,11 +236,11 @@ onMount(() => {
 						<div><div class="font-mono text-[18px] font-semibold text-text-primary">{stats.summary.registrationCompleted}</div><div class="text-[10px] text-text-placeholder">Registered</div></div>
 						<div><div class="font-mono text-[18px] font-semibold text-text-primary">{stats.summary.paywallViewed}</div><div class="text-[10px] text-text-placeholder">Paywall</div></div>
 						<div><div class="font-mono text-[18px] font-semibold text-text-primary">{stats.summary.checkoutStarted}</div><div class="text-[10px] text-text-placeholder">Checkout</div></div>
-						<div><div class="font-mono text-[18px] font-semibold text-text-primary">{(stats.summary.readyRate * 100).toFixed(1)}%</div><div class="text-[10px] text-text-placeholder">Ready rate</div></div>
+						<div><div class="font-mono text-[18px] font-semibold text-text-primary">{(stats.summary.readyRate * 100).toFixed(1)}%</div><div class="text-[10px] text-text-placeholder">{m.app_promo_ready_rate({}, { locale })}</div></div>
 					</div>
 					<div class="mt-4 break-all font-mono text-[10px] leading-5 text-text-placeholder">{promotionUrl(selected)}</div>
 				{:else}
-					<div class="py-3 text-[12px] text-text-placeholder">Statistics are unavailable.</div>
+					<div class="py-3 text-[12px] text-text-placeholder">{m.app_promo_stats_unavailable({}, { locale })}</div>
 				{/if}
 			</div>
 		</div>

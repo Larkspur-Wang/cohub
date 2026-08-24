@@ -17,6 +17,8 @@ import {
 	APPS_CHANGED_EVENT,
 	type AppsChangedDetail,
 } from "$lib/features/app/app-realtime";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 import { formatDateTime } from "../space-utils";
 import AppPromotions from "./AppPromotions.svelte";
 import AppViewStats from "./AppViewStats.svelte";
@@ -47,6 +49,8 @@ let {
 	onDetailLoaded,
 	onPreviewApp,
 }: Props = $props();
+
+const locale = $derived(getLocale());
 
 const appDetailController = createAppDetailController({
 	getSpaceId: () => spaceId,
@@ -159,12 +163,12 @@ onDestroy(() => {
           {#if publicRoute && appDetail.status === 'published'}
             <a href={publicRoute} target="_blank" rel="noopener" class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] bg-bg-elevated px-3 py-2 text-[12px] font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary sm:w-auto">
               <ExternalLink class="h-3.5 w-3.5" />
-              <span>New tab</span>
+              <span>{m.app_view_new_tab({}, { locale })}</span>
             </a>
           {/if}
           <button type="button" class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] bg-bg-elevated px-3 py-2 text-[12px] font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary sm:w-auto" onclick={() => { appDetailController.syncFormFromDetail(); appDetailController.editMode = !appDetailController.editMode; }}>
             <Pencil class="h-3.5 w-3.5" />
-            <span>{appDetailController.editMode ? 'Close edit' : 'Edit'}</span>
+            <span>{appDetailController.editMode ? m.close_edit({}, { locale }) : m.common_edit({}, { locale })}</span>
           </button>
           <button type="button" class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] bg-bg-elevated px-3 py-2 text-[12px] font-medium transition-colors hover:bg-bg-hover disabled:opacity-50 sm:w-auto {appDetail.status === 'published' ? 'text-status-running' : 'text-text-secondary'}" onclick={() => appDetailController.toggleStatus(appDetail!.status === 'published' ? 'disabled' : 'published')} disabled={appActionInProgress}>
             {#if appActionInProgress}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else if appDetail.status === 'published'}<Power class="h-3.5 w-3.5" />{:else}<Rocket class="h-3.5 w-3.5" />{/if}
@@ -222,10 +226,10 @@ onDestroy(() => {
                 <div class="space-y-1.5">
                   <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary" for="app-edit-visibility">Access</label>
                   <select id="app-edit-visibility" bind:value={appDetailController.formVisibility} class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none">
-                    <option value="public">Anyone with the link</option>
-                    <option value="space">Use space access</option>
+                    <option value="public">{m.anyone_with_link({}, { locale })}</option>
+                    <option value="space">{m.app_publish_space_access({}, { locale })}</option>
                   </select>
-                  <div class="text-[11px] leading-5 text-text-placeholder">Space access follows this Space's permissions.</div>
+                  <div class="text-[11px] leading-5 text-text-placeholder">{m.app_view_space_access_detail({}, { locale })}</div>
                 </div>
               </div>
               <div class="space-y-1.5">
@@ -233,20 +237,20 @@ onDestroy(() => {
                 <label class="flex min-h-11 gap-3 rounded-[6px] border border-border-subtle bg-bg-elevated/25 px-3 py-2.5 text-text-secondary transition-colors hover:border-border-default hover:bg-bg-elevated/40" class:opacity-60={!workCanToggleHideCohubBar}>
                   <input type="checkbox" bind:checked={appDetailController.formHideCohubBar} disabled={!workCanToggleHideCohubBar || appDetailController.hideCohubBarLoading} class="mt-0.5" />
                   <span class="min-w-0">
-                    <span class="block text-[12px] text-text-primary">Hide Cohub bar</span>
-                    <span class="block text-[11px] leading-5 text-text-placeholder">Remove the Cohub footer from the public page.</span>
+                    <span class="block text-[12px] text-text-primary">{m.app_publish_hide_cohub_bar({}, { locale })}</span>
+                    <span class="block text-[11px] leading-5 text-text-placeholder">{m.app_view_hide_footer_detail({}, { locale })}</span>
                   </span>
                 </label>
                 {#if appDetailController.hideCohubBarLoading}
                   <div class="text-[11px] text-text-tertiary">Checking availability…</div>
                 {:else if !appDetailController.hideCohubBarAllowed}
-                  <div class="text-[11px] text-text-tertiary">Included with Pro and Max.</div>
+                  <div class="text-[11px] text-text-tertiary">{m.app_publish_included_pro_max({}, { locale })}</div>
                 {/if}
               </div>
             </div>
             <aside class="space-y-5 text-[13px]">
               <div class="space-y-3">
-                <div class="text-[10px] font-medium uppercase tracking-[0.18em] text-text-placeholder">App can</div>
+                <div class="text-[10px] font-medium uppercase tracking-[0.18em] text-text-placeholder">{m.app_publish_app_can({}, { locale })}</div>
                 {#each APP_SCOPE_OPTIONS as option (option.scope)}
                   <label class="flex gap-3 rounded-[6px] bg-bg-elevated/30 px-3 py-2.5 text-text-secondary">
                     <input type="checkbox" bind:checked={appDetailController.formScopes[option.scope]} class="mt-0.5" />
@@ -255,7 +259,7 @@ onDestroy(() => {
                 {/each}
               </div>
               <div class="space-y-3">
-                <div class="text-[10px] font-medium uppercase tracking-[0.18em] text-text-placeholder">Viewers can allow</div>
+                <div class="text-[10px] font-medium uppercase tracking-[0.18em] text-text-placeholder">{m.app_publish_viewers_allow({}, { locale })}</div>
                 {#each APP_VIEWER_SCOPE_OPTIONS as option (option.scope)}
                   <label class="flex gap-3 rounded-[6px] bg-bg-elevated/30 px-3 py-2.5 text-text-secondary">
                     <input type="checkbox" bind:checked={appDetailController.formViewerScopes[option.scope]} class="mt-0.5" />
@@ -269,10 +273,10 @@ onDestroy(() => {
             <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{appFormError}</div>
           {/if}
           <div class="sticky bottom-0 z-10 -mx-4 -mb-5 flex flex-col-reverse gap-2 border-t border-border-subtle/70 bg-bg-primary/95 px-4 py-4 backdrop-blur sm:-mx-6 sm:-mb-5 sm:flex-row sm:justify-end sm:px-6 lg:-mx-8 lg:px-8">
-            <button type="button" class="inline-flex min-h-10 items-center justify-center rounded-[5px] border border-border-subtle px-3 py-2 text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary" onclick={() => { appDetailController.editMode = false; appDetailController.syncFormFromDetail(); }}>Cancel</button>
+            <button type="button" class="inline-flex min-h-10 items-center justify-center rounded-[5px] border border-border-subtle px-3 py-2 text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary" onclick={() => { appDetailController.editMode = false; appDetailController.syncFormFromDetail(); }}>{m.common_cancel({}, { locale })}</button>
             <button type="submit" class="inline-flex min-h-10 items-center justify-center gap-2 rounded-[5px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover disabled:opacity-50" disabled={appFormSubmitting}>
               {#if appFormSubmitting}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Check class="h-3.5 w-3.5" />{/if}
-              <span>Save changes</span>
+              <span>{m.cron_save_changes({}, { locale })}</span>
             </button>
           </div>
         </form>
@@ -305,15 +309,15 @@ onDestroy(() => {
             </section>
             <section class="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_140px]">
               <div class="rounded-[7px] bg-bg-elevated/30 px-3 py-2.5">
-                <div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">App permissions</div>
+                <div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">{m.app_view_app_permissions({}, { locale })}</div>
                 <div class="mt-1 text-[13px] text-text-primary">{appDetail.appScopes.length ? appDetail.appScopes.join(', ') : 'None'}</div>
               </div>
               <div class="rounded-[7px] bg-bg-elevated/30 px-3 py-2.5">
-                <div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">Viewer grants</div>
+                <div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">{m.app_view_viewer_grants({}, { locale })}</div>
                 <div class="mt-1 text-[13px] text-text-primary">{appDetail.allowedViewerScopes.length ? appDetail.allowedViewerScopes.join(', ') : 'None'}</div>
               </div>
               <div class="rounded-[7px] bg-bg-elevated/30 px-3 py-2.5">
-                <div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">Cohub bar</div>
+                <div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">{m.app_view_cohub_bar({}, { locale })}</div>
                 <div class="mt-1 inline-flex items-center gap-1.5 text-[13px] text-text-primary">
                   <span class="h-1.5 w-1.5 rounded-full {workHideCohubBar ? 'bg-text-placeholder' : 'bg-status-running'}"></span>
                   <span>{workHideCohubBar ? 'Hidden' : 'Shown'}</span>
@@ -325,7 +329,7 @@ onDestroy(() => {
             {#if publicRoute && appDetail.status === 'published'}
               <div class="space-y-2">
                 <div class="flex items-center justify-between gap-3">
-                  <div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">Public path</div>
+                  <div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">{m.app_view_public_path({}, { locale })}</div>
                   <button type="button" class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[5px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary" onclick={() => void appDetailController.copyPublicRoute(publicRoute)} title={appCopiedPublicRoute ? 'Copied' : 'Copy public link'} aria-label={appCopiedPublicRoute ? 'Copied' : 'Copy public link'}>
                     {#if appCopiedPublicRoute}<Check class="h-3.5 w-3.5 text-success-soft" />{:else}<Copy class="h-3.5 w-3.5" />{/if}
                   </button>
@@ -374,7 +378,7 @@ onDestroy(() => {
       {/if}
     </div>
   {:else}
-    <div class="text-[12px] text-text-tertiary">App not found.</div>
+    <div class="text-[12px] text-text-tertiary">{m.app_view_not_found({}, { locale })}</div>
   {/if}
   </div>
 </div>

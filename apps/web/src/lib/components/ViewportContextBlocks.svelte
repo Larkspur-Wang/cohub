@@ -5,6 +5,8 @@ import {
 	viewportContextId,
 } from "@cohub/protocol";
 import { AppWindow, FileText, LayoutGrid, Radio, X } from "lucide-svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 
 type Props = {
 	contexts: ViewportContext[];
@@ -13,6 +15,7 @@ type Props = {
 };
 
 const { contexts, removable = false, onRemove }: Props = $props();
+const locale = $derived(getLocale());
 let openId = $state<string | null>(null);
 
 function iconFor(kind: ViewportContext["kind"]) {
@@ -35,29 +38,36 @@ function titleFor(context: ViewportContext) {
 		const parts = [context.path];
 		if (context.selectedNodes?.length) {
 			parts.push(
-				`${context.selectedNodes.length} selected: ${context.selectedNodes
+				`${m.vctx_selected({ n: context.selectedNodes.length }, { locale })}: ${context.selectedNodes
 					.map((node) => node.title || node.id)
 					.join(", ")}`,
 			);
 		}
 		if (context.visibleRect) {
 			parts.push(
-				`view ${Math.round(context.visibleRect.width)}×${Math.round(context.visibleRect.height)}`,
+				m.vctx_view(
+					{
+						w: Math.round(context.visibleRect.width),
+						h: Math.round(context.visibleRect.height),
+					},
+					{ locale },
+				),
 			);
 		}
 		return parts.join(" · ");
 	}
 	if (context.kind === "app") return context.content;
 	return context.url
-		? `port ${context.port} · ${context.url}`
-		: `port ${context.port}`;
+		? m.vctx_port_url({ port: context.port, url: context.url }, { locale })
+		: m.vctx_port_n({ port: context.port }, { locale });
 }
 
 function metaFor(context: ViewportContext) {
-	if (context.kind === "app") return `App · ${context.appId}`;
-	if (context.kind === "file") return "File context";
-	if (context.kind === "board") return "Board context";
-	return "Port context";
+	if (context.kind === "app")
+		return m.vctx_app({ app: context.appId }, { locale });
+	if (context.kind === "file") return m.vctx_file({}, { locale });
+	if (context.kind === "board") return m.vctx_board({}, { locale });
+	return m.vctx_port({}, { locale });
 }
 </script>
 
@@ -97,8 +107,8 @@ function metaFor(context: ViewportContext) {
 						<button
 							type="button"
 							class="flex h-full w-6 shrink-0 items-center justify-center rounded-r-md text-text-tertiary opacity-70 outline-none transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-brand/60 sm:opacity-45 sm:group-hover/context:opacity-100 sm:focus:opacity-100"
-							title="Remove context"
-							aria-label="Remove context"
+							title={m.vctx_remove({}, { locale })}
+							aria-label={m.vctx_remove({}, { locale })}
 							onclick={() => onRemove?.(id)}
 						>
 							<X class="h-3 w-3" />

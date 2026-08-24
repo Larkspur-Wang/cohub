@@ -13,6 +13,8 @@ import {
 	formatDurationMs,
 	isDisplayableDurationMs,
 } from "$lib/format-duration";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 import type { OpenWorkspaceFileTarget } from "$lib/workspace-file-links";
 
 type Props = {
@@ -37,6 +39,8 @@ const {
 	onOpenFile,
 }: Props = $props();
 
+const locale = $derived(getLocale());
+
 let expanded = $state(false);
 let userToggled = $state(false);
 
@@ -46,15 +50,25 @@ const statusDotMap = {
 	failed: "bg-status-error",
 } as const;
 
-const toolActivityMap: Record<string, string> = {
-	bash: "executing",
-	edit: "patching",
-	find: "scanning",
-	grep: "scanning",
-	ls: "listing",
-	read: "reading",
-	write: "writing",
-};
+function toolActivityVerb(name: string): string {
+	switch (name) {
+		case "bash":
+			return m.tool_verb_executing({}, { locale });
+		case "edit":
+			return m.tool_verb_patching({}, { locale });
+		case "find":
+		case "grep":
+			return m.tool_verb_scanning({}, { locale });
+		case "ls":
+			return m.tool_verb_listing({}, { locale });
+		case "read":
+			return m.tool_verb_reading({}, { locale });
+		case "write":
+			return m.tool_verb_writing({}, { locale });
+		default:
+			return m.tool_verb_running({}, { locale });
+	}
+}
 
 const visibleResult = $derived(tool.partialResult || tool.result || "");
 const hasVisibleResult = $derived(Boolean(visibleResult));
@@ -67,27 +81,39 @@ const showResult = $derived(
 		!isPlaceholderResult &&
 		(!needsDetails || Boolean(tool.partialResult) || autoExpandWhileRunning),
 );
-const resultLabel = $derived(tool.status === "failed" ? "err" : "out");
+const resultLabel = $derived(
+	tool.status === "failed"
+		? m.tool_err({}, { locale })
+		: m.tool_out({}, { locale }),
+);
 const filePath = $derived(getToolFilePath(tool.name, tool.input));
 const isRunning = $derived(tool.status === "running");
 const runningPhase = $derived(tool.phase ?? "drafting");
-const runningVerb = $derived(toolActivityMap[tool.name] ?? "running");
+const runningVerb = $derived(toolActivityVerb(tool.name));
 const durationLabel = $derived(
 	showDuration && isDisplayableDurationMs(tool.durationMs)
-		? formatDurationMs(tool.durationMs)
+		? formatDurationMs(tool.durationMs, locale)
 		: "",
 );
 const durationTitle = $derived(
 	showDuration && isDisplayableDurationMs(tool.durationMs)
-		? formatDurationDetail(tool.durationMs)
+		? formatDurationDetail(
+				tool.durationMs,
+				m.chat_duration({}, { locale }),
+				locale,
+			)
 		: "",
 );
 const statusLabel = $derived(
 	isRunning
 		? runningPhase === "drafting"
-			? "receiving"
+			? m.tool_receiving_call({}, { locale })
 			: runningVerb
-		: durationLabel || tool.status,
+		: tool.status === "failed"
+			? m.tool_status_failed({}, { locale })
+			: tool.status === "done"
+				? m.tool_status_done({}, { locale })
+				: durationLabel || tool.status,
 );
 const inputSummary = $derived(summarizeToolInput(tool.name, tool.input));
 const detailIdPrefix = $derived(`tool-call-${sanitizeToolDomId(tool.id)}`);
@@ -131,7 +157,7 @@ function handleFileClick(e: MouseEvent | KeyboardEvent) {
 				class="min-w-0 max-w-[56%] truncate font-mono text-[13px] text-text-secondary/85 underline-offset-2 transition-colors hover:text-text-primary hover:underline hover:decoration-brand/35 sm:max-w-[68%]"
 				onclick={handleFileClick}
 				onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleFileClick(e); } }}
-				title="Open file"
+				title={m.tool_open_file({}, { locale })}
 			>{filePath}</span>
 		{:else if inputSummary}
 			<span class="min-w-0 flex-1 truncate font-mono text-[13px] text-text-placeholder">{inputSummary}</span>
@@ -157,13 +183,13 @@ function handleFileClick(e: MouseEvent | KeyboardEvent) {
 			{#if shouldWaitForDetails}
 				<div class="inline-flex items-center gap-1.5 py-0.5 text-[12px] leading-snug text-text-placeholder">
 					<Loader2 class="h-3 w-3 animate-spin" />
-					Loading details…
+					{m.tool_loading_details({}, { locale })}
 				</div>
 			{:else}
 				<div class="space-y-2">
 					{#if tool.input && Object.keys(tool.input).length > 0}
 						<div class="grid grid-cols-[1.75rem_minmax(0,1fr)] items-start gap-2 max-sm:grid-cols-[1.25rem_minmax(0,1fr)] max-sm:gap-1.5">
-							<div class="pt-[3px] font-mono text-[10px] uppercase leading-none tracking-wide text-text-placeholder select-none">in</div>
+							<div class="pt-[3px] font-mono text-[10px] uppercase leading-none tracking-wide text-text-placeholder select-none">{m.tool_in({}, { locale })}</div>
 							<ToolInputDetail name={tool.name} input={tool.input} idPrefix={detailIdPrefix} autoFollow={isRunning} />
 						</div>
 					{/if}
@@ -174,13 +200,13 @@ function handleFileClick(e: MouseEvent | KeyboardEvent) {
 						</div>
 					{:else if tool.resultOmitted}
 						<div class="grid grid-cols-[1.75rem_minmax(0,1fr)] items-start gap-2">
-							<div class="pt-[3px] font-mono text-[10px] uppercase leading-none tracking-wide text-text-placeholder select-none">out</div>
-							<div class="text-[12px] leading-snug text-text-placeholder">Result omitted. Open again after details load.</div>
+							<div class="pt-[3px] font-mono text-[10px] uppercase leading-none tracking-wide text-text-placeholder select-none">{m.tool_out({}, { locale })}</div>
+							<div class="text-[12px] leading-snug text-text-placeholder">{m.tool_result_omitted({}, { locale })}</div>
 						</div>
 					{:else if isRunning}
 						<div class="grid grid-cols-[1.75rem_minmax(0,1fr)] items-start gap-2">
-							<div class="pt-[3px] font-mono text-[10px] uppercase leading-none tracking-wide text-text-placeholder select-none">out</div>
-							<div class="text-[12px] leading-snug text-text-placeholder">{runningPhase === 'drafting' ? 'Receiving tool call…' : `${runningVerb[0].toUpperCase()}${runningVerb.slice(1)}…`}</div>
+							<div class="pt-[3px] font-mono text-[10px] uppercase leading-none tracking-wide text-text-placeholder select-none">{m.tool_out({}, { locale })}</div>
+							<div class="text-[12px] leading-snug text-text-placeholder">{runningPhase === 'drafting' ? m.tool_receiving_call({}, { locale }) : m.tool_running_verb({ verb: runningVerb }, { locale })}</div>
 						</div>
 					{/if}
 				</div>

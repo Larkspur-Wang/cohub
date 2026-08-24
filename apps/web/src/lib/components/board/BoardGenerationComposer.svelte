@@ -38,7 +38,9 @@ import {
 	isMobileComposerInput,
 } from "$lib/composer-keyboard";
 import { getGenerationModelPickerItems } from "$lib/generation-model-catalog";
+import { getLocale } from "$lib/i18n/locale.svelte";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
+import { m } from "$lib/paraglide/messages.js";
 import { sdk } from "$lib/sdk";
 import {
 	getCachedGenerationModels,
@@ -63,6 +65,8 @@ const {
 	selectionAddRequest?: number;
 	onClose: () => void;
 } = $props();
+
+const locale = $derived(getLocale());
 
 const cacheUserKey = getCacheUserKey();
 const cacheEnabled = canUseUserScopedCache(cacheUserKey);
@@ -171,7 +175,7 @@ function itemLabel(item: BoardItem): string {
 		);
 	}
 	if (item.type === "task") return item.snapshot.title;
-	return "Reference";
+	return m.board_reference({}, { locale });
 }
 
 async function resolveItemReference(
@@ -239,8 +243,8 @@ async function addSelectedReferences() {
 		if (failed.length > 0 || added.length < candidates.length) {
 			error =
 				failed.length > 0
-					? "Failed to load some selected media."
-					: "Some selected media has no remote URL.";
+					? m.board_load_media_failed({}, { locale })
+					: m.board_some_media_no_url({}, { locale });
 		}
 	} finally {
 		if (!disposed) resolvingSelection = false;
@@ -359,7 +363,9 @@ function taskPosition() {
 
 async function submit() {
 	if (submitting || startedTaskRunId || validationError || !selectedModel) {
-		error = startedTaskRunId ? "Generation already started." : validationError;
+		error = startedTaskRunId
+			? m.board_generation_started({}, { locale })
+			: validationError;
 		return;
 	}
 	submitting = true;
@@ -416,7 +422,9 @@ async function submit() {
 		taskRunId = created.taskRunId;
 	} catch (cause) {
 		error =
-			cause instanceof Error ? cause.message : "Generation could not start.";
+			cause instanceof Error
+				? cause.message
+				: m.board_generation_start_failed({}, { locale });
 		submitting = false;
 		return;
 	}
@@ -425,7 +433,7 @@ async function submit() {
 	startedTaskRunId = taskRunId;
 	const currentUserKey = getCacheUserKey();
 	if (currentUserKey !== submittingUserKey) {
-		error = "Task created. Find it in Tasks list.";
+		error = m.board_task_created({}, { locale });
 		submitting = false;
 		return;
 	}
@@ -444,11 +452,11 @@ async function submit() {
 			sources,
 			{ generation: { boardContext } },
 		);
-		if (!id) throw new Error("Board task could not be added.");
+		if (!id) throw new Error(m.board_task_add_failed({}, { locale }));
 		nodeAdded = true;
 		editor.setSelection([id]);
 	} catch {
-		error = "Generation started. Open it from Tasks.";
+		error = m.board_generation_started_detail({}, { locale });
 	} finally {
 		if (prompt === snapshotPrompt) prompt = "";
 		if (references === snapshotReferences) references = [];
@@ -555,7 +563,7 @@ onMount(() => {
 		})
 		.catch(() => {
 			if (!disposed && models.length === 0)
-				error = "Models could not be loaded.";
+				error = m.board_models_failed({}, { locale });
 		})
 		.finally(() => {
 			if (!disposed) loadingModels = false;
@@ -600,7 +608,7 @@ onDestroy(() => {
 	{#if error}<div class="error-notice" role="status">{error}</div>{/if}
 	<ComposerSurface>
 		{#if references.length > 0 || resolvingSelection}
-			<div class="reference-strip" aria-label="Generation references">
+			<div class="reference-strip" aria-label={m.board_generation_refs({}, { locale })}>
 				{#each references as reference (reference.id)}
 					{@const ReferenceIcon = mediaIcon(reference.type)}
 					{@const spec = selectedModel ? generationInputSpec(selectedModel, reference.type) : null}
@@ -614,11 +622,11 @@ onDestroy(() => {
 								value={reference.role ?? ""}
 								onchange={(event) => updateReferenceRole(reference.id, event.currentTarget.value)}
 							>
-								{#if !spec.roleRequired}<option value="">Auto</option>{/if}
+								{#if !spec.roleRequired}<option value="">{m.board_auto({}, { locale })}</option>{/if}
 								{#each spec.roles as role (role)}<option value={role}>{role.replaceAll("_", " ")}</option>{/each}
 							</select>
 						{/if}
-						<button type="button" class="mini-btn" title="Remove reference" aria-label="Remove reference" onclick={() => removeReference(reference.id)}>
+						<button type="button" class="mini-btn" title={m.board_remove_reference({}, { locale })} aria-label={m.board_remove_reference({}, { locale })} onclick={() => removeReference(reference.id)}>
 							<X class="h-3 w-3" />
 						</button>
 					</div>
@@ -631,8 +639,8 @@ onDestroy(() => {
 			bind:this={textarea}
 			bind:value={prompt}
 			rows="1"
-			placeholder="Describe what to generate..."
-			aria-label="Generation prompt"
+			placeholder={m.board_describe_generate({}, { locale })}
+			aria-label={m.board_generation_prompt_aria({}, { locale })}
 			oninput={scheduleResizeTextarea}
 			onkeydown={handlePromptKeydown}
 		></textarea>
@@ -641,7 +649,7 @@ onDestroy(() => {
 			<div class="footer-tools">
 				<div class="relative min-w-0">
 					<ComposerModelTrigger
-						label={selectedModel?.title ?? selectedModel?.model ?? "Model"}
+						label={selectedModel?.title ?? selectedModel?.model ?? m.board_model({}, { locale })}
 						expanded={modelOpen}
 						loading={loadingModels && !selectedModel}
 						onclick={() => { modelOpen = !modelOpen; settingsOpen = false; }}
@@ -650,7 +658,7 @@ onDestroy(() => {
 						<div class="popover model-popover">
 							<label class="search-field">
 								<Search class="h-3.5 w-3.5" />
-								<input bind:value={modelQuery} placeholder="Search models" aria-label="Search generation models" />
+								<input bind:value={modelQuery} placeholder={m.board_search_models({}, { locale })} aria-label={m.board_search_generation_models({}, { locale })} />
 							</label>
 							<div class="model-list">
 								{#each visibleModels as model (model.model)}
@@ -660,14 +668,14 @@ onDestroy(() => {
 										class="model-option"
 										class:model-option--active={model.model === selectedModelId}
 										disabled={!compatible}
-										title={compatible ? model.description : "Incompatible with current references"}
+										title={compatible ? model.description : m.board_incompatible_refs({}, { locale })}
 										onclick={() => chooseModel(model)}
 									>
 										<span class="truncate font-medium">{model.title ?? model.model}</span>
 										<span class="truncate text-[10px] text-text-tertiary">{model.model}</span>
 									</button>
 								{/each}
-								{#if visibleModels.length === 0}<div class="empty-row">No matching models</div>{/if}
+								{#if visibleModels.length === 0}<div class="empty-row">{m.board_no_matching({}, { locale })}</div>{/if}
 							</div>
 						</div>
 					{/if}
@@ -679,8 +687,8 @@ onDestroy(() => {
 							type="button"
 							class="icon-btn"
 							class:icon-btn--active={settingsOpen}
-							title="Generation settings"
-							aria-label="Generation settings"
+							title={m.board_generation_settings({}, { locale })}
+							aria-label={m.board_generation_settings({}, { locale })}
 							aria-expanded={settingsOpen}
 							onclick={() => { settingsOpen = !settingsOpen; modelOpen = false; }}
 						>
@@ -695,13 +703,13 @@ onDestroy(() => {
 											<input type="checkbox" checked={(parameters[name] ?? spec.default) === true} onchange={(event) => updateParameter(name, event.currentTarget.checked)} />
 										{:else if spec.type === "string" && spec.enum}
 											<select value={String(parameters[name] ?? spec.default ?? "")} onchange={(event) => event.currentTarget.value ? updateParameter(name, event.currentTarget.value) : clearParameter(name)}>
-												<option value="">Auto</option>
+												<option value="">{m.board_auto({}, { locale })}</option>
 												{#each spec.enum as value (value)}<option value={value}>{value}</option>{/each}
 											</select>
 										{:else if spec.type === "number" || spec.type === "integer"}
-											<input type="number" min={spec.min} max={spec.max} step={spec.type === "integer" ? 1 : "any"} value={String(parameters[name] ?? spec.default ?? "")} placeholder={spec.default === undefined ? "Auto" : String(spec.default)} oninput={(event) => event.currentTarget.value ? updateParameter(name, Number(event.currentTarget.value)) : clearParameter(name)} />
+											<input type="number" min={spec.min} max={spec.max} step={spec.type === "integer" ? 1 : "any"} value={String(parameters[name] ?? spec.default ?? "")} placeholder={spec.default === undefined ? m.board_auto({}, { locale }) : String(spec.default)} oninput={(event) => event.currentTarget.value ? updateParameter(name, Number(event.currentTarget.value)) : clearParameter(name)} />
 										{:else}
-											<input value={String(parameters[name] ?? spec.default ?? "")} placeholder={spec.default === undefined ? "Auto" : String(spec.default)} oninput={(event) => event.currentTarget.value ? updateParameter(name, event.currentTarget.value) : clearParameter(name)} />
+											<input value={String(parameters[name] ?? spec.default ?? "")} placeholder={spec.default === undefined ? m.board_auto({}, { locale }) : String(spec.default)} oninput={(event) => event.currentTarget.value ? updateParameter(name, event.currentTarget.value) : clearParameter(name)} />
 										{/if}
 									</label>
 								{/each}
@@ -713,8 +721,8 @@ onDestroy(() => {
 
 			<ComposerSubmitButton
 				label={startedTaskRunId
-					? "Generation started"
-					: validationError ?? "Generate"}
+					? m.board_generation_started({}, { locale })
+					: validationError ?? m.board_generate({}, { locale })}
 				loading={submitting}
 				disabled={submitting || Boolean(startedTaskRunId || validationError)}
 				buttonType="button"

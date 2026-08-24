@@ -1,6 +1,8 @@
 <script lang="ts">
 import { Menu, PanelRightOpen } from "lucide-svelte";
 import type { Snippet } from "svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 import { uiState } from "$lib/stores/ui.svelte";
 import WindowTabs from "./WindowTabs.svelte";
 import type { Window } from "./windows";
@@ -16,13 +18,15 @@ const {
 	onClose: (kind: Window["kind"], key: string) => void;
 	trailing?: Snippet;
 } = $props();
+
+const locale = $derived(getLocale());
 </script>
 
 <div class="mobile-preview-tabs-chrome">
 	<button
 		type="button"
 		class="icon-btn"
-		title="Open sidebar"
+		title={m.mobile_open_sidebar({}, { locale })}
 		aria-label="Open sidebar"
 		onclick={() => {
 			uiState.mobileDrawerOpen = true;
@@ -39,7 +43,7 @@ const {
 	<button
 		type="button"
 		class="icon-btn"
-		title="Open files"
+		title={m.mobile_open_files({}, { locale })}
 		aria-label="Open files"
 		onclick={() => {
 			uiState.mobileRightDrawerOpen = true;

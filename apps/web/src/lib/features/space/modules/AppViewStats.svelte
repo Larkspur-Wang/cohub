@@ -1,6 +1,8 @@
 <script lang="ts">
 import type { AppViewSource, AppViewStatsResponse } from "@neta-art/cohub";
 import { Eye, RefreshCw } from "lucide-svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 
 type Props = {
 	stats: AppViewStatsResponse | null;
@@ -10,6 +12,8 @@ type Props = {
 };
 
 let { stats, loading, error, onRetry }: Props = $props();
+
+const locale = $derived(getLocale());
 
 const compactFormatter = new Intl.NumberFormat("en-US", {
 	notation: "compact",
@@ -65,14 +69,14 @@ function sourcePercent(views: number) {
 			<h2 id="work-views-heading" class="text-[10px] font-medium uppercase tracking-[0.18em] text-text-placeholder">Views</h2>
 		</div>
 		{#if error && stats}
-			<button type="button" class="inline-flex h-7 w-7 items-center justify-center rounded-[5px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary" onclick={onRetry} title="Retry view stats" aria-label="Retry view stats">
+			<button type="button" class="inline-flex h-7 w-7 items-center justify-center rounded-[5px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary" onclick={onRetry} title={m.app_stats_retry({}, { locale })} aria-label="Retry view stats">
 				<RefreshCw class="h-3.5 w-3.5" />
 			</button>
 		{/if}
 	</div>
 
 	{#if loading && !stats}
-		<div class="space-y-5" aria-label="Loading view stats">
+		<div class="space-y-5" aria-label={m.app_stats_loading({}, { locale })}>
 			<div class="grid grid-cols-3 gap-4">
 				{#each Array(3) as _}
 					<div class="space-y-2"><div class="h-5 w-16 animate-pulse rounded bg-bg-elevated"></div><div class="h-3 w-12 animate-pulse rounded bg-bg-elevated/70"></div></div>
@@ -82,7 +86,7 @@ function sourcePercent(views: number) {
 		</div>
 	{:else if error && !stats}
 		<div class="flex min-h-20 items-center justify-between gap-4 text-[12px] text-text-tertiary">
-			<span>View stats are unavailable.</span>
+			<span>{m.app_stats_unavailable({}, { locale })}</span>
 			<button type="button" class="inline-flex min-h-8 items-center gap-1.5 rounded-[5px] px-2.5 text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary" onclick={onRetry}>
 				<RefreshCw class="h-3.5 w-3.5" />
 				<span>Retry</span>

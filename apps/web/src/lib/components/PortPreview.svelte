@@ -13,6 +13,9 @@ import type { PreviewCaptureTarget } from "$lib/features/preview-mark";
 import PreviewMarkHost from "$lib/features/preview-mark/ui/PreviewMarkHost.svelte";
 import WindowFloatChrome from "$lib/features/space/modules/WindowFloatChrome.svelte";
 import type { Window } from "$lib/features/space/modules/windows";
+import { toIntlTag } from "$lib/i18n/format";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 
 const {
 	port,
@@ -41,6 +44,8 @@ const {
 	onExitFloat?: () => void | Promise<void>;
 	onPublish?: () => void;
 } = $props();
+
+const locale = $derived(getLocale());
 
 let frameVersion = $state(0);
 let loading = $state(true);
@@ -82,15 +87,18 @@ $effect(() => {
 	slowLoad = false;
 });
 const statusLabel = $derived.by(() => {
-	if (status === "listening") return "Listening";
-	if (status === "closed") return "Closed";
-	return "Detecting";
+	if (status === "listening") return m.port_listening({}, { locale });
+	if (status === "closed") return m.port_closed({}, { locale });
+	return m.port_detecting({}, { locale });
 });
 const observedLabel = $derived.by(() => {
 	if (!observedAt) return "";
 	const date = new Date(observedAt);
 	if (Number.isNaN(date.getTime())) return "";
-	return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+	return new Intl.DateTimeFormat(toIntlTag(locale), {
+		hour: "2-digit",
+		minute: "2-digit",
+	}).format(date);
 });
 
 function refresh() {
@@ -149,7 +157,7 @@ onDestroy(() => {
 		type="button"
 		class="preview-icon-btn"
 		onclick={refresh}
-		title="Refresh preview"
+		title={m.port_refresh({}, { locale })}
 		disabled={!url}
 	>
 		<RefreshCw class="h-4 w-4" />
@@ -158,7 +166,7 @@ onDestroy(() => {
 		type="button"
 		class="preview-icon-btn preview-context-secondary"
 		onclick={() => void copyUrl()}
-		title="Copy URL"
+		title={m.port_copy_url({}, { locale })}
 		disabled={!url}
 	>
 		{#if copied}
@@ -172,7 +180,7 @@ onDestroy(() => {
 			type="button"
 			class="preview-icon-btn preview-context-secondary"
 			onclick={onPublish}
-			title="Publish app"
+			title={m.port_publish({}, { locale })}
 			disabled={!url}
 		>
 			<Rocket class="h-4 w-4" />
@@ -183,7 +191,7 @@ onDestroy(() => {
 		href={url}
 		target="_blank"
 		rel="noreferrer"
-		title="Open externally"
+		title={m.port_open_external({}, { locale })}
 		aria-disabled={!url}
 	>
 		<ExternalLink class="h-4 w-4" />
@@ -235,11 +243,11 @@ onDestroy(() => {
 				<div class="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-lg border border-border-subtle bg-bg-surface text-text-tertiary">
 					<Globe class="h-5 w-5" />
 				</div>
-				<div class="mb-1 text-sm font-medium text-text-primary">Port :{port} is closed</div>
-				<div class="mb-4 text-xs leading-5 text-text-tertiary">The preview stays here so you can refresh when the dev server comes back.</div>
+				<div class="mb-1 text-sm font-medium text-text-primary">{m.port_closed_title({ port }, { locale })}</div>
+				<div class="mb-4 text-xs leading-5 text-text-tertiary">{m.port_closed_hint({}, { locale })}</div>
 				<div class="flex items-center justify-center gap-2">
-					<button type="button" class="preview-action-btn" onclick={refresh}>Refresh</button>
-					<a class="preview-action-btn primary" href={url} target="_blank" rel="noreferrer">Open externally</a>
+					<button type="button" class="preview-action-btn" onclick={refresh}>{m.files_refresh({}, { locale })}</button>
+					<a class="preview-action-btn primary" href={url} target="_blank" rel="noreferrer">{m.port_open_external({}, { locale })}</a>
 				</div>
 			</div>
 		</div>
@@ -251,7 +259,7 @@ onDestroy(() => {
 					class:port-loading-notice--immersive={immersive}
 				>
 					<Loader2 class="h-3.5 w-3.5 animate-spin" />
-					<span>{slowLoad ? "Still loading. If the app blocks embedding, open it externally." : "Loading preview…"}</span>
+					<span>{slowLoad ? m.port_loading_slow({}, { locale }) : m.port_loading({}, { locale })}</span>
 				</div>
 			{/if}
 			<div class="h-full w-full" data-drawer-swipe-ignore>
@@ -259,7 +267,7 @@ onDestroy(() => {
 					bind:this={iframeEl}
 					class="h-full w-full border-0 bg-overlay-control-text"
 					src={iframeSrc}
-					title={`Port ${port} preview`}
+					title={m.port_preview_title({ port }, { locale })}
 					sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals"
 					referrerpolicy="no-referrer"
 					onload={() => {
@@ -270,7 +278,7 @@ onDestroy(() => {
 			</div>
 		</div>
 	{:else}
-		<div class="flex min-h-0 flex-1 items-center justify-center p-6 text-xs text-text-tertiary">No public URL for this port.</div>
+		<div class="flex min-h-0 flex-1 items-center justify-center p-6 text-xs text-text-tertiary">{m.port_no_url({}, { locale })}</div>
 	{/if}
 </div>
 

@@ -2,6 +2,8 @@
 import { ExternalLink, X } from "lucide-svelte";
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
 import { swipeDismiss } from "$lib/gestures/swipe-dismiss";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 import {
 	getTurnNotificationHref,
 	getTurnNotificationMeta,
@@ -9,6 +11,8 @@ import {
 	type TurnNotification,
 	turnNotifications,
 } from "$lib/stores/turn-notifications.svelte";
+
+const locale = $derived(getLocale());
 
 function statusTone(status: string) {
 	if (status === "completed") return "bg-success-soft";
@@ -55,7 +59,7 @@ function handleCardKeydown(
 				role="button"
 				tabindex="0"
 				class="turn-notification pointer-events-auto text-left"
-				title="Open turn"
+				title={m.notif_open_turn({}, { locale })}
 				data-drawer-swipe-ignore
 				use:swipeDismiss={{
 					onDismiss: () => turnNotifications.dismiss(notification.id),
@@ -83,7 +87,7 @@ function handleCardKeydown(
 						href={getTurnNotificationHref(notification)}
 						target="_blank"
 						rel="noreferrer"
-						title="Open in new tab"
+						title={m.notif_open_new_tab({}, { locale })}
 						onclick={(event) => openNew(event, notification)}
 					>
 						<ExternalLink class="h-3.5 w-3.5" />
@@ -91,8 +95,8 @@ function handleCardKeydown(
 					<button
 						type="button"
 						class="h-6 w-6 shrink-0 rounded-[5px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary"
-						title="Dismiss notification"
-						aria-label="Dismiss notification"
+						title={m.notif_dismiss({}, { locale })}
+						aria-label={m.notif_dismiss({}, { locale })}
 						onclick={(event) => dismiss(event, notification.id)}
 					>
 						<X class="mx-auto h-3.5 w-3.5" />
@@ -100,7 +104,7 @@ function handleCardKeydown(
 				</div>
 				<div class="mt-1 flex min-w-0 items-center gap-1.5 pl-7">
 					<p class="line-clamp-2 min-w-0 flex-1 text-[12px] leading-[1.45] text-text-secondary">
-						{notification.userPreview || "Turn completed"}
+						{notification.userPreview || m.notif_turn_completed({}, { locale })}
 					</p>
 					<div class="shrink-0 text-[11px] leading-5 text-text-tertiary sm:hidden">
 						{getTurnNotificationMeta(notification)}
@@ -119,7 +123,7 @@ function handleCardKeydown(
 			<div class="desktop-prompt pointer-events-auto">
 				<span class="min-w-0 flex-1 truncate">Enable desktop alerts?</span>
 				<button type="button" onclick={() => void turnNotifications.enableDesktopNotifications()}>Enable</button>
-				<button type="button" onclick={() => turnNotifications.dismissDesktopPrompt()}>Not now</button>
+				<button type="button" onclick={() => turnNotifications.dismissDesktopPrompt()}>{m.notif_not_now({}, { locale })}</button>
 			</div>
 		{/if}
 	</div>

@@ -11,6 +11,8 @@ import {
 	type SessionChatHost,
 } from "$lib/features/session-chat";
 import SessionChatPanel from "$lib/features/session-chat/SessionChatPanel.svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 import {
 	buildSessionsRoute,
 	buildSpaceNewSessionRoute,
@@ -31,12 +33,18 @@ const {
 	onChangeSpace?: () => void;
 } = $props();
 
+const locale = $derived(getLocale());
+
 const session = $derived(host.activeSession ?? seed ?? null);
 // Stay on draft chrome for the whole /sessions/new route, including the brief
 // window after prompt adopts a session id but before URL replaces to /:id.
 const isDraft = $derived(isNewDraft);
 const title = $derived(
-	isDraft ? "New chat" : session ? getSessionTitle(session) : "Chat",
+	isDraft
+		? m.chat_new_chat({}, { locale })
+		: session
+			? getSessionTitle(session)
+			: m.chat_title({}, { locale }),
 );
 const draftSpaceName = $derived(
 	draftSpace?.name?.trim() || draftSpace?.title?.trim() || "",
@@ -72,9 +80,9 @@ const showDraftHint = $derived(
 		<div
 			class="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center"
 		>
-			<p class="text-[14px] text-text-secondary">Select a chat</p>
+			<p class="text-[14px] text-text-secondary">{m.chat_select_chat({}, { locale })}</p>
 			<p class="text-[12px] text-text-placeholder">
-				Your recent conversations across spaces appear on the left.
+				{m.chat_no_selected_hint({}, { locale })}
 			</p>
 		</div>
 	{:else}
@@ -85,8 +93,8 @@ const showDraftHint = $derived(
 				<a
 					href={buildSessionsRoute()}
 					class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[6px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary sm:hidden"
-					title="Back to chats"
-					aria-label="Back to chats"
+					title={m.chat_back_to_chats({}, { locale })}
+					aria-label={m.chat_back_to_chats({}, { locale })}
 				>
 					<ArrowLeft class="h-4 w-4" />
 				</a>
@@ -97,10 +105,10 @@ const showDraftHint = $derived(
 					type="button"
 					class="flex min-w-0 flex-1 items-center gap-2 rounded-[6px] px-1 py-0.5 text-left transition-colors hover:bg-bg-hover"
 					onclick={() => onChangeSpace?.()}
-					title="Change space"
+					title={m.chat_change_space({}, { locale })}
 					aria-label={spaceName
-						? `New chat in ${spaceName}. Change space`
-						: "Choose space for new chat"}
+						? m.chat_new_chat_in_change_space({ space: spaceName }, { locale })
+						: m.chat_choose_space({}, { locale })}
 				>
 					{#if spaceName}
 						<SpaceAvatar name={spaceName} profile={spaceProfile} size="sm" />
@@ -113,7 +121,9 @@ const showDraftHint = $derived(
 							class="flex min-w-0 items-center gap-1 text-[11px] text-text-placeholder"
 						>
 							<span class="truncate">
-								{spaceName ? `in ${spaceName}` : "Choose a space"}
+								{spaceName
+									? m.chat_in_space({ space: spaceName }, { locale })
+									: m.chat_choose_space_short({}, { locale })}
 							</span>
 							<ChevronDown class="h-3 w-3 shrink-0 opacity-70" />
 						</div>
@@ -143,9 +153,9 @@ const showDraftHint = $derived(
 				<a
 					href={spaceHref}
 					class="inline-flex h-7 shrink-0 items-center gap-1 rounded-[6px] px-2 text-[11px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary"
-					title="Open in Space"
+					title={m.chat_open_in_space({}, { locale })}
 				>
-					Open in Space
+					{m.chat_open_in_space({}, { locale })}
 					<ArrowUpRight class="h-3 w-3" />
 				</a>
 			{/if}
@@ -161,10 +171,10 @@ const showDraftHint = $derived(
 						<p
 							class="text-[15px] font-medium tracking-tight text-text-secondary"
 						>
-							New chat in {spaceName}
+							{m.chat_new_chat_in_space({ space: spaceName }, { locale })}
 						</p>
 						<p class="mt-1 text-[12px] text-text-placeholder">
-							Pick a model and send the first message.
+							{m.chat_draft_hint({}, { locale })}
 						</p>
 					</div>
 				</div>

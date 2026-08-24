@@ -1,6 +1,8 @@
 <script lang="ts">
 import { AlertCircle, ListTodo, LoaderCircle } from "lucide-svelte";
 import type { SessionTaskNotice } from "$lib/components/SessionTaskTray.svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 
 type Props = {
 	notices: SessionTaskNotice[];
@@ -8,6 +10,8 @@ type Props = {
 };
 
 const { notices, onOpen }: Props = $props();
+
+const locale = $derived(getLocale());
 const running = $derived(
 	notices.filter(
 		(notice) => notice.status === "pending" || notice.status === "running",

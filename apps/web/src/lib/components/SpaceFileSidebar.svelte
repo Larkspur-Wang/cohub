@@ -20,6 +20,8 @@ import {
 } from "$lib/drag/cohub-resource-drag";
 import { pointerDrag, pointerDropZone } from "$lib/drag/pointer-drag.svelte";
 import { resolveFsMoveDestination } from "$lib/features/space/modules/file-workspace-utils";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 import type { SpaceFsNode } from "$lib/space-fs";
 import {
 	entriesFromDataTransfer,
@@ -52,8 +54,8 @@ const {
 	showItemActions = true,
 	canWrite = true,
 	previewEndpoints = {},
-	title = "Files",
-	subtitle = "Space files",
+	title = "",
+	subtitle = "",
 }: {
 	nodes: SpaceFsNode[];
 	selectedPath: string;
@@ -83,6 +85,10 @@ const {
 	title?: string;
 	subtitle?: string;
 } = $props();
+
+const locale = $derived(getLocale());
+const resolvedTitle = $derived(title || m.files_title({}, { locale }));
+const resolvedSubtitle = $derived(subtitle || m.files_subtitle({}, { locale }));
 
 let treeScrollContainer: HTMLDivElement | null = $state(null);
 let rootDragOver = $state(false);
@@ -311,9 +317,9 @@ $effect(() => {
   <ColumnHeader class="files-column-header">
     {#snippet left()}
       <div class="min-w-0">
-        <div class="truncate text-[13px] font-medium text-text-secondary">{title}</div>
+        <div class="truncate text-[13px] font-medium text-text-secondary">{resolvedTitle}</div>
         {#if subtitle}
-          <div class="truncate text-[11px] text-text-tertiary">{subtitle}</div>
+          <div class="truncate text-[11px] text-text-tertiary">{resolvedSubtitle}</div>
         {/if}
       </div>
     {/snippet}
@@ -331,7 +337,7 @@ $effect(() => {
               aria-expanded={newMenuOpen}
             >
               <Plus class="w-4 h-4" />
-              <span class="sr-only">New</span>
+              <span class="sr-only">{m.files_new({}, { locale })}</span>
             </button>
             {#if newMenuOpen && newMenuAnchorEl}
               <div
@@ -347,17 +353,17 @@ $effect(() => {
               >
                 <button type="button" class="dropdown-item" onclick={handleCreateFileAtRoot}>
                   <Plus class="w-3.5 h-3.5" />
-                  New file
+                  {m.files_new_file({}, { locale })}
                 </button>
                 {#if onCreateBoard}
                   <button type="button" class="dropdown-item" onclick={handleCreateBoardAtRoot}>
                     <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><path d="M8 9h8"/><path d="M8 13h5"/></svg>
-                    New board
+                    {m.files_new_board({}, { locale })}
                   </button>
                 {/if}
                 <button type="button" class="dropdown-item" onclick={handleCreateDirAtRoot}>
                   <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/><path d="M12 10v6"/><path d="M9 13h6"/></svg>
-                  New folder
+                  {m.files_new_folder({}, { locale })}
                 </button>
               </div>
             {/if}
@@ -374,7 +380,7 @@ $effect(() => {
                 aria-expanded={uploadMenuOpen}
               >
                 <Upload class="w-4 h-4" />
-                <span class="sr-only">Upload</span>
+                <span class="sr-only">{m.files_upload({}, { locale })}</span>
               </button>
               {#if uploadMenuOpen && uploadMenuAnchorEl}
                 <div
@@ -390,22 +396,22 @@ $effect(() => {
                 >
                   <button type="button" class="dropdown-item" onclick={handleUploadClick}>
                     <Upload class="w-3.5 h-3.5" />
-                    Upload files
+                    {m.files_upload_files({}, { locale })}
                   </button>
                   <button type="button" class="dropdown-item" onclick={handleFolderUploadClick}>
                     <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/><path d="M12 10V16"/><path d="m15 13-3-3-3 3"/></svg>
-                    Upload folder
+                    {m.files_upload_folder({}, { locale })}
                   </button>
                 </div>
               {/if}
             </div>
           {/if}
         {:else}
-          <div class="w-8 h-8 flex items-center justify-center text-text-tertiary" title="Read-only">
+          <div class="w-8 h-8 flex items-center justify-center text-text-tertiary" title={m.files_read_only({}, { locale })}>
             <Lock class="w-4 h-4" />
           </div>
         {/if}
-        <button class="icon-btn" type="button" title="Refresh" onclick={onRefresh}>
+        <button class="icon-btn" type="button" title={m.files_refresh({}, { locale })} onclick={onRefresh}>
           <RefreshCw class="w-4 h-4 {loading ? 'animate-spin' : ''}" />
         </button>
       </div>
@@ -436,7 +442,7 @@ $effect(() => {
         const [item] = payload.items;
         if (!item || payload.items.length !== 1) return null;
         if (!resolveFsMoveDestination(item.path, "")) return null;
-        return { label: "Move to root", effect: "move" };
+        return { label: m.files_move_to_root({}, { locale }), effect: "move" };
       },
       drop: (payload) => {
         const [item] = payload.items;
@@ -451,10 +457,10 @@ $effect(() => {
     {#if nodes.length === 0 && loading}
       <div class="flex min-h-8 items-center gap-2 rounded-[var(--sidebar-item-radius)] px-1.5 py-2 text-[12px] text-text-placeholder">
         <Loader2 class="h-3 w-3 animate-spin text-text-tertiary" />
-        <span>Loading files…</span>
+        <span>{m.files_loading({}, { locale })}</span>
       </div>
     {:else if nodes.length === 0}
-      <div class="flex min-h-8 items-center rounded-[var(--sidebar-item-radius)] px-1.5 py-2 text-[12px] text-text-placeholder">No files</div>
+      <div class="flex min-h-8 items-center rounded-[var(--sidebar-item-radius)] px-1.5 py-2 text-[12px] text-text-placeholder">{m.files_empty({}, { locale })}</div>
     {:else}
       <div class="space-y-[1px]">
         {#each nodes as node (node.path)}

@@ -45,12 +45,17 @@ type Props = {
 	onDetailLoaded?: (run: TaskRunRecord | null) => void;
 };
 
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
+
 let {
 	spaceId,
 	taskId,
 	taskRealtimeEvent = null,
 	onDetailLoaded,
 }: Props = $props();
+
+const locale = $derived(getLocale());
 
 const taskDetail = createTaskRunDetailController({
 	getSpaceId: () => spaceId,
@@ -150,13 +155,13 @@ function userTitle(
 <div class="flex-1 min-h-0 overflow-y-auto px-3 py-4 sm:px-6 sm:py-5 lg:px-8">
 	<div class="max-w-4xl">
 		{#if taskRunDetailLoading && taskRunDetail?.id !== taskId}
-			<CenteredLoading label="Loading task…" size="panel" />
+			<CenteredLoading label={m.loading_task({}, { locale })} size="panel" />
 		{:else if taskRunDetailError}
 			<div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{taskRunDetailError}</div>
 		{:else if taskRunDetail && taskRunDetail.id === taskId}
-			{@const badge = taskRunStatusBadge(taskRunDetail)}
+			{@const badge = taskRunStatusBadge(taskRunDetail, locale)}
 			{@const resultCheckpointId = checkpointIdFromTaskRun(taskRunDetail)}
-			{@const saveStageLabel = taskRunDetail.taskType === "save_checkpoint" ? saveCheckpointProgressLabel(taskRunProgress) : null}
+			{@const saveStageLabel = taskRunDetail.taskType === "save_checkpoint" ? saveCheckpointProgressLabel(taskRunProgress, locale) : null}
 			{@const commandInfo = runCommandPayload(taskRunDetail)}
 			{@const commandMeta = runCommandResultMeta(taskRunDetail)}
 			{@const outputContent = taskOutputContent(taskRunDetail, taskRunProgress)}
@@ -166,7 +171,7 @@ function userTitle(
 				<header class="flex flex-col gap-4 border-b border-border-subtle/70 pb-5 lg:flex-row lg:items-start lg:justify-between">
 					<div class="min-w-0 space-y-3">
 						<div>
-							<h1 class="text-[24px] font-semibold tracking-tight text-text-primary sm:text-[30px]">{taskTypeLabel(taskRunDetail.taskType)}</h1>
+							<h1 class="text-[24px] font-semibold tracking-tight text-text-primary sm:text-[30px]">{taskTypeLabel(taskRunDetail.taskType, locale)}</h1>
 							<div class="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5">
 								<span class="inline-flex items-center gap-1.5 text-[11px] font-medium {badge.color}">
 									<span class="relative flex h-1.5 w-1.5 shrink-0">
@@ -178,7 +183,7 @@ function userTitle(
 									{badge.label}
 								</span>
 								{@render UserMetaItem(taskRunDetail.userProfile, taskRunDetail.userUuid)}
-								{@render CopyIdMetaItem(taskRunDetail.id, taskCopiedField === "id", () => void taskDetail.copyField("id", taskRunDetail!.id), "Copy task ID")}
+								{@render CopyIdMetaItem(taskRunDetail.id, taskCopiedField === "id", () => void taskDetail.copyField("id", taskRunDetail!.id), m.copy_task_id({}, { locale }))}
 							</div>
 							<div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-text-tertiary">
 								<span>{taskContextLabel(taskRunDetail)}</span>
@@ -190,7 +195,7 @@ function userTitle(
 										href={buildSpaceCronjobRoute(spaceId, taskRunDetail.cronJobId)}
 										class="text-text-secondary transition-colors hover:text-brand"
 										onclick={(e) => { e.preventDefault(); goto(buildSpaceCronjobRoute(spaceId, taskRunDetail!.cronJobId!)); }}
-									>view cronjob</a>
+									>{m.task_view_cronjob({}, { locale })}</a>
 								{/if}
 							</div>
 						</div>
@@ -199,14 +204,14 @@ function userTitle(
 
 				{#if taskIsStreaming(taskRunDetail) && taskRunProgress !== null && taskRunProgress !== undefined}
 					<section class="space-y-2">
-						<div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">Progress</div>
+						<div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">{m.task_section_progress({}, { locale })}</div>
 						<pre class="max-h-[42vh] overflow-auto rounded-[7px] bg-bg-elevated/35 p-3 text-[12px] font-mono leading-relaxed text-text-secondary whitespace-pre-wrap break-all sm:max-h-80">{displaySafeJson(taskRunProgress, { maxStringLength: 12_000 })}</pre>
 					</section>
 				{/if}
 
 				{#if taskRunDetail.taskType === "run_command"}
 					<section class="space-y-2">
-						<div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">Command</div>
+						<div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">{m.task_section_command({}, { locale })}</div>
 						<div class="rounded-[8px] bg-bg-elevated/35 px-4 py-3">
 							<pre class="max-w-full whitespace-pre-wrap break-words font-mono text-[13px] leading-relaxed text-text-primary sm:text-[14px]">{commandInfo.command}</pre>
 							<div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-text-tertiary">
@@ -214,8 +219,8 @@ function userTitle(
 								{#if commandMeta.exitCode !== null}
 									<span class="font-mono">exit {commandMeta.exitCode}</span>
 								{/if}
-								<span>{formatDurationMs(commandMeta.durationMs)}</span>
-								<span>{formatDateTime(taskRunDetail.createdAt)}</span>
+								<span>{formatDurationMs(commandMeta.durationMs, locale)}</span>
+								<span>{formatDateTime(taskRunDetail.createdAt, locale)}</span>
 							</div>
 						</div>
 					</section>
@@ -224,14 +229,14 @@ function userTitle(
 				{#if taskRunDetail.taskType === "save_checkpoint"}
 					<section class="flex flex-col gap-3 rounded-[8px] bg-bg-elevated/35 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
 						<div class="min-w-0">
-							<div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">Checkpoint</div>
+							<div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">{m.task_section_checkpoint({}, { locale })}</div>
 							<div class="mt-1 text-[13px] text-text-secondary">
 								{#if resultCheckpointId}
-									Save completed and checkpoint is ready.
+									{m.save_checkpoint_ready({}, { locale })}
 								{:else if saveStageLabel}
 									{saveStageLabel}
 								{:else}
-									Waiting for checkpoint result…
+									{m.task_waiting_checkpoint({}, { locale })}
 								{/if}
 							</div>
 						</div>
@@ -242,7 +247,7 @@ function userTitle(
 								onclick={(e) => { e.preventDefault(); goto(buildSpaceCheckpointRoute(spaceId, resultCheckpointId)); }}
 							>
 								<GitCommitHorizontal class="w-3.5 h-3.5" />
-								<span>View checkpoint</span>
+								<span>{m.task_view_checkpoint({}, { locale })}</span>
 							</a>
 						{/if}
 					</section>
@@ -252,7 +257,7 @@ function userTitle(
 					<div class="min-w-0 space-y-6">
 						{#if generationBlocks.length > 0}
 							<div class="space-y-3">
-								<div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">Output</div>
+								<div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">{m.task_section_output({}, { locale })}</div>
 								<div class="space-y-3">
 									{#each generationBlocks as block, index}
 										{@const blockText = generationBlockText(block)}
@@ -268,7 +273,7 @@ function userTitle(
 											{:else if block.type === "image" && blockSrc}
 												<img src={blockSrc} alt={generationBlockLabel(block, index)} class="max-h-[60vh] w-full rounded-[6px] object-contain" loading="lazy" />
 											{:else if block.type === "video" && blockSrc}
-												<video src={blockSrc} controls class="max-h-[60vh] w-full rounded-[6px]"><track kind="captions" label="Generated video" /></video>
+												<video src={blockSrc} controls class="max-h-[60vh] w-full rounded-[6px]"><track kind="captions" label={m.track_generated_video({}, { locale })} /></video>
 											{:else if block.type === "audio" && blockSrc}
 												<AudioPlayer
 													src={blockSrc}
@@ -283,25 +288,25 @@ function userTitle(
 							</div>
 						{:else if outputContent.length > 0}
 							<div class="space-y-2">
-								<div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">Output</div>
+								<div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">{m.task_section_output({}, { locale })}</div>
 								<MessageContentFlow content={outputContent} thinkingExpanded={true} isStreaming={taskIsStreaming(taskRunDetail)} defaultExpandToolCalls />
 							</div>
 						{:else if taskIsStreaming(taskRunDetail)}
-							<div class="py-6 text-[13px] text-text-tertiary">Waiting for output…</div>
+							<div class="py-6 text-[13px] text-text-tertiary">{m.task_waiting_output({}, { locale })}</div>
 						{/if}
 
 						<div class="grid gap-x-8 gap-y-4 sm:grid-cols-2">
-							<div class="space-y-1"><div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">Scheduled</div><div class="text-[13px] text-text-primary">{formatDateTime(taskRunDetail.scheduledAt)}</div></div>
-							<div class="space-y-1"><div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">Duration</div><div class="text-[13px] text-text-primary">{taskRunDuration(taskRunDetail)}</div></div>
-							<div class="space-y-1"><div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">Started</div><div class="text-[13px] text-text-primary">{formatDateTime(taskRunDetail.startedAt)}</div></div>
-							<div class="space-y-1"><div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">Finished</div><div class="text-[13px] text-text-primary">{formatDateTime(taskRunDetail.finishedAt)}</div></div>
+							<div class="space-y-1"><div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">{m.task_section_scheduled({}, { locale })}</div><div class="text-[13px] text-text-primary">{formatDateTime(taskRunDetail.scheduledAt, locale)}</div></div>
+							<div class="space-y-1"><div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">{m.task_section_duration({}, { locale })}</div><div class="text-[13px] text-text-primary">{taskRunDuration(taskRunDetail, locale)}</div></div>
+							<div class="space-y-1"><div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">{m.task_section_started({}, { locale })}</div><div class="text-[13px] text-text-primary">{formatDateTime(taskRunDetail.startedAt, locale)}</div></div>
+							<div class="space-y-1"><div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">{m.task_section_finished({}, { locale })}</div><div class="text-[13px] text-text-primary">{formatDateTime(taskRunDetail.finishedAt, locale)}</div></div>
 						</div>
 
 						<div class="space-y-2">
 							<div class="flex items-center justify-between gap-3">
-								<div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">Payload</div>
-								<button type="button" class="inline-flex min-h-8 items-center gap-1 rounded-[4px] px-2 py-1 text-[11px] text-text-placeholder transition-colors hover:bg-bg-hover hover:text-text-secondary" onclick={() => void taskDetail.copyField("payload", taskRunDetail!.payload)} title="Copy payload">
-									{#if taskCopiedField === "payload"}<Check class="h-3 w-3 text-success-soft" /><span class="text-success-soft">Copied</span>{:else}<Copy class="h-3 w-3" /><span>Copy</span>{/if}
+								<div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">{m.task_section_payload({}, { locale })}</div>
+								<button type="button" class="inline-flex min-h-8 items-center gap-1 rounded-[4px] px-2 py-1 text-[11px] text-text-placeholder transition-colors hover:bg-bg-hover hover:text-text-secondary" onclick={() => void taskDetail.copyField("payload", taskRunDetail!.payload)} title={m.task_copy_payload({}, { locale })}>
+									{#if taskCopiedField === "payload"}<Check class="h-3 w-3 text-success-soft" /><span class="text-success-soft">{m.copied({}, { locale })}</span>{:else}<Copy class="h-3 w-3" /><span>{m.copy({}, { locale })}</span>{/if}
 								</button>
 							</div>
 							<pre class="max-h-[48vh] overflow-auto rounded-[7px] bg-bg-elevated/35 p-3 text-[12px] font-mono leading-relaxed text-text-secondary whitespace-pre-wrap break-all sm:max-h-[520px]">{displaySafeJson(taskRunDetail.payload)}</pre>
@@ -310,9 +315,9 @@ function userTitle(
 						{#if rawResult}
 							<div class="space-y-2">
 								<div class="flex items-center justify-between gap-3">
-									<div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">Result</div>
-									<button type="button" class="inline-flex min-h-8 items-center gap-1 rounded-[4px] px-2 py-1 text-[11px] text-text-placeholder transition-colors hover:bg-bg-hover hover:text-text-secondary" onclick={() => void taskDetail.copyField("result", rawResult)} title="Copy result">
-										{#if taskCopiedField === "result"}<Check class="h-3 w-3 text-success-soft" /><span class="text-success-soft">Copied</span>{:else}<Copy class="h-3 w-3" /><span>Copy</span>{/if}
+									<div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">{m.task_section_result({}, { locale })}</div>
+									<button type="button" class="inline-flex min-h-8 items-center gap-1 rounded-[4px] px-2 py-1 text-[11px] text-text-placeholder transition-colors hover:bg-bg-hover hover:text-text-secondary" onclick={() => void taskDetail.copyField("result", rawResult)} title={m.task_copy_result({}, { locale })}>
+										{#if taskCopiedField === "result"}<Check class="h-3 w-3 text-success-soft" /><span class="text-success-soft">{m.copied({}, { locale })}</span>{:else}<Copy class="h-3 w-3" /><span>{m.copy({}, { locale })}</span>{/if}
 									</button>
 								</div>
 								<pre class="max-h-[48vh] overflow-auto rounded-[7px] bg-bg-elevated/35 p-3 text-[12px] font-mono leading-relaxed text-text-secondary whitespace-pre-wrap break-all sm:max-h-[520px]">{displaySafeJson(rawResult)}</pre>
@@ -321,7 +326,7 @@ function userTitle(
 
 						{#if taskRunDetail.errorMessage}
 							<div class="rounded-[7px] bg-error-bg p-4">
-								<div class="text-[11px] font-medium uppercase tracking-wider text-error-soft">Error</div>
+								<div class="text-[11px] font-medium uppercase tracking-wider text-error-soft">{m.task_section_error({}, { locale })}</div>
 								<div class="mt-2 text-[13px] text-error-soft whitespace-pre-wrap break-all">{taskRunDetail.errorMessage}</div>
 							</div>
 						{/if}
@@ -329,7 +334,7 @@ function userTitle(
 				</section>
 			</div>
 		{:else}
-			<div class="text-[12px] text-text-tertiary">Task run not found.</div>
+			<div class="text-[12px] text-text-tertiary">{m.task_not_found({}, { locale })}</div>
 		{/if}
 	</div>
 </div>

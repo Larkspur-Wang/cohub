@@ -15,6 +15,8 @@ import {
 	exportBoardImage,
 } from "$lib/board/board-image-export";
 import Dialog from "$lib/components/Dialog.svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 
 const {
 	open,
@@ -32,6 +34,8 @@ const {
 	/** Currently selected ids; enables the Selection scope. */
 	selection: string[];
 } = $props();
+
+const locale = $derived(getLocale());
 
 type Scope = "all" | "selection" | "frame";
 
@@ -83,7 +87,9 @@ const plan = $derived.by(() =>
 	planBoardExport({ document: boardDocument, region, scale }),
 );
 const sizeLabel = $derived(
-	plan ? `${plan.width} × ${plan.height} px` : "Nothing to export",
+	plan
+		? `${plan.width} × ${plan.height} px`
+		: m.board_nothing_export({}, { locale }),
 );
 const clamped = $derived(Boolean(plan?.clamped));
 
@@ -107,7 +113,7 @@ async function run(mode: "download" | "copy") {
 			format: outputFormat,
 		});
 		if (!result) {
-			failure = "That selection has nothing to export.";
+			failure = m.board_nothing_export_detail({}, { locale });
 			return;
 		}
 		warnings = result.warnings;
@@ -128,18 +134,21 @@ async function run(mode: "download" | "copy") {
 		downloadBlob(result.blob, boardExportFilename(title, outputFormat, suffix));
 		onClose();
 	} catch (cause) {
-		failure = cause instanceof Error ? cause.message : "Export failed.";
+		failure =
+			cause instanceof Error
+				? cause.message
+				: m.board_export_failed({}, { locale });
 	} finally {
 		busy = null;
 	}
 }
 </script>
 
-<Dialog {open} {onClose} title="Export image" maxWidth="440px">
+<Dialog {open} {onClose} title={m.board_export_image({}, { locale })} maxWidth="440px">
 	<div class="flex flex-col gap-4 px-4 py-3">
 		<fieldset class="flex flex-col gap-1.5">
-			<legend class="export-label">Area</legend>
-			<div class="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Export area">
+			<legend class="export-label">{m.board_area({}, { locale })}</legend>
+			<div class="flex flex-wrap gap-1.5" role="radiogroup" aria-label={m.board_export_area({}, { locale })}>
 				<button
 					type="button"
 					class="chip"
@@ -147,7 +156,7 @@ async function run(mode: "download" | "copy") {
 					aria-pressed={scope === "all"}
 					onclick={() => { scope = "all"; }}
 				>
-					Whole board
+					{m.board_whole_board({}, { locale })}
 				</button>
 				<button
 					type="button"
@@ -157,7 +166,7 @@ async function run(mode: "download" | "copy") {
 					disabled={!hasSelection}
 					onclick={() => { scope = "selection"; }}
 				>
-					Selection{hasSelection ? ` (${selection.length})` : ""}
+					{m.board_selection_chip({}, { locale })}{hasSelection ? ` (${selection.length})` : ""}
 				</button>
 				{#if frames.length > 0}
 					<button
@@ -173,10 +182,10 @@ async function run(mode: "download" | "copy") {
 			</div>
 			{#if scope === "frame" && frames.length > 0}
 				<label class="mt-1 flex flex-col gap-1">
-					<span class="sr-only">Frame to export</span>
+					<span class="sr-only">{m.board_frame_to_export({}, { locale })}</span>
 					<select class="export-select" bind:value={frameId}>
 						{#each frames as frame (frame.id)}
-							<option value={frame.id}>{frame.label || "Frame"}</option>
+							<option value={frame.id}>{frame.label || m.board_frame({}, { locale })}</option>
 						{/each}
 					</select>
 				</label>
@@ -184,8 +193,8 @@ async function run(mode: "download" | "copy") {
 		</fieldset>
 
 		<fieldset class="flex flex-col gap-1.5">
-			<legend class="export-label">Scale</legend>
-			<div class="flex gap-1.5" role="radiogroup" aria-label="Export scale">
+			<legend class="export-label">{m.board_scale({}, { locale })}</legend>
+			<div class="flex gap-1.5" role="radiogroup" aria-label={m.board_export_scale({}, { locale })}>
 				{#each SCALES as option (option)}
 					<button
 						type="button"
@@ -201,8 +210,8 @@ async function run(mode: "download" | "copy") {
 		</fieldset>
 
 		<fieldset class="flex flex-col gap-1.5">
-			<legend class="export-label">Format</legend>
-			<div class="flex gap-1.5" role="radiogroup" aria-label="Export format">
+			<legend class="export-label">{m.board_format({}, { locale })}</legend>
+			<div class="flex gap-1.5" role="radiogroup" aria-label={m.board_export_format({}, { locale })}>
 				{#each FORMATS as option (option.id)}
 					<button
 						type="button"
@@ -221,9 +230,9 @@ async function run(mode: "download" | "copy") {
 					bind:checked={transparent}
 					disabled={!transparencySupported}
 				/>
-				Transparent background
+				{m.board_transparent_bg({}, { locale })}
 				{#if !transparencySupported}
-					<span class="text-text-tertiary">(JPEG has no transparency)</span>
+					<span class="text-text-tertiary">{m.board_jpeg_no_alpha({}, { locale })}</span>
 				{/if}
 			</label>
 		</fieldset>
@@ -232,7 +241,7 @@ async function run(mode: "download" | "copy") {
 			{sizeLabel}
 			{#if clamped}
 				<span class="text-warning-400">
-					· reduced to stay under {BOARD_EXPORT_MAX_EDGE}px
+					· {m.board_reduced_to({ max: BOARD_EXPORT_MAX_EDGE }, { locale })}
 				</span>
 			{/if}
 		</p>
@@ -260,7 +269,7 @@ async function run(mode: "download" | "copy") {
 				{:else}
 					<Copy size={14} />
 				{/if}
-				{copied ? "Copied" : "Copy"}
+				{copied ? m.board_copied({}, { locale }) : m.board_copy({}, { locale })}
 			</button>
 			<button
 				type="button"
@@ -273,7 +282,7 @@ async function run(mode: "download" | "copy") {
 				{:else}
 					<Download size={14} />
 				{/if}
-				Download
+				{m.download({}, { locale })}
 			</button>
 		</div>
 	{/snippet}

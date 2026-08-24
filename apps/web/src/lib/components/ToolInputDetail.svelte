@@ -3,6 +3,8 @@ import {
 	formatToolInputView,
 	type ToolInputSection,
 } from "$lib/components/tool-call-format";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 
 type Props = {
 	name: string;
@@ -18,7 +20,8 @@ const {
 	autoFollow = false,
 }: Props = $props();
 
-const view = $derived(formatToolInputView(name, input));
+const locale = $derived(getLocale());
+const view = $derived(formatToolInputView(name, input, locale));
 let expandedSections = $state<Record<string, boolean>>({});
 
 function toggleSection(id: string) {
@@ -160,7 +163,9 @@ function sectionFollowValue(section: ToolInputSection) {
 								aria-controls={sectionBodyId(section)}
 								onclick={() => toggleSection(section.id)}
 							>
-								{isExpanded(section) ? 'Collapse' : 'Show full'}
+								{isExpanded(section)
+									? m.common_collapse({}, { locale })
+									: m.common_show_full({}, { locale })}
 							</button>
 						{/if}
 					</div>

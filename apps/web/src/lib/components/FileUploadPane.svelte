@@ -2,6 +2,8 @@
 import { AlertCircle, Check, RefreshCw, Upload, X } from "lucide-svelte";
 import { onDestroy } from "svelte";
 import UploadProgress from "$lib/components/UploadProgress.svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 import { uploadSpaceEntries } from "$lib/space-upload";
 import type { LocalUploadEntry } from "$lib/upload-entries";
 
@@ -37,6 +39,8 @@ const {
 	onClose?: () => void;
 	onComplete?: () => void;
 } = $props();
+
+const locale = $derived(getLocale());
 
 let items = $state<UploadItem[]>([]);
 
@@ -191,7 +195,10 @@ async function uploadAll(batchId: string, uploadTargetDir: string) {
 			return;
 		}
 		stage = "error";
-		const message = error instanceof Error ? error.message : "Upload failed";
+		const message =
+			error instanceof Error
+				? error.message
+				: m.upload_failed_generic({}, { locale });
 		items = items.map((item) =>
 			item.status === "done"
 				? item
@@ -242,25 +249,27 @@ onDestroy(() => {
     <div class="header">
       <span class="title">
         {#if stage === "preparing"}
-          Preparing upload…
+          {m.upload_preparing({}, { locale })}
         {:else if stage === "uploading"}
-          Uploading files · {progressPercent}%
+          {m.upload_uploading({ percent: progressPercent }, { locale })}
         {:else if importing.length > 0 || stage === "importing"}
-          Finalizing files…
+          {m.upload_finalizing({}, { locale })}
         {:else if failed.length > 0}
-          Upload failed · {failed.length} file{failed.length !== 1 ? 's' : ''}
+          {failed.length === 1
+            ? m.upload_failed({ count: failed.length }, { locale })
+            : m.upload_failed_many({ count: failed.length }, { locale })}
         {:else}
-          Upload complete
+          {m.upload_complete({}, { locale })}
         {/if}
       </span>
       {#if stage !== "importing"}
         <div class="header-actions">
           {#if stage === "error"}
-            <button class="close-btn" type="button" onclick={handleRetry} title="Retry upload" aria-label="Retry upload">
+            <button class="close-btn" type="button" onclick={handleRetry} title={m.upload_retry({}, { locale })} aria-label={m.upload_retry({}, { locale })}>
               <RefreshCw class="w-3.5 h-3.5" />
             </button>
           {/if}
-          <button class="close-btn" type="button" onclick={handleDismiss} title={stage === "preparing" || stage === "uploading" ? "Cancel upload" : "Close"} aria-label={stage === "preparing" || stage === "uploading" ? "Cancel upload" : "Close"}>
+          <button class="close-btn" type="button" onclick={handleDismiss} title={stage === "preparing" || stage === "uploading" ? m.upload_cancel({}, { locale }) : m.upload_close({}, { locale })} aria-label={stage === "preparing" || stage === "uploading" ? m.upload_cancel({}, { locale }) : m.upload_close({}, { locale })}>
             <X class="w-3.5 h-3.5" />
           </button>
         </div>
@@ -268,7 +277,7 @@ onDestroy(() => {
     </div>
 
     {#if stage !== "error"}
-      <UploadProgress value={stage === "uploading" || stage === "done" ? progressPercent : null} label={stage === "importing" ? "Finalizing files" : "File upload progress"} />
+      <UploadProgress value={stage === "uploading" || stage === "done" ? progressPercent : null} label={stage === "importing" ? m.upload_finalizing_label({}, { locale }) : m.upload_progress_label({}, { locale })} />
     {/if}
 
     <div class="list">
@@ -290,7 +299,9 @@ onDestroy(() => {
     </div>
 
     <div class="footer">
-      {totalCount} file{totalCount !== 1 ? 's' : ''} · {formatSize(stage === "uploading" ? uploadedBytes : stage === "preparing" ? 0 : totalBytes)} / {formatSize(totalBytes)}{#if queuedBatches.length > 0} · {queuedBatches.length} queued{/if}
+      {totalCount === 1
+        ? m.upload_file_count_one({ count: totalCount }, { locale })
+        : m.upload_file_count_many({ count: totalCount }, { locale })} · {formatSize(stage === "uploading" ? uploadedBytes : stage === "preparing" ? 0 : totalBytes)} / {formatSize(totalBytes)}{#if queuedBatches.length > 0} · {m.upload_queued({ count: queuedBatches.length }, { locale })}{/if}
     </div>
   </div>
 {/if}

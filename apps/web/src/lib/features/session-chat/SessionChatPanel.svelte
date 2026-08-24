@@ -23,6 +23,8 @@ import {
 	readCohubPathFromDataTransfer,
 } from "$lib/drag/chat-draft-drop";
 import SessionModelSelectorDialog from "$lib/features/space/modules/SessionModelSelectorDialog.svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 import type { NewChatBackgroundConfig } from "$lib/space-config";
 import { insertComposerSnippet } from "$lib/stores/composer-insert";
 import { modelsCatalogStore } from "$lib/stores/models-catalog.svelte";
@@ -56,6 +58,8 @@ let {
 	newChatProfileExpanded?: boolean;
 	newChatProfileViewportEl?: HTMLDivElement | null;
 } = $props();
+
+const locale = $derived(getLocale());
 
 const access = $derived(host.access);
 const activeSessionState = $derived(host.activeSessionState);
@@ -240,12 +244,12 @@ async function handleDraftDrop(event: DragEvent) {
 	</div>
 {/if}
 {#if access.bootstrapping && !activeSessionState && !isNewSessionRoute}
-	<CenteredLoading label="Loading space…" />
+	<CenteredLoading label={m.chat_loading_space({}, { locale })} />
 {:else if !activeSessionState}
 	<div
 		class="flex-1 flex flex-col items-center justify-center text-text-tertiary gap-4"
 	>
-		<div class="text-[14px]">No chat selected</div>
+		<div class="text-[14px]">{m.chat_no_selected({}, { locale })}</div>
 		{#if !access.spaceHasMinimalAccess}
 			<button
 				type="button"
@@ -254,12 +258,12 @@ async function handleDraftDrop(event: DragEvent) {
 				disabled={!access.canCreateSession}
 			>
 				<Plus class="w-3.5 h-3.5" />
-				Create a session
+				{m.chat_create_session({}, { locale })}
 			</button>
 		{/if}
 	</div>
 {:else if activeSessionState.loading && !activeSessionState.loaded && activeSessionState.turns.length === 0 && host.activeSessionInitialLoadingVisible}
-	<CenteredLoading label="Loading turns…" />
+	<CenteredLoading label={m.chat_loading_turns({}, { locale })} />
 {:else}
 	{#if activeSessionState.error}
 		<div class="m-4">
@@ -269,7 +273,7 @@ async function handleDraftDrop(event: DragEvent) {
 	<div
 		class="relative flex-1 min-h-0 flex flex-col overflow-hidden"
 		role="region"
-		aria-label="Chat panel"
+		aria-label={m.chat_panel_aria({}, { locale })}
 		ondragenter={handleDraftDragEnter}
 		ondragover={handleDraftDragOver}
 		ondragleave={handleDraftDragLeave}
@@ -285,10 +289,10 @@ async function handleDraftDrop(event: DragEvent) {
 				>
 					{#if draftDropKind === "files"}
 						<Upload class="h-4 w-4 text-brand" />
-						<span>Drop files to attach</span>
+						<span>{m.chat_drop_files({}, { locale })}</span>
 					{:else}
 						<FileCode2 class="h-4 w-4 text-brand" />
-						<span>Drop to insert path</span>
+						<span>{m.chat_drop_path({}, { locale })}</span>
 					{/if}
 				</div>
 			</div>
@@ -359,8 +363,8 @@ async function handleDraftDrop(event: DragEvent) {
 					<div
 						class="mb-1 flex items-center gap-2 text-[11px] text-text-placeholder"
 					>
-						<span class="font-medium text-text-secondary">Follow-up</span>
-						<span>{followupQueue.length} queued</span>
+						<span class="font-medium text-text-secondary">{m.chat_followup({}, { locale })}</span>
+						<span>{m.chat_queued({ count: followupQueue.length }, { locale })}</span>
 					</div>
 					<div
 						class="max-h-[min(22dvh,9rem)] space-y-1 overflow-y-auto overscroll-contain pr-1 sm:max-h-[min(28vh,12rem)]"
@@ -378,7 +382,7 @@ async function handleDraftDrop(event: DragEvent) {
 									disabled={host.pendingFollowupActionIds.has(turn.id)}
 									onclick={() => {
 										void host.handleSteerFollowup(turn.id);
-									}}>Steer now</button
+									}}>{m.chat_steer_now({}, { locale })}</button
 								>
 								<button
 									type="button"
@@ -386,7 +390,7 @@ async function handleDraftDrop(event: DragEvent) {
 									disabled={host.pendingFollowupActionIds.has(turn.id)}
 									onclick={() => {
 										void host.handleCancelFollowup(turn.id);
-									}}>Cancel</button
+									}}>{m.common_cancel({}, { locale })}</button
 								>
 							</div>
 						{/each}
@@ -413,7 +417,9 @@ async function handleDraftDrop(event: DragEvent) {
 					currentModel={host.composerMode === "create" ? host.activeGenerationModel : host.activeSessionModel}
 					thinkingLevelLabel={host.composerMode === "agent" ? host.activeSessionThinkingLevelLabel : null}
 					generationPolicyLabel={host.composerMode === "agent" ? host.generationPolicyLabel : null}
-					placeholder={host.composerMode === "create" ? "Describe what to create..." : "Send a message..."}
+					placeholder={host.composerMode === "create"
+					? m.chat_describe_create({}, { locale })
+					: m.chat_send_message({}, { locale })}
 					currentSpaceId={host.spaceId}
 					mobileAutoFocusOnMount={isNewSessionRoute && !activeSessionId}
 					promptTemplates={host.promptTemplates}
@@ -489,20 +495,20 @@ async function handleDraftDrop(event: DragEvent) {
 					{#if host.hasUnread}
 						<button
 							type="button"
-							aria-label="Jump to new messages"
+							aria-label={m.chat_jump_new({}, { locale })}
 							class="flex h-7 items-center justify-center rounded-full bg-brand px-2.5 text-[11px] font-semibold leading-none text-brand-contrast-fg transition-colors duration-150 hover:bg-brand-hover active:scale-95"
 							onclick={() => {
 								shouldAutoFollow = true;
 								void host.forceScrollToBottom();
 							}}
 						>
-							New
+							{m.chat_new_messages({}, { locale })}
 						</button>
 					{/if}
 					{#if !shouldAutoFollow}
 						<button
 							type="button"
-							aria-label="Jump to bottom"
+							aria-label={m.chat_jump_bottom({}, { locale })}
 							class="flex h-7 min-w-7 items-center justify-center rounded-full px-1.5 text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary active:scale-95"
 							onclick={() => {
 								shouldAutoFollow = true;
@@ -515,7 +521,7 @@ async function handleDraftDrop(event: DragEvent) {
 					{#if activeTurnRailItems.length > 1}
 						<button
 							type="button"
-							aria-label="Open turn list"
+							aria-label={m.chat_open_turn_list({}, { locale })}
 							class="flex h-7 min-w-7 items-center justify-center rounded-full px-1.5 text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary active:scale-95 lg:hidden"
 							onclick={() => {
 								showTurnBottomSheet = true;

@@ -69,6 +69,8 @@ import {
 	type BoardDropItem,
 	toBoardDropItems,
 } from "$lib/drag/pointer-drag-core";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 import { sdk } from "$lib/sdk";
 import { buildSpaceTaskRoute } from "$lib/space-routes";
 import { SPACE_STYLE_CHANGED_EVENT } from "$lib/space-style";
@@ -135,6 +137,8 @@ const {
 		state: BoardBackgroundLoadState | null,
 	) => void;
 } = $props();
+
+const locale = $derived(getLocale());
 
 let host: HTMLDivElement | null = $state(null);
 let app: Application | null = null;
@@ -1261,7 +1265,7 @@ onMount(async () => {
 			autoStart: false,
 		});
 	} catch (error) {
-		console.error("Board failed to initialize", error);
+		console.error("{m.board_failed_init({}, { locale })}", error);
 		instance.destroy(true);
 		return;
 	}
@@ -1459,7 +1463,7 @@ onDestroy(() => {
 	class="board-stage-host relative isolate h-full w-full overflow-hidden {dropActive ? 'board-drop-active' : ''}"
 	class:bg-bg-primary={Boolean(boardBackdrop)}
 	role="application"
-	aria-label="Board stage"
+	aria-label={m.board_stage_aria({}, { locale })}
 	data-drawer-swipe-ignore
 	style:cursor={cursor}
 	style:touch-action="none"
@@ -1471,7 +1475,7 @@ onDestroy(() => {
 			// rather than silently dropping part of the payload.
 			const items = toBoardDropItems(payload);
 			if (items.length === 0) return null;
-			return { label: "Add to board", effect: "copy" };
+			return { label: m.board_add_to_board({}, { locale }), effect: "copy" };
 		},
 		drop: (payload, point) => {
 			if (readonly) return;

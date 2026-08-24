@@ -7,8 +7,13 @@ import type {
 import { AlertCircle, Check, CreditCard, Loader2, X } from "lucide-svelte";
 import BillingCheckoutSheet from "$lib/components/BillingCheckoutSheet.svelte";
 import Sheet from "$lib/components/Sheet.svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 import { sdk } from "$lib/sdk";
 import { billingCatalogStore } from "$lib/stores/billing-catalog.svelte";
+
+const locale = $derived(getLocale());
+
 import { billingConversion } from "$lib/stores/billing-conversion.svelte";
 
 type PlanInterval = "monthly" | "yearly";
@@ -292,7 +297,7 @@ function startCheckout(product: BillingCatalogProduct) {
 			<div class="min-h-0 flex-1 overflow-y-auto px-5 py-4 pb-safe">
 				<div class="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
 					<div>
-						<div class="text-[11px] text-text-tertiary">Current balance</div>
+						<div class="text-[11px] text-text-tertiary">{m.billing_conv_current_balance({}, { locale })}</div>
 						<div class="mt-1 font-mono text-[14px] text-text-primary">{creditLoading && !balanceLabel ? "Loading" : (balanceLabel ?? "—")}</div>
 						{#if creditError && !balanceLabel}
 							<div class="mt-1 text-[11px] text-error">{creditError}</div>
@@ -324,7 +329,7 @@ function startCheckout(product: BillingCatalogProduct) {
 							<div class="mb-2 flex items-center justify-between gap-3">
 								<div class="text-[11px] font-medium uppercase tracking-[0.12em] text-text-tertiary">{selectedIntervalLabel} plans</div>
 								{#if activePlanInterval === "yearly" && hasYearlyPlans}
-									<div class="text-[11px] text-brand">Best value</div>
+									<div class="text-[11px] text-brand">{m.billing_conv_best_value({}, { locale })}</div>
 								{/if}
 							</div>
 							<div class="grid gap-3 sm:grid-cols-2">

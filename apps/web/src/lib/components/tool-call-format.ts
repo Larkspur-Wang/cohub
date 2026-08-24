@@ -1,5 +1,7 @@
 import type { ContentBlock } from "@cohub/protocol/core";
 import type { MessageToolCallsFile } from "@cohub/protocol/model";
+import type { Locale } from "$lib/i18n/locale";
+import { m } from "$lib/paraglide/messages.js";
 import type { ToolState } from "$lib/session-tree";
 
 export type ToolInputField = {
@@ -121,7 +123,7 @@ export function sanitizeToolDomId(value: string): string {
 	return value.replace(/[^a-zA-Z0-9_-]+/g, "-") || "tool";
 }
 
-export function describeTextValue(value: string): string {
+export function describeTextValue(value: string, locale?: Locale): string {
 	const bytes = new TextEncoder().encode(value).length;
 	const lines = value.length === 0 ? 0 : value.split("\n").length;
 	const size =
@@ -130,7 +132,9 @@ export function describeTextValue(value: string): string {
 			: bytes < 1024 * 1024
 				? `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KB`
 				: `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-	return `${lines} ${lines === 1 ? "line" : "lines"} · ${size}`;
+	return lines === 1
+		? m.tool_lines_one({ lines, size }, { locale })
+		: m.tool_lines_many({ lines, size }, { locale });
 }
 
 export function isLongTextValue(value: string): boolean {
@@ -193,6 +197,7 @@ function replacementDiffLines(
 export function formatToolInputView(
 	name: string,
 	input?: Record<string, unknown>,
+	locale?: Locale,
 ): ToolInputView | null {
 	if (!input || Object.keys(input).length === 0) return null;
 	const view: ToolInputView = { fields: [], sections: [] };
@@ -234,7 +239,7 @@ export function formatToolInputView(
 			view.sections.push({
 				id: "content",
 				label: "content",
-				summary: describeTextValue(input.content),
+				summary: describeTextValue(input.content, locale),
 				kind: "text",
 				value: input.content,
 				collapsible: isLongTextValue(input.content),
@@ -244,7 +249,13 @@ export function formatToolInputView(
 		if (name === "edit" && Array.isArray(input.edits)) {
 			view.fields.push({
 				label: "edits",
-				value: `${input.edits.length} ${input.edits.length === 1 ? "replacement" : "replacements"}`,
+				value:
+					input.edits.length === 1
+						? m.tool_replacements_one({ count: input.edits.length }, { locale })
+						: m.tool_replacements_many(
+								{ count: input.edits.length },
+								{ locale },
+							),
 			});
 			input.edits.forEach((edit, index) => {
 				if (!edit || typeof edit !== "object") {
@@ -264,7 +275,7 @@ export function formatToolInputView(
 					view.sections.push({
 						id: `edit-${index + 1}`,
 						label: `#${index + 1}`,
-						summary: `${describeTextValue(oldText)} → ${describeTextValue(newText)}`,
+						summary: `${describeTextValue(oldText, locale)} → ${describeTextValue(newText, locale)}`,
 						kind: "diff",
 						lines: replacementDiffLines(oldText, newText),
 						collapsible: isLongTextValue(oldText) || isLongTextValue(newText),
@@ -289,8 +300,12 @@ export function formatToolInputView(
 						);
 					}
 					const partialSummary = [
-						typeof oldText === "string" ? describeTextValue(oldText) : "…",
-						typeof newText === "string" ? describeTextValue(newText) : "…",
+						typeof oldText === "string"
+							? describeTextValue(oldText, locale)
+							: "…",
+						typeof newText === "string"
+							? describeTextValue(newText, locale)
+							: "…",
 					].join(" → ");
 					view.sections.push({
 						id: `edit-${index + 1}`,

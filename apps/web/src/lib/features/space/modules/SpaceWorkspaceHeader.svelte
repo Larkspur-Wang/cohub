@@ -21,7 +21,9 @@ import { floatNear } from "$lib/actions/portal";
 import ColumnHeader from "$lib/components/ColumnHeader.svelte";
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
 import { getSessionTitle } from "$lib/features/session-chat";
+import { getLocale } from "$lib/i18n/locale.svelte";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
+import { m } from "$lib/paraglide/messages.js";
 import { uiState } from "$lib/stores/ui.svelte";
 import SpacePresenceStack from "./SpacePresenceStack.svelte";
 
@@ -92,6 +94,8 @@ type Props = {
 };
 
 let { context, sessionRename, resourceActions, actions }: Props = $props();
+
+const locale = $derived(getLocale());
 let sessionRenameInputEl: HTMLInputElement | null = $state(null);
 let resourceActionsRootEl: HTMLElement | null = $state(null);
 let sessionRenameFocused = $state(false);
@@ -183,7 +187,7 @@ function handleSessionRenameKeydown(event: KeyboardEvent) {
 					resourceActionsRootEl = event.currentTarget;
 					actions.toggleResourceActionMenu();
 				}}
-				title="More actions"
+				title={m.space_header_more_actions({}, { locale })}
 				aria-haspopup="menu"
 				aria-expanded={resourceActions.open}
 			>
@@ -216,7 +220,7 @@ function handleSessionRenameKeydown(event: KeyboardEvent) {
 					</button>
 					<button type="button" class="menu-item" onclick={actions.insertHeaderReference} role="menuitem">
 						<TextCursorInput class="h-3.5 w-3.5" />
-						<span>Insert reference</span>
+						<span>{m.space_header_insert_reference({}, { locale })}</span>
 					</button>
 				</div>
 			{/if}
@@ -247,7 +251,7 @@ function handleSessionRenameKeydown(event: KeyboardEvent) {
 					type="button"
 					class="lg:hidden flex items-center justify-center w-9 h-9 -ml-0.5 rounded-[5px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors shrink-0"
 					onclick={() => (uiState.mobileDrawerOpen = !uiState.mobileDrawerOpen)}
-					aria-label="Toggle navigation"
+					aria-label={m.space_header_toggle_nav({}, { locale })}
 				>
 					<Menu class="w-5 h-5" />
 				</button>
@@ -256,7 +260,7 @@ function handleSessionRenameKeydown(event: KeyboardEvent) {
 						type="button"
 						class="inline-flex shrink-0 items-center text-text-primary transition-colors hover:text-text-secondary lg:hidden"
 						title={spaceTitle}
-						aria-label="Open space"
+						aria-label={m.space_header_open_space({}, { locale })}
 					>
 						<SpaceAvatar name={spaceTitle} profile={context.space?.publicProfile} size="xs" />
 					</button>
@@ -267,7 +271,7 @@ function handleSessionRenameKeydown(event: KeyboardEvent) {
 								value={sessionRename.value}
 								type="text"
 								class="max-w-[40vw] min-w-0 flex-1 rounded bg-bg-hover-strong px-1 py-0.5 text-[13px] leading-tight text-text-primary outline-none"
-								placeholder="Session name"
+								placeholder={m.space_header_session_name_ph({}, { locale })}
 								maxlength={80}
 								disabled={sessionRename.saving}
 								oninput={(event) => {
@@ -299,7 +303,7 @@ function handleSessionRenameKeydown(event: KeyboardEvent) {
 						{/if}
 					</div>
 				{:else if routeHeaderTitle}
-					<button type="button" class="inline-flex shrink-0 items-center text-text-primary transition-colors hover:text-text-secondary lg:hidden" title={spaceTitle} aria-label="Open space">
+					<button type="button" class="inline-flex shrink-0 items-center text-text-primary transition-colors hover:text-text-secondary lg:hidden" title={spaceTitle} aria-label={m.space_header_open_space({}, { locale })}>
 						<SpaceAvatar name={spaceTitle} profile={context.space?.publicProfile} size="xs" />
 					</button>
 					<span class="min-w-0 truncate text-[13px] text-text-secondary">{routeHeaderTitle}</span>

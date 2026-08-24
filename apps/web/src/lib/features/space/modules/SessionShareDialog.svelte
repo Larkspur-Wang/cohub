@@ -2,6 +2,8 @@
 import { Check, Copy, Globe, Loader2, Lock, QrCode } from "lucide-svelte";
 import { renderSVG } from "uqr";
 import Dialog from "$lib/components/Dialog.svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 
 type Props = {
 	open: boolean;
@@ -28,6 +30,8 @@ let {
 	onCopyLink,
 	onSetPublic,
 }: Props = $props();
+
+const locale = $derived(getLocale());
 
 const accessBusy = $derived(loadingAccess || saving);
 
@@ -72,7 +76,7 @@ function toggleQr() {
 }
 </script>
 
-<Dialog {open} {onClose} title="Share session" maxWidth="400px">
+<Dialog {open} {onClose} title={m.session_share_title({}, { locale })} maxWidth="400px">
 	<div class="share-panel">
 		<section class="section">
 			<div class="section-label">Link</div>
@@ -117,7 +121,7 @@ function toggleQr() {
 							{@html qrSvg}
 						</div>
 					{:else}
-						<p class="qr-error">Failed to generate QR</p>
+						<p class="qr-error">{m.session_share_qr_failed({}, { locale })}</p>
 					{/if}
 				</div>
 			{/if}
@@ -146,7 +150,7 @@ function toggleQr() {
 					{/if}
 				</div>
 				<div class="access-copy">
-					<div class="access-title">Anyone with the link</div>
+					<div class="access-title">{m.anyone_with_link({}, { locale })}</div>
 					<div class="access-desc">
 						{#if isPublic}
 							Public · view only

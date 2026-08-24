@@ -7,6 +7,8 @@ import type {
 } from "@neta-art/cohub";
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
 import UserIdentity from "$lib/components/UserIdentity.svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 import {
 	displayUserName,
 	formatShortDateTime,
@@ -46,6 +48,8 @@ let {
 	bodyEl = $bindable(),
 	onToggleExpanded,
 }: Props = $props();
+
+const locale = $derived(getLocale());
 
 const spaceName = $derived(space?.name || space?.title || "Untitled space");
 const owner = $derived(space?.ownerProfile ?? null);
@@ -124,12 +128,12 @@ function userTitle(
 				</p>
 			{/if}
 			{#if usage}
-				<p>Over the last {usage.days} days, this Space used <span class="font-mono text-text-secondary">{formatTokenCount(usage.summary.totalTokens)}</span> tokens across <span class="font-mono text-text-secondary">{usage.summary.requestCount}</span> LLM requests, totaling <span class="font-mono text-text-secondary">{formatUsageCost(usage.summary.costTotal)}</span>{#if usage.generation?.summary.requestCount} · generation <span class="font-mono text-text-secondary">{usage.generation.summary.requestCount}</span> requests at <span class="font-mono text-text-secondary">{formatUsageCost(usage.generation.summary.costTotal)}</span> official cost{/if}.</p>
+				<p>{m.space_profile_usage({ days: usage.days, tokens: formatTokenCount(usage.summary.totalTokens), requests: usage.summary.requestCount, cost: formatUsageCost(usage.summary.costTotal, locale), generation: usage.generation?.summary.requestCount ? m.space_profile_generation({ count: usage.generation.summary.requestCount, cost: formatUsageCost(usage.generation.summary.costTotal, locale) }, { locale }) : "" }, { locale })}</p>
 			{/if}
 		</div>
 		{#if canExpand}
 			<button type="button" class="new-chat-profile-expand new-chat-profile-fragment mt-5 text-[12px] text-text-placeholder transition-colors hover:text-text-secondary sm:hidden" style:animation-delay="120ms" onclick={onToggleExpanded} aria-expanded={expanded}>
-				{expanded ? "Show less" : "Show full profile"}
+				{expanded ? m.space_profile_show_less({}, { locale }) : m.space_profile_show_full({}, { locale })}
 			</button>
 		{/if}
 	</div>

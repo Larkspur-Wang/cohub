@@ -8,6 +8,8 @@ import AppAuthorizeDialog from "$lib/features/app/AppAuthorizeDialog.svelte";
 import AppPurchaseDialog from "$lib/features/app/AppPurchaseDialog.svelte";
 import { createAppBridgeHost } from "$lib/features/app/bridge-host.svelte";
 import type { PreviewCaptureTarget } from "$lib/features/preview-mark";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 import {
 	createSpacePreviewSessionController,
 	type SpacePreviewTarget,
@@ -38,6 +40,8 @@ let {
 	onOpenFile?: (target: WorkspaceFileLinkTarget) => void | Promise<void>;
 } = $props();
 
+const locale = $derived(getLocale());
+
 const previewOrigin =
 	publicEnv.PUBLIC_PREVIEW_ORIGIN?.replace(/\/+$/, "") ?? "";
 let frame: HTMLIFrameElement | null = $state(null);
@@ -55,7 +59,7 @@ const previewSession = createSpacePreviewSessionController({
 		canUsePreviewOrigin && spaceId && path
 			? { origin: previewOrigin, spaceId, path }
 			: null,
-	errorMessage: "Preview failed to load.",
+	errorMessage: () => m.preview_failed({}, { locale }),
 });
 
 // Auto-enable the app bridge when this HTML file is a published app.
@@ -137,12 +141,12 @@ onDestroy(() => {
 			<iframe
 				bind:this={frame}
 				class="min-h-0 flex-1 border-0 bg-white"
-				title={`HTML preview: ${name}`}
+				title={m.html_preview_title({ name }, { locale })}
 				sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals"
 				src={previewSession.src}
 			></iframe>
 		{:else}
-			<div class="flex flex-1 items-center justify-center p-4 text-xs text-text-tertiary">Loading preview…</div>
+			<div class="flex flex-1 items-center justify-center p-4 text-xs text-text-tertiary">{m.loading_preview({}, { locale })}</div>
 		{/if}
 	</div>
 	{#if host}
@@ -170,7 +174,7 @@ onDestroy(() => {
 		<iframe
 			bind:this={frame}
 			class="h-full w-full border-0 bg-white"
-			title={`HTML preview: ${name}`}
+			title={m.html_preview_title({ name }, { locale })}
 			sandbox="allow-scripts"
 		></iframe>
 	</div>

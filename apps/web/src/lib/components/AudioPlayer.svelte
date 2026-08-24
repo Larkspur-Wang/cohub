@@ -9,6 +9,8 @@ import {
 	VolumeX,
 } from "lucide-svelte";
 import { onDestroy } from "svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 
 type Props = {
 	src: string;
@@ -25,6 +27,8 @@ let {
 	downloadUrl = null,
 	downloadName = null,
 }: Props = $props();
+
+const locale = $derived(getLocale());
 
 const PLAYBACK_RATES = [0.75, 1, 1.25, 1.5, 2] as const;
 
@@ -200,7 +204,7 @@ onDestroy(() => {
 		</div>
 		<div class="audio-error-body">
 			<div class="audio-title">Audio unavailable</div>
-			<div class="audio-error-hint">Playback failed or the file can't be read.</div>
+			<div class="audio-error-hint">{m.audio_playback_failed({}, { locale })}</div>
 		</div>
 		{#if downloadUrl}
 			<a
@@ -208,7 +212,7 @@ onDestroy(() => {
 				href={downloadUrl}
 				download={downloadName ?? title ?? "audio"}
 				title="Download"
-				aria-label="Download audio"
+				aria-label={m.audio_download({}, { locale })}
 			>
 				<Download class="h-4 w-4" />
 			</a>
@@ -241,7 +245,7 @@ onDestroy(() => {
 					type="button"
 					class="audio-rate"
 					onclick={cycleRate}
-					title="Playback speed"
+					title={m.audio_playback_speed({}, { locale })}
 					aria-label={`Playback speed ${currentRate}x`}
 				>
 					{currentRate}x
@@ -252,7 +256,7 @@ onDestroy(() => {
 						href={downloadUrl}
 						download={downloadName ?? title ?? "audio"}
 						title="Download"
-						aria-label="Download audio"
+						aria-label={m.audio_download({}, { locale })}
 					>
 						<Download class="h-4 w-4" />
 					</a>

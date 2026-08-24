@@ -6,6 +6,8 @@ import type {
 import { Loader2 } from "lucide-svelte";
 import { onDestroy } from "svelte";
 import TurnNavigatorPanel from "$lib/components/TurnNavigatorPanel.svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 
 type Marker = {
 	turn: SessionTurnIndexItem;
@@ -62,6 +64,8 @@ let {
 	onLoadOlder,
 	onLoadNewer,
 }: Props = $props();
+
+const locale = $derived(getLocale());
 
 let navigatorOpen = $state(false);
 let railEl = $state<HTMLDivElement | null>(null);
@@ -286,7 +290,7 @@ onDestroy(() => {
 				type="button"
 				bind:this={trackEl}
 				class="group/scroll pointer-events-auto absolute right-[4px] top-0 z-0 h-full w-5 cursor-pointer rounded-full border-0 bg-transparent p-0 outline-none focus-visible:ring-2 focus-visible:ring-brand/25"
-				aria-label="Scroll session"
+				aria-label={m.turnrail_scroll({}, { locale })}
 				tabindex="-1"
 				onpointerdown={(event) =>
 					startScrollDrag(
@@ -308,7 +312,9 @@ onDestroy(() => {
 			<button
 				type="button"
 				class="group pointer-events-auto absolute -top-0.5 right-[2px] flex h-6 w-6 items-center justify-center"
-				aria-label={olderCount > 0 ? `Load ${olderCount} older turns` : "Load older turns"}
+				aria-label={olderCount > 0
+								? m.turnrail_load_older_n({ count: olderCount }, { locale })
+								: m.turnrail_load_older({}, { locale })}
 				onclick={() => onLoadOlder?.()}
 			>
 				<span class="absolute h-4 w-1 rounded-full bg-gradient-to-b from-text-placeholder/55 to-transparent opacity-70 transition-opacity group-hover:opacity-100"></span>
@@ -320,7 +326,7 @@ onDestroy(() => {
 					<span class="absolute top-2.5 h-1 w-1 rounded-full bg-text-placeholder/25"></span>
 				{/if}
 				<span class="pointer-events-none absolute right-7 hidden whitespace-nowrap rounded-md border border-border-subtle bg-bg-primary px-2 py-1 text-[10px] text-text-tertiary shadow-[0_6px_20px_rgba(0,0,0,0.18)] group-hover:block">
-					{countLabel(olderCount)} older unloaded
+					{m.turnrail_older_unloaded({ count: countLabel(olderCount) }, { locale })}
 				</span>
 			</button>
 		{/if}
@@ -329,7 +335,7 @@ onDestroy(() => {
 				type="button"
 				class="group pointer-events-auto absolute right-[2px] z-20 flex h-6 w-6 items-start justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
 				style:top={`${marker.top}%`}
-				aria-label={`Jump to turn ${marker.turn.sequence}`}
+				aria-label={m.turnrail_jump_turn({ n: marker.turn.sequence }, { locale })}
 				onfocus={() => openNavigatorForSequence(marker.turn.sequence)}
 				onmouseenter={() => openNavigatorForSequence(marker.turn.sequence)}
 				onpointerdown={(event) => event.stopPropagation()}
@@ -352,7 +358,9 @@ onDestroy(() => {
 			<button
 				type="button"
 				class="group pointer-events-auto absolute -bottom-0.5 right-[2px] flex h-6 w-6 items-center justify-center"
-				aria-label={newerCount > 0 ? `Load ${newerCount} newer turns` : "Load newer turns"}
+				aria-label={newerCount > 0
+								? m.turnrail_load_newer_n({ count: newerCount }, { locale })
+								: m.turnrail_load_newer({}, { locale })}
 				onclick={() => onLoadNewer?.()}
 			>
 				<span class="absolute h-4 w-1 rounded-full bg-gradient-to-t from-text-placeholder/55 to-transparent opacity-70 transition-opacity group-hover:opacity-100"></span>
@@ -360,7 +368,7 @@ onDestroy(() => {
 				<span class="absolute bottom-1 h-1 w-1 rounded-full bg-text-placeholder/45"></span>
 				<span class="absolute bottom-2.5 h-1 w-1 rounded-full bg-text-placeholder/25"></span>
 				<span class="pointer-events-none absolute right-7 hidden whitespace-nowrap rounded-md border border-border-subtle bg-bg-primary px-2 py-1 text-[10px] text-text-tertiary shadow-[0_6px_20px_rgba(0,0,0,0.18)] group-hover:block">
-					{countLabel(newerCount)} newer unloaded
+					{m.turnrail_newer_unloaded({ count: countLabel(newerCount) }, { locale })}
 				</span>
 			</button>
 		{/if}

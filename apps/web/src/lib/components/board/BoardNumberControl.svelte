@@ -1,5 +1,7 @@
 <script lang="ts">
 import { Minus, Plus } from "lucide-svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 
 const {
 	value,
@@ -18,6 +20,8 @@ const {
 	label: string;
 	onChange: (value: number) => void;
 } = $props();
+
+const locale = $derived(getLocale());
 
 let input: HTMLInputElement | null = null;
 

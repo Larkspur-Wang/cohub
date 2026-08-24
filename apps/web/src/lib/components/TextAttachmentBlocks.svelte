@@ -3,6 +3,8 @@ import type { ContentBlock } from "@cohub/protocol/core";
 import { ArrowUpRight } from "lucide-svelte";
 import Dialog from "$lib/components/Dialog.svelte";
 import { mediaLightbox } from "$lib/components/media-lightbox.svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 
 type TextBlock = Extract<ContentBlock, { type: "text" }>;
 type ImageBlock = Extract<ContentBlock, { type: "image" }>;
@@ -15,6 +17,7 @@ type Props = {
 
 const { blocks }: Props = $props();
 
+const locale = $derived(getLocale());
 let previewTextBlock = $state<TextBlock | null>(null);
 
 function isTextAttachment(block: ContentBlock): block is TextBlock {
@@ -80,13 +83,13 @@ function openImagePreview(block: ImageBlock) {
 					onclick={() => {
 						previewTextBlock = block;
 					}}
-					title="Preview file"
-					aria-label={`Preview ${getFilename(block, index)}`}
+					title={m.attach_preview_file({}, { locale })}
+					aria-label={m.attach_preview_named({ name: getFilename(block, index) }, { locale })}
 				>
 					<div class="min-w-0 flex-1 pr-4">
 						<div class="truncate text-[12px] font-medium leading-4 text-text-primary" title={getFilename(block, index)}>{getFilename(block, index)}</div>
 						<div class="mt-0.5 flex items-center gap-1.5 text-[10px] leading-3 text-text-tertiary">
-							<span>Text</span>
+							<span>{m.attach_text({}, { locale })}</span>
 							{#if getSizeLabel(block)}
 								<span aria-hidden="true">·</span>
 								<span>{getSizeLabel(block)}</span>
@@ -100,8 +103,8 @@ function openImagePreview(block: ImageBlock) {
 					type="button"
 					class="group h-20 w-20 shrink-0 cursor-zoom-in overflow-hidden rounded-2xl border border-border-subtle bg-bg-hover/45 p-0 transition-colors hover:border-border-strong"
 					onclick={() => openImagePreview(block)}
-					title="Preview image"
-					aria-label={`Preview ${getFilename(block, index)}`}
+					title={m.attach_preview_image({}, { locale })}
+					aria-label={m.attach_preview_named({ name: getFilename(block, index) }, { locale })}
 				>
 					<img src={getImageSrc(block)} alt={getFilename(block, index)} class="h-full w-full object-contain transition-transform duration-200 group-hover:scale-[1.02]" />
 				</button>
@@ -115,7 +118,7 @@ function openImagePreview(block: ImageBlock) {
 	onClose={() => {
 		previewTextBlock = null;
 	}}
-	title={previewTextBlock ? getFilename(previewTextBlock, 0) : "File preview"}
+	title={previewTextBlock ? getFilename(previewTextBlock, 0) : m.attach_file_preview({}, { locale })}
 	maxWidth="860px"
 >
 	{#if previewTextBlock}

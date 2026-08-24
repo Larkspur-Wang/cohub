@@ -1,4 +1,7 @@
 <script lang="ts">
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
+
 type Props = {
 	label?: string | null;
 	model?: string | null;
@@ -10,9 +13,12 @@ const {
 	model = null,
 	compact = false,
 }: Props = $props();
+const locale = $derived(getLocale());
 const label = $derived(
 	labelInput?.trim() ||
-		(model?.trim() ? `waiting ${model.trim()}` : "waiting model"),
+		(model?.trim()
+			? m.runtime_waiting_model_name({ model: model.trim() }, { locale })
+			: m.runtime_waiting_model({}, { locale })),
 );
 </script>
 

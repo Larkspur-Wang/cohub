@@ -1,15 +1,19 @@
 <script lang="ts">
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
+
 type Props = {
 	value?: number | null;
 	label?: string;
 	class?: string;
 };
 
-let {
-	value = null,
-	label = "Upload progress",
-	class: className = "",
-}: Props = $props();
+let { value = null, label = "", class: className = "" }: Props = $props();
+
+const locale = $derived(getLocale());
+const resolvedLabel = $derived(
+	label || m.upload_progress_label({}, { locale }),
+);
 
 const normalizedValue = $derived(
 	value === null ? null : Math.max(0, Math.min(100, value)),
@@ -20,7 +24,7 @@ const normalizedValue = $derived(
 	class={`upload-progress ${className}`}
 	class:indeterminate={normalizedValue === null}
 	role="progressbar"
-	aria-label={label}
+	aria-label={resolvedLabel}
 	aria-valuemin="0"
 	aria-valuemax="100"
 	aria-valuenow={normalizedValue ?? undefined}

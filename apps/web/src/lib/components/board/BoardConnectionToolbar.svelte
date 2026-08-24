@@ -13,8 +13,12 @@ import {
 } from "lucide-svelte";
 import { canTapSelectWithHand } from "$lib/board/board-tool";
 import type { BoardEditor } from "$lib/board/editor.svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 
 const { editor }: { editor: BoardEditor } = $props();
+
+const locale = $derived(getLocale());
 
 /**
  * Show only when exactly one connection is selected and no gesture is running.
@@ -60,12 +64,24 @@ type DirectionOption = {
 	icon: typeof Minus;
 };
 
-const DIRECTION_OPTIONS: DirectionOption[] = [
-	{ id: "none", label: "No direction", icon: Minus },
-	{ id: "forward", label: "Source → Target", icon: ArrowRight },
-	{ id: "backward", label: "Target → Source", icon: ArrowLeft },
-	{ id: "both", label: "Bidirectional", icon: ArrowRightLeft },
-];
+const DIRECTION_OPTIONS = $derived<DirectionOption[]>([
+	{ id: "none", label: m.board_no_direction({}, { locale }), icon: Minus },
+	{
+		id: "forward",
+		label: m.board_direction_source_target({}, { locale }),
+		icon: ArrowRight,
+	},
+	{
+		id: "backward",
+		label: m.board_direction_target_source({}, { locale }),
+		icon: ArrowLeft,
+	},
+	{
+		id: "both",
+		label: m.board_direction_bidirectional({}, { locale }),
+		icon: ArrowRightLeft,
+	},
+]);
 
 function setDirection(direction: BoardConnectionDirection) {
 	if (!connection) return;
@@ -91,10 +107,10 @@ function deleteSelected() {
 		style:left="{position.left}px"
 		style:top="{position.top}px"
 		role="toolbar"
-		aria-label="Connection actions"
+		aria-label={m.board_connection_actions({}, { locale })}
 	>
 		<!-- Direction -->
-		<div class="group" role="group" aria-label="Direction">
+		<div class="group" role="group" aria-label={m.board_direction_label({}, { locale })}>
 			{#each DIRECTION_OPTIONS as option (option.id)}
 				<button
 					type="button"
@@ -113,7 +129,7 @@ function deleteSelected() {
 		<div class="divider"></div>
 
 		<!-- Color -->
-		<div class="color-list" role="group" aria-label="Color">
+		<div class="color-list" role="group" aria-label={m.board_color({}, { locale })}>
 			{#each BOARD_COLORS as color (color.id)}
 				<button
 					type="button"
@@ -132,8 +148,8 @@ function deleteSelected() {
 		<button
 			type="button"
 			class="conn-btn conn-btn--danger"
-			title="Delete connection"
-			aria-label="Delete connection"
+			title={m.board_delete_connection({}, { locale })}
+			aria-label={m.board_delete_connection({}, { locale })}
 			onclick={deleteSelected}
 		>
 			<Trash2 class="h-3.5 w-3.5" />

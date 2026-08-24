@@ -3,6 +3,8 @@ import type {
 	CheckpointDiffStatus,
 	SpacePendingDiffFileResponse,
 } from "@neta-art/cohub";
+import type { Locale } from "$lib/i18n/locale";
+import { m } from "$lib/paraglide/messages.js";
 
 export type FileViewMode = "source" | "preview" | "diff";
 
@@ -30,21 +32,22 @@ export function formatDiffCounts(
 
 export function diffStatusLabel(
 	status: CheckpointDiffStatus | null | undefined,
+	locale?: Locale,
 ): string {
 	switch (status) {
 		case "A":
-			return "Added";
+			return m.diff_status_added({}, { locale });
 		case "M":
 		case "T":
-			return "Modified";
+			return m.diff_status_modified({}, { locale });
 		case "D":
-			return "Deleted";
+			return m.diff_status_deleted({}, { locale });
 		case "R":
-			return "Renamed";
+			return m.diff_status_renamed({}, { locale });
 		case "C":
-			return "Copied";
+			return m.diff_status_copied({}, { locale });
 		default:
-			return "Changed";
+			return m.diff_status_changed({}, { locale });
 	}
 }
 

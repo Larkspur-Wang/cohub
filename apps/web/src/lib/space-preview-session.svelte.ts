@@ -9,7 +9,7 @@ export type SpacePreviewTarget = {
 
 type SpacePreviewSessionOptions = {
 	getTarget: () => SpacePreviewTarget | null;
-	errorMessage: string;
+	errorMessage: () => string;
 };
 
 const RETRY_DELAY_MS = 1_000;
@@ -75,7 +75,9 @@ export function createSpacePreviewSessionController(
 				return;
 			if (!existingSrc) {
 				error =
-					loadError instanceof Error ? loadError.message : options.errorMessage;
+					loadError instanceof Error
+						? loadError.message
+						: options.errorMessage();
 			}
 			const attempt = loadOptions.attempt ?? 0;
 			timer = setTimeout(

@@ -10,6 +10,8 @@ import {
 	type RemoteBoardAwarenessPeer,
 } from "$lib/board/board-awareness";
 import UserAvatar from "$lib/components/UserAvatar.svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 
 type Props = {
 	peers: RemoteBoardAwarenessPeer[];
@@ -33,6 +35,8 @@ let {
 	isMobile,
 	onOpenActivity,
 }: Props = $props();
+
+const locale = $derived(getLocale());
 
 /** Touch has no hover: hold the last contact briefly, then fade it out. */
 const TOUCH_HOLD_MS = 700;

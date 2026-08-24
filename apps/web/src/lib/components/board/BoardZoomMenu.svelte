@@ -1,16 +1,22 @@
 <script lang="ts">
 import { LocateFixed, Minus, Plus } from "lucide-svelte";
 import type { BoardEditor } from "$lib/board/editor.svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 
 const {
 	editor,
 	immersive = false,
 }: { editor: BoardEditor; immersive?: boolean } = $props();
 
+const locale = $derived(getLocale());
+
 const zoomPercent = $derived(Math.round(editor.camera.zoom * 100));
 const hasFocusableSelection = $derived(editor.hasFocusableSelection);
 const focusLabel = $derived(
-	hasFocusableSelection ? "Zoom to selection" : "Zoom to fit",
+	hasFocusableSelection
+		? m.board_zoom_selection({}, { locale })
+		: m.board_zoom_fit({}, { locale }),
 );
 
 function focusContent() {
@@ -20,7 +26,7 @@ function focusContent() {
 </script>
 
 <div class="board-zoom-menu" class:board-zoom-menu--immersive={immersive}>
-	<button type="button" class="zoom-btn" title="Zoom out" aria-label="Zoom out" onclick={() => editor.zoomOut()}>
+	<button type="button" class="zoom-btn" title={m.board_zoom_out({}, { locale })} aria-label={m.board_zoom_out({}, { locale })} onclick={() => editor.zoomOut()}>
 		<Minus class="h-3.5 w-3.5" />
 	</button>
 	<button
@@ -32,7 +38,7 @@ function focusContent() {
 	>
 		{zoomPercent}%
 	</button>
-	<button type="button" class="zoom-btn" title="Zoom in" aria-label="Zoom in" onclick={() => editor.zoomIn()}>
+	<button type="button" class="zoom-btn" title={m.board_zoom_in({}, { locale })} aria-label={m.board_zoom_in({}, { locale })} onclick={() => editor.zoomIn()}>
 		<Plus class="h-3.5 w-3.5" />
 	</button>
 	<div class="divider"></div>

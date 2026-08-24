@@ -8,6 +8,8 @@ import { Image, Palette, RotateCcw, X } from "lucide-svelte";
 import { untrack } from "svelte";
 import type { BoardBackgroundLoadState } from "$lib/board/board-theme";
 import type { BoardEditor } from "$lib/board/editor.svelte";
+import { getLocale } from "$lib/i18n/locale.svelte";
+import { m } from "$lib/paraglide/messages.js";
 
 const {
 	editor,
@@ -18,6 +20,8 @@ const {
 	loadState?: BoardBackgroundLoadState | null;
 	onClose: () => void;
 } = $props();
+
+const locale = $derived(getLocale());
 
 const initialBackground = untrack(() => editor.appearance.background);
 const presetColors = [
@@ -41,7 +45,7 @@ const imageStatus = $derived.by(() => {
 const imageError = $derived(
 	validationError ??
 		(imageStatus === "error"
-			? "Image could not be loaded. The fallback color is still active."
+			? "{m.board_image_load_failed({}, { locale })}"
 			: null),
 );
 
@@ -97,59 +101,59 @@ function reset() {
 }
 </script>
 
-<div class="appearance-popover" role="dialog" aria-label="Board appearance">
+<div class="appearance-popover" role="dialog" aria-label={m.board_appearance({}, { locale })}>
 	<div class="appearance-header">
-		<div class="appearance-title"><Palette class="h-3.5 w-3.5" /> Board appearance</div>
-		<button type="button" class="icon-button" title="Close" aria-label="Close" onclick={onClose}>
+		<div class="appearance-title"><Palette class="h-3.5 w-3.5" /> {m.board_appearance({}, { locale })}</div>
+		<button type="button" class="icon-button" title={m.board_close({}, { locale })} aria-label={m.board_close({}, { locale })} onclick={onClose}>
 			<X class="h-4 w-4" />
 		</button>
 	</div>
 
-	<div class="mode-tabs" role="tablist" aria-label="Background type">
+	<div class="mode-tabs" role="tablist" aria-label={m.board_bg_type({}, { locale })}>
 		<button type="button" class:active={mode === "color"} role="tab" aria-selected={mode === "color"} onclick={() => { mode = "color"; }}>
-			<Palette class="h-3.5 w-3.5" /> Color
+			<Palette class="h-3.5 w-3.5" /> {m.board_color({}, { locale })}
 		</button>
 		<button type="button" class:active={mode === "image"} role="tab" aria-selected={mode === "image"} onclick={() => { mode = "image"; }}>
-			<Image class="h-3.5 w-3.5" /> Image
+			<Image class="h-3.5 w-3.5" /> {m.board_image_mode({}, { locale })}
 		</button>
 	</div>
 
 	{#if mode === "color"}
 		<div class="color-section">
-			<div class="swatches" role="group" aria-label="Background color presets">
+			<div class="swatches" role="group" aria-label={m.board_bg_presets({}, { locale })}>
 				{#each presetColors as color (color)}
-					<button type="button" class="swatch" class:selected={editor.appearance.background.kind === "solid" && editor.appearance.background.color === color} style:background={color} title={color} aria-label={`Use ${color}`} onclick={() => setColor(color)}></button>
+					<button type="button" class="swatch" class:selected={editor.appearance.background.kind === "solid" && editor.appearance.background.color === color} style:background={color} title={color} aria-label={m.board_use_color_aria({ color }, { locale })} onclick={() => setColor(color)}></button>
 				{/each}
 			</div>
 			<label class="color-input">
-				<span>Custom color</span>
+				<span>{m.board_custom_color({}, { locale })}</span>
 				<input type="color" value={editor.appearance.background.kind === "solid" ? editor.appearance.background.color ?? "#141414" : "#141414"} oninput={(event) => setColor(event.currentTarget.value, false)} onchange={(event) => setColor(event.currentTarget.value)} />
 			</label>
 		</div>
 	{:else}
 		<div class="image-section">
-			<label class="field-label" for="board-background-url">Image URL</label>
+			<label class="field-label" for="board-background-url">{m.board_image_url({}, { locale })}</label>
 			<div class="url-row">
 				<input id="board-background-url" type="url" bind:value={imageUrl} placeholder="https://..." autocomplete="url" onkeydown={(event) => { if (event.key === "Enter") useImage(); }} />
-				<button type="button" class="apply-button" disabled={!imageUrl.trim()} onclick={useImage}>Apply</button>
+				<button type="button" class="apply-button" disabled={!imageUrl.trim()} onclick={useImage}>{m.common_apply({}, { locale })}</button>
 			</div>
 			{#if imageError}
 				<p class="error" role="status">{imageError}</p>
 			{:else if imageStatus === "loading"}
-				<p class="loading" role="status">Loading image...</p>
+				<p class="loading" role="status">{m.board_loading_image({}, { locale })}</p>
 			{/if}
 			{#if editor.appearance.background.kind === "image" && editor.appearance.background.imageUrl}
 				<div class="image-options">
-					<label>Fit <select value={editor.appearance.background.fit ?? "cover"} onchange={(event) => patchImageOptions({ fit: event.currentTarget.value as "cover" | "contain" | "repeat" })}><option value="cover">Cover</option><option value="contain">Contain</option><option value="repeat">Repeat</option></select></label>
-					<label>Position <select value={editor.appearance.background.position ?? "center"} onchange={(event) => patchImageOptions({ position: event.currentTarget.value as "center" | "top" | "bottom" | "left" | "right" })}><option value="center">Center</option><option value="top">Top</option><option value="bottom">Bottom</option><option value="left">Left</option><option value="right">Right</option></select></label>
-					<label>Opacity <input type="range" min="0.1" max="1" step="0.05" value={editor.appearance.background.opacity ?? 1} oninput={(event) => patchImageOptions({ opacity: Number(event.currentTarget.value) }, false)} onchange={(event) => patchImageOptions({ opacity: Number(event.currentTarget.value) })} /></label>
+					<label>{m.board_fit({}, { locale })} <select value={editor.appearance.background.fit ?? "cover"} onchange={(event) => patchImageOptions({ fit: event.currentTarget.value as "cover" | "contain" | "repeat" })}><option value="cover">{m.board_cover({}, { locale })}</option><option value="contain">{m.board_contain({}, { locale })}</option><option value="repeat">{m.board_repeat({}, { locale })}</option></select></label>
+					<label>{m.board_position({}, { locale })} <select value={editor.appearance.background.position ?? "center"} onchange={(event) => patchImageOptions({ position: event.currentTarget.value as "center" | "top" | "bottom" | "left" | "right" })}><option value="center">{m.board_pos_center({}, { locale })}</option><option value="top">{m.board_pos_top({}, { locale })}</option><option value="bottom">{m.board_pos_bottom({}, { locale })}</option><option value="left">{m.board_pos_left({}, { locale })}</option><option value="right">{m.board_pos_right({}, { locale })}</option></select></label>
+					<label>{m.board_opacity({}, { locale })} <input type="range" min="0.1" max="1" step="0.05" value={editor.appearance.background.opacity ?? 1} oninput={(event) => patchImageOptions({ opacity: Number(event.currentTarget.value) }, false)} onchange={(event) => patchImageOptions({ opacity: Number(event.currentTarget.value) })} /></label>
 				</div>
 			{/if}
 		</div>
 	{/if}
 
 	<div class="appearance-footer">
-		<button type="button" class="reset-button" onclick={reset}><RotateCcw class="h-3.5 w-3.5" /> Reset</button>
+		<button type="button" class="reset-button" onclick={reset}><RotateCcw class="h-3.5 w-3.5" /> {m.common_reset({}, { locale })}</button>
 	</div>
 </div>
 
