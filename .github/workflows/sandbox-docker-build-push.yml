@@ -123,6 +123,16 @@ jobs:
             type=ref,event=tag
             type=raw,value=latest,enable={{is_default_branch}}
 
+      - name: Compute cohub-cli refresh token
+        if: ${{ steps.release-scope.outputs.changed == 'true' }}
+        id: cli-refresh
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "token=$(date +%s)" >> "$GITHUB_OUTPUT"
+          else
+            echo "token=0" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build and push
         if: ${{ steps.release-scope.outputs.changed == 'true' }}
         uses: docker/build-push-action@v6
@@ -135,6 +145,8 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           platforms: linux/amd64
+          build-args: |
+            COHUB_CLI_REFRESH=${{ steps.cli-refresh.outputs.token }}
 
   deploy-dev:
     needs: build-and-push

@@ -68,7 +68,13 @@ ENV PATH="/home/node/.bun/bin:${NPM_CONFIG_PREFIX}/bin:/home/node/.local/bin:/ho
 
 RUN curl -fsSL https://bun.sh/install | bash
 RUN corepack enable && corepack prepare pnpm@10.32.1 --activate
-RUN npm install -g typescript tsx @neta-art/cohub-cli
+# Resolve the latest cohub-cli at install time (intentionally unpinned so the
+# image always tracks the npm "latest" dist-tag). Docker caches this layer by
+# instruction text, so pass a unique COHUB_CLI_REFRESH (e.g. a timestamp) to
+# bust the cache and force npm to re-resolve latest on rebuild.
+ARG COHUB_CLI_REFRESH=0
+RUN echo "cohub-cli refresh token: ${COHUB_CLI_REFRESH}" \
+ && npm install -g typescript tsx @neta-art/cohub-cli@latest
 # Create directories and ensure node user owns them for runtime access
 RUN mkdir -p /home/node/.npm-global /home/node/.bun /home/node/.local /home/node/go/bin /home/node/.pnpm-global/bin \
     && chown -R node:node /home/node/.npm-global /home/node/.bun /home/node/.local /home/node/go /home/node/.pnpm-global
