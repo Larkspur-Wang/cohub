@@ -9,6 +9,11 @@ on:
     paths:
       - 'apps/sandbox/**'
   workflow_dispatch:
+    inputs:
+      deploy-prod:
+        description: 'Also deploy the rebuilt sandbox image to prod'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -186,7 +191,7 @@ jobs:
 
   deploy-prod:
     needs: build-and-push
-    if: ${{ startsWith(github.ref, 'refs/tags/v') && needs.build-and-push.outputs.sandbox_release_changed == 'true' }}
+    if: ${{ (startsWith(github.ref, 'refs/tags/v') && needs.build-and-push.outputs.sandbox_release_changed == 'true') || (github.event_name == 'workflow_dispatch' && github.event.inputs.deploy-prod == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - name: Setup kubectl
@@ -199,11 +204,14 @@ jobs:
           mkdir -p ~/.kube
           echo "${{ secrets.KUBECONFIG_PROD }}" | base64 -d > ~/.kube/config
 
-      - name: Get tag
+      - name: Resolve sandbox image tag
         id: get-tag
         run: |
-          TAG="${{ github.ref_name }}"
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "tag=sha-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Patch sandbox image config
         run: |
