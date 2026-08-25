@@ -298,10 +298,6 @@ export async function hasPermission(
   permission: Permission,
   context: { spaceId: string; sessionId?: string },
 ): Promise<boolean> {
-  // Account-level scopes are not bound to a space. Apps need an explicit
-  // viewer grant from any space; publishers cannot pre-grant these via appScopes.
-  // Handlers then load rows with asAccountIdentity (user membership/policy),
-  // not app-session-scoped session.view / space.view.
   if (isUserLevelPermission(permission)) {
     const appSession = getUserAppSession(user);
     if (appSession) return hasActiveViewerGrantPermission(appSession, permission);
@@ -330,19 +326,24 @@ export async function resolvePermissionAccess(
   user: AuthUserProfile | null,
   context: { spaceId: string; sessionId?: string },
 ): Promise<PermissionAccess> {
-  // App sessions never fall through to the viewer's own membership: the app
-  // only ever sees the scopes its grants provide for that space.
   const appSession = getUserAppSession(user);
   if (appSession) return { role: null, permissions: await resolveAppSessionScopes(appSession, context.spaceId) };
   const previewSession = getUserPreviewSession(user);
   if (previewSession?.spaceId === context.spaceId) return { role: null, permissions: normalizePermissionScopes(previewSession.scopes) };
   const execution = getUserExecution(user);
-  if (execution?.spaceId === context.spaceId) return { role: null, permissions: normalizePermissionScopes(execution.scopes ?? []) };
-  return resolveSharedPermissionAccess({
+  const access = await resolveSharedPermissionAccess({
     store: permissionStore,
     user,
     context,
   });
+  if (execution?.spaceId !== context.spaceId) return access;
+  return {
+    role: access.role,
+    permissions: normalizePermissionScopes([
+      ...access.permissions,
+      ...normalizePermissionScopes(execution.scopes ?? []),
+    ]),
+  };
 }
 
 export async function getSessionSpaceId(sessionId: string): Promise<string | null> {
@@ -366,7 +367,7 @@ export async function filterSessionsByPermission(
   const previewSession = getUserPreviewSession(user);
   if (previewSession) return hasPreviewSessionPermission(previewSession, permission, spaceId) ? sessions : [];
   const execution = getUserExecution(user);
-  if (execution?.spaceId === spaceId) return scopeListHasPermission(normalizePermissionScopes(execution.scopes ?? []), permission) ? sessions : [];
+  if (execution?.spaceId === spaceId && scopeListHasPermission(normalizePermissionScopes(execution.scopes ?? []), permission)) return sessions;
   return permissionStore.filterSessionsByPermission({
     user,
     permission,
@@ -376,11 +377,6 @@ export async function filterSessionsByPermission(
   });
 }
 
-/**
- * Batch form of `hasPermission` for many spaces. App sessions resolve per
- * space through their grants; preview/execution principals are scoped to a
- * single space; ordinary users fall through to a membership + policy lookup.
- */
 export async function filterSpaceIdsByPermission(
   user: AuthUserProfile | null,
   permission: Permission,
@@ -425,11 +421,12 @@ export async function filterSpaceIdsByPermission(
   }
 
   const execution = getUserExecution(user);
-  if (execution) {
-    return scopeListHasPermission(normalizePermissionScopes(execution.scopes ?? []), permission)
-      ? spaceIds.filter((id) => id === execution.spaceId)
-      : [];
+  const userAllowed = await permissionStore.filterSpaceIdsByPermission({ user, permission, spaceIds });
+  if (!execution || !scopeListHasPermission(normalizePermissionScopes(execution.scopes ?? []), permission)) {
+    return userAllowed;
   }
-
-  return permissionStore.filterSpaceIdsByPermission({ user, permission, spaceIds });
+  return Array.from(new Set([
+    ...userAllowed,
+    ...(spaceIds.includes(execution.spaceId) ? [execution.spaceId] : []),
+  ])).sort((a, b) => spaceIds.indexOf(a) - spaceIds.indexOf(b));
 }

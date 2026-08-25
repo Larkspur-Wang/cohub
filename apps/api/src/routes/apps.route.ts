@@ -13,9 +13,8 @@ import {
   getSpacePublicProfile,
   getAppSessionPrincipal,
   requireValidId,
+  useAccountPrincipal,
   useAuth,
-  useAppPublisherPrincipal,
-  useUserPrincipal,
   type AuthUser,
 } from "../lib/middleware.js";
 import { hasPermission, resolveUserSpacePermissions } from "../permissions.js";
@@ -582,7 +581,7 @@ router.get("/:id", async (c) => {
 });
 
 router.post("/", async (c) => {
-  const user = useAppPublisherPrincipal(c);
+  const user = useAccountPrincipal(c);
   if (user instanceof Response) return user;
   const body = await c.req.json().catch(() => null) as Record<string, unknown> | null;
   const spaceId = typeof body?.spaceId === "string" ? body.spaceId : "";
@@ -852,7 +851,7 @@ async function publishAppVersion(
 }
 
 router.patch("/:id", async (c) => {
-  const user = useAppPublisherPrincipal(c);
+  const user = useAccountPrincipal(c);
   if (user instanceof Response) return user;
   const id = c.req.param("id");
   if (!requireValidId(id)) return c.json({ message: "app not found" }, 404);
@@ -877,7 +876,7 @@ router.get("/:id/versions", async (c) => {
 });
 
 router.post("/:id/versions", async (c) => {
-  const user = useAppPublisherPrincipal(c);
+  const user = useAccountPrincipal(c);
   if (user instanceof Response) return user;
   const id = c.req.param("id");
   if (!requireValidId(id)) return c.json({ message: "app not found" }, 404);
@@ -889,7 +888,7 @@ router.post("/:id/versions", async (c) => {
 });
 
 router.delete("/:id", async (c) => {
-  const user = useAppPublisherPrincipal(c);
+  const user = useAccountPrincipal(c);
   if (user instanceof Response) return user;
   const id = c.req.param("id");
   if (!requireValidId(id)) return c.json({ message: "app not found" }, 404);
@@ -979,7 +978,7 @@ router.post("/:id/realtime/rooms/join", async (c) => {
 });
 
 router.post("/:id/session", async (c) => {
-  const user = useUserPrincipal(c);
+  const user = useAccountPrincipal(c);
   if (user instanceof Response) return user;
   const id = c.req.param("id");
   if (!requireValidId(id)) return c.json({ message: "app not found" }, 404);
@@ -996,7 +995,7 @@ router.post("/:id/session", async (c) => {
 });
 
 router.post("/:id/authorize", async (c) => {
-  const user = useUserPrincipal(c);
+  const user = useAccountPrincipal(c);
   if (user instanceof Response) return user;
   const id = c.req.param("id");
   if (!requireValidId(id)) return c.json({ message: "app not found" }, 404);
@@ -1090,7 +1089,7 @@ router.post("/:id/authorize", async (c) => {
 // ── Viewer grants: list + revoke (the viewer's own consents) ─────────────────
 
 router.get("/:id/grants", async (c) => {
-  const user = useUserPrincipal(c);
+  const user = useAccountPrincipal(c);
   if (user instanceof Response) return user;
   const id = c.req.param("id");
   if (!requireValidId(id)) return c.json({ message: "app not found" }, 404);
@@ -1105,7 +1104,7 @@ router.get("/:id/grants", async (c) => {
 });
 
 router.delete("/:id/grants/:grantId", async (c) => {
-  const user = useUserPrincipal(c);
+  const user = useAccountPrincipal(c);
   if (user instanceof Response) return user;
   const id = c.req.param("id");
   const grantId = c.req.param("grantId");

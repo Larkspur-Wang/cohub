@@ -77,20 +77,10 @@ export const requireAuth = (c: Context): AuthUser | Response => {
  */
 export const useAuth = (c: Context): AuthUser | Response => requireAuth(c);
 
-/** Returns only a real account principal; delegated principals cannot mint or manage grants. */
-export const useUserPrincipal = (c: Context): AuthUser | Response => {
+export const useAccountPrincipal = (c: Context): AuthUser | Response => {
   const principal = c.get("principal") as RequestPrincipal | null | undefined;
-  if (principal?.type === "user") return principal.user;
-  return principal ? c.json({ message: "forbidden" }, 403) : c.json({ message: "unauthorized" }, 401);
-};
-
-/** App lifecycle operations may also be performed by a scoped execution token. */
-export const useAppPublisherPrincipal = (c: Context): AuthUser | Response => {
-  const principal = c.get("principal") as RequestPrincipal | null | undefined;
-  if (principal?.type === "user") return principal.user;
-  if (principal?.type === "execution" && principal.execution.actorUserId) {
-    return principalToAuthUser(principal) as AuthUser;
-  }
+  const user = principalToAuthUser(principal);
+  if (principal?.type === "user" || (principal?.type === "execution" && user)) return user as AuthUser;
   return principal ? c.json({ message: "forbidden" }, 403) : c.json({ message: "unauthorized" }, 401);
 };
 
