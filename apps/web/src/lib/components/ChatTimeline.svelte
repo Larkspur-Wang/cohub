@@ -76,6 +76,16 @@ type TimelineScrollAnchor = {
 	kind: "user" | "assistant" | "process" | "compact";
 };
 
+function shouldFollowSessionTail(item: TimelineItem) {
+	if (item.kind === "process") return item.streaming === true;
+	if (item.kind === "turn_footer") return true;
+	return (
+		item.kind === "message" &&
+		(item.message.meta?.streaming === true ||
+			item.message.meta?.messageKind === "assistant_streaming_preview")
+	);
+}
+
 function getTimelineScrollAnchor(
 	item: TimelineItem,
 ): TimelineScrollAnchor | null {
@@ -193,6 +203,7 @@ $effect(() => {
 				data-scroll-anchor-key={scrollAnchor?.itemKey}
 				data-scroll-anchor-kind={scrollAnchor?.kind}
 				data-scroll-anchor-turn-sequence={scrollAnchor?.turnSequence}
+				data-session-follow-tail={shouldFollowSessionTail(item) ? 'true' : undefined}
 				data-turn-id={item.kind === 'message' && item.message.meta?.messageKind === 'turn_user'
 					? item.message.meta.turnId
 					: undefined}

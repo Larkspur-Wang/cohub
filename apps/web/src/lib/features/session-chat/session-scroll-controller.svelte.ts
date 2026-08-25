@@ -92,6 +92,22 @@ export function resolveSessionScrollRestore(input: {
 
 const AUTO_FOLLOW_THRESHOLD_PX = 60;
 
+export function shouldFollowSessionTail(input: {
+	shouldAutoFollow: boolean;
+	scrollTop: number;
+	scrollHeight: number;
+	clientHeight: number;
+	streamingRegionVisible: boolean;
+	threshold?: number;
+}) {
+	if (input.shouldAutoFollow || input.streamingRegionVisible) return true;
+	const distanceFromBottom = Math.max(
+		0,
+		input.scrollHeight - input.scrollTop - input.clientHeight,
+	);
+	return distanceFromBottom <= (input.threshold ?? AUTO_FOLLOW_THRESHOLD_PX);
+}
+
 function areNumberRecordsEqual(
 	current: Record<number, number>,
 	next: Record<number, number>,

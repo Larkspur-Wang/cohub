@@ -6,6 +6,7 @@ import {
 	resolveSessionScrollAnchorTargetIndex,
 	resolveSessionScrollRestore,
 	type SessionScrollAnchor,
+	shouldFollowSessionTail,
 } from "../lib/features/session-chat/session-scroll-controller.svelte.ts";
 
 const anchor: SessionScrollAnchor = {
@@ -73,6 +74,58 @@ test("does not fall back to a different item kind in the same turn", () => {
 			{ itemKey: "turn:10:user", turnSequence: 10, kind: "user" },
 		]),
 		-1,
+	);
+});
+
+test("follows the tail when auto-follow is already active", () => {
+	assert.equal(
+		shouldFollowSessionTail({
+			shouldAutoFollow: true,
+			scrollTop: 100,
+			scrollHeight: 2_000,
+			clientHeight: 500,
+			streamingRegionVisible: false,
+		}),
+		true,
+	);
+});
+
+test("follows the tail when the viewport is within the bottom threshold", () => {
+	assert.equal(
+		shouldFollowSessionTail({
+			shouldAutoFollow: false,
+			scrollTop: 1_445,
+			scrollHeight: 2_000,
+			clientHeight: 500,
+			streamingRegionVisible: false,
+		}),
+		true,
+	);
+});
+
+test("treats a visible streaming region as the tail", () => {
+	assert.equal(
+		shouldFollowSessionTail({
+			shouldAutoFollow: false,
+			scrollTop: 600,
+			scrollHeight: 2_000,
+			clientHeight: 500,
+			streamingRegionVisible: true,
+		}),
+		true,
+	);
+});
+
+test("keeps a stable history position anchored", () => {
+	assert.equal(
+		shouldFollowSessionTail({
+			shouldAutoFollow: false,
+			scrollTop: 600,
+			scrollHeight: 2_000,
+			clientHeight: 500,
+			streamingRegionVisible: false,
+		}),
+		false,
 	);
 });
 

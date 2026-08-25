@@ -134,6 +134,7 @@ import {
 	resolveSessionScrollRestore,
 	type SessionScrollAnchor,
 	type SessionScrollAnchorTarget,
+	shouldFollowSessionTail,
 } from "./session-scroll-controller.svelte";
 import { createSessionShareController } from "./session-share-controller.svelte";
 import {
@@ -1807,14 +1808,47 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		markVisibleLatestTurnViewed(sessionId, nodes, list.getBoundingClientRect());
 	}
 
+	function isStreamingRegionVisible(
+		list: HTMLDivElement,
+		containerRect: DOMRect,
+	) {
+		return Array.from(
+			list.querySelectorAll<HTMLElement>('[data-session-follow-tail="true"]'),
+		).some((node) => {
+			const rect = node.getBoundingClientRect();
+			return (
+				rect.bottom > containerRect.top + 8 &&
+				rect.top < containerRect.bottom - 8
+			);
+		});
+	}
+
+	function markSessionFollowingTail(sessionId: string) {
+		clearSessionScrollAnchor(sessionId);
+		const state = sessionStateById[sessionId];
+		unreadTracker.markViewed(sessionId, state?.session?.lastMessageId ?? null);
+	}
+
 	function captureCurrentScrollAnchor(sessionId: string) {
 		const list = getSessionScrollList(sessionId);
 		if (!list) return;
 		// Re-entry restore owns the saved leave position until it finishes.
 		if (isRestoringSessionScroll(sessionId)) return;
 		const entries = getSessionScrollAnchorNodes(sessionId);
-		if (entries.length === 0) return;
 		const containerRect = list.getBoundingClientRect();
+		if (
+			shouldFollowSessionTail({
+				shouldAutoFollow: scroll.shouldAutoFollow,
+				scrollTop: list.scrollTop,
+				scrollHeight: list.scrollHeight,
+				clientHeight: list.clientHeight,
+				streamingRegionVisible: isStreamingRegionVisible(list, containerRect),
+			})
+		) {
+			markSessionFollowingTail(sessionId);
+			return;
+		}
+		if (entries.length === 0) return;
 		const firstVisible =
 			entries.find(
 				(entry) =>
@@ -1832,24 +1866,6 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			entries.map((entry) => entry.node),
 			containerRect,
 		);
-	}
-
-	function writeBottomScrollAnchor(sessionId: string) {
-		const list = getSessionScrollList(sessionId);
-		if (!list) return;
-		const lastEntry = getSessionScrollAnchorNodes(sessionId).at(-1);
-		if (!lastEntry) {
-			clearSessionScrollAnchor(sessionId);
-			return;
-		}
-		const absoluteTop = getMessageElementAbsoluteTop(lastEntry.node);
-		setSessionScrollAnchor(sessionId, {
-			...lastEntry.target,
-			offset: list.scrollTop - absoluteTop,
-			updatedAt: Date.now(),
-		});
-		const state = sessionStateById[sessionId];
-		unreadTracker.markViewed(sessionId, state?.session?.lastMessageId ?? null);
 	}
 
 	function upsertSessionRecord(
@@ -3802,11 +3818,11 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	function scrollToBottomNow() {
 		if (!activeSessionId || !getSessionScrollList(activeSessionId)) return;
 		setProgrammaticScrollTop(scroll.getTimelineBottomScrollTop());
-		writeBottomScrollAnchor(activeSessionId);
+		markSessionFollowingTail(activeSessionId);
 	}
 
 	function requestBottomFollow(options?: { immediate?: boolean }) {
-		// Never overwrite a mid-session restore with bottom follow / bottom anchor.
+		// Never overwrite a mid-session restore with bottom follow.
 		if (isRestoringSessionScroll()) return;
 		if (!scroll.shouldPinToBottom(options)) return;
 		scrollToBottomNow();
