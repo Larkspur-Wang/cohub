@@ -1,11 +1,9 @@
 ---
 name: cohub-apps
-description: Publish files, directory sites, or sandbox ports as public Cohub Apps and return shareable App URLs.
+description: Publish a live web page or app at a stable URL — an HTML file, board, or directory site, or a running sandbox port — with versions, visibility, permissions, and view stats.
 ---
 
 # Cohub Apps
-
-Use this skill when a user wants a public link for a file, site, demo, or live preview from a Cohub Space.
 
 Cohub Apps publish as public pages:
 
@@ -13,25 +11,11 @@ Cohub Apps publish as public pages:
 /:ownerUsername/:spaceSlug/w/:appSlug
 ```
 
-If `cohub apps` is unavailable, update the CLI: `npm install -g @neta-art/cohub-cli`.
-
-## Use For
-
-- HTML pages, boards, or other files
-- directory sites
-- generated demos
-- live previews on port `3000` or `5173`
-- App pages using Cohub runtime permissions
+If a command is unavailable, update the CLI: `npm install -g @neta-art/cohub-cli`.
 
 ## Inputs
 
-A published App needs:
-
-- target Space ID
-- App slug
-- one target: file, directory, or port
-
-Use the current Space by default:
+A published App needs a target Space ID, an App slug, and one target. Use the current Space by default:
 
 ```bash
 space_id="${COHUB_SPACE_ID:-}"
@@ -49,14 +33,7 @@ Choose one target:
 
 ## App Slug
 
-Use a short, stable App slug:
-
-- `demo`
-- `report`
-- `dashboard`
-- `landing-page`
-
-Keep an existing slug when updating an App. Ask before changing a user-provided slug.
+Use a short, stable slug like `demo`, `report`, or `dashboard`. Keep an existing slug when updating an App. Ask before changing a user-provided slug.
 
 ## Visibility
 
@@ -64,24 +41,16 @@ Default to `public`. Use `--visibility space` when the App should be visible onl
 
 ## Permissions
 
-Start with empty scopes. Add the smallest permission set needed for the App.
-
-App runtime scopes (`--app-scope`):
+Start with empty scopes. Add the smallest permission set needed for the App. Publisher scopes (`--app-scope`) apply on the App's home Space only:
 
 - `space.view`
 - `session.view`
 - `file.view`
-- `taskrun.view`
-
-Viewer-requestable scopes (`--viewer-scope`):
-
+- `file.edit`
 - `taskrun.view`
 - `session.prompt.readonly`
 - `session.prompt.fullaccess`
-- `generation.create`
-- `user.space.list`
-- `user.session.list`
-- `user.usage.read`
+- `command.execute`
 
 ## Publish
 
@@ -93,7 +62,7 @@ cohub -s "$space_id" apps publish "$app_slug" --dir "$dir" --json
 cohub -s "$space_id" apps publish "$app_slug" --port "$port" --json
 ```
 
-Use `--visibility public` or `--visibility space` when needed. Use `--hide-cohub-bar` for immersive pages when requested (`--show-cohub-bar` restores it). Pass extra metadata with `--meta <json>`. Use `--disabled` or `--status disabled` to create without publishing.
+Use `--visibility`, `--hide-cohub-bar` for immersive pages, `--meta <json>`, or `--disabled` as needed.
 
 For an existing App that only needs a fresh version from its current target:
 
@@ -101,12 +70,12 @@ For an existing App that only needs a fresh version from its current target:
 cohub apps publish-version "$app_id" --json
 ```
 
-## Public URL
+## App Ref
 
-Read the App by id, public URL, `cohub://apps` URI, or `username/space/app` reference:
+Refer to an App by id, public URL, `cohub://apps` URI, or `username/space/app`:
 
 ```bash
-cohub apps get "$app_ref" --json
+cohub apps get "$app" --json
 ```
 
 Return `publicUrl`, falling back to `content.url` when needed.
@@ -115,14 +84,24 @@ Return `publicUrl`, falling back to `content.url` when needed.
 
 ```bash
 cohub apps ls
-cohub apps update "$app_id" --visibility space --clear-viewer-scopes --json
+cohub apps update "$app_id" --visibility space --clear-app-scopes --json
 cohub apps versions "$app_id"
-cohub apps stats "$app_ref"
-cohub apps download "$app_ref" -o ./out
+cohub apps stats "$app"
+cohub apps download "$app" -o ./out
 cohub apps rm "$app_id" --yes
 ```
 
-`update` can change the slug, visibility, target, scopes, and Cohub bar settings; use `--clear-app-scopes` / `--clear-viewer-scopes` to reset scopes.
+`update` can change the slug, visibility, target, scopes, and Cohub bar settings. `stats` shows view counts — total, 24h, 7d, 30d — and their sources.
+
+## Desktop
+
+Open an App window on the Cohub desktop that started this chat:
+
+```bash
+cohub desktop open "$app"
+```
+
+Add `--call <method>` to invoke a method the App registered.
 
 ## Identity Setup
 
@@ -149,3 +128,4 @@ cohub spaces update "$space_id" --slug "$space_slug" --json
 ## Finish
 
 Return the public URL.
+
