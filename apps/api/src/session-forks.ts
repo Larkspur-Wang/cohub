@@ -7,7 +7,12 @@ import { sanitizePostgresJsonValue } from "@cohub/core/content/sanitize";
 import { sessionForkReference } from "@cohub/core/references";
 import { enqueueReferences } from "./reference-index-queue.js";
 import { assignSessionParticipantSystemLabels } from "@cohub/core/labels/session-user";
-import { readSessionParticipantUserUuids, setSessionParticipantsMeta } from "@cohub/core/sessions";
+import {
+  normalizeSessionTitle,
+  readSessionParticipantUserUuids,
+  setSessionParticipantsMeta,
+  setSessionTitleMeta,
+} from "@cohub/core/sessions";
 
 type SegmentRow = typeof sessionTurnSegments.$inferSelect;
 export const MAX_SESSION_TURN_SEGMENTS = 128;
@@ -242,24 +247,26 @@ export async function createSessionFork(input: {
     }
 
     const childParticipantUserUuids = [createdBy, ...visibleTurnUserUuids];
+    const requestedTitle = normalizeSessionTitle(input.title);
+    const childMeta = setSessionParticipantsMeta({
+      ...((parent.meta && typeof parent.meta === "object" && !Array.isArray(parent.meta)) ? parent.meta as Record<string, unknown> : {}),
+      fork: {
+        version: 1,
+        kind: "turn",
+        createdAt: now.toISOString(),
+        createdBy,
+      },
+    }, childParticipantUserUuids, now);
 
     const [child] = await tx.insert(spaceSessions).values({
       id: input.childSessionId,
       spaceId: input.spaceId,
       userUuid: createdBy,
-      title: input.title ?? parent.title ?? null,
+      title: requestedTitle ?? parent.title ?? null,
       source: parent.source,
       status: "active",
       externalSessionId: null,
-      meta: sanitizePostgresJsonValue(setSessionParticipantsMeta({
-        ...((parent.meta && typeof parent.meta === "object" && !Array.isArray(parent.meta)) ? parent.meta as Record<string, unknown> : {}),
-        fork: {
-          version: 1,
-          kind: "turn",
-          createdAt: now.toISOString(),
-          createdBy,
-        },
-      }, childParticipantUserUuids, now)),
+      meta: sanitizePostgresJsonValue(requestedTitle ? setSessionTitleMeta(childMeta, { source: "user" }) : childMeta),
       lastMessageAt: now,
       lastMessageId: null,
       latestMessageText: anchorTurn.userText ?? parent.latestMessageText ?? null,

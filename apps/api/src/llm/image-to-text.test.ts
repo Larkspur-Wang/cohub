@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Api, Model } from "@earendil-works/pi-ai";
-import { parseImageToTextConfig } from "@cohub/infra/config-runtime/image-to-text";
+import type { ImageToTextConfig } from "@cohub/infra/config-runtime/model-tasks";
 import { prepareCompletionImagesForModel } from "./image-to-text.js";
 
-const config = parseImageToTextConfig(JSON.stringify({
+const config: ImageToTextConfig = {
   enabled: true,
   model: {
     provider: "cohub",
@@ -16,8 +16,7 @@ const config = parseImageToTextConfig(JSON.stringify({
     input: ["text", "image"],
   },
   prompt: "Describe the image.",
-  thinkingLevel: "off",
-}));
+};
 
 const textModel = { provider: "cohub", id: "text-model", input: ["text"] } as Model<Api>;
 const visionModel = { provider: "cohub", id: "vision-model", input: ["text", "image"] } as Model<Api>;

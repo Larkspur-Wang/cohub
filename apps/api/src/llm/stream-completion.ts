@@ -14,7 +14,7 @@ import {
   type ThinkingLevel,
   type Usage as PiUsage,
 } from "@earendil-works/pi-ai";
-import type { ImageToTextConfig } from "@cohub/infra/config-runtime/image-to-text";
+import type { ImageToTextConfig } from "@cohub/infra/config-runtime/model-tasks";
 import type { CompletionModelRegistry, RuntimeLlmModel } from "./models.js";
 import { contentBlockToPiImage, restoreRemoteImageUrls } from "./image-content.js";
 import { prepareCompletionImagesForModel, type ImageToTextCall } from "./image-to-text.js";

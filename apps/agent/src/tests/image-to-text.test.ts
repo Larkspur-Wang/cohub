@@ -2,14 +2,14 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { Api, Context, Model } from "@earendil-works/pi-ai";
-import { parseImageToTextConfig } from "@cohub/infra/config-runtime/image-to-text";
+import type { ImageToTextConfig } from "@cohub/infra/config-runtime/model-tasks";
 import { SessionManager } from "../runtime/local-session-manager.js";
 
 process.env.DATABASE_URL ??= "postgres://localhost/cohub_test";
 process.env.APP_ENCRYPTION_KEY ??= "test-key";
 process.env.SESSIONS_NAMESPACE ??= "test";
 
-const config = parseImageToTextConfig(JSON.stringify({
+const config: ImageToTextConfig = {
   enabled: true,
   model: {
     provider: "cohub",
@@ -21,8 +21,7 @@ const config = parseImageToTextConfig(JSON.stringify({
     input: ["text", "image"],
   },
   prompt: "Describe the image.",
-  thinkingLevel: "off",
-}));
+};
 
 const textModel = { provider: "cohub", id: "text-model", input: ["text"] } as Model<Api>;
 

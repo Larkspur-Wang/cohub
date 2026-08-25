@@ -24,9 +24,9 @@
       "types": "./dist/config-runtime/models.d.ts",
       "default": "./dist/config-runtime/models.js"
     },
-    "./config-runtime/image-to-text": {
-      "types": "./dist/config-runtime/image-to-text.d.ts",
-      "default": "./dist/config-runtime/image-to-text.js"
+    "./config-runtime/model-tasks": {
+      "types": "./dist/config-runtime/model-tasks.d.ts",
+      "default": "./dist/config-runtime/model-tasks.js"
     },
     "./config-runtime/generations": {
       "types": "./dist/config-runtime/generations.d.ts",

@@ -12,7 +12,7 @@ import { sendOutput } from "./redis.js";
 import { logger } from "./logger.js";
 import { getAgentTracer } from "@cohub/infra/tracing/agent";
 import type { CohubModelRegistry } from "./runtime/model-registry.js";
-import type { ImageToTextConfig } from "@cohub/infra/config-runtime/image-to-text";
+import type { ImageToTextConfig } from "@cohub/infra/config-runtime/model-tasks";
 import {
   ensureAgentSpaceSessionPath,
   getAgentSessionFilePath,

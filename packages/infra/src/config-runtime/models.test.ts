@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { isRuntimeModelAvailable, type ModelsConfig } from "./models.js";
+import {
+  isRuntimeModelAvailable,
+  parseModelsConfig,
+  type ModelsConfig,
+} from "./models.js";
 
 const platform: ModelsConfig = {
   providers: {
@@ -20,6 +24,41 @@ test("isRuntimeModelAvailable follows runtime provider defaults", () => {
   assert.equal(isRuntimeModelAvailable([platform], "cohub", "hidden"), true);
   assert.equal(isRuntimeModelAvailable([platform], "cohub", "missing"), false);
   assert.equal(isRuntimeModelAvailable([platform], "incomplete", "missing-runtime"), false);
+});
+
+test("parseModelsConfig validates known provider and model fields", () => {
+  const invalidProviders = [
+    { api: "", models: [{ id: "model" }] },
+    { baseUrl: "not-a-url", models: [{ id: "model" }] },
+    { models: [{ id: "" }] },
+    { models: [{ id: "model", reasoning: "yes" }] },
+    { models: [{ id: "model", input: [] }] },
+    { models: [{ id: "model", cost: { input: -1, output: 1 } }] },
+    { models: [{ id: "model", cost: { input: 1 } }] },
+    { models: [{ id: "model", contextWindow: 0 }] },
+    { models: [{ id: "model", maxTokens: 1.5 }] },
+    { models: [{ id: "model", compat: [] }] },
+  ];
+
+  for (const provider of invalidProviders) {
+    assert.throws(
+      () => parseModelsConfig(JSON.stringify({ providers: { cohub: provider } })),
+      /invalid schema/,
+    );
+  }
+});
+
+test("parseModelsConfig keeps valid provider-specific extensions", () => {
+  const parsed = parseModelsConfig(JSON.stringify({
+    providers: {
+      cohub: {
+        api: "openai-responses",
+        baseUrl: "https://example.test/v1",
+        models: [{ id: "default", routingTier: "fast" }],
+      },
+    },
+  }));
+  assert.equal(parsed.providers.cohub?.models?.[0]?.routingTier, "fast");
 });
 
 test("isRuntimeModelAvailable honors user model overrides", () => {
