@@ -31,6 +31,12 @@
       "@cohub/infra/config-runtime/generations": [
         "../../packages/infra/dist/config-runtime/generations.d.ts"
       ],
+      "@cohub/model-runtime/image-content": [
+        "../../packages/model-runtime/dist/image-content.d.ts"
+      ],
+      "@cohub/model-runtime/pi-models-adapter": [
+        "../../packages/model-runtime/dist/pi-models-adapter.d.ts"
+      ],
       "@cohub/infra/tracing/provider": [
         "../../packages/infra/dist/tracing/provider.d.ts"
       ],
