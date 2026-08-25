@@ -22,6 +22,12 @@ import { accessRequestFor } from "./access";
 import { detailOutputSource } from "./media";
 import { taskBrowserScopes, type TaskBrowserScope } from "./scope";
 import {
+  clearTaskCache,
+  readTaskCache,
+  writeTaskCache,
+  type TaskPageInfo,
+} from "./task-cache";
+import {
   type GenerationOutput,
   type GenerationTask,
   mergeTaskRefresh,
@@ -45,13 +51,14 @@ let refreshing = false;
 let authorizing = $state(false);
 let error = $state<string | null>(null);
 let accessDenied = $state(false);
-let pageInfo = $state<{ hasMore: boolean; nextCursor: string | null }>({ hasMore: false, nextCursor: null });
+let pageInfo = $state<TaskPageInfo>({ hasMore: false, nextCursor: null });
 let lightbox = $state<LightboxItem | null>(null);
 let lightboxLoadingId = $state<string | null>(null);
 let requestVersion = 0;
 let appReady = $state(false);
 let homeSpace = $state<{ id: string; name: string | null } | null>(null);
 let sourceSpaceId = $state<string | null>(null);
+let cacheIdentity = $state<{ appId: string; viewerId: string | null } | null>(null);
 let authorizingSpace = $state(false);
 
 const scopeLabel = (scope: TaskBrowserScope) =>
@@ -91,16 +98,14 @@ function isAccessError(cause: unknown) {
 
 type LoadMode = "replace" | "append" | "refresh";
 
-async function load(mode: LoadMode = "replace") {
-  if (mode === "refresh" && (loading || loadingMore || refreshing)) return;
-  const version = ++requestVersion;
-  if (mode === "replace") {
-    loading = true;
-    error = null;
-    accessDenied = false;
-  } else if (mode === "append") {
+function taskQueryKey() {
+  return `${scopeKey(selectedScope)}:${status}`;
+}
+
+async function fetchTasks(mode: LoadMode, version: number, cacheKey: string) {
+  if (mode === "append") {
     loadingMore = true;
-  } else {
+  } else if (mode === "refresh") {
     refreshing = true;
   }
   try {
@@ -121,17 +126,49 @@ async function load(mode: LoadMode = "replace") {
     if (mode !== "refresh") {
       pageInfo = response.pageInfo ?? { hasMore: false, nextCursor: null };
     }
+    writeTaskCache(cacheIdentity, cacheKey, { tasks, pageInfo });
   } catch (cause) {
     if (version !== requestVersion) return;
-    accessDenied = isAccessError(cause);
-    error = messageFrom(cause);
+    if (isAccessError(cause)) {
+      tasks = [];
+      pageInfo = { hasMore: false, nextCursor: null };
+      clearTaskCache(cacheIdentity, cacheKey);
+      accessDenied = true;
+      error = messageFrom(cause);
+    } else {
+      accessDenied = false;
+      error = tasks.length > 0 && mode === "refresh"
+        ? "Could not refresh tasks. Showing cached results."
+        : messageFrom(cause);
+    }
   } finally {
-    if (mode === "refresh") refreshing = false;
     if (version === requestVersion) {
+      if (mode === "refresh") refreshing = false;
       loading = false;
       loadingMore = false;
     }
   }
+}
+
+async function load(mode: LoadMode = "replace") {
+  if (mode === "refresh" && (loading || loadingMore || refreshing)) return;
+  const version = ++requestVersion;
+  const cacheKey = taskQueryKey();
+  if (mode === "replace") {
+    loading = true;
+    refreshing = false;
+    error = null;
+    accessDenied = false;
+    const cached = readTaskCache(cacheIdentity, cacheKey);
+    if (cached) {
+      tasks = cached.tasks;
+      pageInfo = cached.pageInfo;
+      loading = false;
+      void fetchTasks("refresh", version, cacheKey);
+      return;
+    }
+  }
+  await fetchTasks(mode, version, cacheKey);
 }
 
 const accessHint = $derived.by(() => {
@@ -248,6 +285,9 @@ function applyRuntimeContext(context: Awaited<ReturnType<typeof client.context>>
   appReady = Boolean(context?.app?.id);
   homeSpace = context?.space ? { id: context.space.id, name: context.space.name ?? null } : null;
   sourceSpaceId = context?.invocation?.spaceId ?? null;
+  cacheIdentity = context?.app?.id
+    ? { appId: context.app.id, viewerId: context.viewer?.userUuid ?? null }
+    : null;
 }
 
 let spaceNames = $state<Record<string, string>>({});

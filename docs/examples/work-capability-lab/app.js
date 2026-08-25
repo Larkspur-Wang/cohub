@@ -343,14 +343,16 @@ async function sessionsList() {
   });
 }
 
-async function requestAuth(scopes) {
+const DEFAULT_AUTH_REASON = "App SDK Lab wants to verify viewer-granted prompts and account access through the Cohub SDK.";
+
+async function requestAuth(scopes, reason = DEFAULT_AUTH_REASON) {
   return run("auth", async () => {
     if (!state.client) await createClient();
     let ok = false;
     if (state.client.auth?.request) {
       ok = await state.client.auth.request({
         scopes,
-        reason: "App SDK Lab wants to verify viewer-granted prompts and account access through the Cohub SDK.",
+        reason,
       });
       if (ok) log("ok", "cohub.auth.request() granted", scopes.join(", "));
     } else {
@@ -358,7 +360,7 @@ async function requestAuth(scopes) {
       const response = await runtimeRequest({
         type: "cohub.app.authorize",
         scopes,
-        reason: "App SDK Lab wants to verify viewer-granted prompts and account access through the runtime protocol.",
+        reason,
       }, 120000);
       ok = Boolean(response?.token);
       if (response?.token) applyToken(response.token);
@@ -426,8 +428,13 @@ async function ensureClient() {
   return state.client;
 }
 
+async function ensureAccountScope(scope, reason) {
+  await requestAuth([scope], reason);
+}
+
 async function accountSpaces() {
   return run("accountSpaces", async () => {
+    await ensureAccountScope("user.space.list", "This probe lists your Spaces.");
     const client = await ensureClient();
     const result = await client.spaces.list();
     const list = Array.isArray(result) ? result : result.spaces ?? [];
@@ -438,6 +445,7 @@ async function accountSpaces() {
 
 async function accountSessions() {
   return run("accountSessions", async () => {
+    await ensureAccountScope("user.session.list", "This probe lists your recent sessions.");
     const client = await ensureClient();
     const result = await client.user.listSessions({ limit: 5 });
     const count = Array.isArray(result.sessions) ? result.sessions.length : "unknown";
@@ -448,9 +456,8 @@ async function accountSessions() {
 
 async function accountUsage() {
   return run("accountUsage", async () => {
+    await ensureAccountScope("user.usage.read", "This probe reads your account activity.");
     const client = await ensureClient();
-    // `user.getUsage` does not exist in the current SDK; account usage is
-    // served by `user.getActivity({ days })` with a `summary` payload.
     const result = await client.user.getActivity({ days: 30 });
     log("ok", "user.getActivity({ days: 30 }) accepted", `${result.summary?.totalTokens ?? 0} tokens, ${result.summary?.costTotal ?? 0}`);
     return result;

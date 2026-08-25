@@ -11,6 +11,7 @@ A reference [Cohub App](https://cohub.live) for browsing multimodal generation t
 - Listing generation Tasks with the public Cohub SDK
 - Resolving scope from invocation context in `Session > Space > Mine` order
 - Rendering every image, video, audio, and text output as an independent item
+- Per-query local caching with stale-while-revalidate tab switching
 - Cursor pagination, active Task refresh, deferred media loading, and responsive layout
 
 The invocation Space can differ from the Space that publishes this App. The app never falls back to the publishing Space when invocation context is absent.
