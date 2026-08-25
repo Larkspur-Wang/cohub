@@ -1,5 +1,19 @@
 [
 	{
+		"version": "2.30",
+		"date": "2026-08-26",
+		"tags": ["v2.30.0"],
+		"highlights": [
+			"**Task Browser stale task cache**: Query results now render instantly from a per-identity local cache, refresh silently in the background, and gracefully fall back to cached data when a refresh fails.",
+			"**Scope-aware app permissions**: The Task Browser requests the minimal grant for the active view — account-level `user.taskrun.list` for \"Mine\", per-Space `taskrun.view` for a Space or session — and can ask for access to any Space at runtime via `auth.requestSpace`; SDK 8.2.0 additionally exports `AppViewerGrantRecord` so apps can type `listMyGrants()` results.",
+			"**Session chat simplification**: Removed the in-chat generation task tray and its controller (~1,000 lines), consolidating generation-task tracking in the dedicated Task Browser app.",
+			"**Quieter auth and gateway logging**: Routine auth failures and task-sync summaries moved to debug/info levels, reserving WARN for genuine JWKS and signing-key failures — noticeably less noise in the API and gateway services."
+		],
+		"fixes": [
+			"Gateway task sync could overlap on slow syncs, causing redundant provider churn; an in-flight guard now skips overlapping runs."
+		]
+	},
+	{
 		"version": "2.29",
 		"date": "2026-08-25",
 		"tags": ["v2.29.0", "v2.29.1", "v2.29.2"],

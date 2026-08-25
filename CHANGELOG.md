@@ -4,6 +4,17 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v2.30 — 2026-08-26
+
+- **Task Browser stale task cache**: Query results now render instantly from a per-identity local cache, refresh silently in the background, and gracefully fall back to cached data when a refresh fails.
+- **Scope-aware app permissions**: The Task Browser requests the minimal grant for the active view — account-level `user.taskrun.list` for "Mine", per-Space `taskrun.view` for a Space or session — and can ask for access to any Space at runtime via `auth.requestSpace`; SDK 8.2.0 additionally exports `AppViewerGrantRecord` so apps can type `listMyGrants()` results.
+- **Session chat simplification**: Removed the in-chat generation task tray and its controller (~1,000 lines), consolidating generation-task tracking in the dedicated Task Browser app.
+- **Quieter auth and gateway logging**: Routine auth failures and task-sync summaries moved to debug/info levels, reserving WARN for genuine JWKS and signing-key failures — noticeably less noise in the API and gateway services.
+
+### Bug Fixes
+
+- Gateway task sync could overlap on slow syncs, causing redundant provider churn; an in-flight guard now skips overlapping runs.
+
 ## v2.29 — 2026-08-25
 
 - **Execution permission alignment**: scoped execution tokens now merge their grants with the account's own access instead of replacing it, so permission checks, session filtering, and space filtering return the additive union and agree across all API paths for execution-token requests.
