@@ -1,8 +1,8 @@
 import type { Usage } from "@cohub/protocol/core";
 import {
-  resolveImageToTextApiKey,
+  resolveModelTaskApiKey,
   type ImageToTextConfig,
-} from "@cohub/infra/config-runtime/image-to-text";
+} from "@cohub/infra/config-runtime/model-tasks";
 import type {
   Api,
   Context,
@@ -90,7 +90,7 @@ function toRuntimeModel(config: ImageToTextConfig): Model<Api> {
 }
 
 function createStandaloneRegistry(config: ImageToTextConfig, model: Model<Api>) {
-  const apiKey = resolveImageToTextApiKey(config.model.apiKey);
+  const apiKey = resolveModelTaskApiKey(config.model.apiKey);
   return {
     getAvailable: () => [model],
     getApiKey: (provider: string) => provider === model.provider ? apiKey : undefined,
@@ -115,8 +115,8 @@ async function describeImage(input: {
   const model = toRuntimeModel(input.config);
   const registry = createStandaloneRegistry(input.config, model);
   const models = createModelsFromRegistry(registry, model);
-  const reasoning = input.config.model.reasoning && input.config.thinkingLevel !== "off"
-    ? input.config.thinkingLevel as ThinkingLevel | undefined
+  const reasoning = input.config.model.reasoning
+    ? input.config.model.defaultThinkingLevel as ThinkingLevel | undefined
     : undefined;
   const response = await models.completeSimple(model, {
     systemPrompt: input.config.prompt,
@@ -128,10 +128,9 @@ async function describeImage(input: {
   }, {
     apiKey: registry.getApiKey(model.provider),
     headers: model.headers,
-    temperature: input.config.temperature ?? 0,
-    maxTokens: input.config.maxTokens ?? 1_200,
+    maxTokens: 1_200,
     reasoning,
-    timeoutMs: input.config.timeoutMs ?? 30_000,
+    timeoutMs: 30_000,
     signal: input.signal,
   });
   if (response.stopReason === "error" || response.stopReason === "aborted") {

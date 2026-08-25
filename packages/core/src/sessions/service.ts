@@ -7,7 +7,12 @@ import type { SessionTurnIntent, SessionTurnRecord } from "@cohub/protocol/model
 import type { ModelThinkingLevel } from "@cohub/protocol";
 import { sessionTurnSegments, sessionTurns, spaceSessions, spaces } from "@cohub/db";
 import { sanitizePostgresJsonValue } from "../content/sanitize.js";
-import { addSessionParticipantMeta, initializeSessionParticipantsMeta } from "./session-meta.js";
+import {
+  addSessionParticipantMeta,
+  initializeSessionParticipantsMeta,
+  normalizeSessionTitle,
+  setSessionTitleMeta,
+} from "./session-meta.js";
 import { submitSessionPrompt, type ExpandedPromptTemplate, type ExpandedSkillCommand, expandPromptContent, type SubmitSessionPromptHooks, type SubmitSessionPromptInput, type SubmitSessionPromptOptions } from "./prompt.js";
 
 export type PromptTemplateService = {
@@ -174,15 +179,17 @@ export function createSessionServices(input: {
     if (!space) throw new Error("space not found");
 
     const sessionId = randomUUID();
+    const title = normalizeSessionTitle(options.title);
+    const participantMeta = initializeSessionParticipantsMeta({ createdBy: "cronjob" }, userUuid);
     const [session] = await input.db.insert(spaceSessions).values({
       id: sessionId,
       spaceId,
       userUuid,
-      title: options.title ?? null,
+      title,
       source: options.source,
       status: "active",
       externalSessionId: null,
-      meta: sanitizePostgresJsonValue(initializeSessionParticipantsMeta({ createdBy: "cronjob" }, userUuid)),
+      meta: sanitizePostgresJsonValue(title ? setSessionTitleMeta(participantMeta, { source: "user" }) : participantMeta),
       lastMessageAt: new Date(),
       lastMessageId: null,
     }).returning();

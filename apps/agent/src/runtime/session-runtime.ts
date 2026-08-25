@@ -13,7 +13,7 @@ import { getCurrentToolExecutionContext, runWithToolExecutionContext, type ToolE
 import { isToolFailureDetails } from "./tools/index.js";
 import { applyRequestProfile } from "./request-profile.js";
 import { mergeHeaders } from "@cohub/infra/config-runtime/models";
-import type { ImageToTextConfig } from "@cohub/infra/config-runtime/image-to-text";
+import type { ImageToTextConfig } from "@cohub/infra/config-runtime/model-tasks";
 import { ModelUnavailableError } from "@cohub/core/sessions";
 import { prepareAgentImagesForModel } from "./image-to-text.js";
 import { OMITTED_IMAGE_TEXT } from "./compaction-policy.js";

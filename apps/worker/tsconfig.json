@@ -54,8 +54,14 @@
       "@cohub/infra/config-runtime/models": [
         "../../packages/infra/src/config-runtime/models.ts"
       ],
-      "@cohub/infra/config-runtime/image-to-text": [
-        "../../packages/infra/src/config-runtime/image-to-text.ts"
+      "@cohub/infra/config-runtime/model-tasks": [
+        "../../packages/infra/src/config-runtime/model-tasks.ts"
+      ],
+      "@cohub/model-runtime/image-content": [
+        "../../packages/model-runtime/src/image-content.ts"
+      ],
+      "@cohub/model-runtime/pi-models-adapter": [
+        "../../packages/model-runtime/src/pi-models-adapter.ts"
       ],
       "@cohub/infra/config-runtime/generations": [
         "../../packages/infra/src/config-runtime/generations.ts"

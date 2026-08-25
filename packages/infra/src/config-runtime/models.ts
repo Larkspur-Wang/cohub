@@ -51,6 +51,84 @@ export type ModelsConfig = {
   providers: Record<string, ProviderConfig>;
 };
 
+const THINKING_LEVELS = new Set<ModelThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && Boolean(value.trim());
+}
+
+function isHttpUrl(value: unknown): value is string {
+  if (!isNonEmptyString(value)) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function isFiniteNonNegative(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+function isPositiveInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return isRecord(value) && Object.values(value).every((item) => typeof item === "string");
+}
+
+function isThinkingLevelMap(value: unknown): value is ThinkingLevelMap {
+  return isRecord(value) && Object.entries(value).every(([level, mapped]) =>
+    THINKING_LEVELS.has(level as ModelThinkingLevel) && (mapped === null || typeof mapped === "string"));
+}
+
+function isModelCost(value: unknown, partial: boolean): boolean {
+  if (!isRecord(value)) return false;
+  const keys = ["input", "output", "cacheRead", "cacheWrite"] as const;
+  if (!Object.keys(value).every((key) => (keys as readonly string[]).includes(key))) return false;
+  if (!keys.every((key) => value[key] === undefined || isFiniteNonNegative(value[key]))) return false;
+  return partial || (isFiniteNonNegative(value.input) && isFiniteNonNegative(value.output));
+}
+
+export function isModelDefinition(value: unknown, options: { partial?: boolean } = {}): boolean {
+  if (!isRecord(value)) return false;
+  const partial = options.partial === true;
+  return (partial ? value.id === undefined || isNonEmptyString(value.id) : isNonEmptyString(value.id))
+    && (value.name === undefined || typeof value.name === "string")
+    && (value.api === undefined || isNonEmptyString(value.api))
+    && (value.baseUrl === undefined || isHttpUrl(value.baseUrl))
+    && (value.reasoning === undefined || typeof value.reasoning === "boolean")
+    && (value.defaultThinkingLevel === undefined || THINKING_LEVELS.has(value.defaultThinkingLevel as ModelThinkingLevel))
+    && (value.thinkingLevelMap === undefined || isThinkingLevelMap(value.thinkingLevelMap))
+    && (value.hidden === undefined || typeof value.hidden === "boolean")
+    && (value.input === undefined || (Array.isArray(value.input) && value.input.length > 0 && value.input.every((item) => item === "text" || item === "image")))
+    && (value.cost === undefined || isModelCost(value.cost, partial))
+    && (value.contextWindow === undefined || isPositiveInteger(value.contextWindow))
+    && (value.maxTokens === undefined || isPositiveInteger(value.maxTokens))
+    && (value.requestProfile === undefined || value.requestProfile === "codex")
+    && (value.headers === undefined || isStringRecord(value.headers))
+    && (value.compat === undefined || isRecord(value.compat));
+}
+
+function isProviderConfig(value: unknown): value is ProviderConfig {
+  if (!isRecord(value)) return false;
+  return (value.baseUrl === undefined || isHttpUrl(value.baseUrl))
+    && (value.apiKey === undefined || isNonEmptyString(value.apiKey))
+    && (value.api === undefined || isNonEmptyString(value.api))
+    && (value.requestProfile === undefined || value.requestProfile === "codex")
+    && (value.headers === undefined || isStringRecord(value.headers))
+    && (value.compat === undefined || isRecord(value.compat))
+    && (value.models === undefined || (Array.isArray(value.models) && value.models.every((model) => isModelDefinition(model))));
+}
+
 export function mergeHeaders<T extends string | null = string>(
   ...sources: Array<Record<string, T> | null | undefined>
 ): Record<string, T> | undefined {
@@ -96,15 +174,15 @@ export function getUserModelsRedisKey(userId: string): string {
 }
 
 export function isModelsConfig(value: unknown): value is ModelsConfig {
-  if (!value || typeof value !== "object") return false;
-  const record = value as Record<string, unknown>;
-  return !!record.providers && typeof record.providers === "object";
+  if (!isRecord(value) || !isRecord(value.providers)) return false;
+  return Object.entries(value.providers).every(([provider, config]) =>
+    Boolean(provider.trim()) && isProviderConfig(config));
 }
 
 export function parseModelsConfig(rawText: string): ModelsConfig {
   const parsed = JSON.parse(rawText) as unknown;
   if (!isModelsConfig(parsed)) {
-    throw new Error("Models catalog file has invalid schema: missing providers object");
+    throw new Error("Models catalog file has invalid schema");
   }
   return parsed;
 }

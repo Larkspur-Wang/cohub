@@ -19,6 +19,7 @@ import { clearSessionStreamSnapshot, getSessionStreamSnapshot } from "../session
 import { createSessionFork, listSessionForksForSessions } from "../session-forks.js";
 import { dispatchLabelAssignmentsUpdated } from "../realtime-events.js";
 import { buildSessionTurnResponse } from "../session-turn-response.js";
+import { parseSessionTitleInput } from "../session-title-input.js";
 
 
 const logger = createLogger({ serviceName: "cohub-api" });
@@ -123,16 +124,10 @@ router.patch("/:id", async (c) => {
     return authzDenied(c);
   }
 
-  const body = await c.req.json<{ title?: string }>().catch(() => null);
-  const title = body?.title ?? null;
-  const newTitle = title?.trim() || null;
+  const input = parseSessionTitleInput(await c.req.json<unknown>().catch(() => null));
+  if (!input.success) return c.json({ message: "title must be a string or null" }, 400);
 
-  if (newTitle === session.title) {
-    const [hydratedSession] = await hydrateSessionParticipantProfiles([session]);
-    return c.json({ session: hydratedSession ?? session });
-  }
-
-  await updateSpaceSessionInfo({ spaceId: session.spaceId, sessionId: session.id, title: newTitle });
+  await updateSpaceSessionInfo({ spaceId: session.spaceId, sessionId: session.id, title: input.title });
 
   const refreshed = await getSpaceSessionById(sessionId);
   const [hydratedSession] = await hydrateSessionParticipantProfiles([refreshed ?? session]);

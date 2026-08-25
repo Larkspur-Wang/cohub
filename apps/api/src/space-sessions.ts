@@ -9,7 +9,15 @@ import { SPACE_ENV_REDIS_KEY } from "@cohub/protocol/sandbox";
 import { isSandboxUsableStatus } from "@cohub/sandbox-controller";
 import { sanitizeContentBlocksForPostgresJson, sanitizePostgresJsonValue } from "@cohub/core/content/sanitize";
 import { assignSessionParticipantSystemLabels } from "@cohub/core/labels/session-user";
-import { initializeSessionParticipantsMeta, readSessionParticipantUserUuids, resolveMessageTurnId } from "@cohub/core/sessions";
+import {
+  canClaimSessionFallbackTitle,
+  initializeSessionParticipantsMeta,
+  normalizeSessionTitle,
+  readSessionParticipantUserUuids,
+  readSessionTitleSource,
+  resolveMessageTurnId,
+  setSessionTitleMeta,
+} from "@cohub/core/sessions";
 import { db } from "./db/index.js";
 import {
   sessionMessages,
@@ -28,6 +36,7 @@ import { countToolCallsInContent, deriveMessagePreviewText, extractPlainText } f
 import { fallbackPublicUserProfile, getProfilesByUuids } from "./user-profiles.js";
 // space public profile is inlined in attachSessionSpaceSummaries to avoid route-layer coupling
 import { enqueueSessionMessagePostprocess } from "./session-message-postprocess-queue.js";
+import { enqueueSessionTitleGeneration } from "./session-title-queue.js";
 import { touchSpaceActivity } from "./space-activity.js";
 import {
   decodeSessionListCursor,
@@ -208,15 +217,17 @@ async function assignSessionUserLabelsAndDispatch(input: { spaceId: string; sess
 
 export const createInitialSpaceSession = async (input: RegisterSessionInput) => {
   const userUuid = normalizeRequiredUserUuid(input.userUuid);
+  const title = normalizeSessionTitle(input.title);
+  const participantMeta = initializeSessionParticipantsMeta(input.meta, userUuid);
   const [session] = await db.insert(spaceSessions).values({
     id: input.sessionId,
     spaceId: input.spaceId,
     userUuid,
-    title: input.title ?? null,
+    title,
     source: input.source ?? null,
     status: "active",
     externalSessionId: input.externalSessionId ?? null,
-    meta: sanitizePostgresJsonValue(initializeSessionParticipantsMeta(input.meta, userUuid)),
+    meta: sanitizePostgresJsonValue(title ? setSessionTitleMeta(participantMeta, { source: "user" }) : participantMeta),
     lastMessageAt: new Date(),
     lastMessageId: null,
   }).returning();
@@ -236,17 +247,19 @@ export const registerSpaceSession = async (input: RegisterSessionInput) => {
   if (!space) throw new Error("Space not found");
 
   const userUuid = normalizeRequiredUserUuid(input.userUuid);
+  const title = normalizeSessionTitle(input.title);
+  const participantMeta = initializeSessionParticipantsMeta(input.meta, userUuid);
 
   try {
     const [session] = await db.insert(spaceSessions).values({
       id: input.sessionId,
       spaceId: input.spaceId,
       userUuid,
-      title: input.title ?? null,
+      title,
       source: input.source ?? null,
       status: "active",
       externalSessionId: input.externalSessionId ?? null,
-      meta: sanitizePostgresJsonValue(initializeSessionParticipantsMeta(input.meta, userUuid)),
+      meta: sanitizePostgresJsonValue(title ? setSessionTitleMeta(participantMeta, { source: "user" }) : participantMeta),
       lastMessageAt: new Date(),
       lastMessageId: null,
     }).returning();
@@ -449,18 +462,30 @@ function deriveGenerationRequestTitle(content: ContentBlock[]) {
   try {
     const request = JSON.parse(requestText) as { type?: unknown; content?: unknown };
     if (request.type !== "generation.request" || !Array.isArray(request.content)) return null;
-    const text = extractPlainText(request.content as ContentBlock[])
-      .replace(/\s+/g, " ")
-      .replace(/^[:\-\s]+/, "")
-      .trim()
-      .slice(0, 60);
-    return text || null;
+    return normalizeSessionTitle(extractPlainText(request.content as ContentBlock[]).replace(/^[:\-\s]+/, ""));
   } catch {
     return null;
   }
 }
 
-const updateSessionAfterAppend = async (session: Pick<typeof spaceSessions.$inferSelect, "id" | "spaceId">, message: typeof sessionMessages.$inferSelect) => {
+const claimSessionFallbackTitle = async (input: {
+  sessionId: string;
+  title: string;
+}) => db.transaction(async (tx) => {
+  const [session] = await tx.select().from(spaceSessions)
+    .where(eq(spaceSessions.id, input.sessionId))
+    .for("update")
+    .limit(1);
+  if (!session || !canClaimSessionFallbackTitle(session.title, session.meta)) return false;
+  await tx.update(spaceSessions).set({
+    title: input.title,
+    meta: sanitizePostgresJsonValue(setSessionTitleMeta(session.meta, { source: "fallback" })),
+    updatedAt: new Date(),
+  }).where(eq(spaceSessions.id, input.sessionId));
+  return true;
+});
+
+const updateSessionAfterAppend = async (session: Pick<typeof spaceSessions.$inferSelect, "id" | "spaceId">, message: typeof sessionMessages.$inferSelect, titleChanged = false) => {
   const activityAt = message.createdAt ?? new Date();
   await db.update(spaceSessions).set({
     lastMessageId: message.id,
@@ -475,7 +500,13 @@ const updateSessionAfterAppend = async (session: Pick<typeof spaceSessions.$infe
   if (refreshed) {
     await dispatchSessionUpdated({
       session: refreshed,
-      changed: ["lastMessageId", "latestMessageText", "lastMessageAt", "updatedAt"],
+      changed: [
+        "lastMessageId",
+        "latestMessageText",
+        "lastMessageAt",
+        "updatedAt",
+        ...(titleChanged ? ["title"] : []),
+      ],
     }).catch((error) => {
       logger.warn("[Realtime] failed to dispatch session.updated after message append", error);
     });
@@ -490,6 +521,18 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
         sessionId: input.sessionId,
         messageId: existing.id,
       });
+    } else if (existing.role === "user") {
+      const [session] = await db.select({ meta: spaceSessions.meta })
+        .from(spaceSessions)
+        .where(eq(spaceSessions.id, input.sessionId))
+        .limit(1);
+      if (readSessionTitleSource(session?.meta) === "fallback") {
+        await enqueueSessionTitleGeneration({
+          sessionId: input.sessionId,
+          messageId: existing.id,
+          userId: input.userId ?? null,
+        }).catch((error) => logger.warn("[SessionTitle] failed to re-enqueue title generation", error));
+      }
     }
     return existing;
   }
@@ -570,14 +613,26 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
   }).returning();
   if (!messageNode) throw new Error("Failed to persist message");
 
-  if (messageRole === "user" && !session.title?.trim()) {
-    const titleText = (isGenerationRequest ? deriveGenerationRequestTitle(content) : null) ?? (text ?? extractPlainText(content)).replace(/\s+/g, " ").replace(/^[:\-\s]+/, "").trim().slice(0, 60);
-    if (titleText) {
-      await db.update(spaceSessions).set({ title: titleText, updatedAt: new Date() }).where(eq(spaceSessions.id, input.sessionId));
+  let titleChanged = false;
+  if (messageRole === "user") {
+    const fallbackTitle = (isGenerationRequest ? deriveGenerationRequestTitle(content) : null)
+      ?? normalizeSessionTitle((text ?? extractPlainText(content)).replace(/^[:\-\s]+/, ""))
+      ?? (content.some((block) => block.type === "image") ? "Image" : null);
+    if (fallbackTitle) {
+      titleChanged = await claimSessionFallbackTitle({ sessionId: input.sessionId, title: fallbackTitle });
+      if (titleChanged) {
+        await enqueueSessionTitleGeneration({
+          sessionId: input.sessionId,
+          messageId: messageNode.id,
+          userId,
+        }).catch((error) => {
+          logger.warn("[SessionTitle] failed to enqueue title generation", error);
+        });
+      }
     }
   }
 
-  await updateSessionAfterAppend(session, messageNode);
+  await updateSessionAfterAppend(session, messageNode, titleChanged);
 
   if (messageRole === "user") {
     const turnId = typeof (input.message.meta as Record<string, unknown> | null | undefined)?.turnId === "string"
@@ -694,31 +749,43 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
 };
 
 export const updateSpaceSessionInfo = async (input: UpdateSessionInfoInput) => {
-  const session = await getSpaceSessionById(input.sessionId);
-  if (!session || session.spaceId !== input.spaceId) throw new Error("Space session not found");
+  const changed: string[] = [];
+  const refreshed = await db.transaction(async (tx) => {
+    const [session] = await tx.select().from(spaceSessions)
+      .where(eq(spaceSessions.id, input.sessionId))
+      .for("update")
+      .limit(1);
+    if (!session || session.spaceId !== input.spaceId) throw new Error("Space session not found");
 
-  const nextTitle = input.title === undefined ? session.title : (input.title ?? null);
-  const nextLastMessageAt = input.updatedAt === undefined ? session.lastMessageAt : input.updatedAt ? new Date(input.updatedAt) : null;
-  const changed = [
-    ...(nextTitle !== session.title ? ["title"] : []),
-    ...(input.updatedAt !== undefined ? ["lastMessageAt"] : []),
-    ...(input.meta !== undefined ? ["meta"] : []),
-  ];
+    const nextTitle = input.title === undefined ? session.title : normalizeSessionTitle(input.title);
+    const nextLastMessageAt = input.updatedAt === undefined
+      ? session.lastMessageAt
+      : input.updatedAt
+        ? new Date(input.updatedAt)
+        : null;
+    let nextMeta = input.meta === undefined
+      ? session.meta
+      : { ...((session.meta as Record<string, unknown> | null) ?? {}), ...(input.meta ?? {}) };
+    if (input.title !== undefined) nextMeta = setSessionTitleMeta(nextMeta, { source: "user" });
 
-  await db.update(spaceSessions).set({
-    title: nextTitle,
-    lastMessageAt: nextLastMessageAt,
-    meta: input.meta === undefined ? session.meta : { ...((session.meta as Record<string, unknown> | null) ?? {}), ...(input.meta ?? {}) },
-    updatedAt: new Date(),
-  }).where(eq(spaceSessions.id, input.sessionId));
+    if (nextTitle !== session.title || input.title !== undefined) changed.push("title");
+    if (input.updatedAt !== undefined) changed.push("lastMessageAt");
+    if (input.meta !== undefined) changed.push("meta");
+    if (changed.length === 0) return session;
+
+    const [updated] = await tx.update(spaceSessions).set({
+      title: nextTitle,
+      lastMessageAt: nextLastMessageAt,
+      meta: sanitizePostgresJsonValue(nextMeta),
+      updatedAt: new Date(),
+    }).where(eq(spaceSessions.id, input.sessionId)).returning();
+    return updated ?? session;
+  });
 
   if (changed.length > 0) {
-    const refreshed = await getSpaceSessionById(input.sessionId);
-    if (refreshed) {
-      await dispatchSessionUpdated({ session: refreshed, changed }).catch((error) => {
-        logger.warn("[Realtime] failed to dispatch session.updated", error);
-      });
-    }
+    await dispatchSessionUpdated({ session: refreshed, changed }).catch((error) => {
+      logger.warn("[Realtime] failed to dispatch session.updated", error);
+    });
   }
   return true;
 };

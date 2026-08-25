@@ -1,0 +1,32 @@
+{
+  "name": "@cohub/model-runtime",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./image-content": {
+      "types": "./dist/image-content.d.ts",
+      "default": "./dist/image-content.js"
+    },
+    "./pi-models-adapter": {
+      "types": "./dist/pi-models-adapter.d.ts",
+      "default": "./dist/pi-models-adapter.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@cohub/protocol": "workspace:*",
+    "@earendil-works/pi-ai": "0.81.1"
+  },
+  "devDependencies": {
+    "@types/node": "26.1.1",
+    "typescript": "7.0.2"
+  }
+}
