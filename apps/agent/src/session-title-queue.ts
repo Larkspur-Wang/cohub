@@ -1,7 +1,7 @@
 import { createSessionTitleGenerationEnqueuer } from "@cohub/infra/session-title-queue";
-import { config } from "./config.js";
+import { env } from "./env.js";
 
 export const enqueueSessionTitleGeneration = createSessionTitleGenerationEnqueuer({
-  redisUrl: config.bullmqRedisUrl,
-  telemetryServiceName: "cohub-api-session-title",
+  redisUrl: env.BULLMQ_REDIS_URL,
+  telemetryServiceName: "cohub-agent-session-title",
 });

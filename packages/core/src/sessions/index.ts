@@ -8,3 +8,4 @@ export * from "./prompt-template.js";
 export * from "./prompt-env.js";
 export * from "./service.js";
 export * from "./session-meta.js";
+export * from "./session-title.js";

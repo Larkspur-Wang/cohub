@@ -48,6 +48,10 @@
       "types": "./dist/space-hooks/index.d.ts",
       "default": "./dist/space-hooks/index.js"
     },
+    "./session-title-queue": {
+      "types": "./dist/session-title-queue.d.ts",
+      "default": "./dist/session-title-queue.js"
+    },
     "./tracing": {
       "types": "./dist/tracing/index.d.ts",
       "default": "./dist/tracing/index.js"

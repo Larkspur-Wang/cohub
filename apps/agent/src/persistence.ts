@@ -19,9 +19,10 @@ import type { ChannelProvider, GatewayOutboundCommand } from "@cohub/protocol/ga
 import { getRealtimeUserRoom } from "@cohub/protocol/realtime";
 import { sessionMessages, sessionTurns, spaceChannels, spaceSessionBindings, spaceSessions, providerMessageRefs, userChannels, userProfiles } from "@cohub/db";
 import { sanitizeContentBlocksForPostgresJson, sanitizePostgresJsonValue } from "@cohub/core/content/sanitize";
-import { addImageToTextCallsToSummary, countToolCallsInContent, createImageToTextUsageSummaryAccumulator, deriveMessagePreviewText, extractPlainText, finalizeImageToTextUsageSummary, readImageToTextCalls, resolveMessageTurnId, summarizeSessionTurnCompactions, sumImageToTextUsage } from "@cohub/core/sessions";
+import { addImageToTextCallsToSummary, claimSessionFallbackTitle, countToolCallsInContent, createImageToTextUsageSummaryAccumulator, deriveMessagePreviewText, deriveSessionFallbackTitle, finalizeImageToTextUsageSummary, readImageToTextCalls, readSessionTitleSource, resolveMessageTurnId, summarizeSessionTurnCompactions, sumImageToTextUsage } from "@cohub/core/sessions";
 import { buildTraceHeaders, getCurrentRequestId } from "@cohub/infra/tracing";
 import { enqueueSessionMessagePostprocess } from "./session-message-postprocess-queue.js";
+import { enqueueSessionTitleGeneration } from "./session-title-queue.js";
 import { normalizeAssistantTurn } from "./assistant-message-normalizer.js";
 import { indexTurnReferences } from "./reference-index.js";
 import { db } from "./db.js";
@@ -278,9 +279,28 @@ async function updateSessionAfterAppend(sessionId: string, message: typeof sessi
 
 async function persistMessageNode(input: PersistMessageInput & { message: PersistMessageInput["message"] & { id?: string } }): Promise<{ message: typeof sessionMessages.$inferSelect; created: boolean }> {
   const [existing] = await db.select().from(sessionMessages).where(and(eq(sessionMessages.sessionId, input.sessionId), eq(sessionMessages.idempotencyKey, input.idempotencyKey))).limit(1);
-  if (existing) return { message: existing, created: false };
+  if (existing) {
+    if (existing.role === "user") {
+      try {
+        const [session] = await db.select({ meta: spaceSessions.meta })
+          .from(spaceSessions)
+          .where(eq(spaceSessions.id, input.sessionId))
+          .limit(1);
+        if (readSessionTitleSource(session?.meta) === "fallback") {
+          await enqueueSessionTitleGeneration({
+            sessionId: input.sessionId,
+            messageId: existing.id,
+            userId: input.userId ?? null,
+          });
+        }
+      } catch (error) {
+        logger.warn("[SessionTitle] failed to re-enqueue title generation", error);
+      }
+    }
+    return { message: existing, created: false };
+  }
 
-  const [session] = await db.select({ id: spaceSessions.id, spaceId: spaceSessions.spaceId, title: spaceSessions.title }).from(spaceSessions).where(eq(spaceSessions.id, input.sessionId)).limit(1);
+  const [session] = await db.select({ id: spaceSessions.id, spaceId: spaceSessions.spaceId }).from(spaceSessions).where(eq(spaceSessions.id, input.sessionId)).limit(1);
   if (!session || session.spaceId !== input.spaceId) throw new Error("Space session not found");
 
   if (input.previousMessageId) {
@@ -327,9 +347,19 @@ async function persistMessageNode(input: PersistMessageInput & { message: Persis
   }).returning();
   if (!messageNode) throw new Error("Failed to persist message");
 
-  if (messageRole === "user" && !session.title?.trim()) {
-    const titleText = (text ?? extractPlainText(content)).replace(/\s+/g, " ").replace(/^[:\-\s]+/, "").trim().slice(0, 60);
-    if (titleText) await db.update(spaceSessions).set({ title: titleText, updatedAt: new Date() }).where(eq(spaceSessions.id, input.sessionId));
+  if (messageRole === "user") {
+    try {
+      const fallbackTitle = deriveSessionFallbackTitle({ content, text });
+      if (fallbackTitle && await claimSessionFallbackTitle(db, { sessionId: input.sessionId, title: fallbackTitle })) {
+        await enqueueSessionTitleGeneration({
+          sessionId: input.sessionId,
+          messageId: messageNode.id,
+          userId: input.userId ?? null,
+        });
+      }
+    } catch (error) {
+      logger.warn("[SessionTitle] failed to prepare title generation", error);
+    }
   }
   await updateSessionAfterAppend(input.sessionId, messageNode);
   return { message: messageNode, created: true };
@@ -682,6 +712,7 @@ export async function persistUserMessage(input: { spaceId: string; sessionId: st
     sessionId: input.sessionId,
     previousMessageId: null,
     anchorUserMessageId: input.userMessageId,
+    userId: turnRow.userUuid ?? null,
     idempotencyKey: await buildUserIdempotencyKey({ messageId: input.userMessageId, content: input.content, meta: input.meta ?? null }),
     message: { id: input.userMessageId, role: "user", content: input.content, meta: { ...(input.meta ?? {}), turnId, messageId: input.userMessageId, clientMessageId: typeof input.meta?.clientMessageId === "string" ? input.meta.clientMessageId : null, agentSessionEntryId: input.agentSessionEntryId ?? (typeof input.meta?.sessionEntryId === "string" ? input.meta.sessionEntryId : null) }, provider: null, model: null, stopReason: null, errorMessage: null, usage: null, ...timing },
   });

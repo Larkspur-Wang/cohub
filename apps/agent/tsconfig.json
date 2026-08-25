@@ -61,6 +61,9 @@
       "@cohub/infra/space-hooks": [
         "../../packages/infra/src/space-hooks/index.ts"
       ],
+      "@cohub/infra/session-title-queue": [
+        "../../packages/infra/src/session-title-queue.ts"
+      ],
       "@cohub/infra/config-runtime/models": [
         "../../packages/infra/src/config-runtime/models.ts"
       ],

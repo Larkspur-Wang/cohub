@@ -1,6 +1,6 @@
 import { createLogger } from "@cohub/infra/logging";
 import { and, asc, desc, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
-import type { ContentBlock, Usage } from "@cohub/protocol/core";
+import type { Usage } from "@cohub/protocol/core";
 import type { PersistMessageInput, RegisterSessionInput, SessionTurnRecord, UpdateSessionInfoInput } from "@cohub/protocol/model";
 import type { ModelThinkingLevel } from "@cohub/protocol";
 import { getOrCreateRequestId } from "@cohub/infra/tracing";
@@ -10,7 +10,8 @@ import { isSandboxUsableStatus } from "@cohub/sandbox-controller";
 import { sanitizeContentBlocksForPostgresJson, sanitizePostgresJsonValue } from "@cohub/core/content/sanitize";
 import { assignSessionParticipantSystemLabels } from "@cohub/core/labels/session-user";
 import {
-  canClaimSessionFallbackTitle,
+  claimSessionFallbackTitle,
+  deriveSessionFallbackTitle,
   initializeSessionParticipantsMeta,
   normalizeSessionTitle,
   readSessionParticipantUserUuids,
@@ -32,7 +33,7 @@ import { dispatchLabelAssignmentsUpdated, dispatchSessionCreated, dispatchSessio
 import { finalizeSessionTurnFromMessage, getSessionTurnById, hydrateTurnAuthorProfiles } from "./session-turns.js";
 import { enqueueAgentSessionForkJob } from "./agent-turn-queue.js";
 import { requestAgentTurnAbort } from "./agent-turn-abort.js";
-import { countToolCallsInContent, deriveMessagePreviewText, extractPlainText } from "./session-content.js";
+import { countToolCallsInContent, deriveMessagePreviewText } from "./session-content.js";
 import { fallbackPublicUserProfile, getProfilesByUuids } from "./user-profiles.js";
 // space public profile is inlined in attachSessionSpaceSummaries to avoid route-layer coupling
 import { enqueueSessionMessagePostprocess } from "./session-message-postprocess-queue.js";
@@ -455,36 +456,6 @@ const getNextSessionSequence = async (sessionId: string) => {
   return (row?.max ?? 0) + 1;
 };
 
-function deriveGenerationRequestTitle(content: ContentBlock[]) {
-  const requestText = content.find((block) => block.type === "text")?.text;
-  if (!requestText) return null;
-
-  try {
-    const request = JSON.parse(requestText) as { type?: unknown; content?: unknown };
-    if (request.type !== "generation.request" || !Array.isArray(request.content)) return null;
-    return normalizeSessionTitle(extractPlainText(request.content as ContentBlock[]).replace(/^[:\-\s]+/, ""));
-  } catch {
-    return null;
-  }
-}
-
-const claimSessionFallbackTitle = async (input: {
-  sessionId: string;
-  title: string;
-}) => db.transaction(async (tx) => {
-  const [session] = await tx.select().from(spaceSessions)
-    .where(eq(spaceSessions.id, input.sessionId))
-    .for("update")
-    .limit(1);
-  if (!session || !canClaimSessionFallbackTitle(session.title, session.meta)) return false;
-  await tx.update(spaceSessions).set({
-    title: input.title,
-    meta: sanitizePostgresJsonValue(setSessionTitleMeta(session.meta, { source: "fallback" })),
-    updatedAt: new Date(),
-  }).where(eq(spaceSessions.id, input.sessionId));
-  return true;
-});
-
 const updateSessionAfterAppend = async (session: Pick<typeof spaceSessions.$inferSelect, "id" | "spaceId">, message: typeof sessionMessages.$inferSelect, titleChanged = false) => {
   const activityAt = message.createdAt ?? new Date();
   await db.update(spaceSessions).set({
@@ -522,16 +493,20 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
         messageId: existing.id,
       });
     } else if (existing.role === "user") {
-      const [session] = await db.select({ meta: spaceSessions.meta })
-        .from(spaceSessions)
-        .where(eq(spaceSessions.id, input.sessionId))
-        .limit(1);
-      if (readSessionTitleSource(session?.meta) === "fallback") {
-        await enqueueSessionTitleGeneration({
-          sessionId: input.sessionId,
-          messageId: existing.id,
-          userId: input.userId ?? null,
-        }).catch((error) => logger.warn("[SessionTitle] failed to re-enqueue title generation", error));
+      try {
+        const [session] = await db.select({ meta: spaceSessions.meta })
+          .from(spaceSessions)
+          .where(eq(spaceSessions.id, input.sessionId))
+          .limit(1);
+        if (readSessionTitleSource(session?.meta) === "fallback") {
+          await enqueueSessionTitleGeneration({
+            sessionId: input.sessionId,
+            messageId: existing.id,
+            userId: input.userId ?? null,
+          });
+        }
+      } catch (error) {
+        logger.warn("[SessionTitle] failed to re-enqueue title generation", error);
       }
     }
     return existing;
@@ -615,20 +590,24 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
 
   let titleChanged = false;
   if (messageRole === "user") {
-    const fallbackTitle = (isGenerationRequest ? deriveGenerationRequestTitle(content) : null)
-      ?? normalizeSessionTitle((text ?? extractPlainText(content)).replace(/^[:\-\s]+/, ""))
-      ?? (content.some((block) => block.type === "image") ? "Image" : null);
-    if (fallbackTitle) {
-      titleChanged = await claimSessionFallbackTitle({ sessionId: input.sessionId, title: fallbackTitle });
-      if (titleChanged) {
-        await enqueueSessionTitleGeneration({
-          sessionId: input.sessionId,
-          messageId: messageNode.id,
-          userId,
-        }).catch((error) => {
-          logger.warn("[SessionTitle] failed to enqueue title generation", error);
-        });
+    try {
+      const fallbackTitle = deriveSessionFallbackTitle({
+        content,
+        text,
+        generationRequest: isGenerationRequest,
+      });
+      if (fallbackTitle) {
+        titleChanged = await claimSessionFallbackTitle(db, { sessionId: input.sessionId, title: fallbackTitle });
+        if (titleChanged) {
+          await enqueueSessionTitleGeneration({
+            sessionId: input.sessionId,
+            messageId: messageNode.id,
+            userId,
+          });
+        }
       }
+    } catch (error) {
+      logger.warn("[SessionTitle] failed to prepare title generation", error);
     }
   }
 
