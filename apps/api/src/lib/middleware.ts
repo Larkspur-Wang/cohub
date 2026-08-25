@@ -84,6 +84,16 @@ export const useUserPrincipal = (c: Context): AuthUser | Response => {
   return principal ? c.json({ message: "forbidden" }, 403) : c.json({ message: "unauthorized" }, 401);
 };
 
+/** App lifecycle operations may also be performed by a scoped execution token. */
+export const useAppPublisherPrincipal = (c: Context): AuthUser | Response => {
+  const principal = c.get("principal") as RequestPrincipal | null | undefined;
+  if (principal?.type === "user") return principal.user;
+  if (principal?.type === "execution" && principal.execution.actorUserId) {
+    return principalToAuthUser(principal) as AuthUser;
+  }
+  return principal ? c.json({ message: "forbidden" }, 403) : c.json({ message: "unauthorized" }, 401);
+};
+
 /**
  * Returns the authenticated user when present, otherwise null.
  * Use this for routes whose authorization is fully determined by RBAC

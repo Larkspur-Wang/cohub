@@ -14,6 +14,7 @@ import {
   getAppSessionPrincipal,
   requireValidId,
   useAuth,
+  useAppPublisherPrincipal,
   useUserPrincipal,
   type AuthUser,
 } from "../lib/middleware.js";
@@ -581,7 +582,7 @@ router.get("/:id", async (c) => {
 });
 
 router.post("/", async (c) => {
-  const user = useUserPrincipal(c);
+  const user = useAppPublisherPrincipal(c);
   if (user instanceof Response) return user;
   const body = await c.req.json().catch(() => null) as Record<string, unknown> | null;
   const spaceId = typeof body?.spaceId === "string" ? body.spaceId : "";
@@ -851,7 +852,7 @@ async function publishAppVersion(
 }
 
 router.patch("/:id", async (c) => {
-  const user = useUserPrincipal(c);
+  const user = useAppPublisherPrincipal(c);
   if (user instanceof Response) return user;
   const id = c.req.param("id");
   if (!requireValidId(id)) return c.json({ message: "app not found" }, 404);
@@ -876,7 +877,7 @@ router.get("/:id/versions", async (c) => {
 });
 
 router.post("/:id/versions", async (c) => {
-  const user = useUserPrincipal(c);
+  const user = useAppPublisherPrincipal(c);
   if (user instanceof Response) return user;
   const id = c.req.param("id");
   if (!requireValidId(id)) return c.json({ message: "app not found" }, 404);
@@ -888,7 +889,7 @@ router.post("/:id/versions", async (c) => {
 });
 
 router.delete("/:id", async (c) => {
-  const user = useUserPrincipal(c);
+  const user = useAppPublisherPrincipal(c);
   if (user instanceof Response) return user;
   const id = c.req.param("id");
   if (!requireValidId(id)) return c.json({ message: "app not found" }, 404);
