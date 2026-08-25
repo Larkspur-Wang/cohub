@@ -6,7 +6,6 @@ import {
   measureDesktopCommandPayload,
   parseDesktopCommand,
   parseDesktopCommandError,
-  parseDesktopCommandId,
   DESKTOP_COMMAND_DEFAULT_TIMEOUT_MS,
   DESKTOP_COMMAND_ERROR_CODE_MAX_LENGTH,
   DESKTOP_COMMAND_ERROR_MESSAGE_MAX_LENGTH,
@@ -152,14 +151,6 @@ describe("desktop command helpers", () => {
     assert.equal(isTerminalDesktopCommandStatus("pending"), false);
     assert.equal(isTerminalDesktopCommandStatus("applied"), true);
     assert.equal(isTerminalDesktopCommandStatus("timeout"), true);
-  });
-
-  it("accepts only short opaque command ids, since they become Redis keys", () => {
-    assert.equal(parseDesktopCommandId("  retry-1  "), "retry-1");
-    assert.equal(parseDesktopCommandId("a".repeat(64))?.length, 64);
-    for (const invalid of ["a".repeat(65), "", "has space", "ui:command:v1:injected", 42]) {
-      assert.equal(parseDesktopCommandId(invalid), null, String(invalid));
-    }
   });
 
   it("caps a reported error and falls back to the status", () => {

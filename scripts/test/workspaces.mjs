@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { availableParallelism } from "node:os";
 import { performance } from "node:perf_hooks";
 
 const input = process.argv.slice(2).filter((argument) => argument !== "--");
@@ -13,10 +14,19 @@ for (let index = 0; index < input.length; index += 1) {
   }
 }
 
+const configuredConcurrency = Number.parseInt(
+  process.env.COHUB_TEST_WORKSPACE_CONCURRENCY ?? "",
+  10,
+);
+const workspaceConcurrency =
+  Number.isInteger(configuredConcurrency) && configuredConcurrency > 0
+    ? configuredConcurrency
+    : availableParallelism();
 const pnpmArguments = [
   "--reporter=append-only",
   "-r",
-  "--parallel",
+  "--no-sort",
+  `--workspace-concurrency=${workspaceConcurrency}`,
   "--if-present",
   "test",
 ];
