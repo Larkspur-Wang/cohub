@@ -61,7 +61,7 @@ import { RUN_COMMAND_TASK_TYPE } from "@cohub/core/commands";
 import { sanitizePostgresJsonValue } from "@cohub/core/content/sanitize";
 import { assignLabelsToSession, getPinnedSpaceIds, parseLabelRefs, resolveLabelPaths, resolveOrCreateLabelPaths } from "@cohub/core/labels";
 import { assignSessionSourceSystemLabel } from "@cohub/core/labels/session-source";
-import { hasPermission, getSpaceMemberRole, filterSessionsByPermission, resolvePermissionAccess, asAccountIdentity } from "../../permissions.js";
+import { hasPermission, getSpaceMemberRole, filterSessionsByPermission, resolvePermissionAccess, asAccountIdentity, listAccessibleSpaceIds } from "../../permissions.js";
 import { checkpoints } from "@cohub/db";
 import { LogtoUserRequiredError } from "../../user-profiles.js";
 import {
@@ -108,6 +108,8 @@ function getPromptAuthContext(c: Context, spaceId: string) {
 function getScheduledPromptAuthContext(c: Context, spaceId: string, actorUserId: string) {
   return delegatedPromptAuthFromAppSession(getAppSessionPrincipal(c), spaceId, actorUserId);
 }
+
+
 
 async function buildSpacePromptTurnResponse(session: SpaceRouteSessionRecord | null, turnId: string) {
   const response = session ? await buildSessionTurnResponse(session, turnId) : null;
@@ -368,19 +370,6 @@ const uniqueViolationConstraint = (error: unknown): string | null =>
   isPostgresUniqueViolation(error) ? getPostgresErrorConstraint(error) : null;
 
 type SpaceRow = typeof spaces.$inferSelect;
-
-async function listAccessibleSpaceIds(userUuid: string): Promise<string[]> {
-  const owned = await db
-    .select({ id: spaces.id })
-    .from(spaces)
-    .where(eq(spaces.userUuid, userUuid));
-  const member = await db
-    .select({ id: spaceMembers.spaceId })
-    .from(spaceMembers)
-    .where(eq(spaceMembers.userId, userUuid));
-
-  return Array.from(new Set([...owned.map((item) => item.id), ...member.map((item) => item.id)]));
-}
 
 function compareSpaceActivityDesc(left: SpaceRow, right: SpaceRow): number {
   const leftActivity = left.lastActivityAt?.getTime() ?? Number.NEGATIVE_INFINITY;
@@ -1946,7 +1935,7 @@ router.post("/:id/prompt", async (c) => {
   const clientMessageId = body.clientMessageId?.trim() || crypto.randomUUID();
   const source = resolveSessionSourceFromRequest(c, typeof body.source === "string" ? body.source : null);
 
-  const scheduledAuth = getScheduledPromptAuthContext(c, spaceId, user.uuid);
+  const scheduledAuth = await getScheduledPromptAuthContext(c, spaceId, user.uuid);
   const taskData = {
     content,
     clientMessageId,
@@ -2006,7 +1995,7 @@ router.post("/:id/prompt", async (c) => {
         intent: promptIntent,
         accessMode,
         env: promptEnv,
-        context: { kind: "public_api", auth: getPromptAuthContext(c, spaceId) },
+        context: { kind: "public_api", auth: await getPromptAuthContext(c, spaceId) },
       }, {}, requestedModel && requestedProvider
         ? { prevalidatedModel: { provider: requestedProvider, model: requestedModel } }
         : {});

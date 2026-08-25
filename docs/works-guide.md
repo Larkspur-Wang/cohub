@@ -20,9 +20,9 @@ A Work record belongs to one Space and has a few important fields.
 
 `targetRef` is the file path, directory path, or port number.
 
-`workScopes` are permissions the publisher grants directly to the Work.
+`workScopes` (`appScopes` in the canonical API) are permissions the publisher grants directly to the Work for its own Space.
 
-`allowedViewerScopes` are permissions the Work is allowed to request from each viewer through a consent dialog.
+`allowedViewerScopes` is deprecated: viewer grants are no longer gated by the app configuration. A viewer may grant any permission they can already use themselves on the target Space.
 
 The public URL shape is:
 
@@ -46,7 +46,7 @@ put secrets or access tokens in a Work URL.
 
 Prepare something publishable in a Space: an HTML page, a `.board` file, any other single file, a directory containing `index.html` with relative assets, or a running dev server on a supported public sandbox port.
 
-Open the file, directory, or port preview, then click `Publish`. The dialog asks for a Work slug (and a username or space slug if missing). Under `Work can`, select permissions the Work receives directly. Under `Viewers can allow`, select permissions the Work may ask each viewer to grant later.
+Open the file, directory, or port preview, then click `Publish`. The dialog asks for a Work slug (and a username or space slug if missing). Under `App can`, select the permissions the app receives directly for its own Space.
 
 After publishing, the dialog shows the public URL. The Work also appears in the left sidebar under `Works`.
 
@@ -78,34 +78,37 @@ The public Work page only serves a Work when its status is `published`.
 
 ## Permissions
 
-Current direct Work permissions are:
+An app's effective permission for one Space is the union of two grant sources — either one is enough:
+
+- **App-side grant** — a bounded publisher grant (`space.view`, `session.view`, `file.view`, `file.edit`, `taskrun.view`, `session.prompt.readonly`, `session.prompt.fullaccess`, `command.execute`) that applies only to the app's own Space. No viewer consent needed; the server resolves it live on every request.
+- **Viewer grant** — a viewer consents through a dialog. A viewer may grant **any** permission on **any** Space they choose, with two hard rules enforced by the server:
+  - At grant time the viewer must currently hold every requested permission on the target Space.
+  - At use time the grant only works while the viewer still holds that permission there — losing a membership or a role downgrade takes effect immediately.
+
+Account-level scopes (`user.space.list`, `user.session.list`, `user.taskrun.list`, `user.usage.read`) always require a viewer grant; a publisher can never pre-grant them via `appScopes`.
+
+Direct publisher grants are limited to:
 
 ```text
-space.view
-session.view
-file.view
-taskrun.view
+space.view  session.view  file.view  file.edit
+taskrun.view  session.prompt.readonly  session.prompt.fullaccess
+command.execute
 ```
 
-Current viewer-grant permissions are:
+Generation, member/Sandbox/Commerce management, and account-level scopes always require a viewer grant.
 
-```text
-taskrun.view
-session.prompt.readonly
-session.prompt.fullaccess
-generation.create
-user.space.list
-user.session.list
-user.usage.read
+Viewer grants are per Space: one viewer can hold a different grant for the app's own Space and for each Space they picked. The consent dialog shows the target Space name, resolved by Cohub — never by the app.
+
+Viewer-granted permissions never inherit the publishing app's Space access: `taskrun.view` granted for Space A lists Task Runs in Space A only — re-validated against the viewer's current access there. The separate `user.taskrun.list` account scope exposes only Task Runs owned by the viewer.
+
+The `user.*` scopes grant access to the viewer's account-level data across all their spaces. `user.space.list` lets the app call `cohub.spaces.list()`. `user.session.list` lets the app call `cohub.user.listSessions()`, which returns recent sessions the viewer can already view as themselves. `user.taskrun.list` lets the app list and read every Task Run owned by the viewer through the unscoped `cohub.tasks.list()`, including runs from Spaces they can no longer access and account-level runs. `user.usage.read` lets the app call `cohub.user.getActivity()`. Listing Spaces does not grant access to them — the app still needs a grant for each Space it touches; likewise `user.taskrun.list` shows owned Task Runs but grants no access to their source Spaces or to other users' runs.
+
+Grants last 14 days; tokens last 1 hour. Tokens carry identity, publisher scopes, and a display-only snapshot of the consented scopes (`viewerScopes`, for legacy clients that decode the JWT) — consent state lives in the grant rows and is resolved on every request, so tokens stay constant-size and revoking a grant takes effect immediately. Silent reuse only renews a live grant that still covers the requested scopes: it can never create, widen, or revive a grant, so a revoked grant stays revoked until the viewer consents again in a dialog:
+
+```bash
+cohub apps grants <app>            # list your grants for an app
+cohub apps revoke <app> <grantId>  # revoke one
 ```
-
-Direct Work permissions are granted by the publisher at publish time.
-
-Viewer-grant permissions normally require a separate viewer action. The Work calls authorization from inside the runtime, Cohub shows the viewer a consent dialog, and the Work receives a token only for scopes allowed by the publisher and approved by the viewer. Cohub silently authorizes the publisher's own Work in a workspace preview or background; other viewers, public pages, and external brokers still require consent.
-
-Viewer-granted `taskrun.view` can read Task Runs only in Spaces and Sessions the viewer can already access; it never inherits the publishing Work's Space access for another Space.
-
-The `user.*` scopes grant access to the viewer's account-level data across all their spaces. `user.space.list` lets the Work call `cohub.spaces.list()`. `user.session.list` lets the Work call `cohub.user.listSessions()`, which returns recent sessions the viewer can already view as themselves (membership / access policy) — not only sessions inside the Work's space. `user.usage.read` lets the Work call `cohub.user.getActivity()`. These scopes are not bound to the Work's own space, and they do not widen space-scoped Work permissions such as opening an arbitrary session outside the Work.
 
 Use the smallest permission set that the Work needs. A visual static demo normally does not need file, session, task, prompt, or generation permissions.
 
@@ -136,6 +139,47 @@ await cohub.auth.request({
 ```
 
 Prompt-writing behavior should request `session.prompt.fullaccess`. Generation creation should request `generation.create`.
+
+To ask for access to one of the viewer's other Spaces, let the viewer pick it — `requestSpace` merges the choice and the grant into one consent dialog. The host loads the space list (the app never sees it) and the result carries the picked Space:
+
+```js
+const { granted, space } = await cohub.auth.requestSpace({
+  scopes: ["file.view", "session.view"],
+  reason: "This app reads the Space you pick.",
+});
+if (granted && space) {
+  const picked = cohub.space(space.id);
+}
+```
+
+When the app already knows the target Space, pass its id instead — the dialog then only confirms that Space:
+
+```js
+await cohub.auth.request({
+  scopes: ["file.view", "session.view"],
+  spaceId: pickedSpace.id,
+  reason: "This app reads the Space you picked.",
+});
+```
+
+`cohub.context().permissions` reports `viewerGrants` (the per-space viewer consents — previously granted ones included), plus flat `scopes` / `appScopes` / `viewerScopes` for compatibility.
+
+### Silent reuse vs. asking again
+
+Apps never cache grants themselves — the host does. Every `auth.request` call reuses a previous grant silently (for 14 days after the viewer last confirmed) and only opens the consent dialog when something new is needed. To force a fresh dialog instead — re-confirming a grant, or letting the viewer switch to another Space — pass `alwaysAsk`:
+
+```js
+// Silent-first: no dialog when a grant already covers the scopes.
+await cohub.auth.request({ scopes: ["file.view"] });
+
+// Always show the dialog, even when a grant covers the scopes.
+await cohub.auth.request({ scopes: ["file.view"], alwaysAsk: true });
+
+// The picker equivalent: always let the viewer pick again.
+await cohub.auth.requestSpace({ scopes: ["file.view"], alwaysAsk: true });
+```
+
+`cohub.context().permissions.viewerGrants` reflects what the viewer previously granted, so apps can render their state without triggering anything.
 
 To access the viewer's account-level data, request the corresponding `user.*` scope:
 
@@ -379,6 +423,6 @@ If a directory Work fails, check that the directory contains `index.html`, has 1
 
 If a Work opens but cannot use Cohub APIs, check that it is running inside a published Work iframe — static asset URLs and local previews do not provide the Work runtime. If it is, check its `workScopes` and the viewer-granted scopes shown in `cohub.context()`.
 
-If a viewer authorization request is denied, check that the requested scope is included in `allowedViewerScopes`.
+If a viewer authorization request fails, check that the viewer currently holds every requested permission on the target Space — grants are limited to what the viewer can already do there themselves.
 
 If account-level data calls (`spaces.list()`, `user.listSessions()`, `user.getActivity()`) return 403, the viewer must first grant the corresponding `user.*` scope via `cohub.auth.request()`.

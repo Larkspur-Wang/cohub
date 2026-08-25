@@ -52,7 +52,6 @@ type Props = {
 		| "targetType"
 		| "targetRef"
 		| "appScopes"
-		| "allowedViewerScopes"
 		| "meta"
 	>;
 	space?: AppSpace | null;
@@ -169,7 +168,7 @@ const checkoutState = $derived(readAppCheckoutState(page.url));
 // `reply`/`getCheckoutState` stay reactive via closures.
 const host = untrack(() =>
 	createAppBridgeHost({
-		app,
+		app: { ...app, spaceName: space?.name ?? null },
 		authorizationContext: { surface: mode },
 		invocation,
 		getInvocation: () => invocation,
@@ -349,7 +348,7 @@ onMount(() => {
 	saving={host.authSaving}
 	appName={appTitle}
 	authorName={owner?.displayName}
-	onConfirm={() => void host.confirmAuth()}
+	onConfirm={(spaceId) => void host.confirmAuth(spaceId)}
 	onCancel={host.cancelAuth}
 />
 

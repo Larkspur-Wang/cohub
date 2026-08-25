@@ -21,52 +21,40 @@ export const APP_SCOPE_OPTIONS: {
 		description: "Read workspace files.",
 	},
 	{
+		scope: "file.edit",
+		label: "Edit files",
+		description: "Write and modify workspace files.",
+	},
+	{
 		scope: "taskrun.view",
 		label: "View task runs",
 		description: "Read task run status and output.",
 	},
-];
-
-export const APP_VIEWER_SCOPE_OPTIONS: {
-	scope: Permission;
-	label: string;
-	description: string;
-}[] = [
-	{
-		scope: "taskrun.view",
-		label: "View viewer task runs",
-		description: "Read task runs the viewer can access.",
-	},
 	{
 		scope: "session.prompt.readonly",
 		label: "Prompt read-only",
-		description: "Allow viewer-authorized read access to prompts.",
+		description: "Send read-only prompts in sessions.",
 	},
 	{
 		scope: "session.prompt.fullaccess",
 		label: "Prompt full access",
-		description: "Allow viewer-authorized prompt writes.",
+		description: "Send prompts with full agent access.",
 	},
 	{
-		scope: "generation.create",
-		label: "Create generations",
-		description: "Allow viewers to start generation tasks.",
+		scope: "command.execute",
+		label: "Run commands",
+		description: "Execute sandbox commands.",
 	},
+];
+
+/** Direct publisher grants stay deliberately small in v1. */
+export const APP_SCOPE_GROUPS: {
+	title: string;
+	scopes: Permission[];
+}[] = [
 	{
-		scope: "user.space.list",
-		label: "List viewer spaces",
-		description: "Let the app list spaces the viewer owns or belongs to.",
-	},
-	{
-		scope: "user.session.list",
-		label: "List viewer sessions",
-		description:
-			"Let the app list sessions the viewer created across all spaces.",
-	},
-	{
-		scope: "user.usage.read",
-		label: "Read viewer usage",
-		description: "Let the app read the viewer's aggregated usage and cost.",
+		title: "App access",
+		scopes: APP_SCOPE_OPTIONS.map((option) => option.scope),
 	},
 ];
 

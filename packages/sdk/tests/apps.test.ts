@@ -46,6 +46,34 @@ test("AppsApi creates and records Work promotions", async () => {
   assert.equal(requests[2]?.init?.method, "POST");
 });
 
+test("AppsApi authorize and grants hit the app-scoped paths", async () => {
+	const requests: Array<{ path: string; init?: RequestInit }> = [];
+	const transport = {
+		request: async (path: string, init?: RequestInit) => {
+			requests.push({ path, init });
+			return {};
+		},
+	} as unknown as HttpTransport;
+	const api = new AppsApi(transport);
+
+	await api.authorize("app-1", { scopes: ["file.view"], spaceId: "space-2" });
+	await api.listMyGrants("app-1");
+	await api.revokeMyGrant("app-1", "grant-1");
+
+	assert.deepEqual(
+		requests.map((entry) => `${entry.init?.method ?? "GET"} ${entry.path}`),
+		[
+			"POST /api/apps/app-1/authorize",
+			"GET /api/apps/app-1/grants",
+			"DELETE /api/apps/app-1/grants/grant-1",
+		],
+	);
+	assert.deepEqual(JSON.parse(String(requests[0]?.init?.body)), {
+		scopes: ["file.view"],
+		spaceId: "space-2",
+	});
+});
+
 test("AppsApi.getBySlug forwards the abort signal", async () => {
   const controller = new AbortController();
   const transport = {

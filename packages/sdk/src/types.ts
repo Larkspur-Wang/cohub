@@ -1475,37 +1475,66 @@ export type SpaceModListItem = {
   modSpaceDescription: string | null;
 };
 
-export type Permission =
-  | "space.view"
-  | "space.edit"
-  | "space.label.view"
-  | "space.label.manage"
-  | "space.label.assign"
-  | "session.view"
-  | "session.edit"
-  | "session.prompt.readonly"
-  | "session.prompt.fullaccess"
-  | "generation.create"
-  | "file.view"
-  | "file.view.filtered"
-  | "file.edit"
-  | "checkpoint.view"
-  | "checkpoint.edit"
-  | "member.view"
-  | "member.manage"
-  | "references.view"
-  | "channel.view"
-  | "channel.manage"
-  | "cronjob.view"
-  | "cronjob.manage"
-  | "taskrun.view"
-  | "sandbox.view"
-  | "sandbox.manage"
-  | "mod.view"
-  | "mod.manage"
-  | "user.space.list"
-  | "user.session.list"
-  | "user.usage.read";
+/**
+ * The full permission vocabulary, mirrored from `@cohub/core` permissions.
+ * Kept as a runtime constant so hosts can validate untrusted scopes from
+ * app iframes — TypeScript unions cannot constrain cross-window messages.
+ */
+export const PERMISSIONS = [
+  "space.view",
+  "space.edit",
+  "space.label.view",
+  "space.label.manage",
+  "space.label.assign",
+  "session.view",
+  "session.edit",
+  "session.prompt.readonly",
+  "session.prompt.fullaccess",
+  "generation.create",
+  "file.view",
+  "file.view.filtered",
+  "file.edit",
+  "checkpoint.view",
+  "checkpoint.edit",
+  "member.view",
+  "member.manage",
+  "references.view",
+  "channel.view",
+  "channel.manage",
+  "cronjob.view",
+  "cronjob.manage",
+  "taskrun.view",
+  "command.execute",
+  "sandbox.view",
+  "sandbox.manage",
+  "mod.view",
+  "mod.manage",
+  "space.commerce.view",
+  "space.commerce.manage",
+  "user.space.list",
+  "user.session.list",
+  "user.taskrun.list",
+  "user.usage.read",
+] as const;
+
+export type Permission = (typeof PERMISSIONS)[number];
+
+/** A held permission that already covers the checked one. */
+const IMPLIED_PERMISSIONS: Partial<Record<Permission, readonly Permission[]>> = {
+  "session.prompt.readonly": ["session.prompt.fullaccess"],
+  "file.view.filtered": ["file.view"],
+};
+
+/** Implication-aware membership check, mirroring `@cohub/core`. */
+export function scopeListHasPermission(
+	scopes: readonly Permission[],
+	permission: Permission,
+): boolean {
+	if (scopes.includes(permission)) return true;
+	return (IMPLIED_PERMISSIONS[permission] ?? []).some((implies) =>
+		scopes.includes(implies),
+	);
+}
 
 export type SpaceAccess = {
   role: SpaceRole | null;

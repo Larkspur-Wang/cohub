@@ -13,12 +13,7 @@ import {
 } from "$lib/features/app/app-realtime";
 import { sdk } from "$lib/sdk";
 import { buildSpaceLandingRoute } from "$lib/space-routes";
-import {
-	APP_SCOPE_OPTIONS,
-	APP_VIEWER_SCOPE_OPTIONS,
-	scopeState,
-	selectedScopeList,
-} from "./app-utils";
+import { APP_SCOPE_OPTIONS, scopeState, selectedScopeList } from "./app-utils";
 import { createKeyedRouteRequestGuard } from "./route-request-guard";
 
 export type AppTargetType = "file" | "directory" | "port";
@@ -82,7 +77,6 @@ export function createAppDetailController(options: {
 	let hideCohubBarAllowed = $state(false);
 	let hideCohubBarLoading = $state(false);
 	let formScopes = $state<Record<string, boolean>>({});
-	let formViewerScopes = $state<Record<string, boolean>>({});
 	let formSubmitting = $state(false);
 	let formError = $state("");
 	let copiedId = $state(false);
@@ -112,10 +106,6 @@ export function createAppDetailController(options: {
 		formVisibility = detail.visibility;
 		formHideCohubBar = getHideCohubBar(detail.meta);
 		formScopes = scopeState(detail.appScopes, APP_SCOPE_OPTIONS);
-		formViewerScopes = scopeState(
-			detail.allowedViewerScopes,
-			APP_VIEWER_SCOPE_OPTIONS,
-		);
 		formError = "";
 		publishError = "";
 	}
@@ -356,10 +346,6 @@ export function createAppDetailController(options: {
 				targetType: formTargetType,
 				targetRef: formTargetRef.trim(),
 				appScopes: selectedScopeList(formScopes, APP_SCOPE_OPTIONS),
-				allowedViewerScopes: selectedScopeList(
-					formViewerScopes,
-					APP_VIEWER_SCOPE_OPTIONS,
-				),
 				meta: buildAppMeta(detail.meta, formHideCohubBar),
 			});
 			let app = savedApp;
@@ -515,12 +501,6 @@ export function createAppDetailController(options: {
 		},
 		set formScopes(value: Record<string, boolean>) {
 			formScopes = value;
-		},
-		get formViewerScopes() {
-			return formViewerScopes;
-		},
-		set formViewerScopes(value: Record<string, boolean>) {
-			formViewerScopes = value;
 		},
 		get formSubmitting() {
 			return formSubmitting;

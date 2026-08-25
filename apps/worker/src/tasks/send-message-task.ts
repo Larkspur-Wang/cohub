@@ -4,7 +4,10 @@ import type { TaskPayload } from "@cohub/protocol/task";
 import { registerTask } from "./registry.js";
 import { assignLabelsToSession } from "@cohub/core/labels";
 import { assignSessionSourceSystemLabel } from "@cohub/core/labels/session-source";
-import { getPromptAuthScopes, parsePromptEnv, type PromptAccessMode, type PromptAuthContext, type PromptEnv, type SubmitSessionPromptContext } from "@cohub/core/sessions";
+import { parsePromptEnv, type PromptAccessMode, type PromptAuthContext, type PromptEnv, type SubmitSessionPromptContext } from "@cohub/core/sessions";
+import { resolveDelegatedAppScopesAtUseTime } from "@cohub/core/apps";
+import type { Permission } from "@cohub/core/permissions";
+import { sanitizeTaskPromptAuth } from "./send-message-auth.js";
 import type { SessionTurnIntent } from "@cohub/protocol/model";
 import { getPromptTemplateService } from "../prompt-templates.js";
 import { getSkillService } from "../skills.js";
@@ -31,17 +34,10 @@ const sessionPromptService = getSessionDomainServices({
   skillService: getSkillService(),
 });
 
-function sanitizeTaskPromptAuth(auth: PromptAuthContext | null | undefined, input: { spaceId: string; userId: string }) {
-  if (auth?.type !== "delegated_prompt" || auth.spaceId !== input.spaceId) return null;
-  if (auth.actorUserId !== input.userId) return null;
-  if (getPromptAuthScopes(auth, input.spaceId).length === 0) return null;
-  return auth;
-}
-
 const sendMessageHandler = async (job: import("bullmq").Job, context?: { taskRunId: string }) => {
   const payload = job.data as TaskPayload;
   const spaceId = payload.spaceId;
-  const { content, sessionId, title, source: payloadSource, model, provider, thinkingLevel, clientMessageId, generationPolicy, accessMode, intent, labelIds, auth, env } = (payload.data ?? {}) as {
+  const { content, sessionId, title, source: payloadSource, model, provider, thinkingLevel, clientMessageId, generationPolicy, accessMode: payloadAccessMode, intent, labelIds, auth, env } = (payload.data ?? {}) as {
     content?: ContentBlock[];
     sessionId?: string;
     title?: string;
@@ -75,6 +71,15 @@ const sendMessageHandler = async (job: import("bullmq").Job, context?: { taskRun
   }
   const source = normalizeTaskSource(payloadSource);
   const targetSessionId = sessionId?.trim() || null;
+  // Consent re-validation runs before any side effect — a dead grant must not
+  // create a session, assign labels, or spend the viewer's quota.
+  const accessMode = payloadAccessMode ?? "full_access";
+  const promptPermission: Permission = accessMode === "read_only" ? "session.prompt.readonly" : "session.prompt.fullaccess";
+  const sanitizedAuth = await sanitizeTaskPromptAuth(
+    auth ?? null,
+    { spaceId, userId, promptPermission },
+    (reference) => resolveDelegatedAppScopesAtUseTime({ db, ...reference }),
+  );
   const createdSession = targetSessionId ? null : await sessionPromptService.registerCronjobSession(spaceId, { source, title: title ?? null, userUuid: userId });
   const promptSessionId = targetSessionId ?? createdSession?.id;
   if (!promptSessionId) throw new Error("sessionId is required for send_message task");
@@ -104,14 +109,14 @@ const sendMessageHandler = async (job: import("bullmq").Job, context?: { taskRun
     provider: provider ?? null,
     thinkingLevel: thinkingLevel ?? null,
     generationPolicy: generationPolicy ?? null,
-    accessMode: accessMode ?? "full_access",
+    accessMode,
     env: promptEnv,
     intent: intent ?? null,
     context: {
       kind: "scheduled_task",
       taskRunId,
       cronJobId: payload.cronJobId ?? null,
-      auth: sanitizeTaskPromptAuth(auth ?? null, { spaceId, userId }),
+      auth: sanitizedAuth,
     } satisfies SubmitSessionPromptContext,
   });
 

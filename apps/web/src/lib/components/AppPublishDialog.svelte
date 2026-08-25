@@ -10,7 +10,10 @@ import {
 import { Check, Copy, ExternalLink, Loader2, Rocket } from "lucide-svelte";
 import Dialog from "$lib/components/Dialog.svelte";
 import { dispatchAppsChanged } from "$lib/features/app/app-realtime";
-import { APP_VIEWER_SCOPE_OPTIONS } from "$lib/features/space/modules/app-utils";
+import {
+	APP_SCOPE_GROUPS,
+	APP_SCOPE_OPTIONS,
+} from "$lib/features/space/modules/app-utils";
 import { getLocale } from "$lib/i18n/locale.svelte";
 import { m } from "$lib/paraglide/messages.js";
 import { sdk } from "$lib/sdk";
@@ -60,20 +63,11 @@ let hideCohubBar = $state(false);
 let hideCohubBarAllowed = $state(false);
 let hideCohubBarLoading = $state(false);
 
-const appScopes = $state<Record<string, boolean>>({
-	"space.view": true,
-	"session.view": false,
-	"file.view": false,
-	"taskrun.view": false,
-});
-const allowedViewerScopes = $state<Record<string, boolean>>({
-	"session.prompt.readonly": true,
-	"session.prompt.fullaccess": false,
-	"generation.create": false,
-	"user.space.list": false,
-	"user.session.list": false,
-	"user.usage.read": false,
-});
+const appScopes = $state<Record<string, boolean>>(
+	Object.fromEntries(
+		APP_SCOPE_OPTIONS.map((option, index) => [option.scope, index === 0]),
+	),
+);
 const missingUsername = $derived(!ownerUsername?.trim());
 const missingSpaceSlug = $derived(!spaceSlug?.trim());
 const usernameValidation = $derived(
@@ -221,7 +215,6 @@ async function publish() {
 				targetType,
 				targetRef,
 				appScopes: selectedScopes(appScopes),
-				allowedViewerScopes: selectedScopes(allowedViewerScopes),
 				meta: buildWorkMeta(),
 			});
 			published = result.app;
@@ -236,7 +229,6 @@ async function publish() {
 				targetType,
 				targetRef,
 				appScopes: selectedScopes(appScopes),
-				allowedViewerScopes: selectedScopes(allowedViewerScopes),
 				meta: buildWorkMeta(),
 			});
 			published = (await sdk.apps.publishVersion(app.id)).app;
@@ -322,18 +314,19 @@ async function copyUrl() {
 				</label>
 			</section>
 
-			<section class="permissions-grid">
-				<div>
-					<div class="section-label">{m.app_publish_app_can({}, { locale })}</div>
-					<label class="permission-row"><input type="checkbox" bind:checked={appScopes["space.view"]} /> View space</label>
-					<label class="permission-row"><input type="checkbox" bind:checked={appScopes["session.view"]} /> View sessions</label>
-					<label class="permission-row"><input type="checkbox" bind:checked={appScopes["file.view"]} /> View files</label>
-					<label class="permission-row"><input type="checkbox" bind:checked={appScopes["taskrun.view"]} /> View task runs</label>
-				</div>
-				<div>
-					<div class="section-label">{m.app_publish_viewers_allow({}, { locale })}</div>
-					{#each APP_VIEWER_SCOPE_OPTIONS as option (option.scope)}
-						<label class="permission-row"><input type="checkbox" bind:checked={allowedViewerScopes[option.scope]} /> {option.label}</label>
+			<section class="permissions-section">
+				<div class="section-label">{m.app_publish_app_can({}, { locale })}</div>
+				<div class="permissions-grid">
+					{#each APP_SCOPE_GROUPS as group (group.title)}
+						<div class="permission-group">
+							<div class="group-title">{group.title}</div>
+							{#each APP_SCOPE_OPTIONS.filter((option) => group.scopes.includes(option.scope)) as option (option.scope)}
+								<label class="permission-row" title={option.description}>
+									<input type="checkbox" bind:checked={appScopes[option.scope]} />
+									{option.label}
+								</label>
+							{/each}
+						</div>
 					{/each}
 				</div>
 			</section>
@@ -389,8 +382,14 @@ async function copyUrl() {
 	.access-row input { margin-top: 2px; accent-color: var(--brand); }
 	.access-title { display: block; font-weight: 500; color: var(--text-primary); }
 	.access-copy { display: block; margin-top: 2px; color: var(--text-tertiary); }
-	.permissions-grid { display: grid; gap: 14px; }
-	@media (min-width: 640px) { .permissions-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+	.permissions-section { display: grid; gap: 10px; }
+	.permissions-grid { display: grid; gap: 12px; }
+	.permission-group { display: grid; gap: 2px; }
+	.group-title { margin-bottom: 4px; font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--text-placeholder); }
+	@media (min-width: 640px) {
+		.permission-group { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 18px; }
+		.group-title { grid-column: 1 / -1; }
+	}
 	.permission-row { display: flex; align-items: center; gap: 8px; min-height: 28px; font-size: 12px; color: var(--text-secondary); }
 	.permission-row input { accent-color: var(--brand); }
 	.presentation-section { display: grid; gap: 8px; }

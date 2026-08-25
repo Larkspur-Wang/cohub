@@ -77,6 +77,13 @@ export const requireAuth = (c: Context): AuthUser | Response => {
  */
 export const useAuth = (c: Context): AuthUser | Response => requireAuth(c);
 
+/** Returns only a real account principal; delegated principals cannot mint or manage grants. */
+export const useUserPrincipal = (c: Context): AuthUser | Response => {
+  const principal = c.get("principal") as RequestPrincipal | null | undefined;
+  if (principal?.type === "user") return principal.user;
+  return principal ? c.json({ message: "forbidden" }, 403) : c.json({ message: "unauthorized" }, 401);
+};
+
 /**
  * Returns the authenticated user when present, otherwise null.
  * Use this for routes whose authorization is fully determined by RBAC

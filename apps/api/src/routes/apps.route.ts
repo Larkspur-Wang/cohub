@@ -3,7 +3,7 @@ import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { spaces, apps, appPromotions, appPromotionStatsHourly, appVersions, appViewerGrants, appViewStatsHourly, userProfiles } from "@cohub/db";
 import { createAppAssetPublicUrl, deleteAppAssetsByObjectKey, isConfiguredAppAssetPublicUrl } from "../app-asset-storage.js";
 import { publishAppAssetInWorker, type AppPublishAssetJobResult } from "../app-publish-asset-queue.js";
-import type { Permission } from "@cohub/core/permissions";
+import { ALL_PERMISSIONS, APP_PUBLISHER_SCOPES, isUserLevelPermission, normalizePermissionScopes, scopeListHasPermission, type Permission } from "@cohub/core/permissions";
 import { materializeHtmlPageMeta, mergeAppPageMeta } from "@cohub/core/apps";
 import { db } from "../db/index.js";
 import { isPostgresUniqueViolation } from "../db/postgres-error.js";
@@ -14,10 +14,11 @@ import {
   getAppSessionPrincipal,
   requireValidId,
   useAuth,
+  useUserPrincipal,
   type AuthUser,
 } from "../lib/middleware.js";
-import { hasPermission } from "../permissions.js";
-import { createAppSessionToken, APP_SESSION_TTL_SECONDS } from "../app-sessions.js";
+import { hasPermission, resolveUserSpacePermissions } from "../permissions.js";
+import { createAppSessionToken, APP_SESSION_TTL_SECONDS, APP_VIEWER_GRANT_TTL_SECONDS } from "../app-sessions.js";
 import { getSandboxPublicEndpoints } from "../sandbox-public-network.js";
 import type { AppArtifactDescriptor } from "@cohub/protocol";
 import { SANDBOX_PUBLIC_PORTS } from "@cohub/protocol/ports";
@@ -69,16 +70,10 @@ const SLUG_RE = /^[a-z0-9](?:[a-z0-9_-]{0,78}[a-z0-9])?$/;
 const PUBLIC_APP_HTTP_CACHE = "public, max-age=60, stale-while-revalidate=300";
 const PRIVATE_APP_HTTP_CACHE = "private, no-store";
 const SANDBOX_PUBLIC_PORT_SET = new Set<number>(SANDBOX_PUBLIC_PORTS as readonly number[]);
-const ALLOWED_APP_SCOPES = new Set<Permission>(["space.view", "session.view", "file.view", "taskrun.view"]);
-const ALLOWED_VIEWER_SCOPES = new Set<Permission>([
-  "taskrun.view",
-  "session.prompt.readonly",
-  "session.prompt.fullaccess",
-  "generation.create",
-  "user.space.list",
-  "user.session.list",
-  "user.usage.read",
-]);
+/** Direct publisher grants stay deliberately small in v1. */
+const ALLOWED_APP_SCOPES = new Set<Permission>(APP_PUBLISHER_SCOPES);
+/** Viewer grants: any permission the viewer can currently use themselves. */
+const ALLOWED_VIEWER_SCOPES = new Set<Permission>(ALL_PERMISSIONS);
 
 
 const normalizeScopes = (value: unknown, allowed: Set<Permission>): Permission[] => {
@@ -115,8 +110,6 @@ async function ensureAppPresentationAllowed(c: Context, input: { userId: string;
   if (await canHideCohubBar(input.userId)) return null;
   return appHideCohubBarRequiredResponse(c);
 }
-
-const isSubset = (requested: Permission[], allowed: string[]) => requested.every((scope) => allowed.includes(scope));
 
 const isAppSlugConflict = (error: unknown) => isPostgresUniqueViolation(error, "v2_uq_apps_space_slug");
 const invalidAppStatusResponse = (c: Context) => c.json({ message: "status must be one of: published, disabled" }, 400);
@@ -201,6 +194,98 @@ async function getAppById(id: string) {
   const [app] = await db.select().from(apps).where(eq(apps.id, id)).limit(1);
   return app ?? null;
 }
+
+/**
+ * Scopes the viewer cannot grant for a space: their own current access there
+ * must cover every space-level scope (account scopes are always grantable).
+ * One permission-set resolution answers all scopes at once.
+ */
+async function findUngrantableScopes(user: AuthUser, scopes: Permission[], spaceId: string): Promise<Permission[]> {
+  const spaceScopes = scopes.filter((scope) => !isUserLevelPermission(scope));
+  if (spaceScopes.length === 0) return [];
+  const held = await resolveUserSpacePermissions(user, spaceId);
+  return spaceScopes.filter((scope) => !scopeListHasPermission(held, scope));
+}
+
+/** Extends a live grant that still covers the requested scopes; never revives. */
+async function renewViewerGrant(input: {
+  existing: typeof appViewerGrants.$inferSelect | undefined;
+  requested: Permission[];
+}): Promise<typeof appViewerGrants.$inferSelect | null> {
+  const { existing } = input;
+  if (!existing || existing.revokedAt) return null;
+  if (existing.expiresAt && existing.expiresAt.getTime() <= Date.now()) return null;
+  // Implication-aware coverage: a full-access grant silently covers a later
+  // read-only request instead of forcing a fresh consent dialog.
+  const held = normalizePermissionScopes(existing.scopes as string[]);
+  if (!input.requested.every((scope) => scopeListHasPermission(held, scope))) return null;
+  const [renewed] = await db
+    .update(appViewerGrants)
+    .set({ expiresAt: new Date(Date.now() + APP_VIEWER_GRANT_TTL_SECONDS * 1000), updatedAt: new Date() })
+    .where(eq(appViewerGrants.id, existing.id))
+    .returning();
+  return renewed ?? null;
+}
+
+/**
+ * Explicit consent: creates or replaces the grant for (app, viewer, space).
+ * Written as a manual upsert so it works under both the legacy two-column and
+ * the current three-column unique index — code and migration can roll out in
+ * either order. Returns null on a write failure, or "migration_pending" when
+ * the legacy index still reserves the (app, viewer) slot for another space.
+ */
+async function upsertViewerGrant(input: {
+  appId: string;
+  spaceId: string;
+  viewerUserUuid: string;
+  scopes: Permission[];
+  expiresAt: Date;
+}): Promise<typeof appViewerGrants.$inferSelect | null | "migration_pending"> {
+  return db.transaction(async (tx) => {
+    const key = and(
+      eq(appViewerGrants.appId, input.appId),
+      eq(appViewerGrants.viewerUserUuid, input.viewerUserUuid),
+      eq(appViewerGrants.spaceId, input.spaceId),
+    );
+    const write = (id: string) =>
+      tx.update(appViewerGrants).set({
+        scopes: input.scopes,
+        expiresAt: input.expiresAt,
+        revokedAt: null,
+        updatedAt: new Date(),
+      }).where(eq(appViewerGrants.id, id)).returning();
+
+    const [existing] = await tx.select().from(appViewerGrants).where(key).limit(1).for("update");
+    if (existing) return (await write(existing.id))[0] ?? null;
+
+    const inserted = await tx.insert(appViewerGrants).values({
+      appId: input.appId,
+      spaceId: input.spaceId,
+      viewerUserUuid: input.viewerUserUuid,
+      scopes: input.scopes,
+      expiresAt: input.expiresAt,
+    }).onConflictDoNothing().returning();
+    if (inserted.length > 0) return inserted[0] ?? null;
+
+    // Lost a concurrent insert, or the legacy (app, viewer) unique index is
+    // still in place. Distinguish by re-reading the three-column key.
+    const [raced] = await tx.select().from(appViewerGrants).where(key).limit(1).for("update");
+    if (!raced) return "migration_pending";
+    return (await write(raced.id))[0] ?? null;
+  });
+}
+
+const serializeViewerGrant = (grant: typeof appViewerGrants.$inferSelect) => ({
+  id: grant.id,
+  appId: grant.appId,
+  spaceId: grant.spaceId,
+  scopes: normalizePermissionScopes(grant.scopes as string[]),
+  expiresAt: grant.expiresAt?.toISOString() ?? null,
+  revokedAt: grant.revokedAt?.toISOString() ?? null,
+  createdAt: grant.createdAt?.toISOString() ?? null,
+  updatedAt: grant.updatedAt?.toISOString() ?? null,
+});
+
 
 let lastAppViewRecordWarningAt = 0;
 
@@ -496,7 +581,7 @@ router.get("/:id", async (c) => {
 });
 
 router.post("/", async (c) => {
-  const user = useAuth(c);
+  const user = useUserPrincipal(c);
   if (user instanceof Response) return user;
   const body = await c.req.json().catch(() => null) as Record<string, unknown> | null;
   const spaceId = typeof body?.spaceId === "string" ? body.spaceId : "";
@@ -766,7 +851,7 @@ async function publishAppVersion(
 }
 
 router.patch("/:id", async (c) => {
-  const user = useAuth(c);
+  const user = useUserPrincipal(c);
   if (user instanceof Response) return user;
   const id = c.req.param("id");
   if (!requireValidId(id)) return c.json({ message: "app not found" }, 404);
@@ -791,7 +876,7 @@ router.get("/:id/versions", async (c) => {
 });
 
 router.post("/:id/versions", async (c) => {
-  const user = useAuth(c);
+  const user = useUserPrincipal(c);
   if (user instanceof Response) return user;
   const id = c.req.param("id");
   if (!requireValidId(id)) return c.json({ message: "app not found" }, 404);
@@ -803,7 +888,7 @@ router.post("/:id/versions", async (c) => {
 });
 
 router.delete("/:id", async (c) => {
-  const user = useAuth(c);
+  const user = useUserPrincipal(c);
   if (user instanceof Response) return user;
   const id = c.req.param("id");
   if (!requireValidId(id)) return c.json({ message: "app not found" }, 404);
@@ -893,7 +978,7 @@ router.post("/:id/realtime/rooms/join", async (c) => {
 });
 
 router.post("/:id/session", async (c) => {
-  const user = useAuth(c);
+  const user = useUserPrincipal(c);
   if (user instanceof Response) return user;
   const id = c.req.param("id");
   if (!requireValidId(id)) return c.json({ message: "app not found" }, 404);
@@ -910,29 +995,81 @@ router.post("/:id/session", async (c) => {
 });
 
 router.post("/:id/authorize", async (c) => {
-  const user = useAuth(c);
+  const user = useUserPrincipal(c);
   if (user instanceof Response) return user;
   const id = c.req.param("id");
   if (!requireValidId(id)) return c.json({ message: "app not found" }, 404);
   const app = await getAppById(id);
   if (app?.status !== "published") return c.json({ message: "app not found" }, 404);
   if (requiresSpaceAppAccess(app) && !(await hasPermission(user, "space.view", { spaceId: app.spaceId }))) return authzDenied(c);
-  const body = await c.req.json().catch(() => null) as { scopes?: unknown } | null;
+  const body = await c.req.json().catch(() => null) as { scopes?: unknown; spaceId?: unknown; silent?: unknown } | null;
   const requested = normalizeScopes(body?.scopes, ALLOWED_VIEWER_SCOPES);
   if (requested.length === 0) return c.json({ message: "no valid scopes requested" }, 400);
-  if (!isSubset(requested, app.allowedViewerScopes ?? [])) return c.json({ message: "scope not allowed for this app" }, 403);
+  const targetSpaceId = typeof body?.spaceId === "string" && body.spaceId.trim() ? body.spaceId.trim() : app.spaceId;
+  if (!requireValidId(targetSpaceId)) return c.json({ message: "space not found" }, 404);
+  // A caller-supplied target must exist — the per-scope permission gate skips
+  // account scopes, so without this an arbitrary UUID could become a grant's
+  // space id and leave orphan rows behind.
+  if (targetSpaceId !== app.spaceId) {
+    const [space] = await db.select({ id: spaces.id }).from(spaces).where(eq(spaces.id, targetSpaceId)).limit(1);
+    if (!space) return c.json({ message: "space not found" }, 404);
+  }
 
-  const expiresAt = new Date(Date.now() + APP_SESSION_TTL_SECONDS * 1000);
-  const [grant] = await db.insert(appViewerGrants).values({
+  // A silent refresh (host-side reuse of a previous consent) may only renew a
+  // live grant that still covers the requested scopes — it can never create,
+  // widen, or revive one. The app owner additionally gets implicit consent for
+  // their own app (the publisher auto-authorization path), but a revoked grant
+  // never comes back silently for anyone: the owner falls through to the
+  // explicit upsert only when no revoked row exists.
+  if (body?.silent === true) {
+    const [existing] = await db
+      .select()
+      .from(appViewerGrants)
+      .where(and(
+        eq(appViewerGrants.appId, app.id),
+        eq(appViewerGrants.viewerUserUuid, user.uuid),
+        eq(appViewerGrants.spaceId, targetSpaceId),
+      ))
+      .limit(1);
+    if (existing?.revokedAt) return c.json({ message: "grant was revoked; viewer consent is required again" }, 403);
+    const renewed = await renewViewerGrant({ existing, requested });
+    if (renewed) {
+      const renewedScopes = normalizePermissionScopes(renewed.scopes as string[]);
+      return c.json({
+        token: createAppSessionToken({
+          userUuid: user.uuid,
+          appId: app.id,
+          spaceId: app.spaceId,
+          appScopes: app.appScopes as Permission[],
+          viewerScopes: renewedScopes,
+        }),
+        expiresIn: APP_SESSION_TTL_SECONDS,
+        grant: { id: renewed.id, spaceId: targetSpaceId, scopes: renewedScopes, expiresAt: renewed.expiresAt?.toISOString() ?? null },
+      });
+    }
+    if (user.uuid !== app.userUuid) {
+      return c.json({ message: "grant is no longer active; viewer consent is required again" }, 403);
+    }
+  }
+
+  // Grant-time gate: a viewer may only grant what they can currently do on
+  // the target space themselves. Account scopes need no space.
+  const ungrantable = await findUngrantableScopes(user, requested, targetSpaceId);
+  if (ungrantable.length > 0) {
+    return c.json({ message: `you cannot grant these permissions for this space: ${ungrantable.join(", ")}` }, 403);
+  }
+
+  const expiresAt = new Date(Date.now() + APP_VIEWER_GRANT_TTL_SECONDS * 1000);
+  const grant = await upsertViewerGrant({
     appId: app.id,
-    spaceId: app.spaceId,
+    spaceId: targetSpaceId,
     viewerUserUuid: user.uuid,
     scopes: requested,
     expiresAt,
-  }).onConflictDoUpdate({
-    target: [appViewerGrants.appId, appViewerGrants.viewerUserUuid],
-    set: { scopes: requested, expiresAt, revokedAt: null, updatedAt: new Date() },
-  }).returning();
+  });
+  if (grant === "migration_pending") {
+    return c.json({ message: "space-scoped grants are not enabled yet; run the pending database migration" }, 409);
+  }
   if (!grant) return c.json({ message: "failed to create grant" }, 500);
 
   const token = createAppSessionToken({
@@ -941,9 +1078,50 @@ router.post("/:id/authorize", async (c) => {
     spaceId: app.spaceId,
     appScopes: app.appScopes as Permission[],
     viewerScopes: requested,
-    appViewerGrantId: grant.id,
   });
-  return c.json({ token, expiresIn: APP_SESSION_TTL_SECONDS, grant: { id: grant.id, scopes: requested, expiresAt: expiresAt.toISOString() } });
+  return c.json({
+    token,
+    expiresIn: APP_SESSION_TTL_SECONDS,
+    grant: { id: grant.id, spaceId: targetSpaceId, scopes: requested, expiresAt: expiresAt.toISOString() },
+  });
+});
+
+// ── Viewer grants: list + revoke (the viewer's own consents) ─────────────────
+
+router.get("/:id/grants", async (c) => {
+  const user = useUserPrincipal(c);
+  if (user instanceof Response) return user;
+  const id = c.req.param("id");
+  if (!requireValidId(id)) return c.json({ message: "app not found" }, 404);
+  const app = await getAppById(id);
+  if (!app) return c.json({ message: "app not found" }, 404);
+  const rows = await db
+    .select()
+    .from(appViewerGrants)
+    .where(and(eq(appViewerGrants.appId, app.id), eq(appViewerGrants.viewerUserUuid, user.uuid)))
+    .orderBy(desc(appViewerGrants.updatedAt));
+  return c.json({ grants: rows.map(serializeViewerGrant) });
+});
+
+router.delete("/:id/grants/:grantId", async (c) => {
+  const user = useUserPrincipal(c);
+  if (user instanceof Response) return user;
+  const id = c.req.param("id");
+  const grantId = c.req.param("grantId");
+  if (!requireValidId(id) || !requireValidId(grantId)) return c.json({ message: "grant not found" }, 404);
+  const [grant] = await db
+    .select()
+    .from(appViewerGrants)
+    .where(and(
+      eq(appViewerGrants.id, grantId),
+      eq(appViewerGrants.appId, id),
+      eq(appViewerGrants.viewerUserUuid, user.uuid),
+    ))
+    .limit(1);
+  if (!grant) return c.json({ message: "grant not found" }, 404);
+  const now = new Date();
+  await db.update(appViewerGrants).set({ revokedAt: now, updatedAt: now }).where(eq(appViewerGrants.id, grant.id));
+  return c.json({ ok: true });
 });
 
   return router;

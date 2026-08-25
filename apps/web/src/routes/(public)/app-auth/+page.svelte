@@ -17,11 +17,9 @@ import { m } from "$lib/paraglide/messages.js";
 type BrokerState = "loading" | "need-login" | "ready" | "error";
 
 type AppDetail = {
-	app: Pick<
-		AppRecord,
-		"id" | "spaceId" | "userUuid" | "slug" | "appScopes" | "allowedViewerScopes"
-	>;
+	app: Pick<AppRecord, "id" | "spaceId" | "userUuid" | "slug" | "appScopes">;
 	owner: AppPublicOwnerRecord;
+	spaceName: string | null;
 };
 
 const params = $derived(page.url.searchParams);
@@ -50,9 +48,13 @@ async function loadAppDetail(token: string): Promise<AppDetail | null> {
 		{ headers: { Authorization: `Bearer ${token}` } },
 	);
 	if (!response.ok) return null;
-	const json = (await response.json()) as Partial<AppDetail>;
+	const json = (await response.json()) as Partial<AppDetail> & {
+		space?: { name?: unknown } | null;
+	};
 	if (!json.app || !json.owner) return null;
-	return { app: json.app, owner: json.owner };
+	const spaceName =
+		typeof json.space?.name === "string" ? json.space.name : null;
+	return { app: json.app, owner: json.owner, spaceName };
 }
 
 async function init() {
@@ -93,7 +95,7 @@ async function init() {
 	// 4. Set up the bridge host with a reply that posts back to the opener.
 	validatedOpenerOrigin = openerOrigin;
 	host = createAppBridgeHost({
-		app: detail.app,
+		app: { ...detail.app, spaceName: detail.spaceName },
 		authorizationContext: { surface: "broker" },
 		reply: (requestId, payload) => {
 			window.opener?.postMessage(
@@ -202,7 +204,7 @@ onDestroy(() => window.removeEventListener("message", onMessage));
 			saving={h.authSaving}
 			appName={detail.app.slug}
 			authorName={detail.owner.displayName}
-			onConfirm={() => void h.confirmAuth()}
+			onConfirm={(spaceId) => void h.confirmAuth(spaceId)}
 			onCancel={h.cancelAuth}
 		/>
 	{/if}

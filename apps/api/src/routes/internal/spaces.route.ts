@@ -411,7 +411,7 @@ router.post("/:spaceId/sessions/:sessionId/prompt", async (c) => {
   const permissionSubject = appSession && appSession.userUuid === userId
     ? ({ uuid: userId, appSession } as { uuid: string; appSession: typeof appSession })
     : { uuid: userId };
-  const promptAuth = appSession?.userUuid === userId ? promptAuthContextFromAppSession(appSession, spaceId) : null;
+  const promptAuth = appSession?.userUuid === userId ? await promptAuthContextFromAppSession(appSession, spaceId) : null;
   if (!(await hasPermission(permissionSubject, promptPermission, { spaceId, sessionId }))) {
     return c.json({ message: "forbidden" }, 403);
   }

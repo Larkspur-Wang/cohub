@@ -165,7 +165,7 @@ onDestroy(() => {
 			saving={host.authSaving}
 			appName={app?.slug ?? "Preview"}
 			authorName="Cohub"
-			onConfirm={() => void host.confirmAuth()}
+			onConfirm={(spaceId) => void host.confirmAuth(spaceId)}
 			onCancel={host.cancelAuth}
 		/>
 	{/if}

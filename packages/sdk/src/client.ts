@@ -155,7 +155,10 @@ export class CohubClient {
   }
 
   readonly auth = {
-    request: (input: { scopes: Permission[]; reason?: string }) => this.appRuntime.requestAuthorization(input),
+    /** Ensure the app holds these scopes. Silent when a grant already covers them; `alwaysAsk` forces the dialog. */
+    request: (input: { scopes: Permission[]; reason?: string; spaceId?: string; alwaysAsk?: boolean }) => this.appRuntime.requestAuthorization(input),
+    /** One consent: the viewer picks a Space and grants the scopes on it. `alwaysAsk` re-opens the picker. */
+    requestSpace: (input: { scopes: Permission[]; reason?: string; alwaysAsk?: boolean }) => this.appRuntime.requestSpaceAuthorization(input),
   };
 
   readonly app = {

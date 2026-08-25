@@ -1,12 +1,14 @@
 import { Hono } from "hono";
 import { db } from "../db/index.js";
 import { taskRuns } from "@cohub/db";
-import { eq, and, desc, inArray, lt, or } from "drizzle-orm";
+import { eq, and, desc, inArray, lt, or, type SQL } from "drizzle-orm";
 import { getOptionalAuth, useAuth, requireValidId, authzDenied } from "../lib/middleware.js";
 import {
-  canAccessOwnTaskRuns,
   canAccessUnscopedTaskRun,
+  canViewOwnTaskRunsAccountWide,
+  canViewTaskRunViaAccountScope,
   hasPermission,
+  listAppSessionTaskRunSpaceIds,
 } from "../permissions.js";
 import { taskQueue } from "../tasks.js";
 import { fallbackPublicUserProfile, getProfilesByUuids } from "../user-profiles.js";
@@ -166,9 +168,20 @@ router.get("/", async (c) => {
   }
 
   if (!userId) return c.json({ message: "unauthorized" }, 401);
-  if (!(await canAccessOwnTaskRuns(user))) return authzDenied(c);
-
-  const conditions = [eq(taskRuns.userUuid, userId)];
+  // App sessions see Task Runs in spaces with a live taskrun.view viewer grant
+  // that still matches the viewer's current access — a grant on one Space
+  // never widens to the viewer's other Spaces. An account-level
+  // `user.taskrun.list` grant instead unlocks every run owned by the viewer,
+  // including runs from spaces they can no longer access and unscoped runs.
+  const appTaskSpaces = await listAppSessionTaskRunSpaceIds(user);
+  let conditions: SQL[] = [];
+  if (appTaskSpaces === null || await canViewOwnTaskRunsAccountWide(user)) {
+    conditions = [eq(taskRuns.userUuid, userId)];
+  } else if (appTaskSpaces.length === 0) {
+    return authzDenied(c);
+  } else {
+    conditions = [eq(taskRuns.userUuid, userId), inArray(taskRuns.spaceId, appTaskSpaces)];
+  }
   applyTaskFilters({ conditions, taskRunIds, sessionId, cronJobId, taskType, status, cursor: cursorValue });
   const rows = await db
     .select()
@@ -194,7 +207,8 @@ router.get("/:taskId", async (c) => {
   if (!run) return c.json({ message: "task run not found" }, 404);
 
   if (run.spaceId) {
-    if (!(await hasPermission(user, "taskrun.view", { spaceId: run.spaceId, sessionId: run.sessionId ?? undefined }))) {
+    const perSpace = await hasPermission(user, "taskrun.view", { spaceId: run.spaceId, sessionId: run.sessionId ?? undefined });
+    if (!perSpace && !(await canViewTaskRunViaAccountScope(user, run))) {
       return authzDenied(c);
     }
   } else if (!(await canAccessUnscopedTaskRun(user, run.userUuid))) {

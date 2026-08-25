@@ -230,11 +230,24 @@ export type AppSessionResponse = {
   app: AppRecord;
 };
 
+/** A viewer's consent for one app on one space (or their account via `user.*` scopes). */
+export type AppViewerGrantRecord = {
+  id: string;
+  appId: string;
+  spaceId: string;
+  scopes: Permission[];
+  expiresAt: string | null;
+  revokedAt: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+
 export type AppAuthorizeResponse = {
   token: string;
   expiresIn: number;
   grant: {
     id: string;
+    spaceId: string;
     scopes: Permission[];
     expiresAt: string;
   };
@@ -380,11 +393,28 @@ export class AppsApi {
     });
   }
 
-  authorize(appId: string, input: { scopes: Permission[]; reason?: string }) {
+  /**
+   * Grants scopes as the current user. Pass `silent: true` to only renew an
+   * existing live grant — the server rejects it instead of creating or
+   * reviving one, so revoked grants stay revoked.
+   */
+  authorize(appId: string, input: { scopes: Permission[]; spaceId?: string; reason?: string; silent?: boolean }) {
     return this.transport.request<AppAuthorizeResponse>(`/api/apps/${appId}/authorize`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
+    });
+  }
+
+  /** Lists the caller's own grants for an app, one row per space. */
+  listMyGrants(appId: string) {
+    return this.transport.request<{ grants: AppViewerGrantRecord[] }>(`/api/apps/${appId}/grants`);
+  }
+
+  /** Revokes one of the caller's own grants; tokens carrying it lose those scopes at once. */
+  revokeMyGrant(appId: string, grantId: string) {
+    return this.transport.request<{ ok: true }>(`/api/apps/${appId}/grants/${grantId}`, {
+      method: "DELETE",
     });
   }
 }

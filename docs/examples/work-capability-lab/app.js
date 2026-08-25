@@ -72,6 +72,22 @@ function renderChips(id, values, granted = true) {
   }
 }
 
+function renderViewerGrants(grants) {
+  const el = $("viewerGrants");
+  el.innerHTML = "";
+  if (!grants.length) {
+    el.innerHTML = '<span class="chip">none</span>';
+    return;
+  }
+  for (const grant of grants) {
+    const chip = document.createElement("span");
+    chip.className = "chip ok";
+    chip.title = grant.spaceId;
+    chip.textContent = `${grant.spaceId.slice(0, 8)} · ${grant.scopes.join(" ")}`;
+    el.appendChild(chip);
+  }
+}
+
 function decodeJwtPayload(token) {
   const part = token?.split(".")[1];
   if (!part) return null;
@@ -95,7 +111,7 @@ function applyContext(context, source = "snapshot") {
   $("contextSession").textContent = context?.invocation?.sessionId || "none";
   $("contextTurn").textContent = context?.invocation?.turnId || "none";
   renderChips("appScopes", context?.permissions?.appScopes || [], true);
-  renderChips("viewerScopes", context?.permissions?.viewerScopes || [], true);
+  renderViewerGrants(context?.permissions?.viewerGrants || []);
   log("info", source === "event" ? "App context changed" : "App context loaded", context?.invocation?.source || "no invocation");
 }
 
@@ -152,7 +168,6 @@ function applyToken(token) {
   $("tokenState").textContent = token ? `present (${token.length} chars)` : "empty";
   $("tokenPayload").textContent = payload ? JSON.stringify(payload, null, 2) : "Token received, but payload could not be decoded.";
   if (payload?.appScopes) renderChips("appScopes", payload.appScopes, true);
-  if (payload?.viewerScopes) renderChips("viewerScopes", payload.viewerScopes, true);
 }
 
 function runtimeRequest(message, timeoutMs = 1800) {
@@ -354,6 +369,44 @@ async function requestAuth(scopes) {
   });
 }
 
+// One consent: the viewer picks a Space and grants the scopes on it. The
+// result names the pick, so the app knows exactly where it may act.
+async function requestSpaceAuth(alwaysAsk = false) {
+  return run("authSpace", async () => {
+    if (!state.client) await createClient();
+    if (!state.client.auth?.requestSpace) throw new Error("This SDK build does not expose auth.requestSpace().");
+    const result = await state.client.auth.requestSpace({
+      scopes: ["file.view", "session.view"],
+      reason: "App SDK Lab reads the Space you pick to demo per-space viewer grants.",
+      ...(alwaysAsk ? { alwaysAsk: true } : {}),
+    });
+    if (!result.granted || !result.space) throw new Error("Authorization was cancelled or denied.");
+    log("ok", "cohub.auth.requestSpace() granted", `${result.space.name || "unnamed"} (${result.space.id})`);
+    // Prove the grant end-to-end with a scoped read on the picked Space.
+    const picked = state.client.space(result.space.id);
+    const files = await picked.files.list();
+    const count = Array.isArray(files.entries) ? files.entries.length : "unknown";
+    log("ok", "picked space.files.list() accepted", `${count} entries`);
+    return result;
+  });
+}
+
+// alwaysAsk skips silent reuse: the consent dialog opens even when a previous
+// grant already covers the scopes, so the viewer can re-confirm or change it.
+async function requestAuthAgain() {
+  return run("authAsk", async () => {
+    if (!state.client) await createClient();
+    const ok = await state.client.auth.request({
+      scopes: ["session.prompt.readonly"],
+      reason: "App SDK Lab asks again to demo alwaysAsk.",
+      alwaysAsk: true,
+    });
+    if (!ok) throw new Error("Authorization was cancelled or denied.");
+    log("ok", "auth.request({ alwaysAsk: true }) granted", "session.prompt.readonly");
+    return ok;
+  });
+}
+
 async function sendPrompt(accessMode) {
   return run("prompt", async () => {
     const space = await ensureSpace();
@@ -435,6 +488,9 @@ $("sessionsList").onclick = () => sessionsList().catch(() => {});
 $("authReadonly").onclick = () => requestAuth(["session.prompt.readonly"]).catch(() => {});
 $("authFull").onclick = () => requestAuth(["session.prompt.fullaccess"]).catch(() => {});
 $("authAccount").onclick = () => requestAuth(["user.space.list", "user.session.list", "user.usage.read"]).catch(() => {});
+$("authPickSpace").onclick = () => requestSpaceAuth().catch(() => {});
+$("authSwitchSpace").onclick = () => requestSpaceAuth(true).catch(() => {});
+$("authAlwaysAsk").onclick = () => requestAuthAgain().catch(() => {});
 $("promptReadonly").onclick = () => sendPrompt("read_only").catch(() => {});
 $("promptFull").onclick = () => sendPrompt("full_access").catch(() => {});
 $("accountSpacesBtn").onclick = () => accountSpaces().catch(() => {});

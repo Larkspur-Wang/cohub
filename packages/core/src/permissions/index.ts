@@ -37,6 +37,7 @@ export const ALL_PERMISSIONS = [
   "space.commerce.manage",
   "user.space.list",
   "user.session.list",
+  "user.taskrun.list",
   "user.usage.read",
 ] as const;
 
@@ -46,6 +47,7 @@ const ALL_PERMISSION_SET = new Set<Permission>(ALL_PERMISSIONS);
 export const USER_LEVEL_PERMISSIONS = new Set<Permission>([
   "user.space.list",
   "user.session.list",
+  "user.taskrun.list",
   "user.usage.read",
 ]);
 
@@ -53,6 +55,21 @@ export const isUserLevelPermission = (permission: Permission): boolean =>
   USER_LEVEL_PERMISSIONS.has(permission);
 
 export type Permission = typeof ALL_PERMISSIONS[number];
+
+export const APP_PUBLISHER_SCOPES = [
+  "space.view",
+  "session.view",
+  "file.view",
+  "file.edit",
+  "taskrun.view",
+  "session.prompt.readonly",
+  "session.prompt.fullaccess",
+  "command.execute",
+] as const satisfies readonly Permission[];
+const APP_PUBLISHER_SCOPE_SET = new Set<Permission>(APP_PUBLISHER_SCOPES);
+
+export const normalizeAppPublisherScopes = (scopes: readonly string[]): Permission[] =>
+  normalizePermissionScopes(scopes).filter((scope) => APP_PUBLISHER_SCOPE_SET.has(scope));
 
 export type PermissionSubject = {
   uuid?: string | null;
@@ -169,6 +186,17 @@ export const scopeListHasPermission = (scopes: readonly Permission[], permission
   if (permission === "file.view.filtered" && scopes.includes("file.view")) return true;
   return false;
 };
+
+/**
+ * Keeps only scopes still covered by `current`, honouring implications
+ * (full access covers read-only; file.view covers file.view.filtered).
+ */
+export function intersectPermissionScopes(
+  requested: readonly string[],
+  current: readonly Permission[],
+): Permission[] {
+  return normalizePermissionScopes(requested).filter((scope) => scopeListHasPermission(current, scope));
+}
 
 export const permissionsForRole = (role: SpaceRole | null): Permission[] => {
   if (!role) return [];

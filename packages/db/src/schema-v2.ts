@@ -391,6 +391,12 @@ export const appPromotionStatsHourly = v2.table(
   }),
 );
 
+/**
+ * Per-space viewer grants: a user consents to an app acting on a specific
+ * space (or, for `user.*` scopes, on their account). Unique per
+ * (app, viewer, space) so one viewer can hold distinct grants for distinct
+ * spaces — the app's home space and any space they picked themselves.
+ */
 export const appViewerGrants = v2.table(
   "app_viewer_grants",
   {
@@ -409,9 +415,14 @@ export const appViewerGrants = v2.table(
     appIdx: index("v2_idx_app_viewer_grants_app_id").on(table.appId),
     spaceIdx: index("v2_idx_app_viewer_grants_space_id").on(table.spaceId),
     viewerIdx: index("v2_idx_app_viewer_grants_viewer_user_uuid").on(table.viewerUserUuid),
-    appViewerUniqueIdx: uniqueIndex("v2_uq_app_viewer_grants_app_viewer").on(table.appId, table.viewerUserUuid),
+    appViewerSpaceUniqueIdx: uniqueIndex("v2_uq_app_viewer_grants_app_viewer_space").on(
+      table.appId,
+      table.viewerUserUuid,
+      table.spaceId,
+    ),
   }),
 );
+
 
 export const spaceCommerceBusinesses = v2.table(
   "space_commerce_businesses",

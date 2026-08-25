@@ -10,12 +10,23 @@ export type AppRuntimeInvocationContext = {
   toolCallId?: string;
 };
 
+export type AppRuntimeGrantSummary = {
+  spaceId: string;
+  scopes: Permission[];
+};
+
 export type AppRuntimeContext = {
   app: { id: string; slug: string; url?: string | null };
   space: { id: string; name?: string | null };
   viewer?: { userUuid: string } | null;
   invocation?: AppRuntimeInvocationContext;
-  permissions?: { scopes: Permission[]; appScopes: Permission[]; viewerScopes: Permission[] };
+  permissions?: {
+    scopes: Permission[];
+    appScopes: Permission[];
+    viewerScopes: Permission[];
+    /** Per-space viewer-consented grants. */
+    viewerGrants?: AppRuntimeGrantSummary[];
+  };
 };
 
 export type AppRuntimeCheckoutStatus = "success" | "failed" | "cancel" | null;
@@ -326,20 +337,62 @@ export class PopupBrokerTransport implements AppRuntimeTransport {
 
 const TOKEN_STORAGE_PREFIX = "cohub:app-token";
 
-const AUTHORIZED_SCOPES_STORAGE_PREFIX = "cohub:app-auth-scopes";
+const AUTHORIZED_GRANTS_STORAGE_PREFIX = "cohub:app-auth-grants";
+
+/** Outcome of {@link AppRuntimeApi.requestSpaceAuthorization}. */
+export type AppRuntimeAuthorizationResult = {
+  granted: boolean;
+  space: { id: string; name: string | null } | null;
+};
+
+/** A consent remembered client-side so token refreshes can re-authorize. */
+export type AppRuntimeAuthorizedGrant = {
+  /** Target space; omitted for the app's home space. */
+  spaceId?: string;
+  scopes: Permission[];
+};
+
+/** The space a server response actually granted, when it says so. */
+const responseSpaceId = (value: unknown): string | undefined =>
+  typeof value === "string" && value ? value : undefined;
+
+/**
+ * Records one consent, keyed by its space. Newer entries replace older ones
+ * for the same space, so implicit home-space requests (no `spaceId`) and
+ * explicit ones converge onto a single entry once the server echoes its
+ * canonical space id back.
+ */
+function recordConsent(
+  grants: AppRuntimeAuthorizedGrant[] | null | undefined,
+  spaceId: string | undefined,
+  scopes: Permission[],
+): AppRuntimeAuthorizedGrant[] {
+  const others = (grants ?? []).filter((grant) => grant.spaceId !== spaceId);
+  return [...others, spaceId ? { spaceId, scopes } : { scopes }];
+}
+
+const isAuthorizedGrant = (value: unknown): value is AppRuntimeAuthorizedGrant => {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Partial<AppRuntimeAuthorizedGrant>;
+  return (
+    (record.spaceId === undefined || typeof record.spaceId === "string") &&
+    Array.isArray(record.scopes) &&
+    record.scopes.every((scope) => typeof scope === "string")
+  );
+};
 
 export class AppRuntimeApi {
   private token: string | null = null;
   private readonly transport: AppRuntimeTransport;
   private tokenStorageKey: string | null;
-  private scopesStorageKey: string | null;
+  private grantsStorageKey: string | null;
   private readonly appIdResolver?: AppIdResolver;
   /** Ensures storage keys are resolved (via slug lookup) at most once. */
   private storageKeysReady: Promise<void> | null;
-  /** Scopes previously granted via requestAuthorization, retained so token
-   * refreshes can re-authorize (preserving viewerScopes) instead of falling
-   * back to a base session token that only carries appScopes. */
-  private authorizedScopes: Permission[] | null = null;
+  /** Consents previously granted via requestAuthorization, retained so token
+   * refreshes can re-authorize (preserving viewer grants) instead of falling
+   * back to a base session token that only carries app-side scopes. */
+  private authorizedGrants: AppRuntimeAuthorizedGrant[] | null = null;
 
   constructor(
     transport: AppRuntimeTransport = new ParentBridgeTransport(),
@@ -351,21 +404,21 @@ export class AppRuntimeApi {
     if (appId) {
       // appId known up-front — keys are immediately available.
       this.tokenStorageKey = `${TOKEN_STORAGE_PREFIX}:${appId}`;
-      this.scopesStorageKey = `${AUTHORIZED_SCOPES_STORAGE_PREFIX}:${appId}`;
+      this.grantsStorageKey = `${AUTHORIZED_GRANTS_STORAGE_PREFIX}:${appId}`;
       this.storageKeysReady = Promise.resolve();
       // Restore a cached token from localStorage (broker-mode UX optimization;
       // see §0 — this is not a security measure).
       this.token = this.readStoredToken();
-      this.authorizedScopes = this.readStoredScopes();
+      this.authorizedGrants = this.readStoredGrants();
     } else if (appIdResolver) {
       // appId resolved lazily via slug reverse lookup. Storage keys — and any
       // cached token — become available only after the lookup completes.
       this.tokenStorageKey = null;
-      this.scopesStorageKey = null;
+      this.grantsStorageKey = null;
       this.storageKeysReady = null;
     } else {
       this.tokenStorageKey = null;
-      this.scopesStorageKey = null;
+      this.grantsStorageKey = null;
       this.storageKeysReady = Promise.resolve();
     }
   }
@@ -381,12 +434,12 @@ export class AppRuntimeApi {
       const appId = this.appIdResolver ? await this.appIdResolver() : null;
       if (appId) {
         this.tokenStorageKey = `${TOKEN_STORAGE_PREFIX}:${appId}`;
-        this.scopesStorageKey = `${AUTHORIZED_SCOPES_STORAGE_PREFIX}:${appId}`;
+        this.grantsStorageKey = `${AUTHORIZED_GRANTS_STORAGE_PREFIX}:${appId}`;
         // Now that keys are known, hydrate from localStorage.
         const stored = this.readStoredToken();
         if (stored && !this.token) this.token = stored;
-        const storedScopes = this.readStoredScopes();
-        if (storedScopes && !this.authorizedScopes) this.authorizedScopes = storedScopes;
+        const storedGrants = this.readStoredGrants();
+        if (storedGrants && !this.authorizedGrants) this.authorizedGrants = storedGrants;
       }
     })();
     return this.storageKeysReady;
@@ -411,25 +464,24 @@ export class AppRuntimeApi {
     }
   }
 
-  private readStoredScopes(): Permission[] | null {
-    if (!this.scopesStorageKey || typeof localStorage === "undefined") return null;
+  private readStoredGrants(): AppRuntimeAuthorizedGrant[] | null {
+    if (!this.grantsStorageKey || typeof localStorage === "undefined") return null;
     try {
-      const raw = localStorage.getItem(this.scopesStorageKey);
+      const raw = localStorage.getItem(this.grantsStorageKey);
       if (!raw) return null;
       const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) && parsed.every((s) => typeof s === "string")
-        ? (parsed as Permission[])
-        : null;
+      if (!Array.isArray(parsed) || !parsed.every(isAuthorizedGrant)) return null;
+      return parsed;
     } catch {
       return null;
     }
   }
 
-  private writeStoredScopes(scopes: Permission[] | null) {
-    if (!this.scopesStorageKey || typeof localStorage === "undefined") return;
+  private writeStoredGrants(grants: AppRuntimeAuthorizedGrant[] | null) {
+    if (!this.grantsStorageKey || typeof localStorage === "undefined") return;
     try {
-      if (scopes && scopes.length > 0) localStorage.setItem(this.scopesStorageKey, JSON.stringify(scopes));
-      else localStorage.removeItem(this.scopesStorageKey);
+      if (grants && grants.length > 0) localStorage.setItem(this.grantsStorageKey, JSON.stringify(grants));
+      else localStorage.removeItem(this.grantsStorageKey);
     } catch {
       // ignore storage failures
     }
@@ -454,18 +506,41 @@ export class AppRuntimeApi {
       this.token = null;
       this.writeStoredToken(null);
     }
-    // When refreshing a token, if the app previously obtained viewer
-    // scopes via requestAuthorization, re-authorize so the refreshed token
-    // retains those viewerScopes. A plain /session token only carries
-    // appScopes, which would cause 403 on viewer-scoped operations.
-    if (options?.forceRefresh && this.authorizedScopes && this.authorizedScopes.length > 0) {
-      const response = await this.transport.request<{ token: string | null }>(
-        { type: "cohub.app.authorize", scopes: this.authorizedScopes },
-        { timeoutMs: 120_000 },
-      );
-      this.token = response?.token ?? null;
-      this.writeStoredToken(this.token);
-      return this.token;
+    // When refreshing a token, re-authorize every consent the app previously
+    // obtained so the refreshed token retains those viewer grants. A plain
+    // /session token only carries app-side scopes, which would cause 403 on
+    // viewer-scoped operations. Each authorize call returns a token carrying
+    // all live grants, so the last response is the complete token.
+    if (options?.forceRefresh && this.authorizedGrants && this.authorizedGrants.length > 0) {
+      // A denied consent (the viewer denied the dialog, or the server
+      // rejected the renewal) is dropped; a transient failure (network,
+      // unavailable host) keeps the consent so a later refresh can renew it.
+      let refreshed = false;
+      let next: AppRuntimeAuthorizedGrant[] = [];
+      for (const grant of this.authorizedGrants) {
+        try {
+          const response = await this.transport.request<{ token: string | null; space?: { id?: unknown } | null }>(
+            { type: "cohub.app.authorize", scopes: grant.scopes, spaceId: grant.spaceId },
+            { timeoutMs: 120_000 },
+          );
+          const token = response?.token ?? null;
+          if (!token) continue; // denied — drop this consent, keep the others
+          this.token = token;
+          next = recordConsent(next, responseSpaceId(response?.space?.id) ?? grant.spaceId, grant.scopes);
+          refreshed = true;
+        } catch {
+          // Transient failure — keep the consent untouched.
+          next = recordConsent(next, grant.spaceId, grant.scopes);
+        }
+      }
+      this.authorizedGrants = next;
+      this.writeStoredGrants(next);
+      if (refreshed) {
+        this.writeStoredToken(this.token);
+        return this.token;
+      }
+      // Nothing refreshed — fall through to a plain session token. Viewer
+      // grants still apply server-side, so the app keeps working.
     }
     const response = await this.transport.request<{ token: string | null }>(
       { type: "cohub.app.token", forceRefresh: Boolean(options?.forceRefresh) },
@@ -476,19 +551,58 @@ export class AppRuntimeApi {
     return this.token;
   }
 
-  async requestAuthorization(input: { scopes: Permission[]; reason?: string }) {
+  /**
+   * Requests viewer consent. Without a `spaceId` the grant targets the app's
+   * home space; with one it targets that space — the app may only grant what
+   * the viewer can already do there themselves. Reuses a previous grant
+   * silently unless `alwaysAsk` forces the consent dialog.
+   */
+  async requestAuthorization(input: { scopes: Permission[]; reason?: string; spaceId?: string; alwaysAsk?: boolean }) {
     await this.ensureStorageKeys();
-    const response = await this.transport.request<{ token: string | null }>(
-      { type: "cohub.app.authorize", scopes: input.scopes, reason: input.reason },
+    const response = await this.transport.request<{ token: string | null; space?: { id?: unknown } | null }>(
+      { type: "cohub.app.authorize", scopes: input.scopes, reason: input.reason, spaceId: input.spaceId, alwaysAsk: input.alwaysAsk },
       { timeoutMs: 120_000 },
     );
-    this.token = response?.token ?? null;
-    this.writeStoredToken(this.token);
-    if (this.token) {
-      this.authorizedScopes = input.scopes;
-      this.writeStoredScopes(input.scopes);
+    const token = response?.token ?? null;
+    // A denial leaves any existing token untouched — it stays valid until it
+    // expires, and only a successful consent replaces it.
+    if (token) {
+      this.token = token;
+      this.writeStoredToken(token);
+      const spaceId = responseSpaceId(response?.space?.id) ?? input.spaceId;
+      this.authorizedGrants = recordConsent(this.authorizedGrants, spaceId, input.scopes);
+      this.writeStoredGrants(this.authorizedGrants);
     }
-    return Boolean(this.token);
+    return Boolean(token);
+  }
+
+  /**
+   * Asks the viewer to pick a Space and grant the scopes on it — one consent
+   * dialog covers both. Resolves with the picked space so the app knows where
+   * it may act; `space` is null when the viewer denied.
+   */
+  async requestSpaceAuthorization(input: { scopes: Permission[]; reason?: string; alwaysAsk?: boolean }): Promise<AppRuntimeAuthorizationResult> {
+    await this.ensureStorageKeys();
+    const response = await this.transport.request<{ token: string | null; space?: { id?: unknown; name?: unknown } | null }>(
+      { type: "cohub.app.authorize", scopes: input.scopes, reason: input.reason, selectSpace: true, alwaysAsk: input.alwaysAsk },
+      { timeoutMs: 120_000 },
+    );
+    const token = response?.token ?? null;
+    const spaceId = typeof response?.space?.id === "string" ? response.space.id : null;
+    const spaceName = typeof response?.space?.name === "string" ? response.space.name : null;
+    // A denial leaves any existing token untouched.
+    if (token) {
+      this.token = token;
+      this.writeStoredToken(token);
+    }
+    if (token && spaceId) {
+      this.authorizedGrants = recordConsent(this.authorizedGrants, spaceId, input.scopes);
+      this.writeStoredGrants(this.authorizedGrants);
+    }
+    return {
+      granted: Boolean(token),
+      space: spaceId ? { id: spaceId, name: spaceName } : null,
+    };
   }
 
   async purchase(input: { productKey: string; purchaseAttemptId?: string }) {

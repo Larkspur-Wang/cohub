@@ -2,6 +2,7 @@
 import type { Permission } from "@neta-art/cohub";
 import { AlertTriangle, Check, Loader2, ShieldCheck } from "lucide-svelte";
 import Dialog from "$lib/components/Dialog.svelte";
+import { APP_SCOPE_OPTIONS } from "$lib/features/space/modules/app-utils";
 import { getLocale } from "$lib/i18n/locale.svelte";
 import { m } from "$lib/paraglide/messages.js";
 
@@ -16,12 +17,20 @@ const {
 	onCancel,
 }: {
 	open: boolean;
-	pending: { scopes: Permission[]; reason?: string } | null;
+	pending: {
+		scopes: Permission[];
+		reason?: string;
+		spaceId?: string;
+		spaceName?: string | null;
+		selectSpace?: boolean;
+		spaces?: Array<{ id: string; name: string | null }> | null;
+		homeSpaceName?: string | null;
+	} | null;
 	error: string | null;
 	saving: boolean;
 	appName?: string;
 	authorName?: string;
-	onConfirm: () => void;
+	onConfirm: (pickedSpaceId?: string) => void;
 	onCancel: () => void;
 } = $props();
 
@@ -46,17 +55,27 @@ const OPERATION_GROUPS: OperationGroup[] = [
 	{
 		title: "Send instructions in sessions",
 		description:
-			"Send prompts and run agent actions in the current space as you.",
+			"Send prompts and run agent actions in the granted space as you.",
 		scopes: ["session.prompt.fullaccess"],
 	},
 	{
 		title: "Read data",
-		description:
-			"Read files in the current space and list your sessions there.",
+		description: "Read files, sessions, and task runs in the granted space.",
 		scopes: [
 			"session.prompt.readonly",
+			"session.view",
+			"file.view",
+			"taskrun.view",
+		],
+	},
+	{
+		title: "Read your account data",
+		description:
+			"List your spaces, sessions, and task runs, and read your usage across all of them.",
+		scopes: [
 			"user.session.list",
 			"user.space.list",
+			"user.taskrun.list",
 			"user.usage.read",
 		],
 	},
@@ -74,7 +93,7 @@ const operationGroups = $derived.by<OperationGroup[]>(() => {
 	if (unmapped.length > 0) {
 		groups.push({
 			title: "Other actions",
-			description: `This app requests additional permissions: ${unmapped.join(", ")}`,
+			description: unmapped.map(scopeLabel).join(", "),
 			scopes: unmapped,
 		});
 	}
@@ -82,6 +101,39 @@ const operationGroups = $derived.by<OperationGroup[]>(() => {
 });
 
 const displayName = $derived(appName?.trim() || "this app");
+
+// Picker selection resets whenever a new request opens the dialog.
+let selectedSpaceId = $state("");
+$effect(() => {
+	void pending;
+	selectedSpaceId = "";
+});
+
+const picking = $derived(Boolean(pending?.selectSpace));
+const spaceOptions = $derived(pending?.spaces ?? null);
+const spaceLabel = $derived.by(() => {
+	if (!pending) return null;
+	if (pending.spaceId) return pending.spaceName?.trim() || pending.spaceId;
+	if (pending.selectSpace) return null;
+	return pending.homeSpaceName?.trim() || null;
+});
+const requiresGenerationQuota = $derived(
+	Boolean(pending?.scopes.includes("generation.create")),
+);
+const confirmLabel = $derived(
+	pending?.selectSpace
+		? spaceOptions && spaceOptions.length > 0
+			? "Choose and authorize"
+			: "Authorize and continue"
+		: "Authorize and continue",
+);
+const confirmDisabled = $derived(
+	saving || (Boolean(pending?.selectSpace) && !selectedSpaceId),
+);
+
+// Human label for scopes outside the predefined operation groups.
+const scopeLabel = (scope: string) =>
+	APP_SCOPE_OPTIONS.find((option) => option.scope === scope)?.label ?? scope;
 </script>
 
 <Dialog {open} onClose={onCancel} maxWidth="440px">
@@ -95,10 +147,38 @@ const displayName = $derived(appName?.trim() || "this app");
 					{#if authorName}
 						<p class="auth-author">Author: {authorName}</p>
 					{/if}
+					{#if pending.reason}
+						<p class="auth-reason">{pending.reason}</p>
+					{/if}
 				</div>
 			</div>
 
 			<hr class="auth-divider" />
+
+			{#if picking}
+				<section class="auth-section">
+					<div class="auth-section-label">Choose a Space</div>
+					{#if spaceOptions === null}
+						<div class="auth-space-empty">Couldn't load your Spaces. Deny and try again.</div>
+					{:else if spaceOptions.length === 0}
+						<div class="auth-space-empty">You don't have any Spaces yet.</div>
+					{:else}
+						<div class="auth-space-list" role="radiogroup" aria-label="Choose a Space">
+							{#each spaceOptions as space (space.id)}
+								<label class="auth-space-option">
+									<input type="radio" bind:group={selectedSpaceId} value={space.id} />
+									<span class="auth-space-option-name">{space.name || space.id}</span>
+								</label>
+							{/each}
+						</div>
+					{/if}
+				</section>
+			{:else if spaceLabel}
+				<section class="auth-space">
+					<div class="auth-space-label">Space</div>
+					<div class="auth-space-name" title={pending.spaceId ?? undefined}>{spaceLabel}</div>
+				</section>
+			{/if}
 
 			<section class="auth-section">
 				<div class="auth-section-label">{m.app_auth_once_authorized({}, { locale })}</div>
@@ -115,13 +195,15 @@ const displayName = $derived(appName?.trim() || "this app");
 				</div>
 			</section>
 
-			<section class="auth-usage">
-				<div class="auth-usage-label">{m.app_auth_about_usage({}, { locale })}</div>
-				<p class="auth-usage-copy">
-					How often and when generation runs is decided by the app. Each call uses your
-					quota.
-				</p>
-			</section>
+			{#if requiresGenerationQuota}
+				<section class="auth-usage">
+					<div class="auth-usage-label">{m.app_auth_about_usage({}, { locale })}</div>
+					<p class="auth-usage-copy">
+						How often and when generation runs is decided by the app. Each call uses your
+						quota.
+					</p>
+				</section>
+			{/if}
 
 			<hr class="auth-divider" />
 
@@ -133,9 +215,9 @@ const displayName = $derived(appName?.trim() || "this app");
 
 			<div class="auth-actions">
 				<button type="button" class="auth-cancel" disabled={saving} onclick={onCancel}>Deny</button>
-				<button type="button" class="auth-confirm" disabled={saving} onclick={onConfirm}>
+				<button type="button" class="auth-confirm" disabled={confirmDisabled} onclick={() => onConfirm(selectedSpaceId || undefined)}>
 					{#if saving}<Loader2 class="h-3.5 w-3.5 animate-spin" />{/if}
-					Authorize and continue
+					{confirmLabel}
 				</button>
 			</div>
 		</div>
@@ -189,6 +271,64 @@ const displayName = $derived(appName?.trim() || "this app");
 		font-size: 12px;
 		line-height: 1.4;
 		color: var(--text-tertiary);
+	}
+
+	.auth-reason {
+		margin-top: 6px;
+		font-size: 12px;
+		line-height: 1.5;
+		color: var(--text-tertiary);
+	}
+
+	.auth-space-empty {
+		border: 1px solid var(--border-subtle);
+		border-radius: 10px;
+		background: var(--bg-elevated);
+		padding: 12px;
+		font-size: 12px;
+		line-height: 1.5;
+		color: var(--text-tertiary);
+	}
+
+	.auth-space-list {
+		display: grid;
+		max-height: 216px;
+		overflow-y: auto;
+		border: 1px solid var(--border-subtle);
+		border-radius: 10px;
+		background: var(--bg-elevated);
+	}
+
+	.auth-space-option {
+		display: flex;
+		align-items: center;
+		gap: 11px;
+		padding: 10px 12px;
+		font-size: 12.5px;
+		color: var(--text-secondary);
+		cursor: pointer;
+	}
+
+	.auth-space-option + .auth-space-option {
+		border-top: 1px solid var(--border-subtle);
+	}
+
+	.auth-space-option:hover {
+		background: var(--bg-hover);
+	}
+
+	.auth-space-option input {
+		accent-color: var(--brand);
+		flex: 0 0 auto;
+		margin: 0;
+	}
+
+	.auth-space-option-name {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		color: var(--text-primary);
 	}
 
 	.auth-divider {
@@ -254,6 +394,33 @@ const displayName = $derived(appName?.trim() || "this app");
 		font-size: 12px;
 		line-height: 1.45;
 		color: var(--text-secondary);
+	}
+
+	.auth-space {
+		display: grid;
+		gap: 4px;
+		padding: 12px;
+		border: 1px solid var(--border-subtle);
+		border-radius: 10px;
+		background: var(--bg-elevated);
+	}
+
+	.auth-space-label {
+		font-size: 11px;
+		font-weight: 650;
+		line-height: 1.2;
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
+		color: var(--text-tertiary);
+	}
+
+	.auth-space-name {
+		font-size: 13px;
+		font-weight: 550;
+		color: var(--text-primary);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.auth-usage {

@@ -161,6 +161,8 @@ test("AppRuntimeApi delegates to the injected transport", async () => {
 		type: "cohub.app.authorize",
 		scopes: ["file.view"],
 		reason: undefined,
+		spaceId: undefined,
+		alwaysAsk: undefined,
 	});
 	assert.deepEqual(calls[3].message, {
 		type: "cohub.app.purchase",
@@ -470,7 +472,9 @@ test("AppRuntimeApi clears stored token on forceRefresh", async () => {
 test("forceRefresh re-authorizes when viewer scopes were previously granted", async () => {
 	const store: Record<string, string> = {
 		"cohub:app-token:work-1": "expired-token",
-		"cohub:app-auth-scopes:work-1": JSON.stringify(["session.prompt.fullaccess"]),
+		"cohub:app-auth-grants:work-1": JSON.stringify([
+			{ scopes: ["session.prompt.fullaccess"] },
+		]),
 	};
 	globalThis.localStorage = {
 		getItem: (key: string) => store[key] ?? null,
@@ -500,6 +504,186 @@ test("forceRefresh re-authorizes when viewer scopes were previously granted", as
 	assert.equal(calls[0].message.type, "cohub.app.authorize");
 	assert.deepEqual(calls[0].message.scopes, ["session.prompt.fullaccess"]);
 	assert.equal(store["cohub:app-token:work-1"], "refreshed-with-viewer-scopes");
+});
+
+test("implicit and explicit home-space consents share one entry via the response space id", async () => {
+	const store: Record<string, string> = {};
+	globalThis.localStorage = {
+		getItem: (key: string) => store[key] ?? null,
+		setItem: (key: string, value: string) => {
+			store[key] = value;
+		},
+		removeItem: (key: string) => {
+			delete store[key];
+		},
+	} as Storage;
+
+	const transport: AppRuntimeTransport = {
+		request: () =>
+			Promise.resolve({ token: "tok", space: { id: "space-home", name: "Home" } }),
+	};
+	const runtime = createAppRuntime(transport, "work-1");
+
+	// Implicit home request (no spaceId)…
+	await runtime.requestAuthorization({ scopes: ["file.view"] });
+	// …then an explicit one for the same server row.
+	await runtime.requestAuthorization({ scopes: ["file.view", "session.view"], spaceId: "space-home" });
+
+	assert.deepEqual(JSON.parse(store["cohub:app-auth-grants:work-1"]), [
+		{ spaceId: "space-home", scopes: ["file.view", "session.view"] },
+	]);
+});
+
+test("requestSpaceAuthorization resolves the picked space and records the consent", async () => {
+	const store: Record<string, string> = {};
+	globalThis.localStorage = {
+		getItem: (key: string) => store[key] ?? null,
+		setItem: (key: string, value: string) => {
+			store[key] = value;
+		},
+		removeItem: (key: string) => {
+			delete store[key];
+		},
+	} as Storage;
+
+	const calls: { message: Record<string, unknown> }[] = [];
+	const transport: AppRuntimeTransport = {
+		request<T>(message: Record<string, unknown>): Promise<T | null> {
+			calls.push({ message });
+			return Promise.resolve({
+				token: "picked-token",
+				space: { id: "space-7", name: "Studio" },
+			} as T);
+		},
+	};
+	const runtime = createAppRuntime(transport, "work-1");
+
+	const result = await runtime.requestSpaceAuthorization({ scopes: ["file.view"] });
+
+	assert.deepEqual(result, { granted: true, space: { id: "space-7", name: "Studio" } });
+	assert.equal(calls[0].message.selectSpace, true);
+	assert.equal(calls[0].message.spaceId, undefined);
+	assert.deepEqual(JSON.parse(store["cohub:app-auth-grants:work-1"]), [
+		{ spaceId: "space-7", scopes: ["file.view"] },
+	]);
+});
+
+test("requestSpaceAuthorization reports denial without a space", async () => {
+	globalThis.localStorage = {
+		getItem: () => null,
+		setItem: () => {},
+		removeItem: () => {},
+	} as Storage;
+	const transport: AppRuntimeTransport = {
+		request: () => Promise.resolve({ token: null, space: null }),
+	};
+	const runtime = createAppRuntime(transport, "work-1");
+
+	const result = await runtime.requestSpaceAuthorization({ scopes: ["file.view"] });
+	assert.deepEqual(result, { granted: false, space: null });
+});
+
+test("a denied refresh keeps the earlier grant's token and drops the denied consent", async () => {
+	const store: Record<string, string> = {};
+	globalThis.localStorage = {
+		getItem: (key: string) => store[key] ?? null,
+		setItem: (key: string, value: string) => {
+			store[key] = value;
+		},
+		removeItem: (key: string) => {
+			delete store[key];
+		},
+	} as Storage;
+
+	let callCount = 0;
+	const transport: AppRuntimeTransport = {
+		request<T>(_message: Record<string, unknown>): Promise<T | null> {
+			callCount += 1;
+			// The home-space consent refresh is denied by the viewer; the
+			// second grant's refresh succeeds.
+			if (callCount === 3) return Promise.resolve({ token: null } as T);
+			return Promise.resolve({ token: `tok-${callCount}` } as T);
+		},
+	};
+	const runtime = createAppRuntime(transport, "work-1");
+	await runtime.requestAuthorization({ scopes: ["file.view"] });
+	await runtime.requestAuthorization({ scopes: ["session.view"], spaceId: "space-2" });
+
+	const token = await runtime.getAccessToken({ forceRefresh: true });
+
+	// The surviving grant's token is kept; the denied one is dropped entirely.
+	assert.equal(token, "tok-4");
+	assert.deepEqual(JSON.parse(store["cohub:app-auth-grants:work-1"]), [
+		{ spaceId: "space-2", scopes: ["session.view"] },
+	]);
+	assert.equal(store["cohub:app-token:work-1"], "tok-4");
+});
+
+test("requestAuthorization denial keeps the existing token", async () => {
+	const store: Record<string, string> = { "cohub:app-token:work-1": "still-valid-token" };
+	globalThis.localStorage = {
+		getItem: (key: string) => store[key] ?? null,
+		setItem: (key: string, value: string) => {
+			store[key] = value;
+		},
+		removeItem: (key: string) => {
+			delete store[key];
+		},
+	} as Storage;
+
+	const transport: AppRuntimeTransport = {
+		request: () => Promise.resolve({ token: null }),
+	};
+	const runtime = createAppRuntime(transport, "work-1");
+
+	const granted = await runtime.requestAuthorization({ scopes: ["file.view"] });
+
+	assert.equal(granted, false);
+	// The previously minted token stays intact; no consent is recorded.
+	assert.equal(store["cohub:app-token:work-1"], "still-valid-token");
+	assert.equal(store["cohub:app-auth-grants:work-1"], undefined);
+});
+
+test("forceRefresh drops denied grants and keeps transient failures", async () => {
+	const store: Record<string, string> = {};
+	globalThis.localStorage = {
+		getItem: (key: string) => store[key] ?? null,
+		setItem: (key: string, value: string) => {
+			store[key] = value;
+		},
+		removeItem: (key: string) => {
+			delete store[key];
+		},
+	} as Storage;
+
+	let callCount = 0;
+	const transport: AppRuntimeTransport = {
+		request<T>(_message: Record<string, unknown>): Promise<T | null> {
+			callCount += 1;
+			// Home-space consent: the dialog is denied — the definitive drop.
+			if (callCount === 3) {
+				return Promise.resolve({ token: null } as T);
+			}
+			// Space-2 consent: the host is briefly unavailable — transient.
+			if (callCount === 4) {
+				return Promise.reject(new Error("network down"));
+			}
+			return Promise.resolve({ token: "refreshed-despite-stale-grant" } as T);
+		},
+	};
+	const runtime = createAppRuntime(transport, "work-1");
+	await runtime.requestAuthorization({ scopes: ["file.view"] });
+	await runtime.requestAuthorization({ scopes: ["session.view"], spaceId: "space-2" });
+
+	const token = await runtime.getAccessToken({ forceRefresh: true });
+
+	// Nothing refreshed — the loop falls through to a plain session token.
+	assert.equal(token, "refreshed-despite-stale-grant");
+	assert.equal(callCount, 5); // 2 consents + 2 re-authorize attempts + plain token
+	// The denied consent is gone; the transiently-failed one is kept.
+	assert.deepEqual(JSON.parse(store["cohub:app-auth-grants:work-1"]), [
+		{ spaceId: "space-2", scopes: ["session.view"] },
+	]);
 });
 
 test("forceRefresh falls back to plain token when no viewer scopes were granted", async () => {
@@ -554,10 +738,19 @@ test("requestAuthorization persists authorized scopes for later refresh", async 
 	});
 
 	assert.equal(granted, true);
-	assert.deepEqual(
-		JSON.parse(store["cohub:app-auth-scopes:work-1"]),
-		["session.prompt.fullaccess", "generation.create"],
-	);
+	assert.deepEqual(JSON.parse(store["cohub:app-auth-grants:work-1"]), [
+		{ scopes: ["session.prompt.fullaccess", "generation.create"] },
+	]);
+
+	// A second consent for another space keeps both, one per space.
+	await runtime.requestAuthorization({
+		scopes: ["file.view"],
+		spaceId: "space-2",
+	});
+	assert.deepEqual(JSON.parse(store["cohub:app-auth-grants:work-1"]), [
+		{ scopes: ["session.prompt.fullaccess", "generation.create"] },
+		{ spaceId: "space-2", scopes: ["file.view"] },
+	]);
 });
 
 test("forceRefresh after requestAuthorization re-authorizes with saved scopes", async () => {

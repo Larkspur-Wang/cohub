@@ -19,7 +19,6 @@ function makeApp(overrides: Partial<AppBridgeCoreApp> = {}): AppBridgeCoreApp {
 		slug: "my-work",
 		userUuid: "owner-uuid",
 		appScopes: ["space.view", "session.view"],
-		allowedViewerScopes: ["session.prompt.readonly", "generation.create"],
 		...overrides,
 	};
 }
@@ -58,6 +57,26 @@ function makeConfig(
 
 function messageEvent(data: Record<string, unknown>): MessageEvent {
 	return { data } as MessageEvent;
+}
+
+/** Full Storage mock — `length` and `key()` matter for prefix scans. */
+function storageMock(store: Record<string, string>): Storage {
+	return {
+		get length() {
+			return Object.keys(store).length;
+		},
+		getItem: (key: string) => store[key] ?? null,
+		setItem: (key: string, value: string) => {
+			store[key] = value;
+		},
+		removeItem: (key: string) => {
+			delete store[key];
+		},
+		key: (index: number) => Object.keys(store)[index] ?? null,
+		clear: () => {
+			for (const key of Object.keys(store)) delete store[key];
+		},
+	} as Storage;
 }
 
 afterEach(() => {
@@ -310,7 +329,35 @@ test("forceRefresh re-fetches the session token", async () => {
 	}
 });
 
-test("authorize with disallowed scopes replies error", async () => {
+test("scopes from the iframe are whitelisted, deduplicated, and bounded", async () => {
+	const config = makeConfig({ viewerUuid: "some-other-viewer" });
+	const core = createAppBridgeCore(config);
+
+	await core.handleMessage(
+		messageEvent({
+			type: "cohub.app.authorize",
+			requestId: "r1",
+			scopes: [
+				"file.view",
+				"file.view", // duplicate
+				"not.a.permission", // unknown name
+				"x".repeat(10_000), // hostile payload
+				42, // wrong type
+				"session.view",
+			],
+			reason: `${"r".repeat(5_000)}`,
+		}),
+	);
+
+	const state = core.getState();
+	assert.equal(state.authOpen, true);
+	// Only known permissions survive, deduplicated, in first-seen order.
+	assert.deepEqual(state.pendingAuth?.scopes, ["file.view", "session.view"]);
+	// The reason is truncated to a dialog-friendly length.
+	assert.equal(state.pendingAuth?.reason?.length, 280);
+});
+
+test("a request whose scopes are all unknown replies an error", async () => {
 	const config = makeConfig();
 	const core = createAppBridgeCore(config);
 
@@ -318,17 +365,80 @@ test("authorize with disallowed scopes replies error", async () => {
 		messageEvent({
 			type: "cohub.app.authorize",
 			requestId: "r1",
-			scopes: ["space.delete"], // not in allowedViewerScopes
+			scopes: ["definitely.fake", "also.fake"],
 		}),
 	);
 
 	assert.equal(config.replies.length, 1);
 	assert.equal(config.replies[0].payload.type, "cohub.app.error");
-	assert.equal(
-		config.replies[0].payload.message,
-		"No allowed scopes requested.",
+	assert.equal(config.replies[0].payload.message, "No scopes requested.");
+	assert.equal(core.getState().authOpen, false);
+});
+
+test("owner with a revoked grant falls back to the consent dialog", async () => {
+	const originalFetch = globalThis.fetch;
+	globalThis.fetch = (async () =>
+		new Response(JSON.stringify({ message: "grant was revoked" }), {
+			status: 403,
+		})) as typeof fetch;
+	try {
+		const config = makeConfig({
+			viewerUuid: "owner-uuid",
+			authorizationContext: { surface: "background" },
+		});
+		const core = createAppBridgeCore(config);
+
+		await core.handleMessage(
+			messageEvent({
+				type: "cohub.app.authorize",
+				requestId: "r1",
+				scopes: ["space.view"],
+			}),
+		);
+
+		// The silent owner path failed; the dialog opens instead of an error.
+		assert.equal(core.getState().authOpen, true);
+		assert.equal(config.replies.length, 0);
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
+test("authorize is no longer gated by the publisher's allowedViewerScopes", async () => {
+	const config = makeConfig({ viewerUuid: "some-other-viewer" });
+	const core = createAppBridgeCore(config);
+
+	await core.handleMessage(
+		messageEvent({
+			type: "cohub.app.authorize",
+			requestId: "r1",
+			// Never publishable as an app scope — viewers may still consent
+			// to it; the server gates on what the viewer can grant.
+			scopes: ["file.edit"],
+		}),
 	);
-	// Dialog should not open
+
+	// No reply yet — the consent dialog opens for the viewer to decide.
+	assert.equal(config.replies.length, 0);
+	assert.equal(core.getState().authOpen, true);
+	assert.deepEqual(core.getState().pendingAuth?.scopes, ["file.edit"]);
+});
+
+test("authorize with an empty scope list replies error", async () => {
+	const config = makeConfig();
+	const core = createAppBridgeCore(config);
+
+	await core.handleMessage(
+		messageEvent({
+			type: "cohub.app.authorize",
+			requestId: "r1",
+			scopes: [],
+		}),
+	);
+
+	assert.equal(config.replies.length, 1);
+	assert.equal(config.replies[0].payload.type, "cohub.app.error");
+	assert.equal(config.replies[0].payload.message, "No scopes requested.");
 	assert.equal(core.getState().authOpen, false);
 });
 
@@ -352,6 +462,448 @@ test("authorize opens consent dialog for non-owner without prior grant", async (
 	assert.equal(state.pendingAuth?.requestId, "r1");
 	assert.deepEqual(state.pendingAuth?.scopes, ["session.prompt.readonly"]);
 	assert.equal(state.pendingAuth?.reason, "need to read prompts");
+});
+
+const jsonResponse = (body: unknown) =>
+	new Response(JSON.stringify(body), { status: 200 });
+
+test("selectSpace opens the picker with the viewer's spaces loaded by the host", async () => {
+	const originalFetch = globalThis.fetch;
+	const fetchedUrls: string[] = [];
+	globalThis.fetch = (async (url: unknown) => {
+		const target = String(url);
+		fetchedUrls.push(target);
+		if (target.endsWith("/api/spaces")) {
+			return jsonResponse([
+				{ id: "space-a", name: "Alpha" },
+				{ id: "space-b", name: null },
+			]);
+		}
+		return jsonResponse({ token: "picked-token" });
+	}) as typeof fetch;
+	try {
+		const config = makeConfig({ viewerUuid: "some-other-viewer" });
+		const core = createAppBridgeCore(config);
+
+		await core.handleMessage(
+			messageEvent({
+				type: "cohub.app.authorize",
+				requestId: "r1",
+				scopes: ["file.view"],
+				selectSpace: true,
+				reason: "pick a space",
+			}),
+		);
+
+		// The host — not the app — loads the space list.
+		assert.deepEqual(fetchedUrls, ["https://api.test/api/spaces"]);
+		const state = core.getState();
+		assert.equal(state.authOpen, true);
+		assert.equal(state.pendingAuth?.selectSpace, true);
+		assert.deepEqual(state.pendingAuth?.spaces, [
+			{ id: "space-a", name: "Alpha" },
+			{ id: "space-b", name: null },
+		]);
+
+		// Confirming with the picked space authorizes against it and echoes it back.
+		await core.confirmAuth("space-a");
+		assert.equal(config.replies.length, 1);
+		assert.equal(config.replies[0].payload.token, "picked-token");
+		assert.deepEqual(config.replies[0].payload.space, { id: "space-a", name: "Alpha" });
+		assert.deepEqual(fetchedUrls, [
+			"https://api.test/api/spaces",
+			"https://api.test/api/apps/work_123/authorize",
+		]);
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
+test("selectSpace without a pick keeps the dialog open with an error", async () => {
+	const config = makeConfig({ viewerUuid: "some-other-viewer" });
+	const core = createAppBridgeCore(config);
+	const originalFetch = globalThis.fetch;
+	globalThis.fetch = (async () =>
+		jsonResponse([{ id: "space-a", name: "Alpha" }])) as typeof fetch;
+	try {
+		await core.handleMessage(
+			messageEvent({
+				type: "cohub.app.authorize",
+				requestId: "r1",
+				scopes: ["file.view"],
+				selectSpace: true,
+			}),
+		);
+		await core.confirmAuth();
+		assert.equal(core.getState().authOpen, true);
+		assert.equal(core.getState().authError, "Pick a Space to continue.");
+		assert.equal(config.replies.length, 0);
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
+test("selectSpace re-authorizes silently against the last picked space", async () => {
+	const originalFetch = globalThis.fetch;
+	const store: Record<string, string> = {
+		"cohub:work-grants:viewer-uuid:work_123:space-a:v1": JSON.stringify({
+			version: 1,
+			userUuid: "viewer-uuid",
+			appId: "work_123",
+			scopes: ["file.view"],
+			updatedAt: Date.now(),
+		}),
+		"cohub:app-picked-space:work_123": "space-a",
+	};
+	globalThis.localStorage = storageMock(store);
+	globalThis.fetch = (async () => jsonResponse({ token: "silent-token" })) as typeof fetch;
+	try {
+		const config = makeConfig();
+		const core = createAppBridgeCore(config);
+
+		await core.handleMessage(
+			messageEvent({
+				type: "cohub.app.authorize",
+				requestId: "r1",
+				scopes: ["file.view"],
+				selectSpace: true,
+			}),
+		);
+
+		// No dialog: the cached grant on the last picked space covers it.
+		assert.equal(core.getState().authOpen, false);
+		assert.equal(config.replies.length, 1);
+		assert.equal(config.replies[0].payload.token, "silent-token");
+		assert.deepEqual(config.replies[0].payload.space, { id: "space-a", name: null });
+	} finally {
+		globalThis.fetch = originalFetch;
+		globalThis.localStorage = originalLocalStorage;
+	}
+});
+
+test("owner auto-authorization is silent and respects alwaysAsk", async () => {
+	const originalFetch = globalThis.fetch;
+	const bodies: Array<Record<string, unknown>> = [];
+	globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
+		bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+		return jsonResponse({ token: "owner-token" });
+	}) as typeof fetch;
+	try {
+		// Auto-auth goes through the silent path, so a revoked grant cannot be
+		// revived without the owner re-confirming in a dialog.
+		const config = makeConfig({
+			viewerUuid: "owner-uuid",
+			authorizationContext: { surface: "background" },
+		});
+		const core = createAppBridgeCore(config);
+		await core.handleMessage(
+			messageEvent({
+				type: "cohub.app.authorize",
+				requestId: "r1",
+				scopes: ["space.view"],
+			}),
+		);
+		assert.equal(bodies[0]?.silent, true);
+		assert.equal(config.replies[0].payload.token, "owner-token");
+
+		// alwaysAsk forces the dialog even for the owner.
+		const asked = makeConfig({
+			viewerUuid: "owner-uuid",
+			authorizationContext: { surface: "background" },
+		});
+		const askedCore = createAppBridgeCore(asked);
+		await askedCore.handleMessage(
+			messageEvent({
+				type: "cohub.app.authorize",
+				requestId: "r2",
+				scopes: ["space.view"],
+				alwaysAsk: true,
+			}),
+		);
+		assert.equal(askedCore.getState().authOpen, true);
+		assert.equal(asked.replies.length, 0);
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
+test("authorize replies always carry the target space", async () => {
+	const originalFetch = globalThis.fetch;
+	globalThis.fetch = (async () => jsonResponse({ token: "tok" })) as typeof fetch;
+	try {
+		const config = makeConfig({
+			viewerUuid: "owner-uuid",
+			authorizationContext: { surface: "background" },
+		});
+		const core = createAppBridgeCore(config);
+
+		// Owner auto-authorization on the home space.
+		await core.handleMessage(
+			messageEvent({
+				type: "cohub.app.authorize",
+				requestId: "r1",
+				scopes: ["space.view"],
+			}),
+		);
+		assert.deepEqual(config.replies[0].payload.space, { id: "space_1", name: null });
+
+		// Home space name comes from the app record when the host knows it.
+		const named = makeConfig({
+			app: makeApp({ spaceName: "Home Space" }),
+			viewerUuid: "owner-uuid",
+			authorizationContext: { surface: "background" },
+		});
+		const namedCore = createAppBridgeCore(named);
+		await namedCore.handleMessage(
+			messageEvent({
+				type: "cohub.app.authorize",
+				requestId: "r2",
+				scopes: ["space.view"],
+			}),
+		);
+		assert.deepEqual(named.replies[0].payload.space, {
+			id: "space_1",
+			name: "Home Space",
+		});
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
+test("silent reuse sends silent: true; dialog confirm does not", async () => {
+	const store: Record<string, string> = {
+		"cohub:work-grants:viewer-uuid:work_123:v1": JSON.stringify({
+			version: 1,
+			userUuid: "viewer-uuid",
+			appId: "work_123",
+			scopes: ["file.view"],
+			updatedAt: Date.now(),
+		}),
+	};
+	globalThis.localStorage = storageMock(store);
+	const originalFetch = globalThis.fetch;
+	const bodies: Array<Record<string, unknown>> = [];
+	globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
+		bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+		return jsonResponse({ token: "tok" });
+	}) as typeof fetch;
+	try {
+		const config = makeConfig();
+		const core = createAppBridgeCore(config);
+
+		// Cached-grant reuse marks the call silent — the server may then only
+		// renew, never revive a revoked grant.
+		await core.handleMessage(
+			messageEvent({
+				type: "cohub.app.authorize",
+				requestId: "r-silent",
+				scopes: ["file.view"],
+			}),
+		);
+		assert.equal(bodies[0]?.silent, true);
+
+		// A dialog confirmation is an explicit consent: no silent flag.
+		await core.handleMessage(
+			messageEvent({
+				type: "cohub.app.authorize",
+				requestId: "r-dialog",
+				scopes: ["file.view"],
+				alwaysAsk: true,
+			}),
+		);
+		await core.confirmAuth();
+		assert.equal(bodies[1]?.silent, undefined);
+	} finally {
+		globalThis.fetch = originalFetch;
+		globalThis.localStorage = originalLocalStorage;
+	}
+});
+
+test("transient silent authorization failures preserve cache and return a retryable error", async () => {
+	const store: Record<string, string> = {
+		"cohub:work-grants:viewer-uuid:work_123:v1": JSON.stringify({
+			version: 1,
+			userUuid: "viewer-uuid",
+			appId: "work_123",
+			scopes: ["file.view"],
+			updatedAt: Date.now(),
+		}),
+	};
+	globalThis.localStorage = storageMock(store);
+	const originalFetch = globalThis.fetch;
+	globalThis.fetch = (async () =>
+		new Response(JSON.stringify({ message: "temporarily unavailable" }), {
+			status: 503,
+		})) as typeof fetch;
+	try {
+		const config = makeConfig();
+		const core = createAppBridgeCore(config);
+		await core.handleMessage(messageEvent({
+			type: "cohub.app.authorize",
+			requestId: "r-transient",
+			scopes: ["file.view"],
+		}));
+
+		assert.equal(core.getState().authOpen, false);
+		assert.equal(config.replies[0]?.payload.type, "cohub.app.error");
+		assert.equal(config.replies[0]?.payload.message, "temporarily unavailable");
+		assert.ok(store["cohub:work-grants:viewer-uuid:work_123:v1"]);
+	} finally {
+		globalThis.fetch = originalFetch;
+		globalThis.localStorage = originalLocalStorage;
+	}
+});
+
+test("definitive silent authorization failures clear cache and ask again", async () => {
+	const store: Record<string, string> = {
+		"cohub:work-grants:viewer-uuid:work_123:v1": JSON.stringify({
+			version: 1,
+			userUuid: "viewer-uuid",
+			appId: "work_123",
+			scopes: ["file.view"],
+			updatedAt: Date.now(),
+		}),
+	};
+	globalThis.localStorage = storageMock(store);
+	const originalFetch = globalThis.fetch;
+	globalThis.fetch = (async () =>
+		new Response(JSON.stringify({ message: "grant revoked" }), {
+			status: 403,
+		})) as typeof fetch;
+	try {
+		const config = makeConfig();
+		const core = createAppBridgeCore(config);
+		await core.handleMessage(messageEvent({
+			type: "cohub.app.authorize",
+			requestId: "r-revoked",
+			scopes: ["file.view"],
+		}));
+
+		assert.equal(core.getState().authOpen, true);
+		assert.equal(config.replies.length, 0);
+		assert.equal(store["cohub:work-grants:viewer-uuid:work_123:v1"], undefined);
+	} finally {
+		globalThis.fetch = originalFetch;
+		globalThis.localStorage = originalLocalStorage;
+	}
+});
+
+test("alwaysAsk skips silent reuse and opens the consent dialog", async () => {
+	const store: Record<string, string> = {
+		"cohub:work-grants:viewer-uuid:work_123:v1": JSON.stringify({
+			version: 1,
+			userUuid: "viewer-uuid",
+			appId: "work_123",
+			scopes: ["file.view"],
+			updatedAt: Date.now(),
+		}),
+	};
+	globalThis.localStorage = storageMock(store);
+	const originalFetch = globalThis.fetch;
+	globalThis.fetch = (async () =>
+		jsonResponse({ token: "silent-token" })) as typeof fetch;
+	try {
+		const config = makeConfig();
+		const core = createAppBridgeCore(config);
+
+		// Silent first: the cached grant covers the request, no dialog.
+		await core.handleMessage(
+			messageEvent({
+				type: "cohub.app.authorize",
+				requestId: "r-silent",
+				scopes: ["file.view"],
+			}),
+		);
+		assert.equal(core.getState().authOpen, false);
+
+		// alwaysAsk re-opens the dialog even though the grant still covers it.
+		await core.handleMessage(
+			messageEvent({
+				type: "cohub.app.authorize",
+				requestId: "r-ask",
+				scopes: ["file.view"],
+				alwaysAsk: true,
+			}),
+		);
+		assert.equal(core.getState().authOpen, true);
+	} finally {
+		globalThis.fetch = originalFetch;
+		globalThis.localStorage = originalLocalStorage;
+	}
+});
+
+test("context merges cached grants with this session's consents", async () => {
+	const store: Record<string, string> = {
+		"cohub:work-grants:viewer-uuid:work_123:v1": JSON.stringify({
+			version: 1,
+			userUuid: "viewer-uuid",
+			appId: "work_123",
+			scopes: ["file.view"],
+			updatedAt: Date.now(),
+		}),
+		"cohub:work-grants:viewer-uuid:work_123:space-b:v1": JSON.stringify({
+			version: 1,
+			userUuid: "viewer-uuid",
+			appId: "work_123",
+			scopes: ["taskrun.view"],
+			updatedAt: Date.now(),
+		}),
+	};
+	globalThis.localStorage = storageMock(store);
+	try {
+		// The host pushes context through `notify`; capture what the app receives.
+		const seen: Array<Record<string, unknown>> = [];
+		const wired = createAppBridgeCore({
+			...makeConfig(),
+			notify: (payload) => seen.push(payload as Record<string, unknown>),
+		});
+		await wired.notifyContextChanged();
+		const context = seen.at(-1)?.context as {
+			permissions?: { viewerGrants?: Array<{ spaceId: string; scopes: string[] }> };
+		};
+		// The legacy home-space entry maps onto the app home space; the
+		// per-space entry passes through as-is.
+		assert.deepEqual(context?.permissions?.viewerGrants, [
+			{ spaceId: "space_1", scopes: ["file.view"] },
+			{ spaceId: "space-b", scopes: ["taskrun.view"] },
+		]);
+	} finally {
+		globalThis.localStorage = originalLocalStorage;
+	}
+});
+
+test("authorize for a specific space surfaces the space on the dialog", async () => {
+	const originalFetch = globalThis.fetch;
+	const fetchedUrls: string[] = [];
+	globalThis.fetch = (async (url: unknown) => {
+		fetchedUrls.push(String(url));
+		return new Response(JSON.stringify({ name: "Target Space" }), {
+			status: 200,
+		});
+	}) as typeof fetch;
+	try {
+		const config = makeConfig({ viewerUuid: "some-other-viewer" });
+		const core = createAppBridgeCore(config);
+
+		await core.handleMessage(
+			messageEvent({
+				type: "cohub.app.authorize",
+				requestId: "r1",
+				scopes: ["file.view"],
+				spaceId: "space-2",
+				reason: "read your files",
+			}),
+		);
+
+		// The host resolves the target space name itself.
+		assert.deepEqual(fetchedUrls, ["https://api.test/api/spaces/space-2"]);
+		const state = core.getState();
+		assert.equal(state.authOpen, true);
+		assert.equal(state.pendingAuth?.spaceId, "space-2");
+		assert.equal(state.pendingAuth?.spaceName, "Target Space");
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
 });
 
 test("background owner is auto-authorized without dialog", async () => {
@@ -449,17 +1001,23 @@ test("owner auto-authorization is limited to workspace surfaces", async () => {
 	}
 });
 
-test("confirmAuth calls authorize API and replies with token", async () => {
+test("confirmAuth uses the server's canonical grant Space for replies and cache", async () => {
 	let authorizeBody: string | null = null;
+	const store: Record<string, string> = {};
+	globalThis.localStorage = storageMock(store);
 	const originalFetch = globalThis.fetch;
 	globalThis.fetch = ((url: string, init: RequestInit) => {
 		if (url.endsWith("/authorize")) {
 			authorizeBody = init.body as string;
 		}
 		return Promise.resolve(
-			new Response(JSON.stringify({ token: "auth-token-xyz" }), {
-				status: 200,
-			}),
+			new Response(JSON.stringify({
+				token: "auth-token-xyz",
+				grant: {
+					spaceId: "space_1",
+					scopes: ["session.prompt.readonly"],
+				},
+			}), { status: 200 }),
 		);
 	}) as typeof fetch;
 
@@ -484,9 +1042,20 @@ test("confirmAuth calls authorize API and replies with token", async () => {
 		assert.equal(config.replies.length, 1);
 		assert.equal(config.replies[0].payload.type, "cohub.app.authorize.result");
 		assert.equal(config.replies[0].payload.token, "auth-token-xyz");
+		assert.deepEqual(config.replies[0].payload.space, { id: "space_1", name: null });
 		assert.deepEqual(JSON.parse(authorizeBody ?? "{}"), { scopes: ["session.prompt.readonly"] });
+		assert.equal("cohub:work-grants:viewer-uuid:work_123:v1" in store, false);
+		const cached = JSON.parse(
+			store["cohub:work-grants:viewer-uuid:work_123:space_1:v1"] ?? "null",
+		) as Record<string, unknown>;
+		assert.equal(cached.version, 1);
+		assert.equal(cached.userUuid, "viewer-uuid");
+		assert.equal(cached.appId, "work_123");
+		assert.deepEqual(cached.scopes, ["session.prompt.readonly"]);
+		assert.equal(typeof cached.updatedAt, "number");
 	} finally {
 		globalThis.fetch = originalFetch;
+		globalThis.localStorage = originalLocalStorage;
 	}
 });
 

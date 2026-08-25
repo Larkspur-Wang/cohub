@@ -4,11 +4,13 @@ import { db } from "../db/index.js";
 import { cronJobs, taskRuns } from "@cohub/db";
 import { eq, and, isNull, desc, lt, or } from "drizzle-orm";
 import { sanitizePostgresJsonValue } from "@cohub/core/content/sanitize";
-import { getOptionalAuth, useAuth, requireValidId, authzDenied } from "../lib/middleware.js";
+import { getOptionalAuth, useAuth, requireValidId, authzDenied, getAppSessionPrincipal } from "../lib/middleware.js";
+import type { Context } from "hono";
 import { hasPermission } from "../permissions.js";
 import { disableCronJob, enableCronJob, removeCronJob, updateCronJob } from "../tasks.js";
 import { fallbackPublicUserProfile, getProfilesByUuids } from "../user-profiles.js";
 import { sanitizeTaskRunPricingForViewer } from "../task-run-privacy.js";
+import { preserveCronPayloadAuth } from "./cron-jobs-payload.js";
 
 const router = new Hono();
 const { CronExpressionParser } = cronParser;
@@ -64,8 +66,14 @@ async function authorizeCronJobView(user: ReturnType<typeof getOptionalAuth>, jo
   return !!user && job.userUuid === user.uuid;
 }
 
-async function authorizeCronJobManage(user: Exclude<ReturnType<typeof useAuth>, Response>, job: CronJobAuthSubject) {
-  if (job.spaceId) return hasPermission(user, "cronjob.manage", { spaceId: job.spaceId, sessionId: job.sessionId ?? undefined });
+async function authorizeCronJobManage(c: Context, user: Exclude<ReturnType<typeof useAuth>, Response>, job: CronJobAuthSubject) {
+  if (job.spaceId) {
+    if (!(await hasPermission(user, "cronjob.manage", { spaceId: job.spaceId, sessionId: job.sessionId ?? undefined }))) return false;
+    // An app session acts for one viewer: it may only manage that viewer's
+    // own jobs, never another member's (whose quota they would spend).
+    if (getAppSessionPrincipal(c) && job.userUuid !== user.uuid) return false;
+    return true;
+  }
   return job.userUuid === user.uuid;
 }
 
@@ -209,7 +217,7 @@ router.delete("/:id", async (c) => {
     .where(and(eq(cronJobs.id, cronJobId), isNull(cronJobs.deletedAt)))
     .limit(1);
   if (!job) return c.json({ message: "not found" }, 404);
-  if (!(await authorizeCronJobManage(user, job))) return authzDenied(c);
+  if (!(await authorizeCronJobManage(c, user, job))) return authzDenied(c);
 
   await removeCronJob(cronJobId, job.bullJobKey);
   return c.json({ ok: true });
@@ -228,7 +236,7 @@ router.patch("/:id", async (c) => {
     .where(and(eq(cronJobs.id, cronJobId), isNull(cronJobs.deletedAt)))
     .limit(1);
   if (!job) return c.json({ message: "not found" }, 404);
-  if (!(await authorizeCronJobManage(user, job))) return authzDenied(c);
+  if (!(await authorizeCronJobManage(c, user, job))) return authzDenied(c);
 
   const body = await c.req.json<Record<string, unknown>>().catch(() => null);
   if (!body || typeof body !== "object" || Array.isArray(body)) return c.json({ message: "invalid json body" }, 400);
@@ -249,8 +257,19 @@ router.patch("/:id", async (c) => {
   }
 
   if ("payload" in body) {
+    // App sessions must not rewrite task payloads: the payload carries both
+    // the content and the app's authorization reference. Scheduled prompts
+    // are created through the gated prompt endpoint; apps can delete and
+    // re-create instead of editing.
+    if (getAppSessionPrincipal(c)) return c.json({ message: "apps cannot edit task payloads; create a new scheduled prompt instead" }, 403);
     if (!isRecord(body.payload)) return c.json({ message: "payload must be an object" }, 400);
-    patch.payload = sanitizePostgresJsonValue(body.payload) as Record<string, unknown>;
+    // payload.auth is server-generated provenance: whatever a client sends
+    // under it is dropped and the original is preserved verbatim, so no
+    // account can inject or swap an app authorization reference.
+    patch.payload = preserveCronPayloadAuth(
+      sanitizePostgresJsonValue(body.payload) as Record<string, unknown>,
+      job.payload,
+    );
   }
 
   const nextCronExpression = "cronExpression" in body ? body.cronExpression : undefined;

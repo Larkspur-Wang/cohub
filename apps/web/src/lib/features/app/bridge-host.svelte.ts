@@ -72,7 +72,7 @@ export type AppBridgeHost = {
 		invocation?: AppRuntimeInvocationContext,
 	) => Promise<void>;
 	/** Confirm/cancel handlers for the authorize dialog. */
-	confirmAuth: () => Promise<void>;
+	confirmAuth: (pickedSpaceId?: string) => Promise<void>;
 	cancelAuth: () => void;
 	/** Confirm/cancel handlers for the purchase dialog. */
 	confirmPurchase: () => Promise<void>;

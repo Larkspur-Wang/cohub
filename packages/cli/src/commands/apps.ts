@@ -289,8 +289,8 @@ export function registerApps(program: Command): void {
     .option("--disabled", "Create as disabled")
     .option("--status <status>", "App status: published, disabled")
     .option("--visibility <visibility>", "App visibility: public, space")
-    .option("--app-scope <scope>", "Scope granted to the app runtime (space.view, session.view, file.view, taskrun.view)", collectOption, [])
-    .option("--viewer-scope <scope>", "Scope viewers may request (taskrun.view, session.prompt.readonly, session.prompt.fullaccess, generation.create, user.space.list, user.session.list, user.usage.read)", collectOption, [])
+    .option("--app-scope <scope>", "Scope granted directly to the app runtime (space.view, session.view, file.view, file.edit, taskrun.view, session.prompt.readonly, session.prompt.fullaccess, command.execute)", collectOption, [])
+    .option("--viewer-scope <scope>", "Deprecated: viewer grants are no longer gated by the app configuration", collectOption, [])
     .option("--meta <json>", "App metadata as a JSON object")
     .option("--hide-cohub-bar", "Hide the Cohub footer bar on the public app page")
     .option("--show-cohub-bar", "Show the Cohub footer bar on the public app page")
@@ -361,8 +361,8 @@ export function registerApps(program: Command): void {
     .option("--disabled", "Set status to disabled")
     .option("--status <status>", "App status: published, disabled")
     .option("--visibility <visibility>", "App visibility: public, space")
-    .option("--app-scope <scope>", "Scope granted to the app runtime (space.view, session.view, file.view, taskrun.view)", collectOption, [])
-    .option("--viewer-scope <scope>", "Scope viewers may request (taskrun.view, session.prompt.readonly, session.prompt.fullaccess, generation.create, user.space.list, user.session.list, user.usage.read)", collectOption, [])
+    .option("--app-scope <scope>", "Scope granted directly to the app runtime (space.view, session.view, file.view, file.edit, taskrun.view, session.prompt.readonly, session.prompt.fullaccess, command.execute)", collectOption, [])
+    .option("--viewer-scope <scope>", "Deprecated: viewer grants are no longer gated by the app configuration", collectOption, [])
     .option("--clear-app-scopes", "Clear app runtime scopes")
     .option("--clear-viewer-scopes", "Clear viewer-requestable scopes")
     .option("--meta <json>", "App metadata as a JSON object")
@@ -566,6 +566,65 @@ export function registerApps(program: Command): void {
     });
 
   registerAppCommerce(appsCmd);
+
+  // ── Viewer grants ─────────────────────────────────────────────────────────
+
+  appsCmd
+    .command("authorize <app>")
+    .description("Grant an app scopes as the current user")
+    .requiredOption("--scope <scope>", "Scope to grant (repeatable)", collectOption, [])
+    .option("--space <spaceId>", "Target space; defaults to the app's own space")
+    .option("--json", "Output as JSON")
+    .action(async (appRef: string, opts: { scope: string[]; space?: string; json?: boolean }) => {
+      const client = createClient();
+      try {
+        const detail = await getAppByRef(client, appRef);
+        const result = await client.apps.authorize(detail.app.id, {
+          scopes: opts.scope as Permission[],
+          ...(opts.space ? { spaceId: opts.space } : {}),
+        });
+        if (jsonRequested(opts)) return outJson(result);
+        ok(`Granted ${result.grant.scopes.join(", ")} on space ${result.grant.spaceId}`);
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
+  appsCmd
+    .command("grants <app>")
+    .description("List your grants for an app")
+    .option("--json", "Output as JSON")
+    .action(async (appRef: string, opts: { json?: boolean }) => {
+      const client = createClient();
+      try {
+        const detail = await getAppByRef(client, appRef);
+        const result = await client.apps.listMyGrants(detail.app.id);
+        if (jsonRequested(opts)) return outJson(result);
+        table(result.grants, [
+          { key: "id", label: "ID" },
+          { key: "spaceId", label: "Space" },
+          { key: "scopes", label: "Scopes" },
+          { key: "expiresAt", label: "Expires" },
+          { key: "revokedAt", label: "Revoked" },
+        ]);
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
+  appsCmd
+    .command("revoke <app> <grantId>")
+    .description("Revoke one of your grants for an app")
+    .action(async (appRef: string, grantId: string) => {
+      const client = createClient();
+      try {
+        const detail = await getAppByRef(client, appRef);
+        await client.apps.revokeMyGrant(detail.app.id, grantId);
+        ok("Grant revoked");
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
 
   appsCmd
     .command("rm <id>")
