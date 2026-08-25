@@ -457,8 +457,11 @@ let copyTimer: ReturnType<typeof setTimeout> | null = null;
 function handleCopy() {
 	const text =
 		message.content
-			?.filter((block) => block.type === "text")
-			.map((block) => (block.type === "text" ? block.text : ""))
+			?.flatMap((block) => {
+				if (block.type === "text") return [block.text];
+				if (block.type === "shell_command") return [block.rawText];
+				return [];
+			})
 			.join("\n\n")
 			.trim() || message.text;
 
