@@ -4,6 +4,7 @@ import {
 	type LocalUploadEntry,
 	sanitizeRelativePath,
 } from "$lib/upload-entries";
+import { isBrowserManagedUploadHeader } from "$lib/upload-headers";
 
 export type SpaceUploadStage = "preparing" | "uploading" | "importing" | "done";
 
@@ -76,6 +77,7 @@ function putWithProgress(
 		try {
 			xhr.open("PUT", uploadUrl);
 			for (const [key, value] of Object.entries(headers ?? {})) {
+				if (isBrowserManagedUploadHeader(key)) continue;
 				// Skip empty / control-char values — Safari throws
 				// "The string did not match the expected pattern."
 				if (/[\r\n\0]/.test(value)) continue;

@@ -49,12 +49,14 @@ export const createUserUploadPutUrl = (input: {
   contentType?: string | null;
   cacheControl?: string | null;
   contentDisposition?: string | null;
+  contentLength?: number;
 }) => createPresignedPutObjectUrl(
   requireStorage(input.kind),
   input.objectKey,
   input.contentType,
   input.cacheControl,
   input.contentDisposition,
+  input.contentLength == null ? undefined : { contentLength: input.contentLength },
 );
 
 export const createUserUploadGetUrl = (kind: UserUploadBucket, objectKey: string) =>

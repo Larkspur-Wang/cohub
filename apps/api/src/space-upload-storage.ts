@@ -156,11 +156,16 @@ export const cancelSpaceUploadComplete = async (spaceId: string, uploadId: strin
   if (value === "pending") await redisCommandClient.del(key);
 };
 
-export const createPresignedPutUrl = (objectKey: string, contentType?: string | null) =>
+export const createPresignedPutUrl = (
+  objectKey: string,
+  contentType: string | null | undefined,
+  contentLength: number,
+) =>
   createUserUploadPutUrl({
     kind: "space_upload",
     objectKey,
     contentType,
+    contentLength,
   });
 
 export const createPresignedGetUrl = (objectKey: string) =>
