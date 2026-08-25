@@ -132,7 +132,10 @@ jobs:
       - name: Resolve sandbox sha tag
         if: ${{ steps.release-scope.outputs.changed == 'true' }}
         id: sha-tag
-        run: echo "tag=sha-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+        # Mirror docker/metadata-action's type=sha,format=short: a fixed 7-char
+        # prefix of the full sha. git rev-parse --short is NOT equivalent (it
+        # extends past 7 chars when the prefix is ambiguous).
+        run: echo "tag=sha-${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
 
       - name: Compute cohub-cli refresh token
         if: ${{ steps.release-scope.outputs.changed == 'true' }}
@@ -182,8 +185,7 @@ jobs:
       - name: Get short sha
         id: get-sha
         run: |
-          SHA=$(git rev-parse --short HEAD)
-          echo "sha=$SHA" >> $GITHUB_OUTPUT
+          echo "sha=${GITHUB_SHA:0:7}" >> $GITHUB_OUTPUT
 
       - name: Patch sandbox image config
         run: |
