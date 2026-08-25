@@ -469,7 +469,7 @@ router.post("/uploads", async (c) => {
       if (entry.downloadUrl) {
         return { id: entry.id, downloadUrl: entry.downloadUrl };
       }
-      const signed = createPresignedPutUrl(entry.objectKey as string, entry.mimeType);
+      const signed = createPresignedPutUrl(entry.objectKey as string, entry.mimeType, entry.size);
       return { id: entry.id, objectKey: entry.objectKey, uploadUrl: signed.uploadUrl, headers: signed.headers };
     });
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();

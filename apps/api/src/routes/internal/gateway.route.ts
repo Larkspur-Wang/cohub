@@ -465,7 +465,7 @@ router.post("/attachments/plan", async (c) => {
   }
   const filePlans = fileEntries.map((file) => {
     if (!file.objectKey) throw new Error("upload objectKey is required");
-    const signed = createPresignedPutUrl(file.objectKey, file.mimeType);
+    const signed = createPresignedPutUrl(file.objectKey, file.mimeType, file.size);
     return { id: file.id, name: file.name, relativePath: file.relativePath, objectKey: file.objectKey, uploadUrl: signed.uploadUrl, uploadHeaders: signed.headers, expiresAt: signed.expiresAt };
   });
 
