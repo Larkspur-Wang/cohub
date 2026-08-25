@@ -156,11 +156,25 @@ app.use(async (c, next) => {
       c.set("principal", { type: "user", user: authUser });
     } catch (error) {
       const failure = describeUserAccessTokenFailure(error);
-      logger.warn("User access token verification failed", {
+      const authFailureMeta = {
         auth_failure_reason: failure.reason,
         ...(failure.claim ? { auth_failure_claim: failure.claim } : {}),
         http_method: c.req.method,
-      });
+      };
+
+      if (failure.reason === "jwt_expired") {
+        logger.debug("User access token verification failed", authFailureMeta);
+      } else if (
+        failure.reason === "jwks_timeout" ||
+        failure.reason === "jwks_unavailable" ||
+        failure.reason === "jwks_invalid" ||
+        failure.reason === "jwt_signing_key_not_found" ||
+        failure.reason === "jwt_signing_key_ambiguous"
+      ) {
+        logger.warn("User access token verification failed", authFailureMeta);
+      } else {
+        logger.info("User access token verification failed", authFailureMeta);
+      }
       recordAuthTrace(trace.getActiveSpan(), {
         credentialPresent: true,
         principalType: "anonymous",

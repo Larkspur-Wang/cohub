@@ -59,6 +59,7 @@ export class GatewayManager {
   private heartbeatInterval?: ReturnType<typeof setInterval>;
   private syncInterval?: ReturnType<typeof setInterval>;
   private readonly onStaleNodesPruned?: GatewayManagerOptions["onStaleNodesPruned"];
+  private syncInFlight = false;
 
   // 本地维持的实例集合 Map<ChannelId, ProviderInstance>
   private providers = new Map<string, GatewayProvider>();
@@ -143,6 +144,12 @@ export class GatewayManager {
   }
 
   private async syncTasks() {
+    if (this.syncInFlight) {
+      logger.debug("[Manager] Skipping overlapping task sync");
+      return;
+    }
+
+    this.syncInFlight = true;
     try {
       const syncStart = Date.now();
       // 获取分配给本节点的专属任务
@@ -153,17 +160,16 @@ export class GatewayManager {
       const expectedChannelIds = new Set(Object.keys(tasksStr));
       const currentChannelIds = new Set(this.providers.keys());
 
-      logger.info(`[Manager] Sync tasks: expected=${expectedChannelIds.size}, current=${currentChannelIds.size}`);
-      if (expectedChannelIds.size > 0) {
-        logger.info(`[Manager] Expected channels: [${Array.from(expectedChannelIds).join(", ")}]`);
-      }
-      if (currentChannelIds.size > 0) {
-        logger.info(`[Manager] Current channels: [${Array.from(currentChannelIds).join(", ")}]`);
-      }
-
       // 1. 需要新增或更新的连接
       const toAdd = Array.from(expectedChannelIds).filter(id => !currentChannelIds.has(id));
       const toRemove = Array.from(currentChannelIds).filter(id => !expectedChannelIds.has(id));
+
+      logger.debug("[Manager] Gateway task sync", {
+        expected_count: expectedChannelIds.size,
+        current_count: currentChannelIds.size,
+        to_add_count: toAdd.length,
+        to_remove_count: toRemove.length,
+      });
 
       if (toAdd.length > 0) {
         logger.info(`[Manager] Channels to add: [${toAdd.join(", ")}]`);
@@ -186,9 +192,13 @@ export class GatewayManager {
         await this.stopProvider(channelId);
       }
 
-      logger.info(`[Manager] Sync completed in ${Date.now() - syncStart}ms`);
+      logger.debug("[Manager] Gateway task sync completed", {
+        duration_ms: Date.now() - syncStart,
+      });
     } catch (error) {
       logger.error("[Manager] Failed to sync tasks:", error);
+    } finally {
+      this.syncInFlight = false;
     }
   }
 
