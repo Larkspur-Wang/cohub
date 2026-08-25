@@ -125,3 +125,32 @@ export async function buildResourceLabelSnapshot(input: {
     ])),
   };
 }
+
+export async function listResourceLabelRefs(input: {
+  db: LabelsDb;
+  spaceId: string;
+  resourceType: LabelResourceType;
+  resourceRef: string;
+}) {
+  const rows = await input.db.execute(sql`
+    select child.name as label_name, parent.name as parent_name
+    from v2.label_assignments assignment
+    inner join v2.labels child on child.id = assignment.label_id
+      and child.scope_type = ${SCOPE_TYPE}
+      and child.scope_id = ${input.spaceId}
+    left join v2.labels parent on parent.id = child.parent_id
+      and parent.scope_type = ${SCOPE_TYPE}
+      and parent.scope_id = ${input.spaceId}
+    where assignment.scope_type = ${SCOPE_TYPE}
+      and assignment.scope_id = ${input.spaceId}
+      and assignment.resource_type = ${input.resourceType}
+      and assignment.resource_ref = ${input.resourceRef}
+  `);
+  return rows.flatMap((row) => {
+    const record = row as { label_name?: unknown; parent_name?: unknown };
+    if (typeof record.label_name !== "string") return [];
+    return [typeof record.parent_name === "string"
+      ? `${record.parent_name}/${record.label_name}`
+      : record.label_name];
+  });
+}

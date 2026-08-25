@@ -25,6 +25,16 @@ function normalizeStringList(value: unknown): string[] | undefined {
   return items.length > 0 ? items : undefined;
 }
 
+function normalizeLabelFilter(value: unknown): SpaceHookDefinition["labels"] | undefined {
+  if (!isRecord(value)) return undefined;
+  const filter = {
+    any: normalizeStringList(value.any),
+    all: normalizeStringList(value.all),
+    none: normalizeStringList(value.none),
+  };
+  return filter.any || filter.all || filter.none ? filter : undefined;
+}
+
 function normalizeKinds(value: unknown): SpaceHookDefinition["kinds"] | undefined {
   if (!Array.isArray(value)) return undefined;
   const kinds = value
@@ -108,7 +118,11 @@ export function parseSpaceHookDefinition(raw: string, path: string): SpaceHookDe
     sessionIds: normalizeStringList(on?.sessionIds),
     ignoreSessionIds: normalizeStringList(on?.ignoreSessionIds),
     sources: normalizeStringList(on?.sources),
+    labels: normalizeLabelFilter(on?.labels),
   };
+  if (triggerFilters.labels && eventValue !== "session.turn.finalized") {
+    throw new Error(`on.labels is only supported for session.turn.finalized in ${normalizedPath}`);
+  }
 
   if (hasRun) {
     const run = typeof document.run === "string" ? document.run.trim() : "";

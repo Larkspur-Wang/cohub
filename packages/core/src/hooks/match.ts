@@ -60,6 +60,35 @@ function resolveTurnSource(payload: Record<string, unknown>): string | null {
   return typeof meta?.source === "string" && meta.source.trim() ? meta.source.trim() : null;
 }
 
+function normalizeLabelRef(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function resolveSessionLabelRefs(payload: Record<string, unknown>): Set<string> | null {
+  if (!Array.isArray(payload.sessionLabelRefs)) return null;
+  return new Set(
+    payload.sessionLabelRefs
+      .filter((value): value is string => typeof value === "string")
+      .map(normalizeLabelRef),
+  );
+}
+
+function matchesSessionLabels(
+  hook: SpaceHookDefinition,
+  event: SpaceHookEventEnvelope,
+): { matched: boolean; reason?: string } {
+  if (!hook.labels) return { matched: true };
+  const labels = resolveSessionLabelRefs(event.payload);
+  if (!labels) return { matched: false, reason: "label_filter" };
+  const any = hook.labels.any?.map(normalizeLabelRef);
+  const all = hook.labels.all?.map(normalizeLabelRef);
+  const none = hook.labels.none?.map(normalizeLabelRef);
+  if (any && !any.some((label) => labels.has(label))) return { matched: false, reason: "label_filter" };
+  if (all && !all.every((label) => labels.has(label))) return { matched: false, reason: "label_filter" };
+  if (none?.some((label) => labels.has(label))) return { matched: false, reason: "label_filter" };
+  return { matched: true };
+}
+
 function matchSessionTurnFinalized(
   hook: SpaceHookDefinition,
   event: SpaceHookEventEnvelope,
@@ -82,7 +111,7 @@ function matchSessionTurnFinalized(
     }
   }
 
-  return { matched: true };
+  return matchesSessionLabels(hook, event);
 }
 
 function matchFsChanged(

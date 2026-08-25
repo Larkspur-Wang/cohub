@@ -330,6 +330,64 @@ run: echo ok
   );
 });
 
+test("spaceHookMatchesEvent filters session turns by labels", () => {
+  const hook = parseSpaceHookDefinition(
+    `
+schema: cohub.space-hook.v1
+on:
+  event: session.turn.finalized
+  labels:
+    any: [Review, Bug]
+    all: [Project/Cohub]
+    none: [Archived]
+run: echo ok
+`,
+    ".cohub/hooks/on-labeled-turn.yml",
+  );
+  const base = {
+    id: "evt-label",
+    type: "session.turn.finalized" as const,
+    timestamp: Date.now(),
+    spaceId: "space-1",
+    sessionId: "session-1",
+    payload: { turn: { id: "turn-1" } },
+  };
+
+  assert.deepEqual(
+    spaceHookMatchesEvent(hook, { ...base, payload: { ...base.payload, sessionLabelRefs: ["review", "Project/Cohub"] } }),
+    { matched: true },
+  );
+  assert.deepEqual(
+    spaceHookMatchesEvent(hook, { ...base, payload: { ...base.payload, sessionLabelRefs: ["Bug"] } }),
+    { matched: false, reason: "label_filter" },
+  );
+  assert.deepEqual(
+    spaceHookMatchesEvent(hook, { ...base, payload: { ...base.payload, sessionLabelRefs: ["Review", "Project/Cohub", "Archived"] } }),
+    { matched: false, reason: "label_filter" },
+  );
+  assert.deepEqual(
+    spaceHookMatchesEvent(hook, base),
+    { matched: false, reason: "label_filter" },
+  );
+});
+
+test("parseSpaceHookDefinition rejects labels on other events", () => {
+  assert.throws(
+    () => parseSpaceHookDefinition(
+      `
+schema: cohub.space-hook.v1
+on:
+  event: checkpoint.created
+  labels:
+    any: [Review]
+run: echo ok
+`,
+      ".cohub/hooks/invalid-label-filter.yml",
+    ),
+    /on.labels is only supported for session.turn.finalized/,
+  );
+});
+
 test("spaceHookMatchesEvent matches task.updated events", () => {
   const hook = parseSpaceHookDefinition(
     `

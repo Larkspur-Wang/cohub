@@ -18,6 +18,7 @@ import type { ModelThinkingLevel } from "@cohub/protocol";
 import type { ChannelProvider, GatewayOutboundCommand } from "@cohub/protocol/gateway";
 import { getRealtimeUserRoom } from "@cohub/protocol/realtime";
 import { sessionMessages, sessionTurns, spaceChannels, spaceSessionBindings, spaceSessions, providerMessageRefs, userChannels, userProfiles } from "@cohub/db";
+import { listResourceLabelRefs } from "@cohub/core/labels";
 import { sanitizeContentBlocksForPostgresJson, sanitizePostgresJsonValue } from "@cohub/core/content/sanitize";
 import { addImageToTextCallsToSummary, claimSessionFallbackTitle, countToolCallsInContent, createImageToTextUsageSummaryAccumulator, deriveMessagePreviewText, deriveSessionFallbackTitle, finalizeImageToTextUsageSummary, readImageToTextCalls, readSessionTitleSource, resolveMessageTurnId, summarizeSessionTurnCompactions, sumImageToTextUsage } from "@cohub/core/sessions";
 import { buildTraceHeaders, getCurrentRequestId } from "@cohub/infra/tracing";
@@ -248,7 +249,26 @@ export async function publishSessionTurnsUpdated(input: {
 
 async function publishTurnFinalized(spaceId: string, turn: SessionTurnRecord) {
   await clearPersistedSessionStreamSnapshot(spaceId, turn.sessionId);
-  await publishRealtimeEnvelope({ domain: "session", type: "session.turn.finalized", spaceId, sessionId: turn.sessionId, payload: { turn } });
+  const sessionLabelRefs = await listResourceLabelRefs({
+    db,
+    spaceId,
+    resourceType: "session",
+    resourceRef: turn.sessionId,
+  }).catch((error) => {
+    logger.warn("[Realtime] failed to load session labels for finalized turn", {
+      spaceId,
+      sessionId: turn.sessionId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  });
+  await publishRealtimeEnvelope({
+    domain: "session",
+    type: "session.turn.finalized",
+    spaceId,
+    sessionId: turn.sessionId,
+    payload: { turn, sessionLabelRefs },
+  });
   if (!turn.userUuid) return;
   await publishRealtimeEnvelope({
     domain: "session",

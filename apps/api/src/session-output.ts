@@ -14,6 +14,7 @@ import { dispatchSpaceDomainEvent } from "./space-events.js";
 import { db } from "./db/index.js";
 import { spaceChannels } from "@cohub/db";
 import { clearSessionStreamSnapshot } from "./session-stream-snapshot.js";
+import { listResourceLabelRefs } from "@cohub/core/labels";
 import { toRealtimeMessageRecord, toRealtimeTurnRecord } from "./realtime-events.js";
 
 
@@ -165,6 +166,19 @@ const truncateTurnPreview = (text: string | null | undefined) => {
 
 export const dispatchTurnFinalized = async (input: { spaceId: string; sessionId: string; turn: SessionTurnRecord }) => {
   await clearSessionStreamSnapshot({ spaceId: input.spaceId, sessionId: input.sessionId });
+  const sessionLabelRefs = await listResourceLabelRefs({
+    db,
+    spaceId: input.spaceId,
+    resourceType: "session",
+    resourceRef: input.sessionId,
+  }).catch((error) => {
+    logger.warn("[SessionTurn] failed to load session labels for finalized event", {
+      spaceId: input.spaceId,
+      sessionId: input.sessionId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  });
   await dispatchSpaceDomainEvent({
     id: randomUUID(),
     timestamp: Date.now(),
@@ -174,6 +188,7 @@ export const dispatchTurnFinalized = async (input: { spaceId: string; sessionId:
     sessionId: input.sessionId,
     payload: {
       turn: toRealtimeTurnRecord(input.turn),
+      sessionLabelRefs,
     },
   });
 

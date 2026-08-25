@@ -64,10 +64,19 @@ on:
   sources:
     - web_app
     - cli
+  labels:
+    any:
+      - Review
+    all:
+      - Project/Cohub
+    none:
+      - Archived
 
 run: |
   echo "session=$COHUB_HOOK_SESSION_ID turn=$COHUB_HOOK_TURN_ID"
 ```
+
+For `session.turn.finalized`, `labels.any`, `labels.all`, and `labels.none` are optional session label filters. The three groups combine with AND; label refs are matched case-insensitively. The event carries a label snapshot read when the finalized event is dispatched. If that snapshot is unavailable, label-filtered hooks do not match, while unfiltered hooks still run.
 
 `prompt.sessionId` is the **action target** (where to send a follow-up), not a trigger filter.
 Trigger filters live under `on` and stay orthogonal to the prompt target:
@@ -90,7 +99,7 @@ Supported events:
 
 - `space.fs.changed` — optional `paths` / `ignore` / `kinds`
 - `space.workspace.ready`
-- `session.turn.finalized` — optional `sessionIds` / `ignoreSessionIds` / `sources`
+- `session.turn.finalized` — optional `sessionIds` / `ignoreSessionIds` / `sources` / `labels` filters
 - `checkpoint.created`
 - `work.version.published`
 - `task.updated` — fires on task run state transitions (`pending`→`running`→`completed`/`failed`); payload carries the task record and `changed` fields. `space_hook` tasks and the `run_command` children they spawn are filtered out to prevent re-entrant loops.

@@ -558,7 +558,10 @@ export type SessionTurnFinalizedEvent = {
   requestId?: string | null;
   spaceId: string;
   sessionId: string;
-  payload: { turn: RealtimeTurnRecord };
+  payload: {
+    turn: RealtimeTurnRecord;
+    sessionLabelRefs: string[] | null;
+  };
 };
 
 export type SessionTurnNotifyEvent = {

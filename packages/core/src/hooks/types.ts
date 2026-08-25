@@ -12,6 +12,12 @@ export type SpaceHookPromptDefinition = {
   labelRefs?: string[] | null;
 };
 
+export type SpaceHookLabelFilter = {
+  any?: string[];
+  all?: string[];
+  none?: string[];
+};
+
 export type SpaceHookDefinition = {
   schema: "cohub.space-hook.v1";
   path: string;
@@ -27,6 +33,8 @@ export type SpaceHookDefinition = {
   ignoreSessionIds?: string[];
   /** Turn `meta.source` allowlist for `session.turn.finalized`. Omit = all sources. */
   sources?: string[];
+  /** Session label ref filters for `session.turn.finalized`. */
+  labels?: SpaceHookLabelFilter;
   action: "run" | "prompt";
   run?: string;
   prompt?: SpaceHookPromptDefinition;
