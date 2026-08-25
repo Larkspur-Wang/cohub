@@ -3,8 +3,7 @@
   "title": "Tasks",
   "targetType": "directory",
   "targetRef": "dist",
-  "workScopes": ["taskrun.view"],
-  "allowedViewerScopes": ["taskrun.view"],
+  "appScopes": ["taskrun.view"],
   "presentation": {
     "hideCohubBar": true
   }

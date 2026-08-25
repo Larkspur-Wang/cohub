@@ -4,7 +4,7 @@ Work commerce lets a published Work sell one-time products backed by Space-level
 
 ## Runtime requirements
 
-`cohub.context()`, `cohub.auth.*`, and `cohub.work.commerce.*` only function inside a **published** Work — the Cohub-hosted iframe where `window.parent` is the Cohub shell. They do not work from a static asset URL or a local preview. In those environments `context()` is `null` and commerce calls fail. Always develop against a published Work.
+`cohub.context()`, `cohub.auth.*`, and `cohub.app.commerce.*` only function inside a **published** Work — the Cohub-hosted iframe where `window.parent` is the Cohub shell. They do not work from a static asset URL or a local preview. In those environments `context()` is `null` and commerce calls fail. Always develop against a published Work.
 
 ## Scope
 
@@ -75,21 +75,21 @@ load → check balance → [has credits? consume] → [empty? purchase] → chec
 
 ## Runtime flow
 
-1. The Work calls `cohub.work.commerce.resolveProducts()`.
-2. The Work calls `cohub.work.commerce.getEntitlements()` — returns feature entitlements **and** credit balance in one call.
+1. The Work calls `cohub.app.commerce.resolveProducts()`.
+2. The Work calls `cohub.app.commerce.getEntitlements()` — returns feature entitlements **and** credit balance in one call.
 3. The user clicks Buy.
-4. The Work calls `cohub.work.commerce.purchase()`.
+4. The Work calls `cohub.app.commerce.purchase()`.
 5. The outer host creates the order with a stable purchase attempt ID and redirects to checkout. Retries of the same attempt resolve to the original Billing order.
 6. The provider returns to the Work public URL with `cohub_checkout` and, when available, `cohub_order`.
-7. The Work calls `cohub.work.commerce.getCheckoutState()`.
-8. If an `orderId` is available, the Work calls `cohub.work.commerce.getOrder(orderId)`.
+7. The Work calls `cohub.app.commerce.getCheckoutState()`.
+8. If an `orderId` is available, the Work calls `cohub.app.commerce.getOrder(orderId)`.
 
 ## Consuming credits
 
-When a user performs a metered action inside the Work, credits are consumed through `cohub.work.commerce.consumeCredits()`:
+When a user performs a metered action inside the Work, credits are consumed through `cohub.app.commerce.consumeCredits()`:
 
 ```ts
-const result = await cohub.work.commerce.consumeCredits({
+const result = await cohub.app.commerce.consumeCredits({
   amount: 10,
   operationId: crypto.randomUUID(),
   reason: "Export high-res image",
@@ -103,7 +103,7 @@ const result = await cohub.work.commerce.consumeCredits({
 - The CLI can also consume credits on behalf of a viewer (self by default, or via prompt-driven flows):
 
 ```bash
-cohub works commerce credits consume --work-id <work-id> --amount 100
+cohub apps commerce credits consume --app-id <app-id> --amount 100
 ```
 
 ## Why order state is handled this way
@@ -134,21 +134,21 @@ const cohub = createCohubClient();
 const PRODUCT_KEY = "pro_unlock";
 const BENEFIT_KEY = "space_pro";
 
-const { products } = await cohub.work.commerce.resolveProducts({
+const { products } = await cohub.app.commerce.resolveProducts({
   productKeys: [PRODUCT_KEY],
 });
 
-const { entitlements } = await cohub.work.commerce.getEntitlements();
+const { entitlements } = await cohub.app.commerce.getEntitlements();
 const unlocked = entitlements.some((e) => e.benefitKey === BENEFIT_KEY && e.enabled);
 
 if (!unlocked) {
-  await cohub.work.commerce.purchase({ productKey: PRODUCT_KEY });
+  await cohub.app.commerce.purchase({ productKey: PRODUCT_KEY });
   // host redirects to checkout, then returns
 }
 
-const checkoutState = await cohub.work.commerce.getCheckoutState();
+const checkoutState = await cohub.app.commerce.getCheckoutState();
 if (checkoutState.orderId) {
-  const { order } = await cohub.work.commerce.getOrder(checkoutState.orderId);
+  const { order } = await cohub.app.commerce.getOrder(checkoutState.orderId);
 }
 ```
 
@@ -159,27 +159,27 @@ const cohub = createCohubClient();
 const CREDIT_PRODUCT_KEY = "credit_pack";
 
 // 1. Check balance
-const { credits } = await cohub.work.commerce.getEntitlements();
+const { credits } = await cohub.app.commerce.getEntitlements();
 
 // 2. Consume for a metered action
 if (credits.available > 0) {
-  const result = await cohub.work.commerce.consumeCredits({
+  const result = await cohub.app.commerce.consumeCredits({
     amount: 10,
     operationId: crypto.randomUUID(),
     reason: "Export high-res image",
   });
   if (result.status === "insufficient") {
     // Balance changed between check and consume — prompt purchase
-    await cohub.work.commerce.purchase({ productKey: CREDIT_PRODUCT_KEY });
+    await cohub.app.commerce.purchase({ productKey: CREDIT_PRODUCT_KEY });
   }
 } else {
   // 3. No credits — prompt purchase
-  await cohub.work.commerce.purchase({ productKey: CREDIT_PRODUCT_KEY });
+  await cohub.app.commerce.purchase({ productKey: CREDIT_PRODUCT_KEY });
   // host redirects to checkout, then returns
 }
 
 // 4. After checkout return, re-check balance
-const { credits: updated } = await cohub.work.commerce.getEntitlements();
+const { credits: updated } = await cohub.app.commerce.getEntitlements();
 ```
 
 ## Price changes

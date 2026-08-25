@@ -225,67 +225,79 @@ const stop = session.subscribe({
 stop();
 ```
 
-## Works and the Work runtime
+## Apps and the App runtime
 
-A **Work** is a published, shareable web page hosted by Cohub. When a viewer
-opens a Work, it runs inside a Cohub-managed runtime that provides short-lived
-access tokens — no API keys required.
+An **App** (previously *Work*) is a published, shareable web page hosted by
+Cohub. When a viewer opens an App, it runs inside a Cohub-managed runtime that
+provides short-lived access tokens — no API keys required.
 
-Four runtime-only APIs are available **exclusively inside a published Work**:
+These runtime-only APIs are available **exclusively inside a published App**:
 
-- `client.context()` — returns Work identity, Space identity, the current
-  viewer, permission scopes, and optional UI Preview invocation identifiers.
-  Returns `null` outside a Work runtime.
-- `client.auth.request({ scopes, reason })` — shows the viewer a consent dialog
-  and caches a token with the approved scopes.
+- `client.context()` — returns App identity, Space identity, the current
+  viewer, permissions, and optional invocation identifiers. Returns `null`
+  outside an App runtime. `client.app.onContextChanged()` pushes fresh state.
+- `client.auth.request({ scopes, reason, spaceId?, alwaysAsk? })` — ensures
+  the app holds these scopes; silent when a grant covers them, consent dialog
+  otherwise.
+- `client.auth.requestSpace({ scopes, reason })` — one consent: the viewer
+  picks a Space and grants the scopes on it.
+- `client.context().permissions.viewerGrants` — render the viewer's current
+  per-space grants. Grant management uses an account-authenticated client or
+  the CLI; an App session cannot manage its own grants.
 - `client.app.commerce.*` — entitlement checks, credit consumption,
   purchases.
 - `client.app.realtime.*` — temporary rooms, typed events, presence, and
   membership.
 
-### Quick start (inside a Work)
+### Quick start (inside an App)
 
 ```ts
 // Browsers don't inject ENV — pass it explicitly.
 const client = createCohubClient({ env: "prod" });
 
 const ctx = await client.context();
-if (!ctx?.space?.id) throw new Error("Not inside a published Work.");
+if (!ctx?.space?.id) throw new Error("Not inside a published app.");
 
 const sourceSessionId = ctx.invocation?.sessionId ?? null;
 const space = client.space(ctx.space.id);
 
-// Request viewer scopes from a user gesture (button click)
+// Request viewer grants from a user gesture (button click)
 await client.auth.request({
   scopes: ["session.prompt.fullaccess", "generation.create"],
-  reason: "This Work needs to send prompts and generate images.",
+  reason: "This app sends prompts and generates images.",
 });
 ```
 
-### The scope model (critical)
+### The permission model (critical)
 
-Work permissions come in **two disjoint sets**:
+An app's effective permission for one Space is the union of **two grant
+sources** — either one is enough:
 
-- **Work scopes** (read, no consent): `space.view`, `session.view`,
-  `file.view`, `taskrun.view` — granted at publish time.
-- **Viewer scopes** (consent-required): `taskrun.view`,
-  `session.prompt.fullaccess`, `generation.create`, `user.space.list`,
-  `user.session.list`, `user.usage.read` — approved per-viewer via
-  `auth.request()`.
+- **App scopes** (no consent): eight bounded scopes — `space.view`,
+  `session.view`, `file.view`, `file.edit`, `taskrun.view`,
+  `session.prompt.readonly`, `session.prompt.fullaccess`, `command.execute` —
+  granted at publish time via `appScopes`, applying only to the app's own
+  Space.
+- **Viewer grants** (consent-required): any permission the viewer holds, on
+  any Space they choose — one grant per Space, valid 14 days, re-validated
+  against the viewer's live access on every request. Includes scopes beyond
+  the eight app scopes, such as `generation.create` and the account-level
+  `user.*` scopes.
 
-Viewer-granted `taskrun.view` is checked against the viewer's own access to the
-requested Space or Session. Other read operations need work scopes; action
-operations need viewer scopes.
-They never substitute for each other.** For example, `session.prompt.fullaccess`
+**They never substitute for each other's halves.** `session.prompt.fullaccess`
 lets you send a prompt but does NOT let you read the reply — that needs
-`session.view` (a work scope). Similarly, `generation.create` lets you create
-a generation task, but polling its result needs `taskrun.view` (a work scope).
+`session.view`. `generation.create` lets you create a generation task, but
+polling its result needs `taskrun.view`.
+
+Render grant state from `ctx.permissions.viewerGrants`; act through
+`auth.request` (silent when covered). `allowedViewerScopes` is deprecated —
+viewer grants are no longer gated by the app configuration.
 
 ### Realtime rooms
 
-Work runtime rooms are generic, temporary event channels. The SDK does not
-know the Work's business events; define their names and payload types in the
-Work itself.
+App runtime rooms are generic, temporary event channels. The SDK does not
+know the App's business events; define their names and payload types in the
+App itself.
 
 ```ts
 type Events = {
@@ -322,4 +334,4 @@ viewer a single seat instead.
 
 For the complete API-to-scope mapping, initialization recipe, capability
 recipes, a full working example, and a pitfalls checklist, see the
-**[Work Runtime Guide](./docs/work-runtime-guide.md)**.
+**[App Runtime Guide](./docs/work-runtime-guide.md)**.

@@ -1611,7 +1611,6 @@
 	"app_publish_space_access": "Use space access",
 	"app_publish_space_access_detail": "Viewers need this Space's access.",
 	"app_publish_app_can": "App can",
-	"app_publish_viewers_allow": "Viewers can allow",
 	"app_publish_hide_cohub_bar": "Hide Cohub bar",
 	"app_publish_hide_cohub_bar_detail": "Remove the Cohub footer bar from the public app page.",
 	"app_publish_included_pro_max": "Included with Pro and Max.",

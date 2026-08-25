@@ -5,8 +5,8 @@ import { taskBrowserScopes } from "./scope.js";
 test("prioritizes Session, Space, then Mine", () => {
   assert.deepEqual(
     taskBrowserScopes({
-      surface: "preview",
-      source: "ui_command",
+      surface: "app",
+      source: "desktop_command",
       spaceId: "space-1",
       sessionId: "session-1",
     }),
@@ -18,7 +18,7 @@ test("prioritizes Session, Space, then Mine", () => {
   );
 });
 
-test("never falls back to the Work's publishing Space", () => {
+test("never falls back to the app's publishing space", () => {
   assert.deepEqual(taskBrowserScopes(undefined), [{ kind: "mine" }]);
   assert.deepEqual(taskBrowserScopes({ surface: "page" }), [{ kind: "mine" }]);
 });

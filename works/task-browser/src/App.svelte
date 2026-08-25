@@ -5,6 +5,7 @@ import {
   AlertCircle,
   Check,
   ChevronDown,
+  FolderKey,
   Grid2X2,
   Image as ImageIcon,
   List,
@@ -17,6 +18,7 @@ import {
   X,
 } from "@lucide/svelte";
 import { onMount } from "svelte";
+import { accessRequestFor } from "./access";
 import { detailOutputSource } from "./media";
 import { taskBrowserScopes, type TaskBrowserScope } from "./scope";
 import {
@@ -32,7 +34,6 @@ type StatusFilter = "all" | "active" | TaskRunRecord["status"];
 type ViewMode = "gallery" | "list";
 type LightboxItem = { task: GenerationTask; output: GenerationOutput; src: string };
 type GalleryItem = { task: GenerationTask; output: GenerationOutput | null };
-
 let scopes = $state<TaskBrowserScope[]>([{ kind: "mine" }]);
 let selectedScope = $state<TaskBrowserScope>({ kind: "mine" });
 let status = $state<StatusFilter>("all");
@@ -48,9 +49,25 @@ let pageInfo = $state<{ hasMore: boolean; nextCursor: string | null }>({ hasMore
 let lightbox = $state<LightboxItem | null>(null);
 let lightboxLoadingId = $state<string | null>(null);
 let requestVersion = 0;
+let appReady = $state(false);
+let homeSpace = $state<{ id: string; name: string | null } | null>(null);
+let sourceSpaceId = $state<string | null>(null);
+let authorizingSpace = $state(false);
 
 const scopeLabel = (scope: TaskBrowserScope) =>
-  scope.kind === "session" ? "Session" : scope.kind === "space" ? "Space" : "Mine";
+  scope.kind === "session" ? "Session" : scope.kind === "space" ? spaceDisplayName(scope.spaceId) ?? "Space" : "Mine";
+
+function isSourceScope(scope: TaskBrowserScope) {
+  return scope.kind === "session" || (scope.kind === "space" && scope.spaceId === sourceSpaceId);
+}
+
+const scopeTitle = (scope: TaskBrowserScope) => {
+  if (scope.kind === "mine") return "Every generation task you own";
+  const name = spaceDisplayName(scope.spaceId);
+  if (scope.kind === "session") return name ? `Source session in ${name}` : "Source session that opened this app";
+  if (isSourceScope(scope)) return name ? `Source Space: ${name}` : "Source Space that opened this app";
+  return name ? `Tasks in ${name}` : "Tasks in the selected Space";
+};
 
 function taskFilters(scope: TaskBrowserScope, cursor?: string | null) {
   return {
@@ -117,14 +134,19 @@ async function load(mode: LoadMode = "replace") {
   }
 }
 
+const accessHint = $derived.by(() => {
+  if (selectedScope.kind === "mine") {
+    return "Grant user.taskrun.list to list every generation task you own.";
+  }
+  const name = spaceDisplayName(selectedScope.spaceId);
+  return `Grant taskrun.view on ${name ?? "this space"} to browse its tasks.`;
+});
+
 async function requestAccess() {
   authorizing = true;
   error = null;
   try {
-    const granted = await client.auth.request({
-      scopes: ["taskrun.view"],
-      reason: "View generation tasks in the selected context.",
-    });
+    const granted = await client.auth.request(accessRequestFor(selectedScope));
     if (!granted) {
       error = "Access was not granted.";
       return;
@@ -137,15 +159,24 @@ async function requestAccess() {
   }
 }
 
+function resetResultsForQuery() {
+  tasks = [];
+  pageInfo = { hasMore: false, nextCursor: null };
+  accessDenied = false;
+  error = null;
+}
+
 function selectScope(scope: TaskBrowserScope) {
-  if (scope.kind === selectedScope.kind) return;
+  if (sameScope(scope, selectedScope)) return;
   selectedScope = scope;
+  resetResultsForQuery();
   void load();
 }
 
 function selectStatus(next: StatusFilter) {
   if (next === status) return;
   status = next;
+  resetResultsForQuery();
   void load();
 }
 
@@ -213,16 +244,79 @@ function closeLightbox() {
   lightbox = null;
 }
 
+function applyRuntimeContext(context: Awaited<ReturnType<typeof client.context>>) {
+  appReady = Boolean(context?.app?.id);
+  homeSpace = context?.space ? { id: context.space.id, name: context.space.name ?? null } : null;
+  sourceSpaceId = context?.invocation?.spaceId ?? null;
+}
+
+let spaceNames = $state<Record<string, string>>({});
+
+function spaceDisplayName(spaceId: string) {
+  if (homeSpace && spaceId === homeSpace.id) return homeSpace.name || null;
+  return spaceNames[spaceId] ?? null;
+}
+
+async function resolveSpaceName(spaceId: string) {
+  if (spaceDisplayName(spaceId)) return;
+  try {
+    const space = await client.space(spaceId).get();
+    if (space?.name) spaceNames = { ...spaceNames, [spaceId]: space.name };
+  } catch {
+    // Cosmetic only — keep the generic label.
+  }
+}
+
+async function requestSpaceAccess() {
+  authorizingSpace = true;
+  error = null;
+  try {
+    const result = await client.auth.requestSpace({
+      scopes: ["taskrun.view"],
+      reason: "Browse generation tasks in a Space you choose.",
+      alwaysAsk: true,
+    });
+    if (!result.granted || !result.space) return;
+    const space = { kind: "space", spaceId: result.space.id } as const;
+    scopes = [
+      ...scopes.filter((scope) => !(scope.kind === "space" && scope.spaceId === space.spaceId)),
+      space,
+    ];
+    if (result.space.name) spaceNames = { ...spaceNames, [space.spaceId]: result.space.name };
+    selectedScope = space;
+    resetResultsForQuery();
+    await load();
+  } catch (cause) {
+    error = messageFrom(cause);
+  } finally {
+    authorizingSpace = false;
+  }
+}
+
+function scopeKey(scope: TaskBrowserScope) {
+  if (scope.kind === "session") return `${scope.kind}:${scope.spaceId}:${scope.sessionId}`;
+  if (scope.kind === "space") return `${scope.kind}:${scope.spaceId}`;
+  return scope.kind;
+}
+
+function sameScope(left: TaskBrowserScope, right: TaskBrowserScope) {
+  return scopeKey(left) === scopeKey(right);
+}
+
 onMount(() => {
   let poll: ReturnType<typeof setInterval> | null = null;
   void client.context().then((runtimeContext) => {
+    applyRuntimeContext(runtimeContext);
+    sourceSpaceId = runtimeContext?.invocation?.spaceId ?? null;
     scopes = taskBrowserScopes(runtimeContext?.invocation);
     selectedScope = scopes[0] ?? { kind: "mine" };
+    if (selectedScope.kind !== "mine") void resolveSpaceName(selectedScope.spaceId);
     void load();
   }).catch((cause) => {
     loading = false;
     error = messageFrom(cause);
   });
+  const stopContextWatch = client.app.onContextChanged((context) => applyRuntimeContext(context));
 
   const refreshVisibleActiveTasks = () => {
     if (document.visibilityState === "visible" && tasks.some((task) => task.status === "pending" || task.status === "running")) {
@@ -233,26 +327,46 @@ onMount(() => {
   document.addEventListener("visibilitychange", refreshVisibleActiveTasks);
   return () => {
     if (poll) clearInterval(poll);
+    stopContextWatch();
     document.removeEventListener("visibilitychange", refreshVisibleActiveTasks);
   };
 });
 </script>
 
-<svelte:window onkeydown={(event) => event.key === "Escape" && closeLightbox()} />
+<svelte:window
+  onkeydown={(event) => {
+    if (event.key !== "Escape") return;
+    closeLightbox();
+  }}
+/>
 
 <div class="shell">
   <header class="toolbar">
     <div class="scope-control" aria-label="Task scope">
-      {#each scopes as scope (scope.kind)}
+      {#each scopes as scope (scopeKey(scope))}
         <button
           type="button"
-          class:active={selectedScope.kind === scope.kind}
+          class:active={sameScope(selectedScope, scope)}
+          class:source-scope={isSourceScope(scope)}
+          title={scopeTitle(scope)}
           onclick={() => selectScope(scope)}
         >{scopeLabel(scope)}</button>
       {/each}
     </div>
 
     <div class="toolbar-actions">
+      {#if appReady}
+        <button
+          class="icon-button"
+          type="button"
+          title="Choose another Space"
+          aria-label="Choose another Space"
+          disabled={authorizingSpace}
+          onclick={requestSpaceAccess}
+        >
+          {#if authorizingSpace}<LoaderCircle class="spin" />{:else}<FolderKey />{/if}
+        </button>
+      {/if}
       <label class="status-select">
         <span class="sr-only">Status</span>
         <select value={status} onchange={(event) => selectStatus(event.currentTarget.value as StatusFilter)}>
@@ -280,6 +394,7 @@ onMount(() => {
       <div class="center-state access-state">
         <LockKeyhole />
         <strong>Task access required</strong>
+        <small>{accessHint}</small>
         <button type="button" disabled={authorizing} onclick={requestAccess}>
           {#if authorizing}<LoaderCircle class="spin" />{/if}
           Authorize

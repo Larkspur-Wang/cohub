@@ -135,9 +135,13 @@ button:disabled {
 }
 
 .scope-control button {
+  max-width: min(180px, 28vw);
+  overflow: hidden;
   padding: 0 10px;
   font-size: 12px;
   font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .scope-control button:hover,
@@ -152,6 +156,15 @@ button:disabled {
   background: var(--surface);
   color: var(--text);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.scope-control button.source-scope::before {
+  width: 5px;
+  height: 5px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: var(--success);
+  content: "";
 }
 
 .toolbar-actions {
@@ -636,6 +649,7 @@ main {
   }
 
   .scope-control button {
+    max-width: 140px;
     min-height: 34px;
     padding: 0 9px;
   }

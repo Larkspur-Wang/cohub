@@ -1,13 +1,18 @@
-# Cohub Work Runtime Guide
+# Cohub App Runtime Guide
 
-This guide explains how to use the Cohub SDK **inside a published Work** — the
+This guide explains how to use the Cohub SDK **inside a published App** — the
 only environment where runtime APIs (`context()`, `auth.request`,
-`work.commerce.*`, `work.realtime.*`) function. Read this before writing any
-Work that calls Cohub capabilities from browser-side JavaScript.
+`app.commerce.*`, `app.realtime.*`) function. Read this before building any
+App that calls Cohub capabilities from browser-side JavaScript.
 
 It is written to be self-contained: an agent or developer who reads only this
-file plus the SDK type definitions should be able to build a working Work
+file plus the SDK type definitions should be able to build a working App
 without reverse-engineering source code.
+
+> **Vocabulary note.** Apps were previously called *Works*. The SDK speaks the
+> canonical App vocabulary (`client.apps`, `appScopes`); the legacy
+> `client.works` / `workScopes` spellings remain as deprecated aliases, and
+> existing `/w/` public URLs keep working.
 
 ---
 
@@ -15,29 +20,29 @@ without reverse-engineering source code.
 
 1. [Mental model](#1-mental-model)
 2. [Two deployment modes: bridge vs broker](#2-two-deployment-modes-bridge-vs-broker)
-3. [The scope model — read this twice](#3-the-scope-model--read-this-twice)
+3. [The permission model — read this twice](#3-the-permission-model--read-this-twice)
 4. [Initialization recipe](#4-initialization-recipe)
 5. [Capability reference](#5-capability-reference)
    - [LLM chat](#llm-chat-spaceprompt--subscribegeneration)
    - [Image / media generation](#image--media-generation-generationscreateandwait)
    - [Model listing](#model-listing-modelslist--modelslistmultimodal)
    - [File reads](#file-reads-spacefiles)
-   - [Account-level data](#account-level-data-spaceslist--userlistsessions--usergetusage)
-   - [Commerce](#commerce-workcommerce)
-   - [Realtime rooms](#realtime-rooms-workrealtime)
+   - [Account-level data](#account-level-data-spaceslist--userlistsessions--usergetactivity)
+   - [Commerce](#commerce-appcommerce)
+   - [Realtime rooms](#realtime-rooms-apprealtime)
 6. [Complete working example](#6-complete-working-example)
 7. [Common pitfalls checklist](#7-common-pitfalls-checklist)
-8. [Publishing a Work (API/SDK)](#8-publishing-a-work-apisdk)
+8. [Publishing an App (API/SDK)](#8-publishing-an-app-apisdk)
 
 ---
 
 ## 1. Mental model
 
-A **Work** is a published, shareable web page hosted by Cohub. When a viewer
-opens a Work, Cohub serves its HTML/JS inside a **runtime** that bridges the
-Work's code to Cohub's backend.
+An **App** is a published, shareable web page hosted by Cohub. When a viewer
+opens an App, Cohub serves its HTML/JS inside a **runtime** that bridges the
+App's code to Cohub's backend.
 
-From the Work's JavaScript, you create a Cohub client and call APIs the same
+From the App's JavaScript, you create a Cohub client and call APIs the same
 way you would from any other client — **but** the client is pre-wired to obtain
 short-lived access tokens from the Cohub shell (the runtime host) instead of
 requiring the viewer to paste an API key.
@@ -47,7 +52,7 @@ requiring the viewer to paste an API key.
 │  Cohub shell (host page / iframe parent) │
 │                                         │
 │  ┌───────────────────────────────────┐  │
-│  │  Your Work (iframe or standalone) │  │
+│  │  Your App (iframe or standalone)  │  │
 │  │                                   │  │
 │  │  createCohubClient() ──► token ──►│──┼──► Cohub API
 │  │  client.context()    ◄── identity │  │
@@ -56,19 +61,24 @@ requiring the viewer to paste an API key.
 └─────────────────────────────────────────┘
 ```
 
-Four runtime-only APIs form the foundation; everything else is standard SDK:
+Five runtime-only APIs form the foundation; everything else is standard SDK:
 
 | API | What it does | Returns |
 |---|---|---|
-| `client.context()` | Asks the host for the Work's identity | `{ work, space, viewer?, permissions }` or `null` |
-| `client.auth.request({ scopes, reason })` | Requests viewer authorization and caches a scoped token; Cohub may silently approve the publisher's own workspace preview or background | `true` / `false` |
-| `client.app.commerce.*` | Entitlement checks, credit consumption, purchases | (see Commerce section) |
-| `client.app.realtime.*` | Temporary rooms, events, presence, and membership | (see Realtime rooms section) |
+| `client.context()` | Asks the host for the App's identity | `{ app, space, viewer?, invocation?, permissions }` or `null` |
+| `client.auth.request({ scopes, reason, spaceId?, alwaysAsk? })` | Ensures the app holds these scopes; silent when a grant already covers them, consent dialog otherwise | `true` / `false` |
+| `client.auth.requestSpace({ scopes, reason, alwaysAsk? })` | One consent: the viewer picks a Space and grants the scopes on it | `{ granted, space }` |
+| `client.context().permissions.viewerGrants` | Render the viewer's current per-space grants | `{ spaceId, scopes }[]` |
+| `client.app.commerce.*` / `client.app.realtime.*` | Commerce and realtime, bound to the app's runtime identity | (see below) |
 
 > **Runtime-only constraint.** These APIs only work inside a **published**
-> Work. Outside that context (a static asset URL, a local `file://` preview,
+> App. Outside that context (a static asset URL, a local `file://` preview,
 > a plain Node script) `context()` returns `null` and the other runtime APIs
-> fail. Always develop against a published Work.
+> fail. Always develop against a published App.
+
+`client.app.onContextChanged(listener)` pushes a fresh context whenever the
+host's state changes (sign-in, invocation, grants), so an App can render its
+permission state without polling.
 
 ---
 
@@ -79,15 +89,15 @@ an iframe. You normally do **not** need to set the mode explicitly.
 
 ### Bridge mode (default, primary)
 
-The Work runs inside a Cohub-hosted iframe (`window.parent !== window`). The
+The App runs inside a Cohub-hosted iframe (`window.parent !== window`). The
 SDK communicates with the parent window via `postMessage` to request tokens
-and context. This is the normal case when a viewer opens a Work through Cohub.
+and context. This is the normal case when a viewer opens an App through Cohub.
 
-- `client.context()` returns the **real** `space.id`, `work.id`, current viewer,
-  and permission scopes from the host.
-- A Work opened through `cohub ui preview` also receives an `invocation`
+- `client.context()` returns the **real** `app.id`, `space.id`, current viewer,
+  invocation, and permission state from the host.
+- An App opened through `cohub desktop open` also receives an `invocation`
   snapshot with the originating `spaceId`, `sessionId`, `turnId`, and
-  `toolCallId` when available. The invocation Space may differ from the Work's
+  `toolCallId` when available. The invocation Space may differ from the App's
   own `space.id`.
 - `client.auth.request()` triggers an in-shell consent flow (no popup window).
 
@@ -97,24 +107,24 @@ console.log(ctx.viewer?.userUuid ?? null);
 console.log(ctx.invocation?.sessionId ?? null);
 ```
 
-Invocation fields describe where the preview came from. They are identifiers,
-not authorization: API access remains controlled by the Work session token and
-its scopes.
+Invocation fields describe where the open came from. They are identifiers,
+not authorization: API access remains controlled by the app session token and
+its grants.
 
 ### Broker mode (standalone deployment)
 
-The Work is accessed as a standalone page (`window.parent === window`), e.g.
+The App is accessed as a standalone page (`window.parent === window`), e.g.
 a direct static-asset URL not wrapped in the Cohub iframe. The SDK opens a
 **popup window** to a Cohub auth-broker page to obtain tokens.
 
 - `client.context()` is **answered locally** by the SDK: `space.id` is an
-  **empty string `""`**, and `viewerScopes` is **always empty**.
+  **empty string `""`**, and viewer grants are unavailable (empty).
 - `client.auth.request()` opens a popup to
-  `${brokerOrigin}/work-auth?work=${workId}`.
+  `${brokerOrigin}/app-auth?app=${appId}`.
 
-> **Broker mode requires configuration.** You must pass `work: { brokerOrigin,
-> workId }` — or `work: { brokerOrigin, ownerUsername, spaceSlug, workSlug }`
-> when the workId isn't known yet — to `createCohubClient` for broker mode to
+> **Broker mode requires configuration.** You must pass `app: { brokerOrigin,
+> appId }` — or `app: { brokerOrigin, ownerUsername, spaceSlug, appSlug }`
+> when the appId isn't known yet — to `createCohubClient` for broker mode to
 > activate. Without it, a standalone page gets `ParentBridgeTransport` which
 > has no parent to talk to, so `context()` returns `null`. See
 > [Initialization recipe](#4-initialization-recipe).
@@ -126,15 +136,15 @@ const ctx = await client.context();
 const isBroker = !ctx?.space?.id; // bridge has a real id; broker is ""
 ```
 
-In broker mode you cannot get `spaceId` from `context()`. Resolve it via the
-public Work API (no token needed):
+In broker mode you cannot get a spaceId from `context()`. Resolve it via the
+public by-slug App API (anonymous, no token needed):
 
 ```js
 const isBroker = !ctx?.space?.id;
 let spaceId;
 if (isBroker) {
-  const detail = await client.works.get(workId); // public, no auth
-  spaceId = detail.work.spaceId;
+  const detail = await client.apps.getBySlug(ownerUsername, spaceSlug, appSlug);
+  spaceId = detail.app.spaceId;
 } else {
   spaceId = ctx.space.id;
 }
@@ -143,7 +153,7 @@ if (isBroker) {
 ### Broker mode: user-activation ordering gotcha
 
 `HttpTransport` calls `getAccessToken()` on **every** request — including
-public ones like `works.get()`. In broker mode, an uncached token request
+public ones like `apps.getBySlug()`. In broker mode, an uncached token request
 opens a popup, which **consumes the browser's user-activation budget**. If a
 second popup (`auth.request`) follows in the same click, the browser blocks it.
 
@@ -153,13 +163,13 @@ second popup (`auth.request`) follows in the same click, the browser blocks it.
 popup.
 
 ```js
-// WRONG: works.get() opens a popup, consumes activation, auth.request popup blocked
-const detail = await client.works.get(workId);
+// WRONG: getBySlug() opens a popup, consumes activation, auth.request popup blocked
+const detail = await client.apps.getBySlug(owner, spaceSlug, appSlug);
 await client.auth.request({ scopes, reason });
 
-// RIGHT: auth.request opens the only popup, then works.get() hits token cache
+// RIGHT: auth.request opens the only popup, then getBySlug() hits token cache
 await client.auth.request({ scopes, reason });
-const detail = await client.works.get(workId);
+const detail = await client.apps.getBySlug(owner, spaceSlug, appSlug);
 ```
 
 Bridge mode is unaffected — `getAccessToken()` uses `postMessage` (no popup),
@@ -167,115 +177,174 @@ so ordering does not matter there.
 
 ---
 
-## 3. The scope model — read this twice
+## 3. The permission model — read this twice
 
 > This is the **single most common source of bugs**. Every 403 you encounter
-> in a Work will almost certainly trace back to a missing scope of the wrong
+> in an App will almost certainly trace back to a missing grant of the wrong
 > type. Read this section carefully.
 
-Cohub Work permissions come in **two disjoint sets**. They do not overlap and
-do not imply each other.
+An App's effective permission for one Space is the union of **two grant
+sources** — either one is enough:
 
-### Work scopes (direct, no user consent)
+### App scopes (direct, no viewer consent)
 
-Granted by the publisher **at publish time**. The Work always has them — no
-viewer action needed. These are **read** permissions.
-
-```
-space.view       — read space config, list models
-session.view     — read sessions, turns, stream generation updates
-file.view        — read files / file tree
-taskrun.view     — read task run details (used by generation polling!)
-```
-
-Set via `workScopes` when creating/updating a Work.
-
-### Viewer scopes (consent-required, action permissions)
-
-Declared by the publisher at publish time as **allowed** (`allowedViewerScopes`),
-but **not active** until the viewer approves them through a consent dialog
-triggered by `client.auth.request()`. These are **action** permissions.
+Granted by the publisher **at publish time** via `appScopes`. The App always
+has them — no viewer action needed. They are deliberately bounded to eight
+read-and-act scopes and apply **only to the App's own Space**:
 
 ```
-taskrun.view              — read Task Runs the viewer can already access
-session.prompt.readonly   — send read-only prompts (no side effects)
-session.prompt.fullaccess — send prompts with full access (write, create sessions)
-generation.create         — create generation tasks (image/video/audio)
-user.space.list           — list the viewer's spaces (account-level)
-user.session.list         — list recent sessions the viewer can view as themselves (across spaces)
-user.usage.read           — read the viewer's aggregated usage
+space.view               — read space config, list models
+session.view             — read sessions, turns, stream generation updates
+file.view                — read files / file tree
+file.edit                — write files
+taskrun.view             — read task run details (used by generation polling!)
+session.prompt.readonly  — send read-only prompts (no side effects)
+session.prompt.fullaccess— send prompts with full access (write, create sessions)
+command.execute          — run sandbox shell commands
 ```
+
+### Viewer grants (consent-required, any permission, per Space)
+
+A viewer grants these through a consent dialog triggered by
+`client.auth.request()` / `client.auth.requestSpace()`. A viewer may grant
+**any** permission they currently hold on the target Space — including scopes
+outside the eight app scopes, such as `generation.create` or the account-level
+`user.*` scopes. Two hard rules are enforced by the server:
+
+- At **grant time** the viewer must currently hold every requested permission
+  on the target Space.
+- At **use time** the grant only works while the viewer still holds that
+  permission there — losing a membership or a role downgrade takes effect
+  immediately.
+
+Viewer grants are **per Space**: one viewer can hold a different grant for the
+App's own Space and for each Space they picked. Grants last **14 days**; the
+session token lives **1 hour** and is refreshed silently. Revoking a grant
+takes effect immediately — silently or via the API.
+
+> `allowedViewerScopes` is deprecated and no longer enforced: viewer grants
+> are not gated by the app configuration. The field stays on the wire for
+> compatibility; do not use it in new apps.
 
 ### The golden rule
 
-> **Read operations need work scopes. Action operations need viewer scopes.
-> They never substitute for each other.**
+> **Reads on the App's own Space need app scopes. Everything else — actions,
+> other Spaces, account-level data — needs a viewer grant.**
 
-`session.prompt.fullaccess` lets you **send** a prompt, but does **not** let
-you **read** the result — that needs `session.view` (a work scope).
-`generation.create` lets you **create** a generation task, but reading its
-result needs `taskrun.view`, either from the publishing Space's work scopes or
-from viewer authorization checked against the requested Space or Session.
+`session.prompt.fullaccess` lets you **send** a prompt, but reading the reply
+still needs `session.view`. `generation.create` (a viewer grant) lets you
+**create** a generation task, but polling its result needs `taskrun.view` —
+either from the App's `appScopes`, or from a viewer grant checked against the
+requested Space.
+
+### Requesting viewer grants
+
+Both helpers must be called **from a user gesture** (button click). They are
+silent when an existing grant already covers the scopes — the dialog only
+opens when something new is needed:
+
+```js
+// Target a known Space (omit spaceId for the App's own Space).
+const ok = await client.auth.request({
+  scopes: ["taskrun.view"],
+  spaceId: invocationSpaceId,
+  reason: "This app reads generation tasks in the Space you opened it from.",
+});
+
+// One consent: the viewer picks the Space. The host loads the space list —
+// the app only learns the pick. Returning viewers silently reuse their last pick.
+const { granted, space } = await client.auth.requestSpace({
+  scopes: ["file.view", "session.view"],
+  reason: "This app reads the Space you pick.",
+});
+if (granted && space) {
+  const picked = client.space(space.id);
+}
+```
+
+Pass `alwaysAsk: true` to skip silent reuse and force a fresh dialog — for
+re-confirming a grant or letting the viewer switch to another Space.
+
+### Checking grant state at runtime
+
+`client.context().permissions` reports everything an App needs to render its
+state — **without** triggering a dialog:
+
+```js
+const ctx = await client.context();
+ctx.permissions.appScopes    // publisher scopes granted at publish time
+ctx.permissions.viewerGrants // per-space viewer consents: [{ spaceId, scopes }]
+ctx.permissions.scopes       // union of both (flat; for quick checks)
+ctx.permissions.viewerScopes // flat viewer scopes (legacy compatibility)
+```
+
+Apps never cache or manage grants themselves — the host does. Checking state
+is for **rendering**; acting is `auth.request`'s job.
+
+### Managing grants
+
+The App runtime can render the viewer's current grants from
+`client.context().permissions.viewerGrants`. It must not call
+`client.apps.listMyGrants()` or `revokeMyGrant()` with its App session token:
+the server rejects App sessions from managing their own authorization.
+
+Use an account-authenticated SDK client or the CLI to list and revoke grants:
+
+```bash
+cohub apps grants <app>            # list your grants for an app
+cohub apps revoke <app> <grantId>  # revoke one
+```
+
+Those account-level APIs return grant rows with
+`{ id, spaceId, scopes, expiresAt, revokedAt }`. Revocation is durable: silent
+re-authorization can never revive a revoked grant — only a fresh consent
+dialog can.
 
 ### Complete API → scope mapping
 
-| Operation | SDK call | Scope needed | Type |
+| Operation | SDK call | Scope needed | Source |
 |---|---|---|---|
-| Read space config | `space.get()` / `space.getConfig()` | `space.view` | work |
+| Read space config | `space.get()` / `space.getConfig()` | `space.view` | app |
 | List models | `client.models.list()` / `listMultimodal()` | *(none — just authenticated)* | — |
-| Send a prompt (full) | `space.prompt({ accessMode: "full_access", content, ... })` | `session.prompt.fullaccess` | viewer |
-| Send a prompt (read-only) | `space.prompt({ accessMode: "read_only", content, ... })` | `session.prompt.readonly` | viewer |
-| Read turn result | `session.turns.get(turnId)` | `session.view` | work |
-| Stream generation | `session.subscribeGeneration({ state, finalized })` | `session.view` | work |
-| Read file tree | `space.files.tree()` | `file.view` | work |
-| Read file content | `space.files.read(path)` | `file.view` | work |
-| Create generation task | `client.generations.create(request)` | `generation.create` | viewer |
-| **Poll generation result** | `client.generations.wait(taskRunId)` / `createAndWait()` | **`taskrun.view`** | **work** |
-| Read task run detail | `client.tasks.get(taskRunId)` | `taskrun.view` | work |
-| List viewer's spaces | `client.spaces.list()` | `user.space.list` | viewer |
-| List viewer's sessions | `client.user.listSessions()` | `user.session.list` | viewer |
-| Read viewer's activity | `client.user.getActivity()` | `user.usage.read` | viewer |
+| Send a prompt (full) | `space.prompt({ accessMode: "full_access", ... })` | `session.prompt.fullaccess` | app or viewer |
+| Send a prompt (read-only) | `space.prompt({ accessMode: "read_only", ... })` | `session.prompt.readonly` | app or viewer |
+| Read turn result | `session.turns.get(turnId)` | `session.view` | app or viewer |
+| Stream generation | `session.subscribeGeneration(...)` | `session.view` | app or viewer |
+| Read file tree | `space.files.tree()` | `file.view` | app or viewer |
+| Read file content | `space.files.read(path)` | `file.view` | app or viewer |
+| Write files | `space.files.*` (write) | `file.edit` | app or viewer |
+| Create generation task | `client.generations.create(request)` | `generation.create` | **viewer only** |
+| **Poll generation result** | `client.generations.wait(taskRunId)` / `createAndWait()` | **`taskrun.view`** | app or viewer |
+| Read task run detail | `client.tasks.get(taskRunId)` | `taskrun.view` | app or viewer |
+| List tasks in a Space | `client.tasks.list({ spaceId })` | `taskrun.view` on that Space | app or viewer |
+| List all owned task runs | `client.tasks.list()` | `user.taskrun.list` | **viewer only** |
+| List viewer's spaces | `client.spaces.list()` | `user.space.list` | **viewer only** |
+| List viewer's sessions | `client.user.listSessions()` | `user.session.list` | **viewer only** |
+| Read viewer's activity | `client.user.getActivity()` | `user.usage.read` | **viewer only** |
+| Run sandbox shell commands | `space.runCommand({ command })` | `command.execute` | app or viewer |
 | Commerce: entitlements | `client.app.commerce.getEntitlements()` | *(runtime only, no scope)* | — |
 | Commerce: consume credits | `client.app.commerce.consumeCredits()` | *(runtime only, no scope)* | — |
 | Commerce: purchase | `client.app.commerce.purchase()` | *(runtime only, no scope)* | — |
 | Realtime rooms | `client.app.realtime.createRoom()` / `joinRoom()` | *(runtime only, no scope)* | — |
 
-### Minimal scope sets for common Work types
+"app or viewer" means either source suffices: the app scope covers only the
+App's own Space; any other Space needs a viewer grant on that Space.
 
-**LLM chat Work** (send prompt + read reply):
-- workScopes: `["space.view", "session.view"]`
-- allowedViewerScopes: `["session.prompt.fullaccess"]`
+### Minimal scope sets for common App types
 
-**Image generation Work** (create + poll):
-- workScopes: `["space.view", "taskrun.view"]`
-- allowedViewerScopes: `["generation.create"]`
+**LLM chat app** (send prompt + read reply on its own Space):
+- `appScopes: ["space.view", "session.view", "session.prompt.fullaccess"]`
 
-**LLM + image generation Work** (the demo):
-- workScopes: `["space.view", "session.view", "taskrun.view"]`
-- allowedViewerScopes: `["session.prompt.fullaccess", "generation.create"]`
+**Image generation app** (create + poll):
+- `appScopes: ["space.view", "taskrun.view"]`
+- viewer grant at runtime: `generation.create`
 
-**File-reader Work** (static, no viewer action):
-- workScopes: `["space.view", "file.view"]`
-- allowedViewerScopes: `[]`
+**File-reader app** (static, no viewer action):
+- `appScopes: ["space.view", "file.view"]`
 
-### Checking granted scopes at runtime
-
-`client.context()` returns a `permissions` object with three arrays:
-
-```js
-const ctx = await client.context();
-ctx.permissions.scopes       // all effective scopes (work + viewer)
-ctx.permissions.workScopes   // work scopes granted at publish time
-ctx.permissions.viewerScopes // viewer scopes the current viewer has approved
-```
-
-To check whether a **viewer** scope is already granted (to skip re-requesting):
-
-```js
-function hasViewerScope(ctx, scope) {
-  return (ctx?.permissions?.viewerScopes ?? []).includes(scope);
-}
-```
+**Cross-space app** (acts on Spaces the viewer picks):
+- `appScopes: []` (or its own-Space needs)
+- viewer grants via `auth.requestSpace` at runtime
 
 ---
 
@@ -283,45 +352,45 @@ function hasViewerScope(ctx, scope) {
 
 ### No-build HTML (CDN import)
 
-Works are typically single HTML files with no bundler. Import the SDK from an
+Apps are typically single HTML files with no bundler. Import the SDK from an
 ESM CDN:
 
 ```js
 import { createCohubClient } from "https://esm.sh/@neta-art/cohub@latest";
 ```
 
-`@latest` keeps a Work on the current SDK release. Pin an exact version only
+`@latest` keeps an App on the current SDK release. Pin an exact version only
 when a deployment needs reproducible dependency updates.
 
 ### Environment detection — critical
 
-The SDK defaults to **production**. A Work running on a dev/staging host
+The SDK defaults to **production**. An App running on a dev/staging host
 (e.g. `dev.cohub.live`, a `/dev/` path prefix) **must** pass `env: "dev"`
 explicitly — browsers do not inject `ENV` like Node does. If you omit this,
-your Work will call the production API while the runtime host expects dev,
+your App will call the production API while the runtime host expects dev,
 causing silent auth failures.
 
 ```js
-const isDevWork =
+const isDevApp =
   location.pathname.startsWith("/dev/") ||
   location.hostname.includes("dev");
 
 const client = createCohubClient({
-  env: isDevWork ? "dev" : "prod",
+  env: isDevApp ? "dev" : "prod",
 });
 ```
 
 ### Broker mode configuration (standalone pages only)
 
-If the Work may be accessed as a standalone page (not inside the Cohub
-iframe), pass the `work` option so the SDK can fall back to broker mode:
+If the App may be accessed as a standalone page (not inside the Cohub
+iframe), pass the `app` option so the SDK can fall back to broker mode:
 
 ```js
 const client = createCohubClient({
-  env: isDevWork ? "dev" : "prod",
-  work: {
-    brokerOrigin: isDevWork ? "https://dev.cohub.live" : "https://cohub.live",
-    workId: "<your-published-work-id>",
+  env: isDevApp ? "dev" : "prod",
+  app: {
+    brokerOrigin: isDevApp ? "https://dev.cohub.live" : "https://cohub.live",
+    appId: "<your-published-app-id>",
   },
 });
 ```
@@ -330,70 +399,67 @@ When inside the Cohub iframe, the SDK auto-detects bridge mode and ignores
 broker config. When standalone, it uses broker mode. **One codebase, both
 deployments.**
 
-#### Broker mode without a pre-known workId
+#### Broker mode without a pre-known appId
 
-The `workId` is only generated at publish time, so you often cannot hardcode
-it while writing the Work. In standalone deployments you can omit `workId` and
-instead pass the Work's public **slug triple**. The SDK resolves the workId at
-runtime via the public `works.getBySlug` API (anonymous, no auth required),
+The `appId` is only generated at publish time, so you often cannot hardcode
+it while writing the App. In standalone deployments you can omit `appId` and
+instead pass the App's public **slug triple**. The SDK resolves the appId at
+runtime via the public `apps.getBySlug` API (anonymous, no auth required),
 caches it, and starts broker mode with it.
 
 All three values are known before publishing:
 
-- `workSlug` — the slug you chose when creating the Work.
+- `appSlug` — the slug you chose when creating the App.
 - `ownerUsername` — the space owner's username (`cohub auth whoami`).
 - `spaceSlug` — the space's slug (`cohub spaces get <spaceId>`).
 
 ```js
 const client = createCohubClient({
-  env: isDevWork ? "dev" : "prod",
-  work: {
-    brokerOrigin: isDevWork ? "https://dev.cohub.live" : "https://cohub.live",
+  env: isDevApp ? "dev" : "prod",
+  app: {
+    brokerOrigin: isDevApp ? "https://dev.cohub.live" : "https://cohub.live",
     ownerUsername,
     spaceSlug,
-    workSlug,
+    appSlug,
   },
 });
 ```
 
-Either `workId` or the full slug triple is enough to activate broker mode. If
-you pass both, the explicit `workId` wins and no lookup is performed. Inside
+Either `appId` or the full slug triple is enough to activate broker mode. If
+you pass both, the explicit `appId` wins and no lookup is performed. Inside
 the Cohub iframe both are ignored (bridge mode).
 
 ### Standard initialization sequence
 
 ```js
 // 1. Create client (env is mandatory in the browser)
-const client = createCohubClient({ env: isDevWork ? "dev" : "prod" });
+const client = createCohubClient({ env: isDevApp ? "dev" : "prod" });
 
-// 2. Get runtime context
+// 2. Get runtime context (and keep it fresh)
 const ctx = await client.context();
 if (!ctx?.space?.id) {
-  // Not in a Work runtime (or broker mode — see §2)
-  throw new Error("Not running inside a published Work.");
+  // Not in an app runtime (or broker mode — see §2)
+  throw new Error("Not running inside a published app.");
 }
+const stopContextWatch = client.app.onContextChanged((next) => renderGrants(next));
 
 // 3. Obtain the space client for API calls
-const spaceId = ctx.space.id;
-const space = client.space(spaceId);
+const space = client.space(ctx.space.id);
 
-// 4. Request viewer scopes (from a user gesture, e.g. button click)
+// 4. Request viewer grants (from a user gesture, e.g. button click)
 const ok = await client.auth.request({
   scopes: ["session.prompt.fullaccess", "generation.create"],
-  reason: "This Work needs to send prompts and generate images.",
+  reason: "This app sends prompts and generates images.",
 });
-if (!ok) {
-  // Viewer denied — handle gracefully
-}
 
 // 5. Call capabilities
 const result = await space.prompt({ content: [{ type: "text", text: "Hello" }] });
 ```
 
 > **`auth.request` must be called from a user gesture** (click handler).
-Browsers block popups (broker mode) and some consent flows (bridge mode)
-when triggered programmatically without user activation. Do not call it on
-page load.
+> Browsers block popups (broker mode) and some consent flows (bridge mode)
+> when triggered programmatically without user activation. Do not call it on
+> page load. It is safe to call repeatedly: covered scopes renew silently.
 
 ---
 
@@ -404,15 +470,16 @@ Assume `client` and `space` are already initialized per [§4](#4-initialization-
 
 ### LLM chat (`space.prompt` + `subscribeGeneration`)
 
-**Scopes:** viewer `session.prompt.fullaccess` (to send) + work `session.view` (to read/stream).
-For a read-only prompt (no side effects), use viewer `session.prompt.readonly`
+**Scopes:** `session.prompt.fullaccess` (to send) + `session.view` (to
+read/stream). Either may come from `appScopes` (own Space) or a viewer grant.
+For a read-only prompt (no side effects), use `session.prompt.readonly`
 instead — but you **must** pass `accessMode: "read_only"` in the call (see the
 read-only recipe below).
 
 > **`accessMode` defaults to `full_access`.** If you omit it, the backend
-treats the call as full-access and requires `session.prompt.fullaccess`. This
-is the #1 cause of "I requested `session.prompt.readonly` but still got 403".
-Always set `accessMode` explicitly to match the scope you requested.
+> treats the call as full-access and requires `session.prompt.fullaccess`. This
+> is the #1 cause of "I requested `session.prompt.readonly` but still got 403".
+> Always set `accessMode` explicitly to match the scope you hold.
 
 `space.prompt()` is **asynchronous** — it returns immediately with a turn
 whose `assistantText` is `null`. You must either stream the reply via
@@ -431,7 +498,7 @@ const sessionId = result.session.id;
 const turnId = result.turn.id;
 
 // --- Option A: stream the reply (preferred) ---
-// Requires work scope: session.view
+// Requires session.view
 const stop = space.session(sessionId).subscribeGeneration({
   state(event) {
     // Partial text as it streams in
@@ -454,7 +521,7 @@ const stop = space.session(sessionId).subscribeGeneration({
 // Call stop() to unsubscribe when done.
 
 // --- Option B: poll for the reply (fallback) ---
-// Also requires work scope: session.view
+// Also requires session.view
 async function waitForTurn(sessionId, turnId) {
   while (true) {
     const { turn } = await space.session(sessionId).turns.get(turnId);
@@ -473,25 +540,24 @@ const reply = turn.assistantText;
 `turn.assistantContent` (ContentBlock[] | null). Always check both —
 `assistantText` is a convenience; `assistantContent` is the source of truth.
 
-> **Do not silently swallow `subscribeGeneration` errors.** If the work scope
-`session.view` is missing, the WebSocket subscription fails. If you catch and
-ignore it, your code silently degrades to polling — which will also 403.
-Surface the error so you can diagnose the missing scope.
+> **Do not silently swallow `subscribeGeneration` errors.** If `session.view`
+> is missing, the WebSocket subscription fails. If you catch and ignore it,
+> your code silently degrades to polling — which will also 403. Surface the
+> error so you can diagnose the missing scope.
 
 #### Read-only prompt (`accessMode: "read_only"`)
 
-Use this when your Work only needs to **generate** a reply without persisting
+Use this when your App only needs to **generate** a reply without persisting
 any side effects (no new session is written, no turn stored on the space's
-history). It requires the lighter viewer scope `session.prompt.readonly`
-instead of `session.prompt.fullaccess`.
+history). It requires the lighter `session.prompt.readonly` scope.
 
 The critical detail: you **must** pass `accessMode: "read_only"` explicitly
-in the `space.prompt()` call. The scope you request via `auth.request` and
-the `accessMode` you send must match — the backend picks the permission check
-based on `accessMode`, defaulting to `full_access` when omitted.
+in the `space.prompt()` call. The scope you hold and the `accessMode` you
+send must match — the backend picks the permission check based on
+`accessMode`, defaulting to `full_access` when omitted.
 
 ```js
-// 1. Request ONLY the read-only scope from a user gesture
+// 1. Ensure the read-only scope is granted (silent when already covered)
 await client.auth.request({
   scopes: ["session.prompt.readonly"],
   reason: "Generate a one-off character reply (read-only).",
@@ -506,7 +572,7 @@ const result = await space.prompt({
 const sessionId = result.session.id;
 const turnId = result.turn.id;
 
-// 3. Read the reply — still needs the work scope: session.view
+// 3. Read the reply — still needs session.view
 const stop = space.session(sessionId).subscribeGeneration({
   finalized: (event) => {
     const reply = event.turn.assistantText
@@ -519,24 +585,21 @@ const stop = space.session(sessionId).subscribeGeneration({
 });
 ```
 
-Publish the Work with:
-- workScopes: `["space.view", "session.view"]` (still needed to read the reply)
-- allowedViewerScopes: `["session.prompt.readonly"]`
-
-> **Scope/accessMode mismatch → 403.** Requesting `session.prompt.readonly`
-but calling `space.prompt({ content })` (no `accessMode`) fails because the
-backend defaults to `full_access` and checks `session.prompt.fullaccess`.
-Symmetrically, requesting `session.prompt.fullaccess` while passing
-`accessMode: "read_only"` also works only if `session.prompt.readonly` is
-additionally granted — otherwise 403. Always keep them in sync.
+> **Scope/accessMode mismatch → 403.** Holding `session.prompt.readonly` but
+> calling `space.prompt({ content })` (no `accessMode`) fails because the
+> backend defaults to `full_access` and checks `session.prompt.fullaccess`.
+> Symmetrically, holding `session.prompt.fullaccess` while passing
+> `accessMode: "read_only"` works only if `session.prompt.readonly` is
+> additionally granted — otherwise 403. Always keep them in sync.
 
 ### Image / media generation (`generations.createAndWait`)
 
-**Scopes:** viewer `generation.create` (to create) + work `taskrun.view` (to poll).
+**Scopes:** viewer grant `generation.create` (to create) + `taskrun.view`
+(to poll; from `appScopes` for the App's own Space, or a viewer grant on the
+target Space).
 
 `createAndWait` is a convenience that calls `create` then `wait` (polls
-`GET /api/tasks/{id}`). **Both scopes are required** — `generation.create`
-for the create step, `taskrun.view` for the poll step. Missing `taskrun.view`
+`GET /api/tasks/{id}`). **Both scopes are required** — missing `taskrun.view`
 is the #1 cause of "generation creates but never returns" bugs.
 
 ```js
@@ -597,7 +660,7 @@ Use `listMultimodal()` to populate a model picker for generation. Each entry's
 
 ### File reads (`space.files`)
 
-**Scopes:** work `file.view` (read) + `space.view` (often needed for the space context).
+**Scopes:** `file.view` (read) + `space.view` (often needed for the space context).
 
 ```js
 // List the file tree
@@ -612,12 +675,13 @@ const text = await response.text();
 const files = await space.files.readMany(["a.txt", "b.json"]);
 ```
 
-### Account-level data (`spaces.list` / `user.listSessions` / `user.getUsage`)
+### Account-level data (`spaces.list` / `user.listSessions` / `user.getActivity`)
 
-**Scopes:** viewer `user.space.list` / `user.session.list` / `user.usage.read`.
+**Scopes:** viewer grants `user.space.list` / `user.session.list` /
+`user.usage.read` — a publisher can never pre-grant these via `appScopes`.
 
-These access the **viewer's** account-level data across all their spaces — not
-the Work's own space. Each requires a separate viewer scope.
+These access the **viewer's** account-level data across all their spaces —
+not the App's own space. Each requires a separate viewer grant.
 
 ```js
 // List the viewer's spaces — needs user.space.list
@@ -642,10 +706,15 @@ await client.auth.request({
 const activity = await client.user.getActivity({ days: 30 }); // last 30 days
 ```
 
-### Commerce (`work.commerce`)
+For task runs specifically, the account scope is `user.taskrun.list`: with an
+explicit viewer grant, the unscoped `client.tasks.list()` returns every Task
+Run **owned by** the viewer — including runs from Spaces they can no longer
+access. Without it, the unscoped list stays space-scoped to live grants.
 
-**Scopes:** none — runs inside the Work runtime, no scope needed. Only works
-in a published Work.
+### Commerce (`app.commerce`)
+
+**Scopes:** none — runs inside the App runtime, no scope needed. Only works
+in a published App.
 
 ```js
 // Check entitlements and credit balance in one call
@@ -679,9 +748,9 @@ if (checkoutState.orderId) {
 retries the call after a timeout, pass the same `purchaseAttemptId` to ensure
 the retry resolves to the original Billing order.
 
-### Realtime rooms (`work.realtime`)
+### Realtime rooms (`app.realtime`)
 
-**Scopes:** none — uses the published Work's runtime identity without an
+**Scopes:** none — uses the published App's runtime identity without an
 additional consent dialog. The CLI and ordinary server auth cannot create or
 join these rooms.
 
@@ -710,7 +779,7 @@ await room.leave();
 
 Join an existing room with
 `client.app.realtime.joinRoom({ code: "TEAM-ALPHA" })`. Codes are scoped to
-one Work and are identifiers, not credentials; the runtime session and a
+one App and are identifiers, not credentials; the runtime session and a
 short-lived admission ticket provide authorization.
 
 | Surface | Purpose |
@@ -729,14 +798,14 @@ Room events are ordered while connected but are not replayed. A reconnect
 refreshes the member snapshot and advances the sequence cursor, so use
 `onStateChange()` to resync authoritative application state after reconnecting;
 `onOutOfSync()` only reports gaps visible in the current live stream. Payloads
-are transient and are not stored in the Work.
+are transient and are not stored in the App.
 
 | Limit | Value |
 |---|---|
 | Room code | Generated when omitted; custom codes are 3–48 uppercase letters, digits, `_`, or `-`, starting with a letter or digit |
 | Lifetime | 2 hours by default; 60 seconds to 24 hours, absolute from creation |
 | Participants | 16 by default; 2–128 |
-| Active rooms | 512 per Work |
+| Active rooms | 512 per App |
 | Event name | 1–64 ASCII letters, digits, `.`, `_`, `:`, or `-`, starting with a letter or digit; `cohub.*` is reserved |
 | Event payload | 16 KB of JSON |
 | Presence payload | 2 KB of JSON |
@@ -787,18 +856,18 @@ new one. The server keeps the participant ID, updates `room.participantId`, and
 closes the superseded connection without emitting a leave event. Without this
 mode, an unclean disconnect can retain its seat lease for up to one minute.
 
-#### UI command calls that complete later
+#### Desktop command calls that complete later
 
-A `preview.show` command with a Surface request stays pending after the Work
-acknowledges it. The host waits for the Work to be mounted and ready, then the
-Work receives the originating `commandId` in the handler context and returns an
-acknowledgement immediately:
+A `desktop open --call` command with a Surface request stays pending after the
+App acknowledges it. The host waits for the App to be mounted and ready, then
+the App receives the originating `commandId` in the handler context and
+returns an acknowledgement immediately:
 
 ```js
 let activeCommandId = null;
 
 client.app.surface.handle("image.open", async (input, { commandId }) => {
-  if (!commandId) throw new Error("image.open must be called by a UI command");
+  if (!commandId) throw new Error("image.open must be called by a desktop command");
   activeCommandId = commandId;
   openImageStudio(input);
   return { accepted: true };
@@ -806,7 +875,7 @@ client.app.surface.handle("image.open", async (input, { commandId }) => {
 
 async function useImage(result) {
   if (!activeCommandId) return;
-  await client.ui.reportResult(activeCommandId, {
+  await client.desktop.reportResult(activeCommandId, {
     status: "applied",
     result,
     error: null,
@@ -815,22 +884,24 @@ async function useImage(result) {
 }
 ```
 
-The Work should persist the command id alongside its local/server-backed draft
-so a reload can restore the pending interaction. A Work session may only report a command that targets that same Work. Existing
+The App should persist the command id alongside its local/server-backed draft
+so a reload can restore the pending interaction. An App session may only
+report a command that targets that same App. Existing
 `client.app.surface.handle(method, handler)` usage remains unchanged.
 
 ---
 
 ## 6. Complete working example
 
-A no-build HTML Work for LLM chat and image generation. Use it as a starting
+A no-build HTML App for LLM chat and image generation. Use it as a starting
 point and keep only the capabilities you need.
 
-> **Publish this Work with:**
-> - workScopes: `["space.view", "session.view", "taskrun.view"]`
-> - allowedViewerScopes: `["session.prompt.fullaccess", "generation.create"]`
+> **Publish this App with:**
+> - `appScopes: ["space.view", "session.view", "taskrun.view"]`
 >
-> See [§8](#8-publishing-a-work-apisdk) for the publish API call.
+> `session.prompt.fullaccess` and `generation.create` are requested as viewer
+> grants at runtime. See [§8](#8-publishing-an-app-apisdk) for the publish
+> API call.
 
 ### `index.html`
 
@@ -855,7 +926,7 @@ point and keep only the capabilities you need.
 
     <section class="card">
       <h2>2. Authorize</h2>
-      <button id="btn-auth" class="btn">Request viewer scopes</button>
+      <button id="btn-auth" class="btn">Request viewer grants</button>
       <pre id="output-auth" class="output"></pre>
     </section>
 
@@ -886,12 +957,12 @@ point and keep only the capabilities you need.
 import { createCohubClient } from "https://esm.sh/@neta-art/cohub@latest";
 
 // --- Environment detection (critical: browsers don't inject ENV) ---
-const isDevWork =
+const isDevApp =
   location.pathname.startsWith("/dev/") ||
   location.hostname.includes("dev");
 
 const client = createCohubClient({
-  env: isDevWork ? "dev" : "prod",
+  env: isDevApp ? "dev" : "prod",
 });
 
 const REQUIRED_SCOPES = ["generation.create", "session.prompt.fullaccess"];
@@ -914,31 +985,30 @@ function log(el, msg) {
 async function ensureRuntime(outEl) {
   const ctx = await client.context();
   if (!ctx?.space?.id) {
-    throw new Error("Not running inside a published Work runtime.");
+    throw new Error("Not running inside a published app runtime.");
   }
   spaceId = ctx.space.id;
   space = client.space(spaceId);
   return ctx;
 }
 
-// --- Viewer scope management ---
-function getViewerScopes(ctx) {
-  return ctx?.permissions?.viewerScopes ?? [];
-}
-
-function missingViewerScopes(ctx, scopes) {
-  const have = new Set(getViewerScopes(ctx));
-  return scopes.filter((s) => !have.has(s));
+// --- Viewer grant helpers ---
+// Render state from context; act through auth.request (silent when covered).
+function hasViewerGrant(ctx, scope, spaceId) {
+  return (ctx?.permissions?.viewerGrants ?? []).some(
+    (g) => g.spaceId === (spaceId ?? ctx?.space?.id) && g.scopes.includes(scope),
+  );
 }
 
 async function ensureViewerScopes(scopes, reason, outEl) {
   const ctx = await ensureRuntime(outEl);
-  const missing = missingViewerScopes(ctx, scopes);
+  const ctxScopes = new Set(ctx?.permissions?.scopes ?? []);
+  const missing = scopes.filter((s) => !ctxScopes.has(s));
   if (missing.length === 0) {
-    log(outEl, `Already have scopes: [${scopes.join(", ")}]`);
+    log(outEl, `Already granted: [${scopes.join(", ")}]`);
     return true;
   }
-  log(outEl, `Requesting scopes: [${missing.join(", ")}]...`);
+  log(outEl, `Requesting: [${missing.join(", ")}]...`);
   const ok = await client.auth.request({ scopes, reason });
   log(outEl, ok ? "Authorized." : "Authorization denied.");
   return ok;
@@ -964,7 +1034,7 @@ function waitForTurn(sid, turnId, onStream) {
       fn();
     };
 
-    // Primary path: stream via WebSocket (needs work scope: session.view)
+    // Primary path: stream via WebSocket (needs session.view)
     try {
       stop = space.session(sid).subscribeGeneration({
         state: (event) => {
@@ -1035,7 +1105,7 @@ $("btn-context").addEventListener("click", async () => {
   try {
     const ctx = await client.context();
     setOutput(out, {
-      "work.id": ctx?.work?.id,
+      "app.id": ctx?.app?.id,
       "space.id": ctx?.space?.id,
       permissions: ctx?.permissions,
     });
@@ -1080,7 +1150,7 @@ $("btn-img").addEventListener("click", async () => {
     await ensureRuntime(out);
     const ok = await ensureViewerScopes(
       ["generation.create"],
-      "Image generation needs generation.create. taskrun.view comes from workScopes.",
+      "Image generation needs a generation.create viewer grant.",
       out,
     );
     if (!ok) return;
@@ -1098,7 +1168,7 @@ $("btn-img").addEventListener("click", async () => {
     const ctx = await client.context();
     if (ctx) {
       setOutput($("output-context"), {
-        "work.id": ctx.work?.id,
+        "app.id": ctx.app?.id,
         "space.id": ctx.space?.id,
         permissions: ctx.permissions,
       });
@@ -1111,17 +1181,18 @@ $("btn-img").addEventListener("click", async () => {
 
 ## 7. Common pitfalls checklist
 
-Before publishing your Work, verify each item:
+Before publishing your App, verify each item:
 
 - [ ] **Environment**: passed `env: "dev"` (or `"prod"`) explicitly — the SDK
   defaults to prod and browsers don't inject `ENV`.
-- [ ] **Work scopes include all read operations**: `space.view`, `session.view`
-  (for LLM reply reads), `taskrun.view` (for generation polling), `file.view`
-  (for file reads). Missing any of these → 403 on reads.
-- [ ] **Viewer scopes include all action operations**: `session.prompt.fullaccess`
-  (or `.readonly`) for prompts, `generation.create` for generation.
+- [ ] **App scopes include every read on the App's own Space**:
+  `session.view` (LLM reply reads), `taskrun.view` (generation polling),
+  `file.view` (file reads). Missing any of these → 403 on reads.
+- [ ] **Viewer-grant-only scopes are requested at runtime, not configured at
+  publish time**: `generation.create` and every `user.*` scope can only come
+  from a viewer grant.
 - [ ] **`session.prompt.*` scope matches `space.prompt({ accessMode })`.**
-  Omitting `accessMode` defaults to `full_access`, so requesting only
+  Omitting `accessMode` defaults to `full_access`, so holding only
   `session.prompt.readonly` and then calling `space.prompt({ content })` → 403.
   Set `accessMode: "read_only"` explicitly when using the readonly scope.
 - [ ] **`session.prompt.fullaccess` does NOT include `session.view`** — they
@@ -1130,73 +1201,78 @@ Before publishing your Work, verify each item:
 - [ ] **`generation.create` does NOT include `taskrun.view`** — creating a
   generation task succeeds but polling the result 403s without `taskrun.view`.
 - [ ] **`auth.request()` is called from a user gesture** (button click), not
-  on page load.
+  on page load. It is safe to call repeatedly — covered scopes renew silently.
+- [ ] **Cross-Space access targets the right Space** — viewer grants are per
+  Space. Pass `spaceId` when requesting, or use `auth.requestSpace` to let the
+  viewer pick.
 - [ ] **`subscribeGeneration` errors are not silently swallowed** — if the
   stream fails, surface it; a silent fallback to polling will also 403 if
   `session.view` is missing.
-- [ ] **Broker mode**: if the Work may be accessed standalone, pass
-  `work: { brokerOrigin, workId }` and call `auth.request()` before any other
+- [ ] **Broker mode**: if the App may be accessed standalone, pass
+  `app: { brokerOrigin, appId }` and call `auth.request()` before any other
   API call (to avoid user-activation exhaustion).
 - [ ] **Space has a slug and owner has a username** before publishing — the
-  API rejects Works when either is missing.
+  API rejects Apps when either is missing.
 - [ ] **Model ids are not hardcoded** — use `client.models.listMultimodal()`
   to fetch available models dynamically (requires auth but no scope).
 
 ---
 
-## 8. Publishing a Work (API/SDK)
+## 8. Publishing an App (API/SDK)
 
-Before creating a Work through the API, ensure the owner has a username and
-the Space has a slug. The API rejects Works when either public identity part
+Before creating an App through the API, ensure the owner has a username and
+the Space has a slug. The API rejects Apps when either public identity part
 is missing.
 
 ```js
-// Create a single-file Work (HTML file)
-await client.works.create({
+// Create a single-file App (HTML file)
+await client.apps.create({
   spaceId,
   slug: "my-html-demo",
   status: "published",
   targetType: "file",
   targetRef: "demo/index.html",
-  workScopes: ["space.view", "session.view", "taskrun.view"],
-  allowedViewerScopes: ["session.prompt.fullaccess", "generation.create"],
+  appScopes: ["space.view", "session.view", "taskrun.view"],
 });
 
-// Create a directory Work (must contain index.html)
-await client.works.create({
+// Create a directory App (must contain index.html)
+await client.apps.create({
   spaceId,
   slug: "my-site",
   status: "published",
   targetType: "directory",
   targetRef: "site",
-  workScopes: ["space.view", "session.view", "taskrun.view", "file.view"],
-  allowedViewerScopes: ["session.prompt.fullaccess", "generation.create"],
+  appScopes: ["space.view", "session.view", "taskrun.view", "file.view"],
 });
 
-// Create a port Work (sandbox dev server)
-await client.works.create({
+// Create a port App (sandbox dev server)
+await client.apps.create({
   spaceId,
   slug: "live-preview",
   status: "published",
   targetType: "port",
   targetRef: "5173",
-  workScopes: ["space.view"],
-  allowedViewerScopes: [],
+  appScopes: ["space.view"],
 });
 ```
 
 `targetRef` is a path **relative to the Space filesystem root** (not a local
-path). For file Works, the target must be an HTML file (`.html`/`.htm`).
+path). For file Apps, the target must be an HTML file (`.html`/`.htm`).
 
 Update the published version from the current target:
 
 ```js
-await client.works.publishVersion(workId);
+await client.apps.publishVersion(appId);
 ```
 
-Other SDK methods: `works.get(workId)`, `works.getBySlug(username, spaceSlug,
-workSlug)`, `works.listBySpace(spaceId)`, `works.update(workId, input)`,
-`works.delete(workId)`.
-`works.getBySlug(username, spaceSlug,
-workSlug)`, `works.listBySpace(spaceId)`, `works.update(workId, input)`,
-`works.delete(workId)`.
+Other SDK methods: `apps.get(appId)`, `apps.getBySlug(username, spaceSlug,
+appSlug)`, `apps.listBySpace(spaceId)`, `apps.update(appId, input)`,
+`apps.delete(appId)`, `apps.getStats(appId)`, `apps.download(appId)`.
+
+From the CLI:
+
+```bash
+cohub apps publish <slug> --dir site --app-scope space.view --app-scope file.view
+cohub apps grants <slug>      # list your viewer grants for an app
+cohub apps revoke <slug> <grantId>
+```

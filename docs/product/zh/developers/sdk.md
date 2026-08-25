@@ -107,7 +107,7 @@ await client.auth.request({
 
 - Runtime API 在已发布 Work 内工作
 - 它们不会在任意静态托管或本地直接打开文件时工作
-- Work scopes 与 viewer-consent scopes 会被强制执行
+- App scopes 与按 Space 的访客授权（viewer grants）会被强制执行
 
 启用 commerce 且 Work 已发布时，commerce helpers 在 `client.app.commerce.*`。
 
@@ -137,12 +137,12 @@ await room.leave();
 与 CLI 无法创建或加入房间。
 
 生命周期、presence、成员、席位与限制详见
-[Work Runtime Guide](https://github.com/talesofai/cohub/blob/main/packages/sdk/docs/work-runtime-guide.md#realtime-rooms-workrealtime)。
+[App Runtime Guide](https://github.com/talesofai/cohub/blob/main/packages/sdk/docs/work-runtime-guide.md#realtime-rooms-apprealtime)。
 
 ### 可调用方法
 
 Work 可以向嵌入它的 Cohub 宿主暴露具名方法，Agent 便能通过
-`cohub ui preview <work> --call <method>` 调用正在运行的 Work。
+`cohub desktop open <work> --call <method>` 调用正在运行的 Work。
 
 ```ts
 client.app.surface.handle("image.open", async (input, { commandId }) => {
@@ -199,7 +199,7 @@ Client 按产品区域分组：
 在 Work runtime 之内：
 
 - host 可提供短时 tokens
-- 仅在需要时请求额外 viewer scopes
+- 仅在需要时请求额外的访客授权（viewer grants）
 
 任何在他人浏览器中运行的 Work，都优先最小权限。
 

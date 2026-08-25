@@ -1,17 +1,33 @@
 # Task Browser
 
-A reference [Cohub Work](https://cohub.live) for browsing multimodal generation tasks. It is a standalone Svelte application built entirely with public npm packages, so the directory can be copied out of this repository and developed independently.
+A reference [Cohub App](https://cohub.live) for browsing multimodal generation tasks. It is a standalone Svelte application built entirely with public npm packages, so the directory can be copied out of this repository and developed independently.
 
 ## What It Demonstrates
 
-- Loading Work identity and invocation context with `cohub.context()`
-- Requesting viewer consent with `cohub.auth.request()`
+- Loading App identity and invocation context with `cohub.context()`
+- Per-space viewer grants with `cohub.auth.request({ scopes, spaceId })`
+- Account-level task listing via the `user.taskrun.list` viewer scope
+- Opening another Space through `cohub.auth.requestSpace()` and switching into its task view
 - Listing generation Tasks with the public Cohub SDK
 - Resolving scope from invocation context in `Session > Space > Mine` order
 - Rendering every image, video, audio, and text output as an independent item
 - Cursor pagination, active Task refresh, deferred media loading, and responsive layout
 
-The invocation Space can differ from the Space that publishes this Work. The app never falls back to the publishing Space when invocation context is absent.
+The invocation Space can differ from the Space that publishes this App. The app never falls back to the publishing Space when invocation context is absent.
+
+## Permissions
+
+This app uses both grant sources of the Cohub permission model:
+
+- **App scope** — `taskrun.view` is granted directly at publish time and always covers the publishing Space.
+- **Viewer grants** — requested from a user gesture when access is denied. Browsing a Space or Session asks for `taskrun.view` on that Space; the `Mine` scope asks for `user.taskrun.list` to list every task the viewer owns. The toolbar can open a Space picker and request `taskrun.view` for the selected Space. Account-level clients and the CLI can review or revoke grants:
+
+```bash
+cohub apps grants task-browser
+cohub apps revoke task-browser <grantId>
+```
+
+Viewer authorization never grants more access than the viewer already has, and a revocation takes effect immediately.
 
 ## Requirements
 
@@ -27,7 +43,7 @@ npm install
 npm run dev
 ```
 
-The Cohub runtime APIs only work inside a published Work. Local development is useful for layout and unit tests; use a published preview to test context, authorization, and API calls.
+The Cohub runtime APIs only work inside a published App. Local development is useful for layout and unit tests; use a published preview to test context, authorization, and API calls.
 
 Run the complete local verification suite:
 
@@ -43,46 +59,39 @@ Build the project:
 npm run build
 ```
 
-Work targets are relative to the Cohub Space root. If this project is the Space root, publish with:
+App targets are relative to the Cohub Space root. If this project is the Space root, publish with:
 
 ```bash
-cohub works publish task-browser \
+cohub apps publish task-browser \
   --dir dist \
-  --work-scope taskrun.view \
-  --viewer-scope taskrun.view \
+  --app-scope taskrun.view \
   --hide-cohub-bar
 ```
 
 If the project is nested in a larger Space, pass its Space-relative output path. From the root of this repository, for example:
 
 ```bash
-cohub works publish task-browser \
+cohub apps publish task-browser \
   --dir works/task-browser/dist \
-  --work-scope taskrun.view \
-  --viewer-scope taskrun.view \
+  --app-scope taskrun.view \
   --hide-cohub-bar
 ```
 
-`taskrun.view` has two roles here:
+The `taskrun.view` app scope lets the app read Tasks in the publishing Space. Tasks in any other Space come from a viewer grant on that Space — no viewer scopes are configured at publish time.
 
-- The Work scope reads Tasks in the publishing Space.
-- The viewer scope lets a viewer authorize access to Tasks they can already view in another invocation Space or Session.
-
-Viewer authorization never grants more access than the viewer already has.
-
-Running the same publish command updates the existing Work with a new immutable version.
+Running the same publish command updates the existing App with a new immutable version.
 
 ## Preview
 
-Open a published Work by ID, public URL, or `username/space/work` reference:
+Open a published App by ID, public URL, or `username/space/app` reference:
 
 ```bash
-cohub ui preview <work-id>
-cohub ui preview https://cohub.live/tzwm/cohub/w/task-browser
-cohub ui preview tzwm/cohub/task-browser
+cohub desktop open <app-id>
+cohub desktop open https://cohub.live/tzwm/cohub/w/task-browser
+cohub desktop open tzwm/cohub/task-browser
 ```
 
-When an Agent opens the Work with `cohub ui preview`, the SDK exposes the originating identifiers through:
+When an Agent opens the App with `cohub desktop open`, the SDK exposes the originating identifiers through:
 
 ```ts
 const context = await cohub.context();
@@ -96,9 +105,10 @@ These identifiers choose the initial browser scope. They do not bypass Cohub aut
 ```text
 src/App.svelte          UI, loading, pagination, and refresh behavior
 src/scope.ts            Session > Space > Mine scope resolution
+src/access.ts           Per-scope viewer authorization requests
 src/task-output.ts      Task Run to multimodal gallery projection
 src/media.ts            Deferred media detail resolution
-work.json               Publish metadata and permission declaration
+work.json               Publish metadata and app scopes
 ```
 
 ## License

@@ -105,7 +105,7 @@ cohub -s <spaceId> spaces files diff
 cohub -s <spaceId> works publish demo --file dist/index.html
 cohub -s <spaceId> works publish site --dir dist
 cohub -s <spaceId> works ls --json
-cohub works stats <workId|url|username/space/work>
+cohub apps stats <workId|url|username/space/work>
 ```
 
 Realtime rooms 使用已发布 Work 的 runtime 身份。请在 Work 内使用
@@ -117,11 +117,11 @@ Realtime rooms 使用已发布 Work 的 runtime 身份。请在 Work 内使用
 Work 自己暴露的方法。
 
 ```bash
-cohub ui preview <workId|url|cohub://works/...|username/space/work|file://path>
-cohub ui preview file://src/main.ts
-cohub ui preview work://alice/studio/launch
-cohub ui preview <work-or-file> --call selection.get
-cohub ui preview <work> --call board.focus --data '{"nodeId":"n1"}'
+cohub desktop open <workId|url|cohub://works/...|username/space/work|file://path>
+cohub desktop open file://src/main.ts
+cohub desktop open work://alice/studio/launch
+cohub desktop open <work-or-file> --call selection.get
+cohub desktop open <work> --call board.focus --data '{"nodeId":"n1"}'
 ```
 
 打开预览是幂等的：重复执行只会重新激活同一个标签页。`--call` 会等待 Work 声明就绪

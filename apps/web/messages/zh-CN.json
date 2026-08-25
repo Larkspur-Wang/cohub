@@ -1611,7 +1611,6 @@
 	"app_publish_space_access": "使用 Space 访问权限",
 	"app_publish_space_access_detail": "查看者需要该 Space 的访问权限。",
 	"app_publish_app_can": "应用可以",
-	"app_publish_viewers_allow": "查看者可允许",
 	"app_publish_hide_cohub_bar": "隐藏 Cohub 栏",
 	"app_publish_hide_cohub_bar_detail": "从公开应用页面移除 Cohub 页脚栏。",
 	"app_publish_included_pro_max": "Pro 和 Max 订阅包含。",

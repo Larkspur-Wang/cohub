@@ -107,7 +107,7 @@ Important:
 
 - Runtime APIs work inside a published Work
 - They do not work from arbitrary static hosting or local file open
-- Work scopes and viewer-consent scopes are enforced
+- App scopes and per-space viewer grants are enforced
 
 Commerce helpers live under `client.app.commerce.*` when commerce is enabled and the Work is published.
 
@@ -137,13 +137,13 @@ high-rate traffic, and resync authoritative state after reconnecting. Realtime
 rooms are runtime-only; normal server auth and the CLI cannot create or join
 them.
 
-See the [Work Runtime Guide](https://github.com/talesofai/cohub/blob/main/packages/sdk/docs/work-runtime-guide.md#realtime-rooms-workrealtime)
+See the [App Runtime Guide](https://github.com/talesofai/cohub/blob/main/packages/sdk/docs/work-runtime-guide.md#realtime-rooms-apprealtime)
 for lifecycle, presence, membership, seat, and limit details.
 
 ### Callable surface
 
 A Work can expose named methods to the Cohub host embedding it, so an Agent can
-call into the running Work with `cohub ui preview <work> --call <method>`.
+call into the running Work with `cohub desktop open <work> --call <method>`.
 
 ```ts
 client.app.surface.handle("image.open", async (input, { commandId }) => {
@@ -229,7 +229,7 @@ Outside Work runtime:
 Inside Work runtime:
 
 - The host can provide short-lived tokens
-- Request additional viewer scopes only when required
+- Request additional viewer grants only when required
 
 Prefer least privilege for any Work that runs in other people’s browsers.
 

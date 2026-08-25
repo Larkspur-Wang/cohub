@@ -105,7 +105,7 @@ cohub -s <spaceId> spaces files diff
 cohub -s <spaceId> works publish demo --file dist/index.html
 cohub -s <spaceId> works publish site --dir dist
 cohub -s <spaceId> works ls --json
-cohub works stats <workId|url|username/space/work>
+cohub apps stats <workId|url|username/space/work>
 ```
 
 Realtime rooms use a published Work's runtime identity. Use
@@ -118,11 +118,11 @@ An Agent running in a Space can show a file or Work preview in the Cohub tab the
 started from, and call methods the Work exposes.
 
 ```bash
-cohub ui preview <workId|url|cohub://works/...|username/space/work|file://path>
-cohub ui preview file://src/main.ts
-cohub ui preview work://alice/studio/launch
-cohub ui preview <work-or-file> --call selection.get
-cohub ui preview <work> --call board.focus --data '{"nodeId":"n1"}'
+cohub desktop open <workId|url|cohub://works/...|username/space/work|file://path>
+cohub desktop open file://src/main.ts
+cohub desktop open work://alice/studio/launch
+cohub desktop open <work-or-file> --call selection.get
+cohub desktop open <work> --call board.focus --data '{"nodeId":"n1"}'
 ```
 
 Showing a preview is idempotent: repeating it re-activates the same tab. `--call`

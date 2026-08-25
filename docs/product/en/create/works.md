@@ -17,8 +17,7 @@ A Work belongs to one Space and records:
 | Status | `published` or `disabled` |
 | Target type | `file`, `directory`, or `port` |
 | Target ref | Path or port number |
-| Work scopes | Permissions granted directly to the Work |
-| Allowed viewer scopes | Permissions the Work may request from each viewer |
+| App scopes | Permissions granted directly to the Work (`appScopes` in the API) |
 
 Public URL shape:
 
@@ -42,7 +41,7 @@ Pick the simplest target that matches the output.
 2. Open its preview
 3. Click **Publish**
 4. Set the Work slug
-5. Choose Work scopes and allowed viewer scopes
+5. Under **App can**, choose the scopes the Work receives directly
 6. Publish and open the public URL
 
 The Work also appears in the Space sidebar under Works.
@@ -72,10 +71,18 @@ That means you can iterate in the Space, then deliberately publish when the outp
 
 ## Permissions
 
-Works have two permission layers:
+A Work's effective permission for one Space is the union of two grant sources —
+either one is enough:
 
-1. **Work scopes** — what the Work itself may do
-2. **Allowed viewer scopes** — what the Work may ask a viewer to grant
+1. **App scopes** — eight bounded scopes (`space.view`, `session.view`,
+   `file.view`, `file.edit`, `taskrun.view`, `session.prompt.readonly`,
+   `session.prompt.fullaccess`, `command.execute`) granted at publish time.
+   They apply only to the Work's own Space.
+2. **Viewer grants** — any permission the viewer holds, on any Space they
+   choose, approved through a consent dialog at runtime. Grants are per Space,
+   last 14 days, and never exceed what the viewer can already do there. A
+   viewer can review and revoke their grants at any time (`cohub apps grants`,
+   `cohub apps revoke`).
 
 This matters when a Work uses the Cohub SDK inside the published runtime to read context, prompt, generate, or access approved resources.
 
@@ -90,19 +97,19 @@ They do not work from a raw static asset URL or a random local preview shell. De
 ## Publish from CLI
 
 ```bash
-cohub -s <spaceId> works publish demo --file dist/index.html
-cohub -s <spaceId> works publish site --dir dist
-cohub -s <spaceId> works publish app --port 5173
+cohub -s <spaceId> apps publish demo --file dist/index.html
+cohub -s <spaceId> apps publish site --dir dist
+cohub -s <spaceId> apps publish app --port 5173
 ```
 
 Useful follow-ups:
 
 ```bash
-cohub -s <spaceId> works ls --json
-cohub works get <workId|url|username/space/work> --json
-cohub works stats <workId|url|username/space/work>
-cohub works download <workId|url|username/space/work> --output <path>
-cohub works publish-version <workId>
+cohub -s <spaceId> apps ls --json
+cohub apps get <workId|url|username/space/work> --json
+cohub apps stats <workId|url|username/space/work>
+cohub apps download <workId|url|username/space/work> --output <path>
+cohub apps publish-version <workId>
 ```
 
 `works download` restores newly published file and directory artifacts directly from the CDN and verifies their checksums. HTML files with companion assets are restored as directory bundles. Board and port Works are not downloadable.

@@ -6,7 +6,7 @@ Use Works when a Space produces something people should open directly: a static 
 
 ## Runtime requirements
 
-`cohub.context()`, `cohub.auth.*`, and `cohub.work.commerce.*` only function inside a **published** Work — the Cohub-hosted iframe where `window.parent` is the Cohub shell. They do not work from a static asset URL or a local preview. In those environments `context()` is `null` and commerce calls fail. Always develop against a published Work.
+`cohub.context()`, `cohub.auth.*`, and `cohub.app.commerce.*` only function inside a **published** Work — the Cohub-hosted iframe where `window.parent` is the Cohub shell. They do not work from a static asset URL or a local preview. In those environments `context()` is `null` and commerce calls fail. Always develop against a published Work.
 
 ## What a Work Contains
 
@@ -210,28 +210,28 @@ For commerce inside a Work — feature unlocks and credit consumption:
 
 ```js
 // Check entitlements and credit balance in one call
-const { entitlements, credits } = await cohub.work.commerce.getEntitlements();
+const { entitlements, credits } = await cohub.app.commerce.getEntitlements();
 
 // Feature unlock: purchase if not entitled
 const unlocked = entitlements.some((e) => e.benefitKey === "space_pro" && e.enabled);
 if (!unlocked) {
-  await cohub.work.commerce.purchase({ productKey: "pro_unlock" });
+  await cohub.app.commerce.purchase({ productKey: "pro_unlock" });
 }
 
 // Credit consumption: consume for a metered action
-const result = await cohub.work.commerce.consumeCredits({
+const result = await cohub.app.commerce.consumeCredits({
   amount: 10,
   operationId: crypto.randomUUID(),
   reason: "Export high-res image",
 });
 if (result.status === "insufficient") {
-  await cohub.work.commerce.purchase({ productKey: "credit_pack" });
+  await cohub.app.commerce.purchase({ productKey: "credit_pack" });
 }
 
 // After checkout return, query the order
-const checkoutState = await cohub.work.commerce.getCheckoutState();
+const checkoutState = await cohub.app.commerce.getCheckoutState();
 if (checkoutState.orderId) {
-  const { order } = await cohub.work.commerce.getOrder(checkoutState.orderId);
+  const { order } = await cohub.app.commerce.getOrder(checkoutState.orderId);
 }
 ```
 
@@ -260,9 +260,9 @@ An Agent running in the Space can open the same preview in the Cohub tab the cha
 started from, and call methods the Work exposes:
 
 ```bash
-cohub ui preview <workId|url|cohub://works/...|username/space/work>
-cohub ui preview <work> --call selection.get
-cohub ui preview <work> --call board.focus --data '{"nodeId":"n1"}'
+cohub desktop open <workId|url|cohub://works/...|username/space/work>
+cohub desktop open <work> --call selection.get
+cohub desktop open <work> --call board.focus --data '{"nodeId":"n1"}'
 ```
 
 Register a method that receives the UI command id and completes it later:
@@ -291,7 +291,7 @@ be previewed but expose no callable surface.
 Work editors can create immutable promotion links for paid or owned traffic. `generic` records local landing and readiness analytics without loading third-party code. `meta` adds the deployment-configured Meta Pixel and Conversions API provider.
 
 ```bash
-cohub works promotions create <work> \
+cohub apps promotions create <work> \
   --name "Meta launch video A" \
   --provider meta \
   --utm-source instagram \
@@ -303,8 +303,8 @@ cohub works promotions create <work> \
 List links and inspect one promotion's aggregate statistics:
 
 ```bash
-cohub works promotions list <work>
-cohub works promotions stats <work> <promotion-id>
+cohub apps promotions list <work>
+cohub apps promotions stats <work> <promotion-id>
 ```
 
 Promotion links always open the current published Work. Statistics retain the immutable Work version that served each event. Hourly counts cover landing, readiness, registration, purchase-confirmation, and checkout-start events; Cohub does not retain visitor-level promotion records.
@@ -318,7 +318,7 @@ The `generic` provider is always available. A deployment enables `meta` by confi
 Work editors can inspect total, 24-hour, 7-day, and 30-day views with a source breakdown:
 
 ```bash
-cohub works stats <workId|url|username/space/work>
+cohub apps stats <workId|url|username/space/work>
 ```
 
 Use `--json` to include the 30-day daily trend.
@@ -328,7 +328,7 @@ Use `--json` to include the 30-day daily trend.
 Newly published file and directory Works include an immutable artifact manifest. Download them by id, public URL, mention URI, or public slug reference:
 
 ```bash
-cohub works download <workId|url|username/space/work> --output <path>
+cohub apps download <workId|url|username/space/work> --output <path>
 ```
 
 The CLI reads the small manifest, streams files directly from the CDN with bounded concurrency, verifies every SHA-256 checksum, and atomically restores the published artifact. Existing outputs are never overwritten. An HTML file with published companion assets is restored as a directory bundle so no artifact files are lost. Board and port Works are not downloadable because neither maps safely to a restorable file or directory artifact.
@@ -352,8 +352,7 @@ await sdk.works.create({
   status: "published",
   targetType: "file",
   targetRef: "demo/index.html",
-  workScopes: ["space.view"],
-  allowedViewerScopes: ["session.prompt.readonly"]
+  workScopes: ["space.view"]
 });
 ```
 
@@ -366,8 +365,7 @@ await sdk.works.create({
   status: "published",
   targetType: "directory",
   targetRef: "site",
-  workScopes: ["space.view", "file.view"],
-  allowedViewerScopes: []
+  workScopes: ["space.view", "file.view"]
 });
 ```
 
@@ -380,8 +378,7 @@ await sdk.works.create({
   status: "published",
   targetType: "port",
   targetRef: "5173",
-  workScopes: ["space.view"],
-  allowedViewerScopes: []
+  workScopes: ["space.view"]
 });
 ```
 

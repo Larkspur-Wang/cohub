@@ -72,15 +72,18 @@ calls only function inside a published Cohub App iframe.
 1. Upload these files to your Space (root or a subdirectory).
 2. If using a subdirectory, update `CONFIG.DATA_PATH` and `CONFIG.SCRIPT_PATH`
    in `app.js` to match (e.g. `docs/examples/work-capability-lab/whale-shrine/data/shouts.jsonl`).
-3. Open the directory preview and click **Publish**. (Or publish from the CLI: `cohub -s <space-id> apps publish whale-shrine --dir docs/examples/work-capability-lab/whale-shrine --app-scope file.view --viewer-scope session.prompt.fullaccess`.)
-4. Set App scopes and viewer scopes:
-
-   | Setting | Value |
-   |---------|-------|
-   | **App can** (direct) | `file.view` |
-   | **Viewers can allow** | `session.prompt.fullaccess` |
-
+3. Open the directory preview and click **Publish**. (Or publish from the CLI: `cohub -s <space-id> apps publish whale-shrine --dir docs/examples/work-capability-lab/whale-shrine --app-scope file.view`.)
+4. Under **App can**, select `file.view` — the direct read access the app needs for its own Space.
 5. Run the commerce setup (below) to create the $5 credit product.
+
+Prompt access (`session.prompt.fullaccess`) is not configured at publish time: the
+viewer grants it per Space through the consent dialog the first time they summon
+(`auth.request()` inside `app.js`). Grants last 14 days and can be revoked any time:
+
+```bash
+cohub -s <space-id> apps grants whale-shrine
+cohub -s <space-id> apps revoke whale-shrine <grantId>
+```
 
 ## Commerce setup
 

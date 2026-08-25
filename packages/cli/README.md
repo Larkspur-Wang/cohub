@@ -305,12 +305,12 @@ Show a file or Work preview in the Cohub tab that started the current work, and 
 methods the Work exposes.
 
 ```bash
-cohub ui preview <workId|url|cohub://works/...|username/space/work|file://path>
-cohub ui preview file://src/main.ts
-cohub ui preview work://alice/studio/launch
-cohub ui preview <work-or-file> --call selection.get
-cohub ui preview <work> --call board.focus --data '{"nodeId":"n1"}'
-cohub ui preview <work> --call report.build --input payload.json --json
+cohub desktop open <workId|url|cohub://works/...|username/space/work|file://path>
+cohub desktop open file://src/main.ts
+cohub desktop open work://alice/studio/launch
+cohub desktop open <work-or-file> --call selection.get
+cohub desktop open <work> --call board.focus --data '{"nodeId":"n1"}'
+cohub desktop open <work> --call report.build --input payload.json --json
 ```
 
 `ui preview` accepts `file://` Space-relative paths, `work://` Work references, and

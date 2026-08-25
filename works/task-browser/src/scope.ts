@@ -1,4 +1,4 @@
-import type { WorkRuntimeInvocationContext } from "@neta-art/cohub";
+import type { AppRuntimeInvocationContext } from "@neta-art/cohub";
 
 export type TaskBrowserScope =
   | { kind: "session"; spaceId: string; sessionId: string }
@@ -6,7 +6,7 @@ export type TaskBrowserScope =
   | { kind: "mine" };
 
 export function taskBrowserScopes(
-  invocation: WorkRuntimeInvocationContext | null | undefined,
+  invocation: AppRuntimeInvocationContext | null | undefined,
 ): TaskBrowserScope[] {
   const scopes: TaskBrowserScope[] = [];
   if (invocation?.spaceId && invocation.sessionId) {

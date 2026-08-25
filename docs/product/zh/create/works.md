@@ -17,8 +17,7 @@ Work 属于一个 Space，并记录：
 | Status | `published` 或 `disabled` |
 | Target type | `file`、`directory` 或 `port` |
 | Target ref | 路径或端口号 |
-| Work scopes | 直接授予 Work 的权限 |
-| Allowed viewer scopes | Work 可向每位访客请求的权限 |
+| Work scopes（App scopes） | 直接授予 Work 的权限（API 中为 `appScopes`） |
 
 公开 URL 形态：
 
@@ -42,7 +41,7 @@ Work 属于一个 Space，并记录：
 2. 打开其预览
 3. 点击 **Publish**
 4. 设置 Work slug
-5. 选择 Work scopes 与 allowed viewer scopes
+5. 在 **App can** 下选择直接授予 Work 的 scope
 6. 发布并打开公开 URL
 
 Work 也会出现在 Space 侧栏的 Works 下。
@@ -72,10 +71,10 @@ Works 是所选目标的版本化快照。
 
 ## 权限
 
-Works 有两层权限：
+Work 在某个 Space 上的有效权限是两类授权的并集 — 任一来源即可：
 
-1. **Work scopes** — Work 自身可做什么
-2. **Allowed viewer scopes** — Work 可向访客请求什么
+1. **App scopes** — 发布时直接授予的八个有界 scope（`space.view`、`session.view`、`file.view`、`file.edit`、`taskrun.view`、`session.prompt.readonly`、`session.prompt.fullaccess`、`command.execute`），仅作用于 Work 自己的 Space。
+2. **访客授权（viewer grants）** — 访客在运行时通过授权对话框授予的、其自身持有的任意权限，可作用于其选择的任意 Space。授权按 Space 独立保存，有效期 14 天，且永远不会超出访客自己的访问范围。访客可随时查看与撤销（`cohub apps grants`、`cohub apps revoke`）。
 
 当 Work 在发布运行时中使用 Cohub SDK 读取上下文、prompt、生成，或访问被批准资源时，这很重要。
 
@@ -90,19 +89,19 @@ Works 有两层权限：
 ## 从 CLI 发布
 
 ```bash
-cohub -s <spaceId> works publish demo --file dist/index.html
-cohub -s <spaceId> works publish site --dir dist
-cohub -s <spaceId> works publish app --port 5173
+cohub -s <spaceId> apps publish demo --file dist/index.html
+cohub -s <spaceId> apps publish site --dir dist
+cohub -s <spaceId> apps publish app --port 5173
 ```
 
 常用后续：
 
 ```bash
-cohub -s <spaceId> works ls --json
-cohub works get <workId|url|username/space/work> --json
-cohub works stats <workId|url|username/space/work>
-cohub works download <workId|url|username/space/work> --output <path>
-cohub works publish-version <workId>
+cohub -s <spaceId> apps ls --json
+cohub apps get <workId|url|username/space/work> --json
+cohub apps stats <workId|url|username/space/work>
+cohub apps download <workId|url|username/space/work> --output <path>
+cohub apps publish-version <workId>
 ```
 
 `works download` 直接从 CDN 恢复新发布的文件或目录产物，并校验 checksum。带有配套资源的 HTML 文件会恢复为目录 bundle。Board 和 port Work 不支持下载。
