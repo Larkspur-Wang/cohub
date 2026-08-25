@@ -262,7 +262,7 @@ export async function createSessionFork(input: {
       id: input.childSessionId,
       spaceId: input.spaceId,
       userUuid: createdBy,
-      title: requestedTitle ?? parent.title ?? null,
+      title: requestedTitle,
       source: parent.source,
       status: "active",
       externalSessionId: null,
