@@ -13,8 +13,6 @@ import ChatTimeline from "$lib/components/ChatTimeline.svelte";
 import CreateModelSelectorDialog from "$lib/components/CreateModelSelectorDialog.svelte";
 import NewChatBackground from "$lib/components/NewChatBackground.svelte";
 import SessionComposer from "$lib/components/SessionComposer.svelte";
-import SessionTaskLauncher from "$lib/components/SessionTaskLauncher.svelte";
-import SessionTaskTray from "$lib/components/SessionTaskTray.svelte";
 import TurnBottomSheet from "$lib/components/TurnBottomSheet.svelte";
 import TurnRail from "$lib/components/TurnRail.svelte";
 import {
@@ -39,7 +37,6 @@ let {
 	newChatBackground = null,
 	newChatBackgroundSpaceId = null,
 	onNewChatBackgroundComposerChip,
-	onOpenTaskBrowser,
 	shouldShowNewChatProfile = false,
 	newChatProfileExpanded = false,
 	newChatProfileViewportEl = $bindable(),
@@ -53,7 +50,6 @@ let {
 		appId: string,
 		chip: AppComposerChip | null,
 	) => void;
-	onOpenTaskBrowser?: () => void;
 	shouldShowNewChatProfile?: boolean;
 	newChatProfileExpanded?: boolean;
 	newChatProfileViewportEl?: HTMLDivElement | null;
@@ -296,18 +292,6 @@ async function handleDraftDrop(event: DragEvent) {
 					{/if}
 				</div>
 			</div>
-		{/if}
-		{#if onOpenTaskBrowser && activeSessionId}
-			<SessionTaskLauncher notices={host.sessionTaskNotices} onOpen={onOpenTaskBrowser} />
-		{:else}
-			<SessionTaskTray
-				notices={host.sessionTaskNotices}
-				hasMore={host.sessionTaskHasMore}
-				loadingMore={host.sessionTaskRecentLoading}
-				onExpand={host.handleSessionTaskTrayExpand}
-				onLoadMore={host.handleSessionTaskTrayLoadMore}
-				onOpenGenerationMedia={host.handleOpenGenerationTaskMedia}
-			/>
 		{/if}
 		{#if shouldShowNewChatBackground && newChatBackground}
 			<NewChatBackground

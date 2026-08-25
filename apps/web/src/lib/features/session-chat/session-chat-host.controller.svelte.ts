@@ -19,19 +19,12 @@ import {
 	extractBillingPayload,
 	HttpError,
 	type SessionRecord,
-	type TaskRunRecord,
 } from "@neta-art/cohub";
 import { tick, untrack } from "svelte";
 import { classifyAccessError } from "$lib/access/access-state";
 import type { SessionListForkRecord } from "$lib/cache/db";
 import { getCacheUserKey } from "$lib/cache/keys";
 import { sessionTurnsRepo } from "$lib/cache/repositories/session-turns-repo";
-import { writeTaskRunDetail } from "$lib/cache/repositories/task-runs-repo";
-import { mediaLightbox } from "$lib/components/media-lightbox";
-import type {
-	GenerationTaskNotice,
-	SessionTaskNotice,
-} from "$lib/components/SessionTaskTray.svelte";
 import {
 	buildComposerTextContentBlock,
 	type ComposerFileAttachment,
@@ -41,15 +34,9 @@ import {
 import { createPromptTemplateController } from "$lib/features/space/modules/prompt-template-controller.svelte";
 import { createKeyedRouteRequestGuard } from "$lib/features/space/modules/route-request-guard";
 import { createSkillController } from "$lib/features/space/modules/skill-controller.svelte";
-import { mergeTaskRunRecord } from "$lib/features/space/modules/task-run-utils";
 import { asRecord } from "$lib/features/space/space-utils";
 import { resolvePreferredGenerationModel } from "$lib/generation-model-catalog";
 import { formatGenerationPolicyLabel } from "$lib/generation-policy-label";
-import {
-	extractGenerationMediaItems,
-	extractGenerationPromptPreview,
-	isInlineMediaUrl,
-} from "$lib/generation-task-media";
 import { extractSpaceMentionsFromText } from "$lib/mentions/space";
 import {
 	formatThinkingLevelShort,
@@ -104,10 +91,6 @@ import {
 	patchCachedSessionList,
 } from "$lib/stores/session-list-cache";
 import { unreadTracker } from "$lib/stores/session-state.svelte";
-import {
-	mergeCachedTaskRun,
-	restoreCachedTaskRuns,
-} from "$lib/stores/task-runs-cache";
 import { mergeTurnsById } from "$lib/stores/turn-cache";
 import {
 	loadMessageToolCalls,
@@ -137,19 +120,11 @@ import {
 	shouldFollowSessionTail,
 } from "./session-scroll-controller.svelte";
 import { createSessionShareController } from "./session-share-controller.svelte";
-import {
-	createSessionTaskController,
-	isBackgroundBashTaskRun,
-	isGenerationTaskRun,
-	SESSION_TASK_TYPES,
-	type SessionTaskType,
-} from "./session-task-controller.svelte";
+import { createSessionTaskController } from "./session-task-controller.svelte";
 import { createSessionTurnLoadingController } from "./session-turn-loading-controller.svelte";
 import {
 	adoptPromptSessionState,
 	areSessionTurnsEqual,
-	extractBackgroundBashResultPreview,
-	formatBackgroundBashSubtitle,
 	getTurnClientMessageId,
 	isOptimisticTurn,
 	isSameClientMessageTurn,
@@ -192,7 +167,6 @@ const SESSION_SCROLL_RESTORE_TIMEOUT_MS = 3000;
 const SESSION_SCROLL_RESTORE_RETRY_DELAYS_MS = [40, 80, 160, 320];
 // V1 used overlapping numeric ids; leave that raw key untouched for rollback.
 const SESSION_SCROLL_ANCHOR_STORAGE_KEY = "cohub:session_scroll_anchor:v2";
-const SESSION_TASK_PAGE_LIMIT = 8;
 const TERMINAL_GENERATION_STATUSES = new Set([
 	"idle",
 	"completed",
@@ -211,13 +185,6 @@ export type SessionChatHostOptions = SessionChatEnvironment & {
 	canManageSessionAccess?: () => boolean;
 	hasSpace?: () => boolean;
 };
-
-function taskRunSortTime(notice: SessionTaskNotice) {
-	const rec = notice as { updatedAt?: string; createdAt?: string };
-	const raw = rec.updatedAt ?? rec.createdAt ?? "";
-	const t = Date.parse(raw);
-	return Number.isFinite(t) ? t : 0;
-}
 
 // Wire generation store reset once for process-wide leases.
 setSpaceGenerationLastReleaseHandler((spaceId) => {
@@ -510,19 +477,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		scroll.pendingTimelineMarkdownRenders,
 	);
 
-	const generationTaskRunById = $derived(tasks.generationTaskRunById);
-	const backgroundBashTaskRunById = $derived(tasks.backgroundBashTaskRunById);
-	const backgroundBashHydrateKey = $derived(tasks.backgroundBashHydrateKey);
-	const sessionTaskRecentHydrateKey = $derived(tasks.recentHydrateKey);
-	const sessionTaskRecentLoading = $derived(tasks.recentLoading);
-	const sessionTaskRecentCursors = $derived(tasks.recentCursors);
-	const sessionTaskRecentHasMoreByType = $derived(tasks.recentHasMoreByType);
 	const pendingFollowupActionIds = $derived(tasks.pendingFollowupActionIds);
-	const taskHydrateRetryCounts = new Map<string, number>();
-	const taskHydrateRetryTimers = new Map<
-		string,
-		ReturnType<typeof setTimeout>
-	>();
 	const scrollAnchorWindowLoads = new Set<string>();
 
 	let refreshSessionsListInFlight: Promise<void> | null = null;
@@ -785,9 +740,6 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			),
 		),
 	);
-
-	// task notice mappers are defined among extracted methods; derived uses them.
-	// Place derived after methods via lazy $derived.by that calls functions hoisted as function decls.
 
 	$effect(() => {
 		const key = nextComposerDraftKey;
@@ -1139,29 +1091,6 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		generationRealtime.syncActiveSubscription(Boolean(spaceId && sessionId));
 	});
 
-	// Session task tray: restore cache + hydrate active runs for the open session only.
-	$effect(() => {
-		const sessionId = activeSessionId;
-		if (!sessionId) {
-			if (backgroundBashHydrateKey !== "") {
-				tasks.backgroundBashHydrateKey = "";
-				resetRecentSessionTaskPagination();
-			}
-			return;
-		}
-		const hydrateKey = `${spaceId}:${sessionId}`;
-		if (backgroundBashHydrateKey !== hydrateKey) {
-			tasks.backgroundBashHydrateKey = hydrateKey;
-			resetRecentSessionTaskPagination();
-			void restoreCachedTaskRuns(spaceId, sessionId)
-				.then((runs) => {
-					for (const run of runs) ingestSessionTaskRun(run);
-				})
-				.catch(() => undefined);
-			void hydrateActiveSessionTasks(sessionId);
-		}
-	});
-
 	// ── Chat methods (extracted from SpaceWorkspacePage) ──
 	function clearComposerError() {
 		composer.clearError();
@@ -1204,265 +1133,6 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		}
 		const code = record.code;
 		return typeof code === "string" ? code : null;
-	}
-
-	// ─── Task detail ───
-
-	function getTaskPayloadData(run: Pick<TaskRunRecord, "payload">) {
-		return asRecord(asRecord(run.payload)?.data);
-	}
-
-	function isDisplayableGenerationTaskRun(
-		run: TaskRunRecord,
-	): run is TaskRunRecord & {
-		sessionId: string;
-		status: GenerationTaskNotice["status"];
-	} {
-		return (
-			isGenerationTaskRun(run) &&
-			!!run.sessionId &&
-			(run.status === "pending" ||
-				run.status === "running" ||
-				run.status === "completed" ||
-				run.status === "failed")
-		);
-	}
-
-	function toGenerationTaskNotice(
-		run: TaskRunRecord,
-	): GenerationTaskNotice | null {
-		if (!isDisplayableGenerationTaskRun(run)) return null;
-		return {
-			id: run.id,
-			kind: "generation",
-			spaceId: run.spaceId ?? spaceId,
-			sessionId: run.sessionId,
-			turnId: run.turnId ?? null,
-			status: run.status,
-			title:
-				run.status === "completed"
-					? "Generation ready"
-					: run.status === "failed"
-						? "Generation failed"
-						: "Generating",
-			subtitle: null,
-			preview: extractGenerationPromptPreview(run.payload),
-			mediaItems: extractGenerationMediaItems(run.result, {
-				deferBase64: true,
-			}),
-			createdAt: run.createdAt,
-			startedAt: run.startedAt,
-			updatedAt: run.updatedAt,
-			finishedAt: run.finishedAt,
-		};
-	}
-
-	function toBackgroundBashTaskNotice(
-		run: TaskRunRecord,
-	): SessionTaskNotice | null {
-		if (!isBackgroundBashTaskRun(run)) return null;
-		if (!["pending", "running", "completed", "failed"].includes(run.status))
-			return null;
-		const sessionId = run.sessionId;
-		if (!sessionId) return null;
-		const data = getTaskPayloadData(run);
-		const command =
-			typeof data?.command === "string"
-				? data.command.trim()
-				: "Background command";
-		return {
-			id: run.id,
-			kind: "background_bash",
-			spaceId: run.spaceId ?? spaceId,
-			sessionId,
-			turnId: run.turnId ?? null,
-			status: run.status,
-			title: command.split("\n")[0]?.trim() || "Background command",
-			subtitle: formatBackgroundBashSubtitle(run),
-			preview: extractBackgroundBashResultPreview(run.result),
-			mediaItems: [],
-			createdAt: run.createdAt,
-			startedAt: run.startedAt,
-			updatedAt: run.updatedAt,
-			finishedAt: run.finishedAt,
-		};
-	}
-
-	function upsertGenerationTaskRun(run: TaskRunRecord) {
-		tasks.upsertGenerationTaskRun(run);
-	}
-
-	function upsertBackgroundBashTaskRun(run: TaskRunRecord) {
-		tasks.upsertBackgroundBashTaskRun(run);
-	}
-
-	async function hydrateTaskRun(taskId: string) {
-		try {
-			const detail = await sdk.tasks.get(taskId);
-			taskHydrateRetryCounts.delete(taskId);
-			const retryTimer = taskHydrateRetryTimers.get(taskId);
-			if (retryTimer) clearTimeout(retryTimer);
-			taskHydrateRetryTimers.delete(taskId);
-			if (detail.run.spaceId)
-				mergeCachedTaskRun(detail.run.spaceId, detail.run);
-			if (detail.run.spaceId)
-				void writeTaskRunDetail(
-					detail.run.spaceId,
-					detail.run,
-					detail.progress,
-				).catch(() => undefined);
-			if (isGenerationTaskRun(detail.run)) upsertGenerationTaskRun(detail.run);
-			if (isBackgroundBashTaskRun(detail.run))
-				upsertBackgroundBashTaskRun(detail.run);
-		} catch {
-			const retryCount = taskHydrateRetryCounts.get(taskId) ?? 0;
-			if (retryCount >= 3 || taskHydrateRetryTimers.has(taskId)) return;
-			taskHydrateRetryCounts.set(taskId, retryCount + 1);
-			const timer = setTimeout(
-				() => {
-					taskHydrateRetryTimers.delete(taskId);
-					void hydrateTaskRun(taskId);
-				},
-				1000 * 2 ** retryCount,
-			);
-			taskHydrateRetryTimers.set(taskId, timer);
-		}
-	}
-
-	function ingestSessionTaskRun(run: TaskRunRecord) {
-		mergeCachedTaskRun(spaceId, run);
-		if (isGenerationTaskRun(run)) upsertGenerationTaskRun(run);
-		if (isBackgroundBashTaskRun(run)) upsertBackgroundBashTaskRun(run);
-	}
-
-	async function fetchSessionTasksByType(
-		sessionId: string,
-		taskType: SessionTaskType,
-		options: {
-			status?: "active";
-			cursor?: string | null;
-		},
-	) {
-		const { runs, pageInfo } = await sdk.tasks.list({
-			spaceId,
-			sessionId,
-			taskType,
-			status: options.status,
-			limit: SESSION_TASK_PAGE_LIMIT,
-			cursor: options.cursor ?? undefined,
-		});
-		return {
-			runs,
-			pageInfo: pageInfo ?? { hasMore: false, nextCursor: null },
-		};
-	}
-
-	async function hydrateActiveSessionTasks(sessionId: string) {
-		const requestSpaceId = spaceId;
-		try {
-			const results = await Promise.all(
-				SESSION_TASK_TYPES.map((taskType) =>
-					fetchSessionTasksByType(sessionId, taskType, { status: "active" }),
-				),
-			);
-			if (spaceId !== requestSpaceId || activeSessionId !== sessionId) return;
-			for (const result of results) {
-				for (const run of result.runs) ingestSessionTaskRun(run);
-			}
-		} catch (error) {
-			console.warn("Failed to load active session tasks:", error);
-		}
-	}
-
-	function resetRecentSessionTaskPagination() {
-		tasks.resetRecentPagination();
-	}
-
-	async function loadRecentSessionTaskPage(sessionId: string) {
-		if (sessionTaskRecentLoading) return;
-		const requestSpaceId = spaceId;
-		const hydrateKey = `${requestSpaceId}:${sessionId}`;
-		const isCurrentRequest = () =>
-			spaceId === requestSpaceId && workspace.activeSessionId === sessionId;
-		tasks.recentLoading = true;
-		try {
-			const results = await Promise.all(
-				SESSION_TASK_TYPES.map(async (taskType) => {
-					if (
-						sessionTaskRecentHydrateKey === hydrateKey &&
-						sessionTaskRecentHasMoreByType[taskType] === false
-					) {
-						return { taskType, runs: [], pageInfo: null };
-					}
-					const { runs, pageInfo } = await fetchSessionTasksByType(
-						sessionId,
-						taskType,
-						{
-							cursor:
-								sessionTaskRecentHydrateKey === hydrateKey
-									? sessionTaskRecentCursors[taskType]
-									: undefined,
-						},
-					);
-					return { taskType, runs, pageInfo };
-				}),
-			);
-			if (!isCurrentRequest()) return;
-			for (const result of results) {
-				for (const run of result.runs) ingestSessionTaskRun(run);
-			}
-			const nextCursors: Partial<Record<SessionTaskType, string | null>> = {
-				...(sessionTaskRecentHydrateKey === hydrateKey
-					? sessionTaskRecentCursors
-					: {}),
-			};
-			const nextHasMore: Partial<Record<SessionTaskType, boolean>> = {
-				...(sessionTaskRecentHydrateKey === hydrateKey
-					? sessionTaskRecentHasMoreByType
-					: {}),
-			};
-			for (const result of results) {
-				if (!result.pageInfo) continue;
-				nextCursors[result.taskType] = result.pageInfo.nextCursor;
-				nextHasMore[result.taskType] = result.pageInfo.hasMore;
-			}
-			tasks.setRecentPagination(hydrateKey, nextCursors, nextHasMore);
-		} catch (error) {
-			if (isCurrentRequest())
-				console.warn("Failed to load recent session tasks:", error);
-		} finally {
-			if (isCurrentRequest()) tasks.recentLoading = false;
-		}
-	}
-
-	function handleSessionTaskTrayExpand() {
-		if (!activeSessionId) return;
-		void loadRecentSessionTaskPage(activeSessionId);
-	}
-
-	function handleSessionTaskTrayLoadMore() {
-		if (!activeSessionId) return;
-		void loadRecentSessionTaskPage(activeSessionId);
-	}
-
-	async function handleOpenGenerationTaskMedia(notice: GenerationTaskNotice) {
-		const hasDeferredMedia = notice.mediaItems.some(
-			(item) =>
-				item.deferred ||
-				isInlineMediaUrl(item.src) ||
-				isInlineMediaUrl(item.poster),
-		);
-		if (!hasDeferredMedia) {
-			mediaLightbox.show(notice.mediaItems);
-			return;
-		}
-		try {
-			const detail = await sdk.tasks.get(notice.id);
-			const mediaItems = extractGenerationMediaItems(detail.run.result);
-			if (mediaItems.length > 0) mediaLightbox.show(mediaItems);
-		} catch (error) {
-			console.warn("Failed to load generation media:", error);
-		}
 	}
 
 	function turnPreviewText(turn: SessionTurnRecord) {
@@ -2701,48 +2371,6 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 				turnHydrationInFlight.delete(key);
 			}
 		});
-	}
-
-	function handleTaskRealtimeEvent(payload: ChannelEnvelope) {
-		const eventPayload = payload.payload as {
-			task?: Partial<TaskRunRecord> & {
-				id?: string;
-				type?: string;
-				userId?: string | null;
-			};
-			progress?: unknown;
-			changed?: string[];
-		};
-		const task = eventPayload.task;
-		if (!task?.id) return;
-		const eventSpaceId = task.spaceId ?? payload.spaceId ?? spaceId;
-		if (eventSpaceId !== spaceId) return;
-		mergeCachedTaskRun(
-			spaceId,
-			task as Parameters<typeof mergeCachedTaskRun>[1],
-		);
-		const existingGenerationTaskRun = generationTaskRunById[task.id] ?? null;
-		const mergedTaskRun = mergeTaskRunRecord(
-			existingGenerationTaskRun,
-			{
-				...(task as Partial<TaskRunRecord>),
-				id: task.id,
-				type: task.type,
-				userId: task.userId,
-			},
-			spaceId,
-		);
-		if (isGenerationTaskRun(mergedTaskRun))
-			upsertGenerationTaskRun(mergedTaskRun);
-		if (isBackgroundBashTaskRun(mergedTaskRun))
-			upsertBackgroundBashTaskRun(mergedTaskRun);
-		if (
-			task.sessionId === activeSessionId &&
-			(task.type === "run_command" || task.type === "generation")
-		) {
-			void hydrateTaskRun(task.id);
-		}
-		// Shell may also observe task envelopes for route-detail views.
 	}
 
 	async function requestIntermediateSyncForTurn(
@@ -4083,16 +3711,12 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	async function ingestRealtimeEnvelope(payload: ChannelEnvelope) {
 		if (disposed) return;
 		try {
-			// Shell owns FS / ports / labels; chat only consumes session/task events.
+			// Shell owns FS / ports / labels; chat only consumes session events.
 			if (
 				payload.type === "space.fs.changed" ||
 				payload.type === "space.ports.changed" ||
 				payload.type === "label.assignments.updated"
 			) {
-				return;
-			}
-			if (payload.type === "task.created" || payload.type === "task.updated") {
-				handleTaskRealtimeEvent(payload);
 				return;
 			}
 			if (
@@ -4292,34 +3916,6 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			console.error("[WS] handleWsEvent error:", error);
 		}
 	}
-	const sessionTaskNotices = $derived.by<SessionTaskNotice[]>(() => {
-		if (!activeSessionId) return [];
-		const directGenerationTurnIds = new Set(
-			(activeSessionState?.turns ?? [])
-				.filter((turn) => turn.executionKind === "direct_generation")
-				.map((turn) => turn.id),
-		);
-		return [
-			...Object.values(generationTaskRunById)
-				.filter(
-					(run) =>
-						run.sessionId === activeSessionId &&
-						!directGenerationTurnIds.has(run.turnId ?? ""),
-				)
-				.map(toGenerationTaskNotice),
-			...Object.values(backgroundBashTaskRunById)
-				.filter((run) => run.sessionId === activeSessionId)
-				.map(toBackgroundBashTaskNotice),
-		]
-			.filter((notice): notice is SessionTaskNotice => notice !== null)
-			.sort((a, b) => taskRunSortTime(a) - taskRunSortTime(b));
-	});
-	const sessionTaskHasMore = $derived.by(() =>
-		SESSION_TASK_TYPES.some(
-			(taskType) => sessionTaskRecentHasMoreByType[taskType],
-		),
-	);
-
 	function handleRemoveViewportContext(id: string) {
 		viewport.dismiss(id);
 	}
@@ -4633,8 +4229,6 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		scroll.stopVimScroll();
 		scroll.clearPendingVimG();
 		scroll.cancelTurnMarkerMeasure();
-		for (const timer of taskHydrateRetryTimers.values()) clearTimeout(timer);
-		taskHydrateRetryTimers.clear();
 		clearAllPostSendRecovery();
 		composer.sending = false;
 		composer.aborting = false;
@@ -4884,15 +4478,6 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		set showTurnBottomSheet(v: boolean) {
 			showTurnBottomSheet = v;
 		},
-		get sessionTaskNotices() {
-			return sessionTaskNotices;
-		},
-		get sessionTaskHasMore() {
-			return sessionTaskHasMore;
-		},
-		get sessionTaskRecentLoading() {
-			return sessionTaskRecentLoading;
-		},
 		get followupQueue() {
 			return followupQueue;
 		},
@@ -4945,9 +4530,6 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		seedSessions,
 		applySessionsSnapshot,
 		upsertSessionRecord,
-		handleSessionTaskTrayExpand,
-		handleSessionTaskTrayLoadMore,
-		handleOpenGenerationTaskMedia,
 		handleCreateNewSession,
 		loadModelsCatalog,
 		loadGenerationModelsCatalog,
