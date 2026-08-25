@@ -6,14 +6,12 @@ All notable changes to Cohub are documented in this file.
 
 ## v2.29 — 2026-08-25
 
-- **Label-filtered space hooks**: `session.turn.finalized` hooks now support `on.labels` filters with `any`/`all`/`none` groups, matched case-insensitively against session labels including hierarchical refs; finalized realtime events carry a session label snapshot, and unfiltered hooks still run if the snapshot is unavailable.
-- **Execution-token app publishing**: App lifecycle endpoints — create, update, publish versions, delete — now accept scoped execution tokens, so agents and automation can publish apps without a user session.
-- **Faster workspace builds and tests**: Paraglide i18n compilation is now fingerprint-cached, so web builds, typechecks, and tests skip recompilation when inputs are unchanged, and the workspace test runner parallelizes across available CPU cores.
+- **Execution permission alignment**: scoped execution tokens now merge their grants with the account's own access instead of replacing it, so permission checks, session filtering, and space filtering return the additive union and agree across all API paths for execution-token requests.
+- **Unified account middleware**: `useUserPrincipal` and `useAppPublisherPrincipal` are consolidated into a single `useAccountPrincipal` applied across app lifecycle, session, authorization, and viewer-grant routes, giving user and execution principals one consistent auth path with duplicated branches removed.
 
 ### Bug Fixes
 
-- Fork follow-ups now generate their own titles instead of inheriting the parent session's title.
-- Copying a chat message now includes raw shell command input verbatim, not just text blocks.
+- Execution-token requests previously resolved scoped-only permissions in session and space filtering while direct permission checks fell through to the user's own access, yielding inconsistent visibility; both paths now use the union of execution scopes and account access.
 
 ## v2.28 — 2026-08-24
 
