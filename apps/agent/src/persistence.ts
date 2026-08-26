@@ -20,7 +20,7 @@ import { getRealtimeUserRoom } from "@cohub/protocol/realtime";
 import { sessionMessages, sessionTurns, spaceChannels, spaceSessionBindings, spaceSessions, providerMessageRefs, userChannels, userProfiles } from "@cohub/db";
 import { listResourceLabelRefs } from "@cohub/core/labels";
 import { sanitizeContentBlocksForPostgresJson, sanitizePostgresJsonValue } from "@cohub/core/content/sanitize";
-import { addImageToTextCallsToSummary, claimSessionFallbackTitle, countToolCallsInContent, createImageToTextUsageSummaryAccumulator, deriveMessagePreviewText, deriveSessionFallbackTitle, finalizeImageToTextUsageSummary, readImageToTextCalls, readSessionTitleSource, resolveMessageTurnId, summarizeSessionTurnCompactions, sumImageToTextUsage } from "@cohub/core/sessions";
+import { addImageToTextCallsToSummary, claimSessionFallbackTitle, countToolCallsInContent, createImageToTextUsageSummaryAccumulator, deriveMessagePreviewText, deriveSessionFallbackTitle, finalizeImageToTextUsageSummary, readImageToTextCalls, readSessionTitleSource, resolveMessageTurnId, shouldGenerateSessionTitle, summarizeSessionTurnCompactions, sumImageToTextUsage } from "@cohub/core/sessions";
 import { buildTraceHeaders, getCurrentRequestId } from "@cohub/infra/tracing";
 import { enqueueSessionMessagePostprocess } from "./session-message-postprocess-queue.js";
 import { enqueueSessionTitleGeneration } from "./session-title-queue.js";
@@ -306,7 +306,10 @@ async function persistMessageNode(input: PersistMessageInput & { message: Persis
           .from(spaceSessions)
           .where(eq(spaceSessions.id, input.sessionId))
           .limit(1);
-        if (readSessionTitleSource(session?.meta) === "fallback") {
+        if (
+          readSessionTitleSource(session?.meta) === "fallback"
+          && shouldGenerateSessionTitle({ content: existing.content })
+        ) {
           await enqueueSessionTitleGeneration({
             sessionId: input.sessionId,
             messageId: existing.id,
@@ -370,7 +373,11 @@ async function persistMessageNode(input: PersistMessageInput & { message: Persis
   if (messageRole === "user") {
     try {
       const fallbackTitle = deriveSessionFallbackTitle({ content, text });
-      if (fallbackTitle && await claimSessionFallbackTitle(db, { sessionId: input.sessionId, title: fallbackTitle })) {
+      if (
+        fallbackTitle
+        && await claimSessionFallbackTitle(db, { sessionId: input.sessionId, title: fallbackTitle })
+        && shouldGenerateSessionTitle({ content })
+      ) {
         await enqueueSessionTitleGeneration({
           sessionId: input.sessionId,
           messageId: messageNode.id,

@@ -10,7 +10,7 @@ import {
 } from "./session-meta.js";
 
 export type SessionTitleDatabase = PostgresJsDatabase<Record<string, unknown>>;
-type TitleContentBlock = Extract<ContentBlock, { type: "text" | "image" }>;
+type TitleContentBlock = Extract<ContentBlock, { type: "text" | "image" | "shell_command" }>;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -35,6 +35,16 @@ function projectTitleContent(value: unknown): TitleContentBlock[] | null {
         && typeof source.data === "string"
         && Boolean(source.data);
       if (!validUrl && !validBase64) return null;
+      content.push(block as TitleContentBlock);
+      continue;
+    }
+    if (block.type === "shell_command") {
+      if (
+        typeof block.command !== "string"
+        || !block.command.trim()
+        || typeof block.rawText !== "string"
+        || !block.rawText.trim()
+      ) return null;
       content.push(block as TitleContentBlock);
       continue;
     }
@@ -88,10 +98,26 @@ export function deriveSessionFallbackTitle(input: {
 
   const hasImages = sourceContent.some((block) => block.type === "image");
   const contentText = sourceContent
-    .filter((block): block is Extract<TitleContentBlock, { type: "text" }> => block.type === "text")
-    .map((block) => block.text)
+    .flatMap((block) => block.type === "text"
+      ? [block.text]
+      : block.type === "shell_command"
+        ? [block.rawText]
+        : [])
     .join(" ");
   const text = contentText || (!input.generationRequest && !hasImages ? input.text ?? "" : "");
   return normalizeSessionTitle(text.replace(/^[:\-\s]+/, ""))
     ?? (hasImages ? "Image" : null);
+}
+
+export function shouldGenerateSessionTitle(input: {
+  content: ContentBlock[];
+  generationRequest?: boolean;
+}): boolean {
+  const originalContent = projectTitleContent(input.content);
+  if (!originalContent) return false;
+  const sourceContent = input.generationRequest
+    ? generationRequestContent(originalContent)
+    : originalContent;
+  return sourceContent?.some((block) =>
+    block.type === "image" || (block.type === "text" && Boolean(block.text.trim()))) ?? false;
 }

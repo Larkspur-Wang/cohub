@@ -18,6 +18,7 @@ import {
   readSessionTitleSource,
   resolveMessageTurnId,
   setSessionTitleMeta,
+  shouldGenerateSessionTitle,
 } from "@cohub/core/sessions";
 import { db } from "./db/index.js";
 import {
@@ -498,7 +499,10 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
           .from(spaceSessions)
           .where(eq(spaceSessions.id, input.sessionId))
           .limit(1);
-        if (readSessionTitleSource(session?.meta) === "fallback") {
+        if (
+          readSessionTitleSource(session?.meta) === "fallback"
+          && shouldGenerateSessionTitle({ content: existing.content })
+        ) {
           await enqueueSessionTitleGeneration({
             sessionId: input.sessionId,
             messageId: existing.id,
@@ -598,7 +602,7 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
       });
       if (fallbackTitle) {
         titleChanged = await claimSessionFallbackTitle(db, { sessionId: input.sessionId, title: fallbackTitle });
-        if (titleChanged) {
+        if (titleChanged && shouldGenerateSessionTitle({ content, generationRequest: isGenerationRequest })) {
           await enqueueSessionTitleGeneration({
             sessionId: input.sessionId,
             messageId: messageNode.id,
