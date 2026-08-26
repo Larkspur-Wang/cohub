@@ -128,12 +128,12 @@ router.get("/", async (c) => {
             WHEN coalesce(vs.description, '') = '' THEN NULL::text
             ELSE left(regexp_replace(vs.description, '\\s+', ' ', 'g'), 220)
           END AS description,
-          vs.owner_user_uuid,
-          nullif(trim(coalesce(vs.meta #>> '{publicProfile,avatarUrl}', '')), '') AS avatar_url,
-          vs.space_relation,
-          (${pinnedCondition}) AS is_pinned,
-          uta.last_participated_at,
-          coalesce(vs.last_activity_at, vs.updated_at, vs.created_at) AS updated_at
+          vs.owner_user_uuid AS "ownerUserUuid",
+          nullif(trim(coalesce(vs.meta #>> '{publicProfile,avatarUrl}', '')), '') AS "avatarUrl",
+          vs.space_relation AS "spaceRelation",
+          (${pinnedCondition}) AS "isPinned",
+          uta.last_participated_at AS "lastParticipatedAt",
+          coalesce(vs.last_activity_at, vs.updated_at, vs.created_at) AS "updatedAt"
         FROM visible_spaces vs
         LEFT JOIN user_turn_activity uta ON uta.space_id = vs.id
         ORDER BY
@@ -179,12 +179,12 @@ router.get("/", async (c) => {
         )
         SELECT
           sess.id,
-          sess.space_id,
-          vs.name AS space_name,
+          sess.space_id AS "spaceId",
+          vs.name AS "spaceName",
           coalesce(nullif(sess.title, ''), 'Untitled session') AS title,
-          CASE WHEN sess.user_uuid = ${identity.uuid} THEN 'creator' ELSE 'participant' END AS viewer_relation,
-          sess.last_message_at,
-          coalesce(sess.last_message_at, sess.updated_at, sess.created_at) AS updated_at
+          CASE WHEN sess.user_uuid = ${identity.uuid} THEN 'creator' ELSE 'participant' END AS "viewerRelation",
+          sess.last_message_at AS "lastMessageAt",
+          coalesce(sess.last_message_at, sess.updated_at, sess.created_at) AS "updatedAt"
         FROM v2.space_sessions sess
         JOIN visible_spaces vs ON vs.id = sess.space_id
         WHERE
