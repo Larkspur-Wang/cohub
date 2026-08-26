@@ -106,9 +106,12 @@ let pointerHoverTimer: number | null = null;
 let localItems = $state<CommandPaletteItem[]>([]);
 let remoteItems = $state<import("@neta-art/cohub").GlobalSearchResult[]>([]);
 let defaultItems = $state<CommandPaletteItem[]>([]);
+/** Pre-overview local default list — backs the "All" tab in space picker mode. */
+let legacyDefaultItems = $state<CommandPaletteItem[]>([]);
 let localDone = $state(true);
 let remoteDone = $state(true);
 let defaultDone = $state(true);
+let legacyDefaultDone = $state(true);
 let refreshingSpaces = $state(false);
 let remoteError = $state<string | null>(null);
 let debounceTimer: number | null = null;
@@ -206,13 +209,20 @@ const filteredSpaceItems = $derived.by(() => {
 const mergedItemsRaw = $derived.by(() => {
 	// Long, specific queries let strong matches bypass the personal-relevance tier.
 	const isLongQuery = trimmedQuery.length >= 12;
+	// Space picker "All" tab keeps the pre-overview local default list; the
+	// "Recent" default tab (and every other surface) uses the overview data.
+	const useLegacyDefaults =
+		isSpacePickerMode && spaceFilter === "all" && legacyDefaultItems.length > 0;
+	const defaultSource = useLegacyDefaults
+		? legacyDefaultItems
+		: defaultItems.length > 0
+			? defaultItems
+			: legacyDefaultItems.length > 0
+				? legacyDefaultItems
+				: recentItems;
 	let raw =
 		trimmedQuery.length < MIN_QUERY_LENGTH && !hasLabelScope
-			? withLocalCommands(
-					defaultItems.length > 0 ? defaultItems : recentItems,
-					localCommands,
-					RESULT_LIMIT,
-				)
+			? withLocalCommands(defaultSource, localCommands, RESULT_LIMIT)
 			: withLocalCommands(
 					mergeCommandResults({
 						local: localItems,
@@ -242,7 +252,9 @@ const mergedItems = $derived.by(() => {
 	}
 	return mergedItemsRaw;
 });
-const isSearching = $derived(!localDone || !remoteDone || !defaultDone);
+const isSearching = $derived(
+	!localDone || !remoteDone || !defaultDone || !legacyDefaultDone,
+);
 const renderedItems = $derived(
 	mergedItems.length > 0 || !isSearching ? mergedItems : settledItems,
 );
@@ -426,9 +438,11 @@ function resetSearch(options?: { clearDefaultItems?: boolean }) {
 	localItems = [];
 	remoteItems = [];
 	if (options?.clearDefaultItems !== false) defaultItems = [];
+	legacyDefaultItems = [];
 	localDone = true;
 	remoteDone = true;
 	defaultDone = true;
+	legacyDefaultDone = true;
 	remoteError = null;
 	activeIndex = 0;
 }
@@ -488,6 +502,7 @@ function scheduleSearch(plan: typeof searchPlan, spaceId: string | null) {
 		// flash empty. Local commands stay visible via withLocalCommands either way.
 		resetSearch({ clearDefaultItems: false });
 		defaultDone = false;
+		legacyDefaultDone = false;
 		localController = new AbortController();
 		const defaultSignal = localController.signal;
 		void refreshSpaceListForDefaultItems(token, { force: forceSpaceRefresh });
@@ -497,6 +512,18 @@ function scheduleSearch(plan: typeof searchPlan, spaceId: string | null) {
 				currentSpaceId: spaceId,
 				signal: defaultSignal,
 				paletteOverview: overview,
+			});
+		// The "All" tab in space picker mode keeps the pre-overview local list.
+		void buildDefaults(null)
+			.then((items) => {
+				if (token !== searchToken) return;
+				legacyDefaultItems = items;
+			})
+			.catch((error) => {
+				console.warn("[command-palette] legacy default items failed", error);
+			})
+			.finally(() => {
+				if (token === searchToken) legacyDefaultDone = true;
 			});
 		// Prefer the cached overview snapshot for an instant server-ranked list.
 		const snapshot = getPaletteOverviewSnapshot();
@@ -845,7 +872,7 @@ onMount(() => {
 
 			{#if isSpacePickerMode && !runMode}
 				<div class="space-filter-bar" role="tablist" aria-label={m.command_filter_spaces({}, { locale })}>
-					{#each [{ key: "all", label: m.command_all({}, { locale }) }, { key: "mine", label: m.command_mine({}, { locale }) }, { key: "pinned", label: m.command_pinned({}, { locale }) }] as filter}
+					{#each [{ key: "recent", label: m.command_recent({}, { locale }) }, { key: "all", label: m.command_all({}, { locale }) }, { key: "mine", label: m.command_mine({}, { locale }) }, { key: "pinned", label: m.command_pinned({}, { locale }) }] as filter}
 						<button
 							type="button"
 							class="space-filter-btn"
@@ -895,7 +922,9 @@ onMount(() => {
 							<div class="command-empty-mark"><CornerDownRight class="h-4 w-4" /></div>
 							<div>
 								<div class="text-[13px] font-medium text-text-secondary">
-									{#if isSpacePickerMode && spaceFilter === "pinned"}
+									{#if isSpacePickerMode && spaceFilter === "recent"}
+										{m.command_no_recent({}, { locale })}
+									{:else if isSpacePickerMode && spaceFilter === "pinned"}
 										{m.command_no_pinned({}, { locale })}
 									{:else if isSpacePickerMode && spaceFilter === "mine"}
 										{m.command_no_owned({}, { locale })}
@@ -906,7 +935,9 @@ onMount(() => {
 									{/if}
 								</div>
 								<div class="mt-1 text-[12px] text-text-tertiary">
-									{#if isSpacePickerMode && spaceFilter === "pinned"}
+									{#if isSpacePickerMode && spaceFilter === "recent"}
+										{m.command_recent_hint({}, { locale })}
+									{:else if isSpacePickerMode && spaceFilter === "pinned"}
 										{m.command_pin_hint({}, { locale })}
 									{:else if trimmedQuery.length < MIN_QUERY_LENGTH && !hasLabelScope}
 										{m.command_try_filters({}, { locale })}
