@@ -723,6 +723,15 @@ async function updateApp(
     return c.json({ message: "publish a version to publish this app" }, 409);
   }
   const nextVisibility = typeof body?.visibility === "string" ? body.visibility : (current.visibility ?? "public");
+  const appScopesField = appScopesBodyField(wire);
+  const hasAppScopes = appScopesField in (body ?? {});
+  const hasAllowedViewerScopes = "allowedViewerScopes" in (body ?? {});
+  if (hasAppScopes && !Array.isArray(body?.[appScopesField])) {
+    return c.json({ message: `${appScopesField} must be an array when provided` }, 400);
+  }
+  if (hasAllowedViewerScopes && !Array.isArray(body?.allowedViewerScopes)) {
+    return c.json({ message: "allowedViewerScopes must be an array when provided" }, 400);
+  }
   const identityError = await ensureAppPublicIdentity(c, current.spaceId, actor);
   if (identityError) return identityError;
   const nextMeta = "meta" in (body ?? {}) ? getAppMeta(body?.meta) : getAppMeta(current.meta);
@@ -743,10 +752,12 @@ async function updateApp(
       currentVersionId: current.currentVersionId,
       latestVersion: current.latestVersion,
       publishedAt: nextStatus === "published" ? (current.publishedAt ?? now) : null,
-      appScopes: appScopesBodyField(wire) in (body ?? {})
-        ? normalizeScopes(body?.[appScopesBodyField(wire)], ALLOWED_APP_SCOPES)
+      appScopes: hasAppScopes
+        ? normalizeScopes(body?.[appScopesField], ALLOWED_APP_SCOPES)
         : current.appScopes,
-      allowedViewerScopes: "allowedViewerScopes" in (body ?? {}) ? normalizeScopes(body?.allowedViewerScopes, ALLOWED_VIEWER_SCOPES) : current.allowedViewerScopes,
+      allowedViewerScopes: hasAllowedViewerScopes
+        ? normalizeScopes(body?.allowedViewerScopes, ALLOWED_VIEWER_SCOPES)
+        : current.allowedViewerScopes,
       meta: nextMeta,
       updatedAt: now,
     }).where(eq(apps.id, current.id)).returning();

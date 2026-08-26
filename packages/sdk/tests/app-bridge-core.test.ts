@@ -519,6 +519,42 @@ test("selectSpace opens the picker with the viewer's spaces loaded by the host",
 	}
 });
 
+test("selectSpace refreshes an expired user token before loading spaces", async () => {
+	const originalFetch = globalThis.fetch;
+	const requests: string[] = [];
+	const refreshRequests: boolean[] = [];
+	globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
+		const token = String(new Headers(init?.headers).get("Authorization") ?? "").replace("Bearer ", "");
+		requests.push(token);
+		if (token === "stale-user-token") return new Response("unauthorized", { status: 401 });
+		return jsonResponse([{ id: "space-a", name: "Alpha" }]);
+	}) as typeof fetch;
+	try {
+		const config = makeConfig({
+			getAccessToken: async (options) => {
+				refreshRequests.push(Boolean(options?.forceRefresh));
+				return refreshRequests.length === 1 ? "stale-user-token" : "fresh-user-token";
+			},
+		});
+		const core = createAppBridgeCore(config);
+
+		await core.handleMessage(
+			messageEvent({
+				type: "cohub.app.authorize",
+				requestId: "r1",
+				scopes: ["file.view"],
+				selectSpace: true,
+			}),
+		);
+
+		assert.deepEqual(requests, ["stale-user-token", "fresh-user-token"]);
+		assert.deepEqual(refreshRequests, [false, true]);
+		assert.deepEqual(core.getState().pendingAuth?.spaces, [{ id: "space-a", name: "Alpha" }]);
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
 test("selectSpace without a pick keeps the dialog open with an error", async () => {
 	const config = makeConfig({ viewerUuid: "some-other-viewer" });
 	const core = createAppBridgeCore(config);

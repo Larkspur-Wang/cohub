@@ -490,13 +490,21 @@ export function createAppBridgeCore(
 	 * the viewer picks, never the list.
 	 */
 	async function listViewerSpaces(): Promise<AppAuthorizeSpaceOption[] | null> {
-		const userToken = await getAccessToken();
-		if (!userToken) return null;
-		try {
-			const response = await fetch(`${apiOrigin}/api/spaces`, {
+		const request = async (forceRefresh = false) => {
+			const userToken = await getAccessToken({ forceRefresh });
+			if (!userToken) return null;
+			return fetch(`${apiOrigin}/api/spaces`, {
 				headers: { Authorization: `Bearer ${userToken}` },
 			});
-			if (!response.ok) return null;
+		};
+
+		try {
+			let response = await request();
+			// The consent dialog can outlive the access token's short lifetime. A
+			// single refresh keeps a stale cached token from looking like a missing
+			// Space list without retrying genuine authorization failures forever.
+			if (response?.status === 401) response = await request(true);
+			if (!response?.ok) return null;
 			const spaces = (await response.json()) as Array<{ id?: unknown; name?: unknown }>;
 			if (!Array.isArray(spaces)) return null;
 			return spaces.flatMap((space): AppAuthorizeSpaceOption[] => {
