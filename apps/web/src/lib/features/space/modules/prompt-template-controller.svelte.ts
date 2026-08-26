@@ -5,6 +5,14 @@ import {
 } from "$lib/prompt-template-cache";
 import { sdk } from "$lib/sdk";
 
+export type PromptQuickAction = {
+	name: string;
+	label: string;
+	description: string;
+	/** When set, the prompt expects arguments and the button prefills the composer instead of sending. */
+	argumentHint: string | null;
+};
+
 export function createPromptTemplateController(options: {
 	getSpaceId: () => string;
 }) {
@@ -60,9 +68,29 @@ export function createPromptTemplateController(options: {
 		await refresh(targetSpaceId);
 	}
 
+	const quickActions = $derived<PromptQuickAction[]>(
+		items
+			.filter((item) => item.quickAction)
+			.slice()
+			.sort((a, b) => {
+				const orderDelta = (a.order ?? 0) - (b.order ?? 0);
+				if (orderDelta !== 0) return orderDelta;
+				return a.name.localeCompare(b.name);
+			})
+			.map((item) => ({
+				name: item.name,
+				label: item.buttonLabel?.trim() || item.description || item.name,
+				description: item.description,
+				argumentHint: item.argumentHint?.trim() || null,
+			})),
+	);
+
 	return {
 		get items() {
 			return items;
+		},
+		get quickActions() {
+			return quickActions;
 		},
 		get loaded() {
 			return loaded;

@@ -12,6 +12,7 @@ import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import ChatTimeline from "$lib/components/ChatTimeline.svelte";
 import CreateModelSelectorDialog from "$lib/components/CreateModelSelectorDialog.svelte";
 import NewChatBackground from "$lib/components/NewChatBackground.svelte";
+import SessionChatQuickActions from "$lib/components/SessionChatQuickActions.svelte";
 import SessionComposer from "$lib/components/SessionComposer.svelte";
 import TurnBottomSheet from "$lib/components/TurnBottomSheet.svelte";
 import TurnRail from "$lib/components/TurnRail.svelte";
@@ -380,6 +381,15 @@ async function handleDraftDrop(event: DragEvent) {
 						{/each}
 					</div>
 				</div>
+			{/if}
+			{#if host.quickPromptActions.length > 0}
+				<SessionChatQuickActions
+					actions={host.quickPromptActions}
+					disabled={host.sending || (!activeSessionState && !isNewSessionRoute)}
+					onsend={(action) => {
+						host.handleQuickPromptAction(action);
+					}}
+				/>
 			{/if}
 			<div
 				bind:this={composerHostEl}

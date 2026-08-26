@@ -1002,6 +1002,12 @@ export type PromptTemplateCatalogEntry = {
   description: string;
   argumentHint?: string;
   category?: string;
+  /** When true, this prompt is surfaced as a quick action button above the chat composer. */
+  quickAction?: boolean;
+  /** Optional override label for the quick action button. */
+  buttonLabel?: string;
+  /** Optional sort weight for quick action buttons (ascending, lower first). */
+  order?: number;
   scope: "platform" | "mod" | "user" | "project";
 };
 

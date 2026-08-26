@@ -3,10 +3,12 @@ import { join, resolve } from "node:path";
 import {
   createCachedPromptTemplatesConfig,
   getModPromptsRedisKey,
+  getProjectPromptsRedisKey as getSharedProjectPromptsRedisKey,
   getSpaceModPromptsRedisKey,
   getUserPromptsRedisKey,
   mergePromptTemplatesConfigs,
   parseCachedPromptTemplatesConfig,
+  parsePromptTemplateFromText,
   PLATFORM_PROMPTS_REDIS_KEY,
   PROMPTS_CACHE_TTL_SEC,
   type CachedPromptTemplatesConfig,
@@ -38,7 +40,6 @@ export type LoadPromptTemplatesOptions = {
 
 const PROMPTS_DIR = ".agents/prompts";
 const CHECKPOINT_META_PATH = ".cohub/system/checkpoint-meta.v1.json";
-const PROJECT_PROMPTS_CACHE_KEY_PREFIX = "configs:prompts:v1:project";
 
 const inflightByCacheKey = new Map<string, Promise<PromptTemplatesConfig | null>>();
 
@@ -63,7 +64,7 @@ function getModPromptsDir(modSpaceId: string) {
 }
 
 function getProjectPromptsRedisKey(spaceId: string) {
-  return `${PROJECT_PROMPTS_CACHE_KEY_PREFIX}:${spaceId}`;
+  return getSharedProjectPromptsRedisKey(spaceId);
 }
 
 async function getDirectoryRevision(dir: string): Promise<string> {
@@ -81,48 +82,8 @@ async function getDirectoryRevision(dir: string): Promise<string> {
   return `${dir}:missing`;
 }
 
-function parseFrontmatter(markdown: string): {
-  attributes: Record<string, string>;
-  body: string;
-} {
-  const match = markdown.match(/^---\n([\s\S]*?)\n---\n?/);
-  if (!match) return { attributes: {}, body: markdown };
-
-  const attributes: Record<string, string> = {};
-  for (const line of (match[1] ?? "").split(/\r?\n/)) {
-    const idx = line.indexOf(":");
-    if (idx === -1) continue;
-    const key = line.slice(0, idx).trim();
-    const value = line.slice(idx + 1).trim();
-    if (key) attributes[key] = value;
-  }
-
-  return {
-    attributes,
-    body: markdown.slice(match[0].length),
-  };
-}
-
 function parseTemplateFromText(raw: string, filePath: string, scope: PromptTemplateScope): PromptTemplate {
-  const { attributes, body } = parseFrontmatter(raw);
-  const fileName = filePath.split(/[/\\]/).at(-1) ?? "";
-  const name = fileName.replace(/\.md$/i, "");
-
-  let description = attributes.description?.trim() ?? "";
-  if (!description) {
-    const firstLine = body.split("\n").find((line) => line.trim());
-    description = firstLine?.trim().slice(0, 80) ?? name;
-  }
-
-  return {
-    name,
-    description,
-    argumentHint: attributes["argument-hint"]?.trim() || undefined,
-    category: attributes.category?.trim() || undefined,
-    content: body,
-    filePath,
-    scope,
-  };
+  return parsePromptTemplateFromText(raw, filePath, scope);
 }
 
 async function readPromptsConfigFromDir(dir: string, scope: PromptTemplateScope): Promise<{ rawText: string; content: PromptTemplatesConfig }> {
@@ -302,6 +263,9 @@ export async function listPromptTemplates(options: LoadPromptTemplatesOptions = 
     description: template.description,
     argumentHint: template.argumentHint,
     category: template.category,
+    quickAction: template.quickAction,
+    buttonLabel: template.buttonLabel,
+    order: template.order,
     scope: template.scope,
   }));
 }
@@ -327,6 +291,9 @@ export async function expandPromptTemplate(text: string, options: LoadPromptTemp
       description: template.description,
       argumentHint: template.argumentHint,
       category: template.category,
+      quickAction: template.quickAction,
+      buttonLabel: template.buttonLabel,
+      order: template.order,
       scope: template.scope,
     },
     args,

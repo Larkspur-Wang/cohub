@@ -1,8 +1,9 @@
-export const PROMPTS_REDIS_KEY_VERSION = "v1";
+export const PROMPTS_REDIS_KEY_VERSION = "v2";
 export const PLATFORM_PROMPTS_REDIS_KEY = `configs:prompts:${PROMPTS_REDIS_KEY_VERSION}:platform`;
 export const USER_PROMPTS_REDIS_KEY_PREFIX = `configs:prompts:${PROMPTS_REDIS_KEY_VERSION}:user`;
 export const MOD_PROMPTS_REDIS_KEY_PREFIX = `configs:prompts:${PROMPTS_REDIS_KEY_VERSION}:mod`;
 export const SPACE_MOD_PROMPTS_REDIS_KEY_PREFIX = `configs:prompts:${PROMPTS_REDIS_KEY_VERSION}:space-mods`;
+export const PROJECT_PROMPTS_REDIS_KEY_PREFIX = `configs:prompts:${PROMPTS_REDIS_KEY_VERSION}:project`;
 export const PROMPTS_CACHE_TTL_SEC = 24 * 60 * 60;
 
 const SAFE_REDIS_KEY_SEGMENT_REGEX = /^[0-9a-zA-Z_-]+$/;
@@ -14,6 +15,12 @@ export type PromptTemplate = {
   description: string;
   argumentHint?: string;
   category?: string;
+  /** When true, web surfaces this prompt as a quick action button above the chat composer. */
+  quickAction?: boolean;
+  /** Optional override label for the quick action button. */
+  buttonLabel?: string;
+  /** Optional sort weight for quick action buttons (ascending, lower first). */
+  order?: number;
   content: string;
   filePath: string;
   scope: PromptTemplateScope;
@@ -24,6 +31,9 @@ export type PromptTemplateCatalogEntry = {
   description: string;
   argumentHint?: string;
   category?: string;
+  quickAction?: boolean;
+  buttonLabel?: string;
+  order?: number;
   scope: PromptTemplateScope;
 };
 
@@ -58,6 +68,84 @@ export function getSpaceModPromptsRedisKey(spaceId: string, fingerprint: string)
   return `${SPACE_MOD_PROMPTS_REDIS_KEY_PREFIX}:${assertSafeRedisKeySegment(spaceId, "spaceId")}:${createFastContentHash(fingerprint)}`;
 }
 
+export function getProjectPromptsRedisKey(spaceId: string): string {
+  return `${PROJECT_PROMPTS_REDIS_KEY_PREFIX}:${assertSafeRedisKeySegment(spaceId, "spaceId")}`;
+}
+
+export function parsePromptFrontmatter(markdown: string): {
+  attributes: Record<string, string>;
+  body: string;
+} {
+  const match = markdown.match(/^---\n([\s\S]*?)\n---\n?/);
+  if (!match) return { attributes: {}, body: markdown };
+
+  const attributes: Record<string, string> = {};
+  for (const line of (match[1] ?? "").split(/\r?\n/)) {
+    const idx = line.indexOf(":");
+    if (idx === -1) continue;
+    const key = line.slice(0, idx).trim();
+    const value = line.slice(idx + 1).trim();
+    if (key) attributes[key] = value;
+  }
+
+  return {
+    attributes,
+    body: markdown.slice(match[0].length),
+  };
+}
+
+function parseBooleanAttribute(value: string | undefined): boolean | undefined {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized) return undefined;
+  if (normalized === "true" || normalized === "1" || normalized === "yes" || normalized === "on") return true;
+  if (normalized === "false" || normalized === "0" || normalized === "no" || normalized === "off") return false;
+  return undefined;
+}
+
+function parseNumberAttribute(value: string | undefined): number | undefined {
+  const normalized = value?.trim();
+  if (!normalized) return undefined;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function stripSurroundingQuotes(value: string | undefined): string | undefined {
+  const normalized = value?.trim();
+  if (!normalized) return undefined;
+  if (
+    (normalized.startsWith('"') && normalized.endsWith('"'))
+    || (normalized.startsWith("'") && normalized.endsWith("'"))
+  ) {
+    return normalized.slice(1, -1).trim() || undefined;
+  }
+  return normalized;
+}
+
+export function parsePromptTemplateFromText(raw: string, filePath: string, scope: PromptTemplateScope): PromptTemplate {
+  const { attributes, body } = parsePromptFrontmatter(raw);
+  const fileName = filePath.split(/[/\\]/).at(-1) ?? "";
+  const name = fileName.replace(/\.md$/i, "");
+
+  let description = attributes.description?.trim() ?? "";
+  if (!description) {
+    const firstLine = body.split("\n").find((line) => line.trim());
+    description = firstLine?.trim().slice(0, 80) ?? name;
+  }
+
+  return {
+    name,
+    description,
+    argumentHint: attributes["argument-hint"]?.trim() || undefined,
+    category: attributes.category?.trim() || undefined,
+    quickAction: parseBooleanAttribute(attributes["quick-action"] ?? attributes.quickAction) || undefined,
+    buttonLabel: stripSurroundingQuotes(attributes["button-label"] ?? attributes.buttonLabel),
+    order: parseNumberAttribute(attributes.order),
+    content: body,
+    filePath,
+    scope,
+  };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
@@ -70,7 +158,10 @@ export function isPromptTemplate(value: unknown): value is PromptTemplate {
     && typeof value.content === "string"
     && typeof value.filePath === "string"
     && (value.argumentHint === undefined || typeof value.argumentHint === "string")
-    && (value.category === undefined || typeof value.category === "string");
+    && (value.category === undefined || typeof value.category === "string")
+    && (value.quickAction === undefined || typeof value.quickAction === "boolean")
+    && (value.buttonLabel === undefined || typeof value.buttonLabel === "string")
+    && (value.order === undefined || typeof value.order === "number");
 }
 
 export function isPromptTemplatesConfig(value: unknown): value is PromptTemplatesConfig {

@@ -31,7 +31,10 @@ import {
 	type ComposerImageAttachment,
 	type ComposerTextAttachment,
 } from "$lib/composer-attachments";
-import { createPromptTemplateController } from "$lib/features/space/modules/prompt-template-controller.svelte";
+import {
+	createPromptTemplateController,
+	type PromptQuickAction,
+} from "$lib/features/space/modules/prompt-template-controller.svelte";
 import { createKeyedRouteRequestGuard } from "$lib/features/space/modules/route-request-guard";
 import { createSkillController } from "$lib/features/space/modules/skill-controller.svelte";
 import { asRecord } from "$lib/features/space/space-utils";
@@ -383,6 +386,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	);
 	const promptTemplates = $derived(promptTemplatesCtrl.items);
 	const promptTemplatesLoaded = $derived(promptTemplatesCtrl.loaded);
+	const quickPromptActions = $derived(promptTemplatesCtrl.quickActions);
 	const skills = $derived(skillsCtrl.items);
 	const skillsLoaded = $derived(skillsCtrl.loaded);
 	let showModelSelector = $state(false);
@@ -2808,6 +2812,23 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		focusComposerSoon();
 	}
 
+	/**
+	 * Quick action button above the composer: sends `/name` directly, or prefills
+	 * the composer when the prompt declares an argument hint.
+	 */
+	function handleQuickPromptAction(action: PromptQuickAction) {
+		if (sending) return;
+		const command = `/${action.name}`;
+		if (action.argumentHint) {
+			composer.input = `${command} `;
+			focusComposerSoon();
+			return;
+		}
+		if (composerMode === "create") setComposerMode("agent");
+		composer.input = command;
+		void handleSend();
+	}
+
 	async function handleSend() {
 		if (composerMode === "create") {
 			await handleDirectGenerationSend();
@@ -4358,6 +4379,10 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		get promptTemplatesLoaded() {
 			return promptTemplatesLoaded;
 		},
+		get quickPromptActions() {
+			return quickPromptActions;
+		},
+		handleQuickPromptAction,
 		get skills() {
 			return skills;
 		},
