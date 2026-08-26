@@ -1,0 +1,242 @@
+import { sql } from "drizzle-orm";
+import { Hono } from "hono";
+import { db } from "../db/index.js";
+import { fallbackPublicUserProfile, getProfilesByUuids } from "../user-profiles.js";
+import { normalizePublicAvatarUrl, useAuth } from "../lib/middleware.js";
+import { createLogger } from "@cohub/infra/logging";
+import { getPinnedSpaceIds } from "@cohub/core/labels";
+import { asAccountIdentity, hasPermission } from "../permissions.js";
+
+const logger = createLogger({ serviceName: "cohub-api" });
+const router = new Hono();
+
+const DEFAULT_SPACE_LIMIT = 50;
+const MAX_SPACE_LIMIT = 100;
+const DEFAULT_SESSION_LIMIT = 20;
+const MAX_SESSION_LIMIT = 50;
+
+type PaletteSpaceRelation = "owner" | "member" | "public";
+
+type PaletteOverviewSpaceRow = {
+  id: string;
+  name: string | null;
+  description: string | null;
+  ownerUserUuid: string | null;
+  avatarUrl: string | null;
+  spaceRelation: PaletteSpaceRelation;
+  isPinned: boolean;
+  lastParticipatedAt: Date | string | null;
+  updatedAt: Date | string | null;
+};
+
+type PaletteOverviewSessionRow = {
+  id: string;
+  spaceId: string;
+  spaceName: string | null;
+  title: string | null;
+  viewerRelation: "creator" | "participant";
+  lastMessageAt: Date | string | null;
+  updatedAt: Date | string | null;
+};
+
+function clampLimit(value: string | undefined, fallback: number, max: number) {
+  const parsed = Number(value ?? fallback);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(Math.max(Math.floor(parsed), 1), max);
+}
+
+function toIso(value: Date | string | null) {
+  if (!value) return null;
+  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+}
+
+/**
+ * Command palette default (empty-query) list data.
+ *
+ * Serves only the palette surface: viewer-relative space signals (pin, relation,
+ * personal participation time) plus recently creator/participant sessions. All
+ * aggregation is scoped to the requesting user's own turns, so cost grows with
+ * the user's history, not with global activity.
+ */
+router.get("/", async (c) => {
+  const user = useAuth(c);
+  if (user instanceof Response) return user;
+  if (!(await hasPermission(user, "user.space.list", { spaceId: "" }))) {
+    return c.json({ message: "forbidden" }, 403);
+  }
+  const identity = asAccountIdentity(user);
+  if (!identity) return c.json({ message: "forbidden" }, 403);
+
+  const spaceLimit = clampLimit(c.req.query("spaceLimit"), DEFAULT_SPACE_LIMIT, MAX_SPACE_LIMIT);
+  const sessionLimit = clampLimit(c.req.query("sessionLimit"), DEFAULT_SESSION_LIMIT, MAX_SESSION_LIMIT);
+
+  try {
+    const pinnedSpaceIds = await getPinnedSpaceIds(db, identity.uuid);
+    const pinnedIds = [...pinnedSpaceIds];
+    const pinnedCondition =
+      pinnedIds.length > 0
+        ? sql`vs.id IN (${sql.join(pinnedIds.map((id) => sql`${id}::uuid`), sql`, `)})`
+        : sql`false`;
+
+    const { spaceRows, sessionRows } = await db.transaction(async (tx) => {
+      const spaces = await tx.execute<PaletteOverviewSpaceRow>(sql`
+        WITH visible_spaces AS MATERIALIZED (
+          SELECT
+            s.id,
+            s.name,
+            s.description,
+            s.user_uuid AS owner_user_uuid,
+            s.meta,
+            s.last_activity_at,
+            s.updated_at,
+            s.created_at,
+            CASE
+              WHEN s.user_uuid = ${identity.uuid} THEN 'owner'
+              WHEN sm.user_id IS NOT NULL THEN 'member'
+              ELSE 'public'
+            END AS space_relation
+          FROM v2.spaces s
+          LEFT JOIN v2.space_members sm
+            ON sm.space_id = s.id AND sm.user_id = ${identity.uuid}
+          WHERE
+            s.user_uuid = ${identity.uuid}
+            OR sm.user_id IS NOT NULL
+            OR EXISTS (
+              SELECT 1
+              FROM v2.access_policies ap
+              WHERE ap.resource_type = 'space'
+                AND ap.resource_id = s.id
+                AND (ap.signed_in_user_role IS NOT NULL OR ap.anonymous_user_role IS NOT NULL)
+            )
+        ),
+        user_turn_activity AS (
+          SELECT
+            sess.space_id AS space_id,
+            MAX(t.created_at) AS last_participated_at
+          FROM v2.session_turns t
+          JOIN v2.space_sessions sess ON sess.id = t.session_id
+          WHERE t.user_uuid = ${identity.uuid}
+          GROUP BY sess.space_id
+        )
+        SELECT
+          vs.id,
+          vs.name,
+          CASE
+            WHEN coalesce(vs.description, '') = '' THEN NULL::text
+            ELSE left(regexp_replace(vs.description, '\\s+', ' ', 'g'), 220)
+          END AS description,
+          vs.owner_user_uuid,
+          nullif(trim(coalesce(vs.meta #>> '{publicProfile,avatarUrl}', '')), '') AS avatar_url,
+          vs.space_relation,
+          (${pinnedCondition}) AS is_pinned,
+          uta.last_participated_at,
+          coalesce(vs.last_activity_at, vs.updated_at, vs.created_at) AS updated_at
+        FROM visible_spaces vs
+        LEFT JOIN user_turn_activity uta ON uta.space_id = vs.id
+        ORDER BY
+          (${pinnedCondition}) DESC,
+          uta.last_participated_at DESC NULLS LAST,
+          CASE
+            WHEN vs.space_relation = 'owner' THEN 0
+            WHEN vs.space_relation = 'member' THEN 1
+            ELSE 2
+          END ASC,
+          coalesce(vs.last_activity_at, vs.updated_at, vs.created_at) DESC,
+          vs.id ASC
+        LIMIT ${spaceLimit}
+      `);
+
+      const sessions = await tx.execute<PaletteOverviewSessionRow>(sql`
+        WITH visible_spaces AS MATERIALIZED (
+          SELECT
+            s.id,
+            s.name,
+            s.user_uuid,
+            s.last_activity_at,
+            s.updated_at,
+            s.created_at,
+            CASE
+              WHEN s.user_uuid = ${identity.uuid} THEN 'owner'
+              WHEN sm.user_id IS NOT NULL THEN 'member'
+              ELSE 'public'
+            END AS space_relation
+          FROM v2.spaces s
+          LEFT JOIN v2.space_members sm
+            ON sm.space_id = s.id AND sm.user_id = ${identity.uuid}
+          WHERE
+            s.user_uuid = ${identity.uuid}
+            OR sm.user_id IS NOT NULL
+            OR EXISTS (
+              SELECT 1
+              FROM v2.access_policies ap
+              WHERE ap.resource_type = 'space'
+                AND ap.resource_id = s.id
+                AND (ap.signed_in_user_role IS NOT NULL OR ap.anonymous_user_role IS NOT NULL)
+            )
+        )
+        SELECT
+          sess.id,
+          sess.space_id,
+          vs.name AS space_name,
+          coalesce(nullif(sess.title, ''), 'Untitled session') AS title,
+          CASE WHEN sess.user_uuid = ${identity.uuid} THEN 'creator' ELSE 'participant' END AS viewer_relation,
+          sess.last_message_at,
+          coalesce(sess.last_message_at, sess.updated_at, sess.created_at) AS updated_at
+        FROM v2.space_sessions sess
+        JOIN visible_spaces vs ON vs.id = sess.space_id
+        WHERE
+          sess.user_uuid = ${identity.uuid}
+          OR (sess.meta -> 'participants' -> 'userUuids') ? ${identity.uuid}
+        ORDER BY coalesce(sess.last_message_at, sess.updated_at, sess.created_at) DESC
+        LIMIT ${sessionLimit}
+      `);
+
+      return { spaceRows: spaces, sessionRows: sessions };
+    });
+
+    let profileMap = new Map<string, ReturnType<typeof fallbackPublicUserProfile>>();
+    try {
+      profileMap = await getProfilesByUuids(
+        spaceRows.filter((row) => row.ownerUserUuid).map((row) => row.ownerUserUuid as string),
+      );
+    } catch (error) {
+      logger.warn("[palette-overview] profile enrichment failed", {
+        userUuid: identity.uuid,
+        ownerCount: new Set(spaceRows.map((row) => row.ownerUserUuid).filter(Boolean)).size,
+        error,
+      });
+    }
+
+    return c.json({
+      generatedAt: new Date().toISOString(),
+      spaces: spaceRows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        description: row.description,
+        ownerProfile: row.ownerUserUuid
+          ? (profileMap.get(row.ownerUserUuid) ?? fallbackPublicUserProfile(row.ownerUserUuid))
+          : null,
+        spaceProfile: { avatarUrl: normalizePublicAvatarUrl(row.avatarUrl) },
+        isPinned: Boolean(row.isPinned),
+        relation: row.spaceRelation,
+        lastParticipatedAt: toIso(row.lastParticipatedAt),
+        updatedAt: toIso(row.updatedAt),
+      })),
+      recentSessions: sessionRows.map((row) => ({
+        id: row.id,
+        spaceId: row.spaceId,
+        spaceName: row.spaceName,
+        title: row.title,
+        viewerRelation: row.viewerRelation,
+        lastMessageAt: toIso(row.lastMessageAt),
+        updatedAt: toIso(row.updatedAt),
+      })),
+    });
+  } catch (error) {
+    logger.warn("[palette-overview] failed", { userUuid: identity.uuid, error });
+    // Degrade to an empty payload: the palette falls back to local caches.
+    return c.json({ generatedAt: new Date().toISOString(), spaces: [], recentSessions: [] });
+  }
+});
+
+export default router;

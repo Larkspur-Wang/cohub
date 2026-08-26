@@ -30,6 +30,8 @@ export async function searchRemoteCommandItems(
 		types?: GlobalSearchType[];
 		spaceId?: string;
 		labelRef?: string;
+		/** Keep raw turn rows (explicit `t:` lens) instead of per-session best. */
+		groupTurns?: boolean;
 	},
 ) {
 	const q = query.trim();
@@ -43,6 +45,7 @@ export async function searchRemoteCommandItems(
 			types: options?.types,
 			spaceId: options?.spaceId,
 			labelRef: options?.labelRef,
+			groupTurns: options?.groupTurns,
 		},
 		fetcher,
 	);

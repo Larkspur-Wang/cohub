@@ -84,8 +84,25 @@ export function scoreCommandItem(input: {
 	return { score, textScore, recencyScore: fresh, typePriorityScore };
 }
 
-export function sortCommandItems(items: CommandPaletteItem[]) {
+export function sortCommandItems(
+	items: CommandPaletteItem[],
+	longQuery = false,
+) {
+	const tierOf = (item: CommandPaletteItem) => {
+		// Long, specific queries let strong exact/prefix matches bypass tiers.
+		if (longQuery && item.textScore >= 0.9) return 0;
+		if (item.viewerTier !== undefined) return item.viewerTier;
+		if (
+			item.viewerRelation === "creator" ||
+			item.viewerRelation === "participant"
+		)
+			return 0;
+		if (item.viewerRelation === "unrelated") return 2;
+		return 1;
+	};
 	return [...items].sort((a, b) => {
+		const tierDelta = tierOf(a) - tierOf(b);
+		if (tierDelta !== 0) return tierDelta;
 		const scoreDelta = b.score - a.score;
 		if (Math.abs(scoreDelta) > 0.0001) return scoreDelta;
 		const textDelta = b.textScore - a.textScore;

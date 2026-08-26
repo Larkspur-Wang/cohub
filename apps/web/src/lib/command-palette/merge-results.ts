@@ -30,6 +30,8 @@ function remoteToItem(item: GlobalSearchResult): CommandPaletteItem {
 		excerpt: item.excerpt ?? null,
 		spaceName: item.spaceName ?? null,
 		sessionTitle: item.sessionTitle ?? null,
+		viewerRelation: item.viewerRelation ?? null,
+		viewerTier: item.effectiveTier ?? undefined,
 		source: "remote",
 		remoteScore: item.score,
 	};
@@ -39,6 +41,7 @@ export function mergeCommandResults(input: {
 	local: CommandPaletteItem[];
 	remote: GlobalSearchResult[];
 	limit?: number;
+	longQuery?: boolean;
 }) {
 	const byKey = new Map<string, CommandPaletteItem>();
 	for (const item of input.local) byKey.set(keyFor(item), item);
@@ -50,6 +53,7 @@ export function mergeCommandResults(input: {
 			byKey.set(key, item);
 			continue;
 		}
+		// Remote knows the viewer relation authoritatively; keep its tier.
 		byKey.set(key, {
 			...existing,
 			...item,
@@ -65,5 +69,8 @@ export function mergeCommandResults(input: {
 			),
 		});
 	}
-	return sortCommandItems([...byKey.values()]).slice(0, input.limit ?? 30);
+	return sortCommandItems([...byKey.values()], input.longQuery).slice(
+		0,
+		input.limit ?? 30,
+	);
 }

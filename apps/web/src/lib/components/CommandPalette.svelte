@@ -1,5 +1,6 @@
 <script lang="ts">
 import type { ContentBlock } from "@cohub/protocol/core";
+import type { PaletteOverviewResponse } from "@neta-art/cohub";
 import {
 	CornerDownRight,
 	FolderKanban,
@@ -21,6 +22,10 @@ import {
 import { getCommandPaletteDefaultItems } from "$lib/command-palette/default-items";
 import { searchLocalCommandItems } from "$lib/command-palette/local-search";
 import { mergeCommandResults } from "$lib/command-palette/merge-results";
+import {
+	getPaletteOverviewSnapshot,
+	refreshPaletteOverview,
+} from "$lib/command-palette/palette-overview";
 import { parseCommandPaletteQuery } from "$lib/command-palette/query";
 import {
 	getRecentCommandItems,
@@ -199,6 +204,8 @@ const filteredSpaceItems = $derived.by(() => {
 		});
 });
 const mergedItemsRaw = $derived.by(() => {
+	// Long, specific queries let strong matches bypass the personal-relevance tier.
+	const isLongQuery = trimmedQuery.length >= 12;
 	let raw =
 		trimmedQuery.length < MIN_QUERY_LENGTH && !hasLabelScope
 			? withLocalCommands(
@@ -211,9 +218,11 @@ const mergedItemsRaw = $derived.by(() => {
 						local: localItems,
 						remote: remoteItems,
 						limit: RESULT_LIMIT * 2,
+						longQuery: isLongQuery,
 					}),
 					localCommands,
 					RESULT_LIMIT,
+					isLongQuery,
 				);
 	// New-chat intent is space-only: keep spaces + New Space, drop the rest.
 	if (openIntent === "new-chat") {
@@ -480,12 +489,18 @@ function scheduleSearch(plan: typeof searchPlan, spaceId: string | null) {
 		resetSearch({ clearDefaultItems: false });
 		defaultDone = false;
 		localController = new AbortController();
+		const defaultSignal = localController.signal;
 		void refreshSpaceListForDefaultItems(token, { force: forceSpaceRefresh });
-		void getCommandPaletteDefaultItems({
-			...plan,
-			currentSpaceId: spaceId,
-			signal: localController.signal,
-		})
+		const buildDefaults = (overview: PaletteOverviewResponse | null) =>
+			getCommandPaletteDefaultItems({
+				...plan,
+				currentSpaceId: spaceId,
+				signal: defaultSignal,
+				paletteOverview: overview,
+			});
+		// Prefer the cached overview snapshot for an instant server-ranked list.
+		const snapshot = getPaletteOverviewSnapshot();
+		void buildDefaults(snapshot.data)
 			.then((items) => {
 				if (token !== searchToken) return;
 				defaultItems = items;
@@ -496,6 +511,18 @@ function scheduleSearch(plan: typeof searchPlan, spaceId: string | null) {
 			.finally(() => {
 				if (token === searchToken) defaultDone = true;
 			});
+		if (snapshot.isStale || !snapshot.data) {
+			void refreshPaletteOverview({ signal: defaultSignal }).then((fresh) => {
+				if (!fresh || token !== searchToken) return;
+				return buildDefaults(fresh)
+					.then((items) => {
+						if (token === searchToken) defaultItems = items;
+					})
+					.catch(() => {
+						// Keep the snapshot-derived list on refresh failures.
+					});
+			});
+		}
 		return;
 	}
 
@@ -509,6 +536,7 @@ function scheduleSearch(plan: typeof searchPlan, spaceId: string | null) {
 		signal: localController.signal,
 		resourceTypes: plan.resourceTypes,
 		labelRef: plan.labelRef,
+		viewerUserUuid: myUserUuid,
 	})
 		.then((items) => {
 			if (token !== searchToken) return;
@@ -529,12 +557,17 @@ function scheduleSearch(plan: typeof searchPlan, spaceId: string | null) {
 	}
 
 	debounceTimer = window.setTimeout(() => {
+		// Explicit `t:` lens keeps raw turn rows; otherwise the server groups
+		// turns per session (one best turn each).
+		const explicitTurnOnly =
+			plan.resourceTypes?.length === 1 && plan.resourceTypes[0] === "turn";
 		void searchRemoteCommandItems(q, {
 			signal: remoteController?.signal,
 			limit: RESULT_LIMIT,
 			types: remoteResourceTypes,
 			spaceId: remoteSearchSpaceId(spaceId, remoteResourceTypes),
 			labelRef: plan.labelRef,
+			groupTurns: !explicitTurnOnly,
 		})
 			.then((items) => {
 				if (token !== searchToken) return;

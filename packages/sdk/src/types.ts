@@ -1060,6 +1060,8 @@ export type SpaceChannelBindingInput = {
 
 export type GlobalSearchType = "turn" | "session" | "space" | "label";
 
+export type GlobalSearchViewerRelation = "creator" | "participant" | "unrelated";
+
 export type GlobalSearchResult = {
   type: GlobalSearchType;
   id: string;
@@ -1074,6 +1076,8 @@ export type GlobalSearchResult = {
   ownerProfile?: Pick<UserProfile, "userUuid" | "username" | "displayName" | "avatarUrl"> | null;
   spaceProfile?: SpacePublicProfile | null;
   matchedField: "userText" | "title" | "name" | "description" | "labelName" | "labelItemContent";
+  viewerRelation?: GlobalSearchViewerRelation | null;
+  effectiveTier?: number | null;
   href: string;
   score: number;
   textScore: number;
@@ -1093,6 +1097,36 @@ export type GlobalSearchResponse = {
   query: string;
   source: "remote";
   degraded?: boolean;
+};
+
+export type PaletteOverviewSpaceRelation = "owner" | "member" | "public";
+
+export type PaletteOverviewSpace = {
+  id: string;
+  name: string | null;
+  description: string | null;
+  ownerProfile: Pick<UserProfile, "userUuid" | "username" | "displayName" | "avatarUrl"> | null;
+  spaceProfile: SpacePublicProfile | null;
+  isPinned: boolean;
+  relation: PaletteOverviewSpaceRelation;
+  lastParticipatedAt: string | null;
+  updatedAt: string | null;
+};
+
+export type PaletteOverviewSession = {
+  id: string;
+  spaceId: string;
+  spaceName: string | null;
+  title: string | null;
+  viewerRelation: "creator" | "participant";
+  lastMessageAt: string | null;
+  updatedAt: string | null;
+};
+
+export type PaletteOverviewResponse = {
+  generatedAt: string;
+  spaces: PaletteOverviewSpace[];
+  recentSessions: PaletteOverviewSession[];
 };
 
 export type CreateSpaceSessionInput = {

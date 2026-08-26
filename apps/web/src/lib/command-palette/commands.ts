@@ -134,18 +134,20 @@ export function withLocalCommands(
 	items: CommandPaletteItem[],
 	commands: CommandPaletteItem[],
 	limit = 30,
+	longQuery = false,
 ): CommandPaletteItem[] {
-	if (commands.length === 0) return sortCommandItems(items).slice(0, limit);
+	if (commands.length === 0)
+		return sortCommandItems(items, longQuery).slice(0, limit);
 
 	const commandKeys = new Set(commands.map((item) => commandItemKey(item)));
 	const rest = items.filter((item) => !commandKeys.has(commandItemKey(item)));
 	const room = Math.max(0, limit - commands.length);
-	const topRest = sortCommandItems(rest).slice(0, room);
+	const topRest = sortCommandItems(rest, longQuery).slice(0, room);
 
 	if (isNewSpaceFirst(commands)) {
 		return [...commands, ...topRest].slice(0, limit);
 	}
-	return sortCommandItems([...commands, ...topRest]).slice(0, limit);
+	return sortCommandItems([...commands, ...topRest], longQuery).slice(0, limit);
 }
 
 function isNewSpaceFirst(commands: CommandPaletteItem[]) {

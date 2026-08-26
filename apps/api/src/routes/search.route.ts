@@ -19,6 +19,8 @@ const SEARCH_RESOURCE_TYPE_SET = new Set<string>(SEARCH_RESOURCE_TYPES);
 type SearchResourceType = (typeof SEARCH_RESOURCE_TYPES)[number];
 type SearchMatchedField = "userText" | "title" | "name" | "description" | "labelName" | "labelItemContent";
 
+type SearchViewerRelation = "creator" | "participant" | "unrelated" | null;
+
 type SearchResultRow = {
   type: SearchResourceType;
   id: string;
@@ -42,6 +44,8 @@ type SearchResultRow = {
   labelName: string | null;
   labelResourceType: string | null;
   labelResourceRef: string | null;
+  viewerRelation: SearchViewerRelation;
+  effectiveTier: number | null;
   score: number;
 };
 
@@ -141,6 +145,8 @@ function mapRow(row: SearchResultRow, profiles?: Awaited<ReturnType<typeof getPr
     labelName: row.labelName,
     labelResourceType: row.labelResourceType,
     labelResourceRef: row.labelResourceRef,
+    viewerRelation: row.viewerRelation ?? null,
+    effectiveTier: row.effectiveTier ?? null,
     updatedAt: toIso(row.updatedAt),
     source: "remote" as const,
   };
@@ -152,6 +158,12 @@ router.get("/", async (c) => {
   const q = normalizeQuery(c.req.query("q"));
   const escapedQ = escapeLikePattern(q);
   const limit = clampLimit(c.req.query("limit"));
+  // Turn results group per session by default (one row per session, best turn
+  // wins). Pass groupTurns=false to keep raw turn-level rows (explicit `t:` lens).
+  const groupTurns = c.req.query("groupTurns") !== "false";
+  // Long, specific queries let exact/prefix matches (text_score >= 0.9) bypass
+  // the personal-relevance tier so precise foreign results can still surface.
+  const isLongQuery = q.length >= 12;
   const parsedTypes = parseSearchTypes(c.req.queries("type"), c.req.query("types"));
   if ("error" in parsedTypes) return c.json({ message: parsedTypes.error }, 400);
   const labelRef = normalizeLabelRef(c.req.query("labelRef"));
@@ -169,11 +181,12 @@ router.get("/", async (c) => {
     return c.json({ items: [], query: q, source: "remote" });
   }
 
+  const resultColumns = sql`type, id, space_id, session_id, turn_id, sequence, title, excerpt, space_name, owner_user_uuid, space_profile, session_title, matched_field, updated_at, text_score, type_priority_score, membership_priority_score, label_ref, label_name, label_resource_type, label_resource_ref, viewer_relation, space_relation`;
   const resultQueries = [
-    ...(includeTurns ? [sql`SELECT * FROM turn_results`] : []),
-    ...(includeSessions ? [sql`SELECT * FROM session_results`] : []),
-    ...(includeSpaces ? [sql`SELECT * FROM space_results`] : []),
-    ...(includeLabels ? [sql`SELECT * FROM label_results`] : []),
+    ...(includeTurns ? [sql`SELECT ${resultColumns} FROM turn_results`] : []),
+    ...(includeSessions ? [sql`SELECT ${resultColumns} FROM session_results`] : []),
+    ...(includeSpaces ? [sql`SELECT ${resultColumns} FROM space_results`] : []),
+    ...(includeLabels ? [sql`SELECT ${resultColumns} FROM label_results`] : []),
   ];
   if (resultQueries.length === 0) {
     return c.json({ items: [], query: q, source: "remote" });
@@ -192,7 +205,12 @@ router.get("/", async (c) => {
         CASE
           WHEN s.user_uuid = ${user.uuid} OR sm.user_id IS NOT NULL THEN 1.0::double precision
           ELSE 0.0::double precision
-        END AS membership_priority_score
+        END AS membership_priority_score,
+        CASE
+          WHEN s.user_uuid = ${user.uuid} THEN 'owner'
+          WHEN sm.user_id IS NOT NULL THEN 'member'
+          ELSE 'public'
+        END AS space_relation
       FROM v2.spaces s
       LEFT JOIN v2.space_members sm
         ON sm.space_id = s.id AND sm.user_id = ${user.uuid}
@@ -216,7 +234,13 @@ router.get("/", async (c) => {
         sp.name AS space_name,
         sp.user_uuid AS owner_user_uuid,
         jsonb_build_object('avatarUrl', nullif(trim(coalesce(sp.meta #>> '{publicProfile,avatarUrl}', '')), '')) AS space_profile,
-        sp.membership_priority_score
+        sp.membership_priority_score,
+        sp.space_relation,
+        CASE
+          WHEN sess.user_uuid = ${user.uuid} THEN 'creator'
+          WHEN (sess.meta -> 'participants' -> 'userUuids') ? ${user.uuid} THEN 'participant'
+          ELSE 'unrelated'
+        END AS viewer_relation
       FROM v2.space_sessions sess
       JOIN visible_spaces sp ON sp.id = sess.space_id
     ),
@@ -248,7 +272,9 @@ router.get("/", async (c) => {
         NULL::text AS label_ref,
         NULL::text AS label_name,
         NULL::text AS label_resource_type,
-        NULL::text AS label_resource_ref
+        NULL::text AS label_resource_ref,
+        NULL::text AS viewer_relation,
+        s.space_relation
       FROM visible_spaces s
       CROSS JOIN LATERAL (
         SELECT
@@ -301,7 +327,9 @@ router.get("/", async (c) => {
         NULL::text AS label_ref,
         NULL::text AS label_name,
         NULL::text AS label_resource_type,
-        NULL::text AS label_resource_ref
+        NULL::text AS label_resource_ref,
+        sess.viewer_relation,
+        NULL::text AS space_relation
       FROM visible_sessions sess
       WHERE
         ${includeSessions}
@@ -310,7 +338,7 @@ router.get("/", async (c) => {
           OR sess.title % ${q}
         )
     ),
-    turn_results AS (
+    turn_matches AS (
       SELECT
         'turn'::text AS type,
         t.id AS id,
@@ -337,13 +365,34 @@ router.get("/", async (c) => {
         NULL::text AS label_ref,
         NULL::text AS label_name,
         NULL::text AS label_resource_type,
-        NULL::text AS label_resource_ref
+        NULL::text AS label_resource_ref,
+        sess.viewer_relation,
+        NULL::text AS space_relation
       FROM v2.session_turns t
       JOIN visible_sessions sess ON sess.id = t.session_id
       WHERE
         ${includeTurns}
         AND t.user_text IS NOT NULL
         AND t.user_text ILIKE '%' || ${escapedQ} || '%' ESCAPE '\\'
+    ),
+    turn_results AS (
+      SELECT
+        ranked.type, ranked.id, ranked.space_id, ranked.session_id, ranked.turn_id,
+        ranked.sequence, ranked.title, ranked.excerpt, ranked.space_name, ranked.owner_user_uuid,
+        ranked.space_profile, ranked.session_title, ranked.matched_field, ranked.updated_at,
+        ranked.text_score, ranked.type_priority_score, ranked.membership_priority_score,
+        ranked.label_ref, ranked.label_name, ranked.label_resource_type, ranked.label_resource_ref,
+        ranked.viewer_relation, ranked.space_relation
+      FROM (
+        SELECT
+          tm.*,
+          ROW_NUMBER() OVER (
+            PARTITION BY tm.session_id
+            ORDER BY tm.text_score DESC, tm.updated_at DESC NULLS LAST, tm.id ASC
+          ) AS turn_rank
+        FROM turn_matches tm
+      ) ranked
+      WHERE (${groupTurns} = false OR ranked.turn_rank = 1)
     ),
     label_matches AS (
       SELECT
@@ -417,7 +466,9 @@ router.get("/", async (c) => {
         lm.label_ref AS label_ref,
         lm.name AS label_name,
         la.resource_type AS label_resource_type,
-        la.resource_ref AS label_resource_ref
+        la.resource_ref AS label_resource_ref,
+        NULL::text AS viewer_relation,
+        NULL::text AS space_relation
       FROM label_matches lm
       JOIN v2.label_assignments la
         ON la.label_id = lm.id AND la.scope_type = 'space' AND la.scope_id = lm.scope_id
@@ -451,7 +502,18 @@ router.get("/", async (c) => {
     scored AS (
       SELECT
         *,
-        1.0 / (1.0 + EXTRACT(EPOCH FROM (now() - updated_at)) / 86400.0 / 30.0) AS recency_score
+        1.0 / (1.0 + EXTRACT(EPOCH FROM (now() - updated_at)) / 86400.0 / 30.0) AS recency_score,
+        CASE
+          WHEN type = 'space' THEN CASE
+            WHEN space_relation = 'owner' THEN 0
+            WHEN space_relation = 'member' THEN 1
+            ELSE 2
+          END
+          WHEN type = 'label' THEN CASE WHEN membership_priority_score >= 1.0 THEN 1 ELSE 2 END
+          WHEN viewer_relation IN ('creator', 'participant') THEN 0
+          WHEN membership_priority_score >= 1.0 THEN 1
+          ELSE 2
+        END AS viewer_tier
       FROM combined
     )
     SELECT
@@ -469,6 +531,8 @@ router.get("/", async (c) => {
       session_title AS "sessionTitle",
       matched_field AS "matchedField",
       updated_at AS "updatedAt",
+      viewer_relation AS "viewerRelation",
+      CASE WHEN ${isLongQuery} AND text_score >= 0.9 THEN 0 ELSE viewer_tier END AS effective_tier,
       text_score AS "textScore",
       recency_score AS "recencyScore",
       type_priority_score AS "typePriorityScore",
@@ -479,7 +543,7 @@ router.get("/", async (c) => {
       label_resource_ref AS "labelResourceRef",
       (text_score * 0.68 + recency_score * 0.16 + type_priority_score * 0.05 + membership_priority_score * 0.11) AS score
     FROM scored
-    ORDER BY score DESC, membership_priority_score DESC, text_score DESC, type_priority_score DESC, updated_at DESC
+    ORDER BY effective_tier ASC, score DESC, membership_priority_score DESC, text_score DESC, type_priority_score DESC, updated_at DESC
     LIMIT ${limit}
   `);
     });
