@@ -1,5 +1,11 @@
 import type { SessionTurnRecord } from "@cohub/protocol/model";
-import type { SessionRecord, SpaceRecord } from "@neta-art/cohub";
+import type {
+	PaletteOverviewResponse,
+	PaletteOverviewSession,
+	PaletteOverviewSpace,
+	SessionRecord,
+	SpaceRecord,
+} from "@neta-art/cohub";
 import {
 	idbGetAllByIndex,
 	idbGetSomeByIndex,
@@ -80,6 +86,66 @@ function defaultScore(rank: number, updatedAt: string | null | undefined) {
 		score: Math.max(0.2, 0.92 - rank * 0.012) * 0.72 + fresh * 0.28,
 		textScore: 0,
 		recencyScore: fresh,
+	};
+}
+
+/** Server-ranked overview space: rank mirrors the pinned → participation order. */
+function overviewSpaceToItem(
+	space: PaletteOverviewSpace,
+	rank: number,
+): CommandPaletteItem {
+	const updatedAt = space.updatedAt;
+	const score = defaultScore(rank, space.lastParticipatedAt ?? updatedAt);
+	return {
+		type: "space",
+		id: space.id,
+		spaceId: space.id,
+		sessionId: null,
+		turnId: null,
+		sequence: null,
+		title: space.name ?? "Untitled space",
+		excerpt: compactText(space.description, 220),
+		spaceName: space.name ?? null,
+		ownerProfile: space.ownerProfile ?? null,
+		spaceProfile: space.spaceProfile ?? null,
+		sessionTitle: null,
+		matchedField: "name",
+		href: buildSpaceLandingRoute(space.id),
+		updatedAt,
+		source: "default",
+		localScore: score.score,
+		isPinned: space.isPinned,
+		typePriorityScore: 0.88,
+		...score,
+	};
+}
+
+/** Recently creator/participant session from the overview payload. */
+function overviewSessionToItem(
+	session: PaletteOverviewSession,
+	rank: number,
+): CommandPaletteItem {
+	const title = session.title || "Untitled session";
+	const updatedAt = session.updatedAt;
+	const score = defaultScore(rank, updatedAt);
+	return {
+		type: "session",
+		id: session.id,
+		spaceId: session.spaceId,
+		sessionId: session.id,
+		turnId: null,
+		sequence: null,
+		title,
+		excerpt: null,
+		spaceName: session.spaceName ?? null,
+		sessionTitle: title,
+		matchedField: "title",
+		href: `/spaces/${session.spaceId}/sessions/${session.id}`,
+		updatedAt,
+		source: "default",
+		localScore: score.score,
+		typePriorityScore: 0.74,
+		...score,
 	};
 }
 
@@ -187,13 +253,95 @@ async function yieldToUi() {
 	await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
 }
 
-export async function getCommandPaletteDefaultItems(
+/** Overview path: server-ranked spaces + recent personal sessions + local turns. */
+async function buildOverviewDefaultItems(
 	plan: CommandPaletteSearchPlan & {
 		currentSpaceId?: string | null;
 		signal?: AbortSignal;
 	},
+	overview: PaletteOverviewResponse,
 ): Promise<CommandPaletteItem[]> {
 	shouldAbort(plan.signal);
+	const userKey = getCacheUserKey();
+	const spaceNameById = new Map(
+		overview.spaces.map((space) => [space.id, space.name ?? null]),
+	);
+	const items: CommandPaletteItem[] = [];
+
+	if (allowsResourceType(plan, "space")) {
+		overview.spaces.forEach((space, rank) => {
+			items.push(overviewSpaceToItem(space, rank));
+		});
+	}
+
+	if (allowsResourceType(plan, "session")) {
+		overview.recentSessions.forEach((session, rank) => {
+			items.push(overviewSessionToItem(session, rank));
+		});
+	}
+
+	if (allowsResourceType(plan, "turn")) {
+		await yieldToUi();
+		shouldAbort(plan.signal);
+		const turnRecords = await idbGetSomeByIndex<SessionTurnsCacheRecord>(
+			"session_turns",
+			"by_last_accessed",
+			IDBKeyRange.lowerBound(0),
+			{
+				limit: DEFAULT_TURN_RECORD_SCAN_LIMIT,
+				direction: "prev",
+				filter: (record) => record.userKey === userKey,
+			},
+		);
+		shouldAbort(plan.signal);
+		let rank = 0;
+		for (const record of turnRecords
+			.filter((record) => record.userKey === userKey)
+			.sort((a, b) => b.lastAccessedAt - a.lastAccessedAt)) {
+			const session = record.session ?? null;
+			const turns = [...record.turns].sort(
+				(a, b) =>
+					timeValue(b.updatedAt ?? b.createdAt) -
+					timeValue(a.updatedAt ?? a.createdAt),
+			);
+			for (const turn of turns) {
+				const item = turnToDefaultItem({
+					turn,
+					session,
+					spaceId: record.spaceId,
+					spaceName: spaceNameById.get(record.spaceId) ?? null,
+					rank,
+				});
+				if (item) items.push(item);
+				rank += 1;
+				if (rank >= DEFAULT_LIMIT) break;
+			}
+			if (rank >= DEFAULT_LIMIT) break;
+		}
+	}
+
+	const byKey = new Map<string, CommandPaletteItem>();
+	for (const item of items) {
+		const key = commandItemKey(item);
+		if (!byKey.has(key)) byKey.set(key, item);
+	}
+	return [...byKey.values()]
+		.sort((a, b) => b.score - a.score)
+		.slice(0, DEFAULT_LIMIT);
+}
+
+export async function getCommandPaletteDefaultItems(
+	plan: CommandPaletteSearchPlan & {
+		currentSpaceId?: string | null;
+		signal?: AbortSignal;
+		/** Server-side palette overview — preferred over local-only derivation. */
+		paletteOverview?: PaletteOverviewResponse | null;
+	},
+): Promise<CommandPaletteItem[]> {
+	shouldAbort(plan.signal);
+	if (plan.paletteOverview) {
+		return buildOverviewDefaultItems(plan, plan.paletteOverview);
+	}
 	const userKey = getCacheUserKey();
 	const spacesById = new Map<string, SpaceRecord>();
 

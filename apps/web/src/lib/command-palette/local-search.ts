@@ -21,11 +21,33 @@ import { getCachedSpaceList } from "$lib/stores/space-list-cache";
 import { commandItemKey } from "./merge-results";
 import { allowsResourceType, type CommandPaletteSearchPlan } from "./scope";
 import { scoreCommandItem, sortCommandItems, textMatchScore } from "./score";
-import type { CommandPaletteItem } from "./types";
+import type { CommandPaletteItem, CommandPaletteViewerRelation } from "./types";
 
 const LOCAL_LIMIT = 40;
 const LOCAL_SESSION_LIST_SCAN_LIMIT = 120;
 const LOCAL_TURN_RECORD_SCAN_LIMIT = 80;
+
+function viewerRelationForSession(
+	session:
+		| Pick<SessionRecord, "userUuid" | "participantUserUuids">
+		| null
+		| undefined,
+	viewerUserUuid: string | null | undefined,
+): CommandPaletteViewerRelation {
+	if (!viewerUserUuid || !session) return "unknown";
+	if (session.userUuid === viewerUserUuid) return "creator";
+	if (session.participantUserUuids?.includes(viewerUserUuid))
+		return "participant";
+	return "unrelated";
+}
+
+export function viewerTierForRelation(
+	relation: CommandPaletteViewerRelation | null | undefined,
+) {
+	if (relation === "creator" || relation === "participant") return 0;
+	if (relation === "unrelated") return 2;
+	return 1;
+}
 
 function hrefFor(
 	item: Pick<
@@ -71,6 +93,7 @@ function spaceActivityAt(space: SpaceRecord) {
 function spaceToItem(
 	space: SpaceRecord,
 	query: string,
+	viewerUserUuid?: string | null,
 ): CommandPaletteItem | null {
 	const nameScore = textMatchScore(space.name, query);
 	const descriptionScore = textMatchScore(space.description, query);
@@ -85,6 +108,11 @@ function spaceToItem(
 		matchedField,
 		updatedAt: activityAt,
 	});
+	const viewerRelation: CommandPaletteViewerRelation | null = viewerUserUuid
+		? space.userUuid === viewerUserUuid
+			? "creator"
+			: "unknown"
+		: null;
 	return {
 		type: "space",
 		id: space.id,
@@ -104,6 +132,8 @@ function spaceToItem(
 		source: "local",
 		localScore: scored.score,
 		isPinned: space.isPinned ?? false,
+		viewerRelation,
+		viewerTier: viewerRelation === "creator" ? 0 : 1,
 		...scored,
 	};
 }
@@ -112,6 +142,7 @@ function sessionToItem(input: {
 	session: SessionRecord;
 	spaceName: string | null;
 	query: string;
+	viewerUserUuid?: string | null;
 }): CommandPaletteItem | null {
 	const title = input.session.title || "Untitled session";
 	if (textMatchScore(title, input.query) <= 0) return null;
@@ -127,6 +158,10 @@ function sessionToItem(input: {
 		matchedField: "title",
 		updatedAt,
 	});
+	const viewerRelation = viewerRelationForSession(
+		input.session,
+		input.viewerUserUuid,
+	);
 	return {
 		type: "session",
 		id: input.session.id,
@@ -143,6 +178,8 @@ function sessionToItem(input: {
 		updatedAt,
 		source: "local",
 		localScore: scored.score,
+		viewerRelation,
+		viewerTier: viewerTierForRelation(viewerRelation),
 		...scored,
 	};
 }
@@ -254,6 +291,7 @@ function turnToItem(input: {
 	spaceId: string;
 	spaceName: string | null;
 	query: string;
+	viewerUserUuid?: string | null;
 }): CommandPaletteItem | null {
 	const text = input.turn.userText ?? "";
 	if (textMatchScore(text, input.query) <= 0) return null;
@@ -265,6 +303,10 @@ function turnToItem(input: {
 		matchedField: "userText",
 		updatedAt,
 	});
+	const viewerRelation = viewerRelationForSession(
+		input.session,
+		input.viewerUserUuid,
+	);
 	return {
 		type: "turn",
 		id: input.turn.id,
@@ -286,6 +328,8 @@ function turnToItem(input: {
 		updatedAt,
 		source: "local",
 		localScore: scored.score,
+		viewerRelation,
+		viewerTier: viewerTierForRelation(viewerRelation),
 		...scored,
 	};
 }
@@ -304,6 +348,7 @@ export async function searchLocalCommandItems(
 		signal?: AbortSignal;
 		resourceTypes?: CommandPaletteSearchPlan["resourceTypes"];
 		labelRef?: string;
+		viewerUserUuid?: string | null;
 	},
 ): Promise<CommandPaletteItem[]> {
 	const normalized = query.trim();
@@ -319,13 +364,14 @@ export async function searchLocalCommandItems(
 	const includeSessions = allowsResourceType(plan, "session");
 	const includeTurns = allowsResourceType(plan, "turn");
 	const userKey = getCacheUserKey();
+	const viewerUserUuid = options?.viewerUserUuid ?? null;
 	const spacesById = new Map<string, SpaceRecord>();
 	const items: CommandPaletteItem[] = [];
 
 	for (const space of getCachedSpaceList() ?? []) {
 		spacesById.set(space.id, space);
 		if (includeSpaces) {
-			const item = spaceToItem(space, normalized);
+			const item = spaceToItem(space, normalized, viewerUserUuid);
 			if (item) items.push(item);
 		}
 	}
@@ -340,7 +386,7 @@ export async function searchLocalCommandItems(
 		if (record.userKey !== userKey) continue;
 		spacesById.set(record.spaceId, record.space);
 		if (includeSpaces) {
-			const item = spaceToItem(record.space, normalized);
+			const item = spaceToItem(record.space, normalized, viewerUserUuid);
 			if (item) items.push(item);
 		}
 	}
@@ -364,7 +410,12 @@ export async function searchLocalCommandItems(
 		for (const session of record.sessions) {
 			sessionsById.set(session.id, session);
 			if (includeSessions) {
-				const item = sessionToItem({ session, spaceName, query: normalized });
+				const item = sessionToItem({
+					session,
+					spaceName,
+					query: normalized,
+					viewerUserUuid,
+				});
 				if (item) items.push(item);
 			}
 		}
@@ -457,6 +508,7 @@ export async function searchLocalCommandItems(
 				spaceId: record.spaceId,
 				spaceName,
 				query: normalized,
+				viewerUserUuid,
 			});
 			if (item) items.push(item);
 		}
@@ -467,11 +519,31 @@ export async function searchLocalCommandItems(
 		}
 	}
 
+	const explicitTurnOnly =
+		options?.resourceTypes?.length === 1 && options.resourceTypes[0] === "turn";
 	const byKey = new Map<string, CommandPaletteItem>();
-	for (const item of items) {
+	for (const item of explicitTurnOnly
+		? items
+		: aggregateTurnsBySession(items)) {
 		const key = commandItemKey(item);
 		const existing = byKey.get(key);
 		if (!existing || item.score > existing.score) byKey.set(key, item);
 	}
 	return sortCommandItems([...byKey.values()]).slice(0, LOCAL_LIMIT);
+}
+
+/** Keep one best-scoring turn per session unless the user asked for raw turns. */
+function aggregateTurnsBySession(items: CommandPaletteItem[]) {
+	const bestBySession = new Map<string, CommandPaletteItem>();
+	const rest: CommandPaletteItem[] = [];
+	for (const item of items) {
+		if (item.type !== "turn" || !item.sessionId) {
+			rest.push(item);
+			continue;
+		}
+		const existing = bestBySession.get(item.sessionId);
+		if (!existing || item.score > existing.score)
+			bestBySession.set(item.sessionId, item);
+	}
+	return [...rest, ...bestBySession.values()];
 }

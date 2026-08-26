@@ -1,5 +1,6 @@
 import type {
 	GlobalSearchType,
+	GlobalSearchViewerRelation,
 	LabelResourceType,
 	SpacePublicProfile,
 	UserProfile,
@@ -14,6 +15,10 @@ export type CommandPaletteItemSource =
 	| "local+remote"
 	| "recent"
 	| "default";
+
+export type CommandPaletteViewerRelation =
+	| GlobalSearchViewerRelation
+	| "unknown";
 
 export type CommandPaletteItem = {
 	type: CommandPaletteItemType;
@@ -49,6 +54,9 @@ export type CommandPaletteItem = {
 	labelName?: string | null;
 	labelResourceType?: LabelResourceType | null;
 	labelResourceRef?: string | null;
+	viewerRelation?: CommandPaletteViewerRelation | null;
+	/** Personal-relevance tier (0 = mine, 1 = space-related, 2 = public-only). */
+	viewerTier?: number;
 	updatedAt: string | null;
 	source: CommandPaletteItemSource;
 	isPinned?: boolean;
