@@ -526,8 +526,14 @@ function scheduleSearch(plan: typeof searchPlan, spaceId: string | null) {
 				if (token === searchToken) legacyDefaultDone = true;
 			});
 		// Prefer the cached overview snapshot for an instant server-ranked list.
+		// A stale snapshot must NOT drive the first frame: rendering pre-send data
+		// then swapping in fresh data causes a visible jump. While stale, show the
+		// legacy local list (or recent items) and only apply overview data once it
+		// has actually been refetched.
 		const snapshot = getPaletteOverviewSnapshot();
-		void buildDefaults(snapshot.data)
+		const usableSnapshot = snapshot.isStale ? null : snapshot.data;
+		if (!usableSnapshot) defaultItems = [];
+		void buildDefaults(usableSnapshot)
 			.then((items) => {
 				if (token !== searchToken) return;
 				defaultItems = items;

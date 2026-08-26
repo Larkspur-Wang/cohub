@@ -27,6 +27,7 @@ import type { SessionListForkRecord } from "$lib/cache/db";
 import { getCacheUserKey } from "$lib/cache/keys";
 import { sessionTurnsRepo } from "$lib/cache/repositories/session-turns-repo";
 import { shouldRefreshAgentCatalogs } from "$lib/cache/space-fs-invalidation";
+import { noteViewerActivity } from "$lib/command-palette/palette-overview";
 import {
 	buildComposerTextContentBlock,
 	type ComposerFileAttachment,
@@ -2759,6 +2760,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			});
 			if (result.mode !== "immediate")
 				throw new Error("Expected immediate generation response");
+			noteViewerActivity();
 			if (shouldClearComposerDraftAfterSend("create")) {
 				composer.clearDraft();
 				clearActiveComposerDraft();
@@ -3116,6 +3118,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			if (disposed || spaceId !== opSpaceId) {
 				return;
 			}
+			noteViewerActivity();
 			const acceptedTurn = sendResult.turn;
 			const acceptedSession = sendResult.session;
 			if (!acceptedSession) throw new Error("Prompt response missing session");

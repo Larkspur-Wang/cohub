@@ -1,5 +1,9 @@
 import type { PaletteOverviewResponse } from "@neta-art/cohub";
 import { getCacheUserKey } from "$lib/cache/keys";
+import {
+	isOverviewSnapshotExpired,
+	isOverviewSnapshotStale,
+} from "$lib/command-palette/palette-overview-staleness";
 import { sdk } from "$lib/sdk";
 
 /**
@@ -9,16 +13,22 @@ import { sdk } from "$lib/sdk";
  * render immediately from the snapshot and refresh in the background when
  * stale. Failures degrade to `null`, which falls back to the legacy local
  * default-items path.
+ *
+ * Freshness is not purely time-based: sending a message (or otherwise touching
+ * viewer activity) marks the cache invalidated so the very next palette open
+ * refetches instead of serving pre-send data.
  */
 
 const STORAGE_PREFIX = "cohub:palette-overview";
 const CACHE_VERSION = 1;
-const FRESH_MS = 60_000;
-const HARD_EXPIRY_MS = 10 * 60_000;
+/** Cooldown for invalidate-on-send refetches; avoids hammering on bursts. */
+const INVALIDATE_COOLDOWN_MS = 5_000;
 
 type StoredOverview = PaletteOverviewResponse & { cachedAt: number };
 
 let memoryCache: StoredOverview | null = null;
+let invalidatedAt = 0;
+let lastAutoRefreshAt = 0;
 
 function isBrowser() {
 	return typeof window !== "undefined" && typeof localStorage !== "undefined";
@@ -63,13 +73,15 @@ function readCached(): StoredOverview | null {
 	if (!isBrowser()) return null;
 	const stored = safeParse(localStorage.getItem(storageKey()));
 	if (!stored) return null;
-	if (Date.now() - stored.cachedAt > HARD_EXPIRY_MS) return null;
+	if (isOverviewSnapshotExpired({ cachedAt: stored.cachedAt, now: Date.now() }))
+		return null;
 	if (isEmptyOverview(stored)) return null;
 	return stored;
 }
 
 export type PaletteOverviewSnapshot = {
 	data: PaletteOverviewResponse | null;
+	/** True when the next palette open must refetch before/at first render. */
 	isStale: boolean;
 };
 
@@ -79,12 +91,26 @@ export function getPaletteOverviewSnapshot(): PaletteOverviewSnapshot {
 		return { data: null, isStale: true };
 	return {
 		data: memoryCache,
-		isStale: Date.now() - memoryCache.cachedAt > FRESH_MS,
+		isStale: isOverviewSnapshotStale({
+			cachedAt: memoryCache.cachedAt,
+			invalidatedAt,
+			now: Date.now(),
+		}),
 	};
+}
+
+/**
+ * Mark the overview cache as outdated after viewer activity (message sent,
+ * session created, ...). Cheap and synchronous: the next palette open will
+ * treat the snapshot as stale and refetch instead of serving pre-send data.
+ */
+export function invalidatePaletteOverview() {
+	invalidatedAt = Date.now();
 }
 
 export function clearCachedPaletteOverview() {
 	memoryCache = null;
+	invalidatedAt = 0;
 	if (!isBrowser()) return;
 	try {
 		localStorage.removeItem(storageKey());
@@ -107,6 +133,10 @@ export async function refreshPaletteOverview(options?: {
 		}
 		const stored: StoredOverview = { ...data, cachedAt: Date.now() };
 		memoryCache = stored;
+		if (invalidatedAt && stored.cachedAt >= invalidatedAt) {
+			// Refetched after the invalidation point: fresh again.
+			invalidatedAt = 0;
+		}
 		if (isBrowser()) {
 			try {
 				localStorage.setItem(storageKey(), JSON.stringify(stored));
@@ -120,4 +150,19 @@ export async function refreshPaletteOverview(options?: {
 			console.warn("[palette-overview] refresh failed", error);
 		return null;
 	}
+}
+
+/**
+ * Invalidate + opportunistic background refresh after viewer activity.
+ * Fire-and-forget with a short cooldown so message bursts do not refetch on
+ * every keystroke-completed turn.
+ */
+export function noteViewerActivity() {
+	invalidatePaletteOverview();
+	const now = Date.now();
+	if (now - lastAutoRefreshAt < INVALIDATE_COOLDOWN_MS) return;
+	lastAutoRefreshAt = now;
+	void refreshPaletteOverview().catch(() => {
+		// Background refresh is best-effort; the stale marker stays.
+	});
 }
