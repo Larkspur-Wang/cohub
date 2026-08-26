@@ -73,10 +73,13 @@ router.get("/", async (c) => {
   try {
     const pinnedSpaceIds = await getPinnedSpaceIds(db, identity.uuid);
     const pinnedIds = [...pinnedSpaceIds];
+    // NOTE: use the expression `1 = 0` instead of the bare constant `false` —
+    // PostgreSQL rejects non-integer constants in ORDER BY (SQLSTATE 42601),
+    // and this fragment is interpolated into both SELECT and ORDER BY.
     const pinnedCondition =
       pinnedIds.length > 0
         ? sql`vs.id IN (${sql.join(pinnedIds.map((id) => sql`${id}::uuid`), sql`, `)})`
-        : sql`false`;
+        : sql`1 = 0`;
 
     const { spaceRows, sessionRows } = await db.transaction(async (tx) => {
       const spaces = await tx.execute<PaletteOverviewSpaceRow>(sql`

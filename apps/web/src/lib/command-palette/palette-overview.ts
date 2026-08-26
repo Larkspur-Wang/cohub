@@ -24,6 +24,21 @@ function isBrowser() {
 	return typeof window !== "undefined" && typeof localStorage !== "undefined";
 }
 
+/**
+ * Treat an all-empty payload as "no overview": the server degrades to empty
+ * structures on failure, and caching/using that would blank the default list
+ * instead of falling back to the local derivation path. Genuinely empty
+ * accounts are equally empty locally, so this is always safe.
+ */
+function isEmptyOverview(data: PaletteOverviewResponse | null): boolean {
+	if (!data) return true;
+	const spaces = Array.isArray(data.spaces) ? data.spaces : [];
+	const sessions = Array.isArray(data.recentSessions)
+		? data.recentSessions
+		: [];
+	return spaces.length === 0 && sessions.length === 0;
+}
+
 function storageKey() {
 	return `${STORAGE_PREFIX}:${encodeURIComponent(getCacheUserKey())}:v${CACHE_VERSION}`;
 }
@@ -49,6 +64,7 @@ function readCached(): StoredOverview | null {
 	const stored = safeParse(localStorage.getItem(storageKey()));
 	if (!stored) return null;
 	if (Date.now() - stored.cachedAt > HARD_EXPIRY_MS) return null;
+	if (isEmptyOverview(stored)) return null;
 	return stored;
 }
 
@@ -59,7 +75,8 @@ export type PaletteOverviewSnapshot = {
 
 export function getPaletteOverviewSnapshot(): PaletteOverviewSnapshot {
 	if (!memoryCache) memoryCache = readCached();
-	if (!memoryCache) return { data: null, isStale: true };
+	if (!memoryCache || isEmptyOverview(memoryCache))
+		return { data: null, isStale: true };
 	return {
 		data: memoryCache,
 		isStale: Date.now() - memoryCache.cachedAt > FRESH_MS,
@@ -83,7 +100,11 @@ export async function refreshPaletteOverview(options?: {
 		const fetcher: typeof fetch = (input, init) =>
 			fetch(input, { ...init, signal: options?.signal });
 		const data = await sdk.search.overview(undefined, fetcher);
-		if (!data || !Array.isArray(data.spaces)) return null;
+		if (isEmptyOverview(data)) {
+			// Degraded/empty server payload: do not cache, fall back locally.
+			clearCachedPaletteOverview();
+			return null;
+		}
 		const stored: StoredOverview = { ...data, cachedAt: Date.now() };
 		memoryCache = stored;
 		if (isBrowser()) {
