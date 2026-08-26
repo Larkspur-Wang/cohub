@@ -511,6 +511,7 @@ function scheduleSearch(plan: typeof searchPlan, spaceId: string | null) {
 				...plan,
 				currentSpaceId: spaceId,
 				signal: defaultSignal,
+				viewerUserUuid: myUserUuid,
 				paletteOverview: overview,
 			});
 		// The "All" tab in space picker mode keeps the pre-overview local list.

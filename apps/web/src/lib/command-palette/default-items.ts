@@ -86,6 +86,52 @@ function getSessionActivityBySpace(records: SessionListCacheRecord[]) {
 	return activityBySpace;
 }
 
+/**
+ * Per-space activity time of sessions the viewer created or participates in
+ * (local session_lists cache). Other people's sessions are ignored, so this
+ * complements the server-side lastParticipatedAt with a device-local signal
+ * that covers "opened someone else's session and chatted" without being
+ * polluted by foreign activity.
+ */
+async function getViewerSessionActivityBySpace(
+	userKey: string,
+	viewerUserUuid: string | null,
+	options?: { signal?: AbortSignal },
+): Promise<Map<string, string>> {
+	const activityBySpace = new Map<string, string>();
+	if (!viewerUserUuid) return activityBySpace;
+	const records = await idbGetSomeByIndex<SessionListCacheRecord>(
+		"session_lists",
+		"by_updated_at",
+		IDBKeyRange.lowerBound(0),
+		{
+			limit: DEFAULT_SESSION_LIST_SCAN_LIMIT,
+			direction: "prev",
+			filter: (record) => record.userKey === userKey,
+		},
+	);
+	shouldAbort(options?.signal);
+	for (const record of records) {
+		for (const session of record.sessions) {
+			if (session.userUuid === viewerUserUuid) {
+				const current = activityBySpace.get(record.spaceId) ?? "";
+				const candidate = sessionActivityAt(session) ?? "";
+				if (timeValue(candidate) > timeValue(current))
+					activityBySpace.set(record.spaceId, candidate);
+				continue;
+			}
+			const participants = session.participantUserUuids;
+			if (participants?.includes(viewerUserUuid)) {
+				const current = activityBySpace.get(record.spaceId) ?? "";
+				const candidate = sessionActivityAt(session) ?? "";
+				if (timeValue(candidate) > timeValue(current))
+					activityBySpace.set(record.spaceId, candidate);
+			}
+		}
+	}
+	return activityBySpace;
+}
+
 function defaultScore(rank: number, updatedAt: string | null | undefined) {
 	const fresh = recencyScore(updatedAt);
 	return {
@@ -271,6 +317,7 @@ async function buildOverviewDefaultItems(
 	plan: CommandPaletteSearchPlan & {
 		currentSpaceId?: string | null;
 		signal?: AbortSignal;
+		viewerUserUuid?: string | null;
 	},
 	overview: PaletteOverviewResponse,
 ): Promise<CommandPaletteItem[]> {
@@ -282,16 +329,23 @@ async function buildOverviewDefaultItems(
 	const items: CommandPaletteItem[] = [];
 
 	if (allowsResourceType(plan, "space")) {
-		// Fold the device-local "visited at" signal into the server ranking:
-		// opening a space on this device floats it to the top of Recent just
-		// like the legacy list, without waiting for a message to be sent.
+		// Fold device-local personal signals into the server ranking:
+		//  1. recent-space visits (opening a space floats it to the top), and
+		//  2. activity of sessions the viewer created/participates in from the
+		//     local session cache (foreign sessions never count).
 		const recentActivityBySpace = new Map(
 			getRecentSpaces(userKey).map((entry) => [entry.spaceId, entry.timestamp]),
+		);
+		const viewerSessionActivityBySpace = await getViewerSessionActivityBySpace(
+			userKey,
+			plan.viewerUserUuid ?? null,
+			{ signal: plan.signal },
 		);
 		const personalActivityMs = (space: PaletteOverviewSpace) =>
 			Math.max(
 				isoTimestampValue(space.lastParticipatedAt),
 				timestampValue(recentActivityBySpace.get(space.id)),
+				isoTimestampValue(viewerSessionActivityBySpace.get(space.id)),
 			);
 		[...overview.spaces]
 			.sort((a, b) => {
@@ -365,6 +419,7 @@ export async function getCommandPaletteDefaultItems(
 	plan: CommandPaletteSearchPlan & {
 		currentSpaceId?: string | null;
 		signal?: AbortSignal;
+		viewerUserUuid?: string | null;
 		/** Server-side palette overview — preferred over local-only derivation. */
 		paletteOverview?: PaletteOverviewResponse | null;
 	},
