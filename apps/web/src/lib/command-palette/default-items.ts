@@ -44,6 +44,12 @@ function timestampValue(value: number | null | undefined) {
 	return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
+function isoTimestampValue(value: string | null | undefined) {
+	if (!value) return 0;
+	const time = new Date(value).getTime();
+	return Number.isFinite(time) ? time : 0;
+}
+
 function isoFromTimestamp(value: number) {
 	return value > 0 ? new Date(value).toISOString() : null;
 }
@@ -87,6 +93,13 @@ function defaultScore(rank: number, updatedAt: string | null | undefined) {
 		textScore: 0,
 		recencyScore: fresh,
 	};
+}
+
+/** owner < member < public, mirroring the server-side overview ranking. */
+function relationRank(space: PaletteOverviewSpace) {
+	if (space.relation === "owner") return 0;
+	if (space.relation === "member") return 1;
+	return 2;
 }
 
 /** Server-ranked overview space: rank mirrors the pinned → participation order. */
@@ -269,9 +282,27 @@ async function buildOverviewDefaultItems(
 	const items: CommandPaletteItem[] = [];
 
 	if (allowsResourceType(plan, "space")) {
-		overview.spaces.forEach((space, rank) => {
-			items.push(overviewSpaceToItem(space, rank));
-		});
+		// Fold the device-local "visited at" signal into the server ranking:
+		// opening a space on this device floats it to the top of Recent just
+		// like the legacy list, without waiting for a message to be sent.
+		const recentActivityBySpace = new Map(
+			getRecentSpaces(userKey).map((entry) => [entry.spaceId, entry.timestamp]),
+		);
+		const personalActivityMs = (space: PaletteOverviewSpace) =>
+			Math.max(
+				isoTimestampValue(space.lastParticipatedAt),
+				timestampValue(recentActivityBySpace.get(space.id)),
+			);
+		[...overview.spaces]
+			.sort((a, b) => {
+				if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
+				const activityDelta = personalActivityMs(b) - personalActivityMs(a);
+				if (activityDelta !== 0) return activityDelta;
+				return relationRank(a) - relationRank(b);
+			})
+			.forEach((space, rank) => {
+				items.push(overviewSpaceToItem(space, rank));
+			});
 	}
 
 	if (allowsResourceType(plan, "session")) {
