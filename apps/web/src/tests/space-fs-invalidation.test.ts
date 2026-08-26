@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { SpaceFsChangedPayload } from "@cohub/protocol/fs";
-import { getFsInvalidationTargets } from "../lib/cache/space-fs-invalidation.ts";
+import {
+	getFsInvalidationTargets,
+	shouldRefreshAgentCatalogs,
+} from "../lib/cache/space-fs-invalidation.ts";
 import {
 	createSpaceFsRefreshCoordinator,
 	type SpaceFsRefreshBatch,
@@ -64,6 +67,68 @@ describe("space fs invalidation", () => {
 
 		assert.deepEqual([...targets.dirs], []);
 		assert.deepEqual([...targets.subtrees], [""]);
+	});
+
+	it("refreshes agent catalogs for prompt and skill file changes", () => {
+		assert.equal(
+			shouldRefreshAgentCatalogs(
+				payload([
+					{
+						path: ".agents/prompts/hello.md",
+						kind: "modify",
+						nodeType: "file",
+					},
+				]),
+			),
+			true,
+		);
+		assert.equal(
+			shouldRefreshAgentCatalogs(
+				payload([
+					{
+						path: ".agents/skills/review/SKILL.md",
+						kind: "create",
+						nodeType: "file",
+					},
+				]),
+			),
+			true,
+		);
+	});
+
+	it("refreshes agent catalogs when a containing directory moves", () => {
+		assert.equal(
+			shouldRefreshAgentCatalogs(
+				payload([
+					{
+						path: "archive/agents",
+						oldPath: ".agents",
+						kind: "rename",
+						nodeType: "dir",
+					},
+				]),
+			),
+			true,
+		);
+	});
+
+	it("ignores unrelated file changes and refreshes after a resync", () => {
+		assert.equal(
+			shouldRefreshAgentCatalogs(
+				payload([
+					{ path: ".agents/AGENTS.md", kind: "modify", nodeType: "file" },
+				]),
+			),
+			false,
+		);
+		assert.equal(
+			shouldRefreshAgentCatalogs({
+				source: "sandbox-watch-started",
+				resync: true,
+				changes: [],
+			}),
+			true,
+		);
 	});
 });
 

@@ -1,32 +1,18 @@
 import type { SkillCatalogEntry } from "@neta-art/cohub";
 import { sdk } from "$lib/sdk";
 import { readCachedSkills, writeCachedSkills } from "$lib/skill-cache";
+import {
+	type CatalogRefreshOptions,
+	createCatalogRefreshCoordinator,
+} from "./catalog-refresh-coordinator";
 
 export function createSkillController(options: { getSpaceId: () => string }) {
 	let items = $state<SkillCatalogEntry[]>([]);
 	let loaded = $state(false);
 	let loadedFor = $state<string | null>(null);
-	let refreshInFlight: Promise<void> | null = null;
-	let refreshInFlightFor: string | null = null;
-
-	function restore(targetSpaceId: string) {
-		const cached = readCachedSkills(targetSpaceId);
-		if (!cached) {
-			items = [];
-			loaded = false;
-			loadedFor = null;
-			return;
-		}
-		items = cached;
-		loaded = true;
-		loadedFor = targetSpaceId;
-	}
-
-	async function refresh(targetSpaceId: string) {
-		if (refreshInFlight && refreshInFlightFor === targetSpaceId) {
-			return refreshInFlight;
-		}
-		const run = (async () => {
+	const refreshCoordinator = createCatalogRefreshCoordinator({
+		getSpaceId: options.getSpaceId,
+		refresh: async (targetSpaceId) => {
 			try {
 				const response = await sdk.skills.list({ spaceId: targetSpaceId });
 				writeCachedSkills(targetSpaceId, response.skills);
@@ -41,22 +27,26 @@ export function createSkillController(options: { getSpaceId: () => string }) {
 				loaded = true;
 				loadedFor = targetSpaceId;
 			}
-		})();
-		const trackedRun = run.finally(() => {
-			if (refreshInFlight === trackedRun) {
-				refreshInFlight = null;
-				refreshInFlightFor = null;
-			}
-		});
-		refreshInFlight = trackedRun;
-		refreshInFlightFor = targetSpaceId;
-		return trackedRun;
+		},
+	});
+
+	function restore(targetSpaceId: string) {
+		const cached = readCachedSkills(targetSpaceId);
+		if (!cached) {
+			items = [];
+			loaded = false;
+			loadedFor = null;
+			return;
+		}
+		items = cached;
+		loaded = true;
+		loadedFor = targetSpaceId;
 	}
 
-	async function load() {
+	async function load(loadOptions: CatalogRefreshOptions = {}) {
 		const targetSpaceId = options.getSpaceId();
 		if (loadedFor !== targetSpaceId) restore(targetSpaceId);
-		await refresh(targetSpaceId);
+		await refreshCoordinator.refresh(targetSpaceId, loadOptions);
 	}
 
 	return {
@@ -71,6 +61,6 @@ export function createSkillController(options: { getSpaceId: () => string }) {
 		},
 		load,
 		restore,
-		refresh,
+		refresh: refreshCoordinator.refresh,
 	};
 }

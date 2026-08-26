@@ -8,6 +8,7 @@ import {
 	buildViewportContentBlock,
 } from "@cohub/protocol";
 import type { ContentBlock } from "@cohub/protocol/core";
+import type { SpaceFsChangedPayload } from "@cohub/protocol/fs";
 import type { GenerationContentBlock } from "@cohub/protocol/generation";
 import type {
 	SessionTurnIndexItem,
@@ -25,6 +26,7 @@ import { classifyAccessError } from "$lib/access/access-state";
 import type { SessionListForkRecord } from "$lib/cache/db";
 import { getCacheUserKey } from "$lib/cache/keys";
 import { sessionTurnsRepo } from "$lib/cache/repositories/session-turns-repo";
+import { shouldRefreshAgentCatalogs } from "$lib/cache/space-fs-invalidation";
 import {
 	buildComposerTextContentBlock,
 	type ComposerFileAttachment,
@@ -1314,9 +1316,11 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		generationPolicy.setBooleanConstraint(modelId, parameter, constraint);
 	}
 
-	async function loadPromptTemplates() {
-		await promptTemplatesCtrl.load();
-		await skillsCtrl.load();
+	async function loadPromptTemplates(options: { ensureFresh?: boolean } = {}) {
+		await Promise.all([
+			promptTemplatesCtrl.load(options),
+			skillsCtrl.load(options),
+		]);
 	}
 
 	function handleModelSelect(model: {
@@ -3732,9 +3736,14 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	async function ingestRealtimeEnvelope(payload: ChannelEnvelope) {
 		if (disposed) return;
 		try {
-			// Shell owns FS / ports / labels; chat only consumes session events.
+			if (payload.type === "space.fs.changed") {
+				const eventPayload = payload.payload as SpaceFsChangedPayload;
+				if (shouldRefreshAgentCatalogs(eventPayload))
+					await loadPromptTemplates({ ensureFresh: true });
+				return;
+			}
+			// Shell owns ports and labels; chat only consumes session events.
 			if (
-				payload.type === "space.fs.changed" ||
 				payload.type === "space.ports.changed" ||
 				payload.type === "label.assignments.updated"
 			) {

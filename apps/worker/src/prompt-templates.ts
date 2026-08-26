@@ -1,14 +1,13 @@
-import { readdir, readFile, stat } from "node:fs/promises";
+import { stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import {
   createCachedPromptTemplatesConfig,
   getModPromptsRedisKey,
-  getProjectPromptsRedisKey as getSharedProjectPromptsRedisKey,
   getSpaceModPromptsRedisKey,
   getUserPromptsRedisKey,
+  loadPromptTemplatesFromDirectory,
   mergePromptTemplatesConfigs,
   parseCachedPromptTemplatesConfig,
-  parsePromptTemplateFromText,
   PLATFORM_PROMPTS_REDIS_KEY,
   PROMPTS_CACHE_TTL_SEC,
   type CachedPromptTemplatesConfig,
@@ -58,16 +57,21 @@ function getProjectPromptsDir(spaceId: string) {
   return resolve(config.spaceStorageRoot, spaceId, "workspace", PROMPTS_DIR);
 }
 
+async function loadProjectPrompts(spaceId: string): Promise<PromptTemplatesConfig> {
+  const { content } = await loadPromptTemplatesFromDirectory({
+    dir: getProjectPromptsDir(spaceId),
+    scope: "project",
+    allowMissing: true,
+  });
+  return content;
+}
+
 function getModLatestDir(modSpaceId: string) {
   return resolve(config.checkpointCacheRoot, modSpaceId, "latest");
 }
 
 function getModPromptsDir(modSpaceId: string) {
   return resolve(getModLatestDir(modSpaceId), PROMPTS_DIR);
-}
-
-function getProjectPromptsRedisKey(spaceId: string) {
-  return getSharedProjectPromptsRedisKey(spaceId);
 }
 
 async function getDirectoryRevision(dir: string): Promise<string> {
@@ -83,28 +87,9 @@ async function getDirectoryRevision(dir: string): Promise<string> {
   return `${dir}:missing`;
 }
 
-function parseTemplateFromText(raw: string, filePath: string, scope: PromptTemplateScope): PromptTemplate {
-  return parsePromptTemplateFromText(raw, filePath, scope);
-}
-
-async function readPromptsConfigFromDir(dir: string, scope: PromptTemplateScope): Promise<{ rawText: string; content: PromptTemplatesConfig }> {
-  const entries = await readdir(dir);
-  const templates: PromptTemplate[] = [];
-  const rawParts: string[] = [];
-  for (const entry of entries.sort()) {
-    if (!entry.endsWith(".md")) continue;
-    const path = join(dir, entry);
-    const rawText = await readFile(path, "utf-8");
-    rawParts.push(`${entry}\n${rawText}`);
-    templates.push(parseTemplateFromText(rawText, path, scope));
-  }
-  templates.sort((a, b) => a.name.localeCompare(b.name));
-  return { rawText: rawParts.join("\n---\n"), content: { templates } };
-}
-
 async function loadPromptsFromDir(input: { dir: string; redisKey: string; scope: PromptTemplateScope; allowMissing: boolean }): Promise<CachedPromptTemplatesConfig> {
   try {
-    const { rawText, content } = await readPromptsConfigFromDir(input.dir, input.scope);
+    const { rawText, content } = await loadPromptTemplatesFromDirectory(input);
     const cached = createCachedPromptTemplatesConfig({ rawText, content });
     await redisCommandClient.set(input.redisKey, JSON.stringify(cached), "EX", PROMPTS_CACHE_TTL_SEC).catch(() => undefined);
     return cached;
@@ -181,7 +166,7 @@ async function fetchPromptTemplates(options: LoadPromptTemplatesOptions): Promis
     configs.push(await loadCachedPrompts({ redisKey: getUserPromptsRedisKey(options.userId), dir: getUserPromptsDir(options.userId), scope: "user", allowMissing: true }));
   }
   if (options.spaceId && config.spaceStorageRoot) {
-    configs.push(await loadCachedPrompts({ redisKey: getProjectPromptsRedisKey(options.spaceId), dir: getProjectPromptsDir(options.spaceId), scope: "project", allowMissing: true }));
+    configs.push(await loadProjectPrompts(options.spaceId));
   }
   return mergePromptTemplatesConfigs(...configs).templates;
 }

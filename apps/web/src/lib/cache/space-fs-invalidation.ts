@@ -15,6 +15,28 @@ function parentDir(path: string) {
 	return normalized.slice(0, normalized.lastIndexOf("/"));
 }
 
+const AGENT_CATALOG_DIRS = [".agents/prompts", ".agents/skills"];
+
+function pathAffectsDirectory(path: string | undefined, directory: string) {
+	const normalized = normalizePath(path ?? "");
+	return (
+		normalized === directory ||
+		normalized.startsWith(`${directory}/`) ||
+		(normalized.length > 0 && directory.startsWith(`${normalized}/`))
+	);
+}
+
+export function shouldRefreshAgentCatalogs(payload: SpaceFsChangedPayload) {
+	if (payload.resync) return true;
+	return payload.changes.some((change) =>
+		AGENT_CATALOG_DIRS.some(
+			(directory) =>
+				pathAffectsDirectory(change.path, directory) ||
+				pathAffectsDirectory(change.oldPath, directory),
+		),
+	);
+}
+
 export function getFsInvalidationTargets(
 	payload: SpaceFsChangedPayload,
 ): SpaceFsInvalidationTargets {

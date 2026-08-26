@@ -2594,6 +2594,7 @@ $effect(() => {
 	return subscribeSpaceChannel(currentSpaceId, (event) => {
 		if (event.type === "space.fs.changed") {
 			enqueueSpaceFsChanged(event);
+			void sessionChat.ingestRealtimeEnvelope(event);
 			return;
 		}
 		void handleWsEvent(event);

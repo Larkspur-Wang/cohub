@@ -1,9 +1,11 @@
+import { readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
+
 export const PROMPTS_REDIS_KEY_VERSION = "v2";
 export const PLATFORM_PROMPTS_REDIS_KEY = `configs:prompts:${PROMPTS_REDIS_KEY_VERSION}:platform`;
 export const USER_PROMPTS_REDIS_KEY_PREFIX = `configs:prompts:${PROMPTS_REDIS_KEY_VERSION}:user`;
 export const MOD_PROMPTS_REDIS_KEY_PREFIX = `configs:prompts:${PROMPTS_REDIS_KEY_VERSION}:mod`;
 export const SPACE_MOD_PROMPTS_REDIS_KEY_PREFIX = `configs:prompts:${PROMPTS_REDIS_KEY_VERSION}:space-mods`;
-export const PROJECT_PROMPTS_REDIS_KEY_PREFIX = `configs:prompts:${PROMPTS_REDIS_KEY_VERSION}:project`;
 export const PROMPTS_CACHE_TTL_SEC = 24 * 60 * 60;
 
 const SAFE_REDIS_KEY_SEGMENT_REGEX = /^[0-9a-zA-Z_-]+$/;
@@ -41,6 +43,36 @@ export type PromptTemplatesConfig = {
   templates: PromptTemplate[];
 };
 
+export async function loadPromptTemplatesFromDirectory(input: {
+  dir: string;
+  scope: PromptTemplateScope;
+  allowMissing?: boolean;
+}): Promise<{ rawText: string; content: PromptTemplatesConfig }> {
+  try {
+    const entries = await readdir(input.dir);
+    const templates: PromptTemplate[] = [];
+    const rawParts: string[] = [];
+
+    for (const entry of entries.sort()) {
+      if (!entry.endsWith(".md")) continue;
+      const path = join(input.dir, entry);
+      const rawText = await readFile(path, "utf-8");
+      rawParts.push(`${entry}\n${rawText}`);
+      templates.push(parsePromptTemplateFromText(rawText, path, input.scope));
+    }
+
+    templates.sort((a, b) => a.name.localeCompare(b.name));
+    return { rawText: rawParts.join("\n---\n"), content: { templates } };
+  } catch (error) {
+    const code =
+      typeof error === "object" && error !== null && "code" in error
+        ? String((error as { code?: unknown }).code)
+        : undefined;
+    if (code !== "ENOENT" || !input.allowMissing) throw error;
+    return { rawText: "", content: { templates: [] } };
+  }
+}
+
 export type CachedPromptTemplatesConfig = {
   rev: string;
   updatedAt: string;
@@ -66,10 +98,6 @@ export function getModPromptsRedisKey(modSpaceId: string, revision: string): str
 
 export function getSpaceModPromptsRedisKey(spaceId: string, fingerprint: string): string {
   return `${SPACE_MOD_PROMPTS_REDIS_KEY_PREFIX}:${assertSafeRedisKeySegment(spaceId, "spaceId")}:${createFastContentHash(fingerprint)}`;
-}
-
-export function getProjectPromptsRedisKey(spaceId: string): string {
-  return `${PROJECT_PROMPTS_REDIS_KEY_PREFIX}:${assertSafeRedisKeySegment(spaceId, "spaceId")}`;
 }
 
 export function parsePromptFrontmatter(markdown: string): {

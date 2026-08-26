@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 import {
   isPromptTemplate,
   isPromptTemplatesConfig,
+  loadPromptTemplatesFromDirectory,
   parsePromptFrontmatter,
   parsePromptTemplateFromText,
 } from "./prompts.js";
@@ -129,4 +133,53 @@ test("isPromptTemplatesConfig accepts legacy entries without quick action fields
     }),
     true,
   );
+});
+
+test("loadPromptTemplatesFromDirectory reflects live project prompt changes", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "cohub-prompts-"));
+  const promptsDir = join(root, ".agents", "prompts");
+  const promptPath = join(promptsDir, "hello.md");
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const missing = await loadPromptTemplatesFromDirectory({
+    dir: promptsDir,
+    scope: "project",
+    allowMissing: true,
+  });
+  assert.deepEqual(missing.content.templates, []);
+
+  await mkdir(promptsDir, { recursive: true });
+  await writeFile(
+    promptPath,
+    "---\ndescription: First\nquick-action: true\n---\nFirst body\n",
+  );
+  const created = await loadPromptTemplatesFromDirectory({
+    dir: promptsDir,
+    scope: "project",
+    allowMissing: true,
+  });
+  assert.equal(created.content.templates[0]?.description, "First");
+  assert.equal(created.content.templates[0]?.content, "First body\n");
+  assert.equal(created.content.templates[0]?.quickAction, true);
+
+  await writeFile(
+    promptPath,
+    "---\ndescription: Updated\nquick-action: true\n---\nUpdated body\n",
+  );
+  const updated = await loadPromptTemplatesFromDirectory({
+    dir: promptsDir,
+    scope: "project",
+    allowMissing: true,
+  });
+  assert.equal(updated.content.templates[0]?.description, "Updated");
+  assert.equal(updated.content.templates[0]?.content, "Updated body\n");
+  assert.equal(updated.content.templates[0]?.quickAction, true);
+
+  await rm(promptPath);
+  const deleted = await loadPromptTemplatesFromDirectory({
+    dir: promptsDir,
+    scope: "project",
+    allowMissing: true,
+  });
+  assert.deepEqual(deleted.content.templates, []);
 });
