@@ -152,9 +152,16 @@ function relationRank(space: PaletteOverviewSpace) {
 function overviewSpaceToItem(
 	space: PaletteOverviewSpace,
 	rank: number,
+	personalActivityAt?: string | null,
 ): CommandPaletteItem {
 	const updatedAt = space.updatedAt;
-	const score = defaultScore(rank, space.lastParticipatedAt ?? updatedAt);
+	// Freshness follows the folded personal activity (visits + viewer-owned
+	// sessions + server participation) so the final score sort does not wash
+	// out the ordering computed above.
+	const score = defaultScore(
+		rank,
+		personalActivityAt ?? space.lastParticipatedAt ?? updatedAt,
+	);
 	return {
 		type: "space",
 		id: space.id,
@@ -355,7 +362,14 @@ async function buildOverviewDefaultItems(
 				return relationRank(a) - relationRank(b);
 			})
 			.forEach((space, rank) => {
-				items.push(overviewSpaceToItem(space, rank));
+				const personalMs = personalActivityMs(space);
+				items.push(
+					overviewSpaceToItem(
+						space,
+						rank,
+						personalMs > 0 ? new Date(personalMs).toISOString() : null,
+					),
+				);
 			});
 	}
 
