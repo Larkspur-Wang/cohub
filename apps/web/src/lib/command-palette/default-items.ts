@@ -141,27 +141,18 @@ function defaultScore(rank: number, updatedAt: string | null | undefined) {
 	};
 }
 
-/** owner < member < public, mirroring the server-side overview ranking. */
-function relationRank(space: PaletteOverviewSpace) {
-	if (space.relation === "owner") return 0;
-	if (space.relation === "member") return 1;
-	return 2;
-}
-
 /** Server-ranked overview space: rank mirrors the pinned → participation order. */
 function overviewSpaceToItem(
 	space: PaletteOverviewSpace,
 	rank: number,
 	personalActivityAt?: string | null,
 ): CommandPaletteItem {
-	const updatedAt = space.updatedAt;
-	// Freshness follows the folded personal activity (visits + viewer-owned
-	// sessions + server participation) so the final score sort does not wash
-	// out the ordering computed above.
-	const score = defaultScore(
-		rank,
-		personalActivityAt ?? space.lastParticipatedAt ?? updatedAt,
-	);
+	// The displayed timestamp is the same folded personal activity time used
+	// for ordering (visits + viewer-owned sessions + server participation),
+	// falling back to the server timestamps for spaces with no viewer activity.
+	const displayUpdatedAt =
+		personalActivityAt ?? space.lastParticipatedAt ?? space.updatedAt;
+	const score = defaultScore(rank, displayUpdatedAt);
 	return {
 		type: "space",
 		id: space.id,
@@ -177,7 +168,7 @@ function overviewSpaceToItem(
 		sessionTitle: null,
 		matchedField: "name",
 		href: buildSpaceLandingRoute(space.id),
-		updatedAt,
+		updatedAt: displayUpdatedAt,
 		source: "default",
 		localScore: score.score,
 		isPinned: space.isPinned,
@@ -354,19 +345,20 @@ async function buildOverviewDefaultItems(
 				timestampValue(recentActivityBySpace.get(space.id)),
 				isoTimestampValue(viewerSessionActivityBySpace.get(space.id)),
 			);
+		// Intuition-first ordering: pinned first, then strictly by latest personal
+		// activity time. No score, no relation tie-breaks — a just-opened space
+		// must sit above anything I last touched earlier.
 		[...overview.spaces]
 			.sort((a, b) => {
 				if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
-				const activityDelta = personalActivityMs(b) - personalActivityMs(a);
-				if (activityDelta !== 0) return activityDelta;
-				return relationRank(a) - relationRank(b);
+				return personalActivityMs(b) - personalActivityMs(a);
 			})
-			.forEach((space, rank) => {
+			.forEach((space, index) => {
 				const personalMs = personalActivityMs(space);
 				items.push(
 					overviewSpaceToItem(
 						space,
-						rank,
+						index,
 						personalMs > 0 ? new Date(personalMs).toISOString() : null,
 					),
 				);
@@ -419,14 +411,15 @@ async function buildOverviewDefaultItems(
 		}
 	}
 
+	// Preserve insertion order: spaces (pinned, then personal activity desc),
+	// then recent sessions, then turns. No re-scoring — the ordering above is
+	// already the product intent for this list.
 	const byKey = new Map<string, CommandPaletteItem>();
 	for (const item of items) {
 		const key = commandItemKey(item);
 		if (!byKey.has(key)) byKey.set(key, item);
 	}
-	return [...byKey.values()]
-		.sort((a, b) => b.score - a.score)
-		.slice(0, DEFAULT_LIMIT);
+	return [...byKey.values()].slice(0, DEFAULT_LIMIT);
 }
 
 export async function getCommandPaletteDefaultItems(
