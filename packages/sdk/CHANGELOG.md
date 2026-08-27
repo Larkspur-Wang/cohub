@@ -1,5 +1,15 @@
 # @neta-art/cohub
 
+## 8.3.0
+
+### Minor Changes
+
+- - Add `search.overview()` (`GET /api/palette/overview`) plus `PaletteOverviewResponse` types for viewer-relative palette default data, including `recentSpaceIds` hints from local activity
+  - `search.query()` gains `groupTurns` to toggle per-session turn grouping
+  - Expose prompt quick-action fields (`quickAction`, `buttonLabel`, `order`) on `PromptTemplateCatalogEntry`
+  - App bridge retries authorization once with a forced token refresh, so consent flows survive short-lived access tokens
+  - Drop legacy `s3_post_v1` public asset upload protocol; uploads always use presigned PUT
+
 ## 8.2.0
 
 ### Minor Changes
