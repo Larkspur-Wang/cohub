@@ -4,6 +4,18 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v2.33 — 2026-08-27
+
+- **Stable command-palette Recent list**: the first frame is now the cached server payload folded with local caches (device visits, viewer-authored turns, newly cached spaces/sessions) instead of a pure local synthesis, so the list matches what the refetched overview returns and no longer visibly re-sorts or jumps when fresh data lands.
+- **Space root is the new chat landing**: `/spaces/:id` renders the new-session draft directly instead of 307-redirecting to `/sessions/new`, with the session workspace hoisted into a shared Space layout so it stays mounted across root and session routes — one fewer navigation hop to start chatting, previews preserved during navigations.
+- **Landing editorial pass**: dropped stale multiplayer, generation, and live-apps captures; Same room, Live Works, and Any medium sections restyled as centred statements with tightened copy so the whitespace reads as rhythm rather than missing media.
+- **Route-layer consolidation**: legacy `/sessions/new` redirect inverted into the canonical Space-root route, unified `buildSpaceNewSessionRoute`/`buildSpaceLandingRoute` builders, and mobile session forward/back transitions extended to cover the new landing path — all under fresh unit tests (`space-routes`, `navigation-transition`, `palette-overview-local`).
+
+### Bug Fixes
+
+- Agent bash tool no longer exposes `run_in_background` in its parameter schema and description (the hidden parameter remains accepted for compatibility), keeping the tool surface clean for models.
+- Space preview window query params are parsed at the Space root load, so window kind/key state survives the removal of the redirect-based landing.
+
 ## v2.32 — 2026-08-27
 
 - **Command palette instant defaults**: Default lists (no query) and the All / Mine / Pinned tabs are back to local derivation, rendering immediately from IndexedDB / space-list caches with no overview snapshot refetch or snapshot-driven re-sort; the space picker Recent tab synthesizes an overview locally from caches when its snapshot is stale, removing first-frame flicker.
