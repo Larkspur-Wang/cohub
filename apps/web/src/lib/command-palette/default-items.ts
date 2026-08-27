@@ -19,6 +19,7 @@ import { buildSpaceLandingRoute } from "$lib/space-routes";
 import { getRecentSpaces } from "$lib/stores/recent-space";
 import { getCachedSpaceList } from "$lib/stores/space-list-cache";
 import { commandItemKey } from "./merge-results";
+import { buildLocalPaletteOverview } from "./palette-overview-local";
 import { getViewerTurnActivityBySpace } from "./personal-activity";
 import { allowsResourceType, type CommandPaletteSearchPlan } from "./scope";
 import { recencyScore } from "./score";
@@ -104,6 +105,76 @@ async function getRecentTurnRecords(
 	);
 	shouldAbort(options?.signal);
 	return records.filter((record) => record.userKey === userKey);
+}
+
+async function getUserSessionLists(
+	userKey: string,
+	options?: { signal?: AbortSignal },
+) {
+	const records = await idbGetSomeByIndex<SessionListCacheRecord>(
+		"session_lists",
+		"by_updated_at",
+		IDBKeyRange.lowerBound(0),
+		{
+			limit: DEFAULT_SESSION_LIST_SCAN_LIMIT,
+			direction: "prev",
+			filter: (record) => record.userKey === userKey,
+		},
+	);
+	shouldAbort(options?.signal);
+	return records;
+}
+
+async function getLocalSpaces(
+	userKey: string,
+	options?: { signal?: AbortSignal },
+) {
+	const records = await idbGetAllByIndex<SpaceRecordCacheRecord>(
+		"space_records",
+		"by_updated_at",
+		IDBKeyRange.lowerBound(0),
+	);
+	shouldAbort(options?.signal);
+	const spacesById = new Map<string, SpaceRecord>();
+	for (const record of records) {
+		if (record.userKey === userKey)
+			spacesById.set(record.spaceId, record.space);
+	}
+	// Prefer the list cache when present: it is refreshed in the background when
+	// the palette opens, while per-space IndexedDB records may lag behind briefly.
+	for (const space of getCachedSpaceList() ?? [])
+		spacesById.set(space.id, space);
+	return [...spacesById.values()];
+}
+
+/**
+ * Overview-shaped synthesis from local caches (IndexedDB + localStorage).
+ *
+ * Backs the palette's first frame when the cached overview snapshot is stale:
+ * same ordering semantics as the server payload (pinned → viewer activity),
+ * so the list no longer re-sorts from an "all"-ordered fallback once the
+ * refetched overview lands.
+ */
+export async function getLocalPaletteOverview(options?: {
+	signal?: AbortSignal;
+	viewerUserUuid?: string | null;
+}): Promise<PaletteOverviewResponse> {
+	const userKey = getCacheUserKey();
+	const [spaces, sessionLists, turnRecords] = await Promise.all([
+		getLocalSpaces(userKey, options),
+		getUserSessionLists(userKey, options),
+		getRecentTurnRecords(userKey, options),
+	]);
+	shouldAbort(options?.signal);
+	return buildLocalPaletteOverview({
+		spaces,
+		sessionLists: sessionLists.map((record) => ({
+			spaceId: record.spaceId,
+			sessions: record.sessions,
+		})),
+		turnRecords,
+		viewerUserUuid: options?.viewerUserUuid ?? null,
+	});
 }
 
 function defaultItemsLimit(
@@ -417,42 +488,15 @@ export async function getCommandPaletteDefaultItems(
 		return buildOverviewDefaultItems(plan, plan.paletteOverview);
 	}
 	const userKey = getCacheUserKey();
-	const spacesById = new Map<string, SpaceRecord>();
-
-	const spaceRecords = await idbGetAllByIndex<SpaceRecordCacheRecord>(
-		"space_records",
-		"by_updated_at",
-		IDBKeyRange.lowerBound(0),
-	);
+	const [localSpaces, sessionListRecords, turnRecords] = await Promise.all([
+		getLocalSpaces(userKey, { signal: plan.signal }),
+		getUserSessionLists(userKey, { signal: plan.signal }),
+		getRecentTurnRecords(userKey, { signal: plan.signal }),
+	]);
 	shouldAbort(plan.signal);
-	for (const record of spaceRecords) {
-		if (record.userKey === userKey)
-			spacesById.set(record.spaceId, record.space);
-	}
-
-	// Prefer the list cache when present: it is refreshed in the background when
-	// the palette opens, while per-space IndexedDB records may lag behind briefly.
-	for (const space of getCachedSpaceList() ?? [])
-		spacesById.set(space.id, space);
+	const spacesById = new Map(localSpaces.map((space) => [space.id, space]));
 
 	const items: CommandPaletteItem[] = [];
-	let userSessionLists: SessionListCacheRecord[] | null = null;
-	const getUserSessionLists = async () => {
-		if (userSessionLists) return userSessionLists;
-		const records = await idbGetSomeByIndex<SessionListCacheRecord>(
-			"session_lists",
-			"by_updated_at",
-			IDBKeyRange.lowerBound(0),
-			{
-				limit: DEFAULT_SESSION_LIST_SCAN_LIMIT,
-				direction: "prev",
-				filter: (record) => record.userKey === userKey,
-			},
-		);
-		shouldAbort(plan.signal);
-		userSessionLists = records;
-		return userSessionLists;
-	};
 
 	if (allowsResourceType(plan, "space")) {
 		shouldAbort(plan.signal);
@@ -463,9 +507,7 @@ export async function getCommandPaletteDefaultItems(
 		const recentActivityBySpace = new Map(
 			recentSpaces.map((entry) => [entry.spaceId, entry.timestamp]),
 		);
-		const activityBySpace = getSessionActivityBySpace(
-			await getUserSessionLists(),
-		);
+		const activityBySpace = getSessionActivityBySpace(sessionListRecords);
 		const effectiveActivityTime = (space: SpaceRecord) =>
 			Math.max(
 				timeValue(activityBySpace.get(space.id) ?? null),
@@ -503,7 +545,7 @@ export async function getCommandPaletteDefaultItems(
 	if (allowsResourceType(plan, "session") || allowsResourceType(plan, "turn")) {
 		await yieldToUi();
 		shouldAbort(plan.signal);
-		const sessionLists = await getUserSessionLists();
+		const sessionLists = sessionListRecords;
 		const sessionsById = new Map<string, SessionRecord>();
 		for (const record of sessionLists) {
 			for (const session of record.sessions)
@@ -531,21 +573,10 @@ export async function getCommandPaletteDefaultItems(
 		if (allowsResourceType(plan, "turn")) {
 			await yieldToUi();
 			shouldAbort(plan.signal);
-			const turnRecords = await idbGetSomeByIndex<SessionTurnsCacheRecord>(
-				"session_turns",
-				"by_last_accessed",
-				IDBKeyRange.lowerBound(0),
-				{
-					limit: DEFAULT_TURN_RECORD_SCAN_LIMIT,
-					direction: "prev",
-					filter: (record) => record.userKey === userKey,
-				},
-			);
-			shouldAbort(plan.signal);
 			let rank = 0;
-			for (const record of turnRecords
-				.filter((record) => record.userKey === userKey)
-				.sort((a, b) => b.lastAccessedAt - a.lastAccessedAt)) {
+			for (const record of [...turnRecords].sort(
+				(a, b) => b.lastAccessedAt - a.lastAccessedAt,
+			)) {
 				const session =
 					record.session ?? sessionsById.get(record.sessionId) ?? null;
 				const turns = [...record.turns].sort(

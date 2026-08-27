@@ -19,7 +19,10 @@ import {
 	resolveLocalCommandItems,
 	withLocalCommands,
 } from "$lib/command-palette/commands";
-import { getCommandPaletteDefaultItems } from "$lib/command-palette/default-items";
+import {
+	getCommandPaletteDefaultItems,
+	getLocalPaletteOverview,
+} from "$lib/command-palette/default-items";
 import { searchLocalCommandItems } from "$lib/command-palette/local-search";
 import { mergeCommandResults } from "$lib/command-palette/merge-results";
 import {
@@ -212,17 +215,18 @@ const filteredSpaceItems = $derived.by(() => {
 const mergedItemsRaw = $derived.by(() => {
 	// Long, specific queries let strong matches bypass the personal-relevance tier.
 	const isLongQuery = trimmedQuery.length >= 12;
-	// Space picker "All" tab keeps the pre-overview local default list; the
-	// "Recent" default tab (and every other surface) uses the overview data.
-	const useLegacyDefaults =
-		isSpacePickerMode && spaceFilter === "all" && legacyDefaultDone;
-	const defaultSource = useLegacyDefaults
-		? legacyDefaultItems
-		: defaultItems.length > 0
+	// Only the space picker "Recent" tab uses the overview-backed list. The
+	// plain palette default list and every other picker tab stay on the local
+	// legacy derivation, which reads the same IndexedDB caches the old default
+	// list used (no overview snapshot, no overview refetch).
+	const useOverviewDefaults = isSpacePickerMode && spaceFilter === "recent";
+	const defaultSource = useOverviewDefaults
+		? defaultItems.length > 0
 			? defaultItems
-			: legacyDefaultItems.length > 0
-				? legacyDefaultItems
-				: recentItems;
+			: recentItems
+		: legacyDefaultItems.length > 0
+			? legacyDefaultItems
+			: recentItems;
 	let raw =
 		trimmedQuery.length < MIN_QUERY_LENGTH && !hasLabelScope
 			? withLocalCommands(defaultSource, localCommands, resultLimit)
@@ -547,26 +551,76 @@ function scheduleSearch(plan: typeof searchPlan, spaceId: string | null) {
 				viewerUserUuid: myUserUuid,
 				paletteOverview: overview,
 			});
-		// Prefer the cached overview snapshot for an instant server-ranked list.
-		// A stale snapshot must NOT drive the first frame: rendering pre-send data
-		// then swapping in fresh data causes a visible jump. While stale, show the
-		// legacy local list (or recent items) and only apply overview data once it
-		// has actually been refetched.
-		const snapshot = getPaletteOverviewSnapshot();
-		const usableSnapshot = snapshot.isStale ? null : snapshot.data;
-		const overviewHasItems = Boolean(
-			usableSnapshot?.spaces.length || usableSnapshot?.recentSessions.length,
-		);
-		const shouldBuildLegacyDefaults =
-			!usableSnapshot ||
-			!overviewHasItems ||
-			(isSpacePickerMode && spaceFilter === "all");
-		if (forceSpaceRefresh || shouldBuildLegacyDefaults) {
-			void refreshSpaceListForDefaultItems(token, { force: forceSpaceRefresh });
-		}
-		if (shouldBuildLegacyDefaults) {
-			// The "All" tab in space picker mode keeps the pre-overview local list.
-			// Build it once and reuse the result as the stale/fallback list.
+		// Only the space picker "Recent" tab consumes the overview payload. The
+		// plain palette default list (no query, no `a:`) and the other picker
+		// tabs stay on the pre-overview local derivation, which reads the same
+		// IndexedDB / space-list caches as before — no overview snapshot, no
+		// overview refetch, no snapshot-driven re-sort.
+		const useOverviewDefaults = isSpacePickerMode && spaceFilter === "recent";
+		// The space list cache feeds both paths; keep it fresh (the helper checks
+		// its own staleness unless forced).
+		void refreshSpaceListForDefaultItems(token, { force: forceSpaceRefresh });
+		if (useOverviewDefaults) {
+			// Prefer the cached overview snapshot for an instant server-ranked list.
+			// A stale snapshot must NOT drive the first frame: rendering pre-send
+			// data then swapping in fresh data causes a visible jump. While stale,
+			// synthesize an overview from local caches — same ordering semantics as
+			// the server — and swap in the refetched payload without re-sorting.
+			const snapshot = getPaletteOverviewSnapshot();
+			const usableSnapshot = snapshot.isStale ? null : snapshot.data;
+			const overviewHasItems = Boolean(
+				usableSnapshot?.spaces.length || usableSnapshot?.recentSessions.length,
+			);
+			if (usableSnapshot && overviewHasItems) {
+				void buildDefaults(usableSnapshot)
+					.then((items) => {
+						if (token !== searchToken) return;
+						defaultItems = items;
+					})
+					.catch((error) => {
+						console.warn("[command-palette] default items failed", error);
+					})
+					.finally(() => {
+						if (token === searchToken) defaultDone = true;
+					});
+			} else {
+				void getLocalPaletteOverview({
+					signal: defaultSignal,
+					viewerUserUuid: myUserUuid,
+				})
+					.then(buildDefaults)
+					.then((items) => {
+						if (token !== searchToken) return;
+						defaultItems = items;
+					})
+					.catch((error) => {
+						if (error?.name === "AbortError") return;
+						console.warn("[command-palette] local overview failed", error);
+					})
+					.finally(() => {
+						if (token === searchToken) defaultDone = true;
+					});
+			}
+			if (snapshot.isStale || !snapshot.data) {
+				// Detached from the search signal: the refetch survives tab/query
+				// changes (aborting it here previously delayed the correct list by a
+				// full re-request cycle).
+				void refreshPaletteOverview().then((fresh) => {
+					if (!fresh || token !== searchToken) return;
+					return buildDefaults(fresh)
+						.then((items) => {
+							if (token === searchToken) defaultItems = items;
+						})
+						.catch(() => {
+							// Keep the snapshot-derived list on refresh failures.
+						});
+				});
+			}
+			legacyDefaultItems = [];
+			legacyDefaultDone = true;
+		} else {
+			// Pre-overview behavior: the local default list is the source of truth
+			// for the plain palette and the All / Mine / Pinned tabs.
 			void buildDefaults(null)
 				.then((items) => {
 					if (token !== searchToken) return;
@@ -578,40 +632,8 @@ function scheduleSearch(plan: typeof searchPlan, spaceId: string | null) {
 				.finally(() => {
 					if (token === searchToken) legacyDefaultDone = true;
 				});
-		} else {
-			legacyDefaultItems = [];
-			legacyDefaultDone = true;
-		}
-		if (usableSnapshot && !(isSpacePickerMode && spaceFilter === "all")) {
-			void buildDefaults(usableSnapshot)
-				.then((items) => {
-					if (token !== searchToken) return;
-					defaultItems = items;
-				})
-				.catch((error) => {
-					console.warn("[command-palette] default items failed", error);
-				})
-				.finally(() => {
-					if (token === searchToken) defaultDone = true;
-				});
-		} else {
 			defaultItems = [];
-			// The overview is unavailable or not needed for the current All tab.
-			// The legacy promise above is the visible fallback.
 			defaultDone = true;
-		}
-		if (snapshot.isStale || !snapshot.data) {
-			void refreshPaletteOverview({ signal: defaultSignal }).then((fresh) => {
-				if (!fresh || token !== searchToken) return;
-				if (isSpacePickerMode && spaceFilter === "all") return;
-				return buildDefaults(fresh)
-					.then((items) => {
-						if (token === searchToken) defaultItems = items;
-					})
-					.catch(() => {
-						// Keep the snapshot-derived list on refresh failures.
-					});
-			});
 		}
 		return;
 	}
