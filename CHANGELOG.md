@@ -4,6 +4,22 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v2.31 — 2026-08-27
+
+- **Personal-relevance command palette**: New GET /api/palette/overview endpoint plus tiered search ranking (personal > space member > public-only) that groups turns per session, backed by a memory + localStorage stale-while-revalidate client cache so the default list opens instantly
+- **Recent tab in space picker & palette**: New default tab ordered pinned-first, then by folded personal activity time combining server participation, device-local visits, and viewer-owned session activity; the legacy list remains under "All" with manual tab preference remembered
+- **Prompt quick actions**: Prompt templates can opt into rendering as one-click buttons above the chat composer via quick-action/button-label/order frontmatter; template parsing is deduplicated into @cohub/infra and the prompts Redis cache moves to key version v2
+- **Unified public asset uploads**: Dropped the legacy S3 POST form-upload path entirely — uploads now use presigned PUT exclusively, simplifying SDK transfer logic and removing Safari FormData filename workarounds
+
+### Bug Fixes
+
+- Palette overview failed with PostgreSQL 42601 for users without pinned spaces; SQL fragment fixed and all-empty degraded payloads are no longer cached or rendered
+- Overview rows returned snake_case columns so owner profiles, avatars, timestamps, and pin/relation state silently dropped — output aliased to camelCase
+- Workspace agent catalogs (prompts, skills) now refresh reliably after file changes via a coordinated invalidation flow
+- Sessions starting with direct shell commands now derive proper titles instead of failing title projection
+- App updates no longer lose previously granted authorization scopes
+- Recent tab ordering: re-sort no longer washed out by the global score sort, and row timestamps match the actual ordering signal
+
 ## v2.30 — 2026-08-26
 
 - **Task Browser stale task cache**: Query results now render instantly from a per-identity local cache, refresh silently in the background, and gracefully fall back to cached data when a refresh fails.
