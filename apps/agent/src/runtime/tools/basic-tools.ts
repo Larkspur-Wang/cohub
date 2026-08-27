@@ -312,15 +312,15 @@ export function createBashTool(cwd: string, options: { operations: BashOperation
   const parameters = Type.Object({
     command: Type.String({ description: "Bash command to execute" }),
     timeout: Type.Optional(Type.Number({ description: "Timeout in seconds (optional, no default timeout)" })),
-    run_in_background: Type.Optional(Type.Boolean({ description: "Run this command in the background. You will be notified when it completes." })),
   });
+  type BashToolParams = Static<typeof parameters> & { run_in_background?: boolean };
   return {
     name: "bash",
     label: "bash",
-    description: "Execute a bash command in the current working directory. Use run_in_background for long-running commands when you do not need the result immediately. Returns stdout and stderr. Output is truncated to last 2000 lines or 50KB.",
+    description: "Execute a bash command in the current working directory. Returns stdout and stderr. Output is truncated to last 2000 lines or 50KB.",
     parameters,
     async execute(_toolCallId, rawParams, signal, onUpdate) {
-      const params = rawParams as Static<typeof parameters>;
+      const params = rawParams as BashToolParams;
       const timeout = clampBashTimeout(params.timeout);
       if (params.run_in_background) {
         if (!options.operations.startBackground) {
