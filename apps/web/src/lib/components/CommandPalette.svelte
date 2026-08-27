@@ -236,10 +236,14 @@ const mergedItemsRaw = $derived.by(() => {
 	const defaultSource = useOverviewDefaults
 		? defaultItems.length > 0
 			? defaultItems
-			: recentItems
+			: legacyDefaultItems.length > 0
+				? legacyDefaultItems
+				: recentItems
 		: legacyDefaultItems.length > 0
 			? legacyDefaultItems
-			: recentItems;
+			: defaultItems.length > 0
+				? defaultItems
+				: recentItems;
 	let raw =
 		trimmedQuery.length < MIN_QUERY_LENGTH && !hasLabelScope
 			? withLocalCommands(defaultSource, localCommands, resultLimit)
@@ -485,14 +489,20 @@ function closePalette() {
 	resetRunState();
 }
 
-function resetSearch(options?: { clearDefaultItems?: boolean }) {
+function resetSearch(options?: { clearDefaultLists?: boolean }) {
 	localController?.abort();
 	remoteController?.abort();
 	if (debounceTimer != null) window.clearTimeout(debounceTimer);
 	localItems = [];
 	remoteItems = [];
-	if (options?.clearDefaultItems !== false) defaultItems = [];
-	legacyDefaultItems = [];
+	// Tab switches pass `clearDefaultLists: false` so each tab keeps its last
+	// list as the instant first frame while the rebuild runs. Dropping to the
+	// localStorage recent-commands list mid-switch is what made the palette
+	// visibly flash between two unrelated datasets on every tab toggle.
+	if (options?.clearDefaultLists !== false) {
+		defaultItems = [];
+		legacyDefaultItems = [];
+	}
 	localDone = true;
 	remoteDone = true;
 	defaultDone = true;
@@ -553,8 +563,10 @@ function scheduleSearch(plan: typeof searchPlan, spaceId: string | null) {
 	forceSpaceRefreshForNextSearch = false;
 	if (q.length < MIN_QUERY_LENGTH && !isLabelScope) {
 		// Keep previous default/resource items while reloading so the list does not
-		// flash empty. Local commands stay visible via withLocalCommands either way.
-		resetSearch({ clearDefaultItems: false });
+		// flash empty. Both tab lists survive the switch (see resetSearch): the
+		// active tab renders its own last list until the rebuild lands, and only
+		// the very first activation falls back through the other tab's list.
+		resetSearch({ clearDefaultLists: false });
 		defaultDone = false;
 		legacyDefaultDone = false;
 		localController = new AbortController();
@@ -625,7 +637,6 @@ function scheduleSearch(plan: typeof searchPlan, spaceId: string | null) {
 						});
 				});
 			}
-			legacyDefaultItems = [];
 			legacyDefaultDone = true;
 		} else {
 			// Pre-overview behavior: the local default list is the source of truth
@@ -641,7 +652,6 @@ function scheduleSearch(plan: typeof searchPlan, spaceId: string | null) {
 				.finally(() => {
 					if (token === searchToken) legacyDefaultDone = true;
 				});
-			defaultItems = [];
 			defaultDone = true;
 		}
 		return;
