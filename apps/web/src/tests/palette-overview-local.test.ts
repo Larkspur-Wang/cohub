@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { SessionRecord, SpaceRecord } from "@neta-art/cohub";
-import { buildLocalPaletteOverview } from "../lib/command-palette/palette-overview-local.ts";
+import {
+	buildLocalPaletteOverview,
+	mergeLocalOverviewIntoSnapshot,
+} from "../lib/command-palette/palette-overview-local.ts";
 
 let nextId = 0;
 
@@ -198,4 +201,99 @@ test("limits are applied and relation reflects ownership", () => {
 	const memberSpaces = overview.spaces.filter((s) => s.relation === "member");
 	assert.equal(ownerSpaces.length, 3);
 	assert.equal(memberSpaces.length, 2);
+});
+
+test("merge keeps server fields, folds newer local participation and new spaces", () => {
+	const snapshot = {
+		generatedAt: "2026-08-27T08:00:00.000Z",
+		spaces: [
+			{
+				id: "served-a",
+				name: "served a",
+				description: null,
+				ownerProfile: null,
+				spaceProfile: null,
+				isPinned: false,
+				relation: "member" as const,
+				// Cross-device participation the local cache cannot know.
+				lastParticipatedAt: "2026-08-27T09:30:00.000Z",
+				updatedAt: "2026-08-27T09:00:00.000Z",
+			},
+		],
+		recentSessions: [
+			{
+				id: "served-session",
+				spaceId: "served-a",
+				spaceName: "served a",
+				title: "server session",
+				viewerRelation: "creator" as const,
+				lastMessageAt: null,
+				updatedAt: "2026-08-27T09:30:00.000Z",
+			},
+		],
+	};
+	// Local pass: newer viewer activity on a cached space + a brand-new space.
+	const local = buildLocalPaletteOverview({
+		spaces: [
+			makeSpace({
+				id: "cached-space",
+				name: "cached",
+				updatedAt: "2026-08-27T10:00:00.000Z",
+				lastActivityAt: "2026-08-27T10:00:00.000Z",
+			}),
+		],
+		sessionLists: [],
+		turnRecords: [
+			{
+				spaceId: "cached-space",
+				turns: [
+					{
+						userUuid: "viewer",
+						createdAt: "2026-08-27T10:30:00.000Z",
+						updatedAt: "2026-08-27T10:31:00.000Z",
+					},
+				],
+			},
+		],
+		viewerUserUuid: "viewer",
+	});
+	const merged = mergeLocalOverviewIntoSnapshot(snapshot, local);
+	const mergedIds = merged.spaces.map((space) => space.id);
+	assert.ok(mergedIds.includes("served-a"));
+	assert.ok(mergedIds.includes("cached-space"));
+	// Spaces carry the fresher participation time (ordering itself is applied
+	// by the overview item build, which sorts by personal activity).
+	const mergedCached = merged.spaces.find((s) => s.id === "cached-space");
+	assert.equal(mergedCached?.lastParticipatedAt, "2026-08-27T10:31:00.000Z");
+	// Server-known sessions are preserved alongside local ones.
+	assert.ok(merged.recentSessions.some((s) => s.id === "served-session"));
+});
+
+test("merge keeps the pin marker when the snapshot is stale and the local cache is not", () => {
+	const snapshot = {
+		generatedAt: "2026-08-27T08:00:00.000Z",
+		spaces: [
+			{
+				id: "space-a",
+				name: "a",
+				description: null,
+				ownerProfile: null,
+				spaceProfile: null,
+				isPinned: true,
+				relation: "member" as const,
+				lastParticipatedAt: null,
+				updatedAt: "2026-08-26T00:00:00.000Z",
+			},
+		],
+		recentSessions: [],
+	};
+	const local = buildLocalPaletteOverview({
+		spaces: [makeSpace({ id: "space-a", name: "a" })],
+		sessionLists: [],
+		turnRecords: [],
+		viewerUserUuid: "viewer",
+	});
+	const merged = mergeLocalOverviewIntoSnapshot(snapshot, local);
+	const mergedA = merged.spaces.find((space) => space.id === "space-a");
+	assert.equal(mergedA?.isPinned, true);
 });

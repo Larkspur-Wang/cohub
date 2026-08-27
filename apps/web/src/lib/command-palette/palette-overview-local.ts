@@ -9,15 +9,14 @@ import type {
 import { getViewerTurnActivityBySpace } from "./personal-activity";
 
 /**
- * Local synthesis of the palette overview payload.
+ * Local synthesis and merging of the palette overview payload.
  *
- * When the cached overview snapshot is stale (TTL or recent viewer activity),
- * the palette still needs a first frame that already matches the overview
- * ordering semantics — the viewer's own activity — instead
- * of the "all"-ordered local list, which visibly re-sorted once the server
- * response landed. Reading the same IndexedDB / localStorage caches the legacy
- * list uses, this produces an overview-shaped payload so the rendering path
- * (and its ordering) is identical before and after the refetch.
+ * The palette renders its first frame from the last received server payload
+ * (the cached overview snapshot) folded with local caches: device visits,
+ * viewer-authored turns, and newly cached spaces/sessions are merged on top
+ * so the frame tracks what the refetched server response will say. Only when
+ * no snapshot exists at all does the palette fall back to a purely local
+ * synthesis (same stores the legacy list reads, overview ordering).
  *
  * Keep this module free of `$lib` imports so the synthesis stays testable
  * under plain node.
@@ -134,6 +133,68 @@ export function buildLocalPaletteOverview(input: {
 	return {
 		generatedAt: new Date().toISOString(),
 		spaces: spaces.slice(0, spaceLimit),
+		recentSessions,
+	};
+}
+
+/**
+ * Fold a locally synthesized overview into the last received server payload.
+ *
+ * The snapshot carries server-side truth (cross-device participation times,
+ * the full recent-session set) that local caches cannot know; the local pass
+ * carries what happened since (new pins, newer participation, new spaces and
+ * sessions). The merged view is the closest local approximation of the
+ * refetched response, so swapping it in later does not re-sort the list.
+ */
+export function mergeLocalOverviewIntoSnapshot(
+	snapshot: PaletteOverviewResponse,
+	local: PaletteOverviewResponse,
+): PaletteOverviewResponse {
+	// Snapshot fields win on conflicts; the local pass only contributes
+	// fresher signals and entries the snapshot has never seen.
+	const spacesById = new Map(snapshot.spaces.map((space) => [space.id, space]));
+	for (const localSpace of local.spaces) {
+		const snap = spacesById.get(localSpace.id);
+		if (!snap) {
+			spacesById.set(localSpace.id, localSpace);
+			continue;
+		}
+		spacesById.set(localSpace.id, {
+			...snap,
+			// Pinning is an explicit user action — keep either signal so an
+			// unpinned stale cache cannot drop the marker mid-session.
+			isPinned: snap.isPinned || localSpace.isPinned,
+			lastParticipatedAt:
+				timeValue(localSpace.lastParticipatedAt) >
+				timeValue(snap.lastParticipatedAt)
+					? localSpace.lastParticipatedAt
+					: snap.lastParticipatedAt,
+			updatedAt:
+				timeValue(localSpace.updatedAt) > timeValue(snap.updatedAt)
+					? localSpace.updatedAt
+					: snap.updatedAt,
+		});
+	}
+
+	const sessionsById = new Map(
+		snapshot.recentSessions.map((session) => [session.id, session]),
+	);
+	for (const localSession of local.recentSessions) {
+		const snap = sessionsById.get(localSession.id);
+		if (
+			!snap ||
+			timeValue(localSession.updatedAt) > timeValue(snap.updatedAt)
+		) {
+			sessionsById.set(localSession.id, localSession);
+		}
+	}
+	const recentSessions = [...sessionsById.values()]
+		.sort((a, b) => timeValue(b.updatedAt) - timeValue(a.updatedAt))
+		.slice(0, DEFAULT_SESSION_LIMIT);
+
+	return {
+		generatedAt: snapshot.generatedAt,
+		spaces: [...spacesById.values()],
 		recentSessions,
 	};
 }

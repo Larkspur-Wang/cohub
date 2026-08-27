@@ -29,6 +29,7 @@ import {
 	getPaletteOverviewSnapshot,
 	refreshPaletteOverview,
 } from "$lib/command-palette/palette-overview";
+import { mergeLocalOverviewIntoSnapshot } from "$lib/command-palette/palette-overview-local";
 import { parseCommandPaletteQuery } from "$lib/command-palette/query";
 import {
 	getRecentCommandItems,
@@ -561,50 +562,43 @@ function scheduleSearch(plan: typeof searchPlan, spaceId: string | null) {
 		// its own staleness unless forced).
 		void refreshSpaceListForDefaultItems(token, { force: forceSpaceRefresh });
 		if (useOverviewDefaults) {
-			// Prefer the cached overview snapshot for an instant server-ranked list.
-			// A stale snapshot must NOT drive the first frame: rendering pre-send
-			// data then swapping in fresh data causes a visible jump. While stale,
-			// synthesize an overview from local caches — same ordering semantics as
-			// the server — and swap in the refetched payload without re-sorting.
+			// First frame = last server payload (the cached overview snapshot)
+			// folded with local caches: device visits and viewer-authored turns
+			// re-rank it, and newly cached spaces/sessions are merged in. The
+			// frame therefore tracks what the refetched response will say, so the
+			// swap-in does not visibly re-sort the list. Only when no snapshot
+			// exists at all does the frame fall back to a purely local synthesis.
 			const snapshot = getPaletteOverviewSnapshot();
-			const usableSnapshot = snapshot.isStale ? null : snapshot.data;
-			const overviewHasItems = Boolean(
-				usableSnapshot?.spaces.length || usableSnapshot?.recentSessions.length,
+			const snapshotData = snapshot.data;
+			const hasSnapshotItems = Boolean(
+				snapshotData?.spaces.length || snapshotData?.recentSessions.length,
 			);
-			if (usableSnapshot && overviewHasItems) {
-				void buildDefaults(usableSnapshot)
-					.then((items) => {
-						if (token !== searchToken) return;
-						defaultItems = items;
-					})
-					.catch((error) => {
-						console.warn("[command-palette] default items failed", error);
-					})
-					.finally(() => {
-						if (token === searchToken) defaultDone = true;
-					});
-			} else {
-				void getLocalPaletteOverview({
-					signal: defaultSignal,
-					viewerUserUuid: myUserUuid,
+			void getLocalPaletteOverview({
+				signal: defaultSignal,
+				viewerUserUuid: myUserUuid,
+			})
+				.then((local) =>
+					snapshotData && hasSnapshotItems
+						? mergeLocalOverviewIntoSnapshot(snapshotData, local)
+						: local,
+				)
+				.then(buildDefaults)
+				.then((items) => {
+					if (token !== searchToken) return;
+					defaultItems = items;
 				})
-					.then(buildDefaults)
-					.then((items) => {
-						if (token !== searchToken) return;
-						defaultItems = items;
-					})
-					.catch((error) => {
-						if (error?.name === "AbortError") return;
-						console.warn("[command-palette] local overview failed", error);
-					})
-					.finally(() => {
-						if (token === searchToken) defaultDone = true;
-					});
-			}
+				.catch((error) => {
+					if (error?.name === "AbortError") return;
+					console.warn("[command-palette] local overview failed", error);
+				})
+				.finally(() => {
+					if (token === searchToken) defaultDone = true;
+				});
 			if (snapshot.isStale || !snapshot.data) {
 				// Detached from the search signal: the refetch survives tab/query
 				// changes (aborting it here previously delayed the correct list by a
-				// full re-request cycle).
+				// full re-request cycle). The fresh server response is authoritative
+				// and replaces the merged frame in place.
 				void refreshPaletteOverview().then((fresh) => {
 					if (!fresh || token !== searchToken) return;
 					return buildDefaults(fresh)
@@ -612,7 +606,7 @@ function scheduleSearch(plan: typeof searchPlan, spaceId: string | null) {
 							if (token === searchToken) defaultItems = items;
 						})
 						.catch(() => {
-							// Keep the snapshot-derived list on refresh failures.
+							// Keep the merged frame on refresh failures.
 						});
 				});
 			}
