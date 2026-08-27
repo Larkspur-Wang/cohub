@@ -101,6 +101,9 @@ cohub -s <spaceId> spaces files diff
 
 ### Works
 
+`--file` 与 `--dir` 接收的是 Space 工作区内的相对路径——与 `spaces files ls`
+看到的路径一致，而不是本地文件系统路径。
+
 ```bash
 cohub -s <spaceId> works publish demo --file dist/index.html
 cohub -s <spaceId> works publish site --dir dist

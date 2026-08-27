@@ -284,6 +284,11 @@ Confirm before deleting files or directories.
 
 Publish and manage Work entries from a Space workspace. Public Work URLs require a username and a Space slug.
 
+`--file` and `--dir` take paths relative to the Space workspace — the same paths
+`spaces files ls` shows, not your local filesystem. To publish local build
+output, upload it first (`spaces files upload <dir>`), then publish the
+Space-side path.
+
 ```bash
 cohub profile update --username <username>
 cohub spaces update <spaceId> --slug <space-slug>

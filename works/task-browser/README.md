@@ -60,7 +60,7 @@ Build the project:
 npm run build
 ```
 
-App targets are relative to the Cohub Space root. If this project is the Space root, publish with:
+App targets are Space workspace paths. If this project is the Space root, publish with:
 
 ```bash
 cohub apps publish task-browser \
@@ -69,7 +69,7 @@ cohub apps publish task-browser \
   --hide-cohub-bar
 ```
 
-If the project is nested in a larger Space, pass its Space-relative output path. From the root of this repository, for example:
+If the project is nested in a larger Space, pass its Space workspace path. From the root of this repository, for example:
 
 ```bash
 cohub apps publish task-browser \

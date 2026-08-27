@@ -72,7 +72,7 @@ calls only function inside a published Cohub App iframe.
 1. Upload these files to your Space (root or a subdirectory).
 2. If using a subdirectory, update `CONFIG.DATA_PATH` and `CONFIG.SCRIPT_PATH`
    in `app.js` to match (e.g. `docs/examples/work-capability-lab/whale-shrine/data/shouts.jsonl`).
-3. Open the directory preview and click **Publish**. (Or publish from the CLI: `cohub -s <space-id> apps publish whale-shrine --dir docs/examples/work-capability-lab/whale-shrine --app-scope file.view`.)
+3. Open the directory preview and click **Publish**. (Or publish from the CLI: `cohub -s <space-id> apps publish whale-shrine --dir docs/examples/work-capability-lab/whale-shrine --app-scope file.view` — `--dir` takes the path inside the Space workspace, so upload the folder first with `cohub -s <space-id> spaces files upload <dir>`.)
 4. Under **App can**, select `file.view` — the direct read access the app needs for its own Space.
 5. Run the commerce setup (below) to create the $5 credit product.
 

@@ -1269,7 +1269,7 @@ Other SDK methods: `apps.get(appId)`, `apps.getBySlug(username, spaceSlug,
 appSlug)`, `apps.listBySpace(spaceId)`, `apps.update(appId, input)`,
 `apps.delete(appId)`, `apps.getStats(appId)`, `apps.download(appId)`.
 
-From the CLI:
+From the CLI (`--dir` takes the path inside the target Space's workspace, not a local path):
 
 ```bash
 cohub apps publish <slug> --dir site --app-scope space.view --app-scope file.view

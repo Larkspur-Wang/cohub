@@ -96,6 +96,11 @@ They do not work from a raw static asset URL or a random local preview shell. De
 
 ## Publish from CLI
 
+`--file` and `--dir` take paths relative to the Space workspace — the same paths
+the Space files tab shows, not your local filesystem. To publish local build
+output, upload it first (`spaces files upload <dir>`), then publish the
+Space-side path.
+
 ```bash
 cohub -s <spaceId> apps publish demo --file dist/index.html
 cohub -s <spaceId> apps publish site --dir dist

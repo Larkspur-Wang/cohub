@@ -88,6 +88,10 @@ Work 在某个 Space 上的有效权限是两类授权的并集 — 任一来源
 
 ## 从 CLI 发布
 
+`--file` 与 `--dir` 接收的是 Space 工作区内的相对路径——与 Space 文件页里看到的
+路径一致，而不是本地文件系统路径。要发布本地构建产物，先用
+`spaces files upload <dir>` 上传，再发布 Space 侧路径。
+
 ```bash
 cohub -s <spaceId> apps publish demo --file dist/index.html
 cohub -s <spaceId> apps publish site --dir dist

@@ -101,6 +101,9 @@ cohub -s <spaceId> spaces files diff
 
 ### Works
 
+`--file` and `--dir` take paths relative to the Space workspace — the same paths
+`spaces files ls` shows, not your local filesystem.
+
 ```bash
 cohub -s <spaceId> works publish demo --file dist/index.html
 cohub -s <spaceId> works publish site --dir dist
