@@ -4,6 +4,18 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v2.32 — 2026-08-27
+
+- **Command palette instant defaults**: Default lists (no query) and the All / Mine / Pinned tabs are back to local derivation, rendering immediately from IndexedDB / space-list caches with no overview snapshot refetch or snapshot-driven re-sort; the space picker Recent tab synthesizes an overview locally from caches when its snapshot is stale, removing first-frame flicker.
+- **Activity-first Recent ordering**: Recent spaces are now ordered strictly by personal activity time (visits + viewer-authored turns + server participation), applied consistently across client palette building, local overview synthesis, and the overview API — stale pinned spaces no longer float above recently used ones.
+- **Model status pipeline refactor**: Model availability now derives from observed traffic with probe fallback, so online-only models appear alongside probed ones; aggregation logic was extracted into a dedicated tested transform module while the Redis-cached `/models-status` route got a slimmer v2 payload.
+- **Faster embedded app loads**: Server-rendered heads emit a `preconnect` hint for cross-origin app frame origins, and iframe URL resolution was unified into a single origin-validated resolver in `app-url`.
+
+### Bug Fixes
+
+- Command palette: the overview refetch is no longer tied to the search abort controller, which previously cancelled it mid-flight and delayed the correct list by another request cycle.
+- Model selector: latency hover-card values render via proper i18n calls instead of literal message keys, availability dots and hover cards are scoped to cohub-provider models, and the redundant samples row was dropped from the card.
+
 ## v2.31 — 2026-08-27
 
 - **Personal-relevance command palette**: New GET /api/palette/overview endpoint plus tiered search ranking (personal > space member > public-only) that groups turns per session, backed by a memory + localStorage stale-while-revalidate client cache so the default list opens instantly
