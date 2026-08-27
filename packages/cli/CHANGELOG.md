@@ -1,5 +1,12 @@
 # @neta-art/cohub-cli
 
+## 6.1.3
+
+### Patch Changes
+
+- Updated dependencies [0511cbe]
+  - @neta-art/cohub@8.3.1
+
 ## 6.1.2
 
 ### Patch Changes
