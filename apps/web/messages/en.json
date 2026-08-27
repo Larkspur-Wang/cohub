@@ -1700,8 +1700,6 @@
 	"landing_section_liveapps_eyebrow": "Live Apps",
 	"landing_section_liveapps_title": "Publish something people can play with.",
 	"landing_section_liveapps_lede": "A game, a demo, a weird little tool: publish it from a file, a directory, or a running port. Visitors get something live, not a screenshot. And if you let it, an app can even reach back and change the Space behind it.",
-	"landing_section_liveapps_media_alt": "A published Cohub app running at its public URL",
-	"landing_section_liveapps_media_label": "App — published page with its public URL",
 	"landing_section_everywhere_eyebrow": "Everywhere",
 	"landing_section_everywhere_title": "The Space follows you.",
 	"landing_section_everywhere_lede": "Start on the web, keep going on your phone, reach agents from Discord or WeChat, and drive the same Space from your terminal.",

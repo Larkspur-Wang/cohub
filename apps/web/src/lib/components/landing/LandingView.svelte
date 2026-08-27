@@ -258,20 +258,16 @@ const cliLines = [
 				divided
 			/>
 
-			<!-- 4 · Live Works — the strongest outcome: a real URL that feeds back -->
+			<!-- 4 · Live Works — the strongest outcome: a real URL that feeds back.
+			     Text-only like Same room; the centred pose keeps the run of
+			     statements between the hero and Context readable as one voice. -->
 			<LandingSection
 				eyebrow={m.landing_section_liveapps_eyebrow({}, { locale })}
 				title={m.landing_section_liveapps_title({}, { locale })}
 				lede={m.landing_section_liveapps_lede({}, { locale })}
+				centered
 				divided
-			>
-				<LandingMedia
-					src="work"
-					alt={m.landing_section_liveapps_media_alt({}, { locale })}
-					label={m.landing_section_liveapps_media_label({}, { locale })}
-					ratio="16 / 10"
-				/>
-			</LandingSection>
+			/>
 
 			<!-- 5 · Everywhere — the phone capture beside a real terminal session -->
 			<LandingSection

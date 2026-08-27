@@ -46,7 +46,6 @@ Listed in page order.
 | Basename | Section | Shows | Source |
 | --- | --- | --- | --- |
 | `hero` | 1 · Hero | People online, live messages drifting past, forked sessions, file tree | 1440×900 |
-| `work` | 4 · Live Works | A published Work at its public URL | 1300×812 |
 | `mobile` | 5 · Everywhere | A Space on a phone | 390×844 |
 | `context` | 7 · Context network | `@space` mention picker open in the composer | 1290×801 |
 
@@ -54,12 +53,13 @@ Listed in page order.
 detail has to stay legible in a half-width column, and a 1440px capture scaled
 into 435px is not.
 
-Four sections deliberately use no capture:
+Five sections deliberately use no capture:
 
-- **3 · Same room** and **6 · Any medium** are centred text sections. The two
-  captures they used to carry (`multiplayer`, a stale-looking chat collage;
-  `generation`, an inline-poster screenshot) were removed as too weak to ship.
-  Re-shoot per the rules below before wiring either back in.
+- **3 · Same room**, **4 · Live Works**, and **6 · Any medium** are centred text
+  sections. The captures they used to carry (`multiplayer`, a stale-looking
+  chat collage; `work`, a published-app page; `generation`, an inline-poster
+  screenshot) were removed as too weak to ship. Re-shoot per the rules below
+  before wiring any of them back in.
 - **5 · Everywhere** pairs the phone capture with the CLI rendered as real text
   (`LandingTerminal.svelte`) rather than a screenshot — it stays sharp at any
   width and reflows on a phone. The copy also mentions Discord and WeChat,

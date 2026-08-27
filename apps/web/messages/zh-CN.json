@@ -1700,8 +1700,6 @@
 	"landing_section_liveapps_eyebrow": "可运行应用",
 	"landing_section_liveapps_title": "发布一个可以被大家玩起来的东西。",
 	"landing_section_liveapps_lede": "一个游戏、一个演示、一个奇怪的小工具：从文件、目录或运行中的端口把它发布出来。访问者拿到的是活的东西，而不是截图。只要你允许，应用甚至能反向改变它背后的 Space。",
-	"landing_section_liveapps_media_alt": "一个在公开 URL 上运行的已发布 Cohub 应用",
-	"landing_section_liveapps_media_label": "应用 —— 带公开地址的已发布页面",
 	"landing_section_everywhere_eyebrow": "无处不在",
 	"landing_section_everywhere_title": "Space 会一直跟着你。",
 	"landing_section_everywhere_lede": "在 Web 上开始，在手机上继续，从 Discord 或微信触达 Agent，并用终端驱动同一个 Space。",
