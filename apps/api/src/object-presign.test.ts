@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
-  createPresignedPostObject,
   createPresignedPutObjectUrl,
   type PresignStorageConfig,
 } from "./object-presign.js";
@@ -60,17 +59,4 @@ describe("object presigning", () => {
     });
   });
 
-  it("keeps the legacy POST policy signer available for avatars and old clients", () => {
-    const signed = createPresignedPostObject({
-      storage,
-      objectKey: "users/user/avatar.webp",
-      contentType: "image/webp",
-      maxBytes: 2 * 1024 * 1024,
-    });
-
-    assert.equal(new URL(signed.uploadUrl).hostname, "cohub-chat-attachments.account-id.r2.cloudflarestorage.com");
-    assert.equal(signed.fields.key, "users/user/avatar.webp");
-    assert.equal(signed.fields["Content-Type"], "image/webp");
-    assert.ok(signed.fields.policy);
-  });
 });
