@@ -59,7 +59,7 @@ function makeSession(input: {
 	};
 }
 
-test("orders spaces pinned first, then by viewer-authored turn activity (not space activity)", () => {
+test("orders spaces by viewer-authored turn activity, ignoring foreign space activity", () => {
 	// Foreign hot space: very recent space-level activity, no viewer turns.
 	const foreignHot = makeSpace({
 		id: "foreign-hot",
@@ -97,7 +97,7 @@ test("orders spaces pinned first, then by viewer-authored turn activity (not spa
 	assert.equal(overview.spaces[1]?.id, "foreign-hot");
 });
 
-test("pinned spaces outrank newer unpinned activity", () => {
+test("pinned spaces do not outrank newer activity in the Recent ordering", () => {
 	const pinned = makeSpace({ id: "pinned", name: "pinned", isPinned: true });
 	const active = makeSpace({
 		id: "active",
@@ -106,13 +106,15 @@ test("pinned spaces outrank newer unpinned activity", () => {
 		lastActivityAt: "2026-08-27T00:00:00.000Z",
 	});
 	const overview = buildLocalPaletteOverview({
-		spaces: [active, pinned],
+		spaces: [pinned, active],
 		sessionLists: [],
 		turnRecords: [],
 		viewerUserUuid: "viewer",
 	});
-	assert.equal(overview.spaces[0]?.id, "pinned");
-	assert.equal(overview.spaces[1]?.id, "active");
+	// Ordering is strictly by activity time; pinning only marks the item.
+	assert.equal(overview.spaces[0]?.id, "active");
+	assert.equal(overview.spaces[1]?.id, "pinned");
+	assert.equal(overview.spaces[1]?.isPinned, true);
 });
 
 test("recent sessions keep only viewer creator/participant sessions ordered by activity", () => {

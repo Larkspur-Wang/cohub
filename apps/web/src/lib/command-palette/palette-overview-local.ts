@@ -13,7 +13,7 @@ import { getViewerTurnActivityBySpace } from "./personal-activity";
  *
  * When the cached overview snapshot is stale (TTL or recent viewer activity),
  * the palette still needs a first frame that already matches the overview
- * ordering semantics — pinned first, then the viewer's own activity — instead
+ * ordering semantics — the viewer's own activity — instead
  * of the "all"-ordered local list, which visibly re-sorted once the server
  * response landed. Reading the same IndexedDB / localStorage caches the legacy
  * list uses, this produces an overview-shaped payload so the rendering path
@@ -97,7 +97,6 @@ export function buildLocalPaletteOverview(input: {
 		}),
 	);
 	spaces.sort((a, b) => {
-		if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
 		const participationDelta =
 			timeValue(b.lastParticipatedAt) - timeValue(a.lastParticipatedAt);
 		if (participationDelta !== 0) return participationDelta;

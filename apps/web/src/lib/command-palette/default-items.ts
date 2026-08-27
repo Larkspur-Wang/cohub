@@ -151,7 +151,7 @@ async function getLocalSpaces(
  * Overview-shaped synthesis from local caches (IndexedDB + localStorage).
  *
  * Backs the palette's first frame when the cached overview snapshot is stale:
- * same ordering semantics as the server payload (pinned → viewer activity),
+ * same ordering semantics as the server payload (viewer activity),
  * so the list no longer re-sorts from an "all"-ordered fallback once the
  * refetched overview lands.
  */
@@ -194,7 +194,7 @@ function defaultScore(rank: number, updatedAt: string | null | undefined) {
 	};
 }
 
-/** Server-ranked overview space: rank mirrors the pinned → participation order. */
+/** Overview space: rank mirrors the personal-activity order. */
 function overviewSpaceToItem(
 	space: PaletteOverviewSpace,
 	rank: number,
@@ -407,14 +407,11 @@ async function buildOverviewDefaultItems(
 				timestampValue(recentActivityBySpace.get(space.id)),
 				isoTimestampValue(viewerSessionActivityBySpace.get(space.id)),
 			);
-		// Intuition-first ordering: pinned first, then strictly by latest personal
-		// activity time. No score, no relation tie-breaks — a just-opened space
-		// must sit above anything I last touched earlier.
+		// Strictly personal-activity ordering. No pinned tier, no score, no
+		// relation tie-breaks — a just-opened space must sit above anything I
+		// last touched earlier.
 		[...overview.spaces]
-			.sort((a, b) => {
-				if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
-				return personalActivityMs(b) - personalActivityMs(a);
-			})
+			.sort((a, b) => personalActivityMs(b) - personalActivityMs(a))
 			.forEach((space, index) => {
 				const personalMs = personalActivityMs(space);
 				items.push(
@@ -463,7 +460,7 @@ async function buildOverviewDefaultItems(
 		}
 	}
 
-	// Preserve insertion order: spaces (pinned, then personal activity desc),
+	// Preserve insertion order: spaces (personal activity desc),
 	// then recent sessions, then turns. No re-scoring — the ordering above is
 	// already the product intent for this list.
 	const byKey = new Map<string, CommandPaletteItem>();

@@ -154,7 +154,6 @@ router.get("/", async (c) => {
         FROM visible_spaces vs
         LEFT JOIN user_turn_activity uta ON uta.space_id = vs.id
         ORDER BY
-          vs.is_pinned DESC,
           vs.is_local_recent DESC,
           uta.last_participated_at DESC NULLS LAST,
           CASE
