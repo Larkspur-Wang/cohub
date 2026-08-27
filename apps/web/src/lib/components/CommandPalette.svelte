@@ -49,6 +49,7 @@ import { getLocale } from "$lib/i18n/locale.svelte";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { m } from "$lib/paraglide/messages.js";
 import { sdk } from "$lib/sdk";
+import { filterSpacePickerItems } from "$lib/space-picker-model";
 import { buildUserNewSessionRoute } from "$lib/space-routes";
 import { authStore } from "$lib/stores/auth.svelte";
 import {
@@ -203,15 +204,26 @@ const recentItems = $derived.by(() => {
 const localCommands = $derived(resolveLocalCommandItems(searchPlan));
 const myUserUuid = $derived(authStore.userUuid);
 const filteredSpaceItems = $derived.by(() => {
-	if (!isSpacePickerMode || spaceFilter === "all") return null;
+	if (!isSpacePickerMode || spaceFilter === "all" || spaceFilter === "recent")
+		return null;
 	return (items: CommandPaletteItem[]) =>
-		items.filter((item) => {
-			if (item.type !== "space") return true;
-			if (spaceFilter === "mine")
-				return item.ownerProfile?.userUuid === myUserUuid;
-			if (spaceFilter === "pinned") return item.isPinned ?? false;
-			return true;
-		});
+		items.filter(
+			(item) =>
+				item.type !== "space" ||
+				filterSpacePickerItems(
+					[
+						{
+							id: item.spaceId,
+							name: item.spaceName,
+							ownerUserUuid: item.ownerProfile?.userUuid,
+							isPinned: item.isPinned,
+						},
+					],
+					spaceFilter,
+					"",
+					myUserUuid,
+				).length > 0,
+		);
 });
 const mergedItemsRaw = $derived.by(() => {
 	// Long, specific queries let strong matches bypass the personal-relevance tier.
@@ -349,6 +361,9 @@ function handleCommandInput(event: Event) {
 		return;
 	}
 	query = value;
+	// Searching should search the full Space set; Recent remains the empty-query
+	// default view and is still available as an explicit filter.
+	if (value.trim() && isSpacePickerMode) spaceFilter = "all";
 }
 
 const SPACE_FILTER_KEYS: SpaceFilter[] = ["recent", "all", "mine", "pinned"];
