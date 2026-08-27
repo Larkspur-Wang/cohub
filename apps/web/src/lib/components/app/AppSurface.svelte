@@ -9,7 +9,7 @@ import type {
 import { onMount, untrack } from "svelte";
 import { page } from "$app/state";
 import { appDisplayTitle } from "$lib/app-page-meta";
-import { type AppLaunchState, buildAppIframeUrl } from "$lib/app-url";
+import { type AppLaunchState, resolveAppFrame } from "$lib/app-url";
 import WorkBoardSurface from "$lib/components/app/AppBoardSurface.svelte";
 import WorkFileSurface from "$lib/components/app/AppFileSurface.svelte";
 import { readAppCheckoutState } from "$lib/components/app/app-checkout-state";
@@ -110,45 +110,23 @@ const embeddedContent = $derived(
 		: null,
 );
 const nativeContent = $derived(boardContent ?? fileContent);
-const iframeSrc = $derived.by(() => {
-	const contentUrl =
-		embeddedContent?.url ??
-		(!content && app.targetType === "port" ? app.targetRef : "");
-	return buildAppIframeUrl(contentUrl, launchState);
-});
-function isAllowedFrameOrigin(origin: string, targetType: string) {
-	try {
-		const { protocol, hostname } = new URL(origin);
-		if (protocol !== "https:") return false;
-		if (targetType === "port")
-			return ["cohub.live", "cohub.run"].some(
-				(domain) => hostname === domain || hostname.endsWith(`.${domain}`),
-			);
-		return true;
-	} catch {
-		return false;
-	}
-}
-
-const frameOrigin = $derived.by(() => {
-	if (!iframeSrc) return null;
-	try {
-		const origin = new URL(iframeSrc, page.url).origin;
-		if (origin === page.url.origin) return origin;
-		return isAllowedFrameOrigin(origin, app.targetType) ? origin : null;
-	} catch {
-		return null;
-	}
-});
-const hasFrameSource = $derived(Boolean(iframeSrc && frameOrigin));
+const frameDescriptor = $derived.by(() =>
+	resolveAppFrame({
+		contentUrl:
+			embeddedContent?.url ??
+			(!content && app.targetType === "port" ? app.targetRef : ""),
+		launchState,
+		baseHref: page.url.href,
+		targetType: app.targetType,
+	}),
+);
+const iframeSrc = $derived(frameDescriptor?.url ?? "");
+const frameOrigin = $derived(frameDescriptor?.origin ?? null);
+const hasFrameSource = $derived(Boolean(frameDescriptor));
 const shouldRenderFrame = $derived(
 	Boolean(bridgeReady && hasFrameSource && !nativeContent),
 );
 const frameReplyTarget = $derived(frameOrigin ?? page.url.origin);
-const framePreconnectOrigin = $derived.by(() => {
-	if (!frameOrigin || frameOrigin === page.url.origin) return null;
-	return frameOrigin;
-});
 // A new document invalidates any announced methods.
 $effect(() => {
 	void iframeSrc;
@@ -261,12 +239,6 @@ onMount(() => {
 	};
 });
 </script>
-
-<svelte:head>
-	{#if framePreconnectOrigin}
-		<link rel="preconnect" href={framePreconnectOrigin} crossorigin="anonymous" />
-	{/if}
-</svelte:head>
 
 <div class={isBackground ? "app-surface background" : isAppWindow ? "app-surface app" : "app-surface page"}>
 	{#if boardContent}
