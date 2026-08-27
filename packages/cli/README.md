@@ -144,6 +144,17 @@ cohub -s <spaceId> spaces turns ls --cursor <nextCursor> --json
 cohub -s <spaceId> spaces turns ls --after <snapshotCursor> --before <snapshotAt> --json
 ```
 
+## Space activity
+
+One-shot overview of a Space: usage summary, per-user contributors, top
+models, and most viewed Apps. Cost figures require space-management access.
+
+```bash
+cohub -s <spaceId> spaces activity
+cohub -s <spaceId> spaces activity 7
+cohub -s <spaceId> spaces activity 365 --json
+```
+
 ## Boards
 
 Board commands use the selected Space and support `-h` at every level:

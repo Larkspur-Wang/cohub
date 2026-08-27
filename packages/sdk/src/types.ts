@@ -1693,6 +1693,40 @@ export type UserActivityResponse = SpaceUsageResponse & {
   rankings: UserActivityRankings;
 };
 
+export type SpaceActivityAppRanking = {
+  appId: string;
+  slug: string;
+  title: string;
+  status: "published" | "disabled";
+  viewCount: number;
+};
+
+export type SpaceActivityContributor = {
+  userUuid: string;
+  role: SpaceRole | null;
+  tokens: number;
+  requests: number;
+  /** Zeroed for viewers without space-management access. */
+  costTotal: number;
+  /** Distinct sessions with usage inside the selected range. */
+  sessionCount: number;
+  lastActiveAt: string | null;
+  profile: PublicUserProfile | null;
+};
+
+export type SpaceActivityResponse = SpaceUsageResponse & {
+  rankings: {
+    llmModels: UserActivityRankings["llmModels"];
+    generationModels: UserActivityRankings["generationModels"];
+    apps: SpaceActivityAppRanking[];
+  };
+  contributors: {
+    items: SpaceActivityContributor[];
+    /** Total space members — independent of the selected range. */
+    memberCount: number;
+  };
+};
+
 // ─── Referral types ───
 
 export type ReferralStatus = "pending" | "qualified" | "rewarded";

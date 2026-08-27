@@ -29,6 +29,9 @@ export const buildSpaceLandingRoute = buildSpaceRootRoute;
 export const buildSpaceSettingsRoute = (spaceId: string) =>
 	`/spaces/${spaceId}/settings`;
 
+export const buildSpaceActivityRoute = (spaceId: string) =>
+	`/spaces/${spaceId}/activity`;
+
 export const buildSpaceSessionTurnRoute = (
 	spaceId: string,
 	sessionId: string,

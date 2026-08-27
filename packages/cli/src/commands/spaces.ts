@@ -16,6 +16,7 @@ import { createClient } from "../client.js";
 import { table, json as outJson, jsonRequested, ok, error, handleHttp, formatEpochMs } from "../output.js";
 import { resolveSpace } from "../space.js";
 import { registerSpaceCommerce } from "./space-commerce.js";
+import { registerSpaceActivity } from "./space-activity.js";
 import { registerSpaceInvitations } from "./space-invitations.js";
 import { registerSpaceTurns } from "./space-turns.js";
 
@@ -755,6 +756,9 @@ export function registerSpaces(program: Command): void {
 
   // ── spaces commerce ──
   registerSpaceCommerce(spacesCmd);
+
+  // ── spaces activity ──
+  registerSpaceActivity(spacesCmd);
 
   // ── spaces usage ──
   spacesCmd
