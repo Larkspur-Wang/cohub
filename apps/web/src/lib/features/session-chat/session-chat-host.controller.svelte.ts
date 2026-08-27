@@ -3113,12 +3113,14 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			if (sendResult.mode !== "immediate") {
 				throw new Error("Expected immediate prompt response");
 			}
+			// The server accepted the prompt even if this host moved elsewhere.
+			// Invalidate before the UI-only early return so Recent revalidates later.
+			noteViewerActivity();
 			// Prompt already accepted server-side. If we left the space, skip local
 			// adopt; other hosts / re-enter will load via WS or session fetch.
 			if (disposed || spaceId !== opSpaceId) {
 				return;
 			}
-			noteViewerActivity();
 			const acceptedTurn = sendResult.turn;
 			const acceptedSession = sendResult.session;
 			if (!acceptedSession) throw new Error("Prompt response missing session");

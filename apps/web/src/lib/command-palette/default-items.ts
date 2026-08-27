@@ -19,11 +19,13 @@ import { buildSpaceLandingRoute } from "$lib/space-routes";
 import { getRecentSpaces } from "$lib/stores/recent-space";
 import { getCachedSpaceList } from "$lib/stores/space-list-cache";
 import { commandItemKey } from "./merge-results";
+import { getViewerTurnActivityBySpace } from "./personal-activity";
 import { allowsResourceType, type CommandPaletteSearchPlan } from "./scope";
 import { recencyScore } from "./score";
 import type { CommandPaletteItem } from "./types";
 
 const DEFAULT_LIMIT = 30;
+const SPACE_DEFAULT_LIMIT = 50;
 const DEFAULT_SESSION_LIST_SCAN_LIMIT = 120;
 const DEFAULT_TURN_RECORD_SCAN_LIMIT = 80;
 
@@ -86,50 +88,30 @@ function getSessionActivityBySpace(records: SessionListCacheRecord[]) {
 	return activityBySpace;
 }
 
-/**
- * Per-space activity time of sessions the viewer created or participates in
- * (local session_lists cache). Other people's sessions are ignored, so this
- * complements the server-side lastParticipatedAt with a device-local signal
- * that covers "opened someone else's session and chatted" without being
- * polluted by foreign activity.
- */
-async function getViewerSessionActivityBySpace(
+async function getRecentTurnRecords(
 	userKey: string,
-	viewerUserUuid: string | null,
 	options?: { signal?: AbortSignal },
-): Promise<Map<string, string>> {
-	const activityBySpace = new Map<string, string>();
-	if (!viewerUserUuid) return activityBySpace;
-	const records = await idbGetSomeByIndex<SessionListCacheRecord>(
-		"session_lists",
-		"by_updated_at",
+) {
+	const records = await idbGetSomeByIndex<SessionTurnsCacheRecord>(
+		"session_turns",
+		"by_last_accessed",
 		IDBKeyRange.lowerBound(0),
 		{
-			limit: DEFAULT_SESSION_LIST_SCAN_LIMIT,
+			limit: DEFAULT_TURN_RECORD_SCAN_LIMIT,
 			direction: "prev",
 			filter: (record) => record.userKey === userKey,
 		},
 	);
 	shouldAbort(options?.signal);
-	for (const record of records) {
-		for (const session of record.sessions) {
-			if (session.userUuid === viewerUserUuid) {
-				const current = activityBySpace.get(record.spaceId) ?? "";
-				const candidate = sessionActivityAt(session) ?? "";
-				if (timeValue(candidate) > timeValue(current))
-					activityBySpace.set(record.spaceId, candidate);
-				continue;
-			}
-			const participants = session.participantUserUuids;
-			if (participants?.includes(viewerUserUuid)) {
-				const current = activityBySpace.get(record.spaceId) ?? "";
-				const candidate = sessionActivityAt(session) ?? "";
-				if (timeValue(candidate) > timeValue(current))
-					activityBySpace.set(record.spaceId, candidate);
-			}
-		}
-	}
-	return activityBySpace;
+	return records.filter((record) => record.userKey === userKey);
+}
+
+function defaultItemsLimit(
+	plan: Pick<CommandPaletteSearchPlan, "resourceTypes">,
+) {
+	return plan.resourceTypes?.length === 1 && plan.resourceTypes[0] === "space"
+		? SPACE_DEFAULT_LIMIT
+		: DEFAULT_LIMIT;
 }
 
 function defaultScore(rank: number, updatedAt: string | null | undefined) {
@@ -325,20 +307,29 @@ async function buildOverviewDefaultItems(
 		overview.spaces.map((space) => [space.id, space.name ?? null]),
 	);
 	const items: CommandPaletteItem[] = [];
+	let recentTurnRecords: SessionTurnsCacheRecord[] | null = null;
+	const getRecentTurns = async () => {
+		if (recentTurnRecords) return recentTurnRecords;
+		recentTurnRecords = await getRecentTurnRecords(userKey, {
+			signal: plan.signal,
+		});
+		return recentTurnRecords;
+	};
 
 	if (allowsResourceType(plan, "space")) {
 		// Fold device-local personal signals into the server ranking:
 		//  1. recent-space visits (opening a space floats it to the top), and
-		//  2. activity of sessions the viewer created/participates in from the
-		//     local session cache (foreign sessions never count).
+		//  2. activity of turns authored by the viewer from the local turn cache
+		//     (other participants never count).
 		const recentActivityBySpace = new Map(
 			getRecentSpaces(userKey).map((entry) => [entry.spaceId, entry.timestamp]),
 		);
-		const viewerSessionActivityBySpace = await getViewerSessionActivityBySpace(
-			userKey,
-			plan.viewerUserUuid ?? null,
-			{ signal: plan.signal },
-		);
+		const viewerSessionActivityBySpace = plan.viewerUserUuid
+			? getViewerTurnActivityBySpace(
+					await getRecentTurns(),
+					plan.viewerUserUuid,
+				)
+			: new Map<string, string>();
 		const personalActivityMs = (space: PaletteOverviewSpace) =>
 			Math.max(
 				isoTimestampValue(space.lastParticipatedAt),
@@ -374,21 +365,11 @@ async function buildOverviewDefaultItems(
 	if (allowsResourceType(plan, "turn")) {
 		await yieldToUi();
 		shouldAbort(plan.signal);
-		const turnRecords = await idbGetSomeByIndex<SessionTurnsCacheRecord>(
-			"session_turns",
-			"by_last_accessed",
-			IDBKeyRange.lowerBound(0),
-			{
-				limit: DEFAULT_TURN_RECORD_SCAN_LIMIT,
-				direction: "prev",
-				filter: (record) => record.userKey === userKey,
-			},
-		);
-		shouldAbort(plan.signal);
+		const turnRecords = await getRecentTurns();
 		let rank = 0;
-		for (const record of turnRecords
-			.filter((record) => record.userKey === userKey)
-			.sort((a, b) => b.lastAccessedAt - a.lastAccessedAt)) {
+		for (const record of [...turnRecords].sort(
+			(a, b) => b.lastAccessedAt - a.lastAccessedAt,
+		)) {
 			const session = record.session ?? null;
 			const turns = [...record.turns].sort(
 				(a, b) =>
@@ -419,7 +400,7 @@ async function buildOverviewDefaultItems(
 		const key = commandItemKey(item);
 		if (!byKey.has(key)) byKey.set(key, item);
 	}
-	return [...byKey.values()].slice(0, DEFAULT_LIMIT);
+	return [...byKey.values()].slice(0, defaultItemsLimit(plan));
 }
 
 export async function getCommandPaletteDefaultItems(
@@ -598,5 +579,5 @@ export async function getCommandPaletteDefaultItems(
 	}
 	return [...byKey.values()]
 		.sort((a, b) => b.score - a.score)
-		.slice(0, DEFAULT_LIMIT);
+		.slice(0, defaultItemsLimit(plan));
 }

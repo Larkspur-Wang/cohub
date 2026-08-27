@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+	canCommitPaletteOverviewRefresh,
+	isUsablePaletteOverview,
+} from "../lib/command-palette/palette-overview-cache-policy";
+import {
 	isOverviewSnapshotExpired,
 	isOverviewSnapshotStale,
 } from "../lib/command-palette/palette-overview-staleness";
@@ -57,6 +61,52 @@ test("invalidation older than the snapshot does not mark it stale (refetch won)"
 		}),
 		false,
 	);
+});
+
+test("refresh commit rejects cross-user, superseded, and invalidated responses", () => {
+	const base = {
+		requestUserKey: "user-a",
+		currentUserKey: "user-a",
+		requestStateIsCurrent: true,
+		requestId: 4,
+		latestRequestId: 4,
+		requestInvalidatedAt: NOW - 5_000,
+		currentInvalidatedAt: NOW - 5_000,
+		persistedInvalidatedAt: NOW - 5_000,
+	};
+	assert.equal(canCommitPaletteOverviewRefresh(base), true);
+	assert.equal(
+		canCommitPaletteOverviewRefresh({ ...base, currentUserKey: "user-b" }),
+		false,
+	);
+	assert.equal(
+		canCommitPaletteOverviewRefresh({ ...base, latestRequestId: 5 }),
+		false,
+	);
+	assert.equal(
+		canCommitPaletteOverviewRefresh({
+			...base,
+			currentInvalidatedAt: NOW - 1_000,
+		}),
+		false,
+	);
+	assert.equal(
+		canCommitPaletteOverviewRefresh({
+			...base,
+			persistedInvalidatedAt: NOW - 1_000,
+		}),
+		false,
+	);
+});
+
+test("legitimate empty overview is cacheable but degraded payload is not", () => {
+	const empty = {
+		generatedAt: "2026-08-27T00:00:00.000Z",
+		spaces: [],
+		recentSessions: [],
+	};
+	assert.equal(isUsablePaletteOverview(empty), true);
+	assert.equal(isUsablePaletteOverview({ ...empty, degraded: true }), false);
 });
 
 test("hard expiry drops the snapshot entirely", () => {

@@ -187,6 +187,9 @@ const isSpacePickerMode = $derived(
 		(searchPlan.resourceTypes?.length === 1 &&
 			searchPlan.resourceTypes[0] === "space"),
 );
+const resultLimit = $derived(
+	isSpacePickerMode ? SPACE_PAGE_SIZE : RESULT_LIMIT,
+);
 const recentItems = $derived.by(() => {
 	const items = getRecentCommandItems();
 	if (!searchPlan.resourceTypes) return items;
@@ -212,7 +215,7 @@ const mergedItemsRaw = $derived.by(() => {
 	// Space picker "All" tab keeps the pre-overview local default list; the
 	// "Recent" default tab (and every other surface) uses the overview data.
 	const useLegacyDefaults =
-		isSpacePickerMode && spaceFilter === "all" && legacyDefaultItems.length > 0;
+		isSpacePickerMode && spaceFilter === "all" && legacyDefaultDone;
 	const defaultSource = useLegacyDefaults
 		? legacyDefaultItems
 		: defaultItems.length > 0
@@ -222,16 +225,16 @@ const mergedItemsRaw = $derived.by(() => {
 				: recentItems;
 	let raw =
 		trimmedQuery.length < MIN_QUERY_LENGTH && !hasLabelScope
-			? withLocalCommands(defaultSource, localCommands, RESULT_LIMIT)
+			? withLocalCommands(defaultSource, localCommands, resultLimit)
 			: withLocalCommands(
 					mergeCommandResults({
 						local: localItems,
 						remote: remoteItems,
-						limit: RESULT_LIMIT * 2,
+						limit: resultLimit * 2,
 						longQuery: isLongQuery,
 					}),
 					localCommands,
-					RESULT_LIMIT,
+					resultLimit,
 					isLongQuery,
 				);
 	// New-chat intent is space-only: keep spaces + New Space, drop the rest.
@@ -341,6 +344,37 @@ function handleCommandInput(event: Event) {
 		return;
 	}
 	query = value;
+}
+
+const SPACE_FILTER_KEYS: SpaceFilter[] = ["recent", "all", "mine", "pinned"];
+
+function selectSpaceFilter(next: SpaceFilter) {
+	spaceFilter = next;
+	setCachedSpaceFilterPref(next);
+	activeIndex = 0;
+}
+
+function handleSpaceFilterKeydown(event: KeyboardEvent, current: SpaceFilter) {
+	const currentIndex = SPACE_FILTER_KEYS.indexOf(current);
+	let nextIndex = -1;
+	if (event.key === "ArrowRight")
+		nextIndex = (currentIndex + 1) % SPACE_FILTER_KEYS.length;
+	if (event.key === "ArrowLeft")
+		nextIndex =
+			(currentIndex - 1 + SPACE_FILTER_KEYS.length) % SPACE_FILTER_KEYS.length;
+	if (event.key === "Home") nextIndex = 0;
+	if (event.key === "End") nextIndex = SPACE_FILTER_KEYS.length - 1;
+	if (nextIndex < 0) return;
+	event.preventDefault();
+	const next =
+		SPACE_FILTER_KEYS[
+			Math.min(Math.max(nextIndex, 0), SPACE_FILTER_KEYS.length - 1)
+		];
+	if (!next) return;
+	selectSpaceFilter(next);
+	void tick().then(() =>
+		document.getElementById(`command-space-filter-${next}`)?.focus(),
+	);
 }
 
 function typeMeta(type: CommandPaletteItem["type"]) {
@@ -505,7 +539,6 @@ function scheduleSearch(plan: typeof searchPlan, spaceId: string | null) {
 		legacyDefaultDone = false;
 		localController = new AbortController();
 		const defaultSignal = localController.signal;
-		void refreshSpaceListForDefaultItems(token, { force: forceSpaceRefresh });
 		const buildDefaults = (overview: PaletteOverviewResponse | null) =>
 			getCommandPaletteDefaultItems({
 				...plan,
@@ -514,18 +547,6 @@ function scheduleSearch(plan: typeof searchPlan, spaceId: string | null) {
 				viewerUserUuid: myUserUuid,
 				paletteOverview: overview,
 			});
-		// The "All" tab in space picker mode keeps the pre-overview local list.
-		void buildDefaults(null)
-			.then((items) => {
-				if (token !== searchToken) return;
-				legacyDefaultItems = items;
-			})
-			.catch((error) => {
-				console.warn("[command-palette] legacy default items failed", error);
-			})
-			.finally(() => {
-				if (token === searchToken) legacyDefaultDone = true;
-			});
 		// Prefer the cached overview snapshot for an instant server-ranked list.
 		// A stale snapshot must NOT drive the first frame: rendering pre-send data
 		// then swapping in fresh data causes a visible jump. While stale, show the
@@ -533,21 +554,56 @@ function scheduleSearch(plan: typeof searchPlan, spaceId: string | null) {
 		// has actually been refetched.
 		const snapshot = getPaletteOverviewSnapshot();
 		const usableSnapshot = snapshot.isStale ? null : snapshot.data;
-		if (!usableSnapshot) defaultItems = [];
-		void buildDefaults(usableSnapshot)
-			.then((items) => {
-				if (token !== searchToken) return;
-				defaultItems = items;
-			})
-			.catch((error) => {
-				console.warn("[command-palette] default items failed", error);
-			})
-			.finally(() => {
-				if (token === searchToken) defaultDone = true;
-			});
+		const overviewHasItems = Boolean(
+			usableSnapshot?.spaces.length || usableSnapshot?.recentSessions.length,
+		);
+		const shouldBuildLegacyDefaults =
+			!usableSnapshot ||
+			!overviewHasItems ||
+			(isSpacePickerMode && spaceFilter === "all");
+		if (forceSpaceRefresh || shouldBuildLegacyDefaults) {
+			void refreshSpaceListForDefaultItems(token, { force: forceSpaceRefresh });
+		}
+		if (shouldBuildLegacyDefaults) {
+			// The "All" tab in space picker mode keeps the pre-overview local list.
+			// Build it once and reuse the result as the stale/fallback list.
+			void buildDefaults(null)
+				.then((items) => {
+					if (token !== searchToken) return;
+					legacyDefaultItems = items;
+				})
+				.catch((error) => {
+					console.warn("[command-palette] legacy default items failed", error);
+				})
+				.finally(() => {
+					if (token === searchToken) legacyDefaultDone = true;
+				});
+		} else {
+			legacyDefaultItems = [];
+			legacyDefaultDone = true;
+		}
+		if (usableSnapshot && !(isSpacePickerMode && spaceFilter === "all")) {
+			void buildDefaults(usableSnapshot)
+				.then((items) => {
+					if (token !== searchToken) return;
+					defaultItems = items;
+				})
+				.catch((error) => {
+					console.warn("[command-palette] default items failed", error);
+				})
+				.finally(() => {
+					if (token === searchToken) defaultDone = true;
+				});
+		} else {
+			defaultItems = [];
+			// The overview is unavailable or not needed for the current All tab.
+			// The legacy promise above is the visible fallback.
+			defaultDone = true;
+		}
 		if (snapshot.isStale || !snapshot.data) {
 			void refreshPaletteOverview({ signal: defaultSignal }).then((fresh) => {
 				if (!fresh || token !== searchToken) return;
+				if (isSpacePickerMode && spaceFilter === "all") return;
 				return buildDefaults(fresh)
 					.then((items) => {
 						if (token === searchToken) defaultItems = items;
@@ -758,6 +814,8 @@ function handlePaletteKeydown(event: KeyboardEvent) {
 		return;
 	}
 	if (isComposingKeyboardEvent(event)) return;
+	if ((event.target as HTMLElement | null)?.getAttribute("role") === "tab")
+		return;
 	if (runMode) {
 		if (event.key === "Enter") {
 			event.preventDefault();
@@ -809,6 +867,7 @@ function handleOpenPaletteEvent(event: Event) {
 $effect(() => {
 	if (!open || runMode) return;
 	spaceListRefreshToken;
+	spaceFilter;
 	scheduleSearch(searchPlan, currentSpaceId);
 });
 
@@ -878,15 +937,19 @@ onMount(() => {
 			</div>
 
 			{#if isSpacePickerMode && !runMode}
-				<div class="space-filter-bar" role="tablist" aria-label={m.command_filter_spaces({}, { locale })}>
+				<div class="space-filter-bar" role="tablist" aria-orientation="horizontal" aria-label={m.command_filter_spaces({}, { locale })}>
 					{#each [{ key: "recent", label: m.command_recent({}, { locale }) }, { key: "all", label: m.command_all({}, { locale }) }, { key: "mine", label: m.command_mine({}, { locale }) }, { key: "pinned", label: m.command_pinned({}, { locale }) }] as filter}
 						<button
+							id={`command-space-filter-${filter.key}`}
 							type="button"
 							class="space-filter-btn"
 							class:active={spaceFilter === filter.key}
 							role="tab"
 							aria-selected={spaceFilter === filter.key}
-							onclick={() => { spaceFilter = filter.key as SpaceFilter; setCachedSpaceFilterPref(filter.key as SpaceFilter); activeIndex = 0; }}
+							aria-controls="command-palette-results"
+							tabindex={spaceFilter === filter.key ? 0 : -1}
+							onclick={() => selectSpaceFilter(filter.key as SpaceFilter)}
+							onkeydown={(event) => handleSpaceFilterKeydown(event, filter.key as SpaceFilter)}
 						>{filter.label}</button>
 					{/each}
 				</div>
@@ -923,7 +986,7 @@ onMount(() => {
 					{/if}
 				</div>
 			{:else}
-				<div bind:this={resultsEl} class:searching={showingSettledItems} class="command-results" role="listbox" aria-label={m.command_search_results({}, { locale })} onscroll={handleResultsScroll}>
+				<div id="command-palette-results" bind:this={resultsEl} class:searching={showingSettledItems} class="command-results" role="listbox" aria-label={m.command_search_results({}, { locale })} onscroll={handleResultsScroll}>
 					{#if renderedItems.length === 0}
 						<div class="command-empty">
 							<div class="command-empty-mark"><CornerDownRight class="h-4 w-4" /></div>
@@ -1338,6 +1401,7 @@ onMount(() => {
 	}
 
 	.space-filter-btn {
+		min-height: 36px;
 		border: 0;
 		border-radius: 6px;
 		background: transparent;
@@ -1421,6 +1485,10 @@ onMount(() => {
 			min-height: 58px;
 			gap: 6px;
 			padding: 8px 8px;
+		}
+
+		.space-filter-btn {
+			min-height: 44px;
 		}
 
 		.command-type-mark {

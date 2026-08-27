@@ -52,6 +52,10 @@ import { logtoClient } from "$lib/auth";
 import { handleUnauthorizedError } from "$lib/auth-redirect";
 import { clearAllIndexedDbCache } from "$lib/cache/clear";
 import { canUseUserScopedCache, getCacheUserKey } from "$lib/cache/keys";
+import {
+	clearCachedPaletteOverview,
+	invalidatePaletteOverview,
+} from "$lib/command-palette/palette-overview";
 import ChannelProviderIcon from "$lib/components/ChannelProviderIcon.svelte";
 import NewLabelPopover from "$lib/components/NewLabelPopover.svelte";
 import SidebarFlyout from "$lib/components/SidebarFlyout.svelte";
@@ -2992,6 +2996,7 @@ async function handleLogout() {
 		// Ignore storage cleanup failures during logout.
 	}
 	clearAllCachedSpaceLists();
+	clearCachedPaletteOverview();
 	clearTaskRunsMemoryCache();
 	await clearAllIndexedDbCache().catch((error) => {
 		console.warn("[sidebar] Failed to clear IndexedDB cache", error);
@@ -3346,6 +3351,7 @@ $effect(() => {
 	untrack(() => {
 		const sessionId = activeSession?.id ?? null;
 		setRecentSpace(userUuid, currentSpaceId, sessionId);
+		invalidatePaletteOverview();
 	});
 });
 </script>

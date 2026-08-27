@@ -1127,6 +1127,8 @@ export type PaletteOverviewResponse = {
   generatedAt: string;
   spaces: PaletteOverviewSpace[];
   recentSessions: PaletteOverviewSession[];
+  /** Present when the server could not produce a complete overview. */
+  degraded?: boolean;
 };
 
 export type CreateSpaceSessionInput = {
