@@ -21,11 +21,10 @@ export const buildUserSessionTurnRoute = (
 
 export const buildSpaceSessionRoute = (spaceId: string, sessionId: string) =>
 	`/spaces/${spaceId}/sessions/${sessionId}`;
-export const buildSpaceNewSessionRoute = (spaceId: string) =>
-	buildSpaceSessionRoute(spaceId, "new");
 
-export const buildSpaceLandingRoute = (spaceId: string) =>
-	buildSpaceNewSessionRoute(spaceId);
+/** The Space root is the canonical new-session draft. */
+export const buildSpaceNewSessionRoute = buildSpaceRootRoute;
+export const buildSpaceLandingRoute = buildSpaceRootRoute;
 
 export const buildSpaceSettingsRoute = (spaceId: string) =>
 	`/spaces/${spaceId}/settings`;
