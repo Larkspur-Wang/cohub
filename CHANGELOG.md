@@ -4,6 +4,11 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v2.35 — 2026-08-28
+
+- **App home Space context**: `client.context()` now exposes the owning Space as `app.homeSpace` (id and name), and new chat background invocations pass the hosting Space as `invocation.spaceId`, letting apps and chat backgrounds theme against the Space they actually run in; the top-level `context.space` field is deprecated in favor of `app.homeSpace`, and the legacy `work` projection stays stable as App context gains fields.
+- **Space FS `ctimeMs`**: file read, stat, and ls results now expose metadata change time as `ctimeMs` (epoch ms, when available) end-to-end — from the Go sandbox RPC dispatcher (via `stat.Ctim`) through the API (including the FS CDN cache path) to the SDK and protocol types — and `stat` additionally reports `isFile` for regular files.
+
 ## v2.34 — 2026-08-28
 
 - **Space activity overview**: New end-to-end analytics view shipped across the stack — a `/spaces/:id/activity` API aggregating hourly token and generation usage, contributor rankings, and app view rankings from hourly stats tables, a web dashboard with usage heatmap, contributor list, and stat strip backed by an IndexedDB cache repository, plus `cohub spaces activity` in the CLI and `space.activity` in the SDK. Cost figures are stripped for viewers without space-management access.

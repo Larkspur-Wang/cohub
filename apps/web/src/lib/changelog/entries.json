@@ -1,5 +1,14 @@
 [
 	{
+		"version": "2.35",
+		"date": "2026-08-28",
+		"tags": ["v2.35.0"],
+		"highlights": [
+			"**App home Space context**: `client.context()` now exposes the owning Space as `app.homeSpace` (id and name), and new chat background invocations pass the hosting Space as `invocation.spaceId`, letting apps and chat backgrounds theme against the Space they actually run in; the top-level `context.space` field is deprecated in favor of `app.homeSpace`, and the legacy `work` projection stays stable as App context gains fields.",
+			"**Space FS `ctimeMs`**: file read, stat, and ls results now expose metadata change time as `ctimeMs` (epoch ms, when available) end-to-end — from the Go sandbox RPC dispatcher (via `stat.Ctim`) through the API (including the FS CDN cache path) to the SDK and protocol types — and `stat` additionally reports `isFile` for regular files."
+		]
+	},
+	{
 		"version": "2.34",
 		"date": "2026-08-28",
 		"tags": ["v2.34.0"],
