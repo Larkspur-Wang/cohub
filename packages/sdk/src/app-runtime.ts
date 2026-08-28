@@ -16,7 +16,14 @@ export type AppRuntimeGrantSummary = {
 };
 
 export type AppRuntimeContext = {
-  app: { id: string; slug: string; url?: string | null };
+  app: {
+    id: string;
+    slug: string;
+    url?: string | null;
+    /** The Space that owns the App. */
+    homeSpace?: { id: string; name?: string | null };
+  };
+  /** @deprecated Use `app.homeSpace` for the App's home Space. */
   space: { id: string; name?: string | null };
   viewer?: { userUuid: string } | null;
   invocation?: AppRuntimeInvocationContext;

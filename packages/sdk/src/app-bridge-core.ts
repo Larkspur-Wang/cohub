@@ -277,7 +277,9 @@ export function createAppBridgeCore(
 				id: app.id,
 				slug: app.slug,
 				url: typeof location !== "undefined" ? location.href : "",
+				homeSpace: { id: app.spaceId, name: app.spaceName ?? null },
 			},
+			// Kept for clients that still read context.space.
 			space: { id: app.spaceId },
 			viewer: viewerUuid ? { userUuid: viewerUuid } : null,
 			...(invocation ? { invocation: { ...invocation } } : {}),
@@ -336,7 +338,12 @@ export function createAppBridgeCore(
 				}
 			: undefined;
 		return {
-			work: context.app,
+			// Keep the legacy projection stable as App context gains fields.
+			work: {
+				id: context.app.id,
+				slug: context.app.slug,
+				url: context.app.url,
+			},
 			space: context.space,
 			...(context.viewer !== undefined ? { viewer: context.viewer } : {}),
 			...(context.invocation ? { invocation: context.invocation } : {}),

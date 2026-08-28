@@ -122,12 +122,13 @@ For no-build HTML, import the SDK from an ESM CDN and create a client:
 const { createCohubClient } = await import(SDK_URL);
 const cohub = createCohubClient();
 const context = await cohub.context();
-const space = cohub.space(context.space.id);
+const spaceId = context.invocation?.spaceId ?? context.app.homeSpace?.id ?? context.space.id;
+const space = cohub.space(spaceId);
 ```
 
-`cohub.context()` returns Work identity, Space identity, and the current permission scopes.
+`cohub.context()` returns App identity, App home Space identity, and the current permission scopes. For a new chat background, the Space currently hosting the App is available as `context.invocation.spaceId`; `context.space` remains the legacy App home Space field.
 
-To call APIs that need Work permissions, use the SDK client after the context is loaded. For example, `space.getConfig()` expects `space.view`; file tree reads expect `file.view`; session list reads expect `session.view`.
+To call APIs that need App permissions, use the SDK client after the context is loaded. For example, `space.getConfig()` expects `space.view`; file tree reads expect `file.view`; session list reads expect `session.view`.
 
 To request viewer authorization, call the SDK authorization helper from a user action:
 

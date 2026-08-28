@@ -6,10 +6,12 @@ import { sdk } from "$lib/sdk";
 
 type Props = {
 	appUrl: CohubAppUrl;
+	/** Space currently hosting the new chat background. */
+	currentSpaceId?: string | null;
 	onComposerChip?: (appId: string, chip: AppComposerChip | null) => void;
 };
 
-const { appUrl, onComposerChip }: Props = $props();
+const { appUrl, currentSpaceId = null, onComposerChip }: Props = $props();
 
 let state = $state<
 	| { status: "loading" }
@@ -46,6 +48,9 @@ $effect(() => {
 		owner={data.owner}
 		content={data.content ?? null}
 		launchState={appUrl}
+		invocation={currentSpaceId
+			? { surface: "background", source: "route", spaceId: currentSpaceId }
+			: undefined}
 		onComposerChip={(chip) => onComposerChip?.(data.app.id, chip)}
 	/>
 {:else if state.status === "error"}

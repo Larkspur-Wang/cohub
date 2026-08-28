@@ -82,6 +82,15 @@ test("Work previews pass invocation context through the runtime bridge", () => {
 	);
 });
 
+test("New Chat App receives the hosting Space invocation context", () => {
+	assert.match(workBackgroundSource, /currentSpaceId\?: string \| null/);
+	assert.match(
+		workBackgroundSource,
+		/invocation=\{currentSpaceId[\s\S]*?surface: "background", source: "route", spaceId: currentSpaceId/,
+	);
+	assert.match(backgroundSource, /currentSpaceId=\{spaceId\}/);
+});
+
 test("New Chat Work composer context reaches the workspace coordinator", () => {
 	assert.match(workBackgroundSource, /onComposerChip=\{\(chip\) =>/);
 	assert.match(backgroundSource, /onComposerChip=\{onAppComposerChip\}/);

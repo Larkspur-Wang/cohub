@@ -126,7 +126,11 @@ $effect(() => {
     <NewChatSpaceBackground spaceId={spaceId} path={spacePath} />
   {:else if appUrl}
     <svelte:boundary onerror={handleWorkBackgroundError}>
-      <NewChatAppBackground appUrl={appUrl} onComposerChip={onAppComposerChip} />
+      <NewChatAppBackground
+        appUrl={appUrl}
+        currentSpaceId={spaceId}
+        onComposerChip={onAppComposerChip}
+      />
       {#snippet failed()}
         <div class="new-chat-background-state">{m.newchat_bg_app_unavailable({}, { locale })}</div>
       {/snippet}
