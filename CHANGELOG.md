@@ -4,6 +4,18 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v2.34 — 2026-08-28
+
+- **Space activity overview**: New end-to-end analytics view shipped across the stack — a `/spaces/:id/activity` API aggregating hourly token and generation usage, contributor rankings, and app view rankings from hourly stats tables, a web dashboard with usage heatmap, contributor list, and stat strip backed by an IndexedDB cache repository, plus `cohub spaces activity` in the CLI and `space.activity` in the SDK. Cost figures are stripped for viewers without space-management access.
+- **Unified space picker**: App authorization and the command palette now share one space-picker model (`space-picker-model.ts`) with search plus Recent/All/Mine/Pinned filters and recent-Space-aware ordering. The authorize dialog gains a two-step choose-then-review flow instead of a flat radio list.
+- **SDK activity types**: `SpaceActivityResponse` and related contributor/ranking types are exported from the SDK with typed `SpaceActivityApi`, giving clients a stable contract for activity data.
+
+### Bug Fixes
+
+- Command palette no longer flashes between unrelated datasets when toggling Recent/All tabs — both tab lists stay alive across switches instead of falling back to localStorage recents while IndexedDB rebuilds.
+- CLI `apps publish`/`update` preflights Space-path `--file`/`--dir` targets against the Space workspace and reports explicit, self-explanatory errors instead of a bare 404, with worker fs errors translated to the same wording.
+- Space activity API serializes timestamp parameters in raw SQL queries (postgres.js requires serialized values), fixing incorrect time-bound filtering in contributor usage queries.
+
 ## v2.33 — 2026-08-27
 
 - **Stable command-palette Recent list**: the first frame is now the cached server payload folded with local caches (device visits, viewer-authored turns, newly cached spaces/sessions) instead of a pure local synthesis, so the list matches what the refetched overview returns and no longer visibly re-sorts or jumps when fresh data lands.
