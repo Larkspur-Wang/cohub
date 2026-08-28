@@ -1,16 +1,21 @@
 import { isUuid } from "./identifiers.js";
+import {
+  NAVIGATION_ERROR_CODE_MAX_LENGTH,
+  NAVIGATION_ERROR_MESSAGE_MAX_LENGTH,
+  NAVIGATION_REF_MAX_LENGTH,
+  NAVIGATION_METHOD_MAX_LENGTH,
+  type NavigationCall,
+  type NavigationLaunch,
+} from "./navigation.js";
 
 export const APP_NAVIGATION_PROTOCOL = "cohub.app.navigation";
 export const APP_NAVIGATION_VERSION = 1;
-export const APP_NAVIGATION_MAX_REF_LENGTH = 2_048;
-export const APP_NAVIGATION_MAX_METHOD_LENGTH = 64;
-export const APP_NAVIGATION_MAX_ERROR_CODE_LENGTH = 64;
-export const APP_NAVIGATION_MAX_ERROR_MESSAGE_LENGTH = 2_000;
+export const APP_NAVIGATION_MAX_REF_LENGTH = NAVIGATION_REF_MAX_LENGTH;
+export const APP_NAVIGATION_MAX_METHOD_LENGTH = NAVIGATION_METHOD_MAX_LENGTH;
+export const APP_NAVIGATION_MAX_ERROR_CODE_LENGTH = NAVIGATION_ERROR_CODE_MAX_LENGTH;
+export const APP_NAVIGATION_MAX_ERROR_MESSAGE_LENGTH = NAVIGATION_ERROR_MESSAGE_MAX_LENGTH;
 
-export type AppNavigationLaunch = {
-  search?: string;
-  hash?: string;
-};
+export type AppNavigationLaunch = NavigationLaunch;
 
 export type AppNavigationTarget =
   | {
@@ -47,10 +52,7 @@ export type AppNavigationTarget =
       cronjobId: string;
     };
 
-export type AppNavigationCall = {
-  method: string;
-  input?: unknown;
-};
+export type AppNavigationCall = NavigationCall;
 
 export type AppNavigationOpenMessage = {
   protocol: typeof APP_NAVIGATION_PROTOCOL;

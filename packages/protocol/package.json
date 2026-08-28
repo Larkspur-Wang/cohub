@@ -131,6 +131,10 @@
       "types": "./dist/app-navigation.d.ts",
       "default": "./dist/app-navigation.js"
     },
+    "./navigation": {
+      "types": "./dist/navigation.d.ts",
+      "default": "./dist/navigation.js"
+    },
     "./public-identifiers": {
       "types": "./dist/public-identifiers.d.ts",
       "default": "./dist/public-identifiers.js"
