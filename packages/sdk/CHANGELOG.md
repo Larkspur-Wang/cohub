@@ -1,5 +1,12 @@
 # @neta-art/cohub
 
+## 8.4.0
+
+### Minor Changes
+
+- 7baf58e: App runtime context now exposes the hosting Space as `app.homeSpace` (id and name), so chat backgrounds and apps can theme against the Space they run in. The top-level `space` field is deprecated in favor of `app.homeSpace`, and the legacy `work` projection stays stable as App context gains fields.
+- 7baf58e: Space FS reads, stat, and ls results now expose file metadata change time as `ctimeMs` (epoch milliseconds, when available), and stat reports `isFile`. SDK `SpaceFsFileResponse` gains the matching optional `ctimeMs` field.
+
 ## 8.3.1
 
 ### Patch Changes
