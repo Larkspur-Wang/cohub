@@ -4,6 +4,16 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v2.36 — 2026-08-28
+
+- **App workspace navigation bridge**: embedded Apps and chat backgrounds can now navigate the host workspace via `client.navigation.open(target)` / `appRuntime.navigationOpen(target, call)` (SDK 8.5.0). Targets are validated `AppNavigationTarget` payloads — App refs, files with line/column views, sessions, task runs, checkpoints, and cronjobs — over a versioned `cohub.app.navigation` protocol, with responses reporting `handled` plus a `reason` (`unsupported`, `invalid_target`, `inaccessible`, or `timeout`) when the host can't navigate; `PopupBrokerTransport` reports navigation as unsupported.
+- **In-chat workspace-aware links**: Markdown links in chat messages that point to Cohub workspace routes now open in-app through the navigation bridge instead of forcing new browser tabs, while author-supplied `target` and `download` attributes keep native browser behavior (renderer-added `_blank` is distinguishable via `data-cohub-auto-target`).
+- **Unified navigation payload schema**: local App navigation and remote `desktop.open` commands now share one validated schema in `@cohub/protocol/navigation` (`NavigationLaunch`, `NavigationCall`, shared length limits), and the workspace desktop-command path was refactored onto the same App resolver used by the SDK bridge.
+
+### Bug Fixes
+
+- Relaunching an already-running App without launch parameters no longer reloads its window, preserving in-App state
+
 ## v2.35 — 2026-08-28
 
 - **App home Space context**: `client.context()` now exposes the owning Space as `app.homeSpace` (id and name), and new chat background invocations pass the hosting Space as `invocation.spaceId`, letting apps and chat backgrounds theme against the Space they actually run in; the top-level `context.space` field is deprecated in favor of `app.homeSpace`, and the legacy `work` projection stays stable as App context gains fields.

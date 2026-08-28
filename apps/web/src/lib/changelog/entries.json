@@ -1,5 +1,18 @@
 [
 	{
+		"version": "2.36",
+		"date": "2026-08-28",
+		"tags": ["v2.36.0"],
+		"highlights": [
+			"**App workspace navigation bridge**: embedded Apps and chat backgrounds can now navigate the host workspace via `client.navigation.open(target)` / `appRuntime.navigationOpen(target, call)` (SDK 8.5.0). Targets are validated `AppNavigationTarget` payloads — App refs, files with line/column views, sessions, task runs, checkpoints, and cronjobs — over a versioned `cohub.app.navigation` protocol, with responses reporting `handled` plus a `reason` (`unsupported`, `invalid_target`, `inaccessible`, or `timeout`) when the host can't navigate; `PopupBrokerTransport` reports navigation as unsupported.",
+			"**In-chat workspace-aware links**: Markdown links in chat messages that point to Cohub workspace routes now open in-app through the navigation bridge instead of forcing new browser tabs, while author-supplied `target` and `download` attributes keep native browser behavior (renderer-added `_blank` is distinguishable via `data-cohub-auto-target`).",
+			"**Unified navigation payload schema**: local App navigation and remote `desktop.open` commands now share one validated schema in `@cohub/protocol/navigation` (`NavigationLaunch`, `NavigationCall`, shared length limits), and the workspace desktop-command path was refactored onto the same App resolver used by the SDK bridge."
+		],
+		"fixes": [
+			"Relaunching an already-running App without launch parameters no longer reloads its window, preserving in-App state"
+		]
+	},
+	{
 		"version": "2.35",
 		"date": "2026-08-28",
 		"tags": ["v2.35.0"],
