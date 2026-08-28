@@ -59,6 +59,12 @@ export class CohubClient {
   readonly voice: VoiceApi;
   readonly apps: AppsApi;
   readonly appCommerce: AppCommerceApi;
+  readonly navigation: {
+    open: (
+      target: import("@cohub/protocol/app-navigation").AppNavigationTarget | string,
+      options?: { call?: import("@cohub/protocol/app-navigation").AppNavigationCall },
+    ) => Promise<import("@cohub/protocol/app-navigation").AppNavigationOpenResponse>;
+  };
 
   /** @deprecated Use `client.desktop`. */
   get ui(): DesktopCommandsApi {
@@ -143,6 +149,13 @@ export class CohubClient {
     this.referrals = new ReferralsApi(this.transport);
     this.apps = new AppsApi(this.transport);
     this.appCommerce = new AppCommerceApi(this.transport);
+    this.navigation = {
+      open: (target, options) =>
+        this.appRuntime.navigationOpen(
+          typeof target === "string" ? { kind: "app", ref: target } : target,
+          options?.call,
+        ),
+    };
     this.app.realtime = new AppRealtimeApi(
       this.transport,
       this.websocketClient,

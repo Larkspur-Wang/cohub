@@ -1,4 +1,5 @@
 <script lang="ts">
+import type { AppNavigationOpenMessage } from "@cohub/protocol/app-navigation";
 import type { AppComposerChip } from "@cohub/protocol/app-surface";
 import type {
 	SpacePublicEndpoint,
@@ -158,6 +159,13 @@ export type SpaceFileDomainProps = {
 	onRetryInlineApp: (appId: string) => void;
 	onRegisterAppSurface: (appId: string, host: AppSurfaceHost | null) => void;
 	onAppComposerChip: (appId: string, chip: AppComposerChip | null) => void;
+	onNavigationOpen?: (message: AppNavigationOpenMessage) => Promise<{
+		handled: boolean;
+		reason?: "unsupported" | "invalid_target" | "inaccessible" | "timeout";
+		call?:
+			| { ok: true; result?: unknown }
+			| { ok: false; code: string; message: string };
+	}>;
 	onBackInlineFile: () => void | Promise<void>;
 	onDownloadInlineFile: () => void | Promise<void>;
 	onRetryInlineFile?: () => void | Promise<void>;
@@ -308,6 +316,7 @@ let {
 	onRetryInlineApp,
 	onRegisterAppSurface,
 	onAppComposerChip,
+	onNavigationOpen = undefined,
 	onBackInlineFile,
 	onDownloadInlineFile,
 	onRetryInlineFile,
@@ -594,6 +603,7 @@ function previewContentOut(node: Element) {
 		onRetry={onRetryInlineApp}
 		onRegisterSurface={onRegisterAppSurface}
 		onComposerChip={onAppComposerChip}
+		onNavigationOpen={onNavigationOpen}
 	/>
 	</div>
 {/if}

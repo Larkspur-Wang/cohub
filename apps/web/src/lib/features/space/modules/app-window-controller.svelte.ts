@@ -181,8 +181,9 @@ export function createAppPreviewController(
 		if (existing) {
 			const launch = input.launch ?? null;
 			const launchChanged =
-				(existing.launch?.search ?? "") !== (launch?.search ?? "") ||
-				(existing.launch?.hash ?? "") !== (launch?.hash ?? "");
+				input.launch !== undefined &&
+				((existing.launch?.search ?? "") !== (launch?.search ?? "") ||
+					(existing.launch?.hash ?? "") !== (launch?.hash ?? ""));
 			const invocationChanged =
 				input.invocation !== undefined &&
 				!invocationContextsEqual(existing.invocation, input.invocation);

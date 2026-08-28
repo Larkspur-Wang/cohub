@@ -1,4 +1,8 @@
 <script lang="ts">
+import type {
+	AppNavigationOpenMessage,
+	AppNavigationOpenResponse,
+} from "@cohub/protocol/app-navigation";
 import type { AppComposerChip } from "@cohub/protocol/app-surface";
 import type { CohubAppUrl } from "$lib/app-url";
 import AppSurface from "$lib/components/app/AppSurface.svelte";
@@ -9,9 +13,22 @@ type Props = {
 	/** Space currently hosting the new chat background. */
 	currentSpaceId?: string | null;
 	onComposerChip?: (appId: string, chip: AppComposerChip | null) => void;
+	onNavigationOpen?: (
+		message: AppNavigationOpenMessage,
+	) => Promise<
+		Omit<
+			AppNavigationOpenResponse,
+			"protocol" | "version" | "type" | "requestId"
+		>
+	>;
 };
 
-const { appUrl, currentSpaceId = null, onComposerChip }: Props = $props();
+const {
+	appUrl,
+	currentSpaceId = null,
+	onComposerChip,
+	onNavigationOpen,
+}: Props = $props();
 
 let state = $state<
 	| { status: "loading" }
@@ -52,6 +69,7 @@ $effect(() => {
 			? { surface: "background", source: "route", spaceId: currentSpaceId }
 			: undefined}
 		onComposerChip={(chip) => onComposerChip?.(data.app.id, chip)}
+		onNavigationOpen={onNavigationOpen}
 	/>
 {:else if state.status === "error"}
 	<div class="work-background-state">App background is unavailable.</div>

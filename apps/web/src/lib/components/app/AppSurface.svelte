@@ -1,4 +1,9 @@
 <script lang="ts">
+import {
+	type AppNavigationOpenMessage,
+	buildAppNavigationOpenResponse,
+	parseAppNavigationOpenMessage,
+} from "@cohub/protocol/app-navigation";
 import { parseAppRuntimeReady } from "@cohub/protocol/app-runtime";
 import type { AppComposerChip } from "@cohub/protocol/app-surface";
 import type {
@@ -67,6 +72,14 @@ type Props = {
 	onSurfaceHost?: (host: AppSurfaceHost | null) => void;
 	onComposerChip?: (chip: AppComposerChip | null) => void;
 	onReady?: () => void;
+	onNavigationOpen?: (
+		message: AppNavigationOpenMessage,
+	) => Promise<
+		Omit<
+			import("@cohub/protocol/app-navigation").AppNavigationOpenResponse,
+			"protocol" | "version" | "type" | "requestId"
+		>
+	>;
 };
 
 const {
@@ -80,6 +93,7 @@ const {
 	onSurfaceHost = undefined,
 	onComposerChip = undefined,
 	onReady = undefined,
+	onNavigationOpen = undefined,
 }: Props = $props();
 
 let frame: HTMLIFrameElement | null = $state(null);
@@ -205,6 +219,33 @@ function pushSurfaceContext() {
 async function onFrameMessage(event: MessageEvent) {
 	if (event.source !== frame?.contentWindow) return;
 	if (!frameOrigin || event.origin !== frameOrigin) return;
+	const navigation = parseAppNavigationOpenMessage(event.data);
+	if (navigation) {
+		let result:
+			| Omit<
+					import("@cohub/protocol/app-navigation").AppNavigationOpenResponse,
+					"protocol" | "version" | "type" | "requestId"
+			  >
+			| undefined;
+		try {
+			result = onNavigationOpen
+				? await onNavigationOpen(navigation)
+				: { handled: false as const, reason: "unsupported" as const };
+		} catch {
+			result = { handled: false as const, reason: "inaccessible" as const };
+		}
+		frame?.contentWindow?.postMessage(
+			buildAppNavigationOpenResponse({
+				requestId: navigation.requestId,
+				...(result ?? {
+					handled: false as const,
+					reason: "inaccessible" as const,
+				}),
+			}),
+			frameReplyTarget,
+		);
+		return;
+	}
 	if (isBackground) {
 		const action = parseNewChatBackgroundAction(event.data);
 		if (action) {

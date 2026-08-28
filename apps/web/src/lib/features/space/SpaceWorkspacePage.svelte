@@ -1,4 +1,8 @@
 <script lang="ts">
+import type {
+	AppNavigationOpenMessage,
+	AppNavigationTarget,
+} from "@cohub/protocol/app-navigation";
 import type { AppComposerChip } from "@cohub/protocol/app-surface";
 import type { SpaceFsChangedPayload } from "@cohub/protocol/fs";
 import type { ChannelEnvelope } from "@cohub/protocol/realtime";
@@ -10,6 +14,7 @@ import type {
 	TaskRunRecord,
 	UserProfile,
 } from "@neta-art/cohub";
+import { parseAppRef } from "@neta-art/cohub";
 import type { BoardDocument } from "@neta-art/cohub/board";
 import {
 	Check,
@@ -92,6 +97,8 @@ import {
 } from "$lib/space-config";
 import type { SpaceFsNode } from "$lib/space-fs";
 import {
+	buildSpaceCheckpointRoute,
+	buildSpaceCronjobRoute,
 	buildSpaceNewSessionRoute,
 	buildSpaceSessionRoute,
 	buildSpaceTaskRoute,
@@ -385,6 +392,150 @@ const portPreview = createPortPreviewController({
 	onPortClosed: (port) => windowManager.tabClosed("port", port),
 	onBeforeOpenPort: () => {},
 });
+async function openMessageUrl(href: string, event: MouseEvent) {
+	try {
+		const url = new URL(href, page.url.href);
+		if (url.origin !== page.url.origin || !url.pathname.includes("/w/")) return;
+		event.preventDefault();
+		const result = await handleAppNavigationOpen({
+			protocol: "cohub.app.navigation",
+			version: 1,
+			type: "open",
+			requestId: crypto.randomUUID(),
+			target: { kind: "app", ref: url.href },
+		});
+		if (!result.handled) window.location.assign(href);
+	} catch {
+		// Preserve ordinary browser navigation for malformed or unsupported URLs.
+		window.location.assign(href);
+	}
+}
+
+async function handleAppNavigationOpen(message: AppNavigationOpenMessage) {
+	if (message.target.kind !== "app") {
+		return openWorkspaceNavigation(message.target);
+	}
+	try {
+		const parsedRef = parseAppRef(message.target.ref);
+		if ("id" in parsedRef) {
+			// IDs are stable and avoid an unnecessary slug lookup.
+			const parsed = await sdk.apps
+				.get(parsedRef.id)
+				.catch(() => sdk.apps.getPublicById(parsedRef.id));
+			return openResolvedAppNavigation(
+				message,
+				parsed.app.id,
+				appDisplayTitle(parsed.app.meta, parsed.app.slug),
+				message.target.launch,
+				{ surface: "app", source: "user", spaceId },
+			);
+		}
+		const parsed = await sdk.apps.getBySlug(
+			parsedRef.username,
+			parsedRef.spaceSlug,
+			parsedRef.appSlug,
+		);
+		const launch =
+			message.target.launch ??
+			(parsedRef.search || parsedRef.hash
+				? {
+						...(parsedRef.search ? { search: parsedRef.search } : {}),
+						...(parsedRef.hash ? { hash: parsedRef.hash } : {}),
+					}
+				: undefined);
+		return openResolvedAppNavigation(
+			message,
+			parsed.app.id,
+			appDisplayTitle(parsed.app.meta, parsed.app.slug),
+			launch,
+			{ surface: "app", source: "user", spaceId },
+		);
+	} catch {
+		return { handled: false as const, reason: "inaccessible" as const };
+	}
+}
+
+async function openWorkspaceNavigation(target: AppNavigationTarget) {
+	if (target.kind === "file") {
+		if (target.spaceId !== spaceId)
+			return { handled: false as const, reason: "unsupported" as const };
+		if (workspaceFilePreviewKind(target.path, activeFsReadonly) === "board") {
+			await openInlineBoard(target.path);
+			return { handled: true as const };
+		}
+		await windowManager.openFile(target.path, {
+			preserveHistory: true,
+			position: target.view ?? null,
+		});
+		return { handled: true as const };
+	}
+	if (
+		target.kind === "session" ||
+		target.kind === "task" ||
+		target.kind === "checkpoint" ||
+		target.kind === "cronjob"
+	) {
+		if (target.spaceId !== spaceId)
+			return { handled: false as const, reason: "unsupported" as const };
+		const route =
+			target.kind === "session"
+				? buildSpaceSessionRoute(spaceId, target.sessionId)
+				: target.kind === "task"
+					? buildSpaceTaskRoute(spaceId, target.taskRunId)
+					: target.kind === "checkpoint"
+						? buildSpaceCheckpointRoute(spaceId, target.checkpointId)
+						: buildSpaceCronjobRoute(spaceId, target.cronjobId);
+		await goto(route, { keepFocus: true, noScroll: true });
+		return { handled: true as const };
+	}
+	return { handled: false as const, reason: "unsupported" as const };
+}
+
+async function openResolvedAppNavigation(
+	message: AppNavigationOpenMessage,
+	appId: string,
+	label: string,
+	launch?: { search?: string; hash?: string },
+	providedInvocation?: AppRuntimeInvocationContext,
+) {
+	const invocation = providedInvocation ?? {
+		surface: "app" as const,
+		source: "user" as const,
+		spaceId,
+	};
+	windowManager.openApp({
+		appId,
+		label,
+		launch: launch ?? null,
+		invocation,
+	});
+	if (!message.call) return { handled: true as const };
+	// Applying launch state changes the iframe source reactively. Flush that
+	// update before calling so AppSurface resets the old runtime first; the
+	// surface host then waits for the new document's ready handshake.
+	await tick();
+	const result = await appPreview.callSurface({
+		appId,
+		method: message.call.method,
+		input: message.call.input,
+		commandId: message.requestId,
+		invocation,
+	});
+	return result.ok
+		? {
+				handled: true as const,
+				call: { ok: true as const, result: result.result },
+			}
+		: {
+				handled: true as const,
+				call: {
+					ok: false as const,
+					code: result.code,
+					message: result.message,
+				},
+			};
+}
+
 const appPreview = createAppPreviewController({
 	getSpaceId: () => spaceId,
 	onOpenPanel: () => {
@@ -2344,9 +2495,11 @@ onMount(() => {
 			}
 
 			if (command.target.kind === "file") {
-				// Route through the file domain so .board files keep their native Board
-				// window instead of being opened as generic text.
-				await fileWorkspace.openSpaceFile(command.target.path);
+				await openWorkspaceNavigation({
+					kind: "file",
+					spaceId,
+					path: command.target.path,
+				});
 				return { status: "applied" };
 			}
 
@@ -2362,20 +2515,31 @@ onMount(() => {
 					? { toolCallId: context.source.toolCallId }
 					: {}),
 			};
-			windowManager.openApp({
-				appId: command.target.appId,
-				label: command.target.label,
-				launch: command.target.launch ?? null,
+			const opened = await openResolvedAppNavigation(
+				{
+					protocol: "cohub.app.navigation",
+					version: 1,
+					type: "open",
+					requestId: context.commandId,
+					target: { kind: "app", ref: command.target.appId },
+					...(command.call ? { call: command.call } : {}),
+				},
+				command.target.appId,
+				command.target.label ?? "App",
+				command.target.launch,
 				invocation,
-			});
+			);
 			if (!command.call) return { status: "applied" };
-			const called = await appPreview.callSurface({
-				appId: command.target.appId,
-				method: command.call.method,
-				input: command.call.input,
-				commandId: context.commandId,
-				invocation,
-			});
+			const called = opened.call;
+			if (!called) {
+				return {
+					status: "rejected",
+					error: {
+						code: "surface_unavailable",
+						message: "The App surface did not return a call result.",
+					},
+				};
+			}
 			if (called.ok) return { status: "pending" };
 			return {
 				status:
@@ -2766,6 +2930,7 @@ const spaceFileDomainProps = $derived.by<
 	onRetryInlineApp: retryInlineWork,
 	onRegisterAppSurface: registerAppSurface,
 	onAppComposerChip: handleAppComposerChip,
+	onNavigationOpen: handleAppNavigationOpen,
 	onActivateInlineFile: activateInlineFileTab,
 	onCloseInlineFileTab: closeInlineFileTab,
 	onBackInlineFile: goBackInlineFile,
@@ -3063,6 +3228,8 @@ const headerActions = {
         {newChatBackground}
         newChatBackgroundSpaceId={spaceId}
         onNewChatBackgroundComposerChip={handleNewChatBackgroundComposerChip}
+        onNavigationOpen={handleAppNavigationOpen}
+        onOpenUrl={openMessageUrl}
         {shouldShowNewChatProfile}
         {newChatProfileExpanded}
         bind:newChatProfileViewportEl

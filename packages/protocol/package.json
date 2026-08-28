@@ -127,6 +127,10 @@
       "types": "./dist/app-runtime.d.ts",
       "default": "./dist/app-runtime.js"
     },
+    "./app-navigation": {
+      "types": "./dist/app-navigation.d.ts",
+      "default": "./dist/app-navigation.js"
+    },
     "./public-identifiers": {
       "types": "./dist/public-identifiers.d.ts",
       "default": "./dist/public-identifiers.js"
