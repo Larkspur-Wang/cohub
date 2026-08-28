@@ -161,6 +161,14 @@ type SpaceAppRow = {
 	viewCount: number;
 };
 
+/** postgres.js raw parameters must use serialized timestamp values. */
+export function serializeActivityRange(startDate: Date, now: Date) {
+	return {
+		startAt: startDate.toISOString(),
+		endAt: now.toISOString(),
+	};
+}
+
 /**
  * Merge both usage domains before ranking. The aggregation happens in
  * PostgreSQL, so Node receives at most MAX_CONTRIBUTORS rows and never needs
@@ -171,6 +179,7 @@ function contributorUsageQuery(
 	startDate: Date,
 	now: Date,
 ) {
+	const { startAt, endAt } = serializeActivityRange(startDate, now);
 	return db.execute<ContributorUsageRow>(sql`
 		WITH contributor_usage AS (
 			SELECT
@@ -183,8 +192,8 @@ function contributorUsageQuery(
 			FROM v2.token_usage_stats_hourly
 			WHERE
 				space_id = ${spaceId}::uuid
-				AND bucket_start_at >= ${startDate}
-				AND bucket_start_at <= ${now}
+				AND bucket_start_at >= ${startAt}::timestamptz
+				AND bucket_start_at <= ${endAt}::timestamptz
 				AND user_id IS NOT NULL
 				AND user_id <> 'unknown'
 
@@ -200,8 +209,8 @@ function contributorUsageQuery(
 			FROM v2.generation_usage_stats_hourly
 			WHERE
 				space_id = ${spaceId}::uuid
-				AND bucket_start_at >= ${startDate}
-				AND bucket_start_at <= ${now}
+				AND bucket_start_at >= ${startAt}::timestamptz
+				AND bucket_start_at <= ${endAt}::timestamptz
 				AND user_id IS NOT NULL
 				AND user_id <> 'unknown'
 		)

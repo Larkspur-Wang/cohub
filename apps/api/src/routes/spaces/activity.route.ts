@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { createLogger } from "@cohub/infra/logging";
 import {
 	getOptionalAuth,
 	requireValidId,
@@ -10,6 +11,7 @@ import {
 	stripActivityCost,
 } from "../../space-activity.js";
 
+const logger = createLogger({ serviceName: "cohub-api" });
 const router = new Hono();
 
 /**
@@ -38,7 +40,12 @@ router.get("/", async (c) => {
 			includeCost,
 		});
 		return c.json(includeCost ? activity : stripActivityCost(activity));
-	} catch {
+	} catch (error) {
+		logger.error("[space-activity] request failed", {
+			spaceId,
+			days: c.req.query("days") ?? "30",
+			error,
+		});
 		return c.json({ message: "failed to load activity data" }, 500);
 	}
 });

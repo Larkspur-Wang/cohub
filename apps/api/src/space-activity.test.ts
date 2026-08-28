@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
 	MAX_CONTRIBUTORS,
+	serializeActivityRange,
 	stripActivityCost,
 } from "./space-activity.js";
 import { aggregateUserModelRankings, type GenerationUsageRow, type UsageRow } from "./usage-aggregation.js";
@@ -50,6 +51,16 @@ function generationRow(
     ...overrides,
   };
 }
+
+test("activity raw SQL boundaries serialize dates before binding", () => {
+	const start = new Date("2026-08-01T00:00:00.000Z");
+	const end = new Date("2026-08-28T00:00:00.000Z");
+
+	assert.deepEqual(serializeActivityRange(start, end), {
+		startAt: "2026-08-01T00:00:00.000Z",
+		endAt: "2026-08-28T00:00:00.000Z",
+	});
+});
 
 test("model rankings treat NULL and unknown as agent-owned, not a model", () => {
   const rankings = aggregateUserModelRankings(
