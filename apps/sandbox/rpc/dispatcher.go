@@ -160,6 +160,14 @@ type fsReadParams struct {
 	Binary bool   `json:"binary"`
 }
 
+func fileCtimeMs(info os.FileInfo) (int64, bool) {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return 0, false
+	}
+	return stat.Ctim.Sec*1000 + stat.Ctim.Nsec/1_000_000, true
+}
+
 type fsWriteParams struct {
 	Path      string          `json:"path"`
 	CWD       string          `json:"cwd"`
@@ -304,6 +312,9 @@ func (d *Dispatcher) handleFSRead(request protocol.RPCRequest) interface{} {
 		if info, statErr := os.Stat(resolved.path); statErr == nil {
 			result["size"] = info.Size()
 			result["mtimeMs"] = info.ModTime().UnixMilli()
+			if ctimeMs, ok := fileCtimeMs(info); ok {
+				result["ctimeMs"] = ctimeMs
+			}
 		}
 		return result
 	}
@@ -340,6 +351,9 @@ func (d *Dispatcher) handleFSRead(request protocol.RPCRequest) interface{} {
 	if info, statErr := os.Stat(resolved.path); statErr == nil {
 		result["size"] = info.Size()
 		result["mtimeMs"] = info.ModTime().UnixMilli()
+		if ctimeMs, ok := fileCtimeMs(info); ok {
+			result["ctimeMs"] = ctimeMs
+		}
 	}
 	return result
 }
@@ -575,13 +589,18 @@ func (d *Dispatcher) handleFSStat(request protocol.RPCRequest) interface{} {
 		return d.failed(request, "", "IO_ERROR", err.Error())
 	}
 
-	return map[string]interface{}{
+	result := map[string]interface{}{
 		"path":        resolved.path,
 		"exists":      true,
 		"isDirectory": info.IsDir(),
+		"isFile":      info.Mode().IsRegular(),
 		"size":        info.Size(),
 		"mtimeMs":     info.ModTime().UnixMilli(),
 	}
+	if ctimeMs, ok := fileCtimeMs(info); ok {
+		result["ctimeMs"] = ctimeMs
+	}
+	return result
 }
 
 func (d *Dispatcher) handleFSLs(request protocol.RPCRequest) interface{} {

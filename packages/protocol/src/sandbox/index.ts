@@ -199,6 +199,8 @@ export type FsReadResult = {
   size?: number;
   /** File modification time in epoch milliseconds. */
   mtimeMs?: number;
+  /** File metadata change time in epoch milliseconds, when available. */
+  ctimeMs?: number;
 };
 
 export type FsWriteParams = {
@@ -271,6 +273,9 @@ export type FsStatResult = {
   size?: number;
   /** Modification time in epoch milliseconds when the node exists. */
   mtimeMs?: number;
+  /** Metadata change time in epoch milliseconds when available. */
+  ctimeMs?: number;
+  isFile?: boolean;
 };
 
 export type FsLsParams = {

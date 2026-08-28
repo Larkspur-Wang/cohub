@@ -610,6 +610,8 @@ export type SpaceFsFileResponse = {
   size: number;
   mimeType: string | null;
   mtimeMs: number;
+  /** File metadata change time in epoch milliseconds, when available. */
+  ctimeMs?: number;
   kind: SpaceFsFileKind;
   encoding: SpaceFsEncoding;
   content: string;
