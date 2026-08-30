@@ -1,5 +1,18 @@
 # @neta-art/cohub-cli
 
+## 6.2.0
+
+### Minor Changes
+
+- 6a83978: fix(cli): upload directory contents directly under --dir
+
+  `spaces files upload <dir> --dir <target>` used to nest the source
+  directory name under the target (`target/<dir>/...`). It now contributes
+  the directory's contents directly (`target/...`), matching common cloud
+  CLIs (`aws s3 cp dir`, `rclone copy`).
+  File arguments are unchanged. Inputs whose contents collide on the same
+  relative path now fail fast instead of silently overwriting.
+
 ## 6.1.6
 
 ### Patch Changes
