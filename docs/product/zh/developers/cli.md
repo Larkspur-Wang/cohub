@@ -99,6 +99,9 @@ cohub -s <spaceId> spaces files upload ./src
 cohub -s <spaceId> spaces files diff
 ```
 
+`upload` 把文件直接落在 `--dir` 下；目录入参的内容会直接展开（不多一层目录名），例如
+`upload dist --dir apps/demo` 的结果是 `apps/demo/index.html`，而不是 `apps/demo/dist/index.html`。
+
 ### Works
 
 `--file` 与 `--dir` 接收的是 Space 工作区内的相对路径——与 `spaces files ls`

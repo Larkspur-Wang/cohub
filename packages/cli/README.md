@@ -278,6 +278,11 @@ cohub -s <spaceId> spaces files mv <from> <to>
 cohub -s <spaceId> spaces files rm <path>
 ```
 
+`upload` places each file under `--dir`; a directory argument contributes its
+contents directly (like `aws s3 cp dir remote:path`), so `upload dist --dir apps/demo`
+lands at `apps/demo/index.html`, not `apps/demo/dist/index.html`. Upload adds or
+overwrites files; it never deletes existing ones.
+
 Confirm before deleting files or directories.
 
 ## Works

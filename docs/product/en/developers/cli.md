@@ -99,6 +99,10 @@ cohub -s <spaceId> spaces files upload ./src
 cohub -s <spaceId> spaces files diff
 ```
 
+`upload` places each file under `--dir`; a directory argument contributes its
+contents directly, so `upload dist --dir apps/demo` lands at `apps/demo/index.html`,
+not `apps/demo/dist/index.html`.
+
 ### Works
 
 `--file` and `--dir` take paths relative to the Space workspace — the same paths
