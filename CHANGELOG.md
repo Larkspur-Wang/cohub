@@ -4,15 +4,14 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
-## v2.36 — 2026-08-28
+## v2.36 — 2026-08-30
 
-- **App workspace navigation bridge**: embedded Apps and chat backgrounds can now navigate the host workspace via `client.navigation.open(target)` / `appRuntime.navigationOpen(target, call)` (SDK 8.5.0). Targets are validated `AppNavigationTarget` payloads — App refs, files with line/column views, sessions, task runs, checkpoints, and cronjobs — over a versioned `cohub.app.navigation` protocol, with responses reporting `handled` plus a `reason` (`unsupported`, `invalid_target`, `inaccessible`, or `timeout`) when the host can't navigate; `PopupBrokerTransport` reports navigation as unsupported.
-- **In-chat workspace-aware links**: Markdown links in chat messages that point to Cohub workspace routes now open in-app through the navigation bridge instead of forcing new browser tabs, while author-supplied `target` and `download` attributes keep native browser behavior (renderer-added `_blank` is distinguishable via `data-cohub-auto-target`).
-- **Unified navigation payload schema**: local App navigation and remote `desktop.open` commands now share one validated schema in `@cohub/protocol/navigation` (`NavigationLaunch`, `NavigationCall`, shared length limits), and the workspace desktop-command path was refactored onto the same App resolver used by the SDK bridge.
+- **Unified app workspace context**: all app-window opens (desktop commands, user actions, route-driven) now flow through a single WorkspaceAppOpenContext → WorkspaceAppInvocation pipeline, so every app-surface request carries consistent session/turn/tool-call provenance; also completes the Work → App terminology migration across the SDK and web client (sdk.works → sdk.apps, AppMeta, AppDetailResponse).
+- **Predictable CLI uploads**: `spaces files upload <dir> --dir <target>` now lands a directory's contents directly under the target (`target/...`) instead of nesting the source folder name (`target/<dir>/...`), matching `aws s3 cp` / `rclone copy` semantics, with unit tests covering path resolution.
 
 ### Bug Fixes
 
-- Relaunching an already-running App without launch parameters no longer reloads its window, preserving in-App state
+- CLI `spaces files upload` fails fast when multiple inputs collide on the same relative path instead of silently overwriting files.
 
 ## v2.35 — 2026-08-28
 
