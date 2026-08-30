@@ -67,15 +67,15 @@ const publicUrl = $derived(detail?.publicUrl ?? null);
  * may mount the replacement before the outgoing surface reports, and the id is
  * the same app either way.
  */
-let surfaceWorkId: string | null = null;
+let surfaceAppId: string | null = null;
 
 function handleSurfaceHost(host: AppSurfaceHost | null) {
-	if (host) surfaceWorkId = preview.appId;
-	if (surfaceWorkId) onRegisterSurface(surfaceWorkId, host);
+	if (host) surfaceAppId = preview.appId;
+	if (surfaceAppId) onRegisterSurface(surfaceAppId, host);
 }
 
 function handleComposerChip(chip: AppComposerChip | null) {
-	if (surfaceWorkId) onComposerChip(surfaceWorkId, chip);
+	if (surfaceAppId) onComposerChip(surfaceAppId, chip);
 }
 const launchState = $derived({
 	search: preview.launch?.search ?? "",
@@ -160,7 +160,7 @@ const isDisabled = $derived(detail?.app.status === "disabled");
 					owner={detail.owner}
 					content={detail.content}
 					{launchState}
-					invocation={preview.invocation ?? undefined}
+					invocation={preview.invocation}
 					onSurfaceHost={handleSurfaceHost}
 					onComposerChip={handleComposerChip}
 					onNavigationOpen={onNavigationOpen}

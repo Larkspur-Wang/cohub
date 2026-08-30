@@ -130,7 +130,7 @@ export function parseCohubAppUrls(value: string, maxMatches = 20) {
 	return matches;
 }
 
-export function replaceCohubWorkUrls(
+export function replaceCohubAppUrls(
 	value: string,
 	resolveLabel: (link: ParsedCohubAppLink) => string | null | undefined,
 ) {
@@ -140,18 +140,18 @@ export function replaceCohubWorkUrls(
 			match,
 			absoluteUsername: string,
 			absoluteSpaceSlug: string,
-			absoluteWorkSlug: string,
+			absoluteAppSlug: string,
 			absoluteSuffix: string,
 			relativePrefix: string,
 			relativeUsername: string,
 			relativeSpaceSlug: string,
-			relativeWorkSlug: string,
+			relativeAppSlug: string,
 			relativeSuffix: string,
 		) => {
 			const identity = parseAppIdentity(
 				absoluteUsername || relativeUsername,
 				absoluteSpaceSlug || relativeSpaceSlug,
-				absoluteWorkSlug || relativeWorkSlug,
+				absoluteAppSlug || relativeAppSlug,
 			);
 			const launchSuffix = absoluteSuffix || relativeSuffix || "";
 			if (!identity) return match;

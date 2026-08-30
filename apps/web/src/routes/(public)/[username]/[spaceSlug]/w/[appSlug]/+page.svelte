@@ -136,7 +136,7 @@ $effect(() => {
 	clientLoading = true;
 	clientError = "";
 	clientDetail = null;
-	void sdk.works
+	void sdk.apps
 		.getBySlug(username, spaceSlug, appSlug)
 		.then((detail) => {
 			if (!cancelled) {

@@ -1,4 +1,4 @@
-import type { AppDetailResponse, WorkMeta } from "@neta-art/cohub";
+import type { AppDetailResponse, AppMeta } from "@neta-art/cohub";
 import { getAppFramePreconnectOrigin } from "$lib/app-url";
 import {
 	canonicalUrl,
@@ -51,7 +51,7 @@ function cleanText(value: unknown, max = 500) {
 
 /** Shared display title for app chrome (bar, iframe title, dialogs). */
 export function appDisplayTitle(
-	meta: WorkMeta | null | undefined,
+	meta: AppMeta | null | undefined,
 	fallback: string,
 ) {
 	if (isRecord(meta)) {
@@ -65,7 +65,7 @@ export function appDisplayTitle(
  * Aligns with `presentation.hideCohubBar` (Pro+):
  * minimal host branding on public share meta as well as the on-page bar.
  */
-export function isMinimalAppBranding(meta: WorkMeta | null | undefined) {
+export function isMinimalAppBranding(meta: AppMeta | null | undefined) {
 	return (
 		isRecord(meta) &&
 		isRecord(meta.presentation) &&
@@ -88,7 +88,7 @@ function humanizeSlug(value: string) {
 }
 
 function appName(input: {
-	meta?: WorkMeta | null;
+	meta?: AppMeta | null;
 	slug?: string | null;
 	spaceName?: string | null;
 }) {

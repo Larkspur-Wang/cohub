@@ -8,7 +8,6 @@ import type { SpaceFsChangedPayload } from "@cohub/protocol/fs";
 import type { ChannelEnvelope } from "@cohub/protocol/realtime";
 import type {
 	AppRecord,
-	AppRuntimeInvocationContext,
 	Permission,
 	SpaceRecord,
 	TaskRunRecord,
@@ -180,6 +179,7 @@ import {
 	activeWindowFilePath,
 	workspaceFilePreviewKind,
 } from "./modules/windows";
+import type { WorkspaceAppOpenContext } from "./modules/workspace-app-context";
 import { createWorkspaceLayoutController } from "./modules/workspace-layout-controller.svelte";
 import { displayUserName, fallbackUserName } from "./space-utils";
 
@@ -426,8 +426,8 @@ async function handleAppNavigationOpen(message: AppNavigationOpenMessage) {
 				message,
 				parsed.app.id,
 				appDisplayTitle(parsed.app.meta, parsed.app.slug),
+				{ source: "user" },
 				message.target.launch,
-				{ surface: "app", source: "user", spaceId },
 			);
 		}
 		const parsed = await sdk.apps.getBySlug(
@@ -447,8 +447,8 @@ async function handleAppNavigationOpen(message: AppNavigationOpenMessage) {
 			message,
 			parsed.app.id,
 			appDisplayTitle(parsed.app.meta, parsed.app.slug),
+			{ source: "user" },
 			launch,
-			{ surface: "app", source: "user", spaceId },
 		);
 	} catch {
 		return { handled: false as const, reason: "inaccessible" as const };
@@ -495,19 +495,14 @@ async function openResolvedAppNavigation(
 	message: AppNavigationOpenMessage,
 	appId: string,
 	label: string,
+	openContext: WorkspaceAppOpenContext,
 	launch?: { search?: string; hash?: string },
-	providedInvocation?: AppRuntimeInvocationContext,
 ) {
-	const invocation = providedInvocation ?? {
-		surface: "app" as const,
-		source: "user" as const,
-		spaceId,
-	};
 	windowManager.openApp({
 		appId,
 		label,
 		launch: launch ?? null,
-		invocation,
+		openContext,
 	});
 	if (!message.call) return { handled: true as const };
 	// Applying launch state changes the iframe source reactively. Flush that
@@ -519,7 +514,6 @@ async function openResolvedAppNavigation(
 		method: message.call.method,
 		input: message.call.input,
 		commandId: message.requestId,
-		invocation,
 	});
 	return result.ok
 		? {
@@ -706,7 +700,7 @@ const windowManager = createWindowManager({
 	},
 });
 const inlineFileCopied = $derived(fileWorkspace.inlineFileCopied);
-const openWorkPublish = (
+const openAppPublish = (
 	targetType: "file" | "directory" | "port",
 	targetRef: string,
 ) => {
@@ -767,7 +761,7 @@ $effect(() => {
 				previewAppsLoadedFor = currentSpaceId;
 				return;
 			}
-			const { apps } = await sdk.works.listBySpace(currentSpaceId);
+			const { apps } = await sdk.apps.listBySpace(currentSpaceId);
 			if (token !== previewAppsToken) return;
 			// Replay what realtime delivered mid-request instead of dropping the
 			// response, which would hide every other app until the next reload.
@@ -792,7 +786,7 @@ const selectedFilePath = $derived(
 		activeInlineBoardPath,
 	),
 );
-let newChatBackgroundWorkContext = $state<{
+let newChatBackgroundAppContext = $state<{
 	appId: string;
 	chip: AppComposerChip;
 } | null>(null);
@@ -837,11 +831,11 @@ $effect(() => {
 		sessionChat.reportActiveSource(null);
 		return;
 	}
-	if (newChatBackgroundWorkContext) {
+	if (newChatBackgroundAppContext) {
 		sessionChat.reportActiveSource({
 			kind: "app",
-			appId: newChatBackgroundWorkContext.appId,
-			...newChatBackgroundWorkContext.chip,
+			appId: newChatBackgroundAppContext.appId,
+			...newChatBackgroundAppContext.chip,
 		});
 		return;
 	}
@@ -1167,7 +1161,7 @@ const shouldShowNewChatProfile = $derived(
 	),
 );
 $effect(() => {
-	if (!shouldShowNewChatBackground) newChatBackgroundWorkContext = null;
+	if (!shouldShowNewChatBackground) newChatBackgroundAppContext = null;
 });
 $effect(() => {
 	if (!shouldShowNewChatProfile || !space) return;
@@ -2112,13 +2106,13 @@ function closeInlineBoardTab(path?: string) {
 function closeInlinePortTab(port?: string) {
 	windowManager.close("port", port ?? activeInlinePort);
 }
-function activateInlineWorkTab(appId: string) {
+function activateInlineAppTab(appId: string) {
 	windowManager.activate("app", appId);
 }
-function closeInlineWorkTab(appId?: string) {
+function closeInlineAppTab(appId?: string) {
 	windowManager.close("app", appId ?? activeInlineAppId);
 }
-function retryInlineWork(appId: string) {
+function retryInlineApp(appId: string) {
 	appPreview.retry(appId);
 }
 /**
@@ -2126,7 +2120,7 @@ function retryInlineWork(appId: string) {
  * it on unmount. Keep the disposers here so a remount never leaves a stale
  * invoker pointing at a detached frame.
  */
-const workSurfaceDisposers = new Map<string, () => void>();
+const appSurfaceDisposers = new Map<string, () => void>();
 function handleAppComposerChip(appId: string, chip: AppComposerChip | null) {
 	appPreview.setComposerChip(appId, chip);
 }
@@ -2135,18 +2129,18 @@ function handleNewChatBackgroundComposerChip(
 	chip: AppComposerChip | null,
 ) {
 	if (chip) {
-		newChatBackgroundWorkContext = { appId, chip };
+		newChatBackgroundAppContext = { appId, chip };
 		return;
 	}
-	if (newChatBackgroundWorkContext?.appId === appId) {
-		newChatBackgroundWorkContext = null;
+	if (newChatBackgroundAppContext?.appId === appId) {
+		newChatBackgroundAppContext = null;
 	}
 }
 function registerAppSurface(appId: string, host: AppSurfaceHost | null) {
-	workSurfaceDisposers.get(appId)?.();
-	workSurfaceDisposers.delete(appId);
+	appSurfaceDisposers.get(appId)?.();
+	appSurfaceDisposers.delete(appId);
 	if (!host) return;
-	workSurfaceDisposers.set(
+	appSurfaceDisposers.set(
 		appId,
 		appPreview.registerSurface(appId, (input) => host.call(input)),
 	);
@@ -2503,10 +2497,8 @@ onMount(() => {
 				return { status: "applied" };
 			}
 
-			const invocation: AppRuntimeInvocationContext = {
-				surface: "app",
+			const openContext: WorkspaceAppOpenContext = {
 				source: "desktop_command",
-				...(context.source?.spaceId ? { spaceId: context.source.spaceId } : {}),
 				...(context.source?.sessionId
 					? { sessionId: context.source.sessionId }
 					: {}),
@@ -2526,8 +2518,8 @@ onMount(() => {
 				},
 				command.target.appId,
 				command.target.label ?? "App",
+				openContext,
 				command.target.launch,
-				invocation,
 			);
 			if (!command.call) return { status: "applied" };
 			const called = opened.call;
@@ -2567,8 +2559,8 @@ onMount(() => {
 		spaceStatus.dispose();
 		fileWorkspace.dispose();
 		portPreview.dispose();
-		for (const dispose of workSurfaceDisposers.values()) dispose();
-		workSurfaceDisposers.clear();
+		for (const dispose of appSurfaceDisposers.values()) dispose();
+		appSurfaceDisposers.clear();
 		appPreview.dispose();
 		sessionChat.scroll.stopVimScroll();
 		sessionChat.scroll.clearPendingVimG();
@@ -2925,9 +2917,9 @@ const spaceFileDomainProps = $derived.by<
 	onCloseInlineBoardTab: closeInlineBoardTab,
 	onActivateInlinePort: activateInlinePortTab,
 	onCloseInlinePortTab: closeInlinePortTab,
-	onActivateInlineApp: activateInlineWorkTab,
-	onCloseInlineAppTab: closeInlineWorkTab,
-	onRetryInlineApp: retryInlineWork,
+	onActivateInlineApp: activateInlineAppTab,
+	onCloseInlineAppTab: closeInlineAppTab,
+	onRetryInlineApp: retryInlineApp,
 	onRegisterAppSurface: registerAppSurface,
 	onAppComposerChip: handleAppComposerChip,
 	onNavigationOpen: handleAppNavigationOpen,
@@ -2958,7 +2950,7 @@ const spaceFileDomainProps = $derived.by<
 	onInsertFilePathReference: insertFilePathReference,
 	onGetFileActionNode: getFileActionNode,
 	onUploadComplete: fileWorkspace.handleUploadComplete,
-	onOpenAppPublish: openWorkPublish,
+	onOpenAppPublish: openAppPublish,
 	onCloseAppPublish: () => {
 		appPublishTarget = null;
 	},
@@ -3218,6 +3210,7 @@ const headerActions = {
           windowManager.openApp({
             appId: app.id,
             label: appDisplayTitle(app.meta, app.slug),
+            openContext: { source: "user" },
           });
         }}
       />

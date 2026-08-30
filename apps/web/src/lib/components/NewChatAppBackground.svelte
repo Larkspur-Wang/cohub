@@ -34,7 +34,7 @@ let state = $state<
 	| { status: "loading" }
 	| {
 			status: "ready";
-			data: Awaited<ReturnType<typeof sdk.works.getBySlug>>;
+			data: Awaited<ReturnType<typeof sdk.apps.getBySlug>>;
 	  }
 	| { status: "error" }
 >({ status: "loading" });
@@ -43,7 +43,7 @@ let loadVersion = 0;
 $effect(() => {
 	const version = ++loadVersion;
 	state = { status: "loading" };
-	void sdk.works
+	void sdk.apps
 		.getBySlug(appUrl.username, appUrl.spaceSlug, appUrl.appSlug)
 		.then((data) => {
 			if (version !== loadVersion) return;
