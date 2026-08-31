@@ -111,10 +111,10 @@ function reportReady() {
 const isBackground = $derived(mode === "background");
 const isAppWindow = $derived(mode === "app");
 const spaceName = $derived(space?.name || space?.slug || "Space");
-const appTitle = $derived(appDisplayTitle(app.meta, app.slug));
+const appTitle = $derived(appDisplayTitle(app?.meta, app?.slug ?? "App"));
 const publisherName = $derived(owner?.displayName ?? "Cohub");
 const publisherAvatarUrl = $derived(owner?.avatarUrl?.trim() || null);
-const hideCohubBar = $derived(app.meta?.presentation?.hideCohubBar === true);
+const hideCohubBar = $derived(app?.meta?.presentation?.hideCohubBar === true);
 // Board and file Works render natively; only web and port Works are embedded.
 const boardContent = $derived(content?.kind === "board" ? content : null);
 const fileContent = $derived(content?.kind === "file" ? content : null);
@@ -124,16 +124,18 @@ const embeddedContent = $derived(
 		: null,
 );
 const nativeContent = $derived(boardContent ?? fileContent);
-const frameDescriptor = $derived.by(() =>
-	resolveAppFrame({
+const frameDescriptor = $derived.by(() => {
+	if (!app) return null;
+
+	return resolveAppFrame({
 		contentUrl:
 			embeddedContent?.url ??
 			(!content && app.targetType === "port" ? app.targetRef : ""),
 		launchState,
 		baseHref: page.url.href,
 		targetType: app.targetType,
-	}),
-);
+	});
+});
 const iframeSrc = $derived(frameDescriptor?.url ?? "");
 const frameOrigin = $derived(frameDescriptor?.origin ?? null);
 const hasFrameSource = $derived(Boolean(frameDescriptor));
@@ -290,6 +292,8 @@ onMount(() => {
 		<div class="app-native">
 			<WorkFileSurface content={fileContent} />
 		</div>
+	{:else if !app}
+		<div class="empty-state">Loading App…</div>
 	{:else if shouldRenderFrame}
 		<iframe
 			bind:this={frame}
