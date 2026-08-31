@@ -1,16 +1,16 @@
-# Cohub Works Guide
+# Cohub Apps Guide
 
-Works are published, shareable surfaces that turn a Space file, directory, or public sandbox port into a public Cohub page.
+Apps are published, shareable surfaces that turn a Space file, directory, or public sandbox port into a public Cohub page.
 
-Use Works when a Space produces something people should open directly: a static HTML prototype, a small site, a generated app, a demo running on a sandbox port, or a Work that uses the Cohub SDK to read approved context and request explicit viewer authorization.
+Use Apps when a Space produces something people should open directly: a static HTML prototype, a small site, a generated app, a demo running on a sandbox port, or a published App that uses the Cohub SDK to read approved context and request explicit viewer authorization.
 
 ## Runtime requirements
 
-`cohub.context()`, `cohub.auth.*`, and `cohub.app.commerce.*` only function inside a **published** Work — the Cohub-hosted iframe where `window.parent` is the Cohub shell. They do not work from a static asset URL or a local preview. In those environments `context()` is `null` and commerce calls fail. Always develop against a published Work.
+`cohub.context()`, `cohub.auth.*`, and `cohub.app.commerce.*` only function inside a **published** App — the Cohub-hosted iframe where `window.parent` is the Cohub shell. They do not work from a static asset URL or a local preview. In those environments `context()` is `null` and commerce calls fail. Always develop against a published App.
 
-## What a Work Contains
+## What an App Contains
 
-A Work record belongs to one Space and has a few important fields.
+An App record belongs to one Space and has a few important fields.
 
 `slug` is the public name used in the URL.
 
@@ -20,61 +20,61 @@ A Work record belongs to one Space and has a few important fields.
 
 `targetRef` is the file path, directory path, or port number.
 
-`workScopes` (`appScopes` in the canonical API) are permissions the publisher grants directly to the Work for its own Space.
+`appScopes` are permissions the publisher grants directly to the App for its own Space.
 
 `allowedViewerScopes` is deprecated: viewer grants are no longer gated by the app configuration. A viewer may grant any permission they can already use themselves on the target Space.
 
 The public URL shape is:
 
 ```text
-/:username/:spaceSlug/w/:workSlug
+/:username/:spaceSlug/w/:appSlug
 ```
 
 For example:
 
 ```text
-/username/works-guide-test-2026-06-19/w/works-guide-file
+/username/apps-guide-test/w/demo
 ```
 
-Query parameters and the URL fragment on a public Work link are forwarded to
-embedded web and port Works. This supports shareable application state such as
+Query parameters and the URL fragment on a public App link are forwarded to
+embedded web and port apps. This supports shareable application state such as
 `?view=timeline#today`. Parameters in the `cohub_*` namespace are reserved for
 the Cohub host and are available only through their documented SDK APIs. Do not
-put secrets or access tokens in a Work URL.
+put secrets or access tokens in an App URL.
 
 ## Publish From the UI
 
 Prepare something publishable in a Space: an HTML page, a `.board` file, any other single file, a directory containing `index.html` with relative assets, or a running dev server on a supported public sandbox port.
 
-Open the file, directory, or port preview, then click `Publish`. The dialog asks for a Work slug (and a username or space slug if missing). Under `App can`, select the permissions the app receives directly for its own Space.
+Open the file, directory, or port preview, then click `Publish`. The dialog asks for an App slug (and a username or space slug if missing). Under `App can`, select the permissions the app receives directly for its own Space.
 
-After publishing, the dialog shows the public URL. The Work also appears in the left sidebar under `Works`.
+After publishing, the dialog shows the public URL. The App also appears in the left sidebar under `Apps`.
 
-## Manage a Work
+## Manage an App
 
-The Work management page is:
+The App management page is:
 
 ```text
-/spaces/:spaceId/works/:workId
+/spaces/:spaceId/apps/:appId
 ```
 
-From that page you can open the public page, edit the slug, target, status, and permissions, disable or publish the Work, update its published version, delete it, and copy the Work ID.
+From that page you can open the public page, edit the slug, target, status, and permissions, disable or publish the App, update its published version, delete it, and copy the App ID.
 
-Disabling a Work removes it from the public by-slug lookup. Publishing or updating a version creates a fresh snapshot from the current target. Deleting a Work removes the management record, viewer grants, and version records.
+Disabling an App removes it from the public by-slug lookup. Publishing or updating a version creates a fresh snapshot from the current target. Deleting an App removes the management record, viewer grants, and version records.
 
 Editing a target changes the source used by the next version. The public page changes only after publishing or updating a version.
 
 ## Targets and Limits
 
-File Works accept any single file up to 1 GiB. An HTML page (`.html` / `.htm`) is published as a web page. A `.board` file is published as an interactive read-only Board, together with the assets it references. Any other file is published for native preview (Markdown, code, image, video, audio, PDF) with a download fallback.
+File apps accept any single file up to 1 GiB. An HTML page (`.html` / `.htm`) is published as a web page. A `.board` file is published as an interactive read-only Board, together with the assets it references. Any other file is published for native preview (Markdown, code, image, video, audio, PDF) with a download fallback.
 
 A Board publish captures the Board's own state plus the workspace files it actually references — images, videos, file-card covers, and effect or clip assets. Files a Board does not reference are never published, and file cards show the preview captured at publish time rather than the whole target file.
 
-Directory Works must contain `index.html`. The published directory must contain 1 to 1000 files and total 1 byte to 1 GiB.
+Directory apps must contain `index.html`. The published directory must contain 1 to 1000 files and total 1 byte to 1 GiB.
 
-Port Works use the sandbox public endpoint for the port. The port must be one of the supported Cohub public sandbox ports.
+Port apps use the sandbox public endpoint for the port. The port must be one of the supported Cohub public sandbox ports.
 
-The public Work page only serves a Work when its status is `published`.
+The public App page only serves an App when its status is `published`.
 
 ## Permissions
 
@@ -110,11 +110,11 @@ cohub apps grants <app>            # list your grants for an app
 cohub apps revoke <app> <grantId>  # revoke one
 ```
 
-Use the smallest permission set that the Work needs. A visual static demo normally does not need file, session, task, prompt, or generation permissions.
+Use the smallest permission set that the App needs. A visual static demo normally does not need file, session, task, prompt, or generation permissions.
 
-## Use the SDK Inside a Work
+## Use the SDK Inside an App
 
-A published Work can use the Cohub SDK from its own HTML/JS.
+A published App can use the Cohub SDK from its own HTML/JS.
 
 For no-build HTML, import the SDK from an ESM CDN and create a client:
 
@@ -126,7 +126,7 @@ const spaceId = context.invocation?.spaceId ?? context.app.homeSpace?.id ?? cont
 const space = cohub.space(spaceId);
 ```
 
-`cohub.context()` returns App identity, App home Space identity, and the current permission scopes. For a new chat background, the Space currently hosting the App is available as `context.invocation.spaceId`; `context.space` remains the legacy App home Space field.
+`cohub.context()` returns App identity, App home Space identity, and the current permission scopes. For a new chat background, the Space currently hosting the App is available as `context.invocation.spaceId`; `context.app.homeSpace` is the App home Space.
 
 To call APIs that need App permissions, use the SDK client after the context is loaded. For example, `space.getConfig()` expects `space.view`; file tree reads expect `file.view`; session list reads expect `session.view`.
 
@@ -135,7 +135,7 @@ To request viewer authorization, call the SDK authorization helper from a user a
 ```js
 await cohub.auth.request({
   scopes: ["session.prompt.readonly"],
-  reason: "This Work wants to read session context for the current viewer."
+  reason: "This App wants to read session context for the current viewer."
 });
 ```
 
@@ -188,26 +188,26 @@ To access the viewer's account-level data, request the corresponding `user.*` sc
 // List the viewer's spaces
 await cohub.auth.request({
   scopes: ["user.space.list"],
-  reason: "This Work wants to show your space list.",
+  reason: "This App wants to show your space list.",
 });
 const spaces = await cohub.spaces.list();
 
 // List sessions the viewer created across all spaces
 await cohub.auth.request({
   scopes: ["user.session.list"],
-  reason: "This Work wants to list your sessions.",
+  reason: "This App wants to list your sessions.",
 });
 const { sessions } = await cohub.user.listSessions({ limit: 20 });
 
 // Read the viewer's activity
 await cohub.auth.request({
   scopes: ["user.usage.read"],
-  reason: "This Work wants to show your activity.",
+  reason: "This App wants to show your activity.",
 });
 const activity = await cohub.user.getActivity({ days: 30 });
 ```
 
-For commerce inside a Work — feature unlocks and credit consumption:
+For commerce inside an App — feature unlocks and credit consumption:
 
 ```js
 // Check entitlements and credit balance in one call
@@ -236,34 +236,34 @@ if (checkoutState.orderId) {
 }
 ```
 
-The example app in `docs/examples/work-capability-lab/` demonstrates runtime context, token inspection, file reads, session reads, viewer authorization, prompt calls, account-level data access, and a minimal commerce flow from inside a published Work.
+The example app in `docs/examples/app-capability-lab/` demonstrates runtime context, token inspection, file reads, session reads, viewer authorization, prompt calls, account-level data access, and a minimal commerce flow from inside a published App.
 
 For a focused commerce example, see:
 
-- `docs/work-commerce-guide.md`
-- `docs/examples/work-capability-lab/commerce-demo.md`
-- `docs/examples/work-capability-lab/commerce-demo.html`
+- `docs/app-commerce-guide.md`
+- `docs/examples/app-capability-lab/commerce-demo.md`
+- `docs/examples/app-capability-lab/commerce-demo.html`
 
-## Preview a Work Inside the Workspace
+## Preview an App Inside the Workspace
 
-A Work detail page offers two ways to open the published result:
+A detail page offers two ways to open the published result:
 
-- **Preview** shows the Work as a tab in the workspace preview pane, beside the
-  detail page, so publish settings and the running Work stay visible together.
-- **New tab** opens the public Work page as before.
+- **Preview** shows the App as a tab in the workspace preview pane, beside the
+  detail page, so publish settings and the running App stay visible together.
+- **New tab** opens the public App page as before.
 
-The preview tab is keyed by Work id, deep-linkable as `?preview=work:<workId>`,
+The preview tab is keyed by App id, deep-linkable as `?window=app:<appId>`,
 and participates in the same tab budget as file, Board, and port previews.
 
 ## Let an Agent Drive the Preview
 
 An Agent running in the Space can open the same preview in the Cohub tab the chat
-started from, and call methods the Work exposes:
+started from, and call methods the App exposes:
 
 ```bash
-cohub desktop open <workId|url|cohub://works/...|username/space/work>
-cohub desktop open <work> --call selection.get
-cohub desktop open <work> --call board.focus --data '{"nodeId":"n1"}'
+cohub desktop open <appId|url|app://...|username/space/app>
+cohub desktop open <app> --call selection.get
+cohub desktop open <app> --call board.focus --data '{"nodeId":"n1"}'
 ```
 
 Register a method that receives the UI command id and completes it later:
@@ -280,19 +280,19 @@ await client.ui.reportResult(commandId, {
 });
 ```
 
-Only registered methods are reachable, so a Work decides exactly what an Agent can
+Only registered methods are reachable, so an App decides exactly what an Agent can
 do. There is no DOM access and no script evaluation. Commands are routed by request
-provenance and reach only the frontend instance that originated the work, so they
-cannot touch another user's browser. A Work also answers only a Cohub app origin,
-so embedding it elsewhere cannot invoke its methods. Native file and Board Works can
+provenance and reach only the frontend instance that originated the command, so they
+cannot touch another user's browser. An App also answers only a Cohub app origin,
+so embedding it elsewhere cannot invoke its methods. Native file and Board apps can
 be previewed but expose no callable surface.
 
-## Promote a Work
+## Promote an App
 
-Work editors can create immutable promotion links for paid or owned traffic. `generic` records local landing and readiness analytics without loading third-party code. `meta` adds the deployment-configured Meta Pixel and Conversions API provider.
+Editors can create immutable promotion links for paid or owned traffic. `generic` records local landing and readiness analytics without loading third-party code. `meta` adds the deployment-configured Meta Pixel and Conversions API provider.
 
 ```bash
-cohub apps promotions create <work> \
+cohub apps promotions create <app> \
   --name "Meta launch video A" \
   --provider meta \
   --utm-source instagram \
@@ -304,19 +304,19 @@ cohub apps promotions create <work> \
 List links and inspect one promotion's aggregate statistics:
 
 ```bash
-cohub apps promotions list <work>
-cohub apps promotions stats <work> <promotion-id>
+cohub apps promotions list <app>
+cohub apps promotions stats <app> <promotion-id>
 ```
 
-Promotion links always open the current published Work. Statistics retain the immutable Work version that served each event. Hourly counts cover landing, readiness, registration, purchase-confirmation, and checkout-start events; Cohub does not retain visitor-level promotion records.
+Promotion links always open the current published App. Statistics retain the immutable App version that served each event. Hourly counts cover landing, readiness, registration, purchase-confirmation, and checkout-start events; Cohub does not retain visitor-level promotion records.
 
-The browser keeps a 30-day, Work-scoped last-touch attribution in local storage so authentication and checkout redirects preserve the Promotion. Configured providers receive Work ready, first Cohub registration, purchase-confirmation shown, and usable-checkout-created events. Meta maps these to `ViewContent`, `CompleteRegistration`, `AddToCart`, and `InitiateCheckout`. Checkout uses the existing purchase attempt id as the shared Pixel/CAPI event id; paid-order Purchase delivery is deferred until Billing exposes a reliable OrderPaid event or outbox trigger.
+The browser keeps a 30-day, App-scoped last-touch attribution in local storage so authentication and checkout redirects preserve the Promotion. Configured providers receive App ready, first Cohub registration, purchase-confirmation shown, and usable-checkout-created events. Meta maps these to `ViewContent`, `CompleteRegistration`, `AddToCart`, and `InitiateCheckout`. Checkout uses the existing purchase attempt id as the shared Pixel/CAPI event id; paid-order Purchase delivery is deferred until Billing exposes a reliable OrderPaid event or outbox trigger.
 
 The `generic` provider is always available. A deployment enables `meta` by configuring `COHUB_META_PIXEL_ID` and `COHUB_META_CAPI_ACCESS_TOKEN`; `COHUB_META_API_VERSION` defaults to `v21.0`. Set `COHUB_META_CLIENT_IP_HEADER` only when the edge overwrites that header with the trusted public client IP (for example, `cf-connecting-ip`); otherwise Cohub uses the direct socket address and omits private addresses.
 
 ## View Statistics
 
-Work editors can inspect total, 24-hour, 7-day, and 30-day views with a source breakdown:
+Editors can inspect total, 24-hour, 7-day, and 30-day views with a source breakdown:
 
 ```bash
 cohub apps stats <workId|url|username/space/work>
@@ -326,100 +326,100 @@ Use `--json` to include the 30-day daily trend.
 
 ## Download Published Artifacts
 
-Newly published file and directory Works include an immutable artifact manifest. Download them by id, public URL, mention URI, or public slug reference:
+Newly published file and directory apps include an immutable artifact manifest. Download them by id, public URL, mention URI, or public slug reference:
 
 ```bash
 cohub apps download <workId|url|username/space/work> --output <path>
 ```
 
-The CLI reads the small manifest, streams files directly from the CDN with bounded concurrency, verifies every SHA-256 checksum, and atomically restores the published artifact. Existing outputs are never overwritten. An HTML file with published companion assets is restored as a directory bundle so no artifact files are lost. Board and port Works are not downloadable because neither maps safely to a restorable file or directory artifact.
+The CLI reads the small manifest, streams files directly from the CDN with bounded concurrency, verifies every SHA-256 checksum, and atomically restores the published artifact. Existing outputs are never overwritten. An HTML file with published companion assets is restored as a directory bundle so no artifact files are lost. Board and port apps are not downloadable because neither maps safely to a restorable file or directory artifact.
 
 ## Publish Through the API or SDK
 
-The SDK exposes `works.create`, `works.update`, `works.publishVersion`, `works.delete`, `works.get`, `works.getBySlug`, `works.getStats`, and `works.listBySpace`.
+The SDK exposes `apps.create`, `apps.update`, `apps.publishVersion`, `apps.delete`, `apps.get`, `apps.getBySlug`, `apps.getStats`, and `apps.listBySpace`.
 
-`works.get(workId)` returns the Work record plus `publicUrl`, `content`, `owner`, and `space` when the Work can be publicly resolved.
+`apps.get(appId)` returns the App record plus `publicUrl`, `content`, `owner`, and `space` when the App can be publicly resolved.
 
-Before creating a Work through the API, make sure the owner has a username and the Space has a slug. The API rejects Works when either public identity part is missing.
+Before creating an App through the API, make sure the owner has a username and the Space has a slug. The API rejects apps when either public identity part is missing.
 
 Usernames and Space slugs can be set or changed, but they cannot be cleared once set.
 
-Create a single-file Work:
+Create a single-file App:
 
 ```js
-await sdk.works.create({
+await sdk.apps.create({
   spaceId,
   slug: "my-html-demo",
   status: "published",
   targetType: "file",
   targetRef: "demo/index.html",
-  workScopes: ["space.view"]
+  appScopes: ["space.view"]
 });
 ```
 
-Create a directory Work:
+Create a directory App:
 
 ```js
-await sdk.works.create({
+await sdk.apps.create({
   spaceId,
   slug: "my-site",
   status: "published",
   targetType: "directory",
   targetRef: "site",
-  workScopes: ["space.view", "file.view"]
+  appScopes: ["space.view", "file.view"]
 });
 ```
 
-Create a port Work:
+Create a port App:
 
 ```js
-await sdk.works.create({
+await sdk.apps.create({
   spaceId,
   slug: "live-preview",
   status: "published",
   targetType: "port",
   targetRef: "5173",
-  workScopes: ["space.view"]
+  appScopes: ["space.view"]
 });
 ```
 
-Fetch a public Work by URL parts:
+Fetch a public App by URL parts:
 
 ```js
-await sdk.works.getBySlug(username, spaceSlug, workSlug);
+await sdk.apps.getBySlug(username, spaceSlug, appSlug);
 ```
 
 Update the published version from the current target:
 
 ```js
-await sdk.works.publishVersion(workId);
+await sdk.apps.publishVersion(workId);
 ```
 
-List a Space's Works:
+List a Space's apps:
 
 ```js
-await sdk.works.listBySpace(spaceId);
+await sdk.apps.listBySpace(spaceId);
 ```
 
-Fetch a Work's view statistics:
+Fetch an App's view statistics:
 
 ```js
-await sdk.works.getStats(workId);
+await sdk.apps.getStats(workId);
 ```
 
 ## Verification
 
-This guide was verified in a clean Space on 2026-06-19. File and directory Works both published successfully, resolved through the by-slug API, and served the expected HTML over HTTPS.
+This guide was verified in a clean Space on 2026-06-19. File and directory Apps both published successfully, resolved through the by-slug API, and served the expected HTML over HTTPS.
 
 ## Common Failure Cases
 
 If the public link cannot be formed, check that the user has a username and the Space has a slug.
 
-If a file Work fails, check that the target is between 1 byte and 1 GiB. If a Board Work fails, check that the `.board` file is valid and references at most 1000 assets totalling at most 1 GiB.
+If a file App fails, check that the target is between 1 byte and 1 GiB. If a Board App fails, check that the `.board` file is valid and references at most 1000 assets totalling at most 1 GiB.
 
-If a directory Work fails, check that the directory contains `index.html`, has 1 to 1000 files, and totals at most 1 GiB.
+If a directory App fails, check that the directory contains `index.html`, has 1 to 1000 files, and totals at most 1 GiB.
 
-If a Work opens but cannot use Cohub APIs, check that it is running inside a published Work iframe — static asset URLs and local previews do not provide the Work runtime. If it is, check its `workScopes` and the viewer-granted scopes shown in `cohub.context()`.
+If an App opens but cannot use Cohub APIs, check that it is running inside a published App iframe — static asset URLs and local previews do not provide the App runtime. If it is, check its `appScopes` and the viewer-granted scopes shown in `cohub.context()`.
 
 If a viewer authorization request fails, check that the viewer currently holds every requested permission on the target Space — grants are limited to what the viewer can already do there themselves.
 

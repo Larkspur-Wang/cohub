@@ -96,7 +96,7 @@ cohub -s <space-id> spaces commerce orders list --limit 10
 ## Operate a published App
 
 Use the App commerce commands to test the full server-side flow. The CLI
-command is `cohub apps`; `cohub works` still works but is a deprecated alias.
+command is `cohub apps`; `cohub works` remains as a deprecated alias.
 
 ```bash
 # Resolve public products

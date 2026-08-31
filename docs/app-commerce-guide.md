@@ -1,6 +1,6 @@
-# Cohub Work Commerce Guide
+# Cohub App Commerce Guide
 
-Work commerce lets a published Work sell one-time products backed by Space-level billing data. Products can carry **feature benefits** (access gates) and **credit benefits** (consumable credits).
+App commerce lets a published App sell one-time products backed by Space-level billing data. Products can carry **feature benefits** (access gates) and **credit benefits** (consumable credits).
 
 ## Runtime requirements
 
@@ -10,7 +10,7 @@ Work commerce lets a published Work sell one-time products backed by Space-level
 
 - `business = space`
 - products, benefits, bindings, and orders live in billing
-- the Work hardcodes product keys and benefit keys
+- the App hardcodes product keys and benefit keys
 - the outer host owns checkout confirmation and redirect
 - Space credits use a virtual `cohub_credit` token at business scope; creators never configure token types
 - Cohub Balance is an optional platform-managed product component with a global USD balance scope
@@ -30,7 +30,7 @@ Space credits and Cohub Balance serve different purposes:
 
 | Value | Scope | Intended use |
 |---|---|---|
-| Space credits | The selling Space | Meter actions inside the Space's Works |
+| Space credits | The selling Space | Meter actions inside the Space's Apps |
 | Cohub Balance | Global | Pay for eligible Cohub usage across Spaces |
 
 A product can include one platform-managed Cohub Balance component. The owner only chooses a whole-dollar `cohubBalanceUsd`; Cohub owns the underlying token type, scope, grant kind, and Benefit key.
@@ -75,18 +75,18 @@ load → check balance → [has credits? consume] → [empty? purchase] → chec
 
 ## Runtime flow
 
-1. The Work calls `cohub.app.commerce.resolveProducts()`.
-2. The Work calls `cohub.app.commerce.getEntitlements()` — returns feature entitlements **and** credit balance in one call.
+1. The App calls `cohub.app.commerce.resolveProducts()`.
+2. The App calls `cohub.app.commerce.getEntitlements()` — returns feature entitlements **and** credit balance in one call.
 3. The user clicks Buy.
-4. The Work calls `cohub.app.commerce.purchase()`.
+4. The App calls `cohub.app.commerce.purchase()`.
 5. The outer host creates the order with a stable purchase attempt ID and redirects to checkout. Retries of the same attempt resolve to the original Billing order.
 6. The provider returns to the Work public URL with `cohub_checkout` and, when available, `cohub_order`.
-7. The Work calls `cohub.app.commerce.getCheckoutState()`.
-8. If an `orderId` is available, the Work calls `cohub.app.commerce.getOrder(orderId)`.
+7. The App calls `cohub.app.commerce.getCheckoutState()`.
+8. If an `orderId` is available, the App calls `cohub.app.commerce.getOrder(orderId)`.
 
 ## Consuming credits
 
-When a user performs a metered action inside the Work, credits are consumed through `cohub.app.commerce.consumeCredits()`:
+When a user performs a metered action inside the App, credits are consumed through `cohub.app.commerce.consumeCredits()`:
 
 ```ts
 const result = await cohub.app.commerce.consumeCredits({
@@ -121,11 +121,11 @@ The iframe should not be the primary place that owns pending checkout state.
 
 Best practice:
 
-- let the outer host cache the most recent pending order id for the current work
-- let the Work ask the host for checkout state
-- let the Work query the order again by id when it needs authoritative follow-up state
+- let the outer host cache the most recent pending order id for the current app
+- let the App ask the host for checkout state
+- let the App query the order again by id when it needs authoritative follow-up state
 
-## Recommended Work-side API usage
+## Recommended App-side API usage
 
 ### Feature unlock
 
@@ -195,18 +195,18 @@ Work → space.prompt("!script") → agent consumes credits, runs action, writes
 Work → space.files.read(resultPath) → render structured result
 ```
 
-Keep the Work responsible for displaying products and balances, initiating purchases, and triggering metered actions. Put side effects in the script and persist raw results to Space files.
+Keep the App responsible for displaying products and balances, initiating purchases, and triggering metered actions. Put side effects in the script and persist raw results to Space files.
 
 ## Best practices
 
 - Use versioned product keys to manage price and tier changes.
-- Keep the Work responsible for display, purchase, and triggering metered actions — not for side-effect execution.
+- Keep the App responsible for display, purchase, and triggering metered actions — not for side-effect execution.
 - Run side effects in scripts and persist raw results to Space files; the Work reads structured results.
-- Use the smallest permission set the Work needs.
+- Use the smallest permission set the App needs.
 - Always pass a unique `operationId` to `consumeCredits()` for idempotent retries.
 
 ## Demo
 
 See:
 
-- `docs/examples/work-capability-lab/commerce-demo.md`
+- `docs/examples/app-capability-lab/commerce-demo.md`

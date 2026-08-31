@@ -339,4 +339,4 @@ viewer a single seat instead.
 
 For the complete API-to-scope mapping, initialization recipe, capability
 recipes, a full working example, and a pitfalls checklist, see the
-**[App Runtime Guide](./docs/work-runtime-guide.md)**.
+**[App Runtime Guide](./docs/app-runtime-guide.md)**.
