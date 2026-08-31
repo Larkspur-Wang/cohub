@@ -21,7 +21,7 @@ cohub auth login
 cohub auth whoami
 ```
 
-The CLI stores a session and refreshes it automatically.
+The CLI stores a session and refreshes it automatically. CLI self-updates run in the background so commands are not blocked; a successful update takes effect on the next invocation. Set `COHUB_CLI_AUTO_UPDATE=0` to disable them.
 
 In Sandbox or CI, `COHUB_EXECUTION_TOKEN` can override stored auth for ephemeral runs.
 
