@@ -4,14 +4,17 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
-## v2.36 — 2026-08-30
+## v2.36 — 2026-08-31
 
-- **Unified app workspace context**: all app-window opens (desktop commands, user actions, route-driven) now flow through a single WorkspaceAppOpenContext → WorkspaceAppInvocation pipeline, so every app-surface request carries consistent session/turn/tool-call provenance; also completes the Work → App terminology migration across the SDK and web client (sdk.works → sdk.apps, AppMeta, AppDetailResponse).
-- **Predictable CLI uploads**: `spaces files upload <dir> --dir <target>` now lands a directory's contents directly under the target (`target/...`) instead of nesting the source folder name (`target/<dir>/...`), matching `aws s3 cp` / `rclone copy` semantics, with unit tests covering path resolution.
+- **Recoverable agent edits**: file edits now tolerate safe line-ending, BOM, and trailing-whitespace differences, validate all replacements against one snapshot, and return match locations plus nearby text when a stale or ambiguous edit fails.
+- **Reliable cross-platform command output**: sandbox processes now drain stdout and stderr concurrently without losing buffered output, report truncation explicitly, and bound inherited descriptors so commands cannot hang after a child exits.
+- **Non-blocking CLI updates**: CLI self-updates run in a detached background worker after the foreground command exits and apply on the next invocation; set `COHUB_CLI_AUTO_UPDATE=0` to disable them.
+- **Robust public App and device handling**: public App pages preserve the legacy Work-era response shape while using the current App data model, and composer layout detection distinguishes phones and tablets from touch-enabled desktop browsers.
 
 ### Bug Fixes
 
-- CLI `spaces files upload` fails fast when multiple inputs collide on the same relative path instead of silently overwriting files.
+- Sandbox RPC business errors are no longer misclassified as connection failures when their file content happens to contain connection-like text.
+- Public App pages no longer initialize the surface against an incompatible or incomplete server response, preventing published Apps from failing during SSR.
 
 ## v2.35 — 2026-08-28
 
