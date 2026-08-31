@@ -6,7 +6,7 @@ settings:
   injectWorkspacePackages: true
 
 overrides:
-  ioredis: 5.11.1
+  ioredis: ^6.0.0
 
 importers:
 
@@ -97,11 +97,11 @@ importers:
         specifier: ^1.43.0
         version: 1.43.0
       bullmq:
-        specifier: ^5.81.4
-        version: 5.81.4
+        specifier: ^6.3.3
+        version: 6.3.3(bullmq-otel@2.0.1)(ioredis@6.0.0)
       bullmq-otel:
         specifier: ^2.0.1
-        version: 2.0.1(bullmq@5.81.4)
+        version: 2.0.1(bullmq@6.3.3)
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(@cloudflare/workers-types@4.20260702.1)(@opentelemetry/api@1.9.1)(kysely@0.28.17)(postgres@3.4.9)
@@ -109,8 +109,8 @@ importers:
         specifier: ^7.0.8
         version: 7.0.8
       ioredis:
-        specifier: 5.11.1
-        version: 5.11.1
+        specifier: ^6.0.0
+        version: 6.0.0
       postgres:
         specifier: ^3.4.9
         version: 3.4.9
@@ -212,11 +212,11 @@ importers:
         specifier: ^1.43.0
         version: 1.43.0
       bullmq:
-        specifier: ^5.81.4
-        version: 5.81.4
+        specifier: ^6.3.3
+        version: 6.3.3(bullmq-otel@2.0.1)(ioredis@6.0.0)
       bullmq-otel:
         specifier: ^2.0.1
-        version: 2.0.1(bullmq@5.81.4)
+        version: 2.0.1(bullmq@6.3.3)
       cron-parser:
         specifier: ^5.10.0
         version: 5.10.0
@@ -233,8 +233,8 @@ importers:
         specifier: ^7.0.8
         version: 7.0.8
       ioredis:
-        specifier: 5.11.1
-        version: 5.11.1
+        specifier: ^6.0.0
+        version: 6.0.0
       postgres:
         specifier: ^3.4.9
         version: 3.4.9
@@ -313,8 +313,8 @@ importers:
         specifier: ^1.43.0
         version: 1.43.0
       bullmq:
-        specifier: ^5.81.4
-        version: 5.81.4
+        specifier: ^6.3.3
+        version: 6.3.3(bullmq-otel@2.0.1)(ioredis@6.0.0)
       discord.js:
         specifier: ^14.27.0
         version: 14.27.0
@@ -325,8 +325,8 @@ importers:
         specifier: 4.13.5
         version: 4.13.5
       ioredis:
-        specifier: 5.11.1
-        version: 5.11.1
+        specifier: ^6.0.0
+        version: 6.0.0
       ws:
         specifier: ^8.21.3
         version: 8.21.3
@@ -579,11 +579,11 @@ importers:
         specifier: ^1.43.0
         version: 1.43.0
       bullmq:
-        specifier: ^5.81.4
-        version: 5.81.4
+        specifier: ^6.3.3
+        version: 6.3.3(bullmq-otel@2.0.1)(ioredis@6.0.0)
       bullmq-otel:
         specifier: ^2.0.1
-        version: 2.0.1(bullmq@5.81.4)
+        version: 2.0.1(bullmq@6.3.3)
       dotenv:
         specifier: ^17.4.2
         version: 17.4.2
@@ -594,8 +594,8 @@ importers:
         specifier: ^7.0.8
         version: 7.0.8
       ioredis:
-        specifier: 5.11.1
-        version: 5.11.1
+        specifier: ^6.0.0
+        version: 6.0.0
       postgres:
         specifier: ^3.4.9
         version: 3.4.9
@@ -619,8 +619,8 @@ importers:
   packages/billing:
     dependencies:
       ioredis:
-        specifier: 5.11.1
-        version: 5.11.1
+        specifier: ^6.0.0
+        version: 6.0.0
     devDependencies:
       '@types/node':
         specifier: 26.4.0
@@ -761,14 +761,14 @@ importers:
         specifier: ^1.43.0
         version: 1.43.0
       bullmq:
-        specifier: ^5.81.4
-        version: 5.81.4
+        specifier: ^6.3.3
+        version: 6.3.3(bullmq-otel@2.0.1)(ioredis@6.0.0)
       bullmq-otel:
         specifier: ^2.0.1
-        version: 2.0.1(bullmq@5.81.4)
+        version: 2.0.1(bullmq@6.3.3)
       ioredis:
-        specifier: 5.11.1
-        version: 5.11.1
+        specifier: ^6.0.0
+        version: 6.0.0
       yaml:
         specifier: ^2.9.0
         version: 2.9.0
@@ -2892,8 +2892,8 @@ packages:
     resolution: {integrity: sha512-11aQcOw58oAcCtIOJ17XhQxfxaiGsg6XJi7coMul8wNJiW+Rzv2OfJU42NLwSuWXUNSASjegp5Z3uklTkY5GJw==}
     engines: {node: '>=20.0.0'}
 
-  '@ioredis/commands@1.10.0':
-    resolution: {integrity: sha512-UmeW7z4LfctwoQ5wkhVzgq8tXkreED2xZGpX+Bg+zA+WJFZCT6c062AfCK/Dfk81xZnnwdhJCUMkitihRaoC2Q==}
+  '@ioredis/commands@2.0.0':
+    resolution: {integrity: sha512-vrx0AE/T0h7cRZwfo1M39Cr+ZhZrkf0V8mQN75wucKCxCLD9l/VX6no3gFvrLqD1IlG/1LtzWovqEw3t0Vr9zg==}
 
   '@isaacs/cliui@9.0.0':
     resolution: {integrity: sha512-AokJm4tuBHillT+FpMtxQ60n8ObyXBatq7jD2/JA9dxbDDokKQm8KMht5ibGzLVU9IJDIKK4TPKgMHEYMn3lMg==}
@@ -4508,12 +4508,21 @@ packages:
     peerDependencies:
       bullmq: '>=6.0.0'
 
-  bullmq@5.81.4:
-    resolution: {integrity: sha512-n+WHSzz20KooBGoJyASre6oJNz/p5f1IJRRN2ibD+NWPQaNpNQmDrwYuPO+bsXrQeM1MQzUxXGbdjmyOFKP2xQ==}
-    engines: {node: '>=12.22.0'}
+  bullmq@6.3.3:
+    resolution: {integrity: sha512-ie2/80FlcAF2pZM6NU90adIPPpvuqlPSqbRRW3t5ktgJMTrXRJ7D0e8gjTXgST4skpJeTitM0GKNUBEgrmBq3A==}
+    engines: {node: '>=14.17.0'}
     peerDependencies:
+      bullmq-otel: '>=2.0.0'
+      ioredis: ^6.0.0
+      pg: '>=8.0.0'
       redis: '>=5.0.0'
     peerDependenciesMeta:
+      bullmq-otel:
+        optional: true
+      ioredis:
+        optional: true
+      pg:
+        optional: true
       redis:
         optional: true
 
@@ -4639,11 +4648,6 @@ packages:
 
   crelt@1.0.7:
     resolution: {integrity: sha512-aK6BbWfhf4U/wCcLHKPJl/xa6VkVstRaPywWtMKGwuOLc/wZTyQYuoxgvZnNsBvv7Kg3YTBQYYBCggcviQczuA==}
-
-  cron-parser@4.9.0:
-    resolution: {integrity: sha512-p0SaNjrHOnQeR8/VnfGbmg9te2kfyYSQ7Sc/j/6DtPL3JQvKxmjO9TSjNFpujqV3vEYYBvNNvXSxzyksBWAx1Q==}
-    engines: {node: '>=12.0.0'}
-    deprecated: v4 is no longer maintained, upgrade to v5
 
   cron-parser@5.10.0:
     resolution: {integrity: sha512-izNAxJyRWUP8ljBoDSub5WyrVOUlT4SLGShswE7eoRBpp6QUsSycYxLBMJlbshgPBMcPT/nrfgjNY2918ayv2A==}
@@ -5425,9 +5429,9 @@ packages:
     resolution: {integrity: sha512-5Hh7Y1wQbvY5ooGgPbDaL5iYLAPzMTUrjMulskHLH6wnv/A+1q5rgEaiuqEjB+oxGXIVZs1FF+R/KPN3ZSQYYg==}
     engines: {node: '>=12'}
 
-  ioredis@5.11.1:
-    resolution: {integrity: sha512-ehuGcf94bQXhfagULNXrJdfnWO38v070jxSx/qE87Kjzmu2fU7ro5EFAb+OPituLqgfyuQaym5DlrNydW2sJ9A==}
-    engines: {node: '>=12.22.0'}
+  ioredis@6.0.0:
+    resolution: {integrity: sha512-f+Dtubxfpf6KYFq7WVXJoOLn0bk4TJrMrN9SzeE+jrWrCWj7XX3fA6vkryafhADX+GMymRxgDJDOI33COkJc0w==}
+    engines: {node: '>=20.0.0'}
 
   ip-address@10.7.0:
     resolution: {integrity: sha512-BGFsyJd5mpXp3rK6jIdADLNgpJUK1jnjzvYF8lK+VyDab9JAmqN0YOKDdP17HlgKb2+ehPgDc8EtnRLbGCAMhA==}
@@ -5971,8 +5975,8 @@ packages:
     resolution: {integrity: sha512-4kmO/MdyUIkLIvTPr8VHLil4AtoKIoniWPIEk5+CDy0xnWC84azhSFmuJ7PxZdsYtiP5kEeQsORAVIeMgxT+Hw==}
     hasBin: true
 
-  msgpackr@2.0.5:
-    resolution: {integrity: sha512-cef05H/dSYpLpqp3sj/qyZh5vhUYCalnaLO7j1yOmpsR0y/XwLVtK7r5gn+U/F7CTEfMowcGhlUQJDLcLf7jcA==}
+  msgpackr@2.1.0:
+    resolution: {integrity: sha512-p/pBCVO63CsvvpkomUnNNag6+n38rULuDA6HHe70o2gtC8ODI52foF/4ko2qQcp6OiErJXTmrZeXmsGGHsIQNQ==}
 
   mutation-observer@1.0.3:
     resolution: {integrity: sha512-M/O/4rF2h776hV7qGMZUH3utZLO/jK7p8rnNgGkjKUw8zCGjRQPxB8z6+5l8+VjRUQ3dNYu4vjqXYLr+U8ZVNA==}
@@ -6174,10 +6178,6 @@ packages:
 
   redis-errors@1.2.0:
     resolution: {integrity: sha512-1qny3OExCf0UvUV/5wpYKf2YwPcOqXzkwKKSmKHiE6ZMQs5heeE/c8eXK+PNllPvmjgAbfnsbpkGZWy8cBpn9w==}
-    engines: {node: '>=4'}
-
-  redis-parser@3.0.0:
-    resolution: {integrity: sha512-DJnGAeenTdpMEH6uAJRK/uiyEIH9WVsUmoLwzudwGJUwZPp80PDBWPHXSAGNPwNvIXAbe7MSUB1zQFugFml66A==}
     engines: {node: '>=4'}
 
   reflect.getprototypeof@1.0.10:
@@ -8336,12 +8336,13 @@ snapshots:
       '@opentelemetry/sdk-trace-base': 2.10.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/sdk-trace-node': 2.10.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/semantic-conventions': 1.43.0
-      bullmq: 5.81.4
-      bullmq-otel: 2.0.1(bullmq@5.81.4)
-      ioredis: 5.11.1
+      bullmq: 6.3.3(bullmq-otel@2.0.1)(ioredis@6.0.0)
+      bullmq-otel: 2.0.1(bullmq@6.3.3)
+      ioredis: 6.0.0
       yaml: 2.9.0
     transitivePeerDependencies:
       - drizzle-orm
+      - pg
       - redis
       - supports-color
 
@@ -9052,7 +9053,7 @@ snapshots:
       kysely: 0.28.17
       uuid: 14.0.2
 
-  '@ioredis/commands@1.10.0': {}
+  '@ioredis/commands@2.0.0': {}
 
   '@isaacs/cliui@9.0.0': {}
 
@@ -10440,22 +10441,22 @@ snapshots:
       base64-js: 1.5.1
       ieee754: 1.2.1
 
-  bullmq-otel@2.0.1(bullmq@5.81.4):
+  bullmq-otel@2.0.1(bullmq@6.3.3):
     dependencies:
       '@opentelemetry/api': 1.9.1
-      bullmq: 5.81.4
+      bullmq: 6.3.3(bullmq-otel@2.0.1)(ioredis@6.0.0)
       tslib: 2.8.1
 
-  bullmq@5.81.4:
+  bullmq@6.3.3(bullmq-otel@2.0.1)(ioredis@6.0.0):
     dependencies:
-      cron-parser: 4.9.0
-      ioredis: 5.11.1
-      msgpackr: 2.0.5
+      cron-parser: 5.10.0
+      msgpackr: 2.1.0
       node-abort-controller: 3.1.1
       semver: 7.8.5
       tslib: 2.8.1
-    transitivePeerDependencies:
-      - supports-color
+    optionalDependencies:
+      bullmq-otel: 2.0.1(bullmq@6.3.3)
+      ioredis: 6.0.0
 
   cac@7.0.0: {}
 
@@ -10561,10 +10562,6 @@ snapshots:
       layout-base: 2.0.1
 
   crelt@1.0.7: {}
-
-  cron-parser@4.9.0:
-    dependencies:
-      luxon: 3.7.2
 
   cron-parser@5.10.0:
     dependencies:
@@ -11438,14 +11435,13 @@ snapshots:
 
   internmap@2.0.3: {}
 
-  ioredis@5.11.1:
+  ioredis@6.0.0:
     dependencies:
-      '@ioredis/commands': 1.10.0
+      '@ioredis/commands': 2.0.0
       cluster-key-slot: 1.1.1
       debug: 4.4.3
       denque: 2.1.0
       redis-errors: 1.2.0
-      redis-parser: 3.0.0
       standard-as-callback: 2.1.0
     transitivePeerDependencies:
       - supports-color
@@ -11965,7 +11961,7 @@ snapshots:
       '@msgpackr-extract/msgpackr-extract-win32-x64': 3.0.4
     optional: true
 
-  msgpackr@2.0.5:
+  msgpackr@2.1.0:
     optionalDependencies:
       msgpackr-extract: 3.0.4
 
@@ -12160,10 +12156,6 @@ snapshots:
   readdirp@4.1.2: {}
 
   redis-errors@1.2.0: {}
-
-  redis-parser@3.0.0:
-    dependencies:
-      redis-errors: 1.2.0
 
   reflect.getprototypeof@1.0.10:
     dependencies:

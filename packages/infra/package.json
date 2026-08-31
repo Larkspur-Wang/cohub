@@ -100,9 +100,9 @@
     "@opentelemetry/sdk-trace-base": "^2.10.0",
     "@opentelemetry/sdk-trace-node": "^2.10.0",
     "@opentelemetry/semantic-conventions": "^1.43.0",
-    "bullmq": "^5.81.4",
+    "bullmq": "^6.3.3",
     "bullmq-otel": "^2.0.1",
-    "ioredis": "5.11.1",
+    "ioredis": "6.0.0",
     "yaml": "^2.9.0"
   },
   "devDependencies": {

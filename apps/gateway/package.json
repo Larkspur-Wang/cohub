@@ -30,11 +30,11 @@
     "@opentelemetry/sdk-trace-base": "^2.10.0",
     "@opentelemetry/sdk-trace-node": "^2.10.0",
     "@opentelemetry/semantic-conventions": "^1.43.0",
-    "bullmq": "^5.81.4",
+    "bullmq": "^6.3.3",
     "discord.js": "^14.27.0",
     "dotenv": "^17.4.2",
     "hono": "4.13.5",
-    "ioredis": "5.11.1",
+    "ioredis": "6.0.0",
     "ws": "^8.21.3",
     "zod": "^4.5.4"
   },

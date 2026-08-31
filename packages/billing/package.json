@@ -32,7 +32,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "ioredis": "5.11.1"
+    "ioredis": "6.0.0"
   },
   "optionalDependencies": {
     "@talesofai-billing/sdk": "^1.16.0"
