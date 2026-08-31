@@ -1,5 +1,11 @@
 # @neta-art/cohub-cli
 
+## 6.2.1
+
+### Patch Changes
+
+- 3dd452b: Run CLI self-updates in a detached background worker so foreground commands are not blocked. Successful updates take effect on the next invocation.
+
 ## 6.2.0
 
 ### Minor Changes
