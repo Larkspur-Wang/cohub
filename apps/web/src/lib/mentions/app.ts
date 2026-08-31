@@ -1,4 +1,5 @@
 import { parseSpaceSlug, parseUsername } from "@cohub/protocol";
+import { COHUB_WEB_ORIGIN_SOURCE } from "./platform-origin";
 
 export type AppMention = {
 	type: "app";
@@ -21,7 +22,7 @@ export type ParsedCohubAppLink = {
 const APP_URI_PREFIX = "cohub://apps/";
 const RESOURCE_PATH_END_PATTERN = "(?![a-z0-9_%/-]|\\.[a-z0-9])";
 const COHUB_APP_LINK_PATTERN = new RegExp(
-	`(?:https?:\\/\\/(?:dev\\.)?cohub\\.run|https?:\\/\\/localhost(?::\\d+)?)\\/([a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?)\\/([a-z0-9](?:[a-z0-9_-]{0,78}[a-z0-9])?)\\/w\\/([a-z0-9](?:[a-z0-9_-]{0,78}[a-z0-9])?)((?:[?#][^\\s)\\]]*)?)${RESOURCE_PATH_END_PATTERN}|(^|[\\s([{<:,;!?，。！？、；：])\\/([a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?)\\/([a-z0-9](?:[a-z0-9_-]{0,78}[a-z0-9])?)\\/w\\/([a-z0-9](?:[a-z0-9_-]{0,78}[a-z0-9])?)((?:[?#][^\\s)\\]]*)?)${RESOURCE_PATH_END_PATTERN}`,
+	`${COHUB_WEB_ORIGIN_SOURCE}\\/([a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?)\\/([a-z0-9](?:[a-z0-9_-]{0,78}[a-z0-9])?)\\/w\\/([a-z0-9](?:[a-z0-9_-]{0,78}[a-z0-9])?)((?:[?#][^\\s)\\]]*)?)${RESOURCE_PATH_END_PATTERN}|(^|[\\s([{<:,;!?，。！？、；：])\\/([a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?)\\/([a-z0-9](?:[a-z0-9_-]{0,78}[a-z0-9])?)\\/w\\/([a-z0-9](?:[a-z0-9_-]{0,78}[a-z0-9])?)((?:[?#][^\\s)\\]]*)?)${RESOURCE_PATH_END_PATTERN}`,
 	"gi",
 );
 
