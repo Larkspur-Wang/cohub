@@ -239,6 +239,7 @@ const (
 	processStartMaxArgvItems      = 256
 	processStartMaxArgvItemBytes  = 8 * 1024
 	processStartMaxArgvTotalBytes = 64 * 1024
+	processOutputQueueSize        = 64
 )
 
 type processStartParams struct {
@@ -1029,6 +1030,11 @@ func processArgvSummary(argv []string, limit int) string {
 	return b.String()
 }
 
+type processOutput struct {
+	typeName string
+	chunk    string
+}
+
 func (d *Dispatcher) handleProcessStart(request protocol.RPCRequest, opID string, ownerIdentity string) interface{} {
 	var params processStartParams
 	if err := json.Unmarshal(request.Params, &params); err != nil {
@@ -1083,32 +1089,77 @@ func (d *Dispatcher) handleProcessStart(request protocol.RPCRequest, opID string
 	}
 	d.logger.Info("process:start", slog.String("processId", processID), slog.String("ownerIdentity", ownerIdentity), slog.String("cmd", cmdSummary), slog.String("cwd", resolved.path))
 
-	_ = d.sendEventToIdentity(ownerIdentity, d.event(request, opID, protocol.RPCEventPayload{Type: "started", ProcessID: processID}))
+	var outputSendFailed atomic.Bool
+	if err := d.sendEventToIdentity(ownerIdentity, d.event(request, opID, protocol.RPCEventPayload{Type: "started", ProcessID: processID})); err != nil {
+		outputSendFailed.Store(true)
+		d.logger.Warn("process:started event delivery failed", slog.String("processId", processID), slog.String("ownerIdentity", ownerIdentity), slog.String("error", err.Error()))
+	}
 
+	outputQueue := make(chan processOutput, processOutputQueueSize)
+	outputSendDone := make(chan struct{})
 	go func() {
-		_ = process.StreamChunks(stdout, func(chunk string) {
-			_ = d.sendEventToIdentity(ownerIdentity, d.event(request, opID, protocol.RPCEventPayload{Type: "stdout", Chunk: chunk}))
-		})
+		defer close(outputSendDone)
+		for output := range outputQueue {
+			if outputSendFailed.Load() {
+				continue
+			}
+			if err := d.sendEventToIdentity(ownerIdentity, d.event(request, opID, protocol.RPCEventPayload{Type: output.typeName, Chunk: output.chunk})); err != nil && outputSendFailed.CompareAndSwap(false, true) {
+				d.logger.Warn("process output delivery failed; dropping remaining output", slog.String("processId", processID), slog.String("ownerIdentity", ownerIdentity), slog.String("error", err.Error()))
+			}
+		}
 	}()
-	go func() {
-		_ = process.StreamChunks(stderr, func(chunk string) {
-			_ = d.sendEventToIdentity(ownerIdentity, d.event(request, opID, protocol.RPCEventPayload{Type: "stderr", Chunk: chunk}))
-		})
-	}()
+
+	stdoutStream, stderrStream := process.StreamBoth(stdout, stderr, func(chunk string, stream process.Stream) {
+		if outputSendFailed.Load() {
+			return
+		}
+		typeName := "stdout"
+		if stream == process.StreamStderr {
+			typeName = "stderr"
+		}
+		select {
+		case outputQueue <- processOutput{typeName: typeName, chunk: chunk}:
+		default:
+			if outputSendFailed.CompareAndSwap(false, true) {
+				d.logger.Warn("process output queue full; dropping remaining output", slog.String("processId", processID), slog.String("ownerIdentity", ownerIdentity))
+			}
+		}
+	})
+
+	// The exit event and completed message are sent after the stream goroutines
+	// have drained or been released by WaitDelay. When output delivery fails,
+	// remaining output is intentionally dropped rather than blocking the
+	// process forever, but terminal events are still attempted.
 	go func() {
 		exitInfo := <-exitCh
+		streamErr := process.WaitStreams(stdoutStream, stderrStream)
+		if streamErr != nil {
+			outputSendFailed.Store(true)
+			d.logger.Warn("process output read failed; output may be truncated", slog.String("processId", processID), slog.String("ownerIdentity", ownerIdentity), slog.String("error", streamErr.Error()))
+		}
+		close(outputQueue)
+		<-outputSendDone
 		termination := processTermination(exitInfo)
+		termination.OutputTruncated = outputSendFailed.Load() || exitInfo.OutputTruncated
+		if termination.OutputTruncated && termination.Message == "" {
+			termination.Message = "Process output was truncated before completion."
+		}
 		codeStr := "unknown"
 		if exitInfo.ExitCode != nil {
 			codeStr = fmt.Sprintf("%d", *exitInfo.ExitCode)
 		}
 		d.logger.Info("process:exit", slog.String("processId", processID), slog.String("ownerIdentity", ownerIdentity), slog.String("exitCode", codeStr), slog.String("reason", termination.Reason), slog.String("cmd", cmdSummary))
-		_ = d.sendEventToIdentity(ownerIdentity, d.event(request, opID, protocol.RPCEventPayload{Type: "exit", ExitCode: exitInfo.ExitCode, Termination: termination}))
-		_ = d.sendEventToIdentity(ownerIdentity, d.complete(request, opID, map[string]interface{}{
+		if err := d.sendEventToIdentity(ownerIdentity, d.event(request, opID, protocol.RPCEventPayload{Type: "exit", ExitCode: exitInfo.ExitCode, Termination: termination})); err != nil {
+			d.logger.Warn("process exit event delivery failed", slog.String("processId", processID), slog.String("ownerIdentity", ownerIdentity), slog.String("error", err.Error()))
+		}
+		result := map[string]interface{}{
 			"processId":   processID,
 			"exitCode":    exitInfo.ExitCode,
 			"termination": termination,
-		}))
+		}
+		if err := d.sendEventToIdentity(ownerIdentity, d.complete(request, opID, result)); err != nil {
+			d.logger.Warn("process completed message delivery failed", slog.String("processId", processID), slog.String("ownerIdentity", ownerIdentity), slog.String("error", err.Error()))
+		}
 	}()
 
 	return nil
@@ -1132,9 +1183,13 @@ func processTermination(exitInfo process.ExitInfo) *protocol.ProcessTermination 
 	}
 
 	termination := &protocol.ProcessTermination{
-		Reason:   reason,
-		ExitCode: exitInfo.ExitCode,
-		Message:  message,
+		Reason:          reason,
+		ExitCode:        exitInfo.ExitCode,
+		Message:         message,
+		OutputTruncated: exitInfo.OutputTruncated,
+	}
+	if exitInfo.OutputTruncated && termination.Message == "" {
+		termination.Message = "Process output was truncated before completion."
 	}
 	if reason == "timed_out" && exitInfo.TimeoutSecs > 0 {
 		termination.TimeoutSecs = exitInfo.TimeoutSecs
