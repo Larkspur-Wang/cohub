@@ -11,6 +11,8 @@ import {
 } from "../../board-command-support.js";
 import { handleHttp, json, jsonRequested, ok, table } from "../../output.js";
 import {
+  readInput,
+  readOptions,
   type JsonOptions,
   resolvedBoard,
   withJson,
@@ -68,11 +70,11 @@ function mutationOptions(command: Command) {
 export function registerBoardItemCommands(boards: Command): void {
   const items = boards.command("items").description("Author Board items with semantic JSON");
 
-  withJson(items.command("list <board>").alias("ls").description("List semantic Board items"))
-    .action(async (target: string, options: JsonOptions) => {
+  readOptions(withJson(items.command("list <board>").alias("ls").description("List semantic Board items")))
+    .action(async (target: string, options: JsonOptions & { ids?: string }) => {
       try {
         const board = await resolvedBoard(boards, target);
-        const snapshot = await board.authoring();
+        const snapshot = await board.authoring(readInput(options, "items"));
         const items = snapshot.items ?? [];
         if (jsonRequested(options)) return json(items);
         table(items.map((item) => ({
@@ -83,6 +85,34 @@ export function registerBoardItemCommands(boards: Command): void {
           width: item.frame.width,
           height: item.frame.height,
         })), [
+          { key: "id", label: "ID" },
+          { key: "type", label: "TYPE" },
+          { key: "x", label: "X" },
+          { key: "y", label: "Y" },
+          { key: "width", label: "WIDTH" },
+          { key: "height", label: "HEIGHT" },
+        ]);
+      } catch (cause) {
+        handleHttp(cause);
+      }
+    });
+
+  withJson(items.command("get <board> <item-id>").description("Get one complete Board item"))
+    .action(async (target: string, itemId: string, options: JsonOptions) => {
+      try {
+        const board = await resolvedBoard(boards, target);
+        const snapshot = await board.authoring({ include: ["items"], itemIds: [itemId] });
+        const item = snapshot.items?.[0];
+        if (!item) throw new Error(`Item not found: ${itemId}`);
+        if (jsonRequested(options)) return json(item);
+        table([{
+          id: item.id,
+          type: item.type,
+          x: item.frame.x,
+          y: item.frame.y,
+          width: item.frame.width,
+          height: item.frame.height,
+        }], [
           { key: "id", label: "ID" },
           { key: "type", label: "TYPE" },
           { key: "x", label: "X" },

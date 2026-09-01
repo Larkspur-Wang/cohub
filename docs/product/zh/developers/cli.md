@@ -146,6 +146,33 @@ cohub sandbox up ./my-project
 cohub sandbox status
 ```
 
+### Boards
+
+Board 命令支持 Board ID 或 `.board` 路径。读取按资源范围执行，查询单个 item 不会加载整个 Board。
+
+```bash
+cohub -s <spaceId> boards inspect boards/plan.board --json
+cohub -s <spaceId> boards items list <boardId>
+cohub -s <spaceId> boards items get <boardId> <itemId> --json
+cohub -s <spaceId> boards connections list <boardId>
+cohub -s <spaceId> boards effects get <boardId> <effectId> --json
+cohub -s <spaceId> boards compositions get <boardId> <compositionId> --json
+```
+
+使用 `boards examples` 生成 JSON 模板，使用 `boards capabilities --json` 查看支持的 schema。多个变更可以通过 semantic command batch 原子提交：
+
+```bash
+cohub boards examples item text > item.json
+cohub -s <spaceId> boards items create <boardId> --input item.json
+cohub boards examples batch basic > changes.json
+cohub -s <spaceId> boards batch <boardId> --input changes.json --dry-run
+cohub -s <spaceId> boards batch <boardId> --input changes.json
+```
+
+batch 文件包含 `commands` 数组，可以组合 item、connection、effect、composition 和 Board patch，不需要包含完整 Board 快照。需要严格控制重试时使用 `--base-version` 和 `--mutation-id`。
+
+播放命令统一位于 `boards playback` 下；图片渲染仍使用 `boards export`。
+
 ### Search 与 models
 
 ```bash

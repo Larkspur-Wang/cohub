@@ -150,6 +150,33 @@ cohub sandbox up ./my-project
 cohub sandbox status
 ```
 
+### Boards
+
+Board commands accept a Board ID or a `.board` path. Reads are resource-scoped, so inspecting one item does not load the whole Board.
+
+```bash
+cohub -s <spaceId> boards inspect boards/plan.board --json
+cohub -s <spaceId> boards items list <boardId>
+cohub -s <spaceId> boards items get <boardId> <itemId> --json
+cohub -s <spaceId> boards connections list <boardId>
+cohub -s <spaceId> boards effects get <boardId> <effectId> --json
+cohub -s <spaceId> boards compositions get <boardId> <compositionId> --json
+```
+
+Use `boards examples` for starter JSON and `boards capabilities --json` for supported schemas. Apply a group of changes atomically with a semantic command batch:
+
+```bash
+cohub boards examples item text > item.json
+cohub -s <spaceId> boards items create <boardId> --input item.json
+cohub boards examples batch basic > changes.json
+cohub -s <spaceId> boards batch <boardId> --input changes.json --dry-run
+cohub -s <spaceId> boards batch <boardId> --input changes.json
+```
+
+A batch file has a `commands` array. It can combine item, connection, effect, composition, and Board patch commands without containing a full Board snapshot. Use `--base-version` and `--mutation-id` for controlled retries.
+
+Playback commands are grouped under `boards playback`; image rendering remains available through `boards export`.
+
 ### Search and models
 
 ```bash
