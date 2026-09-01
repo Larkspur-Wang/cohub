@@ -4,6 +4,18 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v2.37 — 2026-09-01
+
+- **Board freehand stroke tessellation**: reworked stroke rendering in the SDK to tessellate freehand paths as segment quads with round joins (with per-vertex progress for reveal animations) instead of filling a single outline polygon — strokes that fold back over themselves no longer produce large accidental fills
+- **Board animation realtime sync**: pure animation mutations (effects/compositions, ≤16 KB patch) now ship a server-authored `animationPatch` in `BoardChangedEvent`, letting clients apply animation updates directly from the realtime event instead of refetching board state
+- **Works → App rename**: completed the vocabulary migration across product docs (en/zh), SDK/CLI READMEs and examples, and added a new scenario-driven App development guide covering runtime modes, capability recipes, and the permission model
+- **SDK debugger response capture**: response bodies over `maxResponseCaptureBytes` (default 256 KB) are skipped during streaming instead of buffered and truncated after the fact, with an explicit `bodyCaptureSkipped` flag on network entries
+
+### Bug Fixes
+
+- Pasted cohub.live links (and legacy cohub.run/localhost) are now converted to composer mention chips; previously links copied from the primary domain stayed plain text
+- Dropped duplicate board-constants value re-exports in `@cohub/protocol` that made import-in-the-middle (OpenTelemetry ESM hook) drop ambiguous exports and break the iitm runtime
+
 ## v2.36 — 2026-08-31
 
 - **Recoverable agent edits**: file edits now tolerate safe line-ending, BOM, and trailing-whitespace differences, validate all replacements against one snapshot, and return match locations plus nearby text when a stale or ambiguous edit fails.
