@@ -38,6 +38,7 @@ export * from "./app.js";
 export * from "./app-surface.js";
 export * from "./app-runtime.js";
 export * from "./app-navigation.js";
+export * from "./app-catalog.js";
 export * from "./navigation.js";
 export * from "./app-view-stats.js";
 export * from "./app-promotion-stats.js";

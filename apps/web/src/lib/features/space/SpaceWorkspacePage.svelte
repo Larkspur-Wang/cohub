@@ -2922,6 +2922,24 @@ const spaceFileDomainProps = $derived.by<
 	onGetFileActionNode: getFileActionNode,
 	onUploadComplete: fileWorkspace.handleUploadComplete,
 	onOpenAppPublish: openAppPublish,
+	onOpenPublishedApp: (app: AppRecord) => {
+		windowManager.openApp({
+			appId: app.id,
+			label: appDisplayTitle(app.meta, app.slug),
+			openContext: { source: "user" },
+		});
+	},
+	onOpenInstalledApp: (app) => {
+		if (app.source.type !== "marketplace") {
+			window.open(app.url, "_blank", "noopener,noreferrer");
+			return;
+		}
+		windowManager.openApp({
+			appId: app.source.appId,
+			label: app.snapshot.name,
+			openContext: { source: "user" },
+		});
+	},
 	onCloseAppPublish: () => {
 		appPublishTarget = null;
 	},
