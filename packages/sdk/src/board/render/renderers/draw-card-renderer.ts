@@ -1,7 +1,7 @@
-import { Container, Graphics } from "pixi.js";
+import { Container, Mesh, MeshGeometry, Texture } from "pixi.js";
 import type { BoardDrawItem } from "@cohub/protocol/board-document";
 import {
-	buildStrokeOutline,
+	buildStrokeRibbonGeometry,
 	computeDrawBounds,
 } from "../../core/draw-geometry.js";
 import { pickBoardColor } from "../../core/palette.js";
@@ -14,7 +14,7 @@ import { drawFarStroke } from "./far-plate.js";
 
 type DrawParts = {
 	root: Container;
-	stroke: Graphics;
+	stroke: Mesh;
 	sig: string;
 	/** Last points array rendered; a new array (edit/undo) forces a redraw. */
 	points: unknown;
@@ -54,21 +54,19 @@ function sync(
 		parts.points = item.points;
 		parts.baseWidth = computeDrawBounds(item.points, item.size).width;
 
-		parts.stroke.clear();
-		const outline = buildStrokeOutline(item.points, item.size);
-		const origin = outline[0];
-		if (origin && outline.length >= 3) {
-			parts.stroke.moveTo(origin.x, origin.y);
-			for (let i = 1; i < outline.length; i += 1) {
-				const point = outline[i];
-				if (point) parts.stroke.lineTo(point.x, point.y);
-			}
-			parts.stroke.closePath();
-			parts.stroke.fill({
-				color: color.stroke,
-				alpha: selected || hovered ? 1 : 0.92,
-			});
-		}
+		const ribbon = buildStrokeRibbonGeometry(item.points, item.size);
+		const geometry = new MeshGeometry({
+			positions: ribbon.positions,
+			indices: ribbon.indices,
+		});
+		const nextStroke = new Mesh({ geometry, texture: Texture.WHITE });
+		nextStroke.tint = color.stroke;
+		nextStroke.alpha = selected || hovered ? 1 : 0.92;
+		const previous = parts.stroke;
+		parts.stroke = nextStroke;
+		parts.root.removeChild(previous);
+		previous.destroy({ children: true });
+		parts.root.addChild(nextStroke);
 	}
 
 	// A live resize only grows the frame; scale the existing tessellation on the
@@ -83,7 +81,13 @@ export const drawCardRenderer: BoardCardRenderer = {
 	canRender: (item) => item.type === "draw",
 	create: (item, context) => {
 		const root = new Container();
-		const stroke = new Graphics();
+		const stroke = new Mesh({
+			geometry: new MeshGeometry({
+				positions: new Float32Array(),
+				indices: new Uint32Array(),
+			}),
+			texture: Texture.WHITE,
+		});
 		root.addChild(stroke);
 		partsByContainer.set(root, {
 			root,
