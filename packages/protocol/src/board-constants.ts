@@ -43,7 +43,6 @@ export const DEFAULT_BOARD_RENDER_LIMITS: BoardRenderCost = {
 export const BOARD_BUILTIN_CLIP_KINDS = [
   "motion.path",
   "draw.reveal",
-  "draw.handwrite",
   "text.reveal",
   "effects.particles",
   "effects.trail",

@@ -54,6 +54,7 @@ export class SpaceFsError extends Error {
     message: string,
   ) {
     super(message);
+    this.name = "SpaceFsError";
   }
 }
 

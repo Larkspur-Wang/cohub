@@ -837,9 +837,7 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 			return true;
 		}
 		if (
-			(clip.kind === "draw.reveal" ||
-				clip.kind === "draw.handwrite" ||
-				clip.kind === "text.reveal") &&
+			(clip.kind === "draw.reveal" || clip.kind === "text.reveal") &&
 			clip.target.type === "item"
 		) {
 			if (clip.kind !== "text.reveal" && updateDrawReveal(clip, progress))

@@ -2,12 +2,17 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
 	BOARD_AUTHORING_SCHEMAS,
+	BOARD_BUILTIN_CLIP_KINDS,
 	BoardConnectionSchema,
 	BoardEffectInputSchema,
+	BoardTrackSchema,
+	applyBoardItemPatch,
 	boardAuthoringItemToNode,
 	boardNodeToAuthoringItem,
 	parseBoardCompositionInput,
 	isPureBoardAnimationChange,
+	validateBoardNodeInput,
+	BoardItemValidationError,
 } from "./src/index.js";
 
 test("built protocol exports stay aligned with source exports", async () => {
@@ -19,6 +24,79 @@ test("built protocol exports stay aligned with source exports", async () => {
 	]) {
 		assert.ok(key in built, `missing built protocol export: ${key}`);
 	}
+});
+
+test("item patch errors stay structured and point back to props", () => {
+	assert.throws(() => applyBoardItemPatch({
+		id: "title",
+		type: "text",
+		frame: { x: 0, y: 0, width: 100, height: 40, rotation: 0 },
+		props: { text: "Hello", fontSize: 24 },
+	}, { props: { fontSize: 0 } }, "commands.0.item"), (error) => {
+		assert.ok(error instanceof BoardItemValidationError);
+		assert.equal(error.diagnostics[0]?.path, "commands.0.item.props.fontSize");
+		return true;
+	});
+});
+
+test("authoring draw errors point back to props", () => {
+	assert.throws(() => boardAuthoringItemToNode({
+		id: "stroke",
+		type: "draw",
+		frame: { x: 100, y: 100, width: 180, height: 100, rotation: 0 },
+		props: { points: [{ x: 0, y: 80, p: 0.5 }, { x: 90, y: 10, p: 0.5 }, { x: 180, y: 70, p: 0.5 }] },
+		style: { color: "violet", strokeWidth: 4 },
+	}, { path: "items.0" }), (error) => {
+		assert.ok(error instanceof BoardItemValidationError);
+		assert.equal(error.diagnostics[0]?.path, "items.0.props.points");
+		assert.equal(error.diagnostics[0]?.message, "items.0.props.points must use frame-local coordinates and match the node frame");
+		return true;
+	});
+});
+
+test("the draw item example matches the frame geometry contract", async () => {
+	const example = {
+		nodeId: "stroke",
+		type: "draw",
+		x: 100,
+		y: 100,
+		width: 180,
+		height: 100,
+		rotation: 0,
+		parentId: null,
+		orderKey: null,
+		refKind: null,
+		refPath: null,
+		refUrl: null,
+		style: {},
+		data: {
+			points: [{ x: 2, y: 98, p: 0.5 }, { x: 90, y: 2, p: 0.5 }, { x: 178, y: 98, p: 0.5 }],
+			color: "violet",
+			size: 4,
+		},
+		view: {},
+	};
+	assert.deepEqual(validateBoardNodeInput(example), []);
+	const { BoardAuthoringItemSchema } = await import("./src/index.js");
+	assert.equal(BoardAuthoringItemSchema.safeParse({
+		id: "stroke",
+		type: "draw",
+		frame: { x: 100, y: 100, width: 180, height: 100, rotation: 0 },
+		props: { points: example.data.points },
+		style: { color: "violet", strokeWidth: 4 },
+	}).success, true);
+});
+
+test("Board animation capabilities stay honest and allow hidden scale", () => {
+	assert.equal(BOARD_BUILTIN_CLIP_KINDS.includes("draw.reveal"), true);
+	assert.equal((BOARD_BUILTIN_CLIP_KINDS as readonly string[]).includes("draw.handwrite"), false);
+	assert.equal(BoardTrackSchema.safeParse({
+		id: "grow",
+		target: { type: "item", itemId: "title" },
+		channel: "transform.scale",
+		fill: "both",
+		keyframes: [{ time: 0, value: 0 }, { time: 300, value: 1, easing: "ease-out-cubic" }],
+	}).success, true);
 });
 
 test("animation patch limits and purity rules are shared by clients", () => {

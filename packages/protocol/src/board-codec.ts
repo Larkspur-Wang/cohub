@@ -11,7 +11,44 @@ import {
 import {
 	BOARD_NATIVE_NODE_TYPES,
 	validateBoardNodeInput,
+	type BoardNodeValidationDiagnostic,
 } from "./board-node.js";
+
+export class BoardItemValidationError extends Error {
+	constructor(public diagnostics: BoardNodeValidationDiagnostic[]) {
+		super(diagnostics[0]?.message ?? "invalid Board item");
+		this.name = "BoardItemValidationError";
+	}
+}
+
+export function authoringSchemaDiagnostics(
+	error: { issues: readonly { path: readonly PropertyKey[]; message: string }[] },
+	path: string,
+): BoardNodeValidationDiagnostic[] {
+	return error.issues.slice(0, 32).map((issue) => ({
+		severity: "error" as const,
+		code: "INVALID_BOARD_NODE" as const,
+		message: issue.message,
+		path: `${path}.${issue.path.map(String).join(".") || "item"}`,
+	}));
+}
+
+function authoringDiagnostic(
+	diagnostic: BoardNodeValidationDiagnostic,
+	path: string,
+): BoardNodeValidationDiagnostic {
+	const internalPath = diagnostic.path;
+	const suffix = internalPath.replace(/^node(?:\.|$)/, "");
+	const authoringSuffix = suffix
+		.replace(/^data\.points/, "props.points")
+		.replace(/^data\./, "props.")
+		.replace(/^style\./, "style.")
+		.replace(/^view\./, "source.snapshot.")
+		.replace(/^nodeId$/, "id")
+		.replace(/^(x|y|width|height|rotation)$/, "frame.$1");
+	const mappedPath = `${path}${authoringSuffix ? `.${authoringSuffix}` : ""}`;
+	return { ...diagnostic, path: mappedPath, message: diagnostic.message.replace(internalPath, mappedPath) };
+}
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	Boolean(value && typeof value === "object" && !Array.isArray(value));
@@ -69,7 +106,7 @@ function commonData(item: BoardAuthoringItem) {
 	return { ...(item.locked ? { locked: true } : {}), ...(item.metadata ? { metadata: item.metadata } : {}) };
 }
 
-export function boardAuthoringItemToNode(value: unknown, options: { orderKey?: string | null } = {}): BoardNodeInput {
+export function boardAuthoringItemToNode(value: unknown, options: { orderKey?: string | null; path?: string } = {}): BoardNodeInput {
 	const item = BoardAuthoringItemSchema.parse(value);
 	const node: BoardNodeInput = {
 		nodeId: item.id,
@@ -120,21 +157,36 @@ export function boardAuthoringItemToNode(value: unknown, options: { orderKey?: s
 	}
 	if ((BOARD_NATIVE_NODE_TYPES as readonly string[]).includes(node.type)) {
 		const diagnostics = validateBoardNodeInput(node);
-		if (diagnostics.length) throw new Error(diagnostics[0]?.message ?? "invalid Board item");
+		if (diagnostics.length) {
+			throw new BoardItemValidationError(diagnostics.map((diagnostic) =>
+				authoringDiagnostic(diagnostic, options.path ?? "item"),
+			));
+		}
 	} else {
 		const parsed = BoardNodeInputSchema.safeParse(node);
-		if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "invalid extension Board item");
+		if (!parsed.success) {
+			throw new BoardItemValidationError(parsed.error.issues.map((issue) => ({
+				severity: "error" as const,
+				code: "INVALID_BOARD_NODE" as const,
+				message: issue.message,
+				path: `${options.path ?? "item"}.${issue.path.join(".") || "item"}`,
+			})));
+		}
 	}
 	return node;
 }
 
-export function applyBoardItemPatch(current: BoardAuthoringItem, value: unknown): BoardAuthoringItem {
+export function applyBoardItemPatch(current: BoardAuthoringItem, value: unknown, path = "item"): BoardAuthoringItem {
 	const patch = BoardItemPatchSchema.parse(value);
 	const merged = mergePatch(current, patch) as Record<string, unknown>;
 	merged.id = current.id;
 	merged.type = current.type;
 	if ("kindVersion" in current) merged.kindVersion = current.kindVersion;
-	return BoardAuthoringItemSchema.parse(merged);
+	const parsed = BoardAuthoringItemSchema.safeParse(merged);
+	if (!parsed.success) {
+		throw new BoardItemValidationError(authoringSchemaDiagnostics(parsed.error, path));
+	}
+	return parsed.data;
 }
 
 function mergePatch(current: unknown, patch: unknown): unknown {

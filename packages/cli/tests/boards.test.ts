@@ -1,15 +1,20 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  BOARD_BUILTIN_CLIP_KINDS,
+  BOARD_BUILTIN_EFFECT_KINDS,
   BoardAuthoringItemSchema,
   BoardCompositionInputSchema,
   BoardCreateInputSchema,
   BoardEffectSchema,
+  validateBuiltinBoardClip,
+  validateBuiltinBoardEffect,
 } from "@cohub/protocol";
 import { Command } from "commander";
 import {
   BOARD_EXAMPLE_KEYS,
   boardExample,
+  registerBoardExampleCommands,
 } from "../src/commands/boards/examples.js";
 import {
   parseJsonObject,
@@ -71,7 +76,77 @@ test("every Board example is valid semantic input", () => {
         : kind === "effect"
           ? effectInput
           : BoardCompositionInputSchema;
-    assert.equal(schema.safeParse(value).success, true, key);
+    const parsed = schema.safeParse(value);
+    assert.equal(parsed.success, true, key);
+    if (parsed.success && kind === "composition") {
+      for (const clip of BoardCompositionInputSchema.parse(parsed.data).timeline.clips) {
+        assert.deepEqual(validateBuiltinBoardClip(clip), [], `${key}: ${clip.kind}`);
+      }
+    }
+    if (parsed.success && kind === "effect") {
+      assert.deepEqual(validateBuiltinBoardEffect(effectInput.parse(parsed.data)), [], key);
+    }
+  }
+});
+
+test("Board examples cover every built-in animation capability", () => {
+  const clipKinds = new Set<string>();
+  const effectKinds = new Set<string>();
+  for (const key of BOARD_EXAMPLE_KEYS) {
+    const [kind, type] = key.split(":");
+    const value = boardExample(kind as string, type);
+    if (kind === "composition") {
+      const composition = BoardCompositionInputSchema.parse(value);
+      for (const clip of composition.timeline.clips) clipKinds.add(clip.kind);
+    }
+    if (kind === "effect") {
+      effectKinds.add(BoardEffectSchema.omit({ boardId: true, revision: true }).parse(value).kind);
+    }
+  }
+  assert.deepEqual([...clipKinds].sort(), [...BOARD_BUILTIN_CLIP_KINDS].sort());
+  assert.deepEqual([...effectKinds].sort(), [...BOARD_BUILTIN_EFFECT_KINDS].sort());
+});
+
+test("Board create examples contain no dangling references", () => {
+  const schema = BoardCreateInputSchema.omit({ path: true, mutationId: true });
+  for (const key of BOARD_EXAMPLE_KEYS.filter((value) => value.startsWith("create:"))) {
+    const [, type] = key.split(":");
+    const seed = schema.parse(boardExample("create", type));
+    const itemIds = new Set((seed.items ?? []).map((item) => item.id));
+    const effectIds = new Set((seed.effects ?? []).map((effect) => effect.id));
+    for (const connection of seed.connections ?? []) {
+      assert.ok(itemIds.has(connection.source.itemId), `${key}: ${connection.source.itemId}`);
+      assert.ok(itemIds.has(connection.target.itemId), `${key}: ${connection.target.itemId}`);
+    }
+    for (const effect of seed.effects ?? []) {
+      if (effect.target.type === "item") assert.ok(itemIds.has(effect.target.itemId), `${key}: ${effect.target.itemId}`);
+    }
+    for (const composition of seed.compositions ?? []) {
+      for (const target of [
+        ...composition.timeline.tracks.map((track) => track.target),
+        ...composition.timeline.clips.map((clip) => clip.target),
+      ]) {
+        if (target.type === "item") assert.ok(itemIds.has(target.itemId), `${key}: ${target.itemId}`);
+        if (target.type === "effect") assert.ok(effectIds.has(target.effectId), `${key}: ${target.effectId}`);
+      }
+    }
+  }
+});
+
+test("Board example commands list and print templates", async () => {
+  const boards = new Command("boards");
+  registerBoardExampleCommands(boards);
+  const output: string[] = [];
+  const original = console.log;
+  console.log = (value?: unknown) => output.push(String(value));
+  try {
+    await boards.parseAsync(["examples", "--list"], { from: "user" });
+    assert.deepEqual(JSON.parse(output.pop() as string), BOARD_EXAMPLE_KEYS);
+    await boards.parseAsync(["examples", "create", "workflow"], { from: "user" });
+    const workflow = JSON.parse(output.pop() as string) as { items: Array<{ id: string }> };
+    assert.deepEqual(workflow.items.map((item) => item.id), ["request", "agent", "result"]);
+  } finally {
+    console.log = original;
   }
 });
 
