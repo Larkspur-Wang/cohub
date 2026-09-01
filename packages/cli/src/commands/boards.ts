@@ -242,7 +242,7 @@ function registerExportCommand(boards: Command): void {
 export function registerBoards(program: Command): Command {
   const boards = program
     .command("boards")
-    .description("Inspect and update Boards")
+    .description("Inspect and update Boards by ID or .board path")
     .hook("preAction", () => { resolveSpace(boards); });
 
   withJson(boards.command("create <path>")
@@ -284,10 +284,13 @@ Generate an editable seed:
     .alias("get")
     .description("Show Board metadata and semantic resource counts")
     .addHelpText("after", `
-Inspect content with:
+Inspect resources with:
   cohub boards items list <board> --json
+  cohub boards connections list <board> --json
   cohub boards effects list <board> --json
-  cohub boards compositions list <board> --json`))
+  cohub boards compositions list <board> --json
+Apply multiple changes atomically:
+  cohub boards batch <board> --input changes.json --dry-run`))
     .action(async (target: string, options: JsonOptions) => {
       try {
         const spaceId = resolveSpace(boards);
@@ -345,7 +348,9 @@ Use boards examples for editable starter JSON.`))
   registerBoardDomainCommands(boards);
   registerExportCommand(boards);
 
-  withJson(boards.command("play <board> <composition-id>")
+  const playback = boards.command("playback").description("Control shared Board playback");
+
+  withJson(playback.command("play <board> <composition-id>")
     .description("Start shared playback")
     .option("--position <time>", "Initial position in milliseconds")
     .option("--time-scale <scale>", "Playback speed from 0 to 4")
@@ -391,12 +396,12 @@ Use boards examples for editable starter JSON.`))
     }
   };
 
-  withJson(boards.command("pause <board> <playback-id>")
+  withJson(playback.command("pause <board> <playback-id>")
     .description("Pause playback")
     .option("--command-id <id>", "Idempotency command ID"))
     .action(playbackAction("pause"));
 
-  withJson(boards.command("seek <board> <playback-id> <position>")
+  withJson(playback.command("seek <board> <playback-id> <position>")
     .description("Seek playback")
     .option("--command-id <id>", "Idempotency command ID"))
     .action(async (target: string, playbackId: string, position: string, options: PlaybackOptions) => {
@@ -416,7 +421,7 @@ Use boards examples for editable starter JSON.`))
       }
     });
 
-  withJson(boards.command("stop <board> <playback-id>")
+  withJson(playback.command("stop <board> <playback-id>")
     .description("Stop playback")
     .option("--command-id <id>", "Idempotency command ID"))
     .action(playbackAction("stop"));

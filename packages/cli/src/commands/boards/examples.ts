@@ -4,6 +4,12 @@ import { json } from "../../output.js";
 const frame = { x: 120, y: 80, width: 320, height: 48, rotation: 0 };
 
 const templates: Record<string, unknown> = {
+  "batch:basic": {
+    commands: [
+      { type: "board.patch", patch: { title: "Updated title" } },
+      { type: "item.patch", itemId: "title", patch: { props: { text: "Updated text" } } },
+    ],
+  },
   "create": {
     items: [{
       id: "title",
@@ -356,6 +362,7 @@ export function registerBoardExampleCommands(boards: Command): void {
     .addHelpText("after", `
 Kinds:
   create [workflow|media|animation]
+  batch basic
   item text|image|video|audio|file|task|geo|frame|draw|arrow
   effect pulse|float
   composition fade|reveal|draw-reveal|motion-path|trail|impact|flash|particles|camera-shake|camera-focus
@@ -363,6 +370,7 @@ Kinds:
 Examples:
   cohub boards examples --list
   cohub boards examples create workflow > board.json
+  cohub boards examples batch basic > changes.json
   cohub boards examples item text > item.json
   cohub boards examples composition fade > intro.json`)
     .action((kind: string | undefined, type: string | undefined, options: { list?: boolean }) => {

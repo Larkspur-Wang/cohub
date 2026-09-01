@@ -157,53 +157,57 @@ cohub -s <spaceId> spaces activity 365 --json
 
 ## Boards
 
-Board commands use the selected Space and support `-h` at every level:
+Board targets accept a Board ID or a `.board` path. Every command supports `-h` and `--json`:
 
 ```bash
 cohub boards -h
-cohub boards inspect -h
-cohub -s <spaceId> boards create boards/plan.board --title "Plan"
-cohub -s <spaceId> boards inspect <boardId> --json
+cohub -s <spaceId> boards inspect boards/plan.board --json
+cohub -s <spaceId> boards items list <boardId>
+cohub -s <spaceId> boards connections list <boardId>
 cohub -s <spaceId> boards capabilities <boardId>
 cohub -s <spaceId> boards watch <boardId> --json
 ```
 
-Pass semantic items, effects, and compositions as JSON when creating a Board. The path and title stay explicit in the command. Generate editable templates instead of guessing fields:
+Use targeted reads for large Boards:
 
 ```bash
-cohub boards examples create > board-content.json
-cohub boards examples item geo > item.json
-cohub boards examples effect pulse > effect.json
-cohub boards examples composition fade > intro.json
+cohub -s <spaceId> boards items get <boardId> <itemId> --json
+cohub -s <spaceId> boards connections get <boardId> <connectionId> --json
+cohub -s <spaceId> boards effects get <boardId> <effectId> --json
+cohub -s <spaceId> boards compositions get <boardId> <compositionId> --json
 ```
 
-Inspect `boards capabilities --json` for supported Item types, animation channels, effect kinds, and coordinate spaces.
-
-```bash
-cohub -s <spaceId> boards create boards/plan.board \
-  --title "Plan" \
-  --input board-content.json
-```
-
-Generate editable semantic JSON templates instead of authoring storage transactions:
+Create semantic JSON from an example, then apply it to one resource:
 
 ```bash
 cohub boards examples item text > item.json
-cohub boards items create <boardId> --input item.json
+cohub -s <spaceId> boards items create <boardId> --input item.json
 
 cohub boards examples composition fade > intro.json
-cohub boards compositions apply <boardId> --input intro.json
-
-cohub boards examples effect pulse > effect.json
-cohub boards effects apply <boardId> --input effect.json
+cohub -s <spaceId> boards compositions apply <boardId> --input intro.json
 ```
 
-Use `--mutation-id` or `--command-id` when a script needs a stable idempotency key across retries.
+Apply related changes atomically with one request. The batch contains semantic commands, not a full Board snapshot:
+
+```json
+{"commands":[
+  {"type":"item.patch","itemId":"title","patch":{"props":{"text":"Updated"}}},
+  {"type":"connection.create","connection":{"id":"title-agent","source":{"itemId":"title"},"target":{"itemId":"agent"}}}
+]}
+```
 
 ```bash
-cohub -s <spaceId> boards play <boardId> <compositionId>
-cohub -s <spaceId> boards seek <boardId> <playbackId> 400
-cohub -s <spaceId> boards stop <boardId> <playbackId>
+cohub boards examples batch basic > changes.json
+cohub -s <spaceId> boards batch <boardId> --input changes.json --dry-run
+cohub -s <spaceId> boards batch <boardId> --input changes.json
+```
+
+Use `--base-version` and `--mutation-id` for controlled, retry-safe scripts. Use `--dry-run` to validate without writing. Playback is grouped under `playback`:
+
+```bash
+cohub -s <spaceId> boards playback play <boardId> <compositionId>
+cohub -s <spaceId> boards playback seek <boardId> <playbackId> 400
+cohub -s <spaceId> boards playback stop <boardId> <playbackId>
 ```
 
 ## Search
