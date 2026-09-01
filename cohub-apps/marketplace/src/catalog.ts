@@ -8,7 +8,31 @@ const HttpUrl = z.string().url().refine((value) => {
   return protocol === "http:" || protocol === "https:";
 }, "Expected an HTTP(S) URL");
 const AppId = z.string().uuid();
-const AppRef = z.string().trim().regex(/^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?\/[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?\/[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/i, "Expected username/space/app");
+
+// Mirrors `parseCanonicalAppRef` in @cohub/protocol (packages/protocol/src/app-catalog.ts):
+// usernames follow the username rule (no underscores), space/app slugs allow `_` and up to 80 chars.
+const UsernamePattern = /^(?!-)(?!.*--)[a-z0-9-]{1,39}(?<!-)$/;
+const SlugPattern = /^[a-z0-9](?:[a-z0-9_-]{0,78}[a-z0-9])?$/;
+
+function parseCanonicalAppRef(value: string): string | null {
+  const parts = value.trim().split("/");
+  if (parts.length !== 3) return null;
+  const username = parts[0].trim().toLowerCase();
+  const spaceSlug = parts[1].trim();
+  const appSlug = parts[2].trim();
+  return UsernamePattern.test(username) && SlugPattern.test(spaceSlug) && SlugPattern.test(appSlug)
+    ? `${username}/${spaceSlug}/${appSlug}`
+    : null;
+}
+
+const AppRef = z.string().trim().transform((value, context) => {
+  const ref = parseCanonicalAppRef(value);
+  if (!ref) {
+    context.addIssue({ code: "custom", message: "Expected username/space/app" });
+    return z.NEVER;
+  }
+  return ref;
+});
 const OptionalText = z.string().trim().min(1).max(500).optional();
 const OptionalIcon = HttpUrl.optional();
 const Keywords = z.array(z.string().trim().min(1).max(60)).max(30).optional();
