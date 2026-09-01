@@ -10,6 +10,17 @@ import {
 	isPureBoardAnimationChange,
 } from "./src/index.js";
 
+test("built protocol exports stay aligned with source exports", async () => {
+	const built = await import("./dist/index.js");
+	for (const key of [
+		"BOARD_BUILTIN_CLIP_KINDS",
+		"BOARD_BUILTIN_EFFECT_KINDS",
+		"BOARD_NATIVE_NODE_TYPES",
+	]) {
+		assert.ok(key in built, `missing built protocol export: ${key}`);
+	}
+});
+
 test("animation patch limits and purity rules are shared by clients", () => {
 	const changed = {
 		items: [],
