@@ -5,7 +5,7 @@ import {
 	InstalledAppSourceSchema,
 	marketplaceEntryToInstalledApp,
 	parseCanonicalAppRef,
-} from "./app-catalog.js";
+} from "./src/app-catalog.js";
 
 test("canonical app refs use username/space/app without the public route marker", () => {
 	assert.equal(parseCanonicalAppRef("Alice/studio/notes"), "alice/studio/notes");
