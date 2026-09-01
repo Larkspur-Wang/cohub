@@ -2371,34 +2371,6 @@ onMount(() => {
 			sessionChat.applySessionsSnapshot(sessions);
 		},
 	);
-	const offBoardTxApplied = sdk.space(spaceId).on("board.changed", (event) => {
-		const payload =
-			event.payload as import("@neta-art/cohub").BoardChangedEvent["payload"];
-		if (!boardPreview.hasBoardId(payload.boardId)) return;
-		if (boardPreview.isOwnTransaction(payload.mutationId)) return;
-		if (payload.changed.items.length && payload.actorId) {
-			boardPreview.noteRemoteTransaction({
-				boardId: payload.boardId,
-				actorId: payload.actorId,
-				txId: payload.mutationId,
-				itemIds: payload.changed.items,
-				source: payload.source ?? null,
-			});
-		}
-		boardPreview.requestRemoteChange(payload.boardId, {
-			version: payload.version,
-			mutationId: payload.mutationId,
-			changed: payload.changed,
-		});
-	});
-	const offBoardPlaybackChanged = sdk
-		.space(spaceId)
-		.on("board.playback.changed", (event) => {
-			const snapshot =
-				event.payload as import("@neta-art/cohub").BoardPlaybackSnapshot;
-			if (!boardPreview.hasBoardId(snapshot.boardId)) return;
-			boardPreview.applyPlayback(snapshot);
-		});
 	const offSpaceConfigUpdated = subscribeSpaceConfig((config) => {
 		spaceConfig = config;
 	});
@@ -2550,13 +2522,12 @@ onMount(() => {
 		window.removeEventListener("keydown", handleSessionVimKeydown);
 		window.removeEventListener(APPS_CHANGED_EVENT, handleAppsChanged);
 		offSessionListCacheUpdated();
-		offBoardTxApplied();
-		offBoardPlaybackChanged();
 		offSpaceConfigUpdated();
 		offSpaceConfigBackgroundAction();
 		offDanmakuPrefs();
 		danmakuController.dispose();
 		spaceStatus.dispose();
+		boardPreview.dispose();
 		fileWorkspace.dispose();
 		portPreview.dispose();
 		for (const dispose of appSurfaceDisposers.values()) dispose();

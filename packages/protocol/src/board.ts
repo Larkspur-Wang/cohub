@@ -231,6 +231,18 @@ export type BoardMutationReceipt = {
   };
 };
 
+export function isPureBoardAnimationChange(
+  changed: BoardMutationReceipt["changed"],
+): boolean {
+  return (
+    (changed.effects.length > 0 || changed.compositions.length > 0) &&
+    changed.items.length === 0 &&
+    changed.connections.length === 0 &&
+    !changed.board &&
+    !changed.orderChanged
+  );
+}
+
 export type BoardSummary = {
   board: BoardRecord;
   counts: {

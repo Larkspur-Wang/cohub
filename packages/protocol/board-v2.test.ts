@@ -7,7 +7,23 @@ import {
 	boardAuthoringItemToNode,
 	boardNodeToAuthoringItem,
 	parseBoardCompositionInput,
+	isPureBoardAnimationChange,
 } from "./src/index.js";
+
+test("animation patch limits and purity rules are shared by clients", () => {
+	const changed = {
+		items: [],
+		connections: [],
+		effects: ["pulse"],
+		compositions: ["intro"],
+		board: false,
+		orderChanged: false,
+	};
+	assert.equal(isPureBoardAnimationChange(changed), true);
+	assert.equal(isPureBoardAnimationChange({ ...changed, items: ["node"] }), false);
+	assert.equal(isPureBoardAnimationChange({ ...changed, connections: ["edge"] }), false);
+	assert.equal(isPureBoardAnimationChange({ ...changed, orderChanged: true }), false);
+});
 
 test("authoring sources reject unsafe workspace paths", async () => {
 	const { BoardAuthoringItemSchema } = await import("./src/index.js");

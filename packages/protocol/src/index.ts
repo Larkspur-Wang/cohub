@@ -4,6 +4,7 @@ export * from "./board.js";
 export * from "./board-authoring.js";
 export * from "./board-capability-registry.js";
 export * from "./board-codec.js";
+export * from "./board-constants.js";
 export * from "./board-composition.js";
 export * from "./board-connection.js";
 export * from "./board-content.js";
