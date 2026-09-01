@@ -1,5 +1,11 @@
 # @neta-art/cohub
 
+## 8.5.1
+
+### Patch Changes
+
+- a279343: Optimize debugger response body capture by skipping oversized fetch bodies and reducing repeated UTF-8 encoding work when creating payload previews.
+
 ## 8.5.0
 
 ### Minor Changes
