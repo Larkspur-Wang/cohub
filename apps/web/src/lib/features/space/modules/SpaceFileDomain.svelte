@@ -198,7 +198,7 @@ export type SpaceFileDomainProps = {
 	onGetFileActionNode: (path: string) => SpaceFsNode;
 	onUploadComplete: () => void | Promise<void>;
 	onOpenAppPublish: (type: "file" | "directory" | "port", ref: string) => void;
-	onOpenPublishedApp: (app: AppRecord) => void;
+	onOpenMarketplace: () => void;
 	onOpenInstalledApp: (app: import("@cohub/protocol").InstalledApp) => void;
 	onCloseAppPublish: () => void;
 	onVisibleLinesChange?: (
@@ -341,7 +341,7 @@ let {
 	onGetFileActionNode,
 	onUploadComplete,
 	onOpenAppPublish,
-	onOpenPublishedApp,
+	onOpenMarketplace,
 	onOpenInstalledApp,
 	onCloseAppPublish,
 	onVisibleLinesChange,
@@ -671,7 +671,7 @@ function previewContentOut(node: Element) {
 	onUploadPaneClose={() => onSetUploadPaneVisible(false)}
 	onUploadComplete={onUploadComplete}
 	onResizeStart={onBeginRightSidebarResize}
-	onOpenPublishedApp={onOpenPublishedApp}
+	onOpenMarketplace={onOpenMarketplace}
 	onOpenInstalledApp={onOpenInstalledApp}
 />
 

@@ -1,6 +1,5 @@
 <script lang="ts">
 import type { SpacePublicEndpoints } from "@cohub/protocol/ports";
-import type { AppRecord } from "@neta-art/cohub";
 import { Files, PanelsTopLeft } from "lucide-svelte";
 import FileUploadPane from "$lib/components/FileUploadPane.svelte";
 import MobileRightDrawer from "$lib/components/MobileRightDrawer.svelte";
@@ -54,7 +53,7 @@ type Props = {
 	onUploadPaneClose: () => void;
 	onUploadComplete: () => void | Promise<void>;
 	onResizeStart: (event: PointerEvent) => void;
-	onOpenPublishedApp: (app: AppRecord) => void;
+	onOpenMarketplace: () => void;
 	onOpenInstalledApp: (app: import("@cohub/protocol").InstalledApp) => void;
 };
 
@@ -97,7 +96,7 @@ let {
 	onUploadPaneClose,
 	onUploadComplete,
 	onResizeStart,
-	onOpenPublishedApp,
+	onOpenMarketplace,
 	onOpenInstalledApp,
 }: Props = $props();
 
@@ -206,7 +205,7 @@ $effect(() => {
 					{previewEndpoints}
 				/>
 				{:else}
-					<AppsSidebarPanel {spaceId} canWrite={canWrite} onOpenPublished={onOpenPublishedApp} onOpenInstalled={onOpenInstalledApp} />
+					<AppsSidebarPanel {spaceId} canWrite={canWrite} {onOpenMarketplace} onOpenInstalled={onOpenInstalledApp} />
 				{/if}
 				{#if activePanel === "files"}
 				<FileUploadPane
@@ -274,7 +273,7 @@ $effect(() => {
 		{previewEndpoints}
 	/>
 	{:else}
-		<AppsSidebarPanel {spaceId} canWrite={canWrite} onOpenPublished={onOpenPublishedApp} onOpenInstalled={onOpenInstalledApp} />
+		<AppsSidebarPanel {spaceId} canWrite={canWrite} {onOpenMarketplace} onOpenInstalled={onOpenInstalledApp} />
 	{/if}
 	{#if activePanel === "files"}
 	<FileUploadPane

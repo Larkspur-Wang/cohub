@@ -1,20 +1,17 @@
 {
-  "name": "cohub-task-browser-work",
+  "name": "cohub-marketplace",
   "private": true,
   "version": "0.1.0",
-  "description": "A reference Cohub Work for browsing multimodal generation tasks.",
+  "description": "The standalone Cohub Marketplace App.",
   "license": "Apache-2.0",
   "type": "module",
-  "engines": {
-    "node": ">=22.0.0"
-  },
+  "engines": { "node": ">=22" },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "svelte-check --tsconfig ./tsconfig.json",
     "lint": "biome lint src/*.ts vite.config.ts",
-    "lint:fix": "biome lint --write src/*.ts vite.config.ts",
     "test": "node --import tsx --test 'src/**/*.test.ts'",
     "check": "npm run typecheck && npm run lint && npm test && npm run build"
   },
@@ -23,7 +20,8 @@
     "@fontsource/geist-mono": "^5.2.8",
     "@lucide/svelte": "^1.33.0",
     "@neta-art/cohub": "^8.1.0",
-    "svelte": "^5.56.9"
+    "svelte": "^5.56.9",
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.3",

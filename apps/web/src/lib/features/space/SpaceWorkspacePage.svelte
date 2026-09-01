@@ -35,6 +35,7 @@ import {
 	replaceState,
 } from "$app/navigation";
 import { page } from "$app/state";
+import { PUBLIC_MARKETPLACE_APP_ID } from "$env/static/public";
 import {
 	type AccessState,
 	isBlockingAccessState,
@@ -2922,10 +2923,11 @@ const spaceFileDomainProps = $derived.by<
 	onGetFileActionNode: getFileActionNode,
 	onUploadComplete: fileWorkspace.handleUploadComplete,
 	onOpenAppPublish: openAppPublish,
-	onOpenPublishedApp: (app: AppRecord) => {
+	onOpenMarketplace: () => {
+		if (!PUBLIC_MARKETPLACE_APP_ID) return;
 		windowManager.openApp({
-			appId: app.id,
-			label: appDisplayTitle(app.meta, app.slug),
+			appId: PUBLIC_MARKETPLACE_APP_ID,
+			label: "Marketplace",
 			openContext: { source: "user" },
 		});
 	},

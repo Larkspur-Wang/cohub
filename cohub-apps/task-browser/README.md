@@ -39,7 +39,7 @@ Viewer authorization never grants more access than the viewer already has, and a
 ## Develop
 
 ```bash
-cd works/task-browser
+cd cohub-apps/task-browser
 npm install
 npm run dev
 ```
@@ -73,7 +73,7 @@ If the project is nested in a larger Space, pass its Space workspace path. From 
 
 ```bash
 cohub apps publish task-browser \
-  --dir works/task-browser/dist \
+  --dir cohub-apps/task-browser/dist \
   --app-scope taskrun.view \
   --hide-cohub-bar
 ```

@@ -1,12 +1,12 @@
 import {
+	type AppMarketplaceCatalog,
 	AppMarketplaceCatalogSchema,
+	type AppMarketplaceEntry,
 	COHUB_APP_MARKETPLACE_URL,
 	emptySpaceInstalledApps,
 	SPACE_INSTALLED_APPS_PATH,
-	SpaceInstalledAppsSchema,
-	type AppMarketplaceCatalog,
-	type AppMarketplaceEntry,
 	type SpaceInstalledApps,
+	SpaceInstalledAppsSchema,
 } from "@cohub/protocol";
 import { HttpError, type SpaceFsFileResponse } from "@neta-art/cohub";
 import { sdk } from "$lib/sdk";
@@ -18,6 +18,38 @@ export type InstalledAppsFile = {
 	revision: { mtimeMs: number; size: number } | null;
 };
 
+const INSTALLED_CACHE_TTL_MS = 15 * 60 * 1_000;
+const INSTALLED_CACHE_MAX_ENTRIES = 12;
+type InstalledCacheEntry = { value: InstalledAppsFile; expiresAt: number };
+const installedCache = new Map<string, InstalledCacheEntry>();
+const installedRequests = new Map<string, Promise<InstalledAppsFile>>();
+
+function getInstalledCache(spaceId: string) {
+	const entry = installedCache.get(spaceId);
+	if (!entry) return null;
+	if (entry.expiresAt <= Date.now()) {
+		installedCache.delete(spaceId);
+		return null;
+	}
+	// Map insertion order provides a small, predictable LRU.
+	installedCache.delete(spaceId);
+	installedCache.set(spaceId, entry);
+	return entry.value;
+}
+
+function setInstalledCache(spaceId: string, value: InstalledAppsFile) {
+	installedCache.delete(spaceId);
+	installedCache.set(spaceId, {
+		value,
+		expiresAt: Date.now() + INSTALLED_CACHE_TTL_MS,
+	});
+	while (installedCache.size > INSTALLED_CACHE_MAX_ENTRIES) {
+		const oldest = installedCache.keys().next().value;
+		if (!oldest) break;
+		installedCache.delete(oldest);
+	}
+}
+
 function decodeFile(file: SpaceFsFileResponse) {
 	if (file.encoding !== "base64") return file.content;
 	const bytes = Uint8Array.from(atob(file.content), (character) =>
@@ -26,23 +58,53 @@ function decodeFile(file: SpaceFsFileResponse) {
 	return new TextDecoder().decode(bytes);
 }
 
-export async function readInstalledApps(spaceId: string): Promise<InstalledAppsFile> {
-	try {
-		const file = await sdk.space(spaceId).files.read(SPACE_INSTALLED_APPS_PATH);
-		if (!("content" in file)) {
-			throw new Error("The installed Apps file is still being prepared.");
-		}
-		const document = SpaceInstalledAppsSchema.parse(JSON.parse(decodeFile(file)));
-		return {
-			document,
-			revision: { mtimeMs: file.mtimeMs, size: file.size },
-		};
-	} catch (error) {
-		if (error instanceof HttpError && error.status === 404) {
-			return { document: emptySpaceInstalledApps(), revision: null };
-		}
-		throw error;
+export function readInstalledApps(
+	spaceId: string,
+	options: { refresh?: boolean } = {},
+): Promise<InstalledAppsFile> {
+	const pending = installedRequests.get(spaceId);
+	if (pending) return pending;
+	if (!options.refresh) {
+		const cached = getInstalledCache(spaceId);
+		if (cached) return Promise.resolve(cached);
 	}
+	const request = (async () => {
+		try {
+			const file = await sdk
+				.space(spaceId)
+				.files.read(SPACE_INSTALLED_APPS_PATH);
+			if (!("content" in file)) {
+				throw new Error("The installed Apps file is still being prepared.");
+			}
+			const document = SpaceInstalledAppsSchema.parse(
+				JSON.parse(decodeFile(file)),
+			);
+			return { document, revision: { mtimeMs: file.mtimeMs, size: file.size } };
+		} catch (error) {
+			if (error instanceof HttpError && error.status === 404) {
+				return { document: emptySpaceInstalledApps(), revision: null };
+			}
+			throw error;
+		}
+	})();
+	installedRequests.set(spaceId, request);
+	void request
+		.then((result) => {
+			if (installedRequests.get(spaceId) === request)
+				setInstalledCache(spaceId, result);
+		})
+		.catch(() => {
+			// The caller receives the original rejection; this maintenance chain only updates cache state.
+		})
+		.finally(() => {
+			if (installedRequests.get(spaceId) === request)
+				installedRequests.delete(spaceId);
+		});
+	return request;
+}
+
+export function cacheInstalledApps(spaceId: string, value: InstalledAppsFile) {
+	setInstalledCache(spaceId, value);
 }
 
 export async function writeInstalledApps(
@@ -95,7 +157,13 @@ export function loadAppMarketplace(options: { refresh?: boolean } = {}) {
 }
 
 function normalizedSearchText(app: AppMarketplaceEntry) {
-	return [app.id, app.name, app.description, app.publisher, ...(app.keywords ?? [])]
+	return [
+		app.id,
+		app.name,
+		app.description,
+		app.publisher,
+		...(app.keywords ?? []),
+	]
 		.filter(Boolean)
 		.join(" ")
 		.toLocaleLowerCase();
@@ -105,11 +173,7 @@ export function searchMarketplace(
 	apps: AppMarketplaceEntry[],
 	query: string,
 ): AppMarketplaceEntry[] {
-	const terms = query
-		.trim()
-		.toLocaleLowerCase()
-		.split(/\s+/)
-		.filter(Boolean);
+	const terms = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
 	if (!terms.length) return apps;
 	return apps
 		.map((app, index) => {
