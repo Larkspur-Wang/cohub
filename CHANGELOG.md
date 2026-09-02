@@ -4,17 +4,24 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
-## v2.38 — 2026-09-02
+## v2.38 — 2026-09-03
 
 - **App Center**: Spaces gain an Apps panel alongside Files (desktop sidebar and mobile drawer) listing installed Apps with enable/disable and uninstall, plus a new first-party Marketplace App for discovery and installation; installed Apps live in a validated `.cohub/apps.json` space file with LRU caching and realtime cross-client refresh, and the protocol adds versioned marketplace/installed-app schemas with canonical `username/space/app` references
 - **Atomic Board batches in the CLI**: `cohub boards batch` applies a JSON batch of semantic commands in one atomic round-trip with `--dry-run`, strict `--base-version` optimistic concurrency, and idempotent `--mutation-id` retries; the board surface is streamlined end to end — targets resolve by Board ID or `.board` path, `boards connections` list/get typed relations, items/effects/compositions gain get-by-ID reads, playback consolidates under `boards playback`, and examples scaffold workflow, media, and animation boards
 - **Structured Board validation diagnostics**: authoring failures now surface diagnostics whose paths map internal node storage back to the authoring JSON (`items.0.props.text`), thrown as `BoardItemValidationError` from the codec, and the Board API unifies on a stable error contract with machine-readable codes, diagnostics arrays, and `requestId` on server failures
 - **Public SDK Board mutation schema**: `BoardSemanticCommandSchema` is exported from the SDK (8.6.0) so board mutations can be validated and compiled outside the API, with `BoardItemValidationError` re-exported from the core board module
+- **Board geometry normalization**: The semantic authoring format replaces the opaque `frame` with `position`/`size`/`rotation`; draw and arrow geometry is authored in world space, and item frames are now derived automatically from stroke and curve bounds with validation against canonical geometry
+- **Shared Board geometry core**: Draw bounds, stroke radii, and arrow curve math moved into `@cohub/protocol` as renderer-independent contracts, now consumed by the SDK, CLI, and web editor so exports and live rendering can never drift
+- **Backend-aware Board rendering**: Render context now declares its backend (`gpu` vs `canvas`) — live editing keeps the cached-tessellation fast path for draw strokes while headless export uses a Canvas2D fallback, with draw geometry computed once per item instead of per frame
+- **CLI board authoring feedback**: `boards create` now reports the created board file path (including in JSON output), and `boards items list/get` show derived x/y/width/height columns for draw and arrow items
+- **Live app sidebar sync**: The web workspace refreshes its installed-apps sidebar when the apps document changes through filesystem events, so installs from other clients or the CLI appear without a reload
 
 ### Bug Fixes
 
 - Cron schedulers no longer drift from their database records: scheduler keys are always derived from the cron job id, scheduler cleanup retries transient queue failures, and failed creations persist an explicit disabled state instead of leaving orphaned schedulers behind
 - Board CLI example templates were corrected to produce schema-valid v2 boards (defaulted effect fields removed, scale keyframes accept zero), and the unused `draw.handwrite` clip kind was dropped from the built-in animation registry
+- **Marketplace space selection**: Opening Marketplace outside a Space now prompts you to choose one instead of failing
+- **Marketplace authorization flow**: Browsing and installing request scopes that match the action, and permission denials recover via a clear re-authorize prompt instead of wedging the catalog
 
 ## v2.37 — 2026-09-01
 
