@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { createBoardConnection } from "@cohub/protocol/board-connection";
+import { createBoardConnection } from "@neta-art/cohub/board";
 import type { Command } from "commander";
 import { handleHttp, json, jsonRequested, table } from "../../output.js";
 import {

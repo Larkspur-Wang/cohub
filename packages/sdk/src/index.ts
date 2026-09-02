@@ -182,6 +182,7 @@ export {
   BoardEffectInputSchema,
   BoardEffectSchema,
   BoardItemPatchSchema,
+  BoardSemanticCommandSchema,
   parseBoardEffectInput,
   BoardPlaybackPolicySchema,
   parseBoardCompositionInput,

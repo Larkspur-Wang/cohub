@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { BoardSemanticCommandSchema } from "@cohub/protocol";
-import type { BoardSemanticCommand } from "@neta-art/cohub";
+import { BoardSemanticCommandSchema, type BoardSemanticCommand } from "@neta-art/cohub";
 import type { Command } from "commander";
 import {
   BOARD_TRANSACTION_INPUT_MAX_BYTES,
