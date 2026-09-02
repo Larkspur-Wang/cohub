@@ -84,8 +84,8 @@ async function chooseSpace() {
   authorizing = true; error = ""; errorKind = null;
   try {
     const result = await client.auth.requestSpace({
-      scopes: ["file.view", "file.edit"],
-      reason: "Choose a Space to browse and install Apps.",
+      scopes: ["file.view"],
+      reason: "Choose a Space to browse Apps.",
       alwaysAsk: true,
     });
     if (!result.granted || !result.space) {
