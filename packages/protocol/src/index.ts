@@ -9,6 +9,7 @@ export * from "./board-composition.js";
 export * from "./board-connection.js";
 export * from "./board-content.js";
 export * from "./board-node.js";
+export * from "./board-geometry.js";
 export * from "./board-json.js";
 export * from "./board-order.js";
 export * from "./core/content.js";

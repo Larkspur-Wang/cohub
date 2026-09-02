@@ -43,6 +43,10 @@
       "types": "./dist/board-document.d.ts",
       "default": "./dist/board-document.js"
     },
+    "./board-geometry": {
+      "types": "./dist/board-geometry.d.ts",
+      "default": "./dist/board-geometry.js"
+    },
     "./board-order": {
       "types": "./dist/board-order.d.ts",
       "default": "./dist/board-order.js"

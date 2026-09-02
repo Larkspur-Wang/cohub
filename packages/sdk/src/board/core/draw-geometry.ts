@@ -7,38 +7,19 @@
  * stroke can be re-rendered at any detail level and tested without a GPU.
  */
 
-import type { Rect, WorldPoint } from "../geometry.js";
+import type { WorldPoint } from "../geometry.js";
+import {
+	boardDrawBounds,
+	boardDrawSampleRadius,
+} from "@cohub/protocol";
 import type { DrawPoint } from "@cohub/protocol/board-document";
 import { getStroke } from "perfect-freehand";
 
 /** Radius of a sample in world units given the stroke size and pressure. */
-export function sampleRadius(size: number, pressure: number): number {
-	// Pressure modulates width gently; a mouse (p=0.5) yields the base size.
-	const clamped = Math.min(1, Math.max(0, pressure));
-	return Math.max(0.5, (size / 2) * (0.5 + clamped));
-}
+export const sampleRadius = boardDrawSampleRadius;
 
 /** Axis-aligned bounds of a stroke in its local space, padded by stroke width. */
-export function computeDrawBounds(points: DrawPoint[], size: number): Rect {
-	if (points.length === 0) return { x: 0, y: 0, width: 1, height: 1 };
-	let minX = Number.POSITIVE_INFINITY;
-	let minY = Number.POSITIVE_INFINITY;
-	let maxX = Number.NEGATIVE_INFINITY;
-	let maxY = Number.NEGATIVE_INFINITY;
-	for (const point of points) {
-		const r = sampleRadius(size, point.p);
-		minX = Math.min(minX, point.x - r);
-		minY = Math.min(minY, point.y - r);
-		maxX = Math.max(maxX, point.x + r);
-		maxY = Math.max(maxY, point.y + r);
-	}
-	return {
-		x: minX,
-		y: minY,
-		width: Math.max(1, maxX - minX),
-		height: Math.max(1, maxY - minY),
-	};
-}
+export const computeDrawBounds = boardDrawBounds;
 
 /**
  * Ramer–Douglas–Peucker simplification. Reduces point count for low-zoom

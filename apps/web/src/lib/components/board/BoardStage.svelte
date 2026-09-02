@@ -32,7 +32,13 @@ import {
 	getBoardThemeRenderer,
 	textZoomBucket,
 } from "@neta-art/cohub/board/render";
-import { Application, Container, Graphics, type Renderer } from "pixi.js";
+import {
+	Application,
+	Container,
+	Graphics,
+	type Renderer,
+	RendererType,
+} from "pixi.js";
 import { onDestroy, onMount, untrack } from "svelte";
 import { goto } from "$app/navigation";
 import { createBoardAssetManager } from "$lib/board/board-asset-manager";
@@ -408,6 +414,7 @@ function buildContext(
 		palette,
 		colors: resolveTheme().colors,
 		colorScheme,
+		rendererType: app?.renderer.type === RendererType.CANVAS ? "canvas" : "gpu",
 		zoom: editor.camera.zoom,
 		assetKey: assets.assetKey,
 		getTexture: (key) => assets.getTexture(key),

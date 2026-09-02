@@ -10,6 +10,7 @@ import {
 	type BoardCoordinateSpace,
 } from "./board-constants.js";
 import { BoardTaskSnapshotSchema } from "./board-document.js";
+import { boardDrawBounds } from "./board-geometry.js";
 
 export const BOARD_COLOR_IDS = [
 	"brand",
@@ -311,19 +312,8 @@ function drawGeometryDiagnostic(
 	data: z.infer<typeof dataSchemas.draw>,
 	path: string,
 ): BoardNodeValidationDiagnostic | null {
-	let minX = Number.POSITIVE_INFINITY;
-	let minY = Number.POSITIVE_INFINITY;
-	let maxX = Number.NEGATIVE_INFINITY;
-	let maxY = Number.NEGATIVE_INFINITY;
-	for (const point of data.points) {
-		const radius = Math.max(0.5, (data.size / 2) * (0.5 + point.p));
-		minX = Math.min(minX, point.x - radius);
-		minY = Math.min(minY, point.y - radius);
-		maxX = Math.max(maxX, point.x + radius);
-		maxY = Math.max(maxY, point.y + radius);
-	}
-	const width = Math.max(1, maxX - minX);
-	const height = Math.max(1, maxY - minY);
+	const bounds = boardDrawBounds(data.points, data.size);
+	const { x: minX, y: minY, width, height } = bounds;
 	const tolerance = Math.max(0.01, node.width * 1e-6, node.height * 1e-6);
 	if (
 		Math.abs(minX) <= tolerance &&
@@ -338,7 +328,11 @@ function drawGeometryDiagnostic(
 		code: "INVALID_BOARD_GEOMETRY",
 		message: `${path}.data.points must use frame-local coordinates and match the node frame`,
 		path: `${path}.data.points`,
-		expected: "frame-local points with bounds matching width and height",
+		expected: `frame-local bounds x=0, y=0, width=${width}, height=${height}`,
+		received: {
+			frame: { x: node.x, y: node.y, width: node.width, height: node.height },
+			pointsBounds: { x: minX, y: minY, width, height },
+		},
 		coordinateSpace: "frame-local",
 	};
 }

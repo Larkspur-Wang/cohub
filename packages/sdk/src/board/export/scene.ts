@@ -80,6 +80,7 @@ function buildContext(input: BoardExportSceneInput): {
     palette: { ...defaultBoardPalette(input.colorScheme), ...input.palette },
     colors: input.colors ?? buildFallbackShapeColors(input.colorScheme),
     colorScheme: input.colorScheme,
+    rendererType: "canvas",
     // Text rasterises against this, so passing the export scale (not the
     // editor's camera zoom) is what keeps exported glyphs crisp at any factor.
     zoom: input.scale,
