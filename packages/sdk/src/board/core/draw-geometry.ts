@@ -80,9 +80,9 @@ function perpendicularDistance(
 }
 
 /**
- * Build the legacy closed outline used by exports and callers that need a path.
- * Interactive Board rendering uses `buildStrokeRibbonGeometry` below instead:
- * filling one outline is unsafe when a freehand path folds back over itself.
+ * Build a closed outline for callers that need a path representation.
+ * Interactive rendering uses `buildStrokeRibbonGeometry` below because a single
+ * outline is unsafe when a freehand path folds back over itself.
  */
 export function buildStrokeOutline(
 	points: DrawPoint[],

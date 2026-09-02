@@ -39,19 +39,17 @@ test("item patch errors stay structured and point back to props", () => {
 	});
 });
 
-test("authoring draw errors point back to props", () => {
-	assert.throws(() => boardAuthoringItemToNode({
+test("authoring draw items derive their frame from world points", () => {
+	const node = boardAuthoringItemToNode({
 		id: "stroke",
 		type: "draw",
-		frame: { x: 100, y: 100, width: 180, height: 100, rotation: 0 },
-		props: { points: [{ x: 0, y: 80, p: 0.5 }, { x: 90, y: 10, p: 0.5 }, { x: 180, y: 70, p: 0.5 }] },
+		rotation: 0,
+		props: { points: [{ x: 100, y: 180, p: 0.5 }, { x: 190, y: 110, p: 0.5 }, { x: 280, y: 170, p: 0.5 }] },
 		style: { color: "violet", strokeWidth: 4 },
-	}, { path: "items.0" }), (error) => {
-		assert.ok(error instanceof BoardItemValidationError);
-		assert.equal(error.diagnostics[0]?.path, "items.0.props.points");
-		assert.equal(error.diagnostics[0]?.message, "items.0.props.points must use frame-local coordinates and match the node frame");
-		return true;
-	});
+	}, { path: "items.0" });
+	assert.equal(node.x, 98);
+	assert.equal(node.y, 108);
+	assert.equal(node.data.points[0]?.x, 2);
 });
 
 test("the draw item example matches the frame geometry contract", async () => {
@@ -81,8 +79,8 @@ test("the draw item example matches the frame geometry contract", async () => {
 	assert.equal(BoardAuthoringItemSchema.safeParse({
 		id: "stroke",
 		type: "draw",
-		frame: { x: 100, y: 100, width: 180, height: 100, rotation: 0 },
-		props: { points: example.data.points },
+		rotation: 0,
+		props: { points: [{ x: 102, y: 198, p: 0.5 }, { x: 190, y: 102, p: 0.5 }, { x: 278, y: 198, p: 0.5 }] },
 		style: { color: "violet", strokeWidth: 4 },
 	}).success, true);
 });
@@ -119,7 +117,9 @@ test("authoring sources reject unsafe workspace paths", async () => {
 	const item = (path: string) => ({
 		id: "image",
 		type: "image",
-		frame: { x: 0, y: 0, width: 100, height: 100, rotation: 0 },
+		position: { x: 0, y: 0 },
+		size: { width: 100, height: 100 },
+		rotation: 0,
 		props: {},
 		source: { kind: "space-file", path },
 	});

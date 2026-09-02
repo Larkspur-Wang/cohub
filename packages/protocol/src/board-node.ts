@@ -10,7 +10,7 @@ import {
 	type BoardCoordinateSpace,
 } from "./board-constants.js";
 import { BoardTaskSnapshotSchema } from "./board-document.js";
-import { boardDrawBounds } from "./board-geometry.js";
+import { boardArrowFrame, boardDrawBounds } from "./board-geometry.js";
 
 export const BOARD_COLOR_IDS = [
 	"brand",
@@ -408,22 +408,26 @@ export function validateBoardNodeInput(
 	}
 	if (type === "arrow") {
 		const data = dataResult.data as z.infer<typeof dataSchemas.arrow>;
-		const inside = (point: { x: number; y: number }) =>
-			point.x >= node.x &&
-			point.x <= node.x + node.width &&
-			point.y >= node.y &&
-			point.y <= node.y + node.height;
-		if (!inside(data.start) || !inside(data.end)) {
-			return [
-				{
-					severity: "error",
-					code: "INVALID_BOARD_GEOMETRY",
-					message: `${path}.data endpoints must be covered by the node frame`,
-					path: `${path}.data`,
-					expected: "world-space endpoints inside the node frame",
-					coordinateSpace: "world",
+		const expected = boardArrowFrame(data);
+		const tolerance = Math.max(0.01, node.width * 1e-6, node.height * 1e-6);
+		if (
+			Math.abs(node.x - expected.x) > tolerance ||
+			Math.abs(node.y - expected.y) > tolerance ||
+			Math.abs(node.width - expected.width) > tolerance ||
+			Math.abs(node.height - expected.height) > tolerance
+		) {
+			return [{
+				severity: "error",
+				code: "INVALID_BOARD_GEOMETRY",
+				message: `${path}.data endpoints must use world-space coordinates and match the arrow frame`,
+				path: `${path}.data`,
+				expected: `world-space curve bounds x=${expected.x}, y=${expected.y}, width=${expected.width}, height=${expected.height}`,
+				received: {
+					frame: { x: node.x, y: node.y, width: node.width, height: node.height },
+					curveBounds: expected,
 				},
-			];
+				coordinateSpace: "world",
+			}];
 		}
 	}
 	return [];

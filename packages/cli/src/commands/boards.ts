@@ -311,6 +311,9 @@ Apply multiple changes atomically:
     .description("Show authoring schemas and runtime capabilities")
     .addHelpText("after", `
 Use --json for complete Item, patch, mutation, effect, Composition, and create JSON Schemas.
+Coordinates:
+  draw points and arrow start/end points are world-space.
+  Position and size are optional; Board geometry derives the persisted frame automatically.
 Use boards examples for editable starter JSON.`))
     .action(async (target: string, options: JsonOptions) => {
       try {
