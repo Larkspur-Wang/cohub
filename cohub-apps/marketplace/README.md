@@ -29,4 +29,8 @@ cohub apps publish marketplace \
   --hide-cohub-bar
 ```
 
-The main workspace injects this App's ID through `PUBLIC_MARKETPLACE_APP_ID` at build time. Each environment should publish and configure its own Marketplace App and catalog.
+The catalog source is baked in at build time and defaults to the production catalog. Point a build at a different catalog with the `CATALOG_URL` environment variable (shell env or `.env` file):
+
+```bash
+CATALOG_URL=https://example.com/catalog.dev.v1.json npm run build
+```

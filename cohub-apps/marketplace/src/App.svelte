@@ -6,7 +6,7 @@ import { AlertCircle, Check, LoaderCircle, PackageOpen, Search } from "@lucide/s
 import { onMount } from "svelte";
 
 const client = createCohubClient();
-const CATALOG_URL = "https://cdn.cohub.live/app-market/catalog.v1.json";
+const CATALOG_URL: string = import.meta.env.__CATALOG_URL__;
 
 let space = $state<{ id: string; name: string | null } | null>(null);
 let invocation = $state<AppRuntimeInvocationContext | null>(null);
