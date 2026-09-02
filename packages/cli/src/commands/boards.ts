@@ -51,8 +51,12 @@ export function parseViewport(value?: string): { x: number; y: number; width: nu
   return { x, y, width, height };
 }
 
-function showCreated(result: { board: { id: string; title: string; version: number } }): void {
-  table([result.board], [
+export function showCreated(
+  result: { board: { id: string; title: string; version: number } },
+  path: string,
+): void {
+  table([{ path, ...result.board }], [
+    { key: "path", label: "Path" },
     { key: "id", label: "ID" },
     { key: "title", label: "Title" },
     { key: "version", label: "Version" },
@@ -272,9 +276,9 @@ Generate an editable seed:
           ...(options.title ? { title: options.title } : {}),
         } as BoardCreateInput;
         const result = await createClient().space(resolveSpace(boards)).boards.create(input);
-        if (jsonRequested(options)) return outJson(result);
-        ok(`Board created: ${result.board.id}`);
-        showCreated(result);
+        if (jsonRequested(options)) return outJson({ ...result, path });
+        ok(`Board created: ${path}`);
+        showCreated(result, path);
       } catch (cause) {
         handleHttp(cause);
       }

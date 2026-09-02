@@ -22,6 +22,7 @@ import {
   parseJsonObject,
   parseViewport,
   registerBoards,
+  showCreated,
 } from "../src/commands/boards.js";
 
 function createProgram(): { program: Command; boards: Command } {
@@ -167,6 +168,19 @@ test("Board batches validate semantic commands without rewriting payload data", 
   assert.deepEqual(commands, [{ type: "board.patch", patch: { title: "Updated" } }]);
   assert.throws(() => parseBatchCommands({ commands: [] }), /non-empty commands/);
   assert.throws(() => parseBatchCommands({ commands: [{ type: "unknown" }] }), /commands\[0\]/);
+});
+
+test("Board creation output includes the file entry point", () => {
+  const output: string[] = [];
+  const original = console.log;
+  console.log = (value?: unknown) => output.push(String(value));
+  try {
+    showCreated({ board: { id: "board-1", title: "Launch plan", version: 0 } }, "plans/launch.board");
+  } finally {
+    console.log = original;
+  }
+  assert.match(output.join("\n"), /plans\/launch\.board/);
+  assert.match(output.join("\n"), /board-1/);
 });
 
 test("Board JSON and inspect inputs are parsed without rewriting payload data", () => {
