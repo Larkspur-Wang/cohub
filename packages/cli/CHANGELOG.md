@@ -1,5 +1,20 @@
 # @neta-art/cohub-cli
 
+## 6.4.0
+
+### Minor Changes
+
+- f9b6156: Board CLI improvements:
+  
+  - `boards create` now reports the created Board file path (including in JSON output).
+  - `boards items list/get` show derived layout columns (x/y/width/height) for draw and arrow items.
+  - Board example templates are updated to the normalized geometry authoring format.
+
+### Patch Changes
+
+- Updated dependencies [f9b6156]
+  - @neta-art/cohub@8.7.0
+
 ## 6.3.0
 
 ### Minor Changes
