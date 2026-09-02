@@ -107,6 +107,10 @@ export function cacheInstalledApps(spaceId: string, value: InstalledAppsFile) {
 	setInstalledCache(spaceId, value);
 }
 
+export function invalidateInstalledApps(spaceId: string) {
+	installedCache.delete(spaceId);
+}
+
 export async function writeInstalledApps(
 	spaceId: string,
 	document: SpaceInstalledApps,

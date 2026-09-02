@@ -8,10 +8,7 @@ import {
 	readInstalledApps,
 	writeInstalledApps,
 } from "$lib/features/app/app-center";
-import {
-	APPS_CHANGED_EVENT,
-	type AppsChangedDetail,
-} from "$lib/features/app/app-realtime";
+import { INSTALLED_APPS_CHANGED_EVENT } from "$lib/features/app/app-realtime";
 
 type Props = {
 	spaceId: string;
@@ -121,8 +118,8 @@ $effect(() => {
 
 onMount(() => {
 	let refreshTimer: ReturnType<typeof setTimeout> | null = null;
-	const onAppsChanged = (event: Event) => {
-		const detail = (event as CustomEvent<AppsChangedDetail>).detail;
+	const onInstalledAppsChanged = (event: Event) => {
+		const detail = (event as CustomEvent<{ spaceId?: string }>).detail;
 		if (detail?.spaceId !== spaceId || loadedFor !== spaceId) return;
 		if (refreshTimer) clearTimeout(refreshTimer);
 		refreshTimer = setTimeout(() => {
@@ -130,10 +127,13 @@ onMount(() => {
 			void loadInstalled();
 		}, 150);
 	};
-	window.addEventListener(APPS_CHANGED_EVENT, onAppsChanged);
+	window.addEventListener(INSTALLED_APPS_CHANGED_EVENT, onInstalledAppsChanged);
 	return () => {
 		if (refreshTimer) clearTimeout(refreshTimer);
-		window.removeEventListener(APPS_CHANGED_EVENT, onAppsChanged);
+		window.removeEventListener(
+			INSTALLED_APPS_CHANGED_EVENT,
+			onInstalledAppsChanged,
+		);
 	};
 });
 </script>

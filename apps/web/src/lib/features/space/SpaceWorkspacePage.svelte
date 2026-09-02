@@ -1,4 +1,5 @@
 <script lang="ts">
+import { SPACE_INSTALLED_APPS_PATH } from "@cohub/protocol";
 import type {
 	AppNavigationOpenMessage,
 	AppNavigationTarget,
@@ -59,10 +60,12 @@ import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import ResourceLabelPicker from "$lib/components/ResourceLabelPicker.svelte";
 import UserIdentity from "$lib/components/UserIdentity.svelte";
 import { createDeferredMount } from "$lib/deferred-mount.svelte";
+import { invalidateInstalledApps } from "$lib/features/app/app-center";
 import {
 	APPS_CHANGED_EVENT,
 	createAppMutationBuffer,
 	dispatchAppsChanged,
+	dispatchInstalledAppsChanged,
 	parseAppVersionPublished,
 	upsertAppSnapshot,
 } from "$lib/features/app/app-realtime";
@@ -1491,8 +1494,21 @@ function normalizeSandboxFsPayload(
 }
 
 function enqueueSpaceFsChanged(payload: ChannelEnvelope) {
-	const generation = spaceFsEventGeneration;
+	const eventPayload = payload.payload as SpaceFsChangedPayload;
 	const eventSpaceId = payload.spaceId ?? spaceId;
+	const installedAppsChanged =
+		eventPayload.resync ||
+		eventPayload.changes?.some(
+			(change) =>
+				change.path === SPACE_INSTALLED_APPS_PATH ||
+				change.oldPath === SPACE_INSTALLED_APPS_PATH,
+		);
+	if (installedAppsChanged) {
+		invalidateInstalledApps(eventSpaceId);
+		dispatchInstalledAppsChanged(eventSpaceId);
+	}
+
+	const generation = spaceFsEventGeneration;
 	const sourceKey = activeFsSourceKey;
 	const prepared = spaceFsEventTail
 		.catch(() => undefined)
