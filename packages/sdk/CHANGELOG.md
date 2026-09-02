@@ -1,5 +1,11 @@
 # @neta-art/cohub
 
+## 8.6.0
+
+### Minor Changes
+
+- 6685de4: Export `BoardSemanticCommandSchema` from the public SDK so board mutations can be validated and compiled outside the API.
+
 ## 8.5.1
 
 ### Patch Changes
