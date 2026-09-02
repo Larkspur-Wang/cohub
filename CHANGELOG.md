@@ -4,6 +4,18 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v2.38 — 2026-09-02
+
+- **App Center**: Spaces gain an Apps panel alongside Files (desktop sidebar and mobile drawer) listing installed Apps with enable/disable and uninstall, plus a new first-party Marketplace App for discovery and installation; installed Apps live in a validated `.cohub/apps.json` space file with LRU caching and realtime cross-client refresh, and the protocol adds versioned marketplace/installed-app schemas with canonical `username/space/app` references
+- **Atomic Board batches in the CLI**: `cohub boards batch` applies a JSON batch of semantic commands in one atomic round-trip with `--dry-run`, strict `--base-version` optimistic concurrency, and idempotent `--mutation-id` retries; the board surface is streamlined end to end — targets resolve by Board ID or `.board` path, `boards connections` list/get typed relations, items/effects/compositions gain get-by-ID reads, playback consolidates under `boards playback`, and examples scaffold workflow, media, and animation boards
+- **Structured Board validation diagnostics**: authoring failures now surface diagnostics whose paths map internal node storage back to the authoring JSON (`items.0.props.text`), thrown as `BoardItemValidationError` from the codec, and the Board API unifies on a stable error contract with machine-readable codes, diagnostics arrays, and `requestId` on server failures
+- **Public SDK Board mutation schema**: `BoardSemanticCommandSchema` is exported from the SDK (8.6.0) so board mutations can be validated and compiled outside the API, with `BoardItemValidationError` re-exported from the core board module
+
+### Bug Fixes
+
+- Cron schedulers no longer drift from their database records: scheduler keys are always derived from the cron job id, scheduler cleanup retries transient queue failures, and failed creations persist an explicit disabled state instead of leaving orphaned schedulers behind
+- Board CLI example templates were corrected to produce schema-valid v2 boards (defaulted effect fields removed, scale keyframes accept zero), and the unused `draw.handwrite` clip kind was dropped from the built-in animation registry
+
 ## v2.37 — 2026-09-01
 
 - **Board freehand stroke tessellation**: reworked stroke rendering in the SDK to tessellate freehand paths as segment quads with round joins (with per-vertex progress for reveal animations) instead of filling a single outline polygon — strokes that fold back over themselves no longer produce large accidental fills
