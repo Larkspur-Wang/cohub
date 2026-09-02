@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { AppRuntimeInvocationContext, SpaceFsFileResponse } from "@neta-art/cohub";
+import type { AppRuntimeInvocationContext, Permission, SpaceFsFileResponse } from "@neta-art/cohub";
 import { APPS_PATH, emptyManifest, isPermissionError, parseCatalog, parseManifest, toInstalledApp, type FileState, type InstalledApp, type MarketplaceEntry } from "./catalog";
 import { createCohubClient } from "@neta-art/cohub";
 import { AlertCircle, Check, LoaderCircle, PackageOpen, Search } from "@lucide/svelte";
@@ -18,6 +18,7 @@ let savingId = $state<string | null>(null);
 let error = $state("");
 let errorKind = $state<"auth" | "catalog" | "file" | "space" | null>(null);
 let authorizing = $state(false);
+let requiredScopes = $state<Permission[]>(["file.view"]);
 let loaded = $state(false);
 
 const results = $derived.by(() => {
@@ -49,8 +50,10 @@ async function load() {
   try {
     const runtime = await client.context();
     invocation = runtime?.invocation ?? null;
-    space = runtime?.invocation?.spaceId ? { id: runtime.invocation.spaceId, name: runtime.space?.name ?? null } : null;
-    if (!space) { errorKind = "space"; throw new Error("Open Marketplace from a Space to browse Apps."); }
+    if (runtime?.invocation?.spaceId) {
+      space = { id: runtime.invocation.spaceId, name: runtime.space?.name ?? null };
+    }
+    if (!space) { errorKind = "space"; throw new Error("Choose a Space to browse and install Apps."); }
     try {
       const catalogResponse = await fetch(CATALOG_URL, { headers: { Accept: "application/json" } });
       if (!catalogResponse.ok) throw new Error(`Marketplace returned ${catalogResponse.status}.`);
@@ -63,7 +66,12 @@ async function load() {
       const state = await readInstalled();
       installed = state.document.apps;
     } catch (cause) {
-      errorKind = isPermissionError(cause) ? "auth" : "file";
+      if (isPermissionError(cause)) {
+        requiredScopes = ["file.view"];
+        errorKind = "auth";
+      } else {
+        errorKind = "file";
+      }
       throw cause;
     }
     loaded = true;
@@ -72,10 +80,35 @@ async function load() {
   }
   finally { loading = false; }
 }
+async function chooseSpace() {
+  authorizing = true; error = ""; errorKind = null;
+  try {
+    const result = await client.auth.requestSpace({
+      scopes: ["file.view", "file.edit"],
+      reason: "Choose a Space to browse and install Apps.",
+      alwaysAsk: true,
+    });
+    if (!result.granted || !result.space) {
+      errorKind = "space";
+      error = "No Space was selected.";
+      return;
+    }
+    space = result.space;
+    await load();
+  } catch (cause) {
+    errorKind = "space";
+    error = cause instanceof Error ? cause.message : "Could not choose a Space.";
+  } finally { authorizing = false; }
+}
 async function authorize() {
   authorizing = true; error = ""; errorKind = null;
   try {
-    const granted = await client.auth.request({ scopes: ["file.view"], spaceId: space?.id, reason: "Browse Apps in this Space." });
+    const granted = await client.auth.request({
+      scopes: requiredScopes,
+      spaceId: space?.id,
+      reason: requiredScopes.includes("file.edit") ? "Install Apps in this Space." : "Browse Apps in this Space.",
+      alwaysAsk: true,
+    });
     if (granted) await load();
     else { errorKind = "auth"; error = "Access was not granted."; }
   } catch (cause) {
@@ -85,9 +118,9 @@ async function authorize() {
 }
 async function install(app: MarketplaceEntry) {
   if (!space || installed.some((item) => item.id === app.id) || savingId) return;
-  savingId = app.id; error = "";
+  savingId = app.id; error = ""; requiredScopes = ["file.view", "file.edit"];
   try {
-    const granted = await client.auth.request({ scopes: ["file.edit"], spaceId: space.id, reason: `Install ${app.name} in this Space.` });
+    const granted = await client.auth.request({ scopes: ["file.view", "file.edit"], spaceId: space.id, reason: `Install ${app.name} in this Space.` });
     if (!granted) { errorKind = "auth"; error = "Access was not granted."; return; }
     const current = await readInstalled();
     if (current.document.apps.some((item) => item.id === app.id)) { installed = current.document.apps; return; }
@@ -96,8 +129,13 @@ async function install(app: MarketplaceEntry) {
     installed = next.apps;
     void result;
   } catch (cause) {
-    errorKind = isPermissionError(cause) ? "auth" : "file";
-    error = cause instanceof Error ? `${cause.message} Refresh and try again.` : "App could not be installed.";
+    if (isPermissionError(cause)) {
+      requiredScopes = ["file.view", "file.edit"];
+      errorKind = "auth";
+    } else {
+      errorKind = "file";
+    }
+    error = cause instanceof Error ? cause.message : "App could not be installed.";
   }
   finally { savingId = null; }
 }
@@ -111,7 +149,7 @@ onMount(() => { void load(); });
   {#if !loading && loaded}<label class="search"><Search /><span class="sr-only">Search Apps</span><input type="search" bind:value={query} placeholder="Search Apps" /></label>{/if}
   <main>
     {#if loading}<div class="state"><LoaderCircle class="spin" /><span>Loading Apps</span></div>
-    {:else if error}<div class="state error"><AlertCircle /><strong>{error}</strong>{#if errorKind === "auth"}<button type="button" disabled={authorizing} onclick={authorize}>{#if authorizing}<LoaderCircle class="spin" />{:else}Authorize access{/if}</button>{:else}<button type="button" onclick={() => void load()}>Retry</button>{/if}</div>
+    {:else if error}<div class="state error"><AlertCircle /><strong>{error}</strong>{#if errorKind === "space"}<button type="button" disabled={authorizing} onclick={chooseSpace}>{#if authorizing}<LoaderCircle class="spin" />{:else}Choose a Space{/if}</button>{:else if errorKind === "auth"}<button type="button" disabled={authorizing} onclick={authorize}>{#if authorizing}<LoaderCircle class="spin" />{:else}Authorize access{/if}</button>{:else}<button type="button" onclick={() => void load()}>Retry</button>{/if}</div>
     {:else if results.length === 0}<div class="state"><PackageOpen /><span>No matching Apps</span></div>
     {:else}<div class="grid">{#each results as app (app.id)}<article class="app-card">{#if app.icon}<img src={app.icon} alt="" />{:else}<div class="icon"><PackageOpen /></div>{/if}<div class="details"><h2>{app.name}</h2>{#if app.publisher}<div class="publisher">{app.publisher}</div>{/if}{#if app.description}<p>{app.description}</p>{/if}<code>{app.ref}</code></div>{#if installedId(app)}<span class="installed"><Check /> Installed</span>{:else}<button class="install" type="button" disabled={savingId !== null} onclick={() => void install(app)}>{#if savingId === app.id}<LoaderCircle class="spin" />{:else}Install{/if}</button>{/if}</article>{/each}</div>{/if}
   </main>
