@@ -13,7 +13,6 @@ import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import ChatTimeline from "$lib/components/ChatTimeline.svelte";
 import CreateModelSelectorDialog from "$lib/components/CreateModelSelectorDialog.svelte";
 import NewChatBackground from "$lib/components/NewChatBackground.svelte";
-import SessionChatQuickActions from "$lib/components/SessionChatQuickActions.svelte";
 import SessionComposer from "$lib/components/SessionComposer.svelte";
 import TurnBottomSheet from "$lib/components/TurnBottomSheet.svelte";
 import TurnRail from "$lib/components/TurnRail.svelte";
@@ -396,15 +395,6 @@ async function handleDraftDrop(event: DragEvent) {
 					</div>
 				</div>
 			{/if}
-			{#if host.quickPromptActions.length > 0}
-				<SessionChatQuickActions
-					actions={host.quickPromptActions}
-					disabled={host.sending || (!activeSessionState && !isNewSessionRoute)}
-					onsend={(action) => {
-						host.handleQuickPromptAction(action);
-					}}
-				/>
-			{/if}
 			<div
 				bind:this={composerHostEl}
 				class:relative={shouldShowNewChatBackground}
@@ -425,6 +415,10 @@ async function handleDraftDrop(event: DragEvent) {
 					currentModel={host.composerMode === "create" ? host.activeGenerationModel : host.activeSessionModel}
 					thinkingLevelLabel={host.composerMode === "agent" ? host.activeSessionThinkingLevelLabel : null}
 					generationPolicyLabel={host.composerMode === "agent" ? host.generationPolicyLabel : null}
+					quickActions={host.quickPromptActions}
+					onquickaction={(action) => {
+						host.handleQuickPromptAction(action);
+					}}
 					placeholder={host.composerMode === "create"
 					? m.chat_describe_create({}, { locale })
 					: m.chat_send_message({}, { locale })}
