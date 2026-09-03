@@ -30,7 +30,6 @@ import {
 	MessageSquare,
 	Network,
 	NotebookPen,
-	Palette,
 	PanelLeftClose,
 	PanelLeftOpen,
 	Pencil,
@@ -41,7 +40,6 @@ import {
 	Settings,
 	Tags,
 	Trash2,
-	User,
 	X,
 } from "lucide-svelte";
 import { onMount, tick, untrack } from "svelte";
@@ -567,16 +565,10 @@ async function refreshBillingPlan() {
 
 const baseSettingsTabs = $derived([
 	{
-		id: "profile",
-		label: m.nav_profile({}, { locale }),
-		icon: User,
-		href: "/settings/profile",
-	},
-	{
-		id: "appearance",
-		label: m.nav_appearance({}, { locale }),
-		icon: Palette,
-		href: "/settings/appearance",
+		id: "general",
+		label: m.nav_general({}, { locale }),
+		icon: Settings,
+		href: "/settings/general",
 	},
 	{
 		id: "activity",
@@ -2404,7 +2396,7 @@ async function handleNavigate(
 function openSettings() {
 	showUserMenu = false;
 	// Entering settings always pushes once; subsequent tab moves replace.
-	void handleNavigate(withSettingsReturn("/settings/profile"));
+	void handleNavigate(withSettingsReturn("/settings/general"));
 }
 
 function openBillingSettings() {
