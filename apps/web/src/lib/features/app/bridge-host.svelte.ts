@@ -5,6 +5,7 @@ import {
 	type AppPurchaseRequest,
 	type AppRuntimeCheckoutState,
 	type AppRuntimeInvocationContext,
+	type AppRuntimeShellContext,
 	createAppBridgeCore,
 } from "@neta-art/cohub";
 import { PUBLIC_API_ORIGIN } from "$env/static/public";
@@ -46,6 +47,9 @@ export type AppBridgeHostConfig = {
 	invocation?: AppRuntimeInvocationContext;
 	/** Reads the latest opening context without recreating the app surface. */
 	getInvocation?: () => AppRuntimeInvocationContext | undefined;
+	shell?: AppRuntimeShellContext;
+	/** Reads the latest shell context without recreating the app surface. */
+	getShell?: () => AppRuntimeShellContext | undefined;
 	/** Sends an unsolicited event to the app runtime. */
 	notify?: (payload: Record<string, unknown>) => void;
 	/** Sends a reply payload back to the app runtime. */
@@ -104,6 +108,8 @@ export function createAppBridgeHost(
 		authorizationContext: config.authorizationContext,
 		invocation: config.invocation,
 		getInvocation: config.getInvocation,
+		shell: config.shell,
+		getShell: config.getShell,
 		notify: config.notify,
 		apiOrigin: PUBLIC_API_ORIGIN ?? "",
 		reply: config.reply,

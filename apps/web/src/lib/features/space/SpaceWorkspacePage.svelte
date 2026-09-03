@@ -9,6 +9,7 @@ import type { SpaceFsChangedPayload } from "@cohub/protocol/fs";
 import type { ChannelEnvelope } from "@cohub/protocol/realtime";
 import type {
 	AppRecord,
+	AppRuntimeShellContext,
 	Permission,
 	SpaceRecord,
 	TaskRunRecord,
@@ -367,6 +368,21 @@ const sessionChat = createSessionChatHost({
 // Host is the unique owner of chat controllers and session records.
 
 const activeSessionId = $derived(sessionChat.activeSessionId);
+const appShell = $derived.by<AppRuntimeShellContext>(() => {
+	const currentTurnSequence = sessionChat.currentTurnSequence;
+	const currentTurn =
+		currentTurnSequence == null
+			? null
+			: (sessionChat.activeTurnRailItems.find(
+					(turn) => turn.sequence === currentTurnSequence,
+				)?.id ?? null);
+	return {
+		surface: "workspace",
+		space: { id: spaceId, name: space?.name ?? null },
+		session: activeSessionId ? { id: activeSessionId } : null,
+		turn: currentTurn ? { id: currentTurn } : null,
+	};
+});
 // Session rename (header inline edit)
 let sessionRenaming = $state(false);
 let sessionRenameValue = $state("");
@@ -2848,6 +2864,7 @@ const spaceFileDomainProps = $derived.by<
 	inlineAppPreview,
 	inlineAppTabs,
 	activeInlineAppId,
+	appShell,
 	activeWindowKind,
 	inlinePortEndpoint,
 	previewEndpoints,

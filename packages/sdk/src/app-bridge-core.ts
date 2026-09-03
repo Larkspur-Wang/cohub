@@ -4,6 +4,7 @@ import type {
 	AppRuntimeCheckoutState,
 	AppRuntimeContext,
 	AppRuntimeInvocationContext,
+	AppRuntimeShellContext,
 } from "./app-runtime.js";
 import {
 	syncGrantedAppScopes,
@@ -132,6 +133,10 @@ export type AppBridgeCoreConfig = {
 	invocation?: AppRuntimeInvocationContext;
 	/** Reads the latest opening context without recreating the app surface. */
 	getInvocation?: () => AppRuntimeInvocationContext | undefined;
+	/** Optional snapshot of the current embedding shell location. */
+	shell?: AppRuntimeShellContext;
+	/** Reads the latest shell context without recreating the app surface. */
+	getShell?: () => AppRuntimeShellContext | undefined;
 	/** Sends an unsolicited event to the app runtime. */
 	notify?: (payload: Record<string, unknown>) => void;
 	/** @deprecated Use authorizationContext with a background surface. */
@@ -263,6 +268,7 @@ export function createAppBridgeCore(
 			activeInvocation !== undefined
 				? activeInvocation
 				: config.getInvocation?.() ?? config.invocation;
+		const shell = config.getShell?.() ?? config.shell;
 		const appScopes = clonePermissionScopes(app.appScopes);
 		const viewerUuid = await getViewerUuid();
 		// Viewer grants as far as the host can tell: previously consented
@@ -283,6 +289,16 @@ export function createAppBridgeCore(
 			space: { id: app.spaceId },
 			viewer: viewerUuid ? { userUuid: viewerUuid } : null,
 			...(invocation ? { invocation: { ...invocation } } : {}),
+			...(shell
+				? {
+						shell: {
+							...shell,
+							space: shell.space ? { ...shell.space } : null,
+							session: shell.session ? { ...shell.session } : null,
+							turn: shell.turn ? { ...shell.turn } : null,
+						},
+					}
+				: {}),
 			permissions: {
 				scopes: normalizePermissionScopes([
 					...appScopes,

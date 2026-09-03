@@ -10,6 +10,7 @@ import type {
 	AppContent,
 	AppRecord,
 	AppRuntimeInvocationContext,
+	AppRuntimeShellContext,
 } from "@neta-art/cohub";
 import { onMount, untrack } from "svelte";
 import { page } from "$app/state";
@@ -65,6 +66,7 @@ type Props = {
 	mode?: AppSurfaceMode;
 	launchState?: AppLaunchState | null;
 	invocation?: AppRuntimeInvocationContext;
+	shell?: AppRuntimeShellContext;
 	/**
 	 * Receives the surface RPC host once mounted, so a parent can invoke methods
 	 * the app registered. Only meaningful for embedded (web / port) apps.
@@ -90,6 +92,7 @@ const {
 	mode = "page",
 	launchState = null,
 	invocation = undefined,
+	shell = undefined,
 	onSurfaceHost = undefined,
 	onComposerChip = undefined,
 	onReady = undefined,
@@ -166,6 +169,8 @@ const host = untrack(() =>
 		authorizationContext: { surface: mode },
 		invocation,
 		getInvocation: () => invocation,
+		shell,
+		getShell: () => shell,
 		notify: (payload) => {
 			// Only a ready runtime can receive unsolicited context updates. The
 			// iframe may have navigated without changing iframeSrc.
@@ -185,6 +190,7 @@ const host = untrack(() =>
 
 $effect(() => {
 	void invocation;
+	void shell;
 	pushSurfaceContext();
 });
 

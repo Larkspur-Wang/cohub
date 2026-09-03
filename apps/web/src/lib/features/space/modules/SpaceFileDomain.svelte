@@ -7,6 +7,7 @@ import type {
 } from "@cohub/protocol/ports";
 import type {
 	AppRecord,
+	AppRuntimeShellContext,
 	SpacePendingDiffFileResponse,
 	SpaceRecord,
 } from "@neta-art/cohub";
@@ -89,6 +90,7 @@ export type SpaceFileDomainProps = {
 	activeInlinePort: string | null;
 	inlineAppPreview: InlineAppPreview | null;
 	inlineAppTabs: InlineAppPreview[];
+	appShell: AppRuntimeShellContext;
 	activeInlineAppId: string | null;
 	activeWindowKind: "file" | "board" | "port" | "app" | null;
 	inlinePortEndpoint: SpacePublicEndpoint | null;
@@ -253,6 +255,7 @@ let {
 	activeInlinePort,
 	inlineAppPreview,
 	inlineAppTabs,
+	appShell,
 	activeInlineAppId,
 	activeWindowKind,
 	inlinePortEndpoint,
@@ -596,6 +599,7 @@ function previewContentOut(node: Element) {
 	>
 	<AppWindow
 		preview={inlineAppPreview}
+		shell={appShell}
 		{windows}
 		{treeVisible}
 		{onToggleTree}

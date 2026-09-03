@@ -96,6 +96,12 @@ test("context message replies with app, viewer, and invocation metadata", async 
 			turnId: "source-turn",
 			toolCallId: "source-tool-call",
 		},
+		shell: {
+			surface: "workspace",
+			space: { id: "current-space", name: "Current Space" },
+			session: { id: "current-session" },
+			turn: { id: "current-turn" },
+		},
 	});
 	const core = createAppBridgeCore(config);
 
@@ -121,6 +127,12 @@ test("context message replies with app, viewer, and invocation metadata", async 
 		sessionId: "source-session",
 		turnId: "source-turn",
 		toolCallId: "source-tool-call",
+	});
+	assert.deepEqual(context.shell, {
+		surface: "workspace",
+		space: { id: "current-space", name: "Current Space" },
+		session: { id: "current-session" },
+		turn: { id: "current-turn" },
 	});
 });
 

@@ -126,7 +126,7 @@ const spaceId = context.invocation?.spaceId ?? context.app.homeSpace?.id ?? cont
 const space = cohub.space(spaceId);
 ```
 
-`cohub.context()` returns App identity, App home Space identity, and the current permission scopes. For a new chat background, the Space currently hosting the App is available as `context.invocation.spaceId`; `context.app.homeSpace` is the App home Space.
+`cohub.context()` returns App identity, App home Space identity, the current Cohub shell location, and permission scopes. In a workspace App, `context.shell` contains the current `space`, `session`, and viewed `turn` (each location may be null). For a new chat background, the Space currently hosting the App is available as `context.invocation.spaceId`; `context.app.homeSpace` is the App home Space. Use `client.app.onContextChanged()` for updates and cache the latest context for frequent reads instead of polling.
 
 To call APIs that need App permissions, use the SDK client after the context is loaded. For example, `space.getConfig()` expects `space.view`; file tree reads expect `file.view`; session list reads expect `session.view`.
 
