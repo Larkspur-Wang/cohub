@@ -272,8 +272,6 @@ onMount(() => {
 			</div>
 
 			<section id="profile" class="border-b border-border-subtle py-6">
-				<h2 class="text-[14px] font-medium text-text-primary">{m.nav_profile({}, { locale })}</h2>
-				<p class="mt-1 text-[12px] leading-5 text-text-tertiary">{m.settings_profile_description({}, { locale })}</p>
 				{#if loadError}
 					<div class="mt-6 rounded-md border border-error-soft/30 bg-error-bg p-3 break-all text-[12px] font-mono text-error-soft">{loadError}</div>
 				{:else}
@@ -309,8 +307,6 @@ onMount(() => {
 			</section>
 
 			<section id="appearance" class="py-6">
-				<h2 class="text-[14px] font-medium text-text-primary">{m.nav_appearance({}, { locale })}</h2>
-				<p class="mt-1 text-[12px] leading-5 text-text-tertiary">{m.settings_appearance_description({}, { locale })}</p>
 				<div class="mt-5">
 					<h3 class="text-[13px] font-medium text-text-primary">{m.settings_language({}, { locale })}</h3>
 					<p class="mt-1 text-[12px] leading-5 text-text-tertiary">{m.settings_language_description({}, { locale })}</p>
