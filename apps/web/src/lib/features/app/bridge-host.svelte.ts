@@ -2,7 +2,6 @@ import {
 	type AppAuthorizeRequest,
 	type AppBridgeAuthorizationContext,
 	type AppBridgeCoreApp,
-	type AppPurchaseRequest,
 	type AppRuntimeCheckoutState,
 	type AppRuntimeInvocationContext,
 	type AppRuntimeShellContext,
@@ -28,7 +27,7 @@ export type AppBridgeHostApp = AppBridgeCoreApp;
  * A pending authorize request surfaced to the UI as a consent dialog.
  */
 /**
- * A pending purchase request surfaced to the UI as a checkout confirmation.
+ * Purchase request payload received from an App.
  */
 export type {
 	AppAuthorizeRequest,
@@ -64,11 +63,6 @@ export type AppBridgeHost = {
 	readonly pendingAuth: AppAuthorizeRequest | null;
 	readonly authError: string | null;
 	readonly authSaving: boolean;
-	/** Reactive purchase-dialog state. */
-	readonly purchaseOpen: boolean;
-	readonly pendingPurchase: AppPurchaseRequest | null;
-	readonly purchaseError: string | null;
-	readonly purchaseSaving: boolean;
 	/** Processes an inbound bridge message (already source/origin-validated). */
 	handleMessage: (event: MessageEvent) => Promise<void>;
 	/** Sends the current complete runtime context to the app. */
@@ -78,9 +72,6 @@ export type AppBridgeHost = {
 	/** Confirm/cancel handlers for the authorize dialog. */
 	confirmAuth: (pickedSpaceId?: string) => Promise<void>;
 	cancelAuth: () => void;
-	/** Confirm/cancel handlers for the purchase dialog. */
-	confirmPurchase: () => Promise<void>;
-	cancelPurchase: () => void;
 };
 
 /**
@@ -98,10 +89,6 @@ export function createAppBridgeHost(
 	let pendingAuth = $state<AppAuthorizeRequest | null>(null);
 	let authError = $state<string | null>(null);
 	let authSaving = $state(false);
-	let purchaseOpen = $state(false);
-	let pendingPurchase = $state<AppPurchaseRequest | null>(null);
-	let purchaseError = $state<string | null>(null);
-	let purchaseSaving = $state(false);
 
 	const core = createAppBridgeCore({
 		app: config.app,
@@ -128,9 +115,7 @@ export function createAppBridgeHost(
 				eventId: purchase.purchaseAttemptId,
 				productKey: purchase.productKey,
 			}).catch(() => {
-				console.warn(
-					"[app-promotions] Failed to report purchase confirmation.",
-				);
+				console.warn("[app-promotions] Failed to report purchase intent.");
 			});
 		},
 		onCheckoutStarted: (purchase) => {
@@ -146,10 +131,6 @@ export function createAppBridgeHost(
 			pendingAuth = next.pendingAuth;
 			authError = next.authError;
 			authSaving = next.authSaving;
-			purchaseOpen = next.purchaseOpen;
-			pendingPurchase = next.pendingPurchase;
-			purchaseError = next.purchaseError;
-			purchaseSaving = next.purchaseSaving;
 		},
 	});
 
@@ -166,23 +147,9 @@ export function createAppBridgeHost(
 		get authSaving() {
 			return authSaving;
 		},
-		get purchaseOpen() {
-			return purchaseOpen;
-		},
-		get pendingPurchase() {
-			return pendingPurchase;
-		},
-		get purchaseError() {
-			return purchaseError;
-		},
-		get purchaseSaving() {
-			return purchaseSaving;
-		},
 		handleMessage: core.handleMessage,
 		notifyContextChanged: core.notifyContextChanged,
 		confirmAuth: core.confirmAuth,
 		cancelAuth: core.cancelAuth,
-		confirmPurchase: core.confirmPurchase,
-		cancelPurchase: core.cancelPurchase,
 	};
 }

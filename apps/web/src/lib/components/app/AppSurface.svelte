@@ -22,7 +22,6 @@ import { readAppCheckoutState } from "$lib/components/app/app-checkout-state";
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
 import UserIdentity from "$lib/components/UserIdentity.svelte";
 import AppAuthorizeDialog from "$lib/features/app/AppAuthorizeDialog.svelte";
-import AppPurchaseDialog from "$lib/features/app/AppPurchaseDialog.svelte";
 import { createAppBridgeHost } from "$lib/features/app/bridge-host.svelte";
 import {
 	type AppSurfaceHost,
@@ -355,14 +354,6 @@ onMount(() => {
 	{/if}
 </div>
 
-<AppPurchaseDialog
-	open={host.purchaseOpen && !!host.pendingPurchase}
-	pending={host.pendingPurchase}
-	error={host.purchaseError}
-	saving={host.purchaseSaving}
-	onConfirm={() => void host.confirmPurchase()}
-	onCancel={host.cancelPurchase}
-/>
 
 <AppAuthorizeDialog
 	open={host.authOpen && !!host.pendingAuth}
