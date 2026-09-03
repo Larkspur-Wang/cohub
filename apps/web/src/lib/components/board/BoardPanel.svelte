@@ -9,6 +9,7 @@ import { onDestroy, onMount, untrack } from "svelte";
 import { createSpaceBoardAssetSource } from "$lib/board/board-asset-source";
 import {
 	type BoardAwarenessController,
+	boardAwarenessViewportFromCamera,
 	createBoardAwarenessController,
 } from "$lib/board/board-awareness";
 import {
@@ -269,6 +270,12 @@ $effect(() => {
 	// untrack: only re-run when the document/path prop changes, not when
 	// loadDocument reads interaction/editing state for its deferral decision.
 	untrack(() => editor.loadDocument(doc, k));
+});
+
+$effect(() => {
+	if (readonly) return;
+	const viewport = boardAwarenessViewportFromCamera(editor.camera, surfaceSize);
+	untrack(() => awareness.setViewport(viewport));
 });
 
 $effect(() => {
