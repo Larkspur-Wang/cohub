@@ -1175,13 +1175,13 @@ test("purchase requests are deduplicated and serialized", async () => {
 			type: "cohub.app.purchase",
 			requestId: "r2",
 			productKey: "pro-monthly",
-			purchaseAttemptId: "attempt-1",
+			purchaseAttemptId: "attempt-2",
 		}));
 		const competing = core.handleMessage(messageEvent({
 			type: "cohub.app.purchase",
 			requestId: "r3",
 			productKey: "credits",
-			purchaseAttemptId: "attempt-2",
+			purchaseAttemptId: "attempt-3",
 		}));
 		await Promise.resolve();
 		assert.equal(fetchCount, 1);

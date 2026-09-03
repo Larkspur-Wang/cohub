@@ -386,8 +386,8 @@ export function createAppBridgeCore(
 	}
 
 	const pendingPurchaseStorageKey = `cohub-app-purchase:${app.id}`;
-	const purchaseInFlight = new Map<string, { productKey: string; promise: Promise<unknown> }>();
-	let activePurchaseAttemptId: string | null = null;
+	const purchaseInFlight = new Map<string, Promise<unknown>>();
+	let activePurchase: { productKey: string; promise: Promise<unknown> } | null = null;
 
 	async function isCurrentViewerAppOwner() {
 		const viewerUuid = await getViewerUuid();
@@ -745,32 +745,31 @@ export function createAppBridgeCore(
 				const purchase = { requestId: data.requestId, productKey, purchaseAttemptId };
 				const existing = purchaseInFlight.get(purchaseAttemptId);
 				if (existing) {
-					if (existing.productKey !== productKey) {
+					await replyPurchaseResult(purchase, existing);
+					return;
+				}
+				if (activePurchase) {
+					if (activePurchase.productKey !== productKey) {
 						replyForRequest(data.requestId, {
 							type: isLegacyWork ? "cohub.work.error" : "cohub.app.error",
-							message: "Purchase attempt id is already in use for another product.",
+							message: "Another purchase is already in progress.",
 						}, true);
 						return;
 					}
-					await replyPurchaseResult(purchase, existing.promise);
-					return;
-				}
-				if (activePurchaseAttemptId && activePurchaseAttemptId !== purchaseAttemptId) {
-					replyForRequest(data.requestId, {
-						type: isLegacyWork ? "cohub.work.error" : "cohub.app.error",
-						message: "Another purchase is already in progress.",
-					}, true);
+					// Older SDKs may generate a new attempt id for every click. Coalesce
+					// those requests while the same product is already being purchased.
+					await replyPurchaseResult(purchase, activePurchase.promise);
 					return;
 				}
 				config.onPurchaseRequested?.(purchase);
 				const request = executePurchase(purchase);
-				activePurchaseAttemptId = purchaseAttemptId;
-				purchaseInFlight.set(purchaseAttemptId, { productKey, promise: request });
+				activePurchase = { productKey, promise: request };
+				purchaseInFlight.set(purchaseAttemptId, request);
 				try {
 					await replyPurchaseResult(purchase, request);
 				} finally {
 					purchaseInFlight.delete(purchaseAttemptId);
-					activePurchaseAttemptId = null;
+					if (activePurchase?.promise === request) activePurchase = null;
 				}
 			}
 			if (data.type === "cohub.app.authorize" || data.type === "cohub.work.authorize") {
