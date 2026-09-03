@@ -4,6 +4,17 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v2.39 — 2026-09-03
+
+- **Live collaborator presence on Boards**: Peers now share their realtime viewport, so collaborators without an active cursor — especially on mobile — appear as "Viewing" markers with off-screen edge hints; cursors carry live gesture labels (Drawing, Moving, Resizing, Editing), and agent/CLI automation shows as chips that transition from active to settled with the running model named. The presence protocol in @cohub/protocol gains a validated, backward-compatible viewport schema with world-coordinate and zoom bounds.
+- **Session turn browsing and intermediate archives**: The CLI's `spaces turns ls --session <sessionId>` now lists full turns from one session through the same endpoint as the Web session view, with sequence-cursor pagination (`--cursor`, `--direction older|newer`), and a new `spaces turns intermediate <sessionId> <turnId>` command reads a turn's persisted intermediate messages from its CDN archive (`--json` returns the raw archive). The SDK mirrors both with `session.turns.intermediate.get()` and `getToolCalls()` — resolving message object keys and signed URLs automatically — and exports the archive types; the Web session view was refactored onto this shared SDK client, deleting duplicated fetch, URL, and tool-call extraction logic.
+- **Live shell context for Apps**: The App runtime context now exposes `ctx.shell` — the current workspace Space, Session, and in-view Turn — and context-change events fire as the user navigates, so installed Apps can react to what is actually open rather than polling. Docs were updated and the capability-lab example demonstrates the new context.
+- **Consolidated General settings**: The web Profile and Appearance pages merge into a single General settings page, so identity, theme, and device look-and-read preferences live in one place with a slimmer settings sidebar and fewer nested sections.
+
+### Bug Fixes
+
+- PWA system chrome now follows the theme: the browser theme-color is synced to the real shell background — including space-level theme.css overrides — instead of a hardcoded value, with corrected safe-area handling for notched devices and Android gesture navigation.
+
 ## v2.38 — 2026-09-03
 
 - **App Center**: Spaces gain an Apps panel alongside Files (desktop sidebar and mobile drawer) listing installed Apps with enable/disable and uninstall, plus a new first-party Marketplace App for discovery and installation; installed Apps live in a validated `.cohub/apps.json` space file with LRU caching and realtime cross-client refresh, and the protocol adds versioned marketplace/installed-app schemas with canonical `username/space/app` references
