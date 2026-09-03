@@ -18,6 +18,7 @@ All notable changes to Cohub are documented in this file.
 - Coalesce concurrent App purchases: Repeated or concurrent purchase requests for the same product are deduplicated and serialized by attempt ID, preventing duplicate orders and race conditions during payment initialization.
 - Aligned session quick action row: Quick action chips inside the chat session panel are now placed directly in `SessionComposer`'s width container, matching composer margins across compact themes, expanded modes, and mobile viewports.
 - PWA system chrome now follows the theme: the browser theme-color is synced to the real shell background — including space-level theme.css overrides — instead of a hardcoded value, with corrected safe-area handling for notched devices and Android gesture navigation.
+- File upload completion now recovers outdated sandbox runtimes before atomic materialization and returns a clear `sandbox_unsupported` response when an upgrade is unavailable, instead of retrying a deterministic capability mismatch for 55 seconds.
 
 ## v2.38 — 2026-09-03
 

@@ -2,7 +2,7 @@
 	{
 		"version": "2.39",
 		"date": "2026-09-03",
-		"tags": ["v2.39.0", "v2.39.1"],
+		"tags": ["v2.39.0", "v2.39.1", "v2.39.2"],
 		"highlights": [
 			"**Streamlined App commerce checkout**: In-app purchase flows bypass the redundant host confirmation dialog and transition straight to checkout, supporting promotion attribution and client-level tracking callbacks.",
 			"**Atomic file upload concurrency**: Space file uploads now detect and reject concurrent local edits via snapshot validation and file write guards across the API, Agent, and Sandbox daemon, preventing in-progress edits from being silently overwritten.",
@@ -14,7 +14,8 @@
 		"fixes": [
 			"Coalesce concurrent App purchases: Repeated or concurrent purchase requests for the same product are deduplicated and serialized by attempt ID, preventing duplicate orders and race conditions during payment initialization.",
 			"Aligned session quick action row: Quick action chips inside the chat session panel are now placed directly in `SessionComposer`'s width container, matching composer margins across compact themes, expanded modes, and mobile viewports.",
-			"PWA system chrome now follows the theme: the browser theme-color is synced to the real shell background — including space-level theme.css overrides — instead of a hardcoded value, with corrected safe-area handling for notched devices and Android gesture navigation."
+			"PWA system chrome now follows the theme: the browser theme-color is synced to the real shell background — including space-level theme.css overrides — instead of a hardcoded value, with corrected safe-area handling for notched devices and Android gesture navigation.",
+			"File upload completion now recovers outdated sandbox runtimes before atomic materialization and returns a clear `sandbox_unsupported` response when an upgrade is unavailable, instead of retrying a deterministic capability mismatch for 55 seconds."
 		]
 	},
 	{
