@@ -498,15 +498,15 @@ async function accountUsage() {
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function runAppAction() {
-  const button = $("runAction");
+async function runAppAction(action, buttonId) {
+  const button = $(buttonId);
   button.disabled = true;
-  $("actionOutput").textContent = "Queueing inspect...";
+  $("actionOutput").textContent = `Queueing ${action}...`;
   try {
     return await run("action", async () => {
       const client = await ensureClient();
       const queued = await client.app.actions.run({
-        action: "inspect",
+        action,
         input: { message: "Hello from the App frontend", requestedAt: new Date().toISOString() },
       });
       log("info", "App Action queued", queued.taskRunId);
@@ -556,7 +556,8 @@ $("importSdk").onclick = () => importSdk().catch(() => {});
 $("createClient").onclick = () => createClient().catch(() => {});
 $("sdkContext").onclick = () => sdkContext().catch(() => {});
 $("wireContext").onclick = () => wireContext().catch(() => {});
-$("runAction").onclick = () => runAppAction().catch(() => {});
+$("runActionTs").onclick = () => runAppAction("inspect-ts", "runActionTs").catch(() => {});
+$("runActionBash").onclick = () => runAppAction("inspect-bash", "runActionBash").catch(() => {});
 $("getToken").onclick = () => getRuntimeToken(false).catch(() => {});
 $("refreshToken").onclick = () => getRuntimeToken(true).catch(() => {});
 $("spaceConfig").onclick = () => spaceConfig().catch(() => {});

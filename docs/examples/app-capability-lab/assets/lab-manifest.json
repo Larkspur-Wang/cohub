@@ -7,6 +7,7 @@
     "styles.css",
     "app.js",
     "assets/lab-manifest.json",
-    ".cohub/actions/inspect.sh"
+    ".cohub/actions/inspect-bash.sh",
+    ".cohub/actions/inspect-ts.ts"
   ]
 }

@@ -299,7 +299,7 @@ the home Space or an external API. An Action cannot invoke
 or Cohub API directly instead.
 
 See `docs/examples/app-capability-lab/` for a browser probe backed by
-`.cohub/actions/inspect.sh`.
+`.cohub/actions/inspect-ts.ts` and `.cohub/actions/inspect-bash.sh`.
 
 ## Preview an App Inside the Workspace
 
