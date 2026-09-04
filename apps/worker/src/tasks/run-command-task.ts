@@ -190,15 +190,22 @@ registerTask(RUN_COMMAND_TASK_TYPE, async (job) => {
   if (!command) throw new Error("command is required for run_command task");
 
   const taskRunId = getJobId(job);
-  const userId = payload.userId?.trim() || null;
+  const userId = typeof data.actorUserId === "string" && data.actorUserId.trim()
+    ? data.actorUserId.trim()
+    : payload.userId?.trim() || null;
   const agentJob = await enqueueAgentRunCommandJob(agentQueue, {
     spaceId,
     sessionId: payload.sessionId ?? null,
     taskRunId,
     command,
     cwd,
+    ...(typeof data.source === "string" ? { source: data.source } : {}),
     ...(timeout !== undefined ? { timeout } : {}),
     ...(userId ? { userId } : {}),
+    ...(typeof data.viewerUserId === "string" ? { viewerUserId: data.viewerUserId } : {}),
+    ...(typeof data.appId === "string" ? { appId: data.appId } : {}),
+    ...(typeof data.appVersionId === "string" ? { appVersionId: data.appVersionId } : {}),
+    ...(typeof data.action === "string" ? { action: data.action } : {}),
     ...(sourceClientId ? { sourceClientId } : {}),
     ...(model ? { model } : {}),
     ...(generationPolicy ? { generationPolicy } : {}),

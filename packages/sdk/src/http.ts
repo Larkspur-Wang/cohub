@@ -19,7 +19,7 @@ import { AppsApi } from "./apis/apps.js";
 import { DesktopCommandsApi } from "./apis/desktop-commands.js";
 import { AppCommerceApi } from "./apis/app-commerce.js";
 import { HttpTransport, HttpError, type CohubClientOptions, type Fetch } from "./transport.js";
-import { resolveApiBaseUrl } from "./environment.js";
+import { resolveApiBaseUrl, resolveExecutionToken } from "./environment.js";
 
 export class CohubHttpClient {
   readonly spaces: SpacesApi;
@@ -60,7 +60,11 @@ export class CohubHttpClient {
 
   constructor(options: CohubClientOptions = {}) {
     const apiBaseUrl = resolveApiBaseUrl(options);
-    this.transport = new HttpTransport(options);
+    const executionToken = resolveExecutionToken();
+    const resolvedOptions = options.getAccessToken || !executionToken
+      ? options
+      : { ...options, getAccessToken: () => executionToken };
+    this.transport = new HttpTransport(resolvedOptions);
     this.spaces = new SpacesApi(this.transport);
     this.channels = new ChannelsApi(this.transport);
     this.user = new UserApi(
