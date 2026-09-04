@@ -26,6 +26,8 @@ describe("App Action command", () => {
     assert.match(command, /if \[\[ ! -d "\$cache" \]\]/);
     assert.match(command, /\.ts\|\*\.mts\|\*\.cts\|\*\.js\|\*\.mjs\|\*\.cjs/);
     assert.match(command, /node "\$entry"/);
+    assert.match(command, /dependency_root=/);
+    assert.match(command, /cache\/node_modules\/\$name/);
     assert.match(command, /eyJ0ZXh0IjoiSGVsbG8ifQ==/);
     assert.equal(spawnSync("bash", ["-n"], { input: command }).status, 0);
   });
