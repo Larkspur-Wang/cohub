@@ -6,6 +6,7 @@ All notable changes to Cohub are documented in this file.
 
 ## v2.40 — 2026-09-04
 
+- **MiniMax H3 model support**: Upgraded the generation SDK across API, worker, infra, protocol, and CLI to @neta-art/generation 0.1.25, bringing MiniMax H3 model declarations to generation endpoints and pipelines.
 - **Live Apps on Boards**: Apps are now first-class board items — an embedded app renders its real, interactive surface inside a board frame, with the full app runtime shell and navigation context forwarded through the board runtime so it behaves exactly as in its own window. Frames track pan, zoom, rotation, and selection, and can be repositioned by dragging their title bar.
 - **Drag-and-Drop App Placement**: Apps in the sidebar (installed-apps panel and app list) are now drop sources — native HTML5 drag on desktop, pointer-based drag on touch — and boards advertise an "Add App to Board" drop affordance. Releasing spawns an app frame at the drop point, stacks multi-app drops cleanly, and selects the result for immediate arrangement.
 - **Zoom-aware App Rendering**: Embedded apps stay cheap at any zoom — iframe content mounts lazily and only while a frame is on-screen at a readable size, otherwise collapsing to a lightweight title bar, while camera updates are coalesced to a single layout pass per animation frame.
