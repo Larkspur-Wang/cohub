@@ -638,9 +638,12 @@ const fileWorkspace = createFileWorkspaceController({
 		openInlinePort(port, url, optionsArg),
 	onCloseInlinePort: () => closeInlinePort(),
 	onActivateFilePreview: () => {
-		// Domain open paths (and re-activate) must reveal Files even when the
-		// page wrapper was skipped (e.g. route hydrate -> controller openFile).
+		// Domain open paths (and re-activate) must reveal the resource sidebar
+		// even when the page wrapper was skipped (e.g. route hydrate ->
+		// controller openFile). Keep the Files / Apps tabs visible alongside
+		// the preview instead of leaving the whole sidebar collapsed.
 		if (uiState.filesColumnHidden) uiState.setFilesColumnHidden(false);
+		if (uiState.rightSidebarCollapsed) uiState.setRightSidebarCollapsed(false);
 	},
 	onInlineFileClosed: (path) => windowManager.tabClosed("file", path),
 	onClosePreviewFocusMode: () => {
