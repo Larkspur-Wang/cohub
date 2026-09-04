@@ -4,6 +4,18 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v2.40 — 2026-09-04
+
+- **Live Apps on Boards**: Apps are now first-class board items — an embedded app renders its real, interactive surface inside a board frame, with the full app runtime shell and navigation context forwarded through the board runtime so it behaves exactly as in its own window. Frames track pan, zoom, rotation, and selection, and can be repositioned by dragging their title bar.
+- **Drag-and-Drop App Placement**: Apps in the sidebar (installed-apps panel and app list) are now drop sources — native HTML5 drag on desktop, pointer-based drag on touch — and boards advertise an "Add App to Board" drop affordance. Releasing spawns an app frame at the drop point, stacks multi-app drops cleanly, and selects the result for immediate arrangement.
+- **Zoom-aware App Rendering**: Embedded apps stay cheap at any zoom — iframe content mounts lazily and only while a frame is on-screen at a readable size, otherwise collapsing to a lightweight title bar, while camera updates are coalesced to a single layout pass per animation frame.
+
+### Bug Fixes
+
+- Opening a file preview now reveals the resource sidebar with its Files / Apps tabs intact instead of collapsing it, and the tabs stay visible even when the panel fades shut.
+- Switching chat into float layout now preserves the current panel width instead of jumping to the stored default.
+- Inaccessible apps (403) no longer show a misleading "Sign in" prompt — both 403 and 404 now report the app as not found.
+
 ## v2.39 — 2026-09-03
 
 - **Streamlined App commerce checkout**: In-app purchase flows bypass the redundant host confirmation dialog and transition straight to checkout, supporting promotion attribution and client-level tracking callbacks.
