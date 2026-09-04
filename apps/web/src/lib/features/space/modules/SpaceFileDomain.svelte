@@ -545,6 +545,8 @@ function previewContentOut(node: Element) {
 		board={inlineBoard}
 		windows={windows}
 		spaceId={spaceId}
+		shell={appShell}
+		onNavigationOpen={onNavigationOpen}
 		active={activeWindowKind === "board"}
 		{treeVisible}
 		{onToggleTree}
