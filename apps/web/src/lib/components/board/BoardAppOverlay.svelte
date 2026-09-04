@@ -4,8 +4,9 @@ import type {
 	AppDetailResponse,
 	AppRuntimeShellContext,
 } from "@neta-art/cohub";
+import { pointToWorld, screenPoint } from "@neta-art/cohub/board";
 import { onDestroy, untrack } from "svelte";
-import type { BoardEditor } from "$lib/board/editor.svelte";
+import type { BoardEditor, BoardPointerEvent } from "$lib/board/editor.svelte";
 import AppSurface from "$lib/components/app/AppSurface.svelte";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import { sdk } from "$lib/sdk";
@@ -75,12 +76,15 @@ const apps = $derived.by<OverlayApp[]>(() =>
 
 let details = $state<Record<string, AppDetailResponse | null>>({});
 let loading = $state<Record<string, boolean>>({});
+let overlayHost: HTMLDivElement | null = $state(null);
 let visualCamera = $state({ ...untrack(() => editor.camera) });
 let cameraFrame = 0;
+let forwardedPointerId: number | null = null;
 
 // Coalesce camera and geometry changes so iframe layout is updated once per frame.
 $effect(() => {
-	const nextCamera = editor.camera;
+	const nextCamera = { ...editor.camera };
+	editor.structureVersion;
 	editor.geometryVersion;
 	if (cameraFrame) cancelAnimationFrame(cameraFrame);
 	cameraFrame = requestAnimationFrame(() => {
@@ -131,9 +135,74 @@ $effect(() => {
 	}
 });
 
+// Keep iframe content mounted only while its rendered viewport is useful. This
+// is based on the app's screen size, so a large app remains readable at a far
+// board zoom while a small app gets a lightweight title-only representation.
+const APP_CONTENT_MIN_WIDTH = 180;
+const APP_CONTENT_MIN_HEIGHT = 120;
+
 function styleFor(app: OverlayApp) {
 	const { frame } = app;
-	return `left:${frame.x * visualCamera.zoom + visualCamera.x}px;top:${frame.y * visualCamera.zoom + visualCamera.y}px;width:${frame.width * visualCamera.zoom}px;height:${frame.height * visualCamera.zoom}px;transform:rotate(${frame.rotation}rad);`;
+	const zoom = visualCamera.zoom;
+	return `left:${frame.x * zoom + visualCamera.x}px;top:${frame.y * zoom + visualCamera.y}px;width:${frame.width * zoom}px;height:${frame.height * zoom}px;--board-zoom:${zoom};transform:rotate(${frame.rotation}rad);`;
+}
+
+function toPointerEvent(event: PointerEvent): BoardPointerEvent {
+	const rect = overlayHost?.getBoundingClientRect() ?? new DOMRect();
+	const screen = screenPoint(
+		event.clientX - rect.left,
+		event.clientY - rect.top,
+	);
+	return {
+		pointerId: event.pointerId,
+		screen,
+		world: pointToWorld(screen, editor.camera),
+		shiftKey: event.shiftKey,
+		metaKey: event.metaKey,
+		ctrlKey: event.ctrlKey,
+		altKey: event.altKey,
+		button: event.button,
+		buttons: event.buttons,
+		pointerType: event.pointerType,
+		cancelled:
+			event.type === "pointercancel" || event.type === "lostpointercapture",
+		pressure:
+			event.pointerType === "pen" && event.pressure > 0 ? event.pressure : 0.5,
+	};
+}
+
+function handleBarPointerDown(event: PointerEvent) {
+	if (event.button !== 0 || forwardedPointerId !== null) return;
+	event.preventDefault();
+	event.stopPropagation();
+	forwardedPointerId = event.pointerId;
+	editor.pointerDown(toPointerEvent(event));
+	(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+}
+
+function handleBarPointerMove(event: PointerEvent) {
+	if (event.pointerId !== forwardedPointerId) return;
+	event.preventDefault();
+	event.stopPropagation();
+	editor.pointerMove(toPointerEvent(event));
+}
+
+function handleBarPointerEnd(event: PointerEvent) {
+	if (event.pointerId !== forwardedPointerId) return;
+	event.preventDefault();
+	event.stopPropagation();
+	editor.pointerUp(toPointerEvent(event));
+	forwardedPointerId = null;
+	if (event.type === "pointercancel" || event.type === "lostpointercapture")
+		editor.pointerLeave();
+}
+
+function contentVisible(app: OverlayApp) {
+	const zoom = visualCamera.zoom;
+	return (
+		app.frame.width * zoom >= APP_CONTENT_MIN_WIDTH &&
+		app.frame.height * zoom >= APP_CONTENT_MIN_HEIGHT
+	);
 }
 
 function select(id: string) {
@@ -145,7 +214,7 @@ onDestroy(() => {
 });
 </script>
 
-<div class="board-app-overlay">
+<div bind:this={overlayHost} class="board-app-overlay">
 	{#each visibleApps as app (app.id)}
 		{@const detail = details[app.meta.appId]}
 		<div
@@ -156,10 +225,20 @@ onDestroy(() => {
 			tabindex="-1"
 			onpointerdown={(event) => { event.stopPropagation(); select(app.id); }}
 		>
-			<div class="board-app-bar">
+			<div
+				class="board-app-bar"
+				role="button"
+				tabindex="-1"
+				onpointerdown={handleBarPointerDown}
+				onpointermove={handleBarPointerMove}
+				onpointerup={handleBarPointerEnd}
+				onpointercancel={handleBarPointerEnd}
+				onlostpointercapture={handleBarPointerEnd}
+			>
 				{#if app.meta.icon}<img src={app.meta.icon} alt="" />{/if}
 				<span>{app.meta.name}</span>
 			</div>
+			{#if contentVisible(app)}
 			<div class="board-app-content">
 				{#if detail}
 					<AppSurface
@@ -177,6 +256,7 @@ onDestroy(() => {
 					<div class="board-app-error">App unavailable</div>
 				{/if}
 			</div>
+			{/if}
 		</div>
 	{/each}
 </div>
@@ -191,8 +271,8 @@ onDestroy(() => {
 	}
 	.board-app-node {
 		position: absolute;
-		min-width: 280px;
-		min-height: 180px;
+		min-width: 0;
+		min-height: 0;
 		pointer-events: none;
 		overflow: hidden;
 		border: 1px solid var(--border-subtle);
@@ -202,30 +282,31 @@ onDestroy(() => {
 		transform-origin: center;
 	}
 	.board-app-node.selected { border-color: var(--brand-border); }
-	.board-app-node.selected .board-app-content,
-	.board-app-node.selected .board-app-bar { pointer-events: none; }
-	.board-app-node:not(.selected) .board-app-content,
-	.board-app-node:not(.selected) .board-app-bar { pointer-events: auto; }
+	.board-app-node .board-app-content { pointer-events: auto; }
+	.board-app-node.selected .board-app-content { pointer-events: none; }
 	.board-app-bar {
 		display: flex;
-		height: 28px;
+		height: calc(28px * var(--board-zoom));
+		min-height: 1px;
 		align-items: center;
-		gap: 6px;
-		padding: 0 8px;
+		gap: calc(6px * var(--board-zoom));
+		padding: 0 calc(8px * var(--board-zoom));
+		pointer-events: auto;
+		cursor: grab;
 		background: var(--bg-elevated);
 		color: var(--text-secondary);
-		font-size: 11px;
+		font-size: max(1px, calc(11px * var(--board-zoom)));
 		font-weight: 500;
 		white-space: nowrap;
 		overflow: hidden;
 	}
-	.board-app-bar img { width: 16px; height: 16px; border-radius: 4px; object-fit: cover; }
+	.board-app-bar img { width: calc(16px * var(--board-zoom)); height: calc(16px * var(--board-zoom)); border-radius: 4px; object-fit: cover; }
 	.board-app-bar span { overflow: hidden; text-overflow: ellipsis; }
 	.board-app-content {
-		height: calc(100% - 28px);
+		height: calc(100% - 28px * var(--board-zoom));
 		min-height: 0;
-		margin: 8px;
-		border-radius: 4px;
+		margin: calc(8px * var(--board-zoom));
+		border-radius: calc(4px * var(--board-zoom));
 		overflow: hidden;
 	}
 	.board-app-error { display: grid; height: 100%; place-items: center; color: var(--text-tertiary); font-size: 12px; }
