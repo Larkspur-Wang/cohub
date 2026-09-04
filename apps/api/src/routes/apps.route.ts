@@ -23,6 +23,7 @@ import { hasPermission, resolveUserSpacePermissions } from "../permissions.js";
 import { createAppSessionToken, APP_SESSION_TTL_SECONDS, APP_VIEWER_GRANT_TTL_SECONDS } from "../app-sessions.js";
 import { getSandboxPublicEndpoints } from "../sandbox-public-network.js";
 import type { AppArtifactDescriptor } from "@cohub/protocol";
+import { APP_ACTION_EXECUTION_SOURCE } from "@cohub/protocol/task";
 import { SANDBOX_PUBLIC_PORTS } from "@cohub/protocol/ports";
 import { config, isHostAllowedBySuffix } from "../config.js";
 import {
@@ -583,7 +584,7 @@ router.get("/:id", async (c) => {
   if (!row.owner.username || !row.space.slug) return c.json({ message: "app public identity is incomplete" }, 409);
   const space = { id: row.space.id, slug: row.space.slug, name: row.space.name, userUuid: row.space.userUuid, publicProfile: getSpacePublicProfile(row.space) };
   const shouldRecordCliView = getRequestSource(c)?.via === "cli"
-    && getExecutionPrincipal(c)?.source !== "app_action";
+    && getExecutionPrincipal(c)?.source !== APP_ACTION_EXECUTION_SOURCE;
   if (shouldRecordCliView) recordResolvedAppView(c, app, "cli");
   const content = await getPublishedAppContent(app);
   return c.json({
@@ -1011,16 +1012,14 @@ router.post("/:id/actions/:action/run", appActionBodyLimit, async (c) => {
   if (!requireValidId(id)) return c.json({ message: "app not found" }, 404);
   if (!isAppActionKey(action)) return c.json({ message: "invalid app action" }, 400);
 
-  if (getExecutionPrincipal(c)?.source === "app_action") return authzDenied(c);
+  if (getExecutionPrincipal(c)?.source === APP_ACTION_EXECUTION_SOURCE) return authzDenied(c);
   const appSession = getAppSessionPrincipal(c);
-  if (appSession && appSession.appId !== id) return authzDenied(c);
+  if (!appSession || appSession.appId !== id) return authzDenied(c);
   const app = await getAppById(id);
   if (app?.status !== "published" || !app.currentVersionId) {
     return c.json({ message: "app not found" }, 404);
   }
-  if (appSession ? app.spaceId !== appSession.spaceId : user.uuid !== app.userUuid) {
-    return authzDenied(c);
-  }
+  if (app.spaceId !== appSession.spaceId) return authzDenied(c);
   if (app.targetType !== "directory") {
     return c.json({ message: "app actions require a directory app" }, 409);
   }
@@ -1056,7 +1055,7 @@ router.post("/:id/actions/:action/run", appActionBodyLimit, async (c) => {
         actionInput: body.input,
       }),
       cwd: "/workspace",
-      source: "app_action",
+      source: APP_ACTION_EXECUTION_SOURCE,
       viewerUserId: user.uuid,
       appId: app.id,
       appVersionId: version.id,
@@ -1070,7 +1069,7 @@ router.post("/:id/actions/:action/run", appActionBodyLimit, async (c) => {
 });
 
 router.post("/:id/session", async (c) => {
-  if (getExecutionPrincipal(c)?.source === "app_action") return authzDenied(c);
+  if (getExecutionPrincipal(c)?.source === APP_ACTION_EXECUTION_SOURCE) return authzDenied(c);
   const user = useAccountPrincipal(c);
   if (user instanceof Response) return user;
   const id = c.req.param("id");
@@ -1088,7 +1087,7 @@ router.post("/:id/session", async (c) => {
 });
 
 router.post("/:id/authorize", async (c) => {
-  if (getExecutionPrincipal(c)?.source === "app_action") return authzDenied(c);
+  if (getExecutionPrincipal(c)?.source === APP_ACTION_EXECUTION_SOURCE) return authzDenied(c);
   const user = useAccountPrincipal(c);
   if (user instanceof Response) return user;
   const id = c.req.param("id");

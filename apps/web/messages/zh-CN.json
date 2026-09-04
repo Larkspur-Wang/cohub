@@ -1438,6 +1438,7 @@
 	"board_triangle": "三角形",
 	"board_frame_to_export": "导出画框",
 	"task_type_run_command": "运行命令",
+	"task_type_app_action": "App Action: {action}",
 	"task_type_save_checkpoint": "保存检查点",
 	"task_stage_preparing": "正在准备工作区",
 	"task_stage_scanning": "正在扫描工作区",

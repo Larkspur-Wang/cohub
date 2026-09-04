@@ -16,7 +16,10 @@ import { config } from "../config.js";
 import { getPromptTemplateService } from "../prompt-templates.js";
 import { getSkillService } from "../skills.js";
 import { getSessionDomainServices } from "../session-services.js";
-import { parseRunCommandExecutionContext } from "./run-command-context.js";
+import {
+  appActionFailureMessage,
+  parseRunCommandExecutionContext,
+} from "./run-command-context.js";
 import { registerTask } from "./registry.js";
 
 const agentQueue = createAgentTurnsQueue<AgentRunCommandJobData, AgentRunCommandJobResult>(config.bullmqRedisUrl, "cohub-worker-run-command");
@@ -233,6 +236,8 @@ registerTask(RUN_COMMAND_TASK_TYPE, async (job) => {
   try {
     const result = await agentJob.waitUntilFinished(queueEvents, ((timeout ?? RUN_COMMAND_TIMEOUT_SECONDS) + 60) * 1000) as AgentRunCommandJobResult;
     await mirrorAgentProgress(job, agentJob.id ?? `run-command-${taskRunId}`);
+    const failureMessage = appActionFailureMessage(data.source, result);
+    if (failureMessage) throw new Error(failureMessage);
     await notifyRunCommandCompletion({ payload, taskRunId, command, result, notify, origin, sourceClientId });
     return result;
   } catch (error) {

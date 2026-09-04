@@ -1,3 +1,5 @@
+import { APP_ACTION_EXECUTION_SOURCE } from "@cohub/protocol/task";
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
@@ -10,7 +12,7 @@ type TaskRunPricingView = {
 };
 
 function appActionActorUserId(payload: unknown): string | null {
-  if (!isRecord(payload) || !isRecord(payload.data) || payload.data.source !== "app_action") return null;
+  if (!isRecord(payload) || !isRecord(payload.data) || payload.data.source !== APP_ACTION_EXECUTION_SOURCE) return null;
   return typeof payload.data.actorUserId === "string" ? payload.data.actorUserId : null;
 }
 
@@ -48,7 +50,7 @@ function sanitizeAppActionRun<T extends TaskRunPricingView>(run: T, viewerUserId
   const payload = {
     ...run.payload,
     data: {
-      source: "app_action",
+      source: APP_ACTION_EXECUTION_SOURCE,
       appId: data.appId,
       appVersionId: data.appVersionId,
       action: data.action,
