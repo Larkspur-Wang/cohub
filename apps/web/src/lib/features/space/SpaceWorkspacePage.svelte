@@ -877,6 +877,9 @@ let workspaceBodyEl = $state<HTMLDivElement | null>(null);
 const previewLayout = createWorkspaceLayoutController({
 	getIsCompact: () => isMobile,
 	getWorkspaceBodyEl: () => workspaceBodyEl,
+	getMainPanelWidth: () =>
+		workspaceBodyEl?.querySelector<HTMLElement>(".workspace-main")
+			?.clientWidth ?? null,
 	getFilesAvailable: () => rightSidebarAvailable,
 	getHasPreview: () => Boolean(activeWindowKind),
 });
