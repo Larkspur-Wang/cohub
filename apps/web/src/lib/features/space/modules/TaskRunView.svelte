@@ -38,6 +38,7 @@ import {
 	taskRunStatusBadge,
 	taskTypeLabel,
 } from "./task-run-utils";
+import { withCurrentWindow } from "./window-route";
 
 type Props = {
 	spaceId: string;
@@ -105,9 +106,12 @@ $effect(() => {
 	if (!checkpointId) return;
 
 	redirectedCheckpointTaskId = run.id;
-	void goto(buildSpaceCheckpointRoute(spaceId, checkpointId), {
-		replaceState: true,
-	});
+	void goto(
+		withCurrentWindow(buildSpaceCheckpointRoute(spaceId, checkpointId)),
+		{
+			replaceState: true,
+		},
+	);
 });
 
 onDestroy(() => {
@@ -194,9 +198,9 @@ function userTitle(
 								{#if taskRunDetail.cronJobId}
 									<span class="text-text-placeholder">·</span>
 									<a
-										href={buildSpaceCronjobRoute(spaceId, taskRunDetail.cronJobId)}
+										href={withCurrentWindow(buildSpaceCronjobRoute(spaceId, taskRunDetail.cronJobId))}
 										class="text-text-secondary transition-colors hover:text-brand"
-										onclick={(e) => { e.preventDefault(); goto(buildSpaceCronjobRoute(spaceId, taskRunDetail!.cronJobId!)); }}
+										onclick={(e) => { e.preventDefault(); goto(withCurrentWindow(buildSpaceCronjobRoute(spaceId, taskRunDetail!.cronJobId!))); }}
 									>{m.task_view_cronjob({}, { locale })}</a>
 								{/if}
 							</div>
@@ -244,9 +248,9 @@ function userTitle(
 						</div>
 						{#if resultCheckpointId}
 							<a
-								href={buildSpaceCheckpointRoute(spaceId, resultCheckpointId)}
+								href={withCurrentWindow(buildSpaceCheckpointRoute(spaceId, resultCheckpointId))}
 								class="inline-flex min-h-9 shrink-0 items-center justify-center gap-1.5 rounded-[5px] bg-brand-muted px-3 py-2 text-[12px] font-medium text-brand transition-colors hover:bg-brand-muted-hover"
-								onclick={(e) => { e.preventDefault(); goto(buildSpaceCheckpointRoute(spaceId, resultCheckpointId)); }}
+								onclick={(e) => { e.preventDefault(); goto(withCurrentWindow(buildSpaceCheckpointRoute(spaceId, resultCheckpointId))); }}
 							>
 								<GitCommitHorizontal class="w-3.5 h-3.5" />
 								<span>{m.task_view_checkpoint({}, { locale })}</span>
