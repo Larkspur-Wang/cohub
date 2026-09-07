@@ -82,7 +82,7 @@ export function getCohubContext(): CohubContext {
   const env = readProcessEnv();
   const token = resolveExecutionToken();
   const isBrowser = typeof window !== "undefined" && typeof document !== "undefined";
-  const runtime = token || readString(env, "COHUB_SPACE_ID") ? "sandbox" : isBrowser ? "browser" : "local";
+  const runtime = token ? "sandbox" : isBrowser ? "browser" : "local";
   const payload = decodeExecutionPayload();
 
   if (!token && runtime !== "sandbox") {

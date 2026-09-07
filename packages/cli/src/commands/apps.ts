@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { basename } from "node:path";
-import { HttpError, type CohubHttpClient, type Permission, type AppCreateInput, type AppMeta, type AppStatus, type AppUpdateInput, type AppViewStatsResponse, type AppVisibility } from "@neta-art/cohub";
+import { getCohubContext, HttpError, type CohubHttpClient, type Permission, type AppCreateInput, type AppMeta, type AppStatus, type AppUpdateInput, type AppViewStatsResponse, type AppVisibility } from "@neta-art/cohub";
 import type { Command } from "commander";
 import { createClient, createClientWithAccessToken } from "../client.js";
 import { error, handleHttp, json as outJson, jsonRequested, ok, table } from "../output.js";
@@ -122,6 +122,10 @@ async function uploadLocalAppSource(client: CohubHttpClient, spaceId: string, so
   if (!manifestResponse.ok) throw new Error(`Failed to upload app source manifest: HTTP ${manifestResponse.status}`);
   const manifestAsset = manifestPlan.asset;
   return { sourceRef: manifestAsset.objectKey, targetRef: source.targetType === "file" ? files[0]?.path ?? "" : "." };
+}
+
+function resolveDefaultAppSource(): AppSourceType {
+  return getCohubContext().runtime.kind === "sandbox" ? "workspace" : "local";
 }
 
 function resolveTarget(opts: { file?: string; dir?: string; port?: string }): ResolvedTarget | null {
@@ -418,7 +422,7 @@ export function registerApps(program: Command): void {
   appsCmd
     .command("publish <slug>")
     .description("Create or publish an app in the target space")
-    .option("--source <source>", "Source: workspace (default) or local")
+    .option("--source <source>", "Source: workspace or local (auto-detected from runtime by default)")
     .option("--file <path>", "Publish a file from the selected source")
     .option("--dir <path>", "Publish a directory site from the selected source")
     .option("--port <port>", "Publish a public sandbox port")
@@ -435,7 +439,7 @@ export function registerApps(program: Command): void {
       if (opts.hideCohubBar && opts.showCohubBar) return error("Conflicting Cohub bar options", "Use either --hide-cohub-bar or --show-cohub-bar.");
       const target = resolveTarget(opts);
       if (!target) return error("Missing target", "Use one of --file, --dir, or --port.");
-      const source = opts.source ? parseChoice(opts.source, "source", ["workspace", "local"] as const) : "workspace";
+      const source = opts.source ? parseChoice(opts.source, "source", ["workspace", "local"] as const) : resolveDefaultAppSource();
       if (target.targetType === "port" && opts.source) return error("Invalid source", "--source applies only to --file and --dir.");
       const spaceId = resolveSpace(appsCmd);
       const client = createClient();

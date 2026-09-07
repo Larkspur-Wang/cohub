@@ -62,6 +62,24 @@ test("execution context combines sandbox env and token claims", () => {
 	}
 });
 
+test("a Space target does not change a local runtime", () => {
+	const previousToken = process.env.COHUB_EXECUTION_TOKEN;
+	const previousSpace = process.env.COHUB_SPACE_ID;
+	delete process.env.COHUB_EXECUTION_TOKEN;
+	process.env.COHUB_SPACE_ID = "space-1";
+	try {
+		assert.deepEqual(getCohubContext(), {
+			runtime: { kind: "local" },
+			execution: null,
+		});
+	} finally {
+		if (previousToken === undefined) delete process.env.COHUB_EXECUTION_TOKEN;
+		else process.env.COHUB_EXECUTION_TOKEN = previousToken;
+		if (previousSpace === undefined) delete process.env.COHUB_SPACE_ID;
+		else process.env.COHUB_SPACE_ID = previousSpace;
+	}
+});
+
 test("production uses cohub.live endpoints by default", () => {
 	assert.deepEqual(COHUB_ENVIRONMENTS.prod, {
 		apiBaseUrl: "https://api.cohub.live",
