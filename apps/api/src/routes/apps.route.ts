@@ -1054,6 +1054,7 @@ router.post("/:id/actions/:action/run", appActionBodyLimit, async (c) => {
         action,
         actionInput: body.input,
       }),
+      actionInput: body.input ?? null,
       cwd: "/workspace",
       source: APP_ACTION_EXECUTION_SOURCE,
       viewerUserId: user.uuid,
