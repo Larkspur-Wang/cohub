@@ -28,6 +28,11 @@ export interface WorkerConfig {
   publicAssetOssBucket?: string;
   publicAssetOssAccessKeyId?: string;
   publicAssetOssSecretAccessKey?: string;
+  userUploadS3Endpoint?: string;
+  userUploadS3Region: string;
+  userUploadS3Bucket?: string;
+  userUploadS3AccessKeyId?: string;
+  userUploadS3SecretAccessKey?: string;
   checkpointAssetOssEndpoint?: string;
   checkpointAssetOssRegion: string;
   checkpointAssetOssBucket?: string;
@@ -85,6 +90,11 @@ export const config: WorkerConfig = {
   publicAssetOssBucket: process.env.PUBLIC_ASSET_OSS_BUCKET,
   publicAssetOssAccessKeyId: process.env.PUBLIC_ASSET_OSS_ACCESS_KEY_ID,
   publicAssetOssSecretAccessKey: process.env.PUBLIC_ASSET_OSS_SECRET_ACCESS_KEY,
+  userUploadS3Endpoint: process.env.USER_UPLOAD_S3_ENDPOINT,
+  userUploadS3Region: process.env.USER_UPLOAD_S3_REGION ?? "us-west-1",
+  userUploadS3Bucket: process.env.CHAT_ATTACHMENT_S3_BUCKET,
+  userUploadS3AccessKeyId: process.env.USER_UPLOAD_S3_ACCESS_KEY_ID,
+  userUploadS3SecretAccessKey: process.env.USER_UPLOAD_S3_SECRET_ACCESS_KEY,
   checkpointAssetOssEndpoint: process.env.CHECKPOINT_ASSET_OSS_ENDPOINT ?? process.env.TURN_OBJECT_S3_ENDPOINT ?? "http://127.0.0.1:9000",
   checkpointAssetOssRegion: process.env.CHECKPOINT_ASSET_OSS_REGION ?? process.env.TURN_OBJECT_S3_REGION ?? "us-west-1",
   checkpointAssetOssBucket: process.env.CHECKPOINT_ASSET_OSS_BUCKET ?? process.env.TURN_OBJECT_S3_BUCKET,
