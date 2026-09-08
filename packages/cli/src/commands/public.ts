@@ -227,7 +227,7 @@ async function uploadPublic(
   deps: PublicCommandDeps,
 ) {
   const client = deps.createClient?.() ?? createClient();
-  const spaceId = resolveSpace(command);
+  const spaceId = await resolveSpace(command);
   try {
     const upload = await collectPublicUpload(source, destination);
     const plan = await client.space(spaceId).publicFiles.createUpload({
@@ -298,7 +298,7 @@ async function listPublic(
 ) {
   const client = deps.createClient?.() ?? createClient();
   try {
-    const publicFiles = client.space(resolveSpace(command)).publicFiles;
+    const publicFiles = client.space(await resolveSpace(command)).publicFiles;
     const entries: PublicFileListEntry[] = [];
     let cursor: string | undefined;
     do {
@@ -322,7 +322,7 @@ async function listPublic(
 async function printPublicUrl(command: Command, path: string, deps: PublicCommandDeps) {
   const client = deps.createClient?.() ?? createClient();
   try {
-    const result = await client.space(resolveSpace(command)).publicFiles.url(path);
+    const result = await client.space(await resolveSpace(command)).publicFiles.url(path);
     console.log(result.url);
   } catch (exception) {
     handleHttp(exception);

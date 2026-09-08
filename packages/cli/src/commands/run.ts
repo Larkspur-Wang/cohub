@@ -1,6 +1,7 @@
 import type { TaskRunDetailResponse } from "@neta-art/cohub";
 import { createClient } from "../client.js";
 import { error, handleHttp, json as outJson, spinner } from "../output.js";
+import { missingSpaceError, resolveDefaultSpace } from "../space.js";
 
 type RunCliOptions = {
   spaceId: string;
@@ -64,14 +65,14 @@ function parseSpaceId(tokens: string[]): string | undefined {
   return undefined;
 }
 
-function parseRunCliOptions(argv: string[]): RunCliOptions {
+async function parseRunCliOptions(argv: string[]): Promise<RunCliOptions> {
   const runIndex = topLevelRunIndex(argv);
   if (runIndex < 0) return error("Invalid invocation", "Use `cohub run [options] <command>`");
 
   const beforeRun = argv.slice(0, runIndex);
   const afterRun = argv.slice(runIndex + 1);
 
-  let spaceId = parseSpaceId(beforeRun) ?? process.env.COHUB_SPACE_ID?.trim() ?? "";
+  const explicitSpaceId = parseSpaceId(beforeRun) ?? process.env.COHUB_SPACE_ID?.trim() ?? "";
   let json = beforeRun.includes("--json");
   let async = false;
   let commandOption: string | null = null;
@@ -135,10 +136,7 @@ function parseRunCliOptions(argv: string[]): RunCliOptions {
     return error("No command", "Pass --command <shell command>, or use `--` followed by the command.");
   }
 
-  if (!spaceId) {
-    return error("Missing required space", "Add -s, --space <id> before `run` or set COHUB_SPACE_ID.");
-  }
-
+  const spaceId = explicitSpaceId || (await resolveDefaultSpace().catch(handleHttp)) || missingSpaceError();
   return { spaceId, json, async, command };
 }
 
@@ -160,6 +158,7 @@ Examples:
   cohub -s <spaceId> run -- git status -sb
 
 Notes:
+  - Without -s or COHUB_SPACE_ID, the command targets your Home space.
   - Use --command for commands that contain leading flags, or use -- before the shell command.
   - The command runs in /workspace.
 `);
@@ -235,7 +234,7 @@ async function waitForRunCompletion(taskRunId: string, showSpinner: boolean): Pr
 }
 
 async function handleRunCli(argv: string[]): Promise<void> {
-  const opts = parseRunCliOptions(argv);
+  const opts = await parseRunCliOptions(argv);
   const client = createClient();
 
   try {

@@ -23,6 +23,7 @@ type OpenTarget =
   | { kind: "file"; path: string }
   | { kind: "app"; appId: string; label: string; launch: { search?: string; hash?: string } };
 
+/** Optional disambiguation for file:// vs app:// — do not fall back to Home. */
 function optionalSpaceId(command: Command): string | undefined {
   let current: Command | null = command;
   while (current) {

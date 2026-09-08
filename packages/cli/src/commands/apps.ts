@@ -305,7 +305,7 @@ export function registerApps(program: Command): void {
     .description("List apps in the target space")
     .option("--json", "Output as JSON")
     .action(async (opts: { json?: boolean }) => {
-      const spaceId = resolveSpace(appsCmd);
+      const spaceId = await resolveSpace(appsCmd);
       const client = createClient();
       try {
         const result = await client.apps.listBySpace(spaceId);
@@ -441,7 +441,7 @@ export function registerApps(program: Command): void {
       if (!target) return error("Missing target", "Use one of --file, --dir, or --port.");
       const source = opts.source ? parseChoice(opts.source, "source", ["workspace", "local"] as const) : resolveDefaultAppSource();
       if (target.targetType === "port" && opts.source) return error("Invalid source", "--source applies only to --file and --dir.");
-      const spaceId = resolveSpace(appsCmd);
+      const spaceId = await resolveSpace(appsCmd);
       const client = createClient();
       let { targetType, targetRef } = target;
       let sourceRef: string | null = null;

@@ -6,7 +6,7 @@ import { resolveCohubEnvironment, resolveWebsocketUrl } from "@neta-art/cohub";
 import type { Command } from "commander";
 import { requireAccessToken } from "../auth.js";
 import { createClient } from "../client.js";
-import { error, json as outJson, jsonRequested, ok, spinner } from "../output.js";
+import { error, handleHttp, json as outJson, jsonRequested, ok, spinner } from "../output.js";
 import { resolveSpace } from "../space.js";
 import { ensureSandboxdBinary, SandboxdDownloadError } from "./sandboxd-binary.js";
 
@@ -173,17 +173,20 @@ export function registerSandbox(program: Command): void {
     .option("-s, --space <id>", "Target space ID")
     .option("--json", "Output as JSON")
     .action(async (opts: { space?: string; json?: boolean }) => {
-      const spaceId = opts.space?.trim() || resolveSpace(program);
+      const spaceId = opts.space?.trim() || await resolveSpace(program);
       const client = createClient();
-      const result = await client.space(spaceId).sandbox.get().catch(() => null);
-      const sandbox = result?.sandbox ?? null;
-      if (jsonRequested(opts)) return outJson({ spaceId, sandbox });
-      if (!sandbox) {
-        console.log("  (no sandbox)");
-        return;
+      try {
+        const sandbox = (await client.space(spaceId).sandbox.get()).sandbox ?? null;
+        if (jsonRequested(opts)) return outJson({ spaceId, sandbox });
+        if (!sandbox) {
+          console.log("  (no sandbox)");
+          return;
+        }
+        console.log(`  space:    ${spaceId}`);
+        console.log(`  provider: ${sandbox.provider ?? "cloud"}`);
+        console.log(`  status:   ${sandbox.status ?? "unknown"}`);
+      } catch (cause) {
+        handleHttp(cause);
       }
-      console.log(`  space:    ${spaceId}`);
-      console.log(`  provider: ${sandbox.provider ?? "cloud"}`);
-      console.log(`  status:   ${sandbox.status ?? "unknown"}`);
     });
 }

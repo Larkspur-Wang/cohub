@@ -38,7 +38,7 @@ program
   .summary("Work with Cohub from your terminal")
   .description("Send prompts, manage Space files, and publish public output.")
   .version(VERSION, "-v, --version", "Show version")
-  .option("-s, --space <id>", "Target Space ID")
+  .option("-s, --space <id>", "Target Space ID (defaults to your Home space)")
   .option("--json", "Print machine-readable JSON when supported")
   .helpOption("-h, --help", "Show help")
   .addHelpText("after", `
@@ -47,9 +47,9 @@ Common commands:
   cohub auth login
   cohub profile avatar ./avatar.png
   cohub spaces ls
-  cohub -s <space-id> prompt "Fix the failing tests"
-  cohub -s <space-id> completion "Summarize AGENTS.md" --system-prompt AGENTS.md --stream
-  cohub -s <space-id> run -- git status
+  cohub prompt "Fix the failing tests"
+  cohub completion "Summarize AGENTS.md" --system-prompt AGENTS.md --stream
+  cohub run -- git status
   cohub sandbox up ./my-project
   cohub search "release notes"
   cohub -s <space-id> boards inspect <board-id>
@@ -64,7 +64,11 @@ Common commands:
   cohub models ls --model-type multimodal
   cohub generate "A calm lake at sunrise" --model <model> --output lake.png
 
+Target space:
+  -s <space-id>, then COHUB_SPACE_ID, then your Home space
+
 Environment:
+  COHUB_SPACE_ID         Target Space ID when -s is omitted
   COHUB_EXECUTION_TOKEN  Use this token instead of the stored Logto session
   ENV=dev                Use the development Cohub environment
 `);

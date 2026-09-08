@@ -300,7 +300,7 @@ Examples:
       json?: boolean;
     }) => {
       try {
-        const spaceId = resolveSpace(program);
+        const spaceId = await resolveSpace(program);
         const content: GenerationContentBlock[] = [{ type: "text", text: prompt }];
         content.push(...await Promise.all(opts.image.map((value) => contentFromPathOrUrl("image", value))));
         content.push(...await Promise.all(opts.video.map((value) => contentFromPathOrUrl("video", value))));
