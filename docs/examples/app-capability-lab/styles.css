@@ -100,13 +100,13 @@ h1 { margin: 0; max-width: 760px; font-size: clamp(31px, 5vw, 58px); line-height
 .environment-path { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; color: var(--text); font-size: 12px; }
 .environment-path span:nth-child(even) { color: var(--faint); }
 .environment-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 14px; margin: 10px 0 0; }
-.environment-grid .kv { grid-template-columns: 62px 1fr; padding: 7px 0; }
 .environment-updated { margin-top: 9px; color: var(--faint); font-size: 11px; }
 .shell-probe { border-color: color-mix(in srgb, var(--info) 38%, var(--line-soft)); }
 .shell-event-line { display: flex; align-items: center; gap: 7px; margin-top: 12px; color: var(--info); font-size: 11px; overflow-wrap: anywhere; }
 .pulse-mark { width: 7px; height: 7px; border-radius: 50%; background: var(--info); box-shadow: 0 0 0 4px color-mix(in srgb, var(--info) 15%, transparent); flex: 0 0 auto; }
 .stack { display: grid; gap: 10px; }
 .kv { display: grid; grid-template-columns: 92px 1fr; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line-soft); }
+.environment-grid .kv { grid-template-columns: 62px 1fr; padding: 7px 0; }
 .kv:last-child { border-bottom: 0; }
 .kv dt { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
 .kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; font-size: 13px; }
