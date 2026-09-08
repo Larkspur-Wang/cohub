@@ -4,6 +4,18 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v2.43 — 2026-09-08
+
+- **Optional workspace search index**: A standalone `cohub-search` (Rust/Tantivy) and sandbox `fs.search` RPC land as optional infrastructure — when a binary is present, the Go sandbox supervises the indexer, forwards filewatch deltas, and stores a trigram candidate index on the system PVC for exact `rg` verification. This release publishes linux/amd64 binaries but does not bake them into the sandbox image, so search stays off until explicitly enabled.
+- **Live session activity**: Session records now carry `activeTurn` (turn id, queued/running/abort-requested status, provider, model) end-to-end — API list responses, realtime events, and the IndexedDB session-list cache. The sidebar and per-session generation state stay current as turns progress, and recover correctly across reloads and background refreshes.
+- **Home space default**: CLI commands now resolve the target space as `-s`, then `COHUB_SPACE_ID`, then the user's Home space via `GET /api/spaces/default`. The lookup is memoized per process and cached per login identity (24 h TTL, `0600` file mode), so plain `cohub prompt` / `cohub run` work right after login without flags.
+- **Runtime-aware publishing**: `cohub apps publish` now infers `--source` from the runtime — workspace inside a sandbox, local otherwise — instead of defaulting to workspace. `getCohubContext()` treats a `COHUB_SPACE_ID` alone as a local runtime; only an execution token marks a sandbox, fixing misclassified local runs.
+
+### Bug Fixes
+
+- Sidebar session activity could go stale after background list refreshes and pending-generation indicators could stick across reloads; activity and generation state are now authoritatively reconciled from server-side active-turn data.
+- Search indexing is kept optional and isolated from sandbox provisioning: reconcile no longer creates index directories or falls back the system root to space storage, and directory deletes are applied as snapshot prefix removals.
+
 ## v2.42 — 2026-09-07
 
 - **Local App Source Publishing**: `cohub apps publish --source local` now uploads an app source from your machine — a single file or a directory site, up to 1,000 files / 1 GiB — into immutable `app_source` storage, so sources no longer need to be staged in the Space workspace. The publish worker downloads the bundle, re-validates every object against a manifest (path traversal, duplicates, size caps), and renders the app or site artifact; the SDK mirrors the flow with `publicAssets.uploadAppSource()`.
