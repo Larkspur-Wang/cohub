@@ -6,7 +6,7 @@ import {
   type AppNavigationCall,
   parseAppNavigationOpenResponse,
 } from "@cohub/protocol/app-navigation";
-import type { Permission } from "./types.js";
+import type { CreateSpaceInput, Permission } from "./types.js";
 
 export type AppRuntimeInvocationContext = {
   surface: "page" | "app" | "background" | "broker";
@@ -370,9 +370,10 @@ const TOKEN_STORAGE_PREFIX = "cohub:app-token";
 
 const AUTHORIZED_GRANTS_STORAGE_PREFIX = "cohub:app-auth-grants";
 
-/** Outcome of {@link AppRuntimeApi.requestSpaceAuthorization}. */
+/** Outcome of {@link AppRuntimeApi.requestSpaceAuthorization} / {@link AppRuntimeApi.requestCreateSpaceAuthorization}. */
 export type AppRuntimeAuthorizationResult = {
   granted: boolean;
+  /** Picked or created Space. Null on deny. Set with `granted: false` when create persisted but did not provision. */
   space: { id: string; name: string | null } | null;
 };
 
@@ -659,6 +660,41 @@ export class AppRuntimeApi {
     const spaceId = typeof response?.space?.id === "string" ? response.space.id : null;
     const spaceName = typeof response?.space?.name === "string" ? response.space.name : null;
     // A denial leaves any existing token untouched.
+    if (token) {
+      this.token = token;
+      this.writeStoredToken(token);
+    }
+    if (token && spaceId) {
+      this.authorizedGrants = recordConsent(this.authorizedGrants, spaceId, input.scopes);
+      this.writeStoredGrants(this.authorizedGrants);
+    }
+    return {
+      granted: Boolean(token),
+      space: spaceId ? { id: spaceId, name: spaceName } : null,
+    };
+  }
+
+  /**
+   * One consent: create a viewer-owned Space (full `CreateSpaceInput`, same
+   * as `spaces.create`) and grant the scopes on it. Never silent — each
+   * confirm mints a new Space. The host creates with the viewer's account
+   * token; the app never calls `POST /api/spaces` itself.
+   * `{ granted: false, space }` means the Space was created but not provisioned;
+   * no grant was issued. A viewer deny is `{ granted: false, space: null }`.
+   */
+  async requestCreateSpaceAuthorization(input: {
+    scopes: Permission[];
+    space: CreateSpaceInput;
+    reason?: string;
+  }): Promise<AppRuntimeAuthorizationResult> {
+    await this.ensureStorageKeys();
+    const response = await this.transport.request<{ token: string | null; space?: { id?: unknown; name?: unknown } | null }>(
+      { type: "cohub.app.authorize", scopes: input.scopes, reason: input.reason, createSpace: input.space },
+      { timeoutMs: 120_000 },
+    );
+    const token = response?.token ?? null;
+    const spaceId = typeof response?.space?.id === "string" ? response.space.id : null;
+    const spaceName = typeof response?.space?.name === "string" ? response.space.name : null;
     if (token) {
       this.token = token;
       this.writeStoredToken(token);

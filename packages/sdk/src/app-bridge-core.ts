@@ -1,4 +1,4 @@
-import { PERMISSIONS, type Permission } from "./types.js";
+import { PERMISSIONS, type CreateSpaceInput, type Permission, type SpaceBootstrapSource } from "./types.js";
 import type { AppRecord } from "./apis/apps.js";
 import type {
 	AppRuntimeCheckoutState,
@@ -41,6 +41,9 @@ export type AppAuthorizeSpaceOption = {
  * resolved by the host (never trusted from the app) for the dialog copy.
  * `selectSpace` asks the viewer to pick the target space inside the dialog —
  * one consent covers both the choice and the grant.
+ * `createSpace` asks the host to create a viewer-owned Space (same payload as
+ * `POST /api/spaces`) and grant the scopes on it — never silent, never mixed
+ * with `spaceId` / `selectSpace`.
  */
 export type AppAuthorizeRequest = {
 	requestId: string;
@@ -52,6 +55,8 @@ export type AppAuthorizeRequest = {
 	spaces?: AppAuthorizeSpaceOption[] | null;
 	/** App home space display name, for context on home-space grants. */
 	homeSpaceName?: string | null;
+	/** Viewer-owned Space to create as part of this consent. */
+	createSpace?: CreateSpaceInput;
 };
 
 /**
@@ -223,6 +228,82 @@ function sanitizeReason(value: unknown): string | undefined {
 	return trimmed.length > MAX_REASON_LENGTH ? trimmed.slice(0, MAX_REASON_LENGTH) : trimmed;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function sanitizeBootstrapSource(value: unknown): SpaceBootstrapSource | null {
+	if (!isRecord(value) || typeof value.type !== "string") return null;
+	if (value.type === "blank") return { type: "blank" };
+	if (value.type === "checkpoint") {
+		const checkpointId = typeof value.checkpointId === "string" ? value.checkpointId.trim() : "";
+		return checkpointId ? { type: "checkpoint", checkpointId } : null;
+	}
+	if (value.type === "git_repo") {
+		const repoUrl = typeof value.repoUrl === "string" ? value.repoUrl.trim() : "";
+		if (!repoUrl) return null;
+		const ref =
+			typeof value.ref === "string" ? value.ref.trim() || null : value.ref === null ? null : undefined;
+		return ref === undefined
+			? { type: "git_repo", repoUrl }
+			: { type: "git_repo", repoUrl, ref };
+	}
+	return null;
+}
+
+/**
+ * Untrusted postMessage payload → `CreateSpaceInput`. Unknown keys are
+ * dropped; the create API still validates the rest.
+ */
+function sanitizeCreateSpaceInput(value: unknown): CreateSpaceInput | null {
+	if (!isRecord(value)) return null;
+	const name = typeof value.name === "string" ? value.name.trim() : "";
+	if (!name) return null;
+	const input: CreateSpaceInput = { name };
+	if (value.slug !== undefined) {
+		if (value.slug !== null && typeof value.slug !== "string") return null;
+		input.slug = value.slug;
+	}
+	if (value.description !== undefined) {
+		if (value.description !== null && typeof value.description !== "string") return null;
+		input.description = value.description;
+	}
+	if (value.source !== undefined) {
+		if (typeof value.source !== "string") return null;
+		input.source = value.source;
+	}
+	if (value.bootstrapSource !== undefined) {
+		const bootstrap = sanitizeBootstrapSource(value.bootstrapSource);
+		if (!bootstrap) return null;
+		input.bootstrapSource = bootstrap;
+	}
+	if (value.extraEnv !== undefined) {
+		if (!Array.isArray(value.extraEnv)) return null;
+		input.extraEnv = value.extraEnv as CreateSpaceInput["extraEnv"];
+	}
+	if (value.channelBindings !== undefined) {
+		if (!Array.isArray(value.channelBindings)) return null;
+		input.channelBindings = value.channelBindings as CreateSpaceInput["channelBindings"];
+	}
+	if (value.mods !== undefined) {
+		if (!Array.isArray(value.mods)) return null;
+		input.mods = value.mods as CreateSpaceInput["mods"];
+	}
+	if (value.config !== undefined) {
+		if (!isRecord(value.config)) return null;
+		input.config = value.config as CreateSpaceInput["config"];
+	}
+	return input;
+}
+
+function readCreatedSpace(payload: unknown): { id: string; name: string | null } | null {
+	if (!isRecord(payload) || !isRecord(payload.space)) return null;
+	const id = payload.space.id;
+	if (typeof id !== "string" || !id) return null;
+	const name = payload.space.name;
+	return { id, name: typeof name === "string" && name ? name : null };
+}
+
 function normalizePermissionScopes(scopes: readonly Permission[]) {
 	return Array.from(new Set(clonePermissionScopes(scopes)));
 }
@@ -388,6 +469,13 @@ export function createAppBridgeCore(
 	const pendingPurchaseStorageKey = `cohub-app-purchase:${app.id}`;
 	const purchaseInFlight = new Map<string, Promise<unknown>>();
 	let activePurchase: { productKey: string; promise: Promise<unknown> } | null = null;
+	/** Space minted during the current create-space consent; retries skip create. */
+	let mintedSpace: {
+		id: string;
+		name: string | null;
+		provisioned: boolean;
+		error?: string;
+	} | null = null;
 
 	async function isCurrentViewerAppOwner() {
 		const viewerUuid = await getViewerUuid();
@@ -564,6 +652,52 @@ export function createAppBridgeCore(
 	}
 
 	/**
+	 * Creates the Space with the viewer's own token — the same `POST /api/spaces`
+	 * path as the web New Space flow and the CLI. The app never holds this token.
+	 */
+	async function createViewerSpace(input: CreateSpaceInput): Promise<{
+		id: string;
+		name: string | null;
+		provisioned: boolean;
+		error?: string;
+	}> {
+		const request = async (forceRefresh = false) => {
+			const userToken = await getAccessToken({ forceRefresh });
+			if (!userToken) {
+				await config.requestSignIn(
+					typeof location !== "undefined" ? location.pathname : "/",
+				);
+				throw new Error("Sign in is required to create a Space.");
+			}
+			return fetch(`${apiOrigin}/api/spaces`, {
+				method: "POST",
+				headers: {
+					Authorization: `Bearer ${userToken}`,
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify(input),
+			});
+		};
+
+		let response = await request();
+		if (response.status === 401) response = await request(true);
+		const payload = await response.json().catch(() => null);
+		const space = readCreatedSpace(payload);
+		if (response.ok) {
+			if (!space) throw new Error("Invalid space create response.");
+			return { ...space, provisioned: true };
+		}
+		const message =
+			isRecord(payload) && typeof payload.message === "string"
+				? payload.message
+				: "Failed to create Space.";
+		// Space row can land before provision fails. Remember it so retry does
+		// not 409, but do not treat this as a successful consent.
+		if (space) return { ...space, provisioned: false, error: message };
+		throw new Error(message);
+	}
+
+	/**
 	 * Resolves the target space's name for the consent dialog. The host — not
 	 * the app — resolves it, so the dialog cannot be tricked into labeling a
 	 * grant with the wrong space.
@@ -682,6 +816,7 @@ export function createAppBridgeCore(
 			reason?: string;
 			spaceId?: string;
 			selectSpace?: boolean;
+			createSpace?: unknown;
 			alwaysAsk?: boolean;
 			forceRefresh?: boolean;
 			productKey?: string;
@@ -781,6 +916,8 @@ export function createAppBridgeCore(
 				// Picker mode only applies when the app does not already know the
 				// target space.
 				const selectSpace = data.selectSpace === true && !spaceId;
+				const createSpace =
+					data.createSpace === undefined ? undefined : sanitizeCreateSpaceInput(data.createSpace);
 				// `alwaysAsk` skips silent reuse so the viewer can re-confirm or
 				// change the grant (e.g. switch to another Space).
 				const alwaysAsk = data.alwaysAsk === true;
@@ -789,6 +926,48 @@ export function createAppBridgeCore(
 						type: "cohub.app.error",
 						message: "No scopes requested.",
 					}, true);
+					return;
+				}
+				if (data.createSpace !== undefined && !createSpace) {
+					const named =
+						isRecord(data.createSpace) &&
+						typeof data.createSpace.name === "string" &&
+						Boolean(data.createSpace.name.trim());
+					replyForRequest(data.requestId, {
+						type: "cohub.app.error",
+						message: named ? "Invalid space create input." : "Space name is required.",
+					}, true);
+					return;
+				}
+				if (createSpace && (selectSpace || spaceId)) {
+					replyForRequest(data.requestId, {
+						type: "cohub.app.error",
+						message: "createSpace cannot be combined with spaceId or selectSpace.",
+					}, true);
+					return;
+				}
+				if (state.authSaving) {
+					replyForRequest(data.requestId, {
+						type: "cohub.app.error",
+						message: "Another authorization is already in progress.",
+					}, true);
+					return;
+				}
+				if (state.pendingAuth) dismissPendingAuth();
+				// Creating a Space is a side effect: always a consent dialog, never
+				// silent reuse or publisher auto-authorization.
+				if (createSpace) {
+					mintedSpace = null;
+					state.pendingAuth = {
+						requestId: data.requestId,
+						scopes,
+						reason: sanitizeReason(data.reason),
+						homeSpaceName: app.spaceName ?? null,
+						createSpace,
+					};
+					state.authError = null;
+					state.authOpen = true;
+					notify();
 					return;
 				}
 				// The publisher's own app auto-authorizes without a dialog — but
@@ -884,16 +1063,23 @@ export function createAppBridgeCore(
 		}
 	}
 
-	function cancelAuth() {
-		if (state.authSaving) return;
+	function dismissPendingAuth() {
 		if (!state.pendingAuth) return;
 		replyForRequest(state.pendingAuth.requestId, {
 			type: "cohub.app.authorize.result",
 			token: null,
 		}, true);
-		state.authOpen = false;
 		state.pendingAuth = null;
+		state.authOpen = false;
 		state.authError = null;
+		mintedSpace = null;
+		notify();
+	}
+
+	function cancelAuth() {
+		if (state.authSaving) return;
+		if (!state.pendingAuth) return;
+		dismissPendingAuth();
 		state.authSaving = false;
 		notify();
 	}
@@ -957,14 +1143,36 @@ export function createAppBridgeCore(
 		state.authSaving = true;
 		notify();
 		try {
-			const requestedSpaceId = pending.selectSpace ? pickedSpaceId : pending.spaceId;
+			let requestedSpaceId = pending.selectSpace ? pickedSpaceId : pending.spaceId;
+			let spaceName = pending.selectSpace
+				? pending.spaces?.find((space) => space.id === requestedSpaceId)?.name ?? null
+				: pending.spaceName ?? app.spaceName ?? null;
+			if (pending.createSpace) {
+				mintedSpace ??= await createViewerSpace(pending.createSpace);
+				if (!mintedSpace.provisioned) {
+					// Space row exists, bootstrap did not. Close with a structured
+					// denial so the app can handle it — do not grant, do not hang.
+					replyForRequest(
+						pending.requestId,
+						authorizeResult(
+							null,
+							mintedSpace.id,
+							mintedSpace.name ?? pending.createSpace.name,
+						),
+						true,
+					);
+					state.authOpen = false;
+					state.pendingAuth = null;
+					mintedSpace = null;
+					return;
+				}
+				requestedSpaceId = mintedSpace.id;
+				spaceName = mintedSpace.name ?? pending.createSpace.name;
+			}
 			const result = await authorize(pending.scopes, requestedSpaceId);
 			const viewerUuid = await getViewerUuid();
 			setGrantedAppScopes(viewerUuid, app.id, result.scopes, result.spaceId);
-			if (pending.selectSpace) writeLastPickedSpace(result.spaceId);
-			const spaceName = pending.selectSpace
-				? pending.spaces?.find((space) => space.id === result.spaceId)?.name ?? null
-				: pending.spaceName ?? app.spaceName ?? null;
+			if (pending.selectSpace || pending.createSpace) writeLastPickedSpace(result.spaceId);
 			replyForRequest(
 				pending.requestId,
 				authorizeResult(result.token, result.spaceId, spaceName),
@@ -972,6 +1180,7 @@ export function createAppBridgeCore(
 			);
 			state.authOpen = false;
 			state.pendingAuth = null;
+			mintedSpace = null;
 		} catch (error) {
 			state.authError =
 				error instanceof Error ? error.message : "Authorization failed.";

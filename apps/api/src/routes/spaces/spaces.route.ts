@@ -23,7 +23,7 @@ import {
   sessionTurns,
 } from "@cohub/db";
 import { eq, and, inArray, desc, lt, or, sql } from "drizzle-orm";
-import { useAuth, getOptionalAuth, getAppSessionPrincipal, getPreviewSessionPrincipal, getExecutionPrincipal, requireValidId, buildSpaceListItems, authzDenied, getSpacePublicProfile, normalizePublicAvatarUrl } from "../../lib/middleware.js";
+import { useAuth, getOptionalAuth, getAppSessionPrincipal, isUserAccountPrincipal, requireValidId, buildSpaceListItems, authzDenied, getSpacePublicProfile, normalizePublicAvatarUrl } from "../../lib/middleware.js";
 import { config } from "../../config.js";
 import { scheduleSandboxAutoDestroy } from "../../sandbox-idle-scheduler.js";
 import { attachSandboxPublicEndpoints } from "../../sandbox-public-network.js";
@@ -792,13 +792,8 @@ router.get("/default", async (c) => {
 
   // Prefer existing home / recent space.
   let space = await findDefaultSpaceCandidate(identity.uuid);
-  // Ensure only for normal account sessions. Work / preview / execution
-  // principals may list via viewer grants but must not mint spaces.
-  const canEnsureHome =
-    !getAppSessionPrincipal(c) &&
-    !getPreviewSessionPrincipal(c) &&
-    !getExecutionPrincipal(c);
-  if (!space && canEnsureHome) {
+  // Delegated principals may list via viewer grants but must not mint spaces.
+  if (!space && isUserAccountPrincipal(c)) {
     space = await ensureHomeSpace(user);
   }
 
@@ -810,6 +805,7 @@ router.get("/default", async (c) => {
 router.post("/", async (c) => {
   const user = useAuth(c);
   if (user instanceof Response) return user;
+  if (!isUserAccountPrincipal(c)) return authzDenied(c);
 
   const body = (await c.req
     .json<{
@@ -1010,17 +1006,17 @@ router.post("/", async (c) => {
       onBootstrapFailure: "throw",
     });
   } catch (error) {
-    if (error instanceof Error && error.message === "failed to register local sandbox") {
-      return c.json({ message: "failed to register local sandbox" }, 500);
-    }
-    if (error instanceof Error && error.message === "failed to allocate create_space task id") {
-      return c.json({ message: "failed to create bootstrap job" }, 500);
-    }
-    throw error;
+    const message =
+      error instanceof Error && error.message === "failed to register local sandbox"
+        ? error.message
+        : "failed to create bootstrap job";
+    // Space row is already committed — return it so the caller can close with
+    // a created-but-not-provisioned result instead of 409-ing on the same name.
+    return c.json({ message, space: { id: space.id, name: space.name } }, 500);
   }
 
   if (!provisioned.taskRunId) {
-    return c.json({ message: "failed to create bootstrap job" }, 500);
+    return c.json({ message: "failed to create bootstrap job", space: { id: space.id, name: space.name } }, 500);
   }
 
   return c.json({

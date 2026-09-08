@@ -652,6 +652,88 @@ test("requestSpaceAuthorization resolves the picked space and records the consen
 	]);
 });
 
+test("requestCreateSpaceAuthorization sends the create payload and records consent", async () => {
+	const store: Record<string, string> = {};
+	globalThis.localStorage = {
+		getItem: (key: string) => store[key] ?? null,
+		setItem: (key: string, value: string) => {
+			store[key] = value;
+		},
+		removeItem: (key: string) => {
+			delete store[key];
+		},
+	} as Storage;
+
+	const calls: { message: Record<string, unknown> }[] = [];
+	const transport: AppRuntimeTransport = {
+		request<T>(message: Record<string, unknown>): Promise<T | null> {
+			calls.push({ message });
+			return Promise.resolve({
+				token: "created-token",
+				space: { id: "space-new", name: "Whale Shrine" },
+			} as T);
+		},
+	};
+	const runtime = createAppRuntime(transport, "work-1");
+
+	const result = await runtime.requestCreateSpaceAuthorization({
+		scopes: ["file.view", "session.view"],
+		space: {
+			name: "Whale Shrine",
+			bootstrapSource: { type: "checkpoint", checkpointId: "ckpt-1" },
+		},
+		reason: "Create a workspace from this template.",
+	});
+
+	assert.deepEqual(result, { granted: true, space: { id: "space-new", name: "Whale Shrine" } });
+	assert.equal(calls[0].message.type, "cohub.app.authorize");
+	assert.equal(calls[0].message.selectSpace, undefined);
+	assert.equal(calls[0].message.spaceId, undefined);
+	assert.deepEqual(calls[0].message.createSpace, {
+		name: "Whale Shrine",
+		bootstrapSource: { type: "checkpoint", checkpointId: "ckpt-1" },
+	});
+	assert.deepEqual(JSON.parse(store["cohub:app-auth-grants:work-1"]), [
+		{ spaceId: "space-new", scopes: ["file.view", "session.view"] },
+	]);
+});
+
+test("requestCreateSpaceAuthorization reports a persisted space without a grant", async () => {
+	globalThis.localStorage = {
+		getItem: () => null,
+		setItem: () => {},
+		removeItem: () => {},
+	} as Storage;
+	const transport: AppRuntimeTransport = {
+		request: () => Promise.resolve({ token: null, space: { id: "space-new", name: "Demo" } }),
+	};
+	const runtime = createAppRuntime(transport, "work-1");
+
+	const result = await runtime.requestCreateSpaceAuthorization({
+		scopes: ["file.view"],
+		space: { name: "Demo" },
+	});
+	assert.deepEqual(result, { granted: false, space: { id: "space-new", name: "Demo" } });
+});
+
+test("requestCreateSpaceAuthorization reports denial without a space", async () => {
+	globalThis.localStorage = {
+		getItem: () => null,
+		setItem: () => {},
+		removeItem: () => {},
+	} as Storage;
+	const transport: AppRuntimeTransport = {
+		request: () => Promise.resolve({ token: null, space: null }),
+	};
+	const runtime = createAppRuntime(transport, "work-1");
+
+	const result = await runtime.requestCreateSpaceAuthorization({
+		scopes: ["file.view"],
+		space: { name: "Demo" },
+	});
+	assert.deepEqual(result, { granted: false, space: null });
+});
+
 test("requestSpaceAuthorization reports denial without a space", async () => {
 	globalThis.localStorage = {
 		getItem: () => null,

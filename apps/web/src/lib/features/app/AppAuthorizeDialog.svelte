@@ -1,5 +1,9 @@
 <script lang="ts">
-import type { Permission } from "@neta-art/cohub";
+import type {
+	AppAuthorizeRequest,
+	Permission,
+	SpaceBootstrapSource,
+} from "@neta-art/cohub";
 import {
 	AlertTriangle,
 	ArrowLeft,
@@ -30,20 +34,7 @@ const {
 	onCancel,
 }: {
 	open: boolean;
-	pending: {
-		scopes: Permission[];
-		reason?: string;
-		spaceId?: string;
-		spaceName?: string | null;
-		selectSpace?: boolean;
-		spaces?: Array<{
-			id: string;
-			name: string | null;
-			ownerUserUuid?: string | null;
-			isPinned?: boolean;
-		}> | null;
-		homeSpaceName?: string | null;
-	} | null;
+	pending: AppAuthorizeRequest | null;
 	error: string | null;
 	saving: boolean;
 	appName?: string;
@@ -152,18 +143,42 @@ const visibleSpaceOptions = $derived.by(() => {
 	});
 });
 const spaceLabel = $derived.by(() => {
-	if (!pending) return null;
+	if (!pending || pending.createSpace) return null;
 	if (pending.spaceId) return pending.spaceName?.trim() || pending.spaceId;
 	if (pending.selectSpace) return null;
 	return pending.homeSpaceName?.trim() || null;
 });
+const createSpaceName = $derived(pending?.createSpace?.name?.trim() || null);
+const createSpaceSource = $derived.by(() =>
+	createSpaceSourceLabel(pending?.createSpace?.bootstrapSource),
+);
 const requiresGenerationQuota = $derived(
 	Boolean(pending?.scopes.includes("generation.create")),
 );
-const confirmLabel = "Authorize and continue";
+const confirmLabel = $derived(
+	pending?.createSpace
+		? "Create Space and authorize"
+		: "Authorize and continue",
+);
 const confirmDisabled = $derived(
 	saving || (Boolean(pending?.selectSpace) && !selectedSpaceId),
 );
+
+function createSpaceSourceLabel(
+	source: SpaceBootstrapSource | undefined,
+): string | null {
+	if (!source || source.type === "blank") return null;
+	if (source.type === "checkpoint") return "From a checkpoint";
+	if (source.type === "git_repo") {
+		try {
+			const url = new URL(source.repoUrl);
+			return `From ${url.host}${url.pathname}`;
+		} catch {
+			return "From a Git repository";
+		}
+	}
+	return null;
+}
 
 // Human label for scopes outside the predefined operation groups.
 const scopeLabel = (scope: string) =>
@@ -229,7 +244,16 @@ const scopeLabel = (scope: string) =>
 					</div>
 				</section>
 			{:else}
-				{#if pending.selectSpace}
+				{#if pending.createSpace && createSpaceName}
+					<section class="auth-space">
+						<div class="auth-space-label">New Space</div>
+						<div class="auth-space-name" title={createSpaceName}>{createSpaceName}</div>
+						{#if createSpaceSource}
+							<div class="auth-space-source">{createSpaceSource}</div>
+						{/if}
+						<div class="auth-space-note">You will own this Space.</div>
+					</section>
+				{:else if pending.selectSpace}
 					<section class="auth-space auth-selected-space">
 						<div class="auth-space-label">Space</div>
 						<div class="auth-selected-row">
@@ -273,7 +297,11 @@ const scopeLabel = (scope: string) =>
 
 			<hr class="auth-divider" />
 
-			<div class="auth-validity">Valid for 14 days. You won't be asked again during that time.</div>
+			<div class="auth-validity">
+				{pending.createSpace
+					? "Creates a new Space. Access is valid for 14 days."
+					: "Valid for 14 days. You won't be asked again during that time."}
+			</div>
 
 			{#if error}
 				<div class="auth-error"><AlertTriangle class="h-3.5 w-3.5" /> {error}</div>
@@ -588,6 +616,16 @@ const scopeLabel = (scope: string) =>
 		font-size: 13px;
 		font-weight: 550;
 		color: var(--text-primary);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.auth-space-source,
+	.auth-space-note {
+		font-size: 11.5px;
+		line-height: 1.4;
+		color: var(--text-tertiary);
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;

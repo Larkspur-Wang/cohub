@@ -61,13 +61,14 @@ requiring the viewer to paste an API key.
 └─────────────────────────────────────────┘
 ```
 
-Five runtime-only APIs form the foundation; everything else is standard SDK:
+These runtime-only APIs form the foundation; everything else is standard SDK:
 
 | API | What it does | Returns |
 |---|---|---|
 | `client.context()` | Asks the host for the App's identity | `{ app, space, viewer?, invocation?, permissions }` or `null` |
 | `client.auth.request({ scopes, reason, spaceId?, alwaysAsk? })` | Ensures the app holds these scopes; silent when a grant already covers them, consent dialog otherwise | `true` / `false` |
 | `client.auth.requestSpace({ scopes, reason, alwaysAsk? })` | One consent: the viewer picks a Space and grants the scopes on it | `{ granted, space }` |
+| `client.auth.requestCreateSpace({ scopes, space, reason })` | One consent: create a viewer-owned Space (`CreateSpaceInput`) and grant the scopes on it | `{ granted, space }` |
 | `client.context().permissions.viewerGrants` | Render the viewer's current per-space grants | `{ spaceId, scopes }[]` |
 | `client.app.commerce.*` / `client.app.realtime.*` | Commerce and realtime, bound to the app's runtime identity | (see below) |
 
@@ -206,7 +207,7 @@ command.execute          — run sandbox shell commands
 ### Viewer grants (consent-required, any permission, per Space)
 
 A viewer grants these through a consent dialog triggered by
-`client.auth.request()` / `client.auth.requestSpace()`. A viewer may grant
+`client.auth.request()` / `client.auth.requestSpace()` / `client.auth.requestCreateSpace()`. A viewer may grant
 **any** permission they currently hold on the target Space — including scopes
 outside the eight app scopes, such as `generation.create` or the account-level
 `user.*` scopes. Two hard rules are enforced by the server:
@@ -260,10 +261,29 @@ const { granted, space } = await client.auth.requestSpace({
 if (granted && space) {
   const picked = client.space(space.id);
 }
+
+// Create a viewer-owned Space and grant on it — never silent. `space` is the
+// same `CreateSpaceInput` as `client.spaces.create()` (blank, git, or checkpoint).
+const created = await client.auth.requestCreateSpace({
+  scopes: ["file.view", "session.view", "session.prompt.fullaccess"],
+  space: {
+    name: "Whale Shrine",
+    bootstrapSource: { type: "checkpoint", checkpointId },
+  },
+  reason: "Create a workspace from this template.",
+});
+if (created.granted && created.space) {
+  const next = client.space(created.space.id);
+}
+// `granted: false` with a `space` means the Space was created but bootstrap
+// did not finish — no grant was issued. A deny is `{ granted: false, space: null }`.
 ```
 
 Pass `alwaysAsk: true` to skip silent reuse and force a fresh dialog — for
 re-confirming a grant or letting the viewer switch to another Space.
+`requestCreateSpace` always opens the dialog; each confirm mints a new Space.
+The host creates it with the viewer's account token — the app never calls
+`POST /api/spaces` itself.
 
 ### Checking grant state at runtime
 
@@ -318,6 +338,7 @@ dialog can.
 | Read task run detail | `client.tasks.get(taskRunId)` | `taskrun.view` | app or viewer |
 | List tasks in a Space | `client.tasks.list({ spaceId })` | `taskrun.view` on that Space | app or viewer |
 | List all owned task runs | `client.tasks.list()` | `user.taskrun.list` | **viewer only** |
+| Create a Space for the viewer | `client.auth.requestCreateSpace({ space, scopes })` | requested scopes on the new Space | **viewer consent** |
 | List viewer's spaces | `client.spaces.list()` | `user.space.list` | **viewer only** |
 | List viewer's sessions | `client.user.listSessions()` | `user.session.list` | **viewer only** |
 | Read viewer's activity | `client.user.getActivity()` | `user.usage.read` | **viewer only** |
@@ -1204,7 +1225,8 @@ Before publishing your App, verify each item:
   on page load. It is safe to call repeatedly — covered scopes renew silently.
 - [ ] **Cross-Space access targets the right Space** — viewer grants are per
   Space. Pass `spaceId` when requesting, or use `auth.requestSpace` to let the
-  viewer pick.
+  viewer pick. Use `auth.requestCreateSpace` when the app should mint a new
+  viewer-owned Space; do not call `spaces.create()` with the App token.
 - [ ] **`subscribeGeneration` errors are not silently swallowed** — if the
   stream fails, surface it; a silent fallback to polling will also 403 if
   `session.view` is missing.

@@ -289,6 +289,29 @@ const { sessions } = await client.user.listSessions({ limit: 20 });
 const activity = await client.user.getActivity({ days: 30 });
 ```
 
+### 为访客创建 Space
+
+一次同意会以访客身份新建 Space，并在这个新 Space 上授予所请求的 scopes。
+`space` 与 `client.spaces.create()` 的 `CreateSpaceInput` 相同。不会静默复用
+——每次确认都新建。宿主用访客的账号 token 调用现有创建接口，App 不会自己
+打 `POST /api/spaces`。
+
+```ts
+const { granted, space } = await client.auth.requestCreateSpace({
+  scopes: ["file.view", "session.view", "session.prompt.fullaccess"],
+  space: {
+    name: "Whale Shrine",
+    bootstrapSource: { type: "checkpoint", checkpointId },
+  },
+  reason: "Create a workspace from this template.",
+});
+if (granted && space) {
+  const created = client.space(space.id);
+}
+```
+
+从 checkpoint 创建仍走源 Space 的 `checkpoint.view`。模板 Space 对登录用户开放 guest 即可被克隆。
+
 ## 权限一页纸
 
 App 的授权是两个来源的并集 — 任一满足即可：

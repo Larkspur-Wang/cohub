@@ -84,6 +84,12 @@ export const useAccountPrincipal = (c: Context): AuthUser | Response => {
   return principal ? c.json({ message: "forbidden" }, 403) : c.json({ message: "unauthorized" }, 401);
 };
 
+/** Signed-in user acting as themselves. App / preview / execution sessions are not. */
+export const isUserAccountPrincipal = (c: Context): boolean => {
+  const principal = c.get("principal") as RequestPrincipal | null | undefined;
+  return principal?.type === "user";
+};
+
 /**
  * Returns the authenticated user when present, otherwise null.
  * Use this for routes whose authorization is fully determined by RBAC

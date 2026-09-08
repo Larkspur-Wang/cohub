@@ -1391,3 +1391,391 @@ test("API error surfaces as cohub.app.error reply", async () => {
 		globalThis.fetch = originalFetch;
 	}
 });
+
+test("createSpace always opens the consent dialog, even for the owner", async () => {
+	const originalFetch = globalThis.fetch;
+	let fetchCount = 0;
+	globalThis.fetch = (async () => {
+		fetchCount += 1;
+		return jsonResponse({ token: "should-not-run" });
+	}) as typeof fetch;
+	try {
+		const config = makeConfig({
+			viewerUuid: "owner-uuid",
+			authorizationContext: { surface: "background" },
+		});
+		const core = createAppBridgeCore(config);
+		await core.handleMessage(
+			messageEvent({
+				type: "cohub.app.authorize",
+				requestId: "r1",
+				scopes: ["file.view"],
+				createSpace: { name: "Whale Shrine" },
+			}),
+		);
+		assert.equal(fetchCount, 0);
+		assert.equal(config.replies.length, 0);
+		const state = core.getState();
+		assert.equal(state.authOpen, true);
+		assert.deepEqual(state.pendingAuth?.createSpace, { name: "Whale Shrine" });
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
+test("createSpace cannot mix with spaceId or selectSpace", async () => {
+	const config = makeConfig();
+	const core = createAppBridgeCore(config);
+	await core.handleMessage(
+		messageEvent({
+			type: "cohub.app.authorize",
+			requestId: "r1",
+			scopes: ["file.view"],
+			createSpace: { name: "Demo" },
+			selectSpace: true,
+		}),
+	);
+	assert.equal(config.replies[0].payload.type, "cohub.app.error");
+	assert.equal(
+		config.replies[0].payload.message,
+		"createSpace cannot be combined with spaceId or selectSpace.",
+	);
+});
+
+test("createSpace without a name replies an error", async () => {
+	const config = makeConfig();
+	const core = createAppBridgeCore(config);
+	await core.handleMessage(
+		messageEvent({
+			type: "cohub.app.authorize",
+			requestId: "r1",
+			scopes: ["file.view"],
+			createSpace: { bootstrapSource: { type: "blank" } },
+		}),
+	);
+	assert.equal(config.replies[0].payload.message, "Space name is required.");
+});
+
+test("createSpace with an invalid bootstrap replies an error", async () => {
+	const config = makeConfig();
+	const core = createAppBridgeCore(config);
+	await core.handleMessage(
+		messageEvent({
+			type: "cohub.app.authorize",
+			requestId: "r1",
+			scopes: ["file.view"],
+			createSpace: { name: "Demo", bootstrapSource: { type: "checkpoint" } },
+		}),
+	);
+	assert.equal(config.replies[0].payload.message, "Invalid space create input.");
+});
+
+test("confirming createSpace posts the create input then authorizes the new space", async () => {
+	const originalFetch = globalThis.fetch;
+	const originalLocalStorage = globalThis.localStorage;
+	const store: Record<string, string> = {};
+	globalThis.localStorage = storageMock(store);
+	const requests: Array<{ url: string; method: string; body: unknown }> = [];
+	globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+		const target = String(url);
+		const method = String(init?.method ?? "GET").toUpperCase();
+		const body = init?.body ? JSON.parse(String(init.body)) : null;
+		requests.push({ url: target, method, body });
+		if (target.endsWith("/api/spaces") && method === "POST") {
+			return jsonResponse({
+				space: { id: "space-new", name: "Whale Shrine" },
+				taskRunId: "task-1",
+			});
+		}
+		return jsonResponse({
+			token: "created-token",
+			grant: { spaceId: "space-new", scopes: ["file.view", "session.view"] },
+		});
+	}) as typeof fetch;
+	try {
+		const config = makeConfig({ viewerUuid: "some-other-viewer" });
+		const core = createAppBridgeCore(config);
+		const createInput = {
+			name: "Whale Shrine",
+			description: "From template",
+			bootstrapSource: { type: "checkpoint", checkpointId: "ckpt-1" },
+		};
+		await core.handleMessage(
+			messageEvent({
+				type: "cohub.app.authorize",
+				requestId: "r1",
+				scopes: ["file.view", "session.view"],
+				createSpace: createInput,
+				reason: "Create a workspace from this template.",
+			}),
+		);
+		assert.equal(requests.length, 0);
+		await core.confirmAuth();
+		assert.deepEqual(requests, [
+			{
+				url: "https://api.test/api/spaces",
+				method: "POST",
+				body: createInput,
+			},
+			{
+				url: "https://api.test/api/apps/work_123/authorize",
+				method: "POST",
+				body: { scopes: ["file.view", "session.view"], spaceId: "space-new" },
+			},
+		]);
+		assert.equal(config.replies[0].payload.token, "created-token");
+		assert.deepEqual(config.replies[0].payload.space, {
+			id: "space-new",
+			name: "Whale Shrine",
+		});
+		assert.equal(store[`cohub:app-picked-space:work_123`], "space-new");
+	} finally {
+		globalThis.fetch = originalFetch;
+		globalThis.localStorage = originalLocalStorage;
+	}
+});
+
+test("createSpace create failure stays on the dialog with the API message", async () => {
+	const originalFetch = globalThis.fetch;
+	globalThis.fetch = (async () =>
+		new Response(JSON.stringify({ message: "space already exists" }), { status: 409 })) as typeof fetch;
+	try {
+		const config = makeConfig();
+		const core = createAppBridgeCore(config);
+		await core.handleMessage(
+			messageEvent({
+				type: "cohub.app.authorize",
+				requestId: "r1",
+				scopes: ["file.view"],
+				createSpace: { name: "Demo" },
+			}),
+		);
+		await core.confirmAuth();
+		assert.equal(config.replies.length, 0);
+		assert.equal(core.getState().authOpen, true);
+		assert.equal(core.getState().authError, "space already exists");
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
+test("createSpace retries authorize without creating a second space", async () => {
+	const originalFetch = globalThis.fetch;
+	let createCount = 0;
+	let authorizeCount = 0;
+	globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+		const target = String(url);
+		const method = String(init?.method ?? "GET").toUpperCase();
+		if (target.endsWith("/api/spaces") && method === "POST") {
+			createCount += 1;
+			return jsonResponse({ space: { id: "space-new", name: "Demo" }, taskRunId: "task-1" });
+		}
+		authorizeCount += 1;
+		if (authorizeCount === 1) {
+			return new Response(JSON.stringify({ message: "Authorization failed." }), { status: 500 });
+		}
+		return jsonResponse({ token: "retry-token", grant: { spaceId: "space-new", scopes: ["file.view"] } });
+	}) as typeof fetch;
+	try {
+		const config = makeConfig({ viewerUuid: "viewer-uuid" });
+		const core = createAppBridgeCore(config);
+		await core.handleMessage(
+			messageEvent({
+				type: "cohub.app.authorize",
+				requestId: "r1",
+				scopes: ["file.view"],
+				createSpace: { name: "Demo" },
+			}),
+		);
+		await core.confirmAuth();
+		assert.equal(createCount, 1);
+		assert.equal(authorizeCount, 1);
+		assert.equal(core.getState().authOpen, true);
+		assert.equal(core.getState().authError, "Authorization failed.");
+		assert.equal(config.replies.length, 0);
+
+		await core.confirmAuth();
+		assert.equal(createCount, 1);
+		assert.equal(authorizeCount, 2);
+		assert.equal(config.replies[0].payload.token, "retry-token");
+		assert.deepEqual(config.replies[0].payload.space, { id: "space-new", name: "Demo" });
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
+test("createSpace 5xx with a persisted space closes with a structured denial", async () => {
+	const originalFetch = globalThis.fetch;
+	const requests: Array<{ url: string; method: string }> = [];
+	globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+		const target = String(url);
+		const method = String(init?.method ?? "GET").toUpperCase();
+		requests.push({ url: target, method });
+		if (target.endsWith("/api/spaces") && method === "POST") {
+			return new Response(
+				JSON.stringify({
+					message: "failed to create bootstrap job",
+					space: { id: "space-new", name: "Demo" },
+				}),
+				{ status: 500 },
+			);
+		}
+		return jsonResponse({
+			token: "granted-token",
+			grant: { spaceId: "space-new", scopes: ["file.view"] },
+		});
+	}) as typeof fetch;
+	try {
+		const config = makeConfig();
+		const core = createAppBridgeCore(config);
+		await core.handleMessage(
+			messageEvent({
+				type: "cohub.app.authorize",
+				requestId: "r1",
+				scopes: ["file.view"],
+				createSpace: { name: "Demo" },
+			}),
+		);
+		await core.confirmAuth();
+		assert.deepEqual(requests, [{ url: "https://api.test/api/spaces", method: "POST" }]);
+		assert.equal(core.getState().authOpen, false);
+		assert.equal(core.getState().pendingAuth, null);
+		assert.equal(config.replies[0].payload.token, null);
+		assert.deepEqual(config.replies[0].payload.space, { id: "space-new", name: "Demo" });
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
+test("a new authorize while confirm is in flight is rejected", async () => {
+	const originalFetch = globalThis.fetch;
+	let releaseCreate: ((value: Response) => void) | undefined;
+	let createStarted: (() => void) | undefined;
+	const started = new Promise<void>((resolve) => {
+		createStarted = resolve;
+	});
+	const createGate = new Promise<Response>((resolve) => {
+		releaseCreate = resolve;
+	});
+	globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+		const target = String(url);
+		const method = String(init?.method ?? "GET").toUpperCase();
+		if (target.endsWith("/api/spaces") && method === "POST") {
+			createStarted?.();
+			return createGate;
+		}
+		return jsonResponse({
+			token: "created-token",
+			grant: { spaceId: "space-new", scopes: ["file.view"] },
+		});
+	}) as typeof fetch;
+	try {
+		const config = makeConfig();
+		const core = createAppBridgeCore(config);
+		await core.handleMessage(
+			messageEvent({
+				type: "cohub.app.authorize",
+				requestId: "r1",
+				scopes: ["file.view"],
+				createSpace: { name: "Demo" },
+			}),
+		);
+		const confirm = core.confirmAuth();
+		await started;
+		await core.handleMessage(
+			messageEvent({
+				type: "cohub.app.authorize",
+				requestId: "r2",
+				scopes: ["file.view"],
+				createSpace: { name: "Other" },
+			}),
+		);
+		assert.equal(config.replies[0].requestId, "r2");
+		assert.equal(config.replies[0].payload.type, "cohub.app.error");
+		assert.equal(config.replies[0].payload.message, "Another authorization is already in progress.");
+		releaseCreate?.(jsonResponse({ space: { id: "space-new", name: "Demo" }, taskRunId: "task-1" }));
+		await confirm;
+		assert.equal(config.replies[1].requestId, "r1");
+		assert.equal(config.replies[1].payload.token, "created-token");
+		assert.deepEqual(config.replies[1].payload.space, { id: "space-new", name: "Demo" });
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
+test("a new authorize dismisses an idle pending dialog", async () => {
+	const config = makeConfig();
+	const core = createAppBridgeCore(config);
+	await core.handleMessage(
+		messageEvent({
+			type: "cohub.app.authorize",
+			requestId: "r1",
+			scopes: ["file.view"],
+			createSpace: { name: "First" },
+		}),
+	);
+	await core.handleMessage(
+		messageEvent({
+			type: "cohub.app.authorize",
+			requestId: "r2",
+			scopes: ["session.view"],
+			createSpace: { name: "Second" },
+		}),
+	);
+	assert.equal(config.replies[0].requestId, "r1");
+	assert.equal(config.replies[0].payload.type, "cohub.app.authorize.result");
+	assert.equal(config.replies[0].payload.token, null);
+	assert.equal(core.getState().pendingAuth?.requestId, "r2");
+	assert.equal(core.getState().pendingAuth?.createSpace?.name, "Second");
+});
+
+test("dismissing a pending dialog notifies so the UI closes before silent auth", async () => {
+	const originalFetch = globalThis.fetch;
+	const originalLocalStorage = globalThis.localStorage;
+	const store: Record<string, string> = {
+		"cohub:work-grants:viewer-uuid:work_123:v1": JSON.stringify({
+			version: 1,
+			userUuid: "viewer-uuid",
+			appId: "work_123",
+			scopes: ["file.view"],
+			updatedAt: Date.now(),
+		}),
+	};
+	globalThis.localStorage = storageMock(store);
+	globalThis.fetch = (async () => jsonResponse({ token: "silent-token" })) as typeof fetch;
+	try {
+		const config = makeConfig();
+		const core = createAppBridgeCore(config);
+		await core.handleMessage(
+			messageEvent({
+				type: "cohub.app.authorize",
+				requestId: "r1",
+				scopes: ["file.view"],
+				alwaysAsk: true,
+			}),
+		);
+		assert.equal(core.getState().authOpen, true);
+		const opened = config.states.at(-1);
+		assert.equal(opened?.authOpen, true);
+
+		await core.handleMessage(
+			messageEvent({
+				type: "cohub.app.authorize",
+				requestId: "r2",
+				scopes: ["file.view"],
+			}),
+		);
+		assert.equal(core.getState().authOpen, false);
+		assert.equal(core.getState().pendingAuth, null);
+		const closed = config.states.at(-1);
+		assert.equal(closed?.authOpen, false);
+		assert.equal(closed?.pendingAuth, null);
+		assert.equal(config.replies[0].requestId, "r1");
+		assert.equal(config.replies[0].payload.token, null);
+		assert.equal(config.replies[1].requestId, "r2");
+		assert.equal(config.replies[1].payload.token, "silent-token");
+	} finally {
+		globalThis.fetch = originalFetch;
+		globalThis.localStorage = originalLocalStorage;
+	}
+});

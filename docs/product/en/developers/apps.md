@@ -299,6 +299,30 @@ const { sessions } = await client.user.listSessions({ limit: 20 });
 const activity = await client.user.getActivity({ days: 30 });
 ```
 
+### Create a Space for the viewer
+
+One consent creates a viewer-owned Space and grants the requested scopes on
+it. `space` is the same `CreateSpaceInput` as `client.spaces.create()`.
+Never silent — each confirm mints a new Space. The host creates with the
+viewer's account token; the app does not call `POST /api/spaces`.
+
+```ts
+const { granted, space } = await client.auth.requestCreateSpace({
+  scopes: ["file.view", "session.view", "session.prompt.fullaccess"],
+  space: {
+    name: "Whale Shrine",
+    bootstrapSource: { type: "checkpoint", checkpointId },
+  },
+  reason: "Create a workspace from this template.",
+});
+if (granted && space) {
+  const created = client.space(space.id);
+}
+```
+
+Checkpoint access still uses `checkpoint.view` on the source Space. A public
+template Space with signed-in guest access is enough for anyone to clone.
+
 ## Permissions in one page
 
 App authorization is the union of two sources — either is enough:

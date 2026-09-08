@@ -39,7 +39,7 @@ import {
   type AppContextChangedListener,
   type AppRuntimeApi,
 } from "./app-runtime.js";
-import type { Permission } from "./types.js";
+import type { CreateSpaceInput, Permission } from "./types.js";
 import type { AppCommerceCheckoutStatus } from "./apis/app-commerce.js";
 
 export class CohubClient {
@@ -181,6 +181,8 @@ export class CohubClient {
     request: (input: { scopes: Permission[]; reason?: string; spaceId?: string; alwaysAsk?: boolean }) => this.appRuntime.requestAuthorization(input),
     /** One consent: the viewer picks a Space and grants the scopes on it. `alwaysAsk` re-opens the picker. */
     requestSpace: (input: { scopes: Permission[]; reason?: string; alwaysAsk?: boolean }) => this.appRuntime.requestSpaceAuthorization(input),
+    /** One consent: create a viewer-owned Space and grant the scopes on it. `space` is `CreateSpaceInput`. */
+    requestCreateSpace: (input: { scopes: Permission[]; space: CreateSpaceInput; reason?: string }) => this.appRuntime.requestCreateSpaceAuthorization(input),
   };
 
   readonly app = {

@@ -153,6 +153,23 @@ if (granted && space) {
 }
 ```
 
+To create a Space for the viewer, use `requestCreateSpace`. `space` is the same `CreateSpaceInput` as `spaces.create()` — including `bootstrapSource` for a checkpoint or git repo. One consent creates the Space (owned by the viewer) and grants the scopes on it. This is never silent; the host calls `POST /api/spaces` with the viewer's account token, then authorizes as usual.
+
+```js
+const { granted, space } = await cohub.auth.requestCreateSpace({
+  scopes: ["file.view", "session.view", "session.prompt.fullaccess"],
+  space: {
+    name: "Whale Shrine",
+    bootstrapSource: { type: "checkpoint", checkpointId },
+  },
+  reason: "Create a workspace from this template.",
+});
+if (granted && space) {
+  const created = cohub.space(space.id);
+}
+// `{ granted: false, space }` means the Space was created but bootstrap did not finish — no grant was issued.
+```
+
 When the app already knows the target Space, pass its id instead — the dialog then only confirms that Space:
 
 ```js
@@ -167,7 +184,7 @@ await cohub.auth.request({
 
 ### Silent reuse vs. asking again
 
-Apps never cache grants themselves — the host does. Every `auth.request` call reuses a previous grant silently (for 14 days after the viewer last confirmed) and only opens the consent dialog when something new is needed. To force a fresh dialog instead — re-confirming a grant, or letting the viewer switch to another Space — pass `alwaysAsk`:
+Apps never cache grants themselves — the host does. Every `auth.request` call reuses a previous grant silently (for 14 days after the viewer last confirmed) and only opens the consent dialog when something new is needed. To force a fresh dialog instead — re-confirming a grant, or letting the viewer switch to another Space — pass `alwaysAsk`. `requestCreateSpace` is the exception: it always opens a dialog, and each confirm creates a new Space.
 
 ```js
 // Silent-first: no dialog when a grant already covers the scopes.
