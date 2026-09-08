@@ -132,6 +132,15 @@ export type SessionUserProfile = {
   avatarUrl: string | null;
 };
 
+export type SessionActiveTurn = {
+  id: string;
+  status: "queued" | "running" | "abort_requested";
+  provider: string | null;
+  model: string | null;
+  startedAt: string | null;
+  anchorUserMessageId: string | null;
+};
+
 export type SessionRecord = {
   id: string;
   spaceId: string;
@@ -142,6 +151,7 @@ export type SessionRecord = {
   title: string | null;
   source: string | null;
   status: string | null;
+  activeTurn?: SessionActiveTurn | null;
   externalSessionId: string | null;
   meta: Record<string, unknown> | null;
   latestMessageText: string | null;

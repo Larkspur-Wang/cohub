@@ -3,6 +3,7 @@ import { getCacheUserKeyAsync } from "$lib/cache/keys";
 import { sdk } from "$lib/sdk";
 import { mergeSessionRecord } from "$lib/session-record-merge";
 import { sortSessionsByRecentActivity } from "$lib/session-sort";
+import { reconcileGenerationStateFromSessionList } from "$lib/stores/session-generation-list-reconcile";
 import {
 	emptyUserSessionListPageInfo,
 	getCachedUserSessionListSnapshot,
@@ -44,13 +45,17 @@ export function createUserSessionListController() {
 	let realtimeRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 	let stopRealtime: (() => void) | null = null;
 
-	function applySnapshot(next: {
-		sessions: UserSessionListItem[];
-		pageInfo?: { hasMore: boolean; nextCursor: string | null } | null;
-	}) {
+	function applySnapshot(
+		next: {
+			sessions: UserSessionListItem[];
+			pageInfo?: { hasMore: boolean; nextCursor: string | null } | null;
+		},
+		options?: { authoritative?: boolean; requestStartedAt?: number },
+	) {
 		sessions = sortSessionsByRecentActivity(
 			next.sessions,
 		) as UserSessionListItem[];
+		reconcileGenerationStateFromSessionList(sessions, options);
 		if (next.pageInfo) {
 			pageInfo = {
 				hasMore: Boolean(next.pageInfo.hasMore),
@@ -77,6 +82,7 @@ export function createUserSessionListController() {
 		else refreshing = true;
 		error = null;
 		try {
+			const requestStartedAt = Date.now();
 			const result = await sdk.user.listSessions({
 				limit: PAGE_SIZE,
 				cursor: null,
@@ -87,7 +93,10 @@ export function createUserSessionListController() {
 
 			const nextSessions = (result.sessions ?? []) as UserSessionListItem[];
 			const nextPageInfo = result.pageInfo ?? emptyUserSessionListPageInfo();
-			applySnapshot({ sessions: nextSessions, pageInfo: nextPageInfo });
+			applySnapshot(
+				{ sessions: nextSessions, pageInfo: nextPageInfo },
+				{ authoritative: true, requestStartedAt },
+			);
 			await setCachedUserSessionList(nextSessions, nextPageInfo, {
 				mode: "replace",
 				expectedUserKey: requestUserKey,
@@ -115,6 +124,7 @@ export function createUserSessionListController() {
 		loadingMore = true;
 		error = null;
 		try {
+			const requestStartedAt = Date.now();
 			const result = await sdk.user.listSessions({
 				limit: PAGE_SIZE,
 				cursor,
@@ -138,7 +148,10 @@ export function createUserSessionListController() {
 			const merged = sortSessionsByRecentActivity([
 				...byId.values(),
 			]) as UserSessionListItem[];
-			applySnapshot({ sessions: merged, pageInfo: nextPageInfo });
+			applySnapshot(
+				{ sessions: merged, pageInfo: nextPageInfo },
+				{ authoritative: true, requestStartedAt },
+			);
 			await setCachedUserSessionList(merged, nextPageInfo, {
 				mode: "replace",
 				expectedUserKey: requestUserKey,
