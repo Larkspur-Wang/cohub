@@ -1,11 +1,23 @@
 <script lang="ts">
-import type { AppDetailResponse } from "@neta-art/cohub";
+import type {
+	AppDetailResponse,
+	AppRuntimeInvocationContext,
+	AppRuntimeShellContext,
+} from "@neta-art/cohub";
 import { onMount } from "svelte";
 import { page } from "$app/state";
 import { buildAppPageMeta } from "$lib/app-page-meta";
 import { reportAppPromotionReady, startAppPromotion } from "$lib/app-promotion";
 import AppPageHead from "$lib/components/app/AppPageHead.svelte";
 import AppSurface from "$lib/components/app/AppSurface.svelte";
+import {
+	type AppEmbedConnection,
+	type AppEmbedState,
+	connectAppEmbed,
+	isServedFrom,
+	resolveEmbedderOrigin,
+} from "$lib/features/app/app-embed";
+import { loadAppPreview } from "$lib/features/app/app-open";
 import { sdk } from "$lib/sdk";
 
 type ReadyData = {
@@ -44,6 +56,76 @@ let surfaceLoaded = false;
 let promotionReadyReported = false;
 let promotionRuntime: ReturnType<typeof startAppPromotion> | null = null;
 let activePromotionKey = "";
+/**
+ * Another App embeds this page. Its hints shape the embedded App's shell and
+ * invocation context only; identity and grants stay in the local bridge.
+ */
+let embed = $state<AppEmbedState | null>(null);
+let embedder = $state<{ appId: string; slug: string } | null>(null);
+let embedConnection: AppEmbedConnection | null = null;
+
+const shell = $derived<AppRuntimeShellContext | undefined>(
+	embed
+		? {
+				surface: "embed",
+				...(embed.shell ?? { space: null, session: null, turn: null }),
+			}
+		: undefined,
+);
+const invocation = $derived<AppRuntimeInvocationContext | undefined>(
+	embed
+		? {
+				surface: "page",
+				source: "embed",
+				...(embedder ? { embedder } : {}),
+				...(embed.shell?.space ? { spaceId: embed.shell.space.id } : {}),
+				...(embed.shell?.session ? { sessionId: embed.shell.session.id } : {}),
+				...(embed.shell?.turn ? { turnId: embed.shell.turn.id } : {}),
+			}
+		: undefined,
+);
+
+const embedderOrigin = resolveEmbedderOrigin();
+
+$effect(() => {
+	if (!surfaceReady || !embedderOrigin) return;
+	embedConnection = connectAppEmbed(embedderOrigin, (state) => {
+		embed = state;
+	});
+	return () => {
+		embedConnection?.dispose();
+		embedConnection = null;
+		embed = null;
+	};
+});
+
+// The embedder names itself by id. It is trusted only when that App's content
+// is served from the frame origin that sent the hint.
+const embedderAppId = $derived(embed?.embedder.appId ?? null);
+$effect(() => {
+	const appId = embedderAppId;
+	embedder = null;
+	if (!appId || !embedderOrigin) return;
+	let cancelled = false;
+	void loadAppPreview(sdk.apps, appId).then(
+		({ app, content }) => {
+			if (!cancelled && isServedFrom(content, embedderOrigin))
+				embedder = { appId: app.id, slug: app.slug };
+		},
+		() => undefined,
+	);
+	return () => {
+		cancelled = true;
+	};
+});
+
+function handleCloseRequest() {
+	if (embedConnection) return embedConnection.requestClose();
+	// Browsers only let scripts close tabs they opened; otherwise leave the App,
+	// which may land outside Cohub when this page was the entry point.
+	window.close();
+	if (!window.closed) history.back();
+}
 
 const promotionId = $derived(page.url.searchParams.get("cohub_campaign"));
 
@@ -173,6 +255,9 @@ $effect(() => {
 		owner={ready.owner}
 		content={ready.content}
 		{launchState}
+		{shell}
+		{invocation}
+		onCloseRequest={handleCloseRequest}
 		onReady={handleSurfaceReady}
 	/>
 {:else if ready}

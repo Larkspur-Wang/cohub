@@ -15,7 +15,6 @@ import type {
 	TaskRunRecord,
 	UserProfile,
 } from "@neta-art/cohub";
-import { parseAppRef } from "@neta-art/cohub";
 import type { BoardDocument } from "@neta-art/cohub/board";
 import {
 	Check,
@@ -62,6 +61,7 @@ import ResourceLabelPicker from "$lib/components/ResourceLabelPicker.svelte";
 import UserIdentity from "$lib/components/UserIdentity.svelte";
 import { createDeferredMount } from "$lib/deferred-mount.svelte";
 import { invalidateInstalledApps } from "$lib/features/app/app-center";
+import { resolveAppNavigation } from "$lib/features/app/app-open";
 import {
 	APPS_CHANGED_EVENT,
 	createAppMutationBuffer,
@@ -436,33 +436,11 @@ async function handleAppNavigationOpen(message: AppNavigationOpenMessage) {
 		return openWorkspaceNavigation(message.target);
 	}
 	try {
-		const parsedRef = parseAppRef(message.target.ref);
-		if ("id" in parsedRef) {
-			// IDs are stable and avoid an unnecessary slug lookup.
-			const parsed = await sdk.apps
-				.get(parsedRef.id)
-				.catch(() => sdk.apps.getPublicById(parsedRef.id));
-			return openResolvedAppNavigation(
-				message,
-				parsed.app.id,
-				appDisplayTitle(parsed.app.meta, parsed.app.slug),
-				{ source: "user" },
-				message.target.launch,
-			);
-		}
-		const parsed = await sdk.apps.getBySlug(
-			parsedRef.username,
-			parsedRef.spaceSlug,
-			parsedRef.appSlug,
+		const { detail: parsed, launch } = await resolveAppNavigation(
+			sdk.apps,
+			message.target.ref,
+			message.target.launch,
 		);
-		const launch =
-			message.target.launch ??
-			(parsedRef.search || parsedRef.hash
-				? {
-						...(parsedRef.search ? { search: parsedRef.search } : {}),
-						...(parsedRef.hash ? { hash: parsedRef.hash } : {}),
-					}
-				: undefined);
 		return openResolvedAppNavigation(
 			message,
 			parsed.app.id,

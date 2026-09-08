@@ -168,6 +168,7 @@ const isDisabled = $derived(detail?.app.status === "disabled");
 					onSurfaceHost={handleSurfaceHost}
 					onComposerChip={handleComposerChip}
 					onNavigationOpen={onNavigationOpen}
+					onCloseRequest={() => onCloseWindow("app", preview.appId)}
 				/>
 			{/key}
 		{/if}

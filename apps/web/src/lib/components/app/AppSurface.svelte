@@ -4,7 +4,10 @@ import {
 	buildAppNavigationOpenResponse,
 	parseAppNavigationOpenMessage,
 } from "@cohub/protocol/app-navigation";
-import { parseAppRuntimeReady } from "@cohub/protocol/app-runtime";
+import {
+	parseAppRuntimeCloseRequest,
+	parseAppRuntimeReady,
+} from "@cohub/protocol/app-runtime";
 import type { AppComposerChip } from "@cohub/protocol/app-surface";
 import type {
 	AppContent,
@@ -73,6 +76,8 @@ type Props = {
 	onSurfaceHost?: (host: AppSurfaceHost | null) => void;
 	onComposerChip?: (chip: AppComposerChip | null) => void;
 	onReady?: () => void;
+	/** The App asked to close the surface it runs in. */
+	onCloseRequest?: () => void;
 	onNavigationOpen?: (
 		message: AppNavigationOpenMessage,
 	) => Promise<
@@ -95,12 +100,14 @@ const {
 	onSurfaceHost = undefined,
 	onComposerChip = undefined,
 	onReady = undefined,
+	onCloseRequest = undefined,
 	onNavigationOpen = undefined,
 }: Props = $props();
 
 let frame: HTMLIFrameElement | null = $state(null);
 let bridgeReady = $state(false);
 let runtimeReady = $state(false);
+let frameHasLoaded = false;
 let readyReported = false;
 let contextSyncWarningReported = false;
 
@@ -149,6 +156,7 @@ const frameReplyTarget = $derived(frameOrigin ?? page.url.origin);
 $effect(() => {
 	void iframeSrc;
 	runtimeReady = false;
+	frameHasLoaded = false;
 	surfaceHost?.reset();
 });
 
@@ -226,6 +234,10 @@ function pushSurfaceContext() {
 async function onFrameMessage(event: MessageEvent) {
 	if (event.source !== frame?.contentWindow) return;
 	if (!frameOrigin || event.origin !== frameOrigin) return;
+	if (parseAppRuntimeCloseRequest(event.data)) {
+		onCloseRequest?.();
+		return;
+	}
 	const navigation = parseAppNavigationOpenMessage(event.data);
 	if (navigation) {
 		let result:
@@ -310,7 +322,11 @@ onMount(() => {
 			onload={() => {
 				// load only marks the document as visually ready. Context waits for
 				// the new document's runtime handshake.
-				runtimeReady = false;
+				// Any App can announce ready before its initial load event. Preserve
+				// that handshake; later in-frame navigations must announce again.
+				const isFirstLoad = !frameHasLoaded;
+				frameHasLoaded = true;
+				if (!isFirstLoad) runtimeReady = false;
 				surfaceHost?.reset();
 				reportReady();
 			}}
