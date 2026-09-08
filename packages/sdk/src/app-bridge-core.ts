@@ -108,7 +108,7 @@ export type AppPromotionAttributionContext = {
 
 export type AppBridgeAuthorizationContext = {
 	/** The host surface handling this authorization request. */
-	surface: "page" | "app" | "background" | "broker";
+	surface: "page" | "app" | "background" | "broker" | "overlay";
 };
 
 /**
