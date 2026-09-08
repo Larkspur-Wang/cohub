@@ -310,6 +310,8 @@ const CAMERA_ANIMATION_MS = 240;
 const DRAG_THRESHOLD = 3;
 /** Snap attraction radius in screen px (scaled to world by zoom). */
 const SNAP_THRESHOLD = 8;
+/** More than this many new items in one remote refresh is a re-hydration, not an entrance. */
+const ENTRANCE_BULK_THRESHOLD = 12;
 
 function easeOutCubic(t: number) {
 	return 1 - (1 - t) * (1 - t) * (1 - t);
@@ -365,6 +367,18 @@ export function createBoardEditor(options: BoardEditorOptions) {
 	/** Bumped on geometry changes (nudge, align, drag commit). Stage cull cache
 	 * keys on this so moved items re-enter/leave the viewport correctly. */
 	let geometryVersion = $state(0);
+	/** Local-only: ids that just landed, for the entrance animation. */
+	const recentlyAdded = new Map<string, number>();
+	let addedGeneration = $state(0);
+
+	function markAdded(ids: readonly string[]) {
+		if (ids.length === 0 || ids.length > ENTRANCE_BULK_THRESHOLD) return;
+		const now = Date.now();
+		// The runtime owns playback; this only needs to hold the current burst.
+		recentlyAdded.clear();
+		for (const id of ids) recentlyAdded.set(id, now);
+		addedGeneration += 1;
+	}
 
 	// Creation styles are local UI preferences, never synced into the document.
 	// Each tool keeps its own values so switching tools does not leak a drawing
@@ -904,6 +918,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 
 	function addItemAt(item: BoardItem, opts?: { select?: boolean }) {
 		setItems([...synced.items, item]);
+		markAdded([item.id]);
 		// Consecutive strokes stay unobstructed; one-shot tools surface their result.
 		const shouldSelect = opts?.select ?? !isContinuousBoardTool(tool);
 		selection = shouldSelect ? [item.id] : [];
@@ -1001,6 +1016,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 			[...synced.items, item],
 			[...synced.connections, ...connections],
 		);
+		markAdded([item.id]);
 		selection = [item.id];
 		commitAction();
 		return item.id;
@@ -1261,6 +1277,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 			[...synced.items, ...copies.items],
 			[...synced.connections, ...copies.connections],
 		);
+		markAdded(copies.items.map((copy) => copy.id));
 		selection = copies.items.map((copy) => copy.id);
 		commitAction();
 	}
@@ -1365,6 +1382,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 			[...synced.items, ...pasted.items],
 			[...synced.connections, ...pasted.connections],
 		);
+		markAdded(pasted.items.map((item) => item.id));
 		selection = pasted.items.map((item) => item.id);
 		commitAction();
 	}
@@ -2893,6 +2911,9 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		currentKey = key;
 		// A fresh external document supersedes any deferred refresh.
 		pendingRemote = null;
+		const previousIds = sameDocument
+			? new Set(synced.items.map((item) => item.id))
+			: null;
 		const { merged, hadLocalChanges } = reconcileExternal(
 			externalBaseline,
 			document,
@@ -2900,6 +2921,13 @@ export function createBoardEditor(options: BoardEditorOptions) {
 			sameDocument,
 		);
 		synced = toContent(merged);
+		if (previousIds) {
+			markAdded(
+				merged.items
+					.filter((item) => !previousIds.has(item.id))
+					.map((item) => item.id),
+			);
+		}
 		mediaIdsByPath = null;
 		bumpSpatial();
 		bumpStructure();
@@ -3118,6 +3146,12 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		},
 		get geometryVersion() {
 			return geometryVersion;
+		},
+		get addedGeneration() {
+			return addedGeneration;
+		},
+		get recentlyAdded(): ReadonlyMap<string, number> {
+			return recentlyAdded;
 		},
 		/**
 		 * True while a pointer gesture is mutating the document. Renderers use this

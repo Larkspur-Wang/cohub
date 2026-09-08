@@ -41,6 +41,12 @@ import {
 	timelinePosition,
 } from "$lib/board/runtime/animation-core";
 import type { BoardRuntimeData } from "$lib/board/runtime/board-runtime";
+import {
+	entranceLandingAlpha,
+	entrancePose,
+	entranceProgress,
+	entranceTotalMs,
+} from "$lib/board/runtime/entrance-motion";
 
 type BasePose = {
 	x: number;
@@ -431,6 +437,8 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 	const particleResources = new Map<string, ParticleResource>();
 	const trailResources = new Map<string, TrailResource>();
 	const revealResources = new Map<string, RevealResource>();
+	const landingStrokes = new Map<string, Graphics>();
+	const entrances = new Map<string, number>();
 	let worldPose: BasePose | null = null;
 	let frameId = 0;
 	let sharedPlayback: BoardPlaybackSnapshot | null = null;
@@ -498,6 +506,8 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 		particleResources.clear();
 		trailResources.clear();
 		revealResources.clear();
+		for (const graphics of landingStrokes.values()) graphics.destroy();
+		landingStrokes.clear();
 	}
 
 	function poseFor(poses: Map<string, AnimationPose>, nodeId: string) {
@@ -1017,6 +1027,8 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 			}
 		}
 
+		const hasEntrance = applyEntrances(now, poses, layers);
+
 		for (const [nodeId, pose] of poses) {
 			const entry = nodeWithBase(nodeId);
 			if (entry) applyPose(entry.container, entry.base, pose);
@@ -1032,12 +1044,83 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 			!ended &&
 			!sample?.waiting;
 		return (
+			hasEntrance ||
 			hasContinuousEffect ||
 			Boolean(
 				playbackActive &&
 					(hasSupportedClip || (sequence?.timeline.tracks.length ?? 0) > 0),
 			)
 		);
+	}
+
+	function applyEntrances(
+		now: number,
+		poses: Map<string, AnimationPose>,
+		layers: { front: Container },
+	): boolean {
+		if (entrances.size === 0) return false;
+		let activeEntrance = false;
+		for (const [id, addedAt] of entrances) {
+			const elapsed = now - addedAt;
+			if (elapsed > entranceTotalMs(reducedMotion)) {
+				entrances.delete(id);
+				syncLandingStroke(id, 0, layers.front);
+				continue;
+			}
+			activeEntrance = true;
+			const progress = entranceProgress(elapsed, reducedMotion);
+			if (progress < 1) {
+				composePose(
+					poseFor(poses, id),
+					entrancePose(id, progress, reducedMotion),
+				);
+				continue;
+			}
+			// Landing highlight only starts once the card has settled.
+			syncLandingStroke(
+				id,
+				entranceLandingAlpha(elapsed, reducedMotion),
+				layers.front,
+			);
+		}
+		return activeEntrance;
+	}
+
+	function syncLandingStroke(id: string, alpha: number, layer: Container) {
+		const entry = options.getNode(id);
+		if (!entry || alpha <= 0) {
+			const existing = landingStrokes.get(id);
+			if (existing) {
+				existing.destroy();
+				landingStrokes.delete(id);
+			}
+			return;
+		}
+		let graphics = landingStrokes.get(id);
+		if (!graphics) {
+			graphics = new Graphics();
+			layer.addChild(graphics);
+			landingStrokes.set(id, graphics);
+		}
+		const frame = entry.item.frame;
+		graphics.clear();
+		graphics.roundRect(frame.x, frame.y, frame.width, frame.height, 4).stroke({
+			color: options.getAccentColor(),
+			width: 2,
+			alpha,
+		});
+	}
+
+	function setEntrances(next: ReadonlyMap<string, number>) {
+		let changed = false;
+		for (const [id, addedAt] of next) {
+			if (entrances.has(id)) continue;
+			entrances.set(id, addedAt);
+			changed = true;
+		}
+		if (!changed) return;
+		materializationVersion += 1;
+		start();
 	}
 
 	function tick() {
@@ -1205,6 +1288,7 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 			) ?? [])
 				ids.add(itemId);
 		}
+		for (const id of entrances.keys()) ids.add(id);
 
 		materializationCache = ids;
 		materializationCacheVersion = materializationVersion;
@@ -1221,7 +1305,13 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 		worldPose = null;
 		// Scene sync may materialize the first target after the runtime's initial
 		// frame has stopped. Resume only when there is animation data to evaluate.
-		if (data.effects.length > 0 || data.playback || autoplayPlayback) start();
+		if (
+			data.effects.length > 0 ||
+			data.playback ||
+			autoplayPlayback ||
+			entrances.size > 0
+		)
+			start();
 	}
 
 	function visibilityChanged() {
@@ -1243,6 +1333,7 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 	return {
 		setData,
 		setActive,
+		setEntrances,
 		start,
 		nodeIdsToMaterialize,
 		prepareSceneSync,

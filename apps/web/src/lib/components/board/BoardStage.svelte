@@ -1099,7 +1099,6 @@ async function enrichFileCards(targets: Array<{ id: string; path: string }>) {
 			if (item?.type !== "file") return null;
 			const result = await loadFilePreview(spaceId, {
 				path,
-				title: item.snapshot?.title,
 				mimeType: item.snapshot?.mimeType,
 				size: item.snapshot?.size,
 				mtimeMs: item.snapshot?.mtimeMs,
@@ -1443,6 +1442,11 @@ onMount(async () => {
 
 $effect(() => {
 	animationRuntime?.setData(runtime);
+});
+
+$effect(() => {
+	editor.addedGeneration;
+	animationRuntime?.setEntrances(editor.recentlyAdded);
 });
 
 function setBackdropLoadState(state: BoardBackgroundLoadState | null) {
