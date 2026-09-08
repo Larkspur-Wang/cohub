@@ -1,5 +1,13 @@
 # @neta-art/cohub
 
+## 8.11.0
+
+### Minor Changes
+
+- 1f326f4: Add `client.auth.requestCreateSpace()` so Apps can create a viewer-owned Space in one consent. The host uses the viewer's account token against the existing create API, then grants the requested scopes on the new Space.
+- a34dc95: Apps can embed other Apps by rendering their public pages in iframes. `cohub.app.embed.attach(frame, { appId, shell, onCloseRequest })` forwards the embedder's shell location and relays the embedded App's close intent; the embedded App sees `context.shell.surface === "embed"` and, once the embedder is verified against the frame origin, `context.invocation.embedder`. Any App can call `cohub.app.requestClose()` to ask its host to close the surface it runs in.
+- 925d712: Board file cards read better: titles come from frontmatter (`title`/`name`/`label`/`heading`) or the first H1 and drop the file extension; frontmatter is split reliably (BOM, leading blanks, `+++` TOML, trailing fence whitespace); covers accept more keys including nested `image.src`; excerpts vary by file kind (prose for docs, leading comment for code, `description` for JSON/YAML). Cards show a `TYPE · size` meta line, a category-coloured stripe, and a large type mark when there is no cover or excerpt.
+
 ## 8.10.2
 
 ### Patch Changes
