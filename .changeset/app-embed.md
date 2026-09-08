@@ -1,5 +1,4 @@
 ---
-"@cohub/protocol": minor
 "@neta-art/cohub": minor
 ---
 
