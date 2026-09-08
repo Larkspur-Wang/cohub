@@ -22,6 +22,8 @@ export type AppConfig = {
   checkpointCachePvc: string;
   checkpointCacheRoot: string;
   spaceSystemRoot: string;
+  spaceSystemPvc: string;
+  spaceSystemSubpath: string;
   spaceStorageSubpath: string;
   checkpointCacheSubpath: string;
   configsSubpath: string;
@@ -187,6 +189,8 @@ export const config: AppConfig = {
   checkpointCachePvc: process.env.CHECKPOINT_CACHE_PVC ?? process.env.SPACE_STORAGE_PVC ?? "cohub-spaces-pvc",
   checkpointCacheRoot: process.env.CHECKPOINT_CACHE_ROOT ?? "/checkpoint-cache",
   spaceSystemRoot: process.env.SPACE_SYSTEM_ROOT ?? process.env.SPACE_STORAGE_ROOT ?? "",
+  spaceSystemPvc: process.env.SPACE_SYSTEM_PVC ?? "cohub-system-pvc",
+  spaceSystemSubpath: process.env.SPACE_SYSTEM_SUBPATH ?? (env === "prod" ? "prod" : "dev"),
   spaceStorageSubpath: process.env.SPACE_STORAGE_SUBPATH ?? (env === "prod" ? "cohub-prod" : "cohub-dev"),
   checkpointCacheSubpath: process.env.CHECKPOINT_CACHE_SUBPATH ?? `${process.env.SPACE_STORAGE_SUBPATH ?? (env === "prod" ? "cohub-prod" : "cohub-dev")}/checkpoints`,
   configsSubpath: process.env.CONFIGS_SUBPATH ?? (env === "prod" ? "configs/prod" : "configs/dev"),

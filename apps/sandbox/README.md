@@ -12,6 +12,7 @@
 - `fs.ls`
 - `fs.find`
 - `fs.grep`
+- `fs.search`（可选的 Tantivy 候选文件搜索）
 - `process.start`
 - `process.abort`
 
@@ -52,6 +53,7 @@ apps/sandbox/
   process/
   protocol/
   rpc/
+  search/
   workspace/
   ws/
 ```
@@ -96,6 +98,10 @@ pnpm dev
 ```bash
 docker build -f apps/sandbox/Dockerfile -t cohub-sandbox:latest apps/sandbox
 ```
+
+搜索索引是可选组件。sandbox 会在启动时探测 `/opt/cohub/bin/cohub-search`、`/usr/local/bin/cohub-search` 或 `/tmp/cohub-search`，也可以通过 `COHUB_SEARCH_BIN` 指定路径。二进制存在时，sandbox 会在 workspace 准备完成后触发全量构建，并把 filewatch 增量变化转发给独立搜索进程。
+
+索引默认写入 `/index/workspace-candidates`，Unix socket 默认位于 `/tmp/cohub-search.sock`。可通过 `COHUB_SEARCH_INDEX_DIR` 和 `COHUB_SEARCH_SOCKET` 覆盖。其他索引 family 可以在 `/index` 下并行存放，不与当前候选索引混用。
 
 当前运行时基础环境参考现有 agent 镜像，保留了较完整的工具链，包括：
 

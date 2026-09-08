@@ -1,3 +1,5 @@
+import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
 import { asc, eq, isNull, ne, or, sql } from "drizzle-orm";
 import { billingOperations, COHUB_BILLING_FEATURES } from "@cohub/billing";
 import {
@@ -38,6 +40,19 @@ export const toSandboxImageVersion = (image: string) => {
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const RECOVERY_LOCK_TTL_MS = 180_000;
 const RECOVERY_COOLDOWN_MS = 60_000;
+
+const ensureSandboxSearchIndexDir = async (spaceId: string) => {
+  if (!config.spaceSystemRoot) {
+    throw new Error("SPACE_SYSTEM_ROOT is required for sandbox search index storage");
+  }
+  if (!/^[a-z0-9-]+$/.test(spaceId)) {
+    throw new Error("invalid space id for sandbox search index storage");
+  }
+  await mkdir(join(config.spaceSystemRoot, spaceId, "index"), {
+    recursive: true,
+    mode: 0o775,
+  });
+};
 
 const asMetaObject = (value: unknown): Record<string, unknown> => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
@@ -498,6 +513,8 @@ export const reconcileSpaceSandbox = async (input: {
     publicEndpoints: getSandboxPublicEndpoints(input.spaceId),
   };
 
+  await ensureSandboxSearchIndexDir(input.spaceId);
+
   await ensureSpaceSandbox({
     spaceId: input.spaceId,
     status: "provisioning",
@@ -520,6 +537,8 @@ export const reconcileSpaceSandbox = async (input: {
     ENV: config.env,
     SPACE_STORAGE_PVC: config.spaceStoragePvc,
     SPACE_STORAGE_SUBPATH: config.spaceStorageSubpath,
+    SPACE_SYSTEM_PVC: config.spaceSystemPvc,
+    SPACE_SYSTEM_SUBPATH: config.spaceSystemSubpath,
     CONFIGS_SUBPATH: config.configsSubpath,
     SANDBOX_SPEC_ID: desiredSpec,
   }) as V1Pod;

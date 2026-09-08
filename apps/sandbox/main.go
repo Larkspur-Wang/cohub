@@ -20,6 +20,7 @@ import (
 	"github.com/cohub/apps/sandbox/relay"
 	"github.com/cohub/apps/sandbox/report"
 	"github.com/cohub/apps/sandbox/rpc"
+	"github.com/cohub/apps/sandbox/search"
 	"github.com/cohub/apps/sandbox/workspace"
 	"github.com/cohub/apps/sandbox/ws"
 )
@@ -143,10 +144,14 @@ func buildRuntime(
 	hostname string,
 	fsSink func(protocol.FSChangedPayload),
 	portsSink func(protocol.PortsChangedPayload),
-) (*ws.Server, func(), func()) {
+) (*ws.Server, func(), func(), *search.Manager) {
 	processManager := process.NewManager(logger)
+	searchManager := search.NewManager(cfg, logger)
+	searchManager.Start()
 	dispatcher := rpc.NewDispatcher(cfg, processManager, logger)
+	dispatcher.SetSearchManager(searchManager)
 	server := ws.NewServer(cfg, dispatcher, processManager, reporter, state, hostname, logger)
+	server.SetSearchEnabled(searchManager.Enabled())
 
 	if fsSink == nil {
 		fsSink = server.BroadcastFSChanged
@@ -158,6 +163,7 @@ func buildRuntime(
 	var closers []func()
 	requestFSResync := func() {}
 	if watcher, err := filewatch.Start(cfg.WorkspaceDir, logger, func(batch filewatch.Batch) {
+		searchManager.Apply(batch)
 		fsSink(protocol.FSChangedPayload{
 			Seq:     batch.Seq,
 			Resync:  batch.Resync,
@@ -184,11 +190,12 @@ func buildRuntime(
 		logger.Info("port watcher started", slog.Any("ports", cfg.PublicPorts))
 	}
 
+	closers = append(closers, searchManager.Close)
 	return server, func() {
 		for _, close := range closers {
 			close()
 		}
-	}, requestFSResync
+	}, requestFSResync, searchManager
 }
 
 func runCloud(logger *slog.Logger, cfg env.Config) {
@@ -197,7 +204,7 @@ func runCloud(logger *slog.Logger, cfg env.Config) {
 	hostname, _ := os.Hostname()
 	reporter := report.NewClient(cfg, hostname)
 
-	server, closeWatchers, _ := buildRuntime(logger, cfg, state, reporter, hostname, nil, nil)
+	server, closeWatchers, _, searchManager := buildRuntime(logger, cfg, state, reporter, hostname, nil, nil)
 	defer closeWatchers()
 	server.SetFSResyncOnAttach(true)
 
@@ -252,6 +259,7 @@ func runCloud(logger *slog.Logger, cfg env.Config) {
 				}
 			}
 
+			searchManager.Activate()
 			logger.Info("workspace mount ready",
 				slog.String("workspaceDir", summary.WorkspaceDir),
 				slog.String("platformAgentsDir", summary.PlatformAgentsDir),
@@ -327,7 +335,7 @@ func runLocal(logger *slog.Logger, spaceID, root, relayURL string) {
 		client.PublishEvent("ports.changed", payload)
 	}
 
-	server, closeWatchers, watcherResync := buildRuntime(logger, cfg, state, nil, hostname, fsSink, portsSink)
+	server, closeWatchers, watcherResync, _ := buildRuntime(logger, cfg, state, nil, hostname, fsSink, portsSink)
 	defer closeWatchers()
 	requestFSResync = watcherResync
 	client.SetServer(server)

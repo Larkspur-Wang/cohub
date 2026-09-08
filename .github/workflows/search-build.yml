@@ -1,0 +1,78 @@
+name: Search Binary Build
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'apps/search/**'
+      - '.github/workflows/search-build.yml'
+  pull_request:
+    paths:
+      - 'apps/search/**'
+      - '.github/workflows/search-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: Format, lint, test, build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/search
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            apps/search/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('apps/search/Cargo.lock', 'apps/search/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --locked --all-targets --all-features -- -D warnings
+
+      - name: Test
+        run: cargo test --locked --all-targets
+
+      - name: Install musl toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends musl-tools
+          rustup target add x86_64-unknown-linux-musl
+
+      - name: Build static binary
+        run: cargo build --locked --release --target x86_64-unknown-linux-musl
+
+      - name: Create checksum
+        run: sha256sum target/x86_64-unknown-linux-musl/release/cohub-search > target/x86_64-unknown-linux-musl/release/cohub-search.sha256
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: cohub-search-linux-amd64
+          path: |
+            apps/search/target/x86_64-unknown-linux-musl/release/cohub-search
+            apps/search/target/x86_64-unknown-linux-musl/release/cohub-search.sha256
+          if-no-files-found: error
+          retention-days: 14

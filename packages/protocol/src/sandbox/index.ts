@@ -1,3 +1,5 @@
+import type { WORKSPACE_CANDIDATE_INDEX_FAMILY } from "../search/index.js";
+
 export const AGENT_SANDBOX_PROTOCOL_VERSION = "1" as const;
 
 export { SYSTEM_ENV_KEYS, SYSTEM_ENV_KEY_SET, SPACE_ENV_REDIS_KEY } from "./constants.js";
@@ -23,6 +25,7 @@ export const RPC_METHODS = [
   "fs.tree",
   "fs.find",
   "fs.grep",
+  "fs.search",
   "process.start",
   "process.abort",
 ] as const;
@@ -84,6 +87,7 @@ export const RPC_ERROR_CODES = [
   "PROCESS_ABORT_FAILED",
   "IO_ERROR",
   "INTERNAL_ERROR",
+  "SEARCH_UNAVAILABLE",
 ] as const;
 
 export type RpcErrorCode = (typeof RPC_ERROR_CODES)[number];
@@ -128,6 +132,8 @@ export type SandboxCapabilities = {
   fsTree?: boolean;
   fsFind: boolean;
   fsGrep: boolean;
+  /** Tantivy-backed candidate search is available in the sandbox. */
+  fsSearch?: boolean;
   processStart: boolean;
   /** process.start supports argv exec mode (no shell). */
   processStartArgv?: boolean;
@@ -375,6 +381,26 @@ export type FsGrepResult = {
   truncated?: boolean;
 };
 
+export type FsSearchParams = {
+  /** Required literal fragments; each must contain at least 3 non-whitespace characters. */
+  literals: string[];
+  path?: string;
+  cwd?: string;
+  glob?: string;
+  limit?: number;
+};
+
+export type FsSearchResult = {
+  path: string;
+  /** Paths relative to the requested path, matching fs.find semantics. */
+  matches: string[];
+  indexFamily: typeof WORKSPACE_CANDIDATE_INDEX_FAMILY;
+  schemaVersion: number;
+  coverage: "complete" | "partial" | "stale";
+  truncated?: boolean;
+  state?: "ready" | "indexing" | "error";
+};
+
 export type ProcessStartParams = {
   /** Shell command mode. Preserves existing `bash -c` semantics. */
   command?: string;
@@ -446,6 +472,10 @@ export type RpcRequestMap = {
   "fs.grep": {
     params: FsGrepParams;
     result: FsGrepResult;
+  };
+  "fs.search": {
+    params: FsSearchParams;
+    result: FsSearchResult;
   };
   "process.start": {
     params: ProcessStartParams;

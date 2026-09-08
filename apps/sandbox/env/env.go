@@ -43,6 +43,9 @@ type Config struct {
 	PublicPorts                    []int
 	ZombieSelfHealThreshold        int
 	ZombieSelfHealConsecutiveTicks int
+	SearchBinaryPath               string
+	SearchIndexDir                 string
+	SearchSocketPath               string
 
 	// Local mode only. RelayURL is the gateway control endpoint the sandbox
 	// dials out to; RelayToken is the user's access token used to authorize the
@@ -107,6 +110,9 @@ func Load() (Config, error) {
 		PublicPorts:                    parsePortsEnv("COHUB_PUBLIC_PORTS", []int{3000, 5173}),
 		ZombieSelfHealThreshold:        parseIntEnv("ZOMBIE_SELF_HEAL_THRESHOLD", 0),
 		ZombieSelfHealConsecutiveTicks: parseIntEnv("ZOMBIE_SELF_HEAL_CONSECUTIVE_TICKS", 3),
+		SearchBinaryPath:               strings.TrimSpace(os.Getenv("COHUB_SEARCH_BIN")),
+		SearchIndexDir:                 resolveSearchIndexDir(),
+		SearchSocketPath:               resolveSearchSocketPath(),
 	}, nil
 }
 
@@ -166,10 +172,27 @@ func LoadLocal(opts LocalOptions) (Config, error) {
 		UserAgentsDir:     filepath.Join(cacheDir, "user-agents"),
 		ImageVersion:      imageVersion,
 		PublicPorts:       parsePortsEnv("COHUB_PUBLIC_PORTS", []int{3000, 5173}),
+		SearchBinaryPath:  strings.TrimSpace(os.Getenv("COHUB_SEARCH_BIN")),
+		SearchIndexDir:    filepath.Join(cacheDir, "index", "workspace-candidates"),
+		SearchSocketPath:  filepath.Join(cacheDir, "search.sock"),
 		RelayURL:          strings.TrimSpace(opts.RelayURL),
 		RelayToken:        strings.TrimSpace(opts.RelayToken),
 		Fence:             true,
 	}, nil
+}
+
+func resolveSearchIndexDir() string {
+	if value := strings.TrimSpace(os.Getenv("COHUB_SEARCH_INDEX_DIR")); value != "" {
+		return filepath.Clean(value)
+	}
+	return "/index/workspace-candidates"
+}
+
+func resolveSearchSocketPath() string {
+	if value := strings.TrimSpace(os.Getenv("COHUB_SEARCH_SOCKET")); value != "" {
+		return filepath.Clean(value)
+	}
+	return "/tmp/cohub-search/search.sock"
 }
 
 func parseIntEnv(name string, defaultValue int) int {
