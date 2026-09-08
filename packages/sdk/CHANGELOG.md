@@ -1,5 +1,11 @@
 # @neta-art/cohub
 
+## 8.10.2
+
+### Patch Changes
+
+- 5f4f0bc: Retry stalled WebSocket connection handshakes after a configurable timeout.
+
 ## 8.10.1
 
 ### Patch Changes
