@@ -4,6 +4,20 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v2.44 — 2026-09-08
+
+- **App embedding**: Apps can now host other Apps by rendering their public pages in iframes through `cohub.app.embed.attach(frame, { appId, shell, onCloseRequest })`; the embedded App sees `shell.surface: "embed"` and a verified `invocation.embedder`, and any App can call `cohub.app.requestClose()` to ask its host to close the surface it runs in.
+- **Viewer-owned Spaces via App consent**: `client.auth.requestCreateSpace()` lets an App create a Space owned by the viewer in a single consent — the host creates it with the viewer's account token, then grants the requested scopes. The create API now rejects delegated principals, so Apps, previews, and executions can never mint Spaces.
+- **Richer board file cards**: titles now come from frontmatter or the first H1 (extension stripped), more cover keys are accepted (including nested `image.src`), and excerpts follow the file category, backed by a new pure, renderer-agnostic `file-snapshot` module split out of `file-preview`. Cards show a `TYPE · size` meta line, a category-coloured stripe, and a large type mark when there is no cover or excerpt.
+- **Board entrance motion**: nodes added locally or arriving via `board.changed` drop onto the board with an id-hashed deal (lift, swing, tilt, easeOutBack) followed by a short landing stroke; bursts over 12 items are treated as rehydration and skipped, and reduced motion falls back to a plain fade.
+- **WebSocket and CLI resilience**: WebSocket clients retry stalled handshakes with a configurable `connectTimeoutMs` and ignore callbacks from stale sockets; CLI uploads now honor `HTTP(S)_PROXY`, send `Content-Length`, and retry transient PUT failures, while nested `--help` resolves the correct command path.
+
+### Bug Fixes
+
+- Space creation no longer 409s or hangs when provisioning fails: the API returns the already-created Space so callers can close with `{ granted: false, space }`, and environment/sandbox setup failures no longer abort the committed Space.
+- CLI nested `--help` on unknown prefixes now reports an error instead of dumping top-level help.
+- WebSocket reconnect no longer processes callbacks from superseded sockets, which could corrupt connection state or drop a reconnection.
+
 ## v2.43 — 2026-09-08
 
 - **Optional workspace search index**: A standalone `cohub-search` (Rust/Tantivy) and sandbox `fs.search` RPC land as optional infrastructure — when a binary is present, the Go sandbox supervises the indexer, forwards filewatch deltas, and stores a trigram candidate index on the system PVC for exact `rg` verification. This release publishes linux/amd64 binaries but does not bake them into the sandbox image, so search stays off until explicitly enabled.
