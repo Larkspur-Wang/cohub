@@ -497,7 +497,11 @@ export const listUserSessions = async (
     db.select().from(spaceSessions).where(participantWhere).orderBy(...sessionListOrderBy).limit(branchLimit),
   ]);
 
-  return mergeUserSessionListBranches([creatorRows, participantRows], limit);
+  const page = mergeUserSessionListBranches([creatorRows, participantRows], limit);
+  return {
+    ...page,
+    sessions: await attachActiveTurns(page.sessions),
+  };
 };
 
 const getNextSessionSequence = async (sessionId: string) => {

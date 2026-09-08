@@ -80,6 +80,7 @@ import {
 	writeSessionComposerDraftText,
 } from "$lib/stores/session-composer-drafts";
 import { sessionGenerationStore } from "$lib/stores/session-generation.svelte";
+import { reconcileGenerationStateFromSessionList } from "$lib/stores/session-generation-list-reconcile";
 import {
 	buildStreamingStoredIntermediateMessages,
 	clearCompletedIntermediateHandoff,
@@ -1545,43 +1546,6 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			entries.map((entry) => entry.node),
 			containerRect,
 		);
-	}
-
-	function reconcileGenerationStateFromSessionList(
-		sessions: SessionRecord[],
-		options?: { authoritative?: boolean; requestStartedAt?: number },
-	) {
-		const authoritative = options?.authoritative === true;
-		const requestStartedAt = options?.requestStartedAt ?? 0;
-		for (const session of sessions) {
-			// Older cached list records do not have activeTurn. They are useful for
-			// first paint, but cannot authoritatively clear or restore generation.
-			if (session.activeTurn === undefined) continue;
-			const current = sessionGenerationStore.get(session.id);
-			const activeTurn = session.activeTurn;
-			if (activeTurn) {
-				if (
-					current?.turnId !== activeTurn.id &&
-					current &&
-					current.status !== "idle"
-				) {
-					resetGeneration(session.id);
-				}
-				sessionGenerationStore.resumePending(session.id, {
-					spaceId,
-					turnId: activeTurn.id,
-					anchorUserMessageId: activeTurn.anchorUserMessageId,
-				});
-				continue;
-			}
-			if (
-				authoritative &&
-				current?.status === "pending" &&
-				(current.lastEventAt ?? 0) <= requestStartedAt
-			) {
-				resetGeneration(session.id);
-			}
-		}
 	}
 
 	function upsertSessionRecord(
