@@ -140,7 +140,7 @@ async function parseRunCliOptions(argv: string[]): Promise<RunCliOptions> {
   return { spaceId, json, async, command };
 }
 
-function printRunHelp(): void {
+export function printRunHelp(): void {
   process.stdout.write(`
 Usage:
   cohub [-s <spaceId>] run [options] -- <shell command>

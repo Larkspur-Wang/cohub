@@ -16,11 +16,12 @@ import { registerSearch } from "./commands/search.js";
 import { registerReferences } from "./commands/references.js";
 import { registerReferrals } from "./commands/referrals.js";
 import { registerPrompt, registerSpaces } from "./commands/spaces.js";
-import { maybeHandleRunCommand } from "./commands/run.js";
+import { maybeHandleRunCommand, printRunHelp } from "./commands/run.js";
 import { registerSandbox } from "./commands/sandbox.js";
 import { registerTasks } from "./commands/tasks.js";
 import { registerDesktop, registerLegacyUi } from "./commands/desktop.js";
 import { registerApps } from "./commands/apps.js";
+import { formatUnknownCommandError, resolveHelpPath } from "./help-path.js";
 
 const VERSION = (() => {
   try {
@@ -42,6 +43,10 @@ program
   .option("--json", "Print machine-readable JSON when supported")
   .helpOption("-h, --help", "Show help")
   .addHelpText("after", `
+
+Help:
+  cohub apps publish --help
+  cohub help apps publish
 
 Common commands:
   cohub auth login
@@ -71,6 +76,7 @@ Environment:
   COHUB_SPACE_ID         Target Space ID when -s is omitted
   COHUB_EXECUTION_TOKEN  Use this token instead of the stored Logto session
   ENV=dev                Use the development Cohub environment
+  HTTPS_PROXY            Honored for API and uploads (also HTTP_PROXY, NO_PROXY)
 `);
 
 registerAuth(program);
@@ -96,8 +102,16 @@ registerDesktop(program);
 registerLegacyUi(program);
 
 const argv = process.argv.slice(2);
-if (await maybeHandleRunCommand(argv)) {
+const help = resolveHelpPath(program, argv);
+if (help.kind === "help") {
+  help.command.outputHelp();
+} else if (help.kind === "run-help") {
+  printRunHelp();
+} else if (help.kind === "unknown") {
+  process.stderr.write(formatUnknownCommandError(help));
+  process.exit(1);
+} else if (await maybeHandleRunCommand(argv)) {
   process.exit();
+} else {
+  program.parse();
 }
-
-program.parse();

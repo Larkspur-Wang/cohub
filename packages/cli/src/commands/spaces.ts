@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { createReadStream } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import { basename, dirname, relative, resolve, sep } from "node:path";
 import { resolveCohubEnvironment } from "@neta-art/cohub";
@@ -13,6 +12,7 @@ import type {
 import type { Command } from "commander";
 import { uploadAvatarAsset, uploadChatImageAsset } from "../avatar.js";
 import { createClient } from "../client.js";
+import { putLocalFile } from "../http-put.js";
 import { table, json as outJson, jsonRequested, ok, error, handleHttp, formatEpochMs } from "../output.js";
 import { resolveSpace } from "../space.js";
 import { registerSpaceCommerce } from "./space-commerce.js";
@@ -227,16 +227,13 @@ export async function collectUploadFiles(paths: string[]): Promise<UploadFile[]>
 }
 
 async function putUploadEntry(entry: UploadFile, uploadUrl: string, headers?: Record<string, string>): Promise<void> {
-  const response = await fetch(uploadUrl, {
-    method: "PUT",
+  await putLocalFile({
+    url: uploadUrl,
+    filePath: entry.localPath,
+    size: entry.size,
     headers,
-    body: createReadStream(entry.localPath) as never,
-    duplex: "half",
-  } as RequestInit & { duplex: "half" });
-  if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    throw new Error(`Failed to upload ${entry.relativePath}: HTTP ${response.status}${detail ? ` — ${detail}` : ""}`);
-  }
+    label: entry.relativePath,
+  });
 }
 
 async function uploadFiles(command: Command, paths: string[], opts: UploadOptions): Promise<void> {

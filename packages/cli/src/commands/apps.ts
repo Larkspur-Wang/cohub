@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { createReadStream } from "node:fs";
 import { basename } from "node:path";
 import { getCohubContext, HttpError, type CohubHttpClient, type Permission, type AppCreateInput, type AppMeta, type AppStatus, type AppUpdateInput, type AppViewStatsResponse, type AppVisibility } from "@neta-art/cohub";
 import type { Command } from "commander";
@@ -9,6 +8,7 @@ import { resolveSpace } from "../space.js";
 import { downloadApp } from "../app-download.js";
 import { getAppByRef, parseAppRef } from "../app-ref.js";
 import { checkAppTarget } from "../app-target.js";
+import { putBytes, putLocalFile } from "../http-put.js";
 import { registerAppCommerce } from "./app-commerce.js";
 import { collectPublicUpload } from "./public.js";
 
@@ -91,13 +91,13 @@ async function uploadLocalAppSource(client: CohubHttpClient, spaceId: string, so
         sessionId: uploadId,
         file: { size: file.size, mimeType: file.mimeType, filename: basename(file.publicPath) },
       });
-      const response = await fetch(plan.asset.uploadUrl, {
-        method: "PUT",
+      await putLocalFile({
+        url: plan.asset.uploadUrl,
+        filePath: file.localPath,
+        size: file.size,
         headers: plan.asset.uploadHeaders,
-        body: createReadStream(file.localPath) as never,
-        duplex: "half",
-      } as RequestInit & { duplex: "half" });
-      if (!response.ok) throw new Error(`Failed to upload ${file.publicPath}: HTTP ${response.status}`);
+        label: file.publicPath,
+      });
       const path = directoryPrefix && file.publicPath.startsWith(`${directoryPrefix}/`)
         ? file.publicPath.slice(directoryPrefix.length + 1)
         : basename(file.publicPath);
@@ -114,12 +114,13 @@ async function uploadLocalAppSource(client: CohubHttpClient, spaceId: string, so
     sessionId: uploadId,
     file: { size: manifestBlob.size, mimeType: "application/json", filename: "manifest.json" },
   });
-  const manifestResponse = await fetch(manifestPlan.asset.uploadUrl, {
-    method: "PUT",
-    headers: manifestPlan.asset.uploadHeaders,
+  await putBytes({
+    url: manifestPlan.asset.uploadUrl,
     body: manifestBlob,
+    size: manifestBlob.size,
+    headers: manifestPlan.asset.uploadHeaders,
+    label: "app source manifest",
   });
-  if (!manifestResponse.ok) throw new Error(`Failed to upload app source manifest: HTTP ${manifestResponse.status}`);
   const manifestAsset = manifestPlan.asset;
   return { sourceRef: manifestAsset.objectKey, targetRef: source.targetType === "file" ? files[0]?.path ?? "" : "." };
 }
