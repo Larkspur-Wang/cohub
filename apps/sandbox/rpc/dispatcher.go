@@ -991,11 +991,16 @@ func (d *Dispatcher) handleFSSearch(request protocol.RPCRequest) interface{} {
 		pathPrefix = filepath.ToSlash(pathPrefix)
 	}
 
+	limit := params.Limit
+	if limit <= 0 {
+		limit = 1000
+	}
+
 	result, err := manager.Query(context.Background(), search.QueryInput{
 		Literals:   params.Literals,
 		PathPrefix: pathPrefix,
 		Glob:       params.Glob,
-		Limit:      params.Limit,
+		Limit:      limit,
 	})
 	if err != nil {
 		return d.failed(request, "", "INTERNAL_ERROR", err.Error())

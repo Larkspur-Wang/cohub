@@ -1401,6 +1401,7 @@ impl IndexStore {
         let mut inspected = 0usize;
         let mut matches = Vec::with_capacity(limit);
         let mut exhausted = false;
+        let mut reached_limit = false;
         while matches.len() < limit && !exhausted {
             let page = searcher
                 .search(
@@ -1433,6 +1434,7 @@ impl IndexStore {
                 }
                 matches.push(path.to_string());
                 if matches.len() >= limit {
+                    reached_limit = true;
                     break;
                 }
             }
@@ -1444,7 +1446,7 @@ impl IndexStore {
 
         Ok(QueryResponse {
             matches,
-            truncated: !exhausted && inspected >= candidate_limit,
+            truncated: reached_limit || (!exhausted && inspected >= candidate_limit),
             state: "ready".to_string(),
             index_family: self.manifest.family.clone(),
             schema_version: self.manifest.schema_version,
