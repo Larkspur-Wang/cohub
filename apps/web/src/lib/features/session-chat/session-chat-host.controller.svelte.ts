@@ -1547,11 +1547,49 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		);
 	}
 
+	function reconcileGenerationStateFromSessionList(
+		sessions: SessionRecord[],
+		options?: { authoritative?: boolean; requestStartedAt?: number },
+	) {
+		const authoritative = options?.authoritative === true;
+		const requestStartedAt = options?.requestStartedAt ?? 0;
+		for (const session of sessions) {
+			// Older cached list records do not have activeTurn. They are useful for
+			// first paint, but cannot authoritatively clear or restore generation.
+			if (session.activeTurn === undefined) continue;
+			const current = sessionGenerationStore.get(session.id);
+			const activeTurn = session.activeTurn;
+			if (activeTurn) {
+				if (
+					current?.turnId !== activeTurn.id &&
+					current &&
+					current.status !== "idle"
+				) {
+					resetGeneration(session.id);
+				}
+				sessionGenerationStore.resumePending(session.id, {
+					spaceId,
+					turnId: activeTurn.id,
+					anchorUserMessageId: activeTurn.anchorUserMessageId,
+				});
+				continue;
+			}
+			if (
+				authoritative &&
+				current?.status === "pending" &&
+				(current.lastEventAt ?? 0) <= requestStartedAt
+			) {
+				resetGeneration(session.id);
+			}
+		}
+	}
+
 	function upsertSessionRecord(
 		session: SessionRecord,
 		options?: { cache?: boolean },
 	) {
 		const nextSessions = workspace.upsertSessionRecord(session);
+		reconcileGenerationStateFromSessionList([session]);
 		if (options?.cache !== false) {
 			void patchCachedSessionList(spaceId, () => nextSessions).catch(
 				() => undefined,
@@ -1563,12 +1601,17 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		upsertSessionRecord(session);
 	}
 
-	function applySessionsSnapshot(sessions: SessionRecord[]) {
+	function applySessionsSnapshot(
+		sessions: SessionRecord[],
+		options?: { authoritative?: boolean; requestStartedAt?: number },
+	) {
 		workspace.applySessionsSnapshot(sessions);
+		reconcileGenerationStateFromSessionList(sessions, options);
 	}
 
 	function seedSessions(sessions: SessionRecord[]) {
 		workspace.seedSessions(sessions);
+		reconcileGenerationStateFromSessionList(sessions);
 	}
 
 	async function syncForkResponseToSessionListCache(
@@ -1603,6 +1646,8 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		}
 		const run = (async () => {
 			try {
+				const requestStartedAt = Date.now();
+				let backgroundRefreshApplied = false;
 				const sessions = await fetchSessionListWithCache(
 					spaceId,
 					async () => {
@@ -1615,9 +1660,25 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 							pageInfo: result.pageInfo,
 						};
 					},
-					{ force },
+					{
+						force,
+						onBackgroundRefresh: force
+							? undefined
+							: (freshSessions) => {
+									backgroundRefreshApplied = true;
+									applySessionsSnapshot(freshSessions, {
+										authoritative: true,
+										requestStartedAt,
+									});
+								},
+					},
 				);
-				applySessionsSnapshot(sessions);
+				if (force || !backgroundRefreshApplied) {
+					applySessionsSnapshot(sessions, {
+						authoritative: force,
+						requestStartedAt,
+					});
+				}
 			} catch (error) {
 				console.warn("[space] Failed to refresh sessions:", error);
 			}
@@ -2409,6 +2470,61 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		const current = sessionGenerationStore.get(sessionId);
 		if (turnId && current?.turnId && current.turnId !== turnId) return;
 		completeGeneration(sessionId);
+	}
+
+	function syncSidebarGenerationFromTurn(
+		sessionId: string,
+		turn: Partial<SessionTurnRecord> | undefined,
+	) {
+		if (sessionId === activeSessionId || !turn?.id) return;
+		if (
+			turn.status === "queued" ||
+			turn.status === "running" ||
+			turn.status === "abort_requested"
+		) {
+			const userMessageId =
+				turn.meta && typeof turn.meta.userMessageId === "string"
+					? turn.meta.userMessageId
+					: null;
+			sessionGenerationStore.resumePending(sessionId, {
+				spaceId,
+				turnId: turn.id,
+				anchorUserMessageId: userMessageId,
+			});
+			return;
+		}
+		if (
+			turn.status === "completed" ||
+			turn.status === "failed" ||
+			turn.status === "interrupted" ||
+			turn.status === "merged" ||
+			turn.status === "cancelled"
+		) {
+			completeGenerationForTurn(sessionId, turn.id);
+		}
+	}
+
+	function syncSidebarGenerationFromLifecycle(
+		sessionId: string,
+		payload: Record<string, unknown>,
+	) {
+		if (sessionId === activeSessionId || payload.phase !== "llm_call_started")
+			return;
+		const turnId = typeof payload.turnId === "string" ? payload.turnId : null;
+		const anchorUserMessageId =
+			typeof payload.anchorUserMessageId === "string"
+				? payload.anchorUserMessageId
+				: null;
+		sessionGenerationStore.markRuntimePhase(sessionId, {
+			phase: "llm_call_started",
+			at: typeof payload.at === "string" ? payload.at : null,
+			llmRound: typeof payload.llmRound === "number" ? payload.llmRound : null,
+			provider: typeof payload.provider === "string" ? payload.provider : null,
+			model: typeof payload.model === "string" ? payload.model : null,
+			spaceId,
+			turnId,
+			anchorUserMessageId,
+		});
 	}
 
 	async function handleForkTurn(turn: SessionTurnRecord) {
@@ -3787,6 +3903,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 				payload.type === "session.turn.finalized"
 			) {
 				const turn = payload.payload.turn as SessionTurnRecord | undefined;
+				syncSidebarGenerationFromTurn(targetSessionId, turn);
 				if (turn?.id && Array.isArray(turn.userContent)) {
 					void sessionTurnsRepo
 						.mergeTurns(spaceId, targetSessionId, [turn], {
@@ -3800,6 +3917,8 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 							),
 						);
 				}
+			} else if (payload.type === "session.turn.lifecycle") {
+				syncSidebarGenerationFromLifecycle(targetSessionId, payload.payload);
 			}
 			if (payload.type === "session.request.accepted") {
 				clearPostSendRecovery(targetSessionId);

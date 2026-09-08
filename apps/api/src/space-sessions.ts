@@ -1,7 +1,7 @@
 import { createLogger } from "@cohub/infra/logging";
 import { and, asc, desc, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import type { Usage } from "@cohub/protocol/core";
-import type { PersistMessageInput, RegisterSessionInput, SessionTurnRecord, UpdateSessionInfoInput } from "@cohub/protocol/model";
+import type { PersistMessageInput, RegisterSessionInput, SessionActiveTurn, SessionTurnRecord, UpdateSessionInfoInput } from "@cohub/protocol/model";
 import type { ModelThinkingLevel } from "@cohub/protocol";
 import { getOrCreateRequestId } from "@cohub/infra/tracing";
 import { injectTrace } from "@cohub/infra/tracing/propagator";
@@ -343,6 +343,50 @@ const sessionListOrderBy = [
   desc(spaceSessions.id),
 ] as const;
 
+const ACTIVE_TURN_STATUSES = ["queued", "running", "abort_requested"] as const;
+
+async function attachActiveTurns<T extends { id: string }>(sessions: T[]) {
+  if (sessions.length === 0) return sessions.map((session) => ({ ...session, activeTurn: null }));
+
+  const rows = await db
+    .select({
+      sessionId: sessionTurns.sessionId,
+      id: sessionTurns.id,
+      status: sessionTurns.status,
+      provider: sessionTurns.provider,
+      model: sessionTurns.model,
+      startedAt: sessionTurns.startedAt,
+      meta: sessionTurns.meta,
+      sequence: sessionTurns.sequence,
+    })
+    .from(sessionTurns)
+    .where(and(
+      inArray(sessionTurns.sessionId, sessions.map((session) => session.id)),
+      inArray(sessionTurns.status, [...ACTIVE_TURN_STATUSES]),
+    ))
+    .orderBy(asc(sessionTurns.sessionId), desc(sessionTurns.sequence));
+
+  const activeTurnBySessionId = new Map<string, SessionActiveTurn>();
+  for (const row of rows) {
+    if (activeTurnBySessionId.has(row.sessionId)) continue;
+    const meta = normalizeRecord(row.meta);
+    activeTurnBySessionId.set(row.sessionId, {
+      id: row.id,
+      status: row.status as SessionActiveTurn["status"],
+      provider: row.provider ?? null,
+      model: row.model ?? null,
+      startedAt: row.startedAt?.toISOString() ?? null,
+      anchorUserMessageId:
+        typeof meta?.userMessageId === "string" ? meta.userMessageId : null,
+    });
+  }
+
+  return sessions.map((session) => ({
+    ...session,
+    activeTurn: activeTurnBySessionId.get(session.id) ?? null,
+  }));
+}
+
 export const listSpaceSessions = async (
   spaceId: string,
   options?: { limit?: number; cursor?: string | null },
@@ -357,7 +401,11 @@ export const listSpaceSessions = async (
       : eq(spaceSessions.spaceId, spaceId),
   ).orderBy(...sessionListOrderBy).limit(limit + 1);
 
-  return paginateSessionRows(rows, limit);
+  const page = paginateSessionRows(rows, limit);
+  return {
+    ...page,
+    sessions: await attachActiveTurns(page.sessions),
+  };
 };
 
 export type UserSessionSpaceSummary = {
