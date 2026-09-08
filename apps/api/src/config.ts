@@ -188,7 +188,7 @@ export const config: AppConfig = {
   spaceStoragePvc: process.env.SPACE_STORAGE_PVC ?? "cohub-spaces-pvc",
   checkpointCachePvc: process.env.CHECKPOINT_CACHE_PVC ?? process.env.SPACE_STORAGE_PVC ?? "cohub-spaces-pvc",
   checkpointCacheRoot: process.env.CHECKPOINT_CACHE_ROOT ?? "/checkpoint-cache",
-  spaceSystemRoot: process.env.SPACE_SYSTEM_ROOT ?? process.env.SPACE_STORAGE_ROOT ?? "",
+  spaceSystemRoot: process.env.SPACE_SYSTEM_ROOT ?? "",
   spaceSystemPvc: process.env.SPACE_SYSTEM_PVC ?? "cohub-system-pvc",
   spaceSystemSubpath: process.env.SPACE_SYSTEM_SUBPATH ?? (env === "prod" ? "prod" : "dev"),
   spaceStorageSubpath: process.env.SPACE_STORAGE_SUBPATH ?? (env === "prod" ? "cohub-prod" : "cohub-dev"),

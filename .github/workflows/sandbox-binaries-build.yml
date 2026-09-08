@@ -189,5 +189,5 @@ jobs:
             --endpoint-url "${OSS_ENDPOINT}" \
             --recursive \
             --cache-control "public, max-age=31536000, immutable"
-          echo "Published sandboxd ${VERSION} to https://public.cohub.run/sandboxd/${VERSION}/"
+          echo "Published sandboxd ${VERSION} to https://public.cohub.live/sandboxd/${VERSION}/"
 

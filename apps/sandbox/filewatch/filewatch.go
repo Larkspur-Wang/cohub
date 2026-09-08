@@ -76,7 +76,7 @@ func Start(root string, logger *slog.Logger, handler Handler) (*Watcher, error) 
 		handler: handler,
 		watcher: fw,
 		pending: make(map[string]Change),
-		ignored: buildIgnoreList(),
+		ignored: IgnorePatterns(),
 		closed:  make(chan struct{}),
 	}
 	go w.loop()
@@ -90,7 +90,9 @@ func Start(root string, logger *slog.Logger, handler Handler) (*Watcher, error) 
 	return w, nil
 }
 
-func buildIgnoreList() []string {
+// IgnorePatterns returns the normalized rules shared by the watcher and
+// optional consumers such as the workspace search index.
+func IgnorePatterns() []string {
 	items := make([]string, 0, len(defaultIgnore)+8)
 	seen := make(map[string]struct{}, len(defaultIgnore)+8)
 	appendItem := func(raw string) {

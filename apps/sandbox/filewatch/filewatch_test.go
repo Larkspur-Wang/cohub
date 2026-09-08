@@ -13,10 +13,10 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
-func TestBuildIgnoreListDeduplicatesDefaultsAndEnv(t *testing.T) {
+func TestIgnorePatternsDeduplicatesDefaultsAndEnv(t *testing.T) {
 	t.Setenv("FS_WATCH_IGNORE", "node_modules, .idea ,../bad,/abs/path,,custom/cache,custom/cache")
 
-	items := buildIgnoreList()
+	items := IgnorePatterns()
 
 	assertContains(t, items, ".git")
 	assertContains(t, items, "node_modules")
@@ -170,7 +170,7 @@ func TestDiscoverAndWatchSubtreeReportsExistingDescendants(t *testing.T) {
 		root:    root,
 		logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),
 		watcher: watcher,
-		ignored: buildIgnoreList(),
+		ignored: IgnorePatterns(),
 	}
 
 	got := make([]string, 0, 2)
@@ -205,7 +205,7 @@ func TestDiscoverAndWatchSubtreeStopsEmittingButKeepsDirectoryCoverage(t *testin
 		root:    root,
 		logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),
 		watcher: watcher,
-		ignored: buildIgnoreList(),
+		ignored: IgnorePatterns(),
 	}
 
 	emitted := 0

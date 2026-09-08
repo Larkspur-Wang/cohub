@@ -42,7 +42,7 @@
 - 每平台产出 `cohub-sandboxd_<version>_<os>_<arch>.tar.gz` + `.sha256`，附带聚合 `SHA256SUMS.txt`
 - 版本经 `-ldflags -X main.buildVersion=<tag>` 注入；容器内以 `COHUB_SANDBOX_VERSION` 环境变量优先，并兼容旧 `IMAGE_VERSION`
 - Windows 暂不支持（进程组管理依赖 Unix syscall，待后续补平台适配）
-- 产物同时：附加到 GitHub Release（私有 repo，仅内部可下）、上传公共 CDN `https://public.cohub.run/sandboxd/<version>/`（CLI 下载源）
+- 产物同时：附加到 GitHub Release（私有 repo，仅内部可下）、上传公共 CDN `https://public.cohub.live/sandboxd/<version>/`（CLI 下载源）
 
 ### 托管下载（CLI）
 

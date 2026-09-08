@@ -362,13 +362,21 @@ func (m *Manager) supervise(ctx context.Context) {
 	}
 }
 
-func (m *Manager) runProcess(ctx context.Context) error {
-	cmd := exec.CommandContext(ctx, m.binary,
+func processArgs(cfg env.Config) []string {
+	args := []string{
 		"serve",
-		"--workspace", m.cfg.WorkspaceDir,
-		"--index", m.cfg.SearchIndexDir,
-		"--socket", m.cfg.SearchSocketPath,
-	)
+		"--workspace", cfg.WorkspaceDir,
+		"--index", cfg.SearchIndexDir,
+		"--socket", cfg.SearchSocketPath,
+	}
+	for _, pattern := range filewatch.IgnorePatterns() {
+		args = append(args, "--ignore="+pattern)
+	}
+	return args
+}
+
+func (m *Manager) runProcess(ctx context.Context) error {
+	cmd := exec.CommandContext(ctx, m.binary, processArgs(m.cfg)...)
 	cmd.Stdout = &logWriter{logger: m.logger, level: slog.LevelInfo, prefix: "search"}
 	cmd.Stderr = &logWriter{logger: m.logger, level: slog.LevelWarn, prefix: "search"}
 	if err := cmd.Run(); err != nil {

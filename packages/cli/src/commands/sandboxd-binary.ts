@@ -23,7 +23,7 @@ const BINARY_NAME = "cohub-sandboxd";
 // GitHub Release assets are not publicly downloadable). Overridable for staging
 // or self-hosting.
 const cdnBaseUrl = (): string =>
-  (process.env.COHUB_SANDBOXD_CDN_BASE_URL?.trim() || "https://public.cohub.run/sandboxd").replace(/\/+$/, "");
+  (process.env.COHUB_SANDBOXD_CDN_BASE_URL?.trim() || "https://public.cohub.live/sandboxd").replace(/\/+$/, "");
 
 const DOWNLOAD_TIMEOUT_MS = 120_000;
 const LOCK_STALE_MS = 5 * 60 * 1000;

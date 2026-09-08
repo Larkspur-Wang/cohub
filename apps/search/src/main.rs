@@ -69,10 +69,8 @@ enum Command {
 
 #[derive(Args, Clone)]
 struct ServeArgs {
-    #[arg(long)]
-    workspace: PathBuf,
-    #[arg(long)]
-    index: PathBuf,
+    #[command(flatten)]
+    index: IndexArgs,
     #[arg(long)]
     socket: PathBuf,
 }
@@ -83,6 +81,8 @@ struct IndexArgs {
     workspace: PathBuf,
     #[arg(long)]
     index: PathBuf,
+    #[arg(long = "ignore", action = clap::ArgAction::Append, allow_hyphen_values = true)]
+    ignore_patterns: Vec<String>,
 }
 
 #[derive(Args, Clone)]
@@ -95,10 +95,8 @@ struct UpdateArgs {
 
 #[derive(Args, Clone)]
 struct QueryArgs {
-    #[arg(long)]
-    workspace: PathBuf,
-    #[arg(long)]
-    index: PathBuf,
+    #[command(flatten)]
+    index: IndexArgs,
     #[arg(long = "literal", action = clap::ArgAction::Append)]
     literals: Vec<String>,
     #[arg(long, default_value = "")]
@@ -120,6 +118,7 @@ struct AppState {
 struct IndexStore {
     workspace: PathBuf,
     index_dir: PathBuf,
+    ignore_patterns: Vec<String>,
     manifest: IndexManifest,
     path_field: Field,
     content_field: Field,
@@ -228,18 +227,27 @@ async fn main() -> Result<()> {
     match Cli::parse().command {
         Command::Serve(args) => serve(args).await,
         Command::Full(args) => {
-            let store = IndexStore::open(&args.workspace, &args.index)?;
+            let store =
+                IndexStore::open_with_ignores(&args.workspace, &args.index, args.ignore_patterns)?;
             store.full_rebuild()?;
             print_status(&store)
         }
         Command::Update(args) => {
-            let store = IndexStore::open(&args.index.workspace, &args.index.index)?;
+            let store = IndexStore::open_with_ignores(
+                &args.index.workspace,
+                &args.index.index,
+                args.index.ignore_patterns,
+            )?;
             let changes = read_changes(args.changes)?;
             store.apply_changes(&changes)?;
             print_status(&store)
         }
         Command::Query(args) => {
-            let store = IndexStore::open(&args.workspace, &args.index)?;
+            let store = IndexStore::open_with_ignores(
+                &args.index.workspace,
+                &args.index.index,
+                args.index.ignore_patterns,
+            )?;
             let result = store.query(&QueryRequest {
                 literals: args.literals,
                 path_prefix: args.path_prefix,
@@ -250,7 +258,8 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Command::Status(args) => {
-            let store = IndexStore::open(&args.workspace, &args.index)?;
+            let store =
+                IndexStore::open_with_ignores(&args.workspace, &args.index, args.ignore_patterns)?;
             print_status(&store)
         }
     }
@@ -262,7 +271,11 @@ async fn serve(args: ServeArgs) -> Result<()> {
     }
     remove_stale_socket(&args.socket)?;
 
-    let store = Arc::new(open_store_for_serve(&args.workspace, &args.index)?);
+    let store = Arc::new(open_store_for_serve(
+        &args.index.workspace,
+        &args.index.index,
+        args.index.ignore_patterns,
+    )?);
     let (jobs, receiver) = mpsc::channel(64);
     let status = Arc::new(Mutex::new(IndexStatus::ready(&store)));
     let state = AppState {
@@ -678,18 +691,22 @@ fn status_snapshot(state: &AppState) -> IndexStatus {
         .clone()
 }
 
-fn open_store_for_serve(workspace: &Path, index_dir: &Path) -> Result<IndexStore> {
+fn open_store_for_serve(
+    workspace: &Path,
+    index_dir: &Path,
+    ignore_patterns: Vec<String>,
+) -> Result<IndexStore> {
     if !workspace.is_dir() {
         return Err(anyhow!(
             "workspace is not a directory: {}",
             workspace.display()
         ));
     }
-    match IndexStore::open(workspace, index_dir) {
+    match IndexStore::open_with_ignores(workspace, index_dir, ignore_patterns.clone()) {
         Ok(store) => Ok(store),
         Err(error) if should_quarantine_index(&error) => {
             quarantine_index_contents(index_dir)?;
-            IndexStore::open(workspace, index_dir)
+            IndexStore::open_with_ignores(workspace, index_dir, ignore_patterns)
                 .with_context(|| format!("recreate recovered index {}", index_dir.display()))
         }
         Err(error) => Err(error),
@@ -878,15 +895,22 @@ fn is_not_found_error(error: &anyhow::Error) -> bool {
         .is_some_and(|error| error.kind() == io::ErrorKind::NotFound)
 }
 
-fn scan_workspace_snapshot(workspace: &Path) -> Result<HashMap<String, FileFingerprint>> {
+fn scan_workspace_snapshot(
+    workspace: &Path,
+    ignore_patterns: &[String],
+) -> Result<HashMap<String, FileFingerprint>> {
     let mut snapshot = HashMap::new();
+    let filter_workspace = workspace.to_path_buf();
+    let filter_ignore_patterns = ignore_patterns.to_vec();
     for entry in WalkBuilder::new(workspace)
         .hidden(false)
         .git_ignore(true)
         .git_global(false)
         .git_exclude(false)
         .parents(false)
-        .filter_entry(|entry| !is_ignored_directory(entry.path()))
+        .filter_entry(move |entry| {
+            !is_ignored_workspace_path(&filter_workspace, entry.path(), &filter_ignore_patterns)
+        })
         .build()
     {
         let entry = entry.context("walk workspace while reconciling")?;
@@ -915,7 +939,16 @@ fn scan_workspace_snapshot(workspace: &Path) -> Result<HashMap<String, FileFinge
 }
 
 impl IndexStore {
+    #[cfg(test)]
     fn open(workspace: &Path, index_dir: &Path) -> Result<Self> {
+        Self::open_with_ignores(workspace, index_dir, Vec::new())
+    }
+
+    fn open_with_ignores(
+        workspace: &Path,
+        index_dir: &Path,
+        ignore_patterns: Vec<String>,
+    ) -> Result<Self> {
         if !workspace.is_dir() {
             return Err(anyhow!(
                 "workspace is not a directory: {}",
@@ -954,6 +987,7 @@ impl IndexStore {
         Ok(Self {
             workspace: workspace.to_path_buf(),
             index_dir: index_dir.to_path_buf(),
+            ignore_patterns: normalize_ignore_patterns(ignore_patterns),
             manifest,
             path_field: schema.get_field("path").context("path field missing")?,
             content_field: schema
@@ -992,13 +1026,21 @@ impl IndexStore {
             self.reload_reader()?;
 
             let mut next_snapshot = HashMap::new();
+            let filter_workspace = self.workspace.clone();
+            let filter_ignore_patterns = self.ignore_patterns.clone();
             let walker = WalkBuilder::new(&self.workspace)
                 .hidden(false)
                 .git_ignore(true)
                 .git_global(false)
                 .git_exclude(false)
                 .parents(false)
-                .filter_entry(|entry| !is_ignored_directory(entry.path()))
+                .filter_entry(move |entry| {
+                    !is_ignored_workspace_path(
+                        &filter_workspace,
+                        entry.path(),
+                        &filter_ignore_patterns,
+                    )
+                })
                 .build();
 
             for entry in walker {
@@ -1055,7 +1097,7 @@ impl IndexStore {
         if rebuild_dirty_path(&self.index_dir).exists() {
             return self.full_rebuild();
         }
-        let current = scan_workspace_snapshot(&self.workspace)?;
+        let current = scan_workspace_snapshot(&self.workspace, &self.ignore_patterns)?;
         let mut changes = Vec::new();
 
         for (path, fingerprint) in &current {
@@ -1114,22 +1156,66 @@ impl IndexStore {
         let Some(mut next_snapshot) = previous else {
             return self.full_rebuild();
         };
+
+        let mut delete_prefixes = HashSet::new();
         for change in changes {
             if let Some(old_path) = change.old_path.as_deref() {
-                next_snapshot.remove(&normalize_relative_path(old_path)?);
+                delete_prefixes.insert(normalize_relative_path(old_path)?);
             }
+            if change.kind == "delete" {
+                delete_prefixes.insert(normalize_relative_path(&change.path)?);
+            }
+        }
+        let delete_prefixes = compact_path_prefixes(delete_prefixes);
+
+        let mut deleted_paths = Vec::new();
+        next_snapshot.retain(|path, _| {
+            if delete_prefixes
+                .iter()
+                .any(|prefix| path_has_prefix(path, prefix))
+            {
+                deleted_paths.push(path.clone());
+                false
+            } else {
+                true
+            }
+        });
+
+        let mut document_changes = deleted_paths
+            .into_iter()
+            .map(|path| IndexChange {
+                path,
+                old_path: None,
+                kind: "delete".to_string(),
+                node_type: Some("file".to_string()),
+            })
+            .collect::<Vec<_>>();
+        document_changes.sort_by(|left, right| left.path.cmp(&right.path));
+
+        for change in changes {
             if change.kind == "delete" || change.node_type.as_deref() == Some("dir") {
-                next_snapshot.remove(&normalize_relative_path(&change.path)?);
                 continue;
             }
             let normalized = normalize_relative_path(&change.path)?;
             if let Some((path, fingerprint)) = self.snapshot_entry(&normalized)? {
-                next_snapshot.insert(path, fingerprint);
+                next_snapshot.insert(path.clone(), fingerprint);
+                document_changes.push(IndexChange {
+                    path,
+                    old_path: None,
+                    kind: change.kind.clone(),
+                    node_type: Some("file".to_string()),
+                });
             } else {
                 next_snapshot.remove(&normalized);
+                document_changes.push(IndexChange {
+                    path: normalized,
+                    old_path: None,
+                    kind: "delete".to_string(),
+                    node_type: Some("file".to_string()),
+                });
             }
         }
-        self.apply_document_changes(changes, next_snapshot, false)
+        self.apply_document_changes(&document_changes, next_snapshot, false)
     }
 
     fn apply_document_changes(
@@ -1208,7 +1294,7 @@ impl IndexStore {
             }
         };
         if !metadata.file_type().is_file()
-            || is_ignored_path(&normalized)
+            || is_ignored_path(&normalized, &self.ignore_patterns)
             || is_git_ignored(&self.workspace, &absolute, false)
         {
             return Ok(None);
@@ -1242,7 +1328,7 @@ impl IndexStore {
             .with_context(|| format!("path outside workspace: {}", path.display()))?;
         let relative = normalize_relative_path(&relative.to_string_lossy())?;
         if relative.is_empty()
-            || is_ignored_path(&relative)
+            || is_ignored_path(&relative, &self.ignore_patterns)
             || is_git_ignored(&self.workspace, path, metadata.is_dir())
         {
             return Ok(None);
@@ -1336,9 +1422,10 @@ impl IndexStore {
                 else {
                     continue;
                 };
-                if path_prefix.as_deref().is_some_and(|prefix| {
-                    path != prefix && !path.starts_with(&format!("{prefix}/"))
-                }) {
+                if path_prefix
+                    .as_deref()
+                    .is_some_and(|prefix| !path_has_prefix(path, prefix))
+                {
                     continue;
                 }
                 if glob.as_ref().is_some_and(|matcher| !matcher.is_match(path)) {
@@ -1455,9 +1542,73 @@ fn is_ignored_directory(path: &Path) -> bool {
         })
 }
 
-fn is_ignored_path(path: &str) -> bool {
+fn normalize_ignore_patterns(patterns: Vec<String>) -> Vec<String> {
+    let mut normalized = patterns
+        .into_iter()
+        .map(|pattern| {
+            pattern
+                .replace('\\', "/")
+                .trim_matches('/')
+                .trim()
+                .to_string()
+        })
+        .filter(|pattern| {
+            !pattern.is_empty() && !Path::new(pattern).is_absolute() && !pattern.contains("..")
+        })
+        .collect::<Vec<_>>();
+    normalized.sort();
+    normalized.dedup();
+    normalized
+}
+
+fn path_matches_ignore_pattern(path: &str, pattern: &str) -> bool {
+    if pattern.contains('/') {
+        path_has_prefix(path, pattern)
+    } else {
+        path.split('/').any(|segment| segment == pattern)
+    }
+}
+
+fn is_ignored_path(path: &str, ignore_patterns: &[String]) -> bool {
     path.split('/')
         .any(|segment| is_ignored_directory(Path::new(segment)))
+        || ignore_patterns
+            .iter()
+            .any(|pattern| path_matches_ignore_pattern(path, pattern))
+}
+
+fn is_ignored_workspace_path(workspace: &Path, path: &Path, ignore_patterns: &[String]) -> bool {
+    let Ok(relative) = path.strip_prefix(workspace) else {
+        return true;
+    };
+    let relative = relative.to_string_lossy().replace('\\', "/");
+    !relative.is_empty() && is_ignored_path(&relative, ignore_patterns)
+}
+
+fn path_has_prefix(path: &str, prefix: &str) -> bool {
+    if prefix.is_empty() {
+        return true;
+    }
+    path == prefix
+        || (path.len() > prefix.len()
+            && path.as_bytes()[prefix.len()] == b'/'
+            && path.starts_with(prefix))
+}
+
+fn compact_path_prefixes(prefixes: HashSet<String>) -> Vec<String> {
+    let mut prefixes = prefixes.into_iter().collect::<Vec<_>>();
+    prefixes.sort();
+    let mut compact = Vec::with_capacity(prefixes.len());
+    for prefix in prefixes {
+        if compact
+            .iter()
+            .any(|kept: &String| path_has_prefix(&prefix, kept))
+        {
+            continue;
+        }
+        compact.push(prefix);
+    }
+    compact
 }
 
 // Incremental updates do not pass through ignore::WalkBuilder, so evaluate the
@@ -1754,7 +1905,8 @@ mod tests {
         let marker = index.path().join("meta.json");
         fs::write(&marker, "not a tantivy index").expect("invalid index");
 
-        let store = open_store_for_serve(workspace.path(), index.path()).expect("recover index");
+        let store = open_store_for_serve(workspace.path(), index.path(), Vec::new())
+            .expect("recover index");
         assert_eq!(store.doc_count(), 0);
         let quarantined = fs::read_dir(index.path())
             .expect("read recovered index")
@@ -1765,6 +1917,161 @@ mod tests {
             fs::read_to_string(quarantined.path().join("meta.json")).unwrap(),
             "not a tantivy index"
         );
+    }
+
+    #[test]
+    fn directory_delete_removes_indexed_descendants_without_reconcile() {
+        let workspace = TempDir::new().expect("workspace tempdir");
+        let index = TempDir::new().expect("index tempdir");
+        let source = workspace.path().join("src").join("nested");
+        fs::create_dir_all(&source).expect("source directory");
+        fs::write(source.join("one.txt"), "deleted needle\n").expect("first file");
+        fs::write(source.join("two.txt"), "deleted needle\n").expect("second file");
+
+        let store = IndexStore::open(workspace.path(), index.path()).expect("open store");
+        store.full_rebuild().expect("full rebuild");
+        fs::remove_dir_all(workspace.path().join("src")).expect("remove source directory");
+        store
+            .apply_changes(&[IndexChange {
+                path: "src".to_string(),
+                old_path: None,
+                kind: "delete".to_string(),
+                node_type: Some("unknown".to_string()),
+            }])
+            .expect("apply directory delete");
+
+        let result = store
+            .query(&QueryRequest {
+                literals: vec!["needle".to_string()],
+                path_prefix: String::new(),
+                glob: None,
+                limit: 10,
+            })
+            .expect("query deleted directory");
+        assert!(result.matches.is_empty());
+    }
+
+    #[test]
+    fn directory_rename_replaces_old_prefix_without_reconcile() {
+        let workspace = TempDir::new().expect("workspace tempdir");
+        let index = TempDir::new().expect("index tempdir");
+        let old = workspace.path().join("old");
+        fs::create_dir(&old).expect("old directory");
+        fs::write(old.join("file.txt"), "renamed needle\n").expect("old file");
+
+        let store = IndexStore::open(workspace.path(), index.path()).expect("open store");
+        store.full_rebuild().expect("full rebuild");
+        fs::rename(&old, workspace.path().join("new")).expect("rename directory");
+        store
+            .apply_changes(&[
+                IndexChange {
+                    path: "old".to_string(),
+                    old_path: None,
+                    kind: "delete".to_string(),
+                    node_type: Some("unknown".to_string()),
+                },
+                IndexChange {
+                    path: "new/file.txt".to_string(),
+                    old_path: None,
+                    kind: "create".to_string(),
+                    node_type: Some("file".to_string()),
+                },
+            ])
+            .expect("apply directory rename");
+
+        let result = store
+            .query(&QueryRequest {
+                literals: vec!["needle".to_string()],
+                path_prefix: String::new(),
+                glob: None,
+                limit: 10,
+            })
+            .expect("query renamed directory");
+        assert_eq!(result.matches, vec!["new/file.txt"]);
+    }
+
+    #[test]
+    fn same_path_directory_replacement_keeps_new_snapshot_entries() {
+        let workspace = TempDir::new().expect("workspace tempdir");
+        let index = TempDir::new().expect("index tempdir");
+        let source = workspace.path().join("src");
+        fs::create_dir(&source).expect("source directory");
+        fs::write(source.join("file.txt"), "before needle\n").expect("old file");
+
+        let store = IndexStore::open(workspace.path(), index.path()).expect("open store");
+        store.full_rebuild().expect("full rebuild");
+        fs::remove_dir_all(&source).expect("remove source directory");
+        fs::create_dir(&source).expect("recreate source directory");
+        fs::write(source.join("file.txt"), "after needle\n").expect("new file");
+        store
+            .apply_changes(&[
+                IndexChange {
+                    path: "src".to_string(),
+                    old_path: None,
+                    kind: "delete".to_string(),
+                    node_type: Some("unknown".to_string()),
+                },
+                IndexChange {
+                    path: "src/file.txt".to_string(),
+                    old_path: None,
+                    kind: "create".to_string(),
+                    node_type: Some("file".to_string()),
+                },
+            ])
+            .expect("apply directory replacement");
+
+        let snapshot = store.snapshot.lock().expect("file snapshot mutex poisoned");
+        assert!(snapshot
+            .as_ref()
+            .is_some_and(|snapshot| snapshot.contains_key("src/file.txt")));
+        drop(snapshot);
+        let result = store
+            .query(&QueryRequest {
+                literals: vec!["after".to_string()],
+                path_prefix: String::new(),
+                glob: None,
+                limit: 10,
+            })
+            .expect("query replacement");
+        assert_eq!(result.matches, vec!["src/file.txt"]);
+    }
+
+    #[test]
+    fn configured_ignore_patterns_apply_to_full_and_incremental_indexing() {
+        let workspace = TempDir::new().expect("workspace tempdir");
+        let index = TempDir::new().expect("index tempdir");
+        let ignored = workspace.path().join("custom").join("cache");
+        fs::create_dir_all(&ignored).expect("ignored directory");
+        fs::write(ignored.join("secret.txt"), "private needle\n").expect("ignored file");
+        fs::write(workspace.path().join("visible.txt"), "visible needle\n").expect("visible file");
+
+        let store = IndexStore::open_with_ignores(
+            workspace.path(),
+            index.path(),
+            vec!["custom/cache".to_string()],
+        )
+        .expect("open store");
+        store.full_rebuild().expect("full rebuild");
+        let result = store
+            .query(&QueryRequest {
+                literals: vec!["needle".to_string()],
+                path_prefix: String::new(),
+                glob: None,
+                limit: 10,
+            })
+            .expect("query ignored path");
+        assert_eq!(result.matches, vec!["visible.txt"]);
+
+        fs::write(ignored.join("secret.txt"), "changed needle\n").expect("change ignored file");
+        store
+            .apply_changes(&[IndexChange {
+                path: "custom/cache/secret.txt".to_string(),
+                old_path: None,
+                kind: "modify".to_string(),
+                node_type: Some("file".to_string()),
+            }])
+            .expect("apply ignored update");
+        assert_eq!(store.doc_count(), 1);
     }
 
     #[test]
@@ -1831,5 +2138,23 @@ mod tests {
             })
             .expect("query newly visible file");
         assert_eq!(result.matches, vec!["ignored.txt"]);
+    }
+
+    #[test]
+    fn path_prefix_matches_do_not_treat_partial_names_as_children() {
+        assert!(path_has_prefix("src/main.ts", "src"));
+        assert!(path_has_prefix("src", "src"));
+        assert!(!path_has_prefix("srcfoo/main.ts", "src"));
+        assert!(!path_has_prefix("src", "src/main.ts"));
+    }
+
+    #[test]
+    fn compact_path_prefixes_drops_paths_covered_by_a_parent() {
+        let compact = compact_path_prefixes(HashSet::from([
+            "src".to_string(),
+            "src/nested".to_string(),
+            "lib".to_string(),
+        ]));
+        assert_eq!(compact, vec!["lib", "src"]);
     }
 }

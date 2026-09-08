@@ -1,5 +1,9 @@
 name: Search Binary Build
 
+# Daily PR/main runs only when search sources change, so ordinary development
+# does not pay for a Rust toolchain. Tag releases are handled separately by
+# search-release.yml so every v*.*.* tag still gets a built binary.
+
 on:
   push:
     branches:
@@ -12,9 +16,14 @@ on:
       - 'apps/search/**'
       - '.github/workflows/search-build.yml'
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
+
+concurrency:
+  group: search-build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_call' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -34,6 +43,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+          targets: x86_64-unknown-linux-musl
 
       - name: Cache Cargo
         uses: actions/cache@v4
@@ -56,23 +66,24 @@ jobs:
         run: cargo test --locked --all-targets
 
       - name: Install musl toolchain
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends musl-tools
-          rustup target add x86_64-unknown-linux-musl
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends musl-tools
 
       - name: Build static binary
         run: cargo build --locked --release --target x86_64-unknown-linux-musl
 
-      - name: Create checksum
-        run: sha256sum target/x86_64-unknown-linux-musl/release/cohub-search > target/x86_64-unknown-linux-musl/release/cohub-search.sha256
+      - name: Stage binary
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp target/x86_64-unknown-linux-musl/release/cohub-search dist/cohub-search-linux-amd64
+          (cd dist && sha256sum cohub-search-linux-amd64 > cohub-search-linux-amd64.sha256)
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
           name: cohub-search-linux-amd64
           path: |
-            apps/search/target/x86_64-unknown-linux-musl/release/cohub-search
-            apps/search/target/x86_64-unknown-linux-musl/release/cohub-search.sha256
+            apps/search/dist/cohub-search-linux-amd64
+            apps/search/dist/cohub-search-linux-amd64.sha256
           if-no-files-found: error
           retention-days: 14
