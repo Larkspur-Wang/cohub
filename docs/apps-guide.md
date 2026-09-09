@@ -361,6 +361,58 @@ cannot touch another user's browser. An App also answers only a Cohub app origin
 so embedding it elsewhere cannot invoke its methods. Native file and Board apps can
 be previewed but expose no callable surface.
 
+## Open an App as an Overlay
+
+Besides a preview tab, an App can open as an **overlay**: a transparent,
+chrome-free layer that floats above the whole workspace. Overlays sit below
+every system surface (toasts, dialogs, the command palette), so an App can
+never cover Cohub's own UI. They suit companions, heads-up displays, and
+one-shot effects — anything that should live *on* the desktop rather than *in*
+a window.
+
+```bash
+cohub desktop open <app> --as overlay
+cohub desktop open <app> --as overlay --call hud.ping --data '{"message":"Deploying…"}'
+```
+
+A page can declare the surface it wants, so `--as` becomes unnecessary:
+
+```html
+<meta name="cohub:surface" content="overlay" />
+```
+
+Cohub reads the declaration at publish time into `meta.presentation.surface`;
+`--as window` overrides it for one open.
+
+### What the App controls
+
+An overlay is the same size as the workspace and starts fully click-through.
+The App claims the parts that should receive pointer events and, optionally,
+where it sits:
+
+```js
+const rect = panel.getBoundingClientRect();
+cohub.app.requestConfigure({
+  // overlay-local CSS pixels — identical to getBoundingClientRect() coordinates
+  inputRegion: [{ x: rect.left, y: rect.top, width: rect.width, height: rect.height }],
+});
+```
+
+`inputRegion` is `"none"` (default), `"all"`, or a list of rectangles. `geometry`
+(`anchor`, `x`, `y`, `width`, `height`) shrinks the overlay to a region of the
+screen; the host clamps it on-screen. An axis without a size fills the layer.
+
+The App must paint its own transparency (`html, body { background: transparent }`)
+and closes itself with `cohub.app.requestClose()`. The viewer can always press
+`Escape` in the workspace to dismiss every overlay.
+
+### What stays the same
+
+Everything else works exactly as in a tab: context, authorization, Space APIs,
+realtime rooms, `surface.handle()` + `--call`, composer chips, navigation, and
+commerce. `context.invocation.surface` reads `"overlay"` so an App can tell how
+it was opened. Two reference Apps live in `docs/examples/desktop-surfaces/`.
+
 ## Embed Other Apps
 
 A published App can host other Apps by rendering their public pages in
