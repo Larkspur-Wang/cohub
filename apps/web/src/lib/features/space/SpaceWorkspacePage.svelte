@@ -2206,7 +2206,7 @@ function registerAppSurface(appId: string, host: AppSurfaceHost | null) {
 	if (!host) return;
 	appSurfaceDisposers.set(
 		appId,
-		appSurfaces.register(appId, (input) => host.call(input)),
+		appSurfaces.register({ appId, surface: "app" }, (input) => host.call(input)),
 	);
 }
 async function downloadInlineFile() {

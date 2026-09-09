@@ -336,9 +336,8 @@
       // Reached the other side — wave goodbye and close.
       say("Bye! See you next time~ 👋", 1800);
       walkDone = true;
-      setTimeout(async () => {
+      setTimeout(() => {
         cohub.app.composer.clearChip("mascot");
-        cohub.app.requestConfigure({ inputRegion: "none" });
         cohub.app.requestClose();
       }, 2200);
     }
@@ -362,9 +361,11 @@
 
   // ── Handle navigation.open from the agent ─────────────────────────
   // e.g. the agent sends: cohub desktop open <this-app> --call mascot.say --data '{"text":"Hello!"}'
-  cohub.app.surface.handle("mascot.say", async ({ text }) => {
+  // A surface handler only acknowledges delivery; the command itself is
+  // settled by reporting a result, which is what `cohub desktop open` waits on.
+  cohub.app.surface.handle("mascot.say", async ({ text }, { commandId }) => {
     if (typeof text === "string") say(text, 3500);
-    return { said: true };
+    await cohub.desktop.reportResult(commandId, { status: "applied", result: { said: true }, error: null });
   });
 
   // ── Start ──────────────────────────────────────────────────────────

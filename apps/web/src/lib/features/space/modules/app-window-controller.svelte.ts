@@ -219,7 +219,7 @@ export function createAppPreviewController(
 		if (index < 0) return;
 		const nextPreviews = previews.filter((item) => item.appId !== appId);
 		previews = nextPreviews;
-		options.surfaces.unregister(appId);
+		options.surfaces.unregister({ appId, surface: "app" });
 		detailSettled.delete(appId);
 		if (activeAppId === appId) {
 			activeAppId =
@@ -257,7 +257,10 @@ export function createAppPreviewController(
 		commandId: string;
 	}) {
 		return options.surfaces.call({
-			...input,
+			key: { appId: input.appId, surface: "app" },
+			method: input.method,
+			input: input.input,
+			commandId: input.commandId,
 			// A call right after showing races the fetch and the iframe mount.
 			settled: detailSettled.get(input.appId),
 			getTarget: () =>

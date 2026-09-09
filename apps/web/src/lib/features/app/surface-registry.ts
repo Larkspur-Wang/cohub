@@ -20,6 +20,11 @@ export type AppSurfaceInvoker = (input: {
 	requestTimeoutMs?: number;
 }) => Promise<AppSurfaceCallOutcome>;
 
+/** One App can be mounted by several hosts at once (a tab and an overlay). */
+export type AppSurfaceKey = { appId: string; surface: "app" | "overlay" };
+
+const keyOf = ({ appId, surface }: AppSurfaceKey) => `${surface}:${appId}`;
+
 /** What a host must know about one App surface to call into it. */
 export type AppSurfaceCallTarget = {
 	detail: AppDetailResponse | null;
@@ -43,24 +48,26 @@ export function createAppSurfaceRegistry() {
 		Set<(invoker: AppSurfaceInvoker | null) => void>
 	>();
 
-	function register(appId: string, invoker: AppSurfaceInvoker) {
-		invokers.set(appId, invoker);
-		const pending = waiters.get(appId);
+	function register(key: AppSurfaceKey, invoker: AppSurfaceInvoker) {
+		const id = keyOf(key);
+		invokers.set(id, invoker);
+		const pending = waiters.get(id);
 		if (pending) {
-			waiters.delete(appId);
+			waiters.delete(id);
 			for (const settle of pending) settle(invoker);
 		}
 		return () => {
-			if (invokers.get(appId) === invoker) invokers.delete(appId);
+			if (invokers.get(id) === invoker) invokers.delete(id);
 		};
 	}
 
-	function unregister(appId: string) {
-		invokers.delete(appId);
+	function unregister(key: AppSurfaceKey) {
+		invokers.delete(keyOf(key));
 	}
 
-	function waitFor(appId: string, timeoutMs = INVOKER_WAIT_MS) {
-		const existing = invokers.get(appId);
+	function waitFor(key: AppSurfaceKey, timeoutMs = INVOKER_WAIT_MS) {
+		const id = keyOf(key);
+		const existing = invokers.get(id);
 		if (existing) return Promise.resolve(existing);
 		return new Promise<AppSurfaceInvoker | null>((resolve) => {
 			const settle = (invoker: AppSurfaceInvoker | null) => {
@@ -68,13 +75,13 @@ export function createAppSurfaceRegistry() {
 				resolve(invoker);
 			};
 			const timer = setTimeout(() => {
-				waiters.get(appId)?.delete(settle);
+				waiters.get(id)?.delete(settle);
 				resolve(null);
 			}, timeoutMs);
-			let pending = waiters.get(appId);
+			let pending = waiters.get(id);
 			if (!pending) {
 				pending = new Set();
-				waiters.set(appId, pending);
+				waiters.set(id, pending);
 			}
 			pending.add(settle);
 		});
@@ -87,7 +94,7 @@ export function createAppSurfaceRegistry() {
 	 * gone.
 	 */
 	async function call(input: {
-		appId: string;
+		key: AppSurfaceKey;
 		method: string;
 		input?: unknown;
 		commandId: string;
@@ -128,7 +135,7 @@ export function createAppSurfaceRegistry() {
 				message: `A ${kind} App renders natively and exposes no callable methods.`,
 			};
 		}
-		const invoker = await waitFor(input.appId);
+		const invoker = await waitFor(input.key);
 		if (!invoker) {
 			return {
 				ok: false,

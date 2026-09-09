@@ -354,7 +354,7 @@
 
   // ── Surface method: an agent can push a status line ──────────────
   // cohub desktop open <this-app> --call hud.ping --data '{"message":"Deploying…"}'
-  cohub.app.surface.handle("hud.ping", async ({ message, state }) => {
+  cohub.app.surface.handle("hud.ping", async ({ message, state }, { commandId }) => {
     if (typeof message === "string") statusText.thinking = message;
     runState = state === "error" || state === "done" ? state : "thinking";
     render();
@@ -363,7 +363,8 @@
     flash.className = "ping-flash";
     hud.appendChild(flash);
     setTimeout(() => flash.remove(), 700);
-    return { received: true };
+    // Settle the desktop command so the caller's `cohub desktop open` returns.
+    await cohub.desktop.reportResult(commandId, { status: "applied", result: null, error: null });
   });
 
   // ── Buttons ──────────────────────────────────────────────────────

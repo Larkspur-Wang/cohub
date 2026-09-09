@@ -37,7 +37,7 @@ function registerSurface(appId: string, host: AppSurfaceHost | null) {
 	if (!host) return;
 	surfaceDisposers.set(
 		appId,
-		surfaces.register(appId, (input) => host.call(input)),
+		surfaces.register({ appId, surface: "overlay" }, (input) => host.call(input)),
 	);
 }
 

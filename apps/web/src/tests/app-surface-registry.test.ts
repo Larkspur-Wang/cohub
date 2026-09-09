@@ -6,7 +6,7 @@ import {
 	createAppSurfaceRegistry,
 } from "$lib/features/app/surface-registry";
 
-const APP = "app-1";
+const APP = { appId: "app-1", surface: "overlay" as const };
 const invocation = { surface: "overlay" as const, spaceId: "space-1" };
 
 function webTarget(): AppSurfaceCallTarget {
@@ -35,7 +35,7 @@ test("a call issued before the surface mounts is delivered once it does", async 
 	const registry = createAppSurfaceRegistry();
 	const { invoker, calls } = recordingInvoker();
 	const pending = registry.call({
-		appId: APP,
+		key: APP,
 		method: "hud.ping",
 		input: { message: "hi" },
 		commandId: "cmd-1",
@@ -58,7 +58,7 @@ test("the call waits for the detail fetch before inspecting the target", async (
 		settle = resolve;
 	});
 	const pending = registry.call({
-		appId: APP,
+		key: APP,
 		method: "m",
 		commandId: "c",
 		settled,
@@ -72,7 +72,7 @@ test("the call waits for the detail fetch before inspecting the target", async (
 test("native and failed surfaces are refused without waiting", async () => {
 	const registry = createAppSurfaceRegistry();
 	const board = await registry.call({
-		appId: APP,
+		key: APP,
 		method: "m",
 		commandId: "c",
 		getTarget: () => ({
@@ -85,7 +85,7 @@ test("native and failed surfaces are refused without waiting", async () => {
 	assert.equal(!board.ok && board.code, "surface_not_supported");
 
 	const failed = await registry.call({
-		appId: APP,
+		key: APP,
 		method: "m",
 		commandId: "c",
 		getTarget: () => ({ detail: null, error: "boom", invocation }),
@@ -93,7 +93,7 @@ test("native and failed surfaces are refused without waiting", async () => {
 	assert.equal(!failed.ok && failed.code, "preview_failed");
 
 	const closed = await registry.call({
-		appId: APP,
+		key: APP,
 		method: "m",
 		commandId: "c",
 		getTarget: () => null,
@@ -118,4 +118,17 @@ test("unregister only removes the invoker it was given", () => {
 	registry.register(APP, second);
 	disposeFirst();
 	return registry.waitFor(APP, 5).then((invoker) => assert.equal(invoker, second));
+});
+
+test("the same App mounted as a tab and as an overlay keeps two independent surfaces", async () => {
+	const registry = createAppSurfaceRegistry();
+	const tab = recordingInvoker();
+	const overlay = recordingInvoker();
+	registry.register({ appId: "app-1", surface: "app" }, tab.invoker);
+	registry.register({ appId: "app-1", surface: "overlay" }, overlay.invoker);
+	await registry.call({ key: APP, method: "m", commandId: "c", getTarget: webTarget });
+	assert.equal(tab.calls.length, 0);
+	assert.equal(overlay.calls.length, 1);
+	registry.unregister({ appId: "app-1", surface: "overlay" });
+	assert.equal(await registry.waitFor({ appId: "app-1", surface: "app" }, 5), tab.invoker);
 });
