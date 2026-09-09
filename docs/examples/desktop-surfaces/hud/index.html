@@ -351,34 +351,45 @@
   // current Space. The first time this shows a consent dialog; later opens
   // reuse the grant silently.
   const FOLLOW_SCOPES = ["space.view", "session.view"];
-  let authorizedSpaceId = null;
+  // One consent outcome per Space: an in-flight request is shared, a denial
+  // sticks. Asking again while a dialog is open would replace that dialog.
+  const followAccess = new Map(); // spaceId -> Promise<boolean>
   let authDenied = false;
-  let stopSession = null;
+  let followed = null; // { spaceId, sessionId, stop }
 
-  async function ensureFollowAccess(spaceId) {
-    if (authorizedSpaceId === spaceId) return true;
-    const granted = await cohub.auth.request({
-      scopes: FOLLOW_SCOPES,
-      spaceId,
-      reason: "Follow the current Chat's live agent activity.",
-    });
-    authDenied = !granted;
-    authorizedSpaceId = granted ? spaceId : null;
-    return granted;
+  function ensureFollowAccess(spaceId) {
+    let pending = followAccess.get(spaceId);
+    if (!pending) {
+      pending = cohub.auth
+        .request({
+          scopes: FOLLOW_SCOPES,
+          spaceId,
+          reason: "Follow the current Chat's live agent activity.",
+        })
+        .catch(() => false);
+      followAccess.set(spaceId, pending);
+    }
+    return pending;
   }
 
   async function followSession() {
-    stopSession?.();
-    stopSession = null;
+    const spaceId = context?.shell?.space?.id ?? null;
+    const sessionId = context?.shell?.session?.id ?? null;
+    // Only a different Space or Chat needs a new subscription; turn changes
+    // and other context updates keep the current one.
+    if (followed?.spaceId === spaceId && followed?.sessionId === sessionId) return;
+    followed?.stop?.();
+    followed = { spaceId, sessionId, stop: null };
     customStatus = null;
-    const spaceId = context?.shell?.space?.id;
-    const sessionId = context?.shell?.session?.id;
-    if (!spaceId || !sessionId) return;
-    if (!(await ensureFollowAccess(spaceId))) return render();
-    // The Chat may have changed while the dialog was open.
-    if (context?.shell?.session?.id !== sessionId) return;
+    if (!spaceId || !sessionId) return render();
 
-    stopSession = cohub
+    const granted = await ensureFollowAccess(spaceId);
+    // The Chat may have changed while the dialog was open.
+    if (followed.spaceId !== spaceId || followed.sessionId !== sessionId) return;
+    authDenied = !granted;
+    if (!granted) return render();
+
+    followed.stop = cohub
       .space(spaceId)
       .session(sessionId)
       .subscribe({
@@ -425,7 +436,6 @@
   cohub.app.onContextChanged((next) => {
     context = next;
     followSession();
-    render();
   });
   // ── Surface method: an agent can push a status line ──────────────
   // cohub desktop open <this-app> --call hud.ping --data '{"message":"Deploying…"}'
