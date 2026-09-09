@@ -4,6 +4,8 @@ import {
 	inputRegionContains,
 	isTrackedInputRegion,
 	resolveOverlayStyle,
+	sameGeometry,
+	sameInputRegion,
 } from "$lib/features/space/modules/desktop-layer-geometry";
 
 const viewport = { width: 1000, height: 600 };
@@ -103,4 +105,21 @@ test("input region decides which points the overlay owns", () => {
 	assert.equal(inputRegionContains(rects, 81, 40), false);
 	assert.equal(inputRegionContains(rects, 205, 205), true);
 	assert.equal(inputRegionContains(rects, 150, 150), false);
+});
+
+test("geometry and input region compare structurally", () => {
+	assert.equal(
+		sameGeometry(
+			{ anchor: "top-right", x: 12, width: 260 },
+			{ anchor: "top-right", x: 12, width: 260 },
+		),
+		true,
+	);
+	assert.equal(sameGeometry({ x: 12 }, { x: 12, height: 100 }), false);
+	assert.equal(sameInputRegion("all", "all"), true);
+	assert.equal(sameInputRegion("all", []), false);
+	const rect = { x: 0, y: 0, width: 80, height: 80 };
+	assert.equal(sameInputRegion([rect], [{ ...rect }]), true);
+	assert.equal(sameInputRegion([rect], [{ ...rect, x: 1 }]), false);
+	assert.equal(sameInputRegion([rect], [rect, rect]), false);
 });

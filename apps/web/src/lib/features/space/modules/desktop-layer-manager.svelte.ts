@@ -7,9 +7,11 @@ import type {
 import { appDisplayTitle } from "$lib/app-page-meta";
 import { loadAppPreview } from "$lib/features/app/app-open";
 import type { AppSurfaceRegistry } from "$lib/features/app/surface-registry";
-import type {
-	OverlayGeometry,
-	OverlayInputRegion,
+import {
+	type OverlayGeometry,
+	type OverlayInputRegion,
+	sameGeometry,
+	sameInputRegion,
 } from "./desktop-layer-geometry";
 
 /** Upper bound on simultaneously mounted overlay iframes. */
@@ -161,18 +163,24 @@ export function createDesktopLayerManager(options: DesktopLayerManagerOptions) {
 				);
 	}
 
-	/** Applies a `configure.request`; absent fields keep their current value. */
+	/**
+	 * Applies a `configure.request`; absent fields keep their current value.
+	 * Apps re-send their geometry freely (every render, on resize), so an
+	 * unchanged request must not produce a new overlay list.
+	 */
 	function configure(appId: string, request: AppRuntimeConfigureRequest) {
 		const overlay = find(appId);
 		if (!overlay) return;
-		patch(appId, {
-			...(request.geometry
-				? { geometry: { ...overlay.geometry, ...request.geometry } }
-				: {}),
-			...(request.inputRegion !== undefined
-				? { inputRegion: request.inputRegion }
-				: {}),
-		});
+		const geometry = request.geometry
+			? { ...overlay.geometry, ...request.geometry }
+			: overlay.geometry;
+		const inputRegion = request.inputRegion ?? overlay.inputRegion;
+		if (
+			sameGeometry(geometry, overlay.geometry) &&
+			sameInputRegion(inputRegion, overlay.inputRegion)
+		)
+			return;
+		patch(appId, { geometry, inputRegion });
 	}
 
 	function retry(appId: string) {

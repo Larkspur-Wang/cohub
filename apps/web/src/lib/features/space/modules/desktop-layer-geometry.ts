@@ -13,6 +13,38 @@ export type OverlayInputRegion = NonNullable<
 
 type Viewport = { width: number; height: number };
 
+/** Structural equality for geometry: every field is a primitive. */
+export function sameGeometry(a: OverlayGeometry, b: OverlayGeometry): boolean {
+	return (
+		a.anchor === b.anchor &&
+		a.x === b.x &&
+		a.y === b.y &&
+		a.width === b.width &&
+		a.height === b.height
+	);
+}
+
+/** Structural equality for input regions; rect lists compare element-wise. */
+export function sameInputRegion(
+	a: OverlayInputRegion,
+	b: OverlayInputRegion,
+): boolean {
+	if (a === b) return true;
+	if (typeof a === "string" || typeof b === "string") return false;
+	return (
+		a.length === b.length &&
+		a.every((rect, i) => {
+			const other = b[i];
+			return (
+				rect.x === other.x &&
+				rect.y === other.y &&
+				rect.width === other.width &&
+				rect.height === other.height
+			);
+		})
+	);
+}
+
 type Axis = { size: number; offset: number };
 
 const clamp = (value: number, min: number, max: number) =>
