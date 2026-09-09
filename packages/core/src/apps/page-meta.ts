@@ -263,6 +263,7 @@ export function mergeAppPageMeta(
 ): Record<string, unknown> | null {
   const meta: Record<string, unknown> = isRecord(current) ? { ...current } : {};
   if (extracted) {
+    const previous = meta.extracted;
     meta.extracted = {
       title: extracted.title,
       description: extracted.description,
@@ -312,11 +313,20 @@ export function mergeAppPageMeta(
     if (nextThemeColor) meta.themeColor = nextThemeColor;
     else delete meta.themeColor;
 
-    // The page declares how it wants to be opened; a publisher's explicit
-    // presentation setting still wins, and the default (`window`) stays implicit.
+    // The page declares how it wants to be opened. A value the previous publish
+    // extracted is ours to update or remove; anything else on
+    // presentation.surface is a publisher override and is left alone.
     const presentation = isRecord(meta.presentation) ? { ...meta.presentation } : {};
-    if (presentation.surface === undefined && extracted.surface && extracted.surface !== "window") {
-      presentation.surface = extracted.surface;
+    const previouslyExtracted = isRecord(previous) ? previous.surface : undefined;
+    const ownedByExtraction =
+      presentation.surface === undefined ||
+      (previouslyExtracted != null && presentation.surface === previouslyExtracted);
+    if (ownedByExtraction) {
+      if (extracted.surface && extracted.surface !== "window") {
+        presentation.surface = extracted.surface;
+      } else {
+        delete presentation.surface;
+      }
     }
     if (Object.keys(presentation).length) meta.presentation = presentation;
     else delete meta.presentation;

@@ -116,6 +116,25 @@ assert.equal(
 );
 assert.equal((merged?.extracted as { surface?: string })?.surface, "overlay");
 
+// A surface written by extraction follows the page across publishes: it can be
+// changed or removed, while a publisher's own value is never touched.
+const published = mergeAppPageMeta({}, extracted);
+assert.equal((published?.presentation as { surface?: string })?.surface, "overlay");
+const toWindow = mergeAppPageMeta(published, { ...extracted, surface: "window" });
+assert.equal(toWindow?.presentation, undefined);
+const removed = mergeAppPageMeta(published, { ...extracted, surface: null });
+assert.equal(removed?.presentation, undefined);
+const overridden = mergeAppPageMeta(
+  { presentation: { surface: "overlay" }, extracted: { surface: "window" } },
+  { ...extracted, surface: null },
+);
+assert.equal((overridden?.presentation as { surface?: string })?.surface, "overlay");
+const keepsSiblings = mergeAppPageMeta(
+  { presentation: { hideCohubBar: true, surface: "overlay" }, extracted: { surface: "overlay" } },
+  { ...extracted, surface: null },
+);
+assert.deepEqual(keepsSiblings?.presentation, { hideCohubBar: true });
+
 assert.equal(appTitleFromMeta({ title: "A", name: "B" }, "fallback"), "A");
 assert.equal(appTitleFromMeta({ name: "B" }, "fallback"), "B");
 assert.equal(appTitleFromMeta(null, "fallback"), "fallback");
