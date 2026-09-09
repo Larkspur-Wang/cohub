@@ -241,8 +241,25 @@
 
 <script type="module">
   // ── SDK ──────────────────────────────────────────────────────────
-  const SDK_URL = "https://esm.sh/@neta-art/cohub?bundle&target=es2022";
-  const { createCohubClient } = await import(SDK_URL);
+  // Try each CDN in turn: a freshly published SDK can take a while for one
+  // builder to produce, and a failed import aborts this whole module before
+  // the HUD can wire up its buttons. jsDelivr first, esm.sh as a fallback.
+  const SDK_URLS = [
+    "https://cdn.jsdelivr.net/npm/@neta-art/cohub/+esm",
+    "https://esm.sh/@neta-art/cohub?bundle&target=es2022",
+  ];
+  async function loadCohub() {
+    let lastError;
+    for (const url of SDK_URLS) {
+      try {
+        return await import(url);
+      } catch (cause) {
+        lastError = cause;
+      }
+    }
+    throw lastError;
+  }
+  const { createCohubClient } = await loadCohub();
   const cohub = createCohubClient();
   let context = await cohub.context();
 
