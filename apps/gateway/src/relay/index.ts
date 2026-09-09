@@ -6,6 +6,7 @@ import { gatewayConfig } from "../config.js";
 import { redisCommandClient, REALTIME_OUTBOUND_CHANNEL } from "../redis.js";
 import { enqueueSpaceHookFromEvent } from "../space-hooks.js";
 import { authorizeLocalSandbox, reportLocalSandboxStatus } from "../api-client.js";
+import { relayAuthClose } from "../local-sandbox-auth.js";
 
 const logger = createLogger({ serviceName: "cohub-gateway" });
 
@@ -155,8 +156,14 @@ export async function handleRelayControlConnection(socket: WebSocket, request: I
         return { ok: false as const, status: 500, message: "authorization failed" };
       });
       if (!auth.ok) {
+        logger.info("[Relay] local sandbox authorization rejected", {
+          spaceId,
+          status: auth.status,
+          message: auth.message,
+        });
         socket.send(JSON.stringify({ type: "error", status: auth.status, message: auth.message }));
-        closeSocket(socket, auth.status >= 500 ? 1011 : 4403, auth.status >= 500 ? "authorization unavailable" : "forbidden");
+        const close = relayAuthClose(auth.status);
+        closeSocket(socket, close.code, close.reason);
         return;
       }
 

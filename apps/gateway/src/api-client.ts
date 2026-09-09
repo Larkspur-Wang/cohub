@@ -6,6 +6,7 @@ import type { RealtimeRoom, RealtimeRoomDescriptor } from "@cohub/protocol/realt
 import type { BillingPayload } from "@cohub/protocol";
 import type { GatewayAuthUser } from "./config.js";
 import { gatewayConfig } from "./config.js";
+import { verifyLocalSandboxAccessToken } from "./local-sandbox-auth.js";
 
 const parseJson = async <T>(response: Response): Promise<T | null> => {
   return response.json().catch(() => null) as Promise<T | null>;
@@ -367,11 +368,15 @@ export type LocalSandboxAuthorizeResult =
   | { ok: false; status: number; message: string };
 
 // Authorize a local sandbox runner's control connection. The user's access
-// token is forwarded so the API can verify sandbox.manage on the target space.
+// token is verified locally first so expired leftovers never hit the API, then
+// forwarded so the API can check sandbox.manage on the target space.
 export const authorizeLocalSandbox = async (input: {
   authToken: string;
   spaceId: string;
 }): Promise<LocalSandboxAuthorizeResult> => {
+  const local = await verifyLocalSandboxAccessToken(input.authToken);
+  if (!local.ok) return local;
+
   const response = await fetch(`${gatewayConfig.apiBaseUrl}/internal/gateway/local-sandbox/authorize`, {
     method: "POST",
     headers: {

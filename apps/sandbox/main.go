@@ -349,6 +349,9 @@ func runLocal(logger *slog.Logger, spaceID, root, relayURL string) {
 		slog.String("relay", cfg.RelayURL),
 	)
 
-	client.Run(ctx)
+	if err := client.Run(ctx); err != nil {
+		logger.Error("local sandbox stopped", slog.String("error", err.Error()))
+		os.Exit(1)
+	}
 	logger.Info("local sandbox stopped")
 }
