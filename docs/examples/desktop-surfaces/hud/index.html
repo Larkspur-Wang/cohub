@@ -293,6 +293,8 @@
       hint.textContent = "Open this App from a Cohub workspace to follow a Chat.";
     } else if (!context.shell?.session?.id) {
       hint.textContent = "Open a Chat and this HUD follows it.";
+    } else if (authDenied) {
+      hint.textContent = "Access was declined. Reopen the HUD to grant it.";
     } else if (runState === "idle" && tools.length === 0) {
       const code = document.createElement("code");
       code.textContent = PING_EXAMPLE;
@@ -342,16 +344,39 @@
     requestAnimationFrame(reportGeometry);
   }
 
-  // ── Session realtime ─────────────────────────────────────────────
-  // Needs `session.view` on the Space (grant it to the App when publishing).
+  // ── Follow the Chat ──────────────────────────────────────────────
+  // The HUD follows whatever Space the viewer is looking at, which is rarely
+  // the App's own home Space. App-side scopes only apply at home, so it asks
+  // the viewer for `space.view` (realtime events) and `session.view` on the
+  // current Space. The first time this shows a consent dialog; later opens
+  // reuse the grant silently.
+  const FOLLOW_SCOPES = ["space.view", "session.view"];
+  let authorizedSpaceId = null;
+  let authDenied = false;
   let stopSession = null;
 
-  function subscribeSession(sessionId) {
+  async function ensureFollowAccess(spaceId) {
+    if (authorizedSpaceId === spaceId) return true;
+    const granted = await cohub.auth.request({
+      scopes: FOLLOW_SCOPES,
+      spaceId,
+      reason: "Follow the current Chat's live agent activity.",
+    });
+    authDenied = !granted;
+    authorizedSpaceId = granted ? spaceId : null;
+    return granted;
+  }
+
+  async function followSession() {
     stopSession?.();
     stopSession = null;
     customStatus = null;
-    const spaceId = context?.shell?.space?.id ?? context?.invocation?.spaceId;
+    const spaceId = context?.shell?.space?.id;
+    const sessionId = context?.shell?.session?.id;
     if (!spaceId || !sessionId) return;
+    if (!(await ensureFollowAccess(spaceId))) return render();
+    // The Chat may have changed while the dialog was open.
+    if (context?.shell?.session?.id !== sessionId) return;
 
     stopSession = cohub
       .space(spaceId)
@@ -375,9 +400,13 @@
           }
           render();
         },
-     error: ({ message }) => {
+        // A failed turn, or a rejected subscription (e.g. missing permission).
+        error: (event) => {
           runState = "error";
-          customStatus = message || null;
+          customStatus =
+            event.type === "system.subscribe.error"
+              ? `Cannot follow this Chat: ${event.payload?.rejected?.[0]?.message ?? "subscription rejected"}`
+              : event.payload?.message ?? null;
           render();
         },
         turnFinalized: () => {
@@ -389,15 +418,15 @@
           setTimeout(() => cohub.app.requestClose(), 4000);
         },
       });
+    render();
   }
 
-  subscribeSession(context?.shell?.session?.id);
+  followSession();
   cohub.app.onContextChanged((next) => {
     context = next;
-    subscribeSession(next?.shell?.session?.id);
+    followSession();
     render();
   });
-
   // ── Surface method: an agent can push a status line ──────────────
   // cohub desktop open <this-app> --call hud.ping --data '{"message":"Deploying…"}'
   cohub.app.surface.handle("hud.ping", async ({ message, state }, { commandId }) => {
@@ -416,7 +445,7 @@
   // ── Buttons ──────────────────────────────────────────────────────
   btnSession.addEventListener("click", () => {
     const sessionId = context?.shell?.session?.id;
-    const spaceId = context?.shell?.space?.id ?? context?.invocation?.spaceId;
+    const spaceId = context?.shell?.space?.id;
     if (sessionId && spaceId) cohub.navigation.open({ kind: "session", spaceId, sessionId });
   });
   btnDismiss.addEventListener("click", () => cohub.app.requestClose());

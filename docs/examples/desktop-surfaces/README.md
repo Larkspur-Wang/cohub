@@ -29,7 +29,9 @@ Demonstrates:
 - `geometry` + `inputRegion: "all"` — the overlay shrinks to the panel, so it
   is fully interactive (mouse and touch) while the rest of the workspace stays
   clickable.
-- Subscribing to the Chat's realtime stream with `session.view`.
+- Asking the viewer for `space.view` + `session.view` on the Space they are
+  looking at (`cohub.auth.request({ spaceId })`), then subscribing to the
+  Chat's realtime stream. Realtime rooms are gated on `space.view`.
 - `cohub.app.surface.handle("hud.ping")` so an agent can push a status
   update into the overlay.
 - Auto-dismiss via `requestClose()` when the agent finishes a run.
@@ -83,6 +85,6 @@ overlay-only call is `requestConfigure()`; `invocation.surface` reads
 Each folder is a self-contained directory App. Both declare
 `<meta name="cohub:surface" content="overlay">`, which Cohub reads at publish
 time into `meta.presentation.surface` — so `cohub desktop open <app>` opens
-them as overlays without `--as`. Pass `--as window` to override. The HUD
-subscribes to the current Chat, so grant it `session.view` when publishing. No
-build step — the SDK is loaded from `esm.sh`.
+them as overlays without `--as`. Pass `--as window` to override. The HUD asks
+the viewer for access at runtime, so it needs no app-side scopes when
+publishing. No build step — the SDK is loaded from `esm.sh`.
