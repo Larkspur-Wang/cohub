@@ -4,12 +4,12 @@ import {
 	buildAppNavigationOpenResponse,
 	parseAppNavigationOpenMessage,
 } from "@cohub/protocol/app-navigation";
+import type { AppRuntimeConfigureRequest } from "@cohub/protocol/app-runtime";
 import {
 	parseAppRuntimeCloseRequest,
 	parseAppRuntimeConfigureRequest,
 	parseAppRuntimeReady,
 } from "@cohub/protocol/app-runtime";
-import type { AppRuntimeConfigureRequest } from "@cohub/protocol/app-runtime";
 import type { AppComposerChip } from "@cohub/protocol/app-surface";
 import type {
 	AppContent,
@@ -112,7 +112,7 @@ const {
 let frame: HTMLIFrameElement | null = $state(null);
 let bridgeReady = $state(false);
 let runtimeReady = $state(false);
-let frameHasLoaded = false;
+let frameHasLoaded = $state(false);
 let readyReported = false;
 let contextSyncWarningReported = false;
 
@@ -324,6 +324,7 @@ onMount(() => {
 		<iframe
 			bind:this={frame}
 			class="app-frame"
+			class:loading={!frameHasLoaded}
 			title={appTitle}
 			sandbox={frameSandbox}
 			allow={framePermissions}
@@ -431,6 +432,11 @@ onMount(() => {
 	.app-surface.overlay,
 	.app-surface.overlay .app-frame {
 		background: transparent;
+	}
+
+	/* Nothing to see until the App's own document paints; the layer must not flash. */
+	.app-surface.overlay .app-frame.loading {
+		visibility: hidden;
 	}
 
 	.app-frame {

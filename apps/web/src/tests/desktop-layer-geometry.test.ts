@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-	resolveOverlayInputClip,
+	inputRegionContains,
+	isTrackedInputRegion,
 	resolveOverlayStyle,
 } from "$lib/features/space/modules/desktop-layer-geometry";
 
@@ -20,7 +21,10 @@ test("each axis is resolved on its own", () => {
 		"left: 0px; top: 0px; width: 320px; height: 600px",
 	);
 	assert.equal(
-		resolveOverlayStyle({ anchor: "bottom-right", height: 100, y: 12 }, viewport),
+		resolveOverlayStyle(
+			{ anchor: "bottom-right", height: 100, y: 12 },
+			viewport,
+		),
 		"left: 0px; top: 488px; width: 1000px; height: 100px",
 	);
 });
@@ -35,11 +39,17 @@ test("size is clamped to the viewport", () => {
 test("the overlay never leaves the viewport, whatever the anchor", () => {
 	const size = { width: 400, height: 100 };
 	assert.equal(
-		resolveOverlayStyle({ ...size, anchor: "top-left", x: 900, y: -20 }, viewport),
+		resolveOverlayStyle(
+			{ ...size, anchor: "top-left", x: 900, y: -20 },
+			viewport,
+		),
 		"left: 600px; top: 0px; width: 400px; height: 100px",
 	);
 	assert.equal(
-		resolveOverlayStyle({ ...size, anchor: "bottom-right", x: 900, y: 12 }, viewport),
+		resolveOverlayStyle(
+			{ ...size, anchor: "bottom-right", x: 900, y: 12 },
+			viewport,
+		),
 		"left: 0px; top: 488px; width: 400px; height: 100px",
 	);
 	assert.equal(
@@ -51,11 +61,17 @@ test("the overlay never leaves the viewport, whatever the anchor", () => {
 test("anchors measure the offset from their own edge", () => {
 	const size = { width: 100, height: 100 };
 	assert.equal(
-		resolveOverlayStyle({ ...size, anchor: "top-right", x: 12, y: 12 }, viewport),
+		resolveOverlayStyle(
+			{ ...size, anchor: "top-right", x: 12, y: 12 },
+			viewport,
+		),
 		"left: 888px; top: 12px; width: 100px; height: 100px",
 	);
 	assert.equal(
-		resolveOverlayStyle({ ...size, anchor: "bottom-left", x: 12, y: 12 }, viewport),
+		resolveOverlayStyle(
+			{ ...size, anchor: "bottom-left", x: 12, y: 12 },
+			viewport,
+		),
 		"left: 12px; top: 488px; width: 100px; height: 100px",
 	);
 	assert.equal(
@@ -64,19 +80,27 @@ test("anchors measure the offset from their own edge", () => {
 	);
 });
 
-test("input region maps to pointer-events and clip-path", () => {
-	assert.equal(resolveOverlayInputClip("none"), "pointer-events: none");
-	assert.equal(resolveOverlayInputClip("all"), "");
-	assert.equal(resolveOverlayInputClip([]), "pointer-events: none");
+test("only rect regions need the pointer tracked", () => {
+	assert.equal(isTrackedInputRegion("none"), false);
+	assert.equal(isTrackedInputRegion("all"), false);
+	assert.equal(isTrackedInputRegion([]), false);
 	assert.equal(
-		resolveOverlayInputClip([{ x: 0, y: 0, width: 80, height: 80 }]),
-		"clip-path: polygon(0px 0px, 80px 0px, 80px 80px, 0px 80px)",
+		isTrackedInputRegion([{ x: 0, y: 0, width: 1, height: 1 }]),
+		true,
 	);
-	assert.equal(
-		resolveOverlayInputClip([
-			{ x: 0, y: 0, width: 10, height: 10 },
-			{ x: 20, y: 20, width: 10, height: 10 },
-		]),
-		"clip-path: path('M0 0h10v10h-10z M20 20h10v10h-10z')",
-	);
+});
+
+test("input region decides which points the overlay owns", () => {
+	assert.equal(inputRegionContains("all", 5, 5), true);
+	assert.equal(inputRegionContains("none", 5, 5), false);
+	assert.equal(inputRegionContains([], 5, 5), false);
+	const rects = [
+		{ x: 0, y: 0, width: 80, height: 80 },
+		{ x: 200, y: 200, width: 10, height: 10 },
+	];
+	assert.equal(inputRegionContains(rects, 40, 40), true);
+	assert.equal(inputRegionContains(rects, 80, 80), true);
+	assert.equal(inputRegionContains(rects, 81, 40), false);
+	assert.equal(inputRegionContains(rects, 205, 205), true);
+	assert.equal(inputRegionContains(rects, 150, 150), false);
 });

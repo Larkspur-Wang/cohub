@@ -4,7 +4,9 @@
  */
 import type { AppRuntimeConfigureRequest } from "@cohub/protocol/app-runtime";
 
-export type OverlayGeometry = NonNullable<AppRuntimeConfigureRequest["geometry"]>;
+export type OverlayGeometry = NonNullable<
+	AppRuntimeConfigureRequest["geometry"]
+>;
 export type OverlayInputRegion = NonNullable<
 	AppRuntimeConfigureRequest["inputRegion"]
 >;
@@ -40,46 +42,77 @@ function resolveAxis(
 	return { size: clampedSize, offset: clamp(start, 0, room) };
 }
 
+export type OverlayRect = {
+	left: number;
+	top: number;
+	width: number;
+	height: number;
+};
+
 /**
- * Inline style for one overlay. Each axis is resolved independently: an axis
- * without a size fills the layer, an axis with a size is clamped so the
+ * Where one overlay sits in the layer. Each axis is resolved independently: an
+ * axis without a size fills the layer, an axis with a size is clamped so the
  * overlay always stays fully on-screen regardless of anchor.
  */
-export function resolveOverlayStyle(
+export function resolveOverlayRect(
 	geometry: OverlayGeometry,
 	viewport: Viewport,
-): string {
+): OverlayRect {
 	const anchor = geometry.anchor ?? "top-left";
 	const horizontal =
 		anchor === "center" ? "center" : anchor.endsWith("right") ? "end" : "start";
 	const vertical =
-		anchor === "center" ? "center" : anchor.startsWith("bottom") ? "end" : "start";
-	const x = resolveAxis(geometry.width, geometry.x ?? 0, viewport.width, horizontal);
-	const y = resolveAxis(geometry.height, geometry.y ?? 0, viewport.height, vertical);
-	return `left: ${x.offset}px; top: ${y.offset}px; width: ${x.size}px; height: ${y.size}px`;
+		anchor === "center"
+			? "center"
+			: anchor.startsWith("bottom")
+				? "end"
+				: "start";
+	const x = resolveAxis(
+		geometry.width,
+		geometry.x ?? 0,
+		viewport.width,
+		horizontal,
+	);
+	const y = resolveAxis(
+		geometry.height,
+		geometry.y ?? 0,
+		viewport.height,
+		vertical,
+	);
+	return { left: x.offset, top: y.offset, width: x.size, height: y.size };
+}
+
+/** Inline style for one overlay. */
+export function resolveOverlayStyle(
+	geometry: OverlayGeometry,
+	viewport: Viewport,
+): string {
+	const rect = resolveOverlayRect(geometry, viewport);
+	return `left: ${rect.left}px; top: ${rect.top}px; width: ${rect.width}px; height: ${rect.height}px`;
+}
+
+/** Whether the region needs the pointer tracked to know if it is inside. */
+export function isTrackedInputRegion(region: OverlayInputRegion): boolean {
+	return Array.isArray(region) && region.length > 0;
 }
 
 /**
- * `clip-path` restricting both painting and hit-testing to the declared input
- * region. Returns an empty style for `all` (no clip) and hides the surface from
- * pointer events entirely for `none` (the layer's default).
+ * Whether an overlay-local point falls inside the declared input region.
+ * `all` accepts everything, `none` (and an empty list) nothing; a rect list
+ * accepts points on or inside any of its rectangles.
  */
-export function resolveOverlayInputClip(region: OverlayInputRegion): string {
-	if (region === "all") return "";
-	if (region === "none") return "pointer-events: none";
-	if (region.length === 0) return "pointer-events: none";
-	const polygons = region.map(
+export function inputRegionContains(
+	region: OverlayInputRegion,
+	x: number,
+	y: number,
+): boolean {
+	if (region === "all") return true;
+	if (region === "none") return false;
+	return region.some(
 		(rect) =>
-			`polygon(${rect.x}px ${rect.y}px, ${rect.x + rect.width}px ${rect.y}px, ${rect.x + rect.width}px ${rect.y + rect.height}px, ${rect.x}px ${rect.y + rect.height}px)`,
+			x >= rect.x &&
+			x <= rect.x + rect.width &&
+			y >= rect.y &&
+			y <= rect.y + rect.height,
 	);
-	// Multiple rects: clip-path takes a single shape, so union them via a
-	// path. One rect stays a plain polygon for the common case.
-	if (polygons.length === 1) return `clip-path: ${polygons[0]}`;
-	const path = region
-		.map(
-			(rect) =>
-				`M${rect.x} ${rect.y}h${rect.width}v${rect.height}h${-rect.width}z`,
-		)
-		.join(" ");
-	return `clip-path: path('${path}')`;
 }

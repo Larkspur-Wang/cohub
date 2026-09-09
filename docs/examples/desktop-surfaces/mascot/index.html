@@ -4,6 +4,9 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="cohub:surface" content="overlay" />
+  <!-- Follow the host theme: a mismatched color-scheme makes Chromium paint an
+       opaque backdrop behind the frame and the overlay loses its transparency. -->
+  <meta name="color-scheme" content="light dark" />
   <title>Mascot</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -279,7 +282,7 @@
     bubbleTimer = setTimeout(() => {
       bubble.classList.remove("visible");
       head.classList.remove("singing");
-      cohub.app.composer.clearChip("mascot");
+      if (context) cohub.app.composer.clearChip("mascot");
     }, durationMs);
   }
 
@@ -318,12 +321,13 @@
     x += speed;
     mascot.style.transform = `translateX(${x}px)`;
 
-    // Keep the host's hit region on the character only (overlay-local coords),
-    // so everything else on the workspace stays clickable while it walks.
+    // Keep the host's hit region on the character, so everything else on the
+    // workspace stays clickable while it walks. The bubble is decorative and
+    // stays outside: the region never affects painting, only pointer input.
     // Throttled: geometry updates are cheap but there is no need to post 60/s.
     if (frameSince % 3 === 0) {
       cohub.app.requestConfigure({
-        inputRegion: [{ x: Math.max(0, x), y: vpH - 160, width: 80, height: 80 }],
+        inputRegion: [{ x, y: vpH - 160, width: 80, height: 80 }],
       });
     }
 
@@ -337,7 +341,7 @@
       say("Bye! See you next time~ 👋", 1800);
       walkDone = true;
       setTimeout(() => {
-        cohub.app.composer.clearChip("mascot");
+        if (context) cohub.app.composer.clearChip("mascot");
         cohub.app.requestClose();
       }, 2200);
     }
@@ -359,7 +363,7 @@
     }
   }
 
-  // ── Handle navigation.open from the agent ─────────────────────────
+  // ── Handle mascot.say from the agent ──────────────────────────────
   // e.g. the agent sends: cohub desktop open <this-app> --call mascot.say --data '{"text":"Hello!"}'
   // A surface handler only acknowledges delivery; the command itself is
   // settled by reporting a result, which is what `cohub desktop open` waits on.

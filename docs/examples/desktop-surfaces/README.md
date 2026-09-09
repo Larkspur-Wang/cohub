@@ -5,14 +5,14 @@ Two example Apps that demonstrate the `overlay` surface role.
 ## mascot
 
 A character that walks across the screen and reacts to what's happening in the
-workspace.  It uses `configure.request` to update its hit region frame by frame,
+workspace.  It uses `requestConfigure` to update its hit region frame by frame,
 `cohub.app.requestClose()` to exit when the walk finishes, and several SDK
 features at once:
 
 - **Realtime room** — shares a "wave back" presence state with any other viewer
   who has the same overlay open.
 - **Composer chip** — tells the agent what the character just said when it speaks.
-- **Navigation** — the character can open a file when the agent names one.
+- **Surface method** — an agent can make it speak with `--call mascot.say`.
 
 ```bash
 cohub desktop open app://<username>/<space>/mascot --as overlay
@@ -50,6 +50,15 @@ stays fully usable.  The App claims the parts it wants to be clickable through
 
 Because the overlay is the same size as the workspace, overlay coordinates and
 `getBoundingClientRect()` inside the App line up one-to-one.
+
+The region only decides where pointer events go; it never clips what the
+overlay paints. Decorative parts — bubbles, tooltips, effects — can stay outside
+it and remain visible.
+
+Declare `<meta name="color-scheme" content="light dark">` so the App follows the
+host theme. A color-scheme mismatch between the host and the frame makes
+Chromium paint an opaque backdrop behind the frame, and the overlay would lose
+its transparency.
 
 Overlays have no chrome of their own. An App closes itself with
 `cohub.app.requestClose()`; the viewer can always press `Escape` in the

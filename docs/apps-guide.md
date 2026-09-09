@@ -398,13 +398,17 @@ cohub.app.requestConfigure({
 });
 ```
 
-`inputRegion` is `"none"` (default), `"all"`, or a list of rectangles. `geometry`
-(`anchor`, `x`, `y`, `width`, `height`) shrinks the overlay to a region of the
-screen; the host clamps it on-screen. An axis without a size fills the layer.
+`inputRegion` is `"none"` (default), `"all"`, or a list of rectangles. It only
+decides where pointer events go and never clips what the overlay paints, so
+decorative parts can stay outside it. `geometry` (`anchor`, `x`, `y`, `width`,
+`height`) shrinks the overlay to a region of the screen; the host clamps it
+on-screen. An axis without a size fills the layer.
 
-The App must paint its own transparency (`html, body { background: transparent }`)
-and closes itself with `cohub.app.requestClose()`. The viewer can always press
-`Escape` in the workspace to dismiss every overlay.
+The App must paint its own transparency: `html, body { background: transparent }`
+plus `<meta name="color-scheme" content="light dark">` so the frame follows the
+host theme — a color-scheme mismatch makes Chromium paint an opaque backdrop
+behind the frame. The App closes itself with `cohub.app.requestClose()`; the
+viewer can always press `Escape` in the workspace to dismiss every overlay.
 
 ### What stays the same
 
