@@ -42,6 +42,7 @@ import {
 } from "$lib/board/runtime/animation-core";
 import type { BoardRuntimeData } from "$lib/board/runtime/board-runtime";
 import {
+	type EntranceMotionParams,
 	entranceLandingAlpha,
 	entrancePose,
 	entranceProgress,
@@ -368,6 +369,7 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 		boardId: "",
 		effects: [],
 		compositions: [],
+		enter: null,
 		playback: null,
 		playbackPolicy: null,
 	};
@@ -380,6 +382,10 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 	>();
 	let targetIdsByComposition = new Map<string, Set<string>>();
 	let activeEffects: BoardRuntimeData["effects"] = [];
+	let enterEffectsByItem = new Map<
+		string,
+		BoardRuntimeData["effects"][number]
+	>();
 
 	const compositionKey = (
 		composition: Pick<BoardComposition, "id" | "revision">,
@@ -414,7 +420,17 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 			);
 		}
 		activeEffects = next.effects.filter(
-			(effect) => effect.enabled && effect.lifecycle !== "manual",
+			(effect) =>
+				effect.enabled &&
+				effect.lifecycle !== "manual" &&
+				effect.lifecycle !== "on-enter",
+		);
+		enterEffectsByItem = new Map(
+			next.effects.flatMap((effect) =>
+				effect.lifecycle === "on-enter" && effect.target.type === "item"
+					? [[effect.target.itemId, effect] as const]
+					: [],
+			),
 		);
 	}
 	const cameraFocusTargetCache = new Map<
@@ -438,7 +454,10 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 	const trailResources = new Map<string, TrailResource>();
 	const revealResources = new Map<string, RevealResource>();
 	const landingStrokes = new Map<string, Graphics>();
-	const entrances = new Map<string, number>();
+	const enterings = new Map<
+		string,
+		{ startedAt: number; params: EntranceMotionParams; seed: string }
+	>();
 	let worldPose: BasePose | null = null;
 	let frameId = 0;
 	let sharedPlayback: BoardPlaybackSnapshot | null = null;
@@ -519,6 +538,43 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 		return pose;
 	}
 
+	function enterMotionFor(itemId: string) {
+		const effect = enterEffectsByItem.get(itemId);
+		if (effect) {
+			// A node-level on-enter effect always wins, including when disabled:
+			// `enabled: false` is how a single node opts out of the Board default.
+			if (!effect.enabled) return null;
+			return effect.kind === "effects.deal" && effect.kindVersion === 1
+				? {
+						kind: effect.kind,
+						params: effect.params as EntranceMotionParams,
+						seed: effect.seed,
+					}
+				: null;
+		}
+		if (data.enter?.kind !== "effects.deal" || data.enter.kindVersion !== 1)
+			return null;
+		return {
+			kind: data.enter.kind,
+			params: data.enter.params as EntranceMotionParams,
+			seed: `${data.enter.kind}:${itemId}`,
+		};
+	}
+
+	function activateEnteringItems(ids: readonly string[], startedAt: number) {
+		let changed = false;
+		for (const id of ids) {
+			const spec = enterMotionFor(id);
+			if (spec?.kind !== "effects.deal") continue;
+			if (enterings.has(id)) continue;
+			enterings.set(id, { startedAt, ...spec });
+			changed = true;
+		}
+		if (!changed) return;
+		materializationVersion += 1;
+		start();
+	}
+
 	function applyEffect(
 		effect: BoardEffectInput & { revision: number },
 		now: number,
@@ -527,6 +583,7 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 		if (
 			!effect.enabled ||
 			effect.lifecycle === "manual" ||
+			effect.lifecycle === "on-enter" ||
 			effect.target.type !== "item"
 		)
 			return false;
@@ -1058,28 +1115,37 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 		poses: Map<string, AnimationPose>,
 		layers: { front: Container },
 	): boolean {
-		if (entrances.size === 0) return false;
+		if (enterings.size === 0) return false;
 		let activeEntrance = false;
-		for (const [id, addedAt] of entrances) {
-			const elapsed = now - addedAt;
-			if (elapsed > entranceTotalMs(reducedMotion)) {
-				entrances.delete(id);
+		for (const [id, entering] of enterings) {
+			const elapsed = now - entering.startedAt;
+			if (elapsed > entranceTotalMs(reducedMotion, entering.params)) {
+				enterings.delete(id);
 				syncLandingStroke(id, 0, layers.front);
 				continue;
 			}
 			activeEntrance = true;
-			const progress = entranceProgress(elapsed, reducedMotion);
+			const progress = entranceProgress(
+				elapsed,
+				reducedMotion,
+				entering.params,
+			);
 			if (progress < 1) {
 				composePose(
 					poseFor(poses, id),
-					entrancePose(id, progress, reducedMotion),
+					entrancePose(
+						`${entering.seed}:${id}`,
+						progress,
+						reducedMotion,
+						entering.params,
+					),
 				);
 				continue;
 			}
-			// Landing highlight only starts once the card has settled.
+			// Landing highlight only starts once the node has settled.
 			syncLandingStroke(
 				id,
-				entranceLandingAlpha(elapsed, reducedMotion),
+				entranceLandingAlpha(elapsed, reducedMotion, entering.params),
 				layers.front,
 			);
 		}
@@ -1111,16 +1177,9 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 		});
 	}
 
-	function setEntrances(next: ReadonlyMap<string, number>) {
-		let changed = false;
-		for (const [id, addedAt] of next) {
-			if (entrances.has(id)) continue;
-			entrances.set(id, addedAt);
-			changed = true;
-		}
-		if (!changed) return;
-		materializationVersion += 1;
-		start();
+	function setEnteringItems(ids: readonly string[]) {
+		if (ids.length === 0 || ids.length > 12) return;
+		activateEnteringItems(ids, Date.now());
 	}
 
 	function tick() {
@@ -1288,7 +1347,7 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 			) ?? [])
 				ids.add(itemId);
 		}
-		for (const id of entrances.keys()) ids.add(id);
+		for (const id of enterings.keys()) ids.add(id);
 
 		materializationCache = ids;
 		materializationCacheVersion = materializationVersion;
@@ -1309,7 +1368,7 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 			data.effects.length > 0 ||
 			data.playback ||
 			autoplayPlayback ||
-			entrances.size > 0
+			enterings.size > 0
 		)
 			start();
 	}
@@ -1333,7 +1392,7 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 	return {
 		setData,
 		setActive,
-		setEntrances,
+		setEnteringItems,
 		start,
 		nodeIdsToMaterialize,
 		prepareSceneSync,

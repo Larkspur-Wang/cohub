@@ -2,6 +2,7 @@ export * from "./attachments.js";
 export * from "./billing.js";
 export * from "./board.js";
 export * from "./board-authoring.js";
+export * from "./board-animation.js";
 export * from "./board-capability-registry.js";
 export * from "./board-codec.js";
 export * from "./board-constants.js";

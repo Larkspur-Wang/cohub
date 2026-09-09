@@ -182,9 +182,11 @@ export type {
 } from "@cohub/protocol";
 export {
   BOARD_ANIMATION_CHANNEL_CAPABILITIES,
+  BoardAnimationSpecSchema,
   BoardAuthoringItemSchema,
   BoardCompositionInputSchema,
   BoardCompositionSchema,
+  BoardDealParamsSchema,
   BoardEffectInputSchema,
   BoardEffectSchema,
   BoardItemPatchSchema,

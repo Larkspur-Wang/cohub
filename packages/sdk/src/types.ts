@@ -55,6 +55,8 @@ export type {
   BoardDiagnostic,
   BoardEffect,
   BoardEffectInput,
+  BoardAnimationSpec,
+  BoardDealParams,
   BoardAnimationTarget,
   BoardCompositionPlayback,
   BoardEasing,

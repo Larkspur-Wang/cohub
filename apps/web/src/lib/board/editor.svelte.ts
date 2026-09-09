@@ -310,8 +310,6 @@ const CAMERA_ANIMATION_MS = 240;
 const DRAG_THRESHOLD = 3;
 /** Snap attraction radius in screen px (scaled to world by zoom). */
 const SNAP_THRESHOLD = 8;
-/** More than this many new items in one remote refresh is a re-hydration, not an entrance. */
-const ENTRANCE_BULK_THRESHOLD = 12;
 
 function easeOutCubic(t: number) {
 	return 1 - (1 - t) * (1 - t) * (1 - t);
@@ -367,17 +365,14 @@ export function createBoardEditor(options: BoardEditorOptions) {
 	/** Bumped on geometry changes (nudge, align, drag commit). Stage cull cache
 	 * keys on this so moved items re-enter/leave the viewport correctly. */
 	let geometryVersion = $state(0);
-	/** Local-only: ids that just landed, for the entrance animation. */
-	const recentlyAdded = new Map<string, number>();
-	let addedGeneration = $state(0);
+	/** Local-only signal for the runtime; it is not persisted in the Board. */
+	const recentlyAdded = new Set<string>();
 
 	function markAdded(ids: readonly string[]) {
-		if (ids.length === 0 || ids.length > ENTRANCE_BULK_THRESHOLD) return;
-		const now = Date.now();
-		// The runtime owns playback; this only needs to hold the current burst.
+		if (ids.length === 0) return;
+		// The runtime decides whether the burst is suitable for an entrance.
 		recentlyAdded.clear();
-		for (const id of ids) recentlyAdded.set(id, now);
-		addedGeneration += 1;
+		for (const id of ids) recentlyAdded.add(id);
 	}
 
 	// Creation styles are local UI preferences, never synced into the document.
@@ -3147,11 +3142,10 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		get geometryVersion() {
 			return geometryVersion;
 		},
-		get addedGeneration() {
-			return addedGeneration;
-		},
-		get recentlyAdded(): ReadonlyMap<string, number> {
-			return recentlyAdded;
+		consumeRecentlyAdded(): string[] {
+			const ids = [...recentlyAdded];
+			recentlyAdded.clear();
+			return ids;
 		},
 		/**
 		 * True while a pointer gesture is mutating the document. Renderers use this

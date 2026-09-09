@@ -1,6 +1,4 @@
 import {
-  BOARD_BUILTIN_CLIP_KINDS,
-  BOARD_BUILTIN_EFFECT_KINDS,
   BOARD_NATIVE_NODE_TYPES,
   BoardCameraFocusParamsSchema,
   BoardEffectSchema,
@@ -8,6 +6,8 @@ import {
   BoardPlaybackPolicySchema,
   DEFAULT_BOARD_RENDER_LIMITS,
   estimateBuiltinBoardClipCost,
+  estimateBuiltinBoardEffectCost,
+  isBuiltinBoardCapability,
   parseBoardCompositionInput,
   validateBuiltinBoardClip,
   validateBuiltinBoardEffect,
@@ -95,8 +95,6 @@ export const MAX_NODES_BYTES = 32 * 1024 * 1024;
  */
 export const NODE_WRITE_CHUNK = 500;
 
-const BUILTIN_CLIP_KINDS = new Set<string>(BOARD_BUILTIN_CLIP_KINDS);
-const BUILTIN_EFFECT_KINDS = new Set<string>(BOARD_BUILTIN_EFFECT_KINDS);
 
 export const ZERO_BOARD_COST: BoardRenderCost = {
   particles: 0,
@@ -578,7 +576,7 @@ export type BoardValidationContext = {
   nodes?: Iterable<BoardNodeInput>;
   /** Existing connections, so deletes and patches can be checked in order. */
   connections: Iterable<Pick<BoardConnection, "id" | "source" | "target">>;
-  effects: Iterable<Pick<BoardEffect, "id" | "target">>;
+  effects: Iterable<Pick<BoardEffect, "id" | "target" | "lifecycle">>;
   compositions: Iterable<BoardComposition>;
   metadata?: Record<string, unknown>;
 };
@@ -587,12 +585,36 @@ export function structuralValidation(transaction: BoardTransaction): BoardValida
   const diagnostics: BoardDiagnostic[] = [];
   const peakCost = { ...ZERO_BOARD_COST };
   for (const [index, operation] of transaction.operations.entries()) {
-    if (operation.type === "effect.upsert") {
-      if (!BUILTIN_EFFECT_KINDS.has(operation.payload.effect.kind)) {
+    if (operation.type === "board.patch") {
+      // The default enter motion is rendered by the same built-in table as effects;
+      // an unshipped version would validate, persist, and then silently never play.
+      const appearance = BoardAppearanceSchema.safeParse(
+        operation.payload.patch.metadataPatch?.appearance ?? operation.payload.patch.metadata?.appearance,
+      );
+      const enter = appearance.success ? appearance.data.motion?.enter : undefined;
+      if (enter && !isBuiltinBoardCapability("effect", enter.kind, enter.kindVersion)) {
         diagnostics.push({
           severity: "warning",
           code: "UNKNOWN_EFFECT",
-          message: `No built-in renderer is registered for ${operation.payload.effect.kind}@${operation.payload.effect.kindVersion}`,
+          message: `No built-in renderer is registered for ${enter.kind}@${enter.kindVersion}`,
+          path: `operations.${index}.payload.patch.appearance.motion.enter`,
+        });
+      }
+      continue;
+    }
+    if (operation.type === "effect.upsert") {
+      const effect = operation.payload.effect;
+      const effectDiagnostics = validateBuiltinBoardEffect(effect);
+      diagnostics.push(...effectDiagnostics.map((diagnostic) => ({
+        ...diagnostic,
+        path: `operations.${index}.${diagnostic.path ?? "payload.effect"}`,
+      })));
+      addCost(peakCost, estimateBuiltinBoardEffectCost(effect));
+      if (!isBuiltinBoardCapability("effect", effect.kind, effect.kindVersion)) {
+        diagnostics.push({
+          severity: "warning",
+          code: "UNKNOWN_EFFECT",
+          message: `No built-in renderer is registered for ${effect.kind}@${effect.kindVersion}`,
           path: `operations.${index}.payload.effect`,
         });
       }
@@ -600,7 +622,7 @@ export function structuralValidation(transaction: BoardTransaction): BoardValida
     }
     if (operation.type !== "composition.apply") continue;
     for (const [clipIndex, clip] of operation.payload.composition.timeline.clips.entries()) {
-      if (!BUILTIN_CLIP_KINDS.has(clip.kind)) {
+      if (!isBuiltinBoardCapability("clip", clip.kind, clip.kindVersion)) {
         diagnostics.push({
           severity: "warning",
           code: "UNKNOWN_CLIP",
@@ -646,7 +668,7 @@ export function contextualValidation(
   const connections = new Map(
     [...context.connections].map((connection) => [connection.id, connection]),
   );
-  const effects = new Map([...context.effects].map((effect) => [effect.id, effect.target]));
+  const effects = new Map([...context.effects].map((effect) => [effect.id, { target: effect.target, lifecycle: effect.lifecycle }]));
   const compositions = new Map([...context.compositions].map((composition) => [composition.id, composition]));
   let boardMetadata = context.metadata ?? {};
   const error = (code: string, message: string, path: string) => {
@@ -695,7 +717,7 @@ export function contextualValidation(
     }
     if (operation.type === "node.delete") {
       if (!nodeIds.has(operation.payload.nodeId)) error("NODE_NOT_FOUND", `node does not exist: ${operation.payload.nodeId}`, `${path}.payload.nodeId`);
-      if ([...effects.values()].some((target) => target.type === "item" && target.itemId === operation.payload.nodeId)) {
+   if ([...effects.values()].some(({ target }) => target.type === "item" && target.itemId === operation.payload.nodeId)) {
         error("ITEM_REFERENCED", "delete item effects before deleting the item", `${path}.payload.nodeId`);
       }
       if ([...compositions.values()].some((composition) =>
@@ -772,7 +794,17 @@ export function contextualValidation(
       if (effect.target.type === "item" && !nodeIds.has(effect.target.itemId)) {
         error("INVALID_REFERENCE", `target item does not exist: ${effect.target.itemId}`, `${path}.payload.effect.target`);
       }
-      effects.set(effect.id, effect.target);
+      // One enter motion per node: two on-enter effects have no meaningful composition.
+      if (effect.lifecycle === "on-enter" && effect.target.type === "item") {
+        const itemId = effect.target.itemId;
+        for (const [id, existing] of effects) {
+          if (id === effect.id || existing.lifecycle !== "on-enter") continue;
+    if (existing.target.type === "item" && existing.target.itemId === itemId) {
+            error("ITEM_ENTER_CONFLICT", `item already has an on-enter effect: ${id}`, `${path}.payload.effect.target`);
+          }
+        }
+      }
+      effects.set(effect.id, { target: effect.target, lifecycle: effect.lifecycle });
       continue;
     }
     if (operation.type === "effect.delete") {

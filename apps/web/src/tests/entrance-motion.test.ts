@@ -52,3 +52,18 @@ test("progress helpers clamp to the entrance window", () => {
 	assert.ok(entranceLandingAlpha(ENTRANCE_DURATION_MS + 10) > 0);
 	assert.equal(entranceLandingAlpha(ENTRANCE_TOTAL_MS), 0);
 });
+
+test("deal parameters customize the preset without changing its lifecycle", () => {
+	const pose = entrancePose("node-a", 0, false, {
+		lift: 140,
+		swing: 0,
+		tilt: 0,
+		scale: 0.7,
+	});
+	assert.equal(pose.x, 0);
+	assert.equal(pose.y, -140);
+	assert.equal(pose.rotation, 0);
+	assert.ok(Math.abs(pose.scaleX - 0.7) < Number.EPSILON);
+	assert.equal(entranceProgress(600, false, { duration: 600 }), 1);
+	assert.equal(entranceTotalMs(false, { duration: 600, landing: 100 }), 700);
+});

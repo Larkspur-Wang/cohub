@@ -27,10 +27,11 @@ import {
 import {
 	type BoardRenderContext,
 	type BoardRenderPalette,
+	createBoardBackground,
 	getBoardCardRenderer,
 	getBoardResolution,
-	getBoardThemeRenderer,
 	textZoomBucket,
+	updateBoardBackground,
 } from "@neta-art/cohub/board/render";
 import {
 	Application,
@@ -165,7 +166,6 @@ let nodeLayer: Container | null = null;
 let effectsFront: Container | null = null;
 let screenEffects: Container | null = null;
 let background: Container | null = null;
-let backgroundThemeId: string | null = null;
 let boardBackdrop: BoardThemeBackground | null = $state(null);
 let backdropUrl: string | null = $state(null);
 let backdropLoadState: BoardBackgroundLoadState | null = $state(null);
@@ -495,7 +495,6 @@ function syncBackground(theme: BoardThemeSnapshot) {
 	if (!sameBackdrop(boardBackdrop, nextBackdrop)) boardBackdrop = nextBackdrop;
 	const nextUrl = nextBackdrop?.url ?? null;
 	if (backdropUrl !== nextUrl) backdropUrl = nextUrl;
-	const themeRenderer = getBoardThemeRenderer(editor.document);
 	const context = {
 		app,
 		document: editor.document,
@@ -507,14 +506,12 @@ function syncBackground(theme: BoardThemeSnapshot) {
 				backdropLoadState.status === "ready",
 		),
 	};
-	if (!background || backgroundThemeId !== themeRenderer.id) {
-		background?.destroy({ children: true });
-		background = themeRenderer.createBackground(context);
-		backgroundThemeId = themeRenderer.id;
+	if (!background) {
+		background = createBoardBackground(context);
 		app.stage.addChildAt(background, 0);
 		return;
 	}
-	themeRenderer.updateBackground?.(background, context);
+	updateBoardBackground(background, context);
 }
 
 function scheduleRender() {
@@ -584,6 +581,7 @@ function syncStage() {
 		previewItems.get(id) ?? editor.itemById(id);
 	const context = buildContext(palette, getDisplayItem);
 	const visibleIds = computeVisibleIds();
+	animationRuntime?.setEnteringItems(editor.consumeRecentlyAdded());
 	const animationIds =
 		animationRuntime?.nodeIdsToMaterialize() ?? new Set<string>();
 	const pinnedIds = new Set(editor.selection);
@@ -1443,12 +1441,14 @@ onMount(async () => {
 });
 
 $effect(() => {
-	animationRuntime?.setData(runtime);
-});
-
-$effect(() => {
-	editor.addedGeneration;
-	animationRuntime?.setEntrances(editor.recentlyAdded);
+	// The entrance preset lives in the document appearance, while effects and
+	// compositions arrive through the runtime snapshot. Keep the renderer's
+	// animation model coherent for both local edits and remote refreshes.
+	editor.appearance;
+	animationRuntime?.setData({
+		...runtime,
+		enter: editor.appearance.motion?.enter ?? null,
+	});
 });
 
 function setBackdropLoadState(state: BoardBackgroundLoadState | null) {

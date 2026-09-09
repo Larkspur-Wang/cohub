@@ -94,10 +94,22 @@ function patchImageOptions(
 	patchBackground({ ...current, ...patch }, commit);
 }
 
+function setEnterMotion(kind: "effects.deal" | "", commit = true) {
+	const appearance = patchBoardAppearance(editor.appearance, {
+		motion: kind ? { enter: { kind, kindVersion: 1, params: {} } } : undefined,
+	});
+	if (commit) editor.setAppearance(appearance);
+	else editor.previewAppearance(appearance);
+}
+
 function reset() {
 	imageUrl = "";
 	validationError = null;
-	patchBackground({ kind: "solid" });
+	const appearance = patchBoardAppearance(editor.appearance, {
+		background: { kind: "solid" },
+		motion: undefined,
+	});
+	editor.setAppearance(appearance);
 }
 </script>
 
@@ -152,6 +164,18 @@ function reset() {
 		</div>
 	{/if}
 
+	<div class="motion-section">
+		<div class="field-label">{m.board_motion_enter({}, { locale })}</div>
+		<select
+			value={editor.appearance.motion?.enter?.kind ?? ""}
+			onchange={(event) => setEnterMotion(event.currentTarget.value as "effects.deal" | "")}
+		>
+			<option value="">{m.board_motion_none({}, { locale })}</option>
+			<option value="effects.deal">{m.board_motion_deal({}, { locale })}</option>
+		</select>
+		<p class="section-hint">{m.board_motion_hint({}, { locale })}</p>
+	</div>
+
 	<div class="appearance-footer">
 		<button type="button" class="reset-button" onclick={reset}><RotateCcw class="h-3.5 w-3.5" /> {m.common_reset({}, { locale })}</button>
 	</div>
@@ -182,6 +206,9 @@ function reset() {
 	.error, .loading { margin: 7px 0 0; font-size: 11px; line-height: 1.35; }
 	.error { color: var(--error-700); }
 	.loading { color: var(--text-tertiary); }
+	.motion-section { display: grid; gap: 5px; margin: 12px 2px 4px; padding-top: 10px; border-top: 1px solid var(--border-subtle); }
+	.motion-section select { height: 30px; border: 1px solid var(--border-subtle); border-radius: 6px; background: var(--bg-input); padding: 0 7px; color: var(--text-primary); font-size: 12px; }
+	.section-hint { margin: 0; color: var(--text-tertiary); font-size: 10px; line-height: 1.35; }
 	.image-options { display: grid; gap: 8px; margin-top: 12px; }
 	.image-options label { display: grid; grid-template-columns: 64px 1fr; align-items: center; gap: 8px; color: var(--text-tertiary); font-size: 11px; }
 	.image-options select { height: 30px; border: 1px solid var(--border-subtle); border-radius: 6px; background: var(--bg-input); padding: 0 7px; color: var(--text-primary); }

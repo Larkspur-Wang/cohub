@@ -5,10 +5,12 @@ import type {
 	BoardSemanticCommand,
 } from "@cohub/protocol";
 import {
+	type BoardAnimationSpec,
 	type BoardAuthoringSnapshot,
 	parseBoardPlaybackPolicy,
 } from "@cohub/protocol";
 import type { AppNavigationOpenMessage } from "@cohub/protocol/app-navigation";
+import { BoardAppearanceSchema } from "@cohub/protocol/board-document";
 import type {
 	AppRuntimeShellContext,
 	BoardPlaybackPolicy,
@@ -36,6 +38,8 @@ export type BoardRuntimeData = {
 	boardId: string;
 	effects: Array<BoardEffectInput & { revision: number }>;
 	compositions: Array<BoardCompositionInput & { revision: number }>;
+	/** Optional board-wide enter preset. Omitted means no automatic motion. */
+	enter: BoardAnimationSpec | null;
 	playback: BoardPlaybackSnapshot | null;
 	playbackPolicy: BoardPlaybackPolicy | null;
 };
@@ -43,10 +47,14 @@ export type BoardRuntimeData = {
 export function boardRuntimeDataFromAuthoring(
 	snapshot: BoardAuthoringSnapshot,
 ): BoardRuntimeData {
+	const appearance = BoardAppearanceSchema.safeParse(
+		snapshot.board.metadata.appearance,
+	);
 	return {
 		boardId: snapshot.board.id,
 		effects: snapshot.effects ?? [],
 		compositions: snapshot.compositions ?? [],
+		enter: appearance.success ? (appearance.data.motion?.enter ?? null) : null,
 		playback: snapshot.playback ?? null,
 		playbackPolicy: parseBoardPlaybackPolicy(snapshot.board.metadata),
 	};

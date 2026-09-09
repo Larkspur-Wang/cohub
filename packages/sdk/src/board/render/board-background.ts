@@ -1,9 +1,16 @@
-import { Container, Graphics, RenderTexture, TilingSprite } from "pixi.js";
-import { parseBoardCssColor } from "../css-color.js";
-import type {
-	BoardThemeContext,
-	BoardThemeRenderer,
-} from "./board-theme-registry.js";
+import { Container, Graphics, RenderTexture, TilingSprite, type Application } from "pixi.js";
+import type { BoardDocument, BoardViewport } from "@cohub/protocol/board-document";
+import type { BoardRenderPalette } from "./renderers/board-renderer-registry.js";
+import { parseBoardCssColor } from "./css-color.js";
+
+export type BoardBackgroundContext = {
+	app: Application;
+	document: BoardDocument;
+	viewport: BoardViewport;
+	palette: BoardRenderPalette;
+	/** The host renders an image backdrop below the transparent Pixi canvas. */
+	hasImageBackground?: boolean;
+};
 
 type GridParts = {
 	fill: Graphics;
@@ -17,17 +24,16 @@ type GridParts = {
 
 const partsByContainer = new WeakMap<Container, GridParts>();
 
-/** Positive modulo so tile offsets stay valid for negative viewport offsets. */
 function wrap(value: number, period: number) {
 	return ((value % period) + period) % period;
 }
 
 function buildGridTexture(
-	context: BoardThemeContext,
+	context: BoardBackgroundContext,
 	size: number,
 	color: number,
 	opacity: number,
-	kind: "dots" | "grid" = "dots",
+	kind: "dots" | "grid",
 ): RenderTexture {
 	const graphics = new Graphics();
 	if (kind === "grid") {
@@ -38,7 +44,6 @@ function buildGridTexture(
 			.lineTo(0.5, size)
 			.stroke({ color, width: 1, alpha: opacity });
 	} else {
-		// Soft paper dots — lighter than a full grid, still spatial.
 		graphics.circle(0.5, 0.5, 0.9).fill({ color, alpha: opacity });
 	}
 	const target = RenderTexture.create({ width: size, height: size });
@@ -47,7 +52,7 @@ function buildGridTexture(
 	return target;
 }
 
-function sync(parts: GridParts, context: BoardThemeContext) {
+function sync(parts: GridParts, context: BoardBackgroundContext) {
 	const { app, document, viewport, palette } = context;
 	const width = app.screen.width;
 	const height = app.screen.height;
@@ -64,24 +69,17 @@ function sync(parts: GridParts, context: BoardThemeContext) {
 		parts.lastBgAlpha !== bgAlpha
 	) {
 		parts.fill.clear();
-		parts.fill
-			.rect(0, 0, width, height)
-			.fill({ color: bgColor, alpha: bgAlpha });
+		parts.fill.rect(0, 0, width, height).fill({ color: bgColor, alpha: bgAlpha });
 		parts.lastWidth = width;
 		parts.lastHeight = height;
 		parts.lastBg = bgColor;
 		parts.lastBgAlpha = bgAlpha;
 	}
 
-	const appearance = document.appearance;
-	// Clean default: solid paper. Pattern only when grid is explicitly visible.
-	const visible = appearance.grid?.visible === true;
-	const size = Math.max(4, appearance.grid?.size ?? 24);
-	const opacity = appearance.grid?.opacity ?? 0.12;
-	const kind =
-		appearance.background?.kind === "grid"
-			? ("grid" as const)
-			: ("dots" as const);
+	const visible = document.appearance.grid?.visible === true;
+	const size = Math.max(4, document.appearance.grid?.size ?? 24);
+	const opacity = document.appearance.grid?.opacity ?? 0.12;
+	const kind = document.appearance.background?.kind === "grid" ? "grid" : "dots";
 	const key = `${kind}|${size}|${palette.border}|${opacity}`;
 
 	if (!visible) {
@@ -91,19 +89,11 @@ function sync(parts: GridParts, context: BoardThemeContext) {
 
 	if (parts.textureKey !== key || !parts.sprite) {
 		if (parts.sprite) {
-			// Capture the texture before destroying the sprite: Pixi nulls the
-			// sprite's texture reference on destroy, so reading it afterwards throws.
 			const previousTexture = parts.sprite.texture;
 			parts.sprite.destroy();
 			previousTexture.destroy(true);
 		}
-		const texture = buildGridTexture(
-			context,
-			size,
-			palette.border,
-			opacity,
-			kind,
-		);
+		const texture = buildGridTexture(context, size, palette.border, opacity, kind);
 		parts.sprite = new TilingSprite({ texture, width, height });
 		parts.textureKey = key;
 		parts.fill.parent?.addChild(parts.sprite);
@@ -119,28 +109,27 @@ function sync(parts: GridParts, context: BoardThemeContext) {
 	sprite.tilePosition.set(wrap(viewport.x, step), wrap(viewport.y, step));
 }
 
-export const cleanBoardTheme: BoardThemeRenderer = {
-	id: "clean",
-	canRender: () => true,
-	createBackground: (context) => {
-		const container = new Container();
-		const fill = new Graphics();
-		container.addChild(fill);
-		const parts: GridParts = {
-			fill,
-			sprite: null,
-			textureKey: "",
-			lastWidth: -1,
-			lastHeight: -1,
-			lastBg: Number.NaN,
-			lastBgAlpha: Number.NaN,
-		};
-		partsByContainer.set(container, parts);
-		sync(parts, context);
-		return container;
-	},
-	updateBackground: (container, context) => {
-		const parts = partsByContainer.get(container);
-		if (parts) sync(parts, context);
-	},
-};
+export function createBoardBackground(context: BoardBackgroundContext): Container {
+	const container = new Container({ label: "board-background" });
+	const fill = new Graphics();
+	container.addChild(fill);
+	partsByContainer.set(container, {
+		fill,
+		sprite: null,
+		textureKey: "",
+		lastWidth: -1,
+		lastHeight: -1,
+		lastBg: Number.NaN,
+		lastBgAlpha: Number.NaN,
+	});
+	sync(partsByContainer.get(container) as GridParts, context);
+	return container;
+}
+
+export function updateBoardBackground(
+	container: Container,
+	context: BoardBackgroundContext,
+) {
+	const parts = partsByContainer.get(container);
+	if (parts) sync(parts, context);
+}
