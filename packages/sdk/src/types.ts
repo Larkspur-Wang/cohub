@@ -1556,6 +1556,7 @@ export type SpaceModListItem = {
 export const PERMISSIONS = [
   "space.view",
   "space.edit",
+  "space.create",
   "space.label.view",
   "space.label.manage",
   "space.label.assign",

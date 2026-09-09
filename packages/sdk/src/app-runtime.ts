@@ -715,7 +715,7 @@ export class AppRuntimeApi {
    * One consent: create a viewer-owned Space (full `CreateSpaceInput`, same
    * as `spaces.create`) and grant the scopes on it. Never silent — each
    * confirm mints a new Space. The host creates with the viewer's account
-   * token; the app never calls `POST /api/spaces` itself.
+   * token.
    * `{ granted: false, space }` means the Space was created but not provisioned;
    * no grant was issued. A viewer deny is `{ granted: false, space: null }`.
    */

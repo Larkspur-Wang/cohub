@@ -293,8 +293,8 @@ const activity = await client.user.getActivity({ days: 30 });
 
 一次同意会以访客身份新建 Space，并在这个新 Space 上授予所请求的 scopes。
 `space` 与 `client.spaces.create()` 的 `CreateSpaceInput` 相同。不会静默复用
-——每次确认都新建。宿主用访客的账号 token 调用现有创建接口，App 不会自己
-打 `POST /api/spaces`。
+——每次确认都新建。宿主用访客的账号 token 调用创建接口。持有 `space.create`
+viewer grant 的 App 也可以直接调用 `client.spaces.create()`。
 
 ```ts
 const { granted, space } = await client.auth.requestCreateSpace({

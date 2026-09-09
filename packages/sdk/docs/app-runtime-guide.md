@@ -282,8 +282,9 @@ if (created.granted && created.space) {
 Pass `alwaysAsk: true` to skip silent reuse and force a fresh dialog — for
 re-confirming a grant or letting the viewer switch to another Space.
 `requestCreateSpace` always opens the dialog; each confirm mints a new Space.
-The host creates it with the viewer's account token — the app never calls
-`POST /api/spaces` itself.
+The host creates it with the viewer's account token. An App can also create a
+viewer-owned Space directly with `client.spaces.create()` once it holds a
+`space.create` viewer grant.
 
 ### Checking grant state at runtime
 
@@ -339,6 +340,7 @@ dialog can.
 | List tasks in a Space | `client.tasks.list({ spaceId })` | `taskrun.view` on that Space | app or viewer |
 | List all owned task runs | `client.tasks.list()` | `user.taskrun.list` | **viewer only** |
 | Create a Space for the viewer | `client.auth.requestCreateSpace({ space, scopes })` | requested scopes on the new Space | **viewer consent** |
+| Create a viewer-owned Space directly | `client.spaces.create(input)` | `space.create` | **viewer only** |
 | List viewer's spaces | `client.spaces.list()` | `user.space.list` | **viewer only** |
 | List viewer's sessions | `client.user.listSessions()` | `user.session.list` | **viewer only** |
 | Read viewer's activity | `client.user.getActivity()` | `user.usage.read` | **viewer only** |
@@ -1225,8 +1227,9 @@ Before publishing your App, verify each item:
   on page load. It is safe to call repeatedly — covered scopes renew silently.
 - [ ] **Cross-Space access targets the right Space** — viewer grants are per
   Space. Pass `spaceId` when requesting, or use `auth.requestSpace` to let the
-  viewer pick. Use `auth.requestCreateSpace` when the app should mint a new
-  viewer-owned Space; do not call `spaces.create()` with the App token.
+  viewer pick. Use `auth.requestCreateSpace` to mint a new viewer-owned Space
+  in one consent, or `spaces.create()` directly once the app holds a
+  `space.create` viewer grant.
 - [ ] **`subscribeGeneration` errors are not silently swallowed** — if the
   stream fails, surface it; a silent fallback to polling will also 403 if
   `session.view` is missing.

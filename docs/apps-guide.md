@@ -85,7 +85,7 @@ An app's effective permission for one Space is the union of two grant sources �
   - At grant time the viewer must currently hold every requested permission on the target Space.
   - At use time the grant only works while the viewer still holds that permission there — losing a membership or a role downgrade takes effect immediately.
 
-Account-level scopes (`user.space.list`, `user.session.list`, `user.taskrun.list`, `user.usage.read`) always require a viewer grant; a publisher can never pre-grant them via `appScopes`.
+Account-level scopes (`user.space.list`, `user.session.list`, `user.taskrun.list`, `user.usage.read`) and the account-level action `space.create` always require a viewer grant; a publisher can never pre-grant them via `appScopes`.
 
 Direct publisher grants are limited to:
 
@@ -101,7 +101,7 @@ Viewer grants are per Space: one viewer can hold a different grant for the app's
 
 Viewer-granted permissions never inherit the publishing app's Space access: `taskrun.view` granted for Space A lists Task Runs in Space A only — re-validated against the viewer's current access there. The separate `user.taskrun.list` account scope exposes only Task Runs owned by the viewer.
 
-The `user.*` scopes grant access to the viewer's account-level data across all their spaces. `user.space.list` lets the app call `cohub.spaces.list()`. `user.session.list` lets the app call `cohub.user.listSessions()`, which returns recent sessions the viewer can already view as themselves. `user.taskrun.list` lets the app list and read every Task Run owned by the viewer through the unscoped `cohub.tasks.list()`, including runs from Spaces they can no longer access and account-level runs. `user.usage.read` lets the app call `cohub.user.getActivity()`. Listing Spaces does not grant access to them — the app still needs a grant for each Space it touches; likewise `user.taskrun.list` shows owned Task Runs but grants no access to their source Spaces or to other users' runs.
+The `user.*` scopes grant access to the viewer's account-level data across all their spaces. `user.space.list` lets the app call `cohub.spaces.list()`. `user.session.list` lets the app call `cohub.user.listSessions()`, which returns recent sessions the viewer can already view as themselves. `user.taskrun.list` lets the app list and read every Task Run owned by the viewer through the unscoped `cohub.tasks.list()`, including runs from Spaces they can no longer access and account-level runs. `user.usage.read` lets the app call `cohub.user.getActivity()`. Listing Spaces does not grant access to them — the app still needs a grant for each Space it touches; likewise `user.taskrun.list` shows owned Task Runs but grants no access to their source Spaces or to other users' runs. `space.create` is an account-level action: the app may create a Space owned by the viewer, directly via `cohub.spaces.create()` or through `cohub.auth.requestCreateSpace()`.
 
 Grants last 14 days; tokens last 1 hour. Tokens carry identity, publisher scopes, and a display-only snapshot of the consented scopes (`viewerScopes`, for legacy clients that decode the JWT) — consent state lives in the grant rows and is resolved on every request, so tokens stay constant-size and revoking a grant takes effect immediately. Silent reuse only renews a live grant that still covers the requested scopes: it can never create, widen, or revive a grant, so a revoked grant stays revoked until the viewer consents again in a dialog:
 

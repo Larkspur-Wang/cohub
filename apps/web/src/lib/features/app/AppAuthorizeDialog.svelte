@@ -88,6 +88,11 @@ const OPERATION_GROUPS: OperationGroup[] = [
 			"user.usage.read",
 		],
 	},
+	{
+		title: "Create a space",
+		description: "Create a new space owned by you.",
+		scopes: ["space.create"],
+	},
 ];
 
 const operationGroups = $derived.by<OperationGroup[]>(() => {

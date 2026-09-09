@@ -304,7 +304,8 @@ const activity = await client.user.getActivity({ days: 30 });
 One consent creates a viewer-owned Space and grants the requested scopes on
 it. `space` is the same `CreateSpaceInput` as `client.spaces.create()`.
 Never silent — each confirm mints a new Space. The host creates with the
-viewer's account token; the app does not call `POST /api/spaces`.
+viewer's account token. An App holding a `space.create` viewer grant can also
+call `client.spaces.create()` directly.
 
 ```ts
 const { granted, space } = await client.auth.requestCreateSpace({

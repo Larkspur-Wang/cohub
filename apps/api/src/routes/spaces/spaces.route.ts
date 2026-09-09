@@ -23,7 +23,7 @@ import {
   sessionTurns,
 } from "@cohub/db";
 import { eq, and, inArray, desc, lt, or, sql } from "drizzle-orm";
-import { useAuth, getOptionalAuth, getAppSessionPrincipal, isUserAccountPrincipal, requireValidId, buildSpaceListItems, authzDenied, getSpacePublicProfile, normalizePublicAvatarUrl } from "../../lib/middleware.js";
+import { useAuth, getOptionalAuth, getAppSessionPrincipal, requireValidId, buildSpaceListItems, authzDenied, getSpacePublicProfile, normalizePublicAvatarUrl } from "../../lib/middleware.js";
 import { config } from "../../config.js";
 import { scheduleSandboxAutoDestroy } from "../../sandbox-idle-scheduler.js";
 import { attachSandboxPublicEndpoints } from "../../sandbox-public-network.js";
@@ -685,7 +685,6 @@ async function insertHomeSpaceRecord(
  * Create the first-time Home space for a user. Idempotent under concurrency:
  * unique conflicts re-select the winner instead of failing the entry path.
  * Bootstraps from `HOME_BOOTSTRAP_CHECKPOINT_ID` when set, else blank.
- * Only call from normal account sessions (never work/preview/execution).
  */
 async function ensureHomeSpace(user: AuthUser): Promise<SpaceRow | null> {
   const bootstrapSource = resolveHomeBootstrap();
@@ -792,12 +791,11 @@ router.get("/default", async (c) => {
 
   // Prefer existing home / recent space.
   let space = await findDefaultSpaceCandidate(identity.uuid);
-  // Delegated principals may list via viewer grants but must not mint spaces.
-  if (!space && isUserAccountPrincipal(c)) {
+  if (!space) {
     space = await ensureHomeSpace(user);
   }
 
-  return c.json({ space: space ? await buildDefaultSpaceResponse(c, space, user) : null });
+  return c.json({ space: space ? await buildSpaceResponse(c, space, user) : null });
 });
 
 // ── POST /api/spaces ─────────────────────────────────────────────────────────
@@ -805,7 +803,7 @@ router.get("/default", async (c) => {
 router.post("/", async (c) => {
   const user = useAuth(c);
   if (user instanceof Response) return user;
-  if (!isUserAccountPrincipal(c)) return authzDenied(c);
+  if (!(await hasPermission(user, "space.create", { spaceId: "" }))) return authzDenied(c);
 
   const body = (await c.req
     .json<{
@@ -1020,7 +1018,7 @@ router.post("/", async (c) => {
   }
 
   return c.json({
-    space: await serializeSpaceForResponse(provisioned.space, user),
+    space: await buildSpaceResponse(c, provisioned.space, user),
     taskRunId: provisioned.taskRunId,
   });
 });
@@ -1044,7 +1042,7 @@ function stripSensitiveSpaceFields(item: Record<string, unknown>): Record<string
   return rest;
 }
 
-async function buildDefaultSpaceResponse(c: Context, space: SpaceRow, user: AuthUser) {
+async function buildSpaceResponse(c: Context, space: SpaceRow, user: AuthUser) {
   if (!getAppSessionPrincipal(c)) return serializeSpaceForResponse(space, user);
   const [item] = await buildSpaceListItems([space]);
   return item ? stripSensitiveSpaceFields(item) : null;
