@@ -48,7 +48,7 @@ export function filePreviewKind(
 	return "blank";
 }
 
-/** Short uppercase type label for the card's meta line (`MD`, `JSON`, `FILE`). */
+/** Short uppercase type label for a file card (`MD`, `JSON`, `FILE`). */
 export function fileTypeLabel(path: string): string {
 	const name = path.split("/").filter(Boolean).pop() ?? path;
 	const dot = name.lastIndexOf(".");
@@ -56,7 +56,7 @@ export function fileTypeLabel(path: string): string {
 	return name.slice(dot + 1).toUpperCase();
 }
 
-/** Human-readable byte size for the meta line. */
+/** Human-readable byte size. Kept as a public helper for custom card renderers. */
 export function formatFileSize(bytes: number | undefined): string {
 	if (bytes === undefined || !Number.isFinite(bytes) || bytes < 0) return "";
 	if (bytes < 1024) return `${bytes} B`;

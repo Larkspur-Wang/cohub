@@ -15,7 +15,6 @@ import type { BoardFileItem, BoardItem } from "@cohub/protocol/board-document";
 import {
 	fileCategory,
 	fileCategoryAccent,
-	fileMetaLine,
 	filePreviewKind,
 	fileStem,
 	fileTypeLabel,
@@ -55,8 +54,6 @@ const TITLE_MAX_LINES = 2;
 const EXCERPT_SIZE = 11;
 const EXCERPT_LINE = EXCERPT_SIZE * 1.45;
 const EXCERPT_MAX_LINES = 3;
-const META_SIZE = 10;
-const META_LINE = 14;
 const TYPE_MARK_SIZE = 28;
 const GAP = 4;
 const STRIPE = 2;
@@ -80,13 +77,11 @@ type FileParts = {
 	typeMark: Text;
 	title: Text;
 	excerpt: Text;
-	meta: Text;
 	visualSig: string;
 	textSig: string;
 	/** Per-text resolution state: each Text owns its own rasterisation bucket. */
 	titleRes: { resolution: number };
 	excerptRes: { resolution: number };
-	metaRes: { resolution: number };
 	typeMarkRes: { resolution: number };
 };
 
@@ -279,7 +274,6 @@ function sync(
 
 	syncTextResolution(parts.title, parts.titleRes, context.zoom);
 	syncTextResolution(parts.excerpt, parts.excerptRes, context.zoom);
-	syncTextResolution(parts.meta, parts.metaRes, context.zoom);
 	syncTextResolution(parts.typeMark, parts.typeMarkRes, context.zoom);
 
 	// The cache key is part of the signature so a pooled container adopted by a
@@ -374,26 +368,22 @@ function sync(
 
 		parts.title.visible = detail !== "plate";
 		parts.excerpt.visible = detail === "full";
-		parts.meta.visible = detail === "full";
 		parts.typeMark.visible = kind === "blank" && detail !== "plate";
 	}
 
 	if (detail === "plate") {
 		parts.typeMark.visible = false;
-		parts.meta.visible = false;
 		return;
 	}
 
 	const title = item.snapshot?.title || fileStem(item.ref.path);
 	const excerpt = item.snapshot?.excerpt ?? "";
-	const meta = fileMetaLine(item.ref.path, item.snapshot?.size);
 	const mark = fileTypeLabel(item.ref.path);
 	const innerWidth = Math.max(1, width - PADDING * 2);
 	const showTypeMark = kind === "blank";
 	const textSig = [
 		title,
 		excerpt,
-		meta,
 		mark,
 		detail,
 		innerWidth,
@@ -408,8 +398,7 @@ function sync(
 	parts.textSig = textSig;
 
 	const top = band > 0 ? band + PADDING * 0.8 : PADDING;
-	const metaReserve = detail === "full" && meta ? META_LINE : 0;
-	const contentBottom = height - PADDING - metaReserve;
+	const contentBottom = height - PADDING;
 
 	let cursor = top;
 	if (showTypeMark) {
@@ -437,7 +426,6 @@ function sync(
 
 	if (detail !== "full") {
 		parts.excerpt.visible = false;
-		parts.meta.visible = false;
 		return;
 	}
 
@@ -452,15 +440,6 @@ function sync(
 		parts.excerpt.position.set(PADDING, excerptTop);
 	}
 	parts.excerpt.visible = showExcerpt;
-
-	if (meta) {
-		parts.meta.style.fill = context.palette.muted;
-		if (parts.meta.text !== meta) parts.meta.text = meta;
-		parts.meta.position.set(PADDING, height - PADDING - META_LINE + 2);
-		parts.meta.visible = true;
-	} else {
-		parts.meta.visible = false;
-	}
 }
 
 export const fileCardRenderer: BoardCardRenderer = {
@@ -504,18 +483,6 @@ export const fileCardRenderer: BoardCardRenderer = {
 			resolution,
 			roundPixels: true,
 		});
-		const meta = new Text({
-			text: "",
-			style: {
-				fill: context.palette.muted,
-				fontFamily: BOARD_MONO_FONT_STACK,
-				fontSize: META_SIZE,
-				fontWeight: "500",
-				lineHeight: META_LINE,
-			},
-			resolution,
-			roundPixels: true,
-		});
 		const typeMark = new Text({
 			text: "",
 			style: {
@@ -530,7 +497,7 @@ export const fileCardRenderer: BoardCardRenderer = {
 		});
 		// Clip applies to body only so the plate stroke is not half-cut by the mask.
 		body.mask = clip;
-		body.addChild(cover, coverMask, typeMark, title, excerpt, meta);
+		body.addChild(cover, coverMask, typeMark, title, excerpt);
 		root.addChild(plate, body, clip);
 		partsByContainer.set(root, {
 			root,
@@ -542,12 +509,10 @@ export const fileCardRenderer: BoardCardRenderer = {
 			typeMark,
 			title,
 			excerpt,
-			meta,
 			visualSig: "",
 			textSig: "",
 			titleRes: { resolution },
 			excerptRes: { resolution },
-			metaRes: { resolution },
 			typeMarkRes: { resolution },
 		});
 		if (item.type === "file") sync(root, item, context);

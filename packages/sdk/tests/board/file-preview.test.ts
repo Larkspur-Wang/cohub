@@ -112,6 +112,8 @@ test("unterminated frontmatter stays in the body rather than leaking as excerpt 
 
 test("meta line joins type and size", () => {
 	assert.equal(fileTypeLabel("docs/notes.md"), "MD");
+	assert.equal(fileTypeLabel("data/rows.json"), "JSON");
+	assert.equal(fileTypeLabel("Makefile"), "MAKEFILE");
 	assert.equal(fileMetaLine("docs/notes.md", 12_288), "MD · 12 KB");
 	assert.equal(fileMetaLine("docs/notes.md", undefined), "MD");
 });
