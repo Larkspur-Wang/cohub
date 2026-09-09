@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="cohub:surface" content="overlay" />
+  <title>Mascot</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      background: transparent;
+      overflow: hidden;
+      font-family: system-ui, -apple-system, sans-serif;
+    }
+
+    /* ── Mascot character ─────────────────────────────────────────── */
+    #mascot {
+      position: absolute;
+      bottom: 80px;
+      left: 0;
+      width: 80px;
+      height: 80px;
+      cursor: pointer;
+      user-select: none;
+      will-change: transform;
+      /* translate is set via JS */
+    }
+
+    .body {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 0;
+    }
+
+    /* Head */
+    .head {
+      width: 48px;
+      height: 48px;
+      background: oklch(78% 0.18 55);
+      border-radius: 50% 50% 45% 45%;
+      position: relative;
+      flex-shrink: 0;
+      transition: transform 80ms ease;
+    }
+
+    /* Eyes */
+    .eye {
+      position: absolute;
+      top: 14px;
+      width: 9px;
+      height: 9px;
+      background: oklch(18% 0 0);
+      border-radius: 50%;
+    }
+    .eye.left  { left: 10px; }
+    .eye.right { right: 10px; }
+
+    /* Eyelids for blink */
+    .eye::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: oklch(78% 0.18 55);
+      border-radius: 50%;
+      transform: scaleY(0);
+      transform-origin: top;
+      transition: transform 60ms ease;
+    }
+    .blink .eye::after { transform: scaleY(1); }
+
+    /* Mouth */
+    .mouth {
+      position: absolute;
+      bottom: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 20px;
+      height: 10px;
+      border-bottom: 3px solid oklch(30% 0 0);
+      border-radius: 0 0 20px 20px;
+      transition: width 120ms ease, height 120ms ease;
+    }
+    .singing .mouth {
+      width: 16px;
+      height: 14px;
+      border-radius: 50%;
+      border: 3px solid oklch(30% 0 0);
+    }
+
+    /* Body / torso */
+    .torso {
+      width: 40px;
+      height: 28px;
+      background: oklch(55% 0.22 260);
+      border-radius: 8px 8px 4px 4px;
+      flex-shrink: 0;
+      position: relative;
+    }
+
+    /* Legs */
+    .legs {
+      display: flex;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+    .leg {
+      width: 12px;
+      height: 18px;
+      background: oklch(40% 0.15 260);
+      border-radius: 0 0 6px 6px;
+      transform-origin: top center;
+    }
+    .leg.left  { animation: leg-l 0.4s ease-in-out infinite; }
+    .leg.right { animation: leg-r 0.4s ease-in-out infinite; }
+
+    @keyframes leg-l {
+      0%, 100% { transform: rotate(-14deg); }
+      50%       { transform: rotate(14deg); }
+    }
+    @keyframes leg-r {
+      0%, 100% { transform: rotate(14deg); }
+      50%       { transform: rotate(-14deg); }
+    }
+
+    /* Shadow */
+    .shadow {
+      position: absolute;
+      bottom: -6px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 50px;
+      height: 8px;
+      background: oklch(0% 0 0 / 18%);
+      border-radius: 50%;
+      filter: blur(3px);
+    }
+
+    /* ── Speech bubble ─────────────────────────────────────────────── */
+    #bubble {
+      position: absolute;
+      bottom: 168px;
+      left: 0; /* repositioned in JS */
+      background: oklch(98% 0.01 100);
+      border: 1.5px solid oklch(85% 0.04 100);
+      border-radius: 12px;
+      padding: 8px 12px;
+      font-size: 13px;
+      line-height: 1.4;
+      color: oklch(20% 0 0);
+      max-width: 220px;
+      white-space: pre-wrap;
+      box-shadow: 0 4px 16px oklch(0% 0 0 / 12%);
+      opacity: 0;
+      transform: scale(0.85) translateY(6px);
+      transform-origin: bottom left;
+      transition: opacity 180ms ease, transform 180ms ease;
+      pointer-events: none;
+    }
+    #bubble.visible {
+      opacity: 1;
+      transform: scale(1) translateY(0);
+    }
+    #bubble::after {
+      content: "";
+      position: absolute;
+      bottom: -8px;
+      left: 20px;
+      border: 8px solid transparent;
+      border-top-color: oklch(98% 0.01 100);
+      border-bottom: none;
+    }
+
+    /* ── Reaction burst ────────────────────────────────────────────── */
+    .burst {
+      position: absolute;
+      font-size: 22px;
+      pointer-events: none;
+      animation: burst-fly 0.9s ease-out forwards;
+    }
+    @keyframes burst-fly {
+      from { transform: translateY(0) scale(1);   opacity: 1; }
+      to   { transform: translateY(-60px) scale(1.4); opacity: 0; }
+    }
+
+    /* Pause when prefers-reduced-motion */
+    @media (prefers-reduced-motion: reduce) {
+      .leg.left, .leg.right { animation: none; }
+      #mascot { transition: none; }
+    }
+  </style>
+</head>
+<body>
+
+<div id="mascot" aria-label="Mascot character" role="img">
+  <div class="shadow"></div>
+  <div class="body">
+    <div class="head" id="head">
+      <div class="eye left"></div>
+      <div class="eye right"></div>
+      <div class="mouth" id="mouth"></div>
+    </div>
+    <div class="torso"></div>
+    <div class="legs">
+      <div class="leg left"></div>
+      <div class="leg right"></div>
+    </div>
+  </div>
+</div>
+
+<div id="bubble" role="status" aria-live="polite"></div>
+
+<script type="module">
+  // ── SDK setup ──────────────────────────────────────────────────────
+  const SDK_URL = "https://esm.sh/@neta-art/cohub?bundle&target=es2022";
+  const { createCohubClient } = await import(SDK_URL);
+  const cohub = createCohubClient();
+
+  // Only works inside a published app runtime.
+  const context = await cohub.context();
+
+  // ── DOM refs ───────────────────────────────────────────────────────
+  const mascot = document.getElementById("mascot");
+  const head = document.getElementById("head");
+  const mouth = document.getElementById("mouth");
+  const bubble = document.getElementById("bubble");
+
+  // ── Walk state ─────────────────────────────────────────────────────
+  const vpW = window.innerWidth;
+  const vpH = window.innerHeight;
+  let x = -90; // start off-screen left
+  const speed = 1.8; // px / frame
+  let bubbleTimer = null;
+  let walkDone = false;
+
+  // ── Lines the mascot sings / says on the way ───────────────────────
+  const lines = [
+    "🎵 La la la...",
+    "Beep boop, I'm alive!",
+    "Hi there~ 👋",
+    "Just passing through!",
+    "Agent is thinking...",
+    "✨ Building something cool",
+    "🎶 Do re mi...",
+    "Keep up the good work!",
+    "Almost there... →",
+  ];
+  let lineIndex = 0;
+
+  function nextLine() {
+    return lines[lineIndex++ % lines.length];
+  }
+
+  // ── Speech bubble ──────────────────────────────────────────────────
+  function say(text, durationMs = 2800) {
+    if (bubbleTimer) clearTimeout(bubbleTimer);
+    bubble.textContent = text;
+    // Position bubble above the mascot, clamped to viewport.
+    const bx = Math.min(x + 8, vpW - 240);
+    bubble.style.left = `${Math.max(4, bx)}px`;
+    bubble.classList.add("visible");
+    head.classList.add("singing");
+
+    // Push text to the composer chip so the agent can read it.
+    if (context) {
+      cohub.app.composer.setChip({
+        key: "mascot",
+        label: "Mascot says",
+        content: text.replace(/[🎵🎶✨👋]/gu, "").trim(),
+      });
+    }
+
+    bubbleTimer = setTimeout(() => {
+      bubble.classList.remove("visible");
+      head.classList.remove("singing");
+      cohub.app.composer.clearChip("mascot");
+    }, durationMs);
+  }
+
+  // ── Blink ──────────────────────────────────────────────────────────
+  function scheduleBlink() {
+    const delay = 2000 + Math.random() * 3000;
+    setTimeout(() => {
+      head.classList.add("blink");
+      setTimeout(() => {
+        head.classList.remove("blink");
+        scheduleBlink();
+      }, 130);
+    }, delay);
+  }
+  scheduleBlink();
+
+  // ── Reaction burst (click) ─────────────────────────────────────────
+  mascot.addEventListener("click", () => {
+    const emojis = ["💫", "⭐", "✨", "🎉", "💥", "🌟"];
+    const el = document.createElement("span");
+    el.className = "burst";
+    el.textContent = emojis[Math.floor(Math.random() * emojis.length)];
+    const rect = mascot.getBoundingClientRect();
+    el.style.left = `${rect.left + 20 + Math.random() * 30}px`;
+    el.style.top = `${rect.top - 10}px`;
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 900);
+    say("Hey! That tickles! 😄");
+  });
+
+  // ── Walk loop ──────────────────────────────────────────────────────
+  let frameSince = 0;
+  const SAY_EVERY = 90; // frames between lines
+
+  function walk() {
+    x += speed;
+    mascot.style.transform = `translateX(${x}px)`;
+
+    // Keep the host's hit region on the character only (overlay-local coords),
+    // so everything else on the workspace stays clickable while it walks.
+    // Throttled: geometry updates are cheap but there is no need to post 60/s.
+    if (frameSince % 3 === 0) {
+      cohub.app.requestConfigure({
+        inputRegion: [{ x: Math.max(0, x), y: vpH - 160, width: 80, height: 80 }],
+      });
+    }
+
+    frameSince++;
+    if (frameSince % SAY_EVERY === 0) say(nextLine());
+
+    if (x < vpW + 20) {
+      requestAnimationFrame(walk);
+    } else {
+      // Reached the other side — wave goodbye and close.
+      say("Bye! See you next time~ 👋", 1800);
+      walkDone = true;
+      setTimeout(() => {
+        cohub.app.composer.clearChip("mascot");
+        cohub.app.requestClose();
+      }, 2200);
+    }
+  }
+
+  // ── Real-time room: wave-back presence ────────────────────────────
+  if (context) {
+    try {
+      const room = await cohub.app.realtime.createRoom({ code: "mascot-presence" });
+      room.subscribe("wave", ({ data }) => {
+        if (!walkDone) say(`${data.name ?? "Someone"} waved back! 👋`);
+      });
+      // Wave back when the mascot is clicked.
+      mascot.addEventListener("click", () => {
+        room.publish("wave", { name: "A viewer" });
+      });
+    } catch {
+      // Realtime is best-effort; continue without it.
+    }
+  }
+
+  // ── Handle navigation.open from the agent ─────────────────────────
+  // e.g. the agent sends: cohub desktop open <this-app> --call mascot.say --data '{"text":"Hello!"}'
+  // A surface handler only acknowledges delivery; the command itself is
+  // settled by reporting a result, which is what `cohub desktop open` waits on.
+  cohub.app.surface.handle("mascot.say", async ({ text }, { commandId }) => {
+    if (typeof text === "string") say(text, 3500);
+    await cohub.desktop.reportResult(commandId, { status: "applied", result: { said: true }, error: null });
+  });
+
+  // ── Start ──────────────────────────────────────────────────────────
+  requestAnimationFrame(walk);
+</script>
+</body>
+</html>

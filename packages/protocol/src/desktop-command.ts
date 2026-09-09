@@ -61,11 +61,23 @@ export const DESKTOP_COMMAND_TERMINAL_STATUSES: readonly DesktopCommandStatus[] 
 export const isTerminalDesktopCommandStatus = (status: DesktopCommandStatus): boolean =>
   DESKTOP_COMMAND_TERMINAL_STATUSES.includes(status);
 
+/**
+ * How the App surface should be presented on the desktop.
+ *
+ * - `window`  (default) — opens as a preview tab in the workspace panel.
+ * - `overlay` — renders in a transparent, chrome-free layer above the
+ *   workspace.  The App controls its own geometry via `configure.request`
+ *   and input hit-testing via `inputRegion`.  Stays below system UI.
+ */
+export type DesktopSurface = "window" | "overlay";
+
 export type DesktopAppTarget = {
   kind: "app";
   appId: string;
   label?: string;
   launch?: NavigationLaunch;
+  /** Requested surface role.  Defaults to `"window"` when absent. */
+  surface?: DesktopSurface;
 };
 
 export type DesktopFileTarget = {
@@ -266,6 +278,10 @@ export const parseDesktopCommand = (input: unknown): ParsedDesktopCommand => {
     };
   }
 
+  // `window` is the default and stays implicit; unknown values from newer
+  // clients are dropped rather than rejected so older desktops keep working.
+  const surface: DesktopSurface | undefined = target.surface === "overlay" ? "overlay" : undefined;
+
   const command: DesktopCommand = {
     type: "desktop.open",
     target: {
@@ -273,6 +289,7 @@ export const parseDesktopCommand = (input: unknown): ParsedDesktopCommand => {
       appId,
       ...(label ? { label } : {}),
       ...(launch ? { launch } : {}),
+      ...(surface ? { surface } : {}),
     },
     ...(call ? { call } : {}),
   };

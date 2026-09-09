@@ -71,7 +71,14 @@ import {
 	upsertAppSnapshot,
 } from "$lib/features/app/app-realtime";
 import type { AppSurfaceHost } from "$lib/features/app/surface-host";
-import { registerDesktopCommandHost } from "$lib/features/desktop-command/bus";
+import {
+	type AppSurfaceCallOutcome,
+	createAppSurfaceRegistry,
+} from "$lib/features/app/surface-registry";
+import {
+	type DesktopCommandOutcome,
+	registerDesktopCommandHost,
+} from "$lib/features/desktop-command/bus";
 import {
 	createSessionChatHost,
 	getSessionTitle,
@@ -131,6 +138,8 @@ import type { WorkspaceFileLinkTarget } from "$lib/workspace-file-links";
 import { resolveWorkspaceSpaceId } from "$lib/workspace-route";
 import { createAppPreviewController } from "./modules/app-window-controller.svelte";
 import { createBoardWindowController } from "./modules/board-window-controller.svelte";
+import DesktopLayerHost from "./modules/DesktopLayerHost.svelte";
+import { createDesktopLayerManager } from "./modules/desktop-layer-manager.svelte";
 import { createFileWorkspaceController } from "./modules/file-workspace-controller.svelte";
 import { classifyInlineFileFsChange } from "./modules/file-workspace-utils";
 import {
@@ -185,6 +194,7 @@ import {
 	workspaceFilePreviewKind,
 } from "./modules/windows";
 import type { WorkspaceAppOpenContext } from "./modules/workspace-app-context";
+import { createWorkspaceAppInvocation } from "./modules/workspace-app-context";
 import { createWorkspaceLayoutController } from "./modules/workspace-layout-controller.svelte";
 import { displayUserName, fallbackUserName } from "./space-utils";
 
@@ -528,8 +538,39 @@ async function openResolvedAppNavigation(
 			};
 }
 
+/**
+ * Maps a surface call result onto a desktop command outcome. `ok` is
+ * `pending`, not `applied`: the App acknowledged delivery and settles the
+ * command itself through `client.ui.reportResult()`.
+ */
+function desktopCallOutcome(
+	called: AppSurfaceCallOutcome | undefined,
+): DesktopCommandOutcome {
+	if (!called) {
+		return {
+			status: "rejected",
+			error: {
+				code: "surface_unavailable",
+				message: "The App surface did not return a call result.",
+			},
+		};
+	}
+	if (called.ok) return { status: "pending" };
+	return {
+		status:
+			called.code === "surface_not_supported" ||
+			called.code === "method_not_found"
+				? "unsupported"
+				: "rejected",
+		error: { code: called.code, message: called.message },
+	};
+}
+
+/** Mounted App iframes across every host (tabs and overlays), keyed by app id. */
+const appSurfaces = createAppSurfaceRegistry();
 const appPreview = createAppPreviewController({
 	getSpaceId: () => spaceId,
+	surfaces: appSurfaces,
 	onOpenPanel: () => {
 		if (uiState.filesColumnHidden) uiState.setFilesColumnHidden(false);
 		ensurePreviewPanelFits();
@@ -541,6 +582,9 @@ const appPreview = createAppPreviewController({
 	},
 	onAppClosed: (appId) => windowManager.tabClosed("app", appId),
 });
+
+// Desktop overlay layer — manages App surfaces that float above the workspace.
+const desktopLayers = createDesktopLayerManager({ surfaces: appSurfaces });
 const inlineAppPreview = $derived(appPreview.preview);
 const inlineAppTabs = $derived(appPreview.previews);
 const activeInlineAppId = $derived(appPreview.activeAppId);
@@ -825,6 +869,15 @@ $effect(() => {
 			kind: "port",
 			port: inlinePortPreview.port,
 			url: inlinePortEndpoint?.url ?? inlinePortPreview.url,
+		});
+		return;
+	}
+	const overlayChip = desktopLayers.composerChip;
+	if (overlayChip) {
+		sessionChat.reportActiveSource({
+			kind: "app",
+			appId: overlayChip.appId,
+			...overlayChip.chip,
 		});
 		return;
 	}
@@ -2162,7 +2215,7 @@ function registerAppSurface(appId: string, host: AppSurfaceHost | null) {
 	if (!host) return;
 	appSurfaceDisposers.set(
 		appId,
-		appPreview.registerSurface(appId, (input) => host.call(input)),
+		appSurfaces.register({ appId, surface: "app" }, (input) => host.call(input)),
 	);
 }
 async function downloadInlineFile() {
@@ -2207,6 +2260,13 @@ async function handleFileKeyboardSave(event: KeyboardEvent) {
 		event.preventDefault();
 		if (inlinePortPreview) closeInlinePort();
 		else closeInlineFile();
+		return;
+	}
+	// Overlays have no chrome of their own, so Escape is the one host-owned way
+	// to get rid of an App that never calls requestClose().
+	if (event.key === "Escape" && desktopLayers.count > 0) {
+		event.preventDefault();
+		desktopLayers.dismissAll();
 	}
 }
 async function copyInlineFileContent() {
@@ -2499,6 +2559,36 @@ onMount(() => {
 					? { toolCallId: context.source.toolCallId }
 					: {}),
 			};
+
+			// Overlay surfaces bypass the tab-based preview system.
+			if (command.target.surface === "overlay") {
+				const opened = desktopLayers.openOverlay({
+					appId: command.target.appId,
+					label: command.target.label,
+					invocation: createWorkspaceAppInvocation(
+						spaceId,
+						openContext,
+						"overlay",
+					),
+				});
+				if (opened === "limit") {
+					return {
+						status: "rejected",
+						error: {
+							code: "overlay_limit",
+							message: "Too many overlay surfaces are already open.",
+						},
+					};
+				}
+				if (!command.call) return { status: "applied" };
+				return desktopCallOutcome(
+					await desktopLayers.callSurface({
+						appId: command.target.appId,
+						commandId: context.commandId,
+						...command.call,
+					}),
+				);
+			}
 			const opened = await openResolvedAppNavigation(
 				{
 					protocol: "cohub.app.navigation",
@@ -2514,25 +2604,7 @@ onMount(() => {
 				command.target.launch,
 			);
 			if (!command.call) return { status: "applied" };
-			const called = opened.call;
-			if (!called) {
-				return {
-					status: "rejected",
-					error: {
-						code: "surface_unavailable",
-						message: "The App surface did not return a call result.",
-					},
-				};
-			}
-			if (called.ok) return { status: "pending" };
-			return {
-				status:
-					called.code === "surface_not_supported" ||
-					called.code === "method_not_found"
-						? "unsupported"
-						: "rejected",
-				error: { code: called.code, message: called.message },
-			};
+			return desktopCallOutcome(opened.call);
 		},
 	);
 	return () => {
@@ -2553,6 +2625,8 @@ onMount(() => {
 		for (const dispose of appSurfaceDisposers.values()) dispose();
 		appSurfaceDisposers.clear();
 		appPreview.dispose();
+		desktopLayers.dismissAll();
+		appSurfaces.clear();
 		sessionChat.scroll.stopVimScroll();
 		sessionChat.scroll.clearPendingVimG();
 		sessionChat.persistSessionScrollAnchorsNow();
@@ -3182,6 +3256,12 @@ const headerActions = {
 	style={`--immersive-chat-width: ${uiState.immersiveChatWidth}px; --immersive-chat-edge-gap: ${FLOAT_CHAT_EDGE_GAP}px; --immersive-chat-max-width: calc(100% - ${immersiveFilesInset}px - ${FLOAT_PREVIEW_MIN_WIDTH + FLOAT_PANEL_GAP}px); --preview-safe-left: ${previewImmersiveMode && immersiveChatVisible ? `calc(min(var(--immersive-chat-width), var(--immersive-chat-max-width)) + var(--immersive-chat-edge-gap) + ${FLOAT_PANEL_GAP}px)` : `${FLOAT_PANEL_GAP}px`}; --preview-safe-right: ${immersiveFilesInset}px`}
 >
   <SpaceDanmakuLayer controller={danmakuController} {spaceId} hidden={previewImmersiveMode} />
+  <DesktopLayerHost
+    manager={desktopLayers}
+    surfaces={appSurfaces}
+    shell={appShell}
+    onNavigationOpen={handleAppNavigationOpen}
+  />
   <div
     class="workspace-main flex-1 min-h-0 flex flex-col min-w-0 bg-bg-content"
     class:workspace-main--immersive-hidden={!immersiveChatVisible}
@@ -3415,7 +3495,7 @@ const headerActions = {
 
     .workspace-body--preview-immersive .workspace-main {
       position: relative;
-      z-index: 20;
+      z-index: var(--z-workspace-chrome);
       flex: 0 0 min(var(--immersive-chat-width), var(--immersive-chat-max-width));
       max-width: min(var(--immersive-chat-width), var(--immersive-chat-max-width));
       min-width: min(320px, calc(100vw - 96px));
@@ -3437,7 +3517,7 @@ const headerActions = {
     top: 7px;
     right: auto;
     left: 7px;
-    z-index: 20;
+    z-index: var(--z-workspace-chrome);
     display: flex;
     align-items: center;
     gap: 4px;
@@ -3468,7 +3548,7 @@ const headerActions = {
     top: 0;
     right: -4px;
     bottom: 0;
-    z-index: 10;
+    z-index: var(--z-panel-float);
     width: 8px;
     border: 0;
     padding: 0;
@@ -3504,7 +3584,7 @@ const headerActions = {
     cursor: col-resize;
     background: transparent;
     touch-action: none;
-    z-index: 10;
+    z-index: var(--z-panel-float);
   }
   :global(.right-sidebar-resize-handle)::after {
     content: "";
@@ -3531,7 +3611,7 @@ const headerActions = {
     cursor: col-resize;
     background: transparent;
     touch-action: none;
-    z-index: 10;
+    z-index: var(--z-panel-float);
   }
   :global(.inline-panel-resize-handle)::after {
     content: "";
@@ -3551,7 +3631,7 @@ const headerActions = {
     position: fixed;
     right: 1rem;
     bottom: 1rem;
-    z-index: 70;
+    z-index: var(--z-workspace-toast);
     max-width: min(22rem, calc(100vw - 2rem));
     border: 1px solid var(--color-border-subtle);
     border-radius: 0.75rem;
@@ -3567,7 +3647,7 @@ const headerActions = {
     position: fixed;
     left: 50%;
     top: 58px;
-    z-index: 80;
+    z-index: var(--z-fullscreen);
     display: flex;
     max-width: min(680px, calc(100vw - 24px));
     min-width: min(520px, calc(100vw - 24px));

@@ -175,3 +175,43 @@ describe("desktop command helpers", () => {
     assert.equal(isDesktopCallMethod("has space"), false);
   });
 });
+
+describe("DesktopSurface field", () => {
+  const APP_ID = "123e4567-e89b-42d3-a456-426614174000";
+
+  it("parses overlay surface", () => {
+    const { command } = parseDesktopCommand({
+      type: "desktop.open",
+      target: { kind: "app", appId: APP_ID, surface: "overlay" },
+    });
+    assert.equal(command?.target.kind === "app" && command.target.surface, "overlay");
+  });
+
+  it("omits surface when absent", () => {
+    const { command } = parseDesktopCommand({
+      type: "desktop.open",
+      target: { kind: "app", appId: APP_ID },
+    });
+    assert.ok(command !== null);
+    assert.equal(command.target.kind === "app" && command.target.surface, undefined);
+  });
+
+  it("ignores unrecognised surface values", () => {
+    const { command } = parseDesktopCommand({
+      type: "desktop.open",
+      target: { kind: "app", appId: APP_ID, surface: "popup" },
+    });
+    assert.ok(command !== null);
+    assert.equal(command.target.kind === "app" && command.target.surface, undefined);
+  });
+
+  it("accepts window as explicit value", () => {
+    const { command } = parseDesktopCommand({
+      type: "desktop.open",
+      target: { kind: "app", appId: APP_ID, surface: "window" },
+    });
+    assert.ok(command !== null);
+    // "window" is the default, stored as undefined to keep the payload compact.
+    assert.equal(command.target.kind === "app" && command.target.surface, undefined);
+  });
+});

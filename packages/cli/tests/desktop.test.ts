@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Command } from "commander";
-import { registerDesktop, registerLegacyUi } from "../src/commands/desktop.js";
+import { registerDesktop, registerLegacyUi, resolveOpenSurface } from "../src/commands/desktop.js";
 
 function createProgram(): { desktop: Command; open: Command } {
   const program = new Command("cohub")
@@ -41,6 +41,7 @@ test("desktop open exposes call, targeting, and retry options", () => {
     "--no-wait",
     "--timeout-ms",
     "--json",
+    "--as",
   ]) {
     assert.ok(options.includes(expected), `missing option ${expected}`);
   }
@@ -61,4 +62,18 @@ test("the legacy ui preview alias stays registered", () => {
   const preview = ui.commands.find((command) => command.name() === "preview");
   assert.ok(preview, "ui preview must be registered");
   assert.match(preview.description(), /Deprecated/);
+});
+
+test("the surface comes from --as, then from what the App declared at publish time", () => {
+  // Declared overlay opens as an overlay without any flag.
+  assert.equal(resolveOpenSurface(undefined, "overlay"), "overlay");
+  // An explicit --as always wins over the declaration, in both directions.
+  assert.equal(resolveOpenSurface("window", "overlay"), undefined);
+  assert.equal(resolveOpenSurface("overlay", "window"), "overlay");
+  assert.equal(resolveOpenSurface("overlay", undefined), "overlay");
+  // `window` is the implicit default and stays off the wire.
+  assert.equal(resolveOpenSurface(undefined, "window"), undefined);
+  assert.equal(resolveOpenSurface(undefined, undefined), undefined);
+  // Anything unknown from an older or newer App record is ignored.
+  assert.equal(resolveOpenSurface(undefined, "popup"), undefined);
 });

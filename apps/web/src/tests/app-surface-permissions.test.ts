@@ -155,3 +155,18 @@ test("a surface releases its bridge even if the consumer's unregister throws", (
 		/try \{\s*onSurfaceHost\?\.\(null\);\s*\} finally \{\s*surfaceHost\?\.dispose\(\);\s*\}/,
 	);
 });
+
+test("overlay surfaces render with their own mode class and forward configure requests", () => {
+	assert.match(source, /<div class="app-surface \{mode\}">/);
+	assert.match(source, /parseAppRuntimeConfigureRequest\(event\.data\)/);
+	assert.match(source, /onConfigureRequest\?\.\(configure\)/);
+	const layerHostSource = readFileSync(
+		new URL("../lib/features/space/modules/DesktopLayerHost.svelte", import.meta.url),
+		"utf8",
+	);
+	assert.match(layerHostSource, /mode="overlay"/);
+	assert.match(
+		layerHostSource,
+		/onConfigureRequest=\{\(request\) => manager\.configure\(overlay\.appId, request\)\}/,
+	);
+});

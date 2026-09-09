@@ -40,6 +40,47 @@ body {
 	--motion-panel-fade-collapse-duration: 120ms;
 	--motion-panel-ease: cubic-bezier(0.16, 1, 0.3, 1);
 	--motion-panel-collapse-ease: cubic-bezier(0.4, 0, 0.6, 1);
+
+	/* ============================================================
+	   Z-index scale
+	   Each layer represents a conceptual stacking context.
+	   Intra-component z-indices (e.g. board tool UIs, scroll rails)
+	   use small local values and are NOT listed here.
+	   ============================================================ */
+
+	/* Inside the preview/workspace panels — elements that float above
+	   the document flow but still belong to a panel. */
+	--z-panel-float: 10;
+
+	/* Sidebar columns, immersive chat panel. */
+	--z-workspace-chrome: 20;
+
+	/* Workspace decorations: danmaku, overlay App surfaces. */
+	--z-workspace-overlay: 30;
+
+	/* Floating presence stack backdrop + checkout return. */
+	--z-workspace-popover: 60;
+
+	/* Presence stack open state (above its own backdrop). */
+	--z-workspace-popover-open: 70;
+
+	/* In-workspace toasts and banners (port ready etc.). */
+	--z-workspace-toast: 75;
+
+	/* Full-screen capture / command palette / checkout overlay. */
+	--z-fullscreen: 80;
+
+	/* Preview-mark / annotation overlay. */
+	--z-mark: 100;
+
+	/* Modal dialogs and sheets. */
+	--z-dialog: 100;
+
+	/* Drag ghost — must float above everything except lightboxes. */
+	--z-drag: 150;
+
+	/* Media lightbox. */
+	--z-lightbox: 9999;
 }
 
 /* App shell background — themes can layer an image / texture / overlay

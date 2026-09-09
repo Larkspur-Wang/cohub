@@ -6,8 +6,10 @@ import {
 } from "@cohub/protocol/app-navigation";
 import {
 	parseAppRuntimeCloseRequest,
+	parseAppRuntimeConfigureRequest,
 	parseAppRuntimeReady,
 } from "@cohub/protocol/app-runtime";
+import type { AppRuntimeConfigureRequest } from "@cohub/protocol/app-runtime";
 import type { AppComposerChip } from "@cohub/protocol/app-surface";
 import type {
 	AppContent,
@@ -33,7 +35,7 @@ import {
 import { parseNewChatBackgroundAction } from "$lib/new-chat-background-bridge";
 import { emitSpaceConfigBackgroundAction } from "$lib/space-config";
 
-type AppSurfaceMode = "page" | "background" | "app";
+type AppSurfaceMode = "page" | "background" | "app" | "overlay";
 
 type AppSpace = {
 	id: string;
@@ -78,6 +80,8 @@ type Props = {
 	onReady?: () => void;
 	/** The App asked to close the surface it runs in. */
 	onCloseRequest?: () => void;
+	/** The App asked to change its overlay geometry or input region. */
+	onConfigureRequest?: (request: AppRuntimeConfigureRequest) => void;
 	onNavigationOpen?: (
 		message: AppNavigationOpenMessage,
 	) => Promise<
@@ -101,6 +105,7 @@ const {
 	onComposerChip = undefined,
 	onReady = undefined,
 	onCloseRequest = undefined,
+	onConfigureRequest = undefined,
 	onNavigationOpen = undefined,
 }: Props = $props();
 
@@ -118,7 +123,6 @@ function reportReady() {
 }
 
 const isBackground = $derived(mode === "background");
-const isAppWindow = $derived(mode === "app");
 const spaceName = $derived(space?.name || space?.slug || "Space");
 const appTitle = $derived(appDisplayTitle(app?.meta, app?.slug ?? "App"));
 const publisherName = $derived(owner?.displayName ?? "Cohub");
@@ -238,6 +242,11 @@ async function onFrameMessage(event: MessageEvent) {
 		onCloseRequest?.();
 		return;
 	}
+	const configure = parseAppRuntimeConfigureRequest(event.data);
+	if (configure) {
+		onConfigureRequest?.(configure);
+		return;
+	}
 	const navigation = parseAppNavigationOpenMessage(event.data);
 	if (navigation) {
 		let result:
@@ -300,7 +309,7 @@ onMount(() => {
 });
 </script>
 
-<div class={isBackground ? "app-surface background" : isAppWindow ? "app-surface app" : "app-surface page"}>
+<div class="app-surface {mode}">
 	{#if boardContent}
 		<div class="app-native">
 			<WorkBoardSurface content={boardContent} />
@@ -318,6 +327,7 @@ onMount(() => {
 			title={appTitle}
 			sandbox={frameSandbox}
 			allow={framePermissions}
+			allowtransparency={mode === "overlay" ? true : undefined}
 			src={iframeSrc}
 			onload={() => {
 				// load only marks the document as visually ready. Context waits for
@@ -395,22 +405,32 @@ onMount(() => {
 	}
 
 	.app-surface.background,
-	.app-surface.app {
+	.app-surface.app,
+	.app-surface.overlay {
 		width: 100%;
 		height: 100%;
 	}
 
-	/* App windows live inside the workspace pane and own no page chrome. */
-	.app-surface.app {
+	/* App windows and overlays live inside the workspace and own no page chrome. */
+	.app-surface.app,
+	.app-surface.overlay {
 		display: flex;
 		min-height: 0;
 		flex-direction: column;
 	}
 
 	.app-surface.app .app-frame,
-	.app-surface.app .app-native {
+	.app-surface.app .app-native,
+	.app-surface.overlay .app-frame,
+	.app-surface.overlay .app-native {
 		flex: 1 1 auto;
 		min-height: 0;
+	}
+
+	/* An overlay is a transparent layer: the App paints its own pixels. */
+	.app-surface.overlay,
+	.app-surface.overlay .app-frame {
+		background: transparent;
 	}
 
 	.app-frame {

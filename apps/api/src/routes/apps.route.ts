@@ -128,6 +128,10 @@ async function canHideCohubBar(userId: string) {
 }
 
 async function ensureAppPresentationAllowed(c: Context, input: { userId: string; meta: AppMeta | null | undefined }) {
+  const presentation = isRecord(input.meta?.presentation) ? input.meta.presentation : null;
+  if (presentation?.surface !== undefined && presentation.surface !== "window" && presentation.surface !== "overlay") {
+    return c.json({ message: "meta.presentation.surface must be one of: window, overlay" }, 400);
+  }
   if (!getHideCohubBar(input.meta)) return null;
   if (await canHideCohubBar(input.userId)) return null;
   return appHideCohubBarRequiredResponse(c);
@@ -362,8 +366,9 @@ async function writeAppAsset(input: {
           description: result.extracted.description,
           icon: result.extracted.icon,
           image: result.extracted.image,
-          lang: result.extracted.lang ?? null,
+              lang: result.extracted.lang ?? null,
           themeColor: result.extracted.themeColor ?? null,
+          surface: result.extracted.surface ?? null,
           sourcePath: result.extracted.sourcePath,
         },
         result.assetKey,
