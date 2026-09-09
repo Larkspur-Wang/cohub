@@ -80,7 +80,7 @@ let nextBefore = $state<number | null>(null);
 let olderState = $state<"idle" | "loading" | "failed">("idle");
 let version = $state(0);
 let playing = $state(false);
-let speed = $state<BoardReplaySpeed>(1);
+let speed = $state<BoardReplaySpeed>(4);
 let follow = $state(true);
 let surfaceSize = $state({ width: 0, height: 0 });
 let timer: ReturnType<typeof setTimeout> | null = null;
@@ -170,17 +170,21 @@ function tick() {
 	scheduleTick();
 }
 
+function play() {
+	if (!player || playing) return;
+	// Play from the end restarts the story.
+	if (version >= head) show(floor, false);
+	playing = true;
+	scheduleTick();
+}
+
 function togglePlay() {
-	if (!player) return;
 	if (playing) {
 		playing = false;
 		stopTimer();
 		return;
 	}
-	// Play from the end restarts the story.
-	if (version >= head) show(floor, false);
-	playing = true;
-	scheduleTick();
+	play();
 }
 
 function step(direction: -1 | 1) {
@@ -304,9 +308,10 @@ onMount(() => {
 			player = loaded.player;
 			nextBefore = loaded.nextBefore;
 			revision += 1;
-			// Open at the beginning so the first press of Play tells the story;
-			// the live document stayed on screen until this point.
+			// Rewind to the beginning and start playing immediately; the live
+			// document stayed on screen until this point.
 			show(loaded.player.floor, false);
+			play();
 		})
 		.catch((error: unknown) => {
 			if (cancelled) return;
