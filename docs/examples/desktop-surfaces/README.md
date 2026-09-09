@@ -53,7 +53,7 @@ stays fully usable.  The App claims the parts it wants to be clickable through
 - `"all"` — the whole overlay is interactive
 - `Rect[]` — only these rectangles, in the overlay's own CSS pixel coordinates
 
-Because the overlay is the same size as the workspace, overlay coordinates and
+Because the overlay covers the window, overlay coordinates and
 `getBoundingClientRect()` inside the App line up one-to-one.
 
 The region only decides where pointer events go; it never clips what the

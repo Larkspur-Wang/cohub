@@ -386,7 +386,7 @@ Cohub reads the declaration at publish time into `meta.presentation.surface`;
 
 ### What the App controls
 
-An overlay is the same size as the workspace and starts fully click-through.
+An overlay covers the window and starts fully click-through.
 The App claims the parts that should receive pointer events and, optionally,
 where it sits:
 
@@ -401,8 +401,8 @@ cohub.app.requestConfigure({
 `inputRegion` is `"none"` (default), `"all"`, or a list of rectangles. It only
 decides where pointer events go and never clips what the overlay paints, so
 decorative parts can stay outside it. `geometry` (`anchor`, `x`, `y`, `width`,
-`height`) shrinks the overlay to a region of the screen; the host clamps it
-on-screen. An axis without a size fills the layer.
+`height`) shrinks the overlay to a region of the window; the host clamps it
+on-screen. An axis without a size fills the window.
 
 Pick the shape that matches the App. A fixed panel should shrink to its own
 size with `geometry` and take `inputRegion: "all"`:

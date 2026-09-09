@@ -53,7 +53,7 @@ function registerSurface(appId: string, host: AppSurfaceHost | null) {
 	);
 }
 
-/** Host viewport size, used to clamp overlay geometry on-screen. */
+/** The window: overlays are a desktop layer, not a workspace-panel layer. */
 let viewport = $state({
 	width: typeof window !== "undefined" ? window.innerWidth : 1280,
 	height: typeof window !== "undefined" ? window.innerHeight : 800,
@@ -120,8 +120,6 @@ $effect(() => {
 	return () => window.removeEventListener("pointermove", trackPointer, true);
 });
 
-// Every configure.request replaces the overlay list, so reading it is enough
-// to re-test the resting pointer against the new regions and geometry.
 $effect(() => {
 	void manager.overlays;
 	void viewport;
@@ -132,11 +130,11 @@ $effect(() => {
 <svelte:window onresize={syncViewport} />
 
 <!--
-	Overlays sit above workspace content (--z-workspace-overlay) and below every
-	system surface (toasts, dialogs, command palette, drag ghost). The layer
-	itself never takes pointer events and never clips what an App paints; each
-	overlay opts in to input through its inputRegion, so the workspace underneath
-	stays reachable everywhere the App did not claim.
+	Overlays cover the window (--z-workspace-overlay) and sit below every system
+	surface (toasts, dialogs, command palette, drag ghost). The layer itself
+	never takes pointer events and never clips what an App paints; each overlay
+	opts in to input through its inputRegion, so the desktop underneath stays
+	reachable everywhere the App did not claim.
 -->
 {#if manager.count > 0}
 	<div
@@ -145,60 +143,60 @@ $effect(() => {
 		role="region"
 		aria-label="App overlays"
 	>
-		{#each manager.overlays as overlay (overlay.id)}
-			<div
-				class="desktop-overlay"
-				class:interactive={isInteractive(overlay)}
-				style={resolveOverlayStyle(overlay.geometry, viewport)}
-			>
-				{#if overlay.error}
-					<div class="overlay-error" role="status">
-						<span class="overlay-error-text" title={overlay.error}>{overlay.error}</span>
-						<button
-							type="button"
-							class="overlay-btn"
-							onclick={() => manager.retry(overlay.appId)}
-							aria-label="Retry loading {overlay.label}"
-						>
-							<RefreshCw class="h-3 w-3" />
-						</button>
-						<button
-							type="button"
-							class="overlay-btn"
-							onclick={() => manager.closeOverlay(overlay.appId)}
-							aria-label="Dismiss {overlay.label}"
-						>
-							<X class="h-3 w-3" />
-						</button>
-					</div>
-				{:else if overlay.detail}
-					<div class="overlay-surface">
-						{#key overlay.mountKey}
-							<AppSurface
-								mode="overlay"
-								app={overlay.detail.app}
-								space={overlay.detail.space}
-								owner={overlay.detail.owner}
-								content={overlay.detail.content ?? null}
-								invocation={overlay.invocation}
-								{shell}
-								onSurfaceHost={(host) => registerSurface(overlay.appId, host)}
-								onComposerChip={(chip) => manager.setComposerChip(overlay.appId, chip)}
-								onCloseRequest={() => manager.closeOverlay(overlay.appId)}
-								onConfigureRequest={(request) => manager.configure(overlay.appId, request)}
-								{onNavigationOpen}
-							/>
-						{/key}
-					</div>
-				{/if}
-			</div>
-		{/each}
+	{#each manager.overlays as overlay (overlay.id)}
+		<div
+			class="desktop-overlay"
+			class:interactive={isInteractive(overlay)}
+			style={resolveOverlayStyle(overlay.geometry, viewport)}
+		>
+			{#if overlay.error}
+				<div class="overlay-error" role="status">
+					<span class="overlay-error-text" title={overlay.error}>{overlay.error}</span>
+					<button
+						type="button"
+						class="overlay-btn"
+						onclick={() => manager.retry(overlay.appId)}
+						aria-label="Retry loading {overlay.label}"
+					>
+						<RefreshCw class="h-3 w-3" />
+					</button>
+					<button
+						type="button"
+						class="overlay-btn"
+						onclick={() => manager.closeOverlay(overlay.appId)}
+						aria-label="Dismiss {overlay.label}"
+					>
+						<X class="h-3 w-3" />
+					</button>
+				</div>
+			{:else if overlay.detail}
+				<div class="overlay-surface">
+					{#key overlay.mountKey}
+						<AppSurface
+							mode="overlay"
+							app={overlay.detail.app}
+							space={overlay.detail.space}
+							owner={overlay.detail.owner}
+							content={overlay.detail.content ?? null}
+							invocation={overlay.invocation}
+							{shell}
+							onSurfaceHost={(host) => registerSurface(overlay.appId, host)}
+							onComposerChip={(chip) => manager.setComposerChip(overlay.appId, chip)}
+							onCloseRequest={() => manager.closeOverlay(overlay.appId)}
+							onConfigureRequest={(request) => manager.configure(overlay.appId, request)}
+							{onNavigationOpen}
+						/>
+					{/key}
+				</div>
+			{/if}
+		</div>
+	{/each}
 	</div>
 {/if}
 
 <style>
 	.desktop-layer-host {
-		position: absolute;
+		position: fixed;
 		inset: 0;
 		z-index: var(--z-workspace-overlay);
 		overflow: hidden;
