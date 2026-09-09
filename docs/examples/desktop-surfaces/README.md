@@ -55,9 +55,17 @@ Overlays have no chrome of their own. An App closes itself with
 `cohub.app.requestClose()`; the viewer can always press `Escape` in the
 workspace to dismiss every open overlay.
 
+Overlays keep every other App capability: context, authorization, Space APIs,
+realtime rooms, `surface.handle()` + `--call`, composer chips (the most
+recently set overlay chip is the one shown), navigation and commerce. The one
+overlay-only call is `requestConfigure()`; `invocation.surface` reads
+`"overlay"` so an App can tell how it was opened.
+
 ## Publishing
 
-Each folder is a self-contained directory App.  Publish `mascot/` or `hud/` in
-any Space, then open with `--as overlay`.  The HUD subscribes to the current
-Chat, so grant it `session.view` when publishing.  No build step — the SDK is
-loaded from `esm.sh`.
+Each folder is a self-contained directory App. Both declare
+`<meta name="cohub:surface" content="overlay">`, which Cohub reads at publish
+time into `meta.presentation.surface` — so `cohub desktop open <app>` opens
+them as overlays without `--as`. Pass `--as window` to override. The HUD
+subscribes to the current Chat, so grant it `session.view` when publishing. No
+build step — the SDK is loaded from `esm.sh`.

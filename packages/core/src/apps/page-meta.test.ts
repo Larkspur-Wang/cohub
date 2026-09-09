@@ -68,6 +68,7 @@ const extracted = materializeHtmlPageMeta(
     image: "https://img.example/cover.png",
     lang: "zh-CN",
     themeColor: "#c76b3a",
+    surface: "overlay",
     sourcePath: "index.html",
   },
   "w/space/demo/abc/index.html",
@@ -100,6 +101,20 @@ assert.equal(promoted?.name, undefined);
 // Weak relative leftovers are upgraded by a solid extracted absolute URL.
 const upgraded = mergeAppPageMeta({ icon: "/favicon.svg" }, extracted);
 assert.equal(upgraded?.icon, "https://cdn.example/w/space/demo/abc/favicon.ico");
+
+// A declared surface fills presentation.surface; the publisher's value wins and
+// the default `window` stays implicit.
+assert.equal((filled?.presentation as { surface?: string })?.surface, "overlay");
+assert.equal(
+  (mergeAppPageMeta({ presentation: { surface: "window" } }, extracted)?.presentation as { surface?: string })
+    ?.surface,
+  "window",
+);
+assert.equal(
+  mergeAppPageMeta({}, { ...extracted, surface: "window" })?.presentation,
+  undefined,
+);
+assert.equal((merged?.extracted as { surface?: string })?.surface, "overlay");
 
 assert.equal(appTitleFromMeta({ title: "A", name: "B" }, "fallback"), "A");
 assert.equal(appTitleFromMeta({ name: "B" }, "fallback"), "B");

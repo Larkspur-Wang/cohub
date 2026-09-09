@@ -1,4 +1,5 @@
 import type { AppRuntimeConfigureRequest } from "@cohub/protocol/app-runtime";
+import type { AppComposerChip } from "@cohub/protocol/app-surface";
 import type {
 	AppDetailResponse,
 	AppRuntimeInvocationContext,
@@ -26,6 +27,7 @@ export type DesktopOverlay = {
 	invocation: AppRuntimeInvocationContext;
 	geometry: OverlayGeometry;
 	inputRegion: OverlayInputRegion;
+	composerChip: AppComposerChip | null;
 };
 
 type DesktopLayerManagerOptions = {
@@ -110,6 +112,7 @@ export function createDesktopLayerManager(options: DesktopLayerManagerOptions) {
 				invocation: input.invocation,
 				geometry: {},
 				inputRegion: "none",
+				composerChip: null,
 			},
 		];
 		loadDetail(input.appId);
@@ -143,6 +146,21 @@ export function createDesktopLayerManager(options: DesktopLayerManagerOptions) {
 		});
 	}
 
+	/**
+	 * Overlays have no "active" one, so the chip shown in the composer is the
+	 * most recently set: setting moves the overlay to the end of the list.
+	 */
+	function setComposerChip(appId: string, chip: AppComposerChip | null) {
+		const overlay = find(appId);
+		if (!overlay) return;
+		const rest = overlays.filter((item) => item.appId !== appId);
+		overlays = chip
+			? [...rest, { ...overlay, composerChip: chip }]
+			: overlays.map((item) =>
+					item.appId === appId ? { ...item, composerChip: null } : item,
+				);
+	}
+
 	/** Applies a `configure.request`; absent fields keep their current value. */
 	function configure(appId: string, request: AppRuntimeConfigureRequest) {
 		const overlay = find(appId);
@@ -170,6 +188,16 @@ export function createDesktopLayerManager(options: DesktopLayerManagerOptions) {
 		get count() {
 			return overlays.length;
 		},
+		/** The chip the composer should show for overlays, if any. */
+		get composerChip() {
+			for (let i = overlays.length - 1; i >= 0; i -= 1) {
+				const overlay = overlays[i];
+				if (overlay.composerChip) {
+					return { appId: overlay.appId, chip: overlay.composerChip };
+				}
+			}
+			return null;
+		},
 		find,
 		openOverlay,
 		closeOverlay,
@@ -177,6 +205,7 @@ export function createDesktopLayerManager(options: DesktopLayerManagerOptions) {
 		callSurface,
 		configure,
 		retry,
+		setComposerChip,
 	};
 }
 

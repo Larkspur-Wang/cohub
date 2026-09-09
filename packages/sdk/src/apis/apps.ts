@@ -9,6 +9,8 @@ export type AppVisibility = "public" | "space";
 
 export type AppPresentationMeta = {
   hideCohubBar?: boolean;
+  /** How `cohub desktop open` presents the App when `--as` is not given. */
+  surface?: "window" | "overlay";
 };
 
 /** Snapshot of fields extracted from the published page head. */
@@ -19,6 +21,7 @@ export type AppExtractedPageMeta = {
   image?: string | null;
   lang?: string | null;
   themeColor?: string | null;
+  surface?: "window" | "overlay" | null;
   sourcePath?: string | null;
   extractedAt?: string | null;
 };

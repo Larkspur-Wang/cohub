@@ -4,6 +4,7 @@ import {
   type CohubHttpClient,
   type DesktopCommandRecord,
   type DesktopCall,
+  type DesktopSurface,
 } from "@neta-art/cohub";
 import {
   parseAppRef,
@@ -21,7 +22,14 @@ const LEGACY_WORK_SCHEME = "work://";
 
 type OpenTarget =
   | { kind: "file"; path: string }
-  | { kind: "app"; appId: string; label: string; launch: { search?: string; hash?: string } };
+  | {
+      kind: "app";
+      appId: string;
+      label: string;
+      launch: { search?: string; hash?: string };
+      /** Surface the App asked for at publish time, when it declared one. */
+      surface?: DesktopSurface;
+    };
 
 /** Optional disambiguation for file:// vs app:// — do not fall back to Home. */
 function optionalSpaceId(command: Command): string | undefined {
@@ -195,7 +203,8 @@ async function openWindow(target: string, opts: OpenOptions, command: Command): 
                 appId: resolved.appId,
                 label: resolved.label,
                 ...(resolved.launch.search || resolved.launch.hash ? { launch: resolved.launch } : {}),
-                ...(opts.as === "overlay" ? { surface: "overlay" as const } : {}),
+                // --as wins; otherwise honour what the App declared when it was published.
+                ...((opts.as ?? resolved.surface) === "overlay" ? { surface: "overlay" as const } : {}),
               },
         ...(call ? { call } : {}),
       },
@@ -225,6 +234,7 @@ Examples:
   cohub desktop open app://alice/studio/launch
   cohub desktop open alice/studio/launch
   cohub desktop open https://cohub.live/alice/studio/w/launch?view=timeline
+  cohub desktop open <app-id> --as overlay
   cohub desktop open <app-id> --call selection.get
   cohub desktop open <app-id> --call board.focus --data '{"nodeId":"n1"}'
 `;
@@ -235,6 +245,9 @@ Notes:
     scheme is still accepted.
   - A plain target checks the current Space for a file before resolving an app.
   - Opening a window is idempotent; repeating it re-activates the same tab.
+  - --as picks the surface: window (a preview tab) or overlay (a transparent
+    layer above the workspace). Without it, an App published with
+    <meta name="cohub:surface" content="overlay"> opens as an overlay.
   - --call waits for the app to announce readiness, then invokes the method.
   - Which methods exist is up to the app author.
 `;

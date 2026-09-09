@@ -1,4 +1,4 @@
-import type { HtmlPageMeta } from "./html-meta.js";
+import type { AppSurfaceRole, HtmlPageMeta } from "./html-meta.js";
 
 export type AppExtractedPageMeta = HtmlPageMeta & {
   sourcePath?: string;
@@ -13,6 +13,7 @@ export type AppPublishExtractedPageMeta = {
   image: string | null;
   lang: string | null;
   themeColor: string | null;
+  surface: AppSurfaceRole | null;
   sourcePath: string;
 };
 
@@ -225,6 +226,7 @@ export function materializeHtmlPageMeta(
     image: resolveAppPageAssetRef(page.image, assetKey, toPublicUrl),
     lang: cleanAppMetaText(page.lang, 32),
     themeColor: cleanAppMetaText(page.themeColor, 64),
+    surface: page.surface,
     sourcePath: page.sourcePath,
     extractedAt,
   };
@@ -268,6 +270,7 @@ export function mergeAppPageMeta(
       image: extracted.image,
       lang: extracted.lang ?? null,
       themeColor: extracted.themeColor ?? null,
+      surface: extracted.surface ?? null,
       sourcePath: extracted.sourcePath ?? null,
       extractedAt: extracted.extractedAt ?? new Date().toISOString(),
     };
@@ -308,6 +311,15 @@ export function mergeAppPageMeta(
 
     if (nextThemeColor) meta.themeColor = nextThemeColor;
     else delete meta.themeColor;
+
+    // The page declares how it wants to be opened; a publisher's explicit
+    // presentation setting still wins, and the default (`window`) stays implicit.
+    const presentation = isRecord(meta.presentation) ? { ...meta.presentation } : {};
+    if (presentation.surface === undefined && extracted.surface && extracted.surface !== "window") {
+      presentation.surface = extracted.surface;
+    }
+    if (Object.keys(presentation).length) meta.presentation = presentation;
+    else delete meta.presentation;
   }
   return Object.keys(meta).length ? meta : null;
 }

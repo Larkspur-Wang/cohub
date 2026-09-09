@@ -233,6 +233,7 @@ export type {
   DesktopCommandRecord,
   DesktopCommandStatus,
   DesktopOpenCommand,
+  DesktopSurface,
   DesktopTarget,
   DesktopAppTarget,
   DesktopCall,

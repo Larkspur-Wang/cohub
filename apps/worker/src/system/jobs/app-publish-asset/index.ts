@@ -690,6 +690,7 @@ function extractPageMetaFromHtml(
     image: keepSiteAssetRef(page.image, available),
     lang: page.lang,
     themeColor: page.themeColor,
+    surface: page.surface,
     sourcePath,
   };
 }

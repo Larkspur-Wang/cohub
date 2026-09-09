@@ -101,6 +101,7 @@ function syncViewport() {
 								invocation={overlay.invocation}
 								{shell}
 								onSurfaceHost={(host) => registerSurface(overlay.appId, host)}
+								onComposerChip={(chip) => manager.setComposerChip(overlay.appId, chip)}
 								onCloseRequest={() => manager.closeOverlay(overlay.appId)}
 								onConfigureRequest={(request) => manager.configure(overlay.appId, request)}
 								{onNavigationOpen}

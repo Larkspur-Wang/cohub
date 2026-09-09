@@ -872,6 +872,15 @@ $effect(() => {
 		});
 		return;
 	}
+	const overlayChip = desktopLayers.composerChip;
+	if (overlayChip) {
+		sessionChat.reportActiveSource({
+			kind: "app",
+			appId: overlayChip.appId,
+			...overlayChip.chip,
+		});
+		return;
+	}
 	if (activeWindowKind) {
 		sessionChat.reportActiveSource(null);
 		return;
