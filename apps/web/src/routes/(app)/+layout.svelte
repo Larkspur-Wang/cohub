@@ -51,6 +51,7 @@ import {
 	LEFT_SIDEBAR_RAIL,
 	uiState,
 } from "$lib/stores/ui.svelte";
+import { installViewportOffsetGuard } from "$lib/viewport-offset-guard";
 import { resolveWorkspaceSpaceId } from "$lib/workspace-route";
 
 const VCONSOLE_DISABLED_STORAGE_KEY = "cohub:vconsole-disabled";
@@ -565,6 +566,7 @@ onMount(() => {
 	}
 
 	let stopDesktopCommands: (() => void) | null = null;
+	const stopViewportOffsetGuard = installViewportOffsetGuard();
 
 	void authStore.ensureLoaded().finally(() => {
 		authReady = true;
@@ -588,6 +590,7 @@ onMount(() => {
 		delete window.cohubDisableVConsole;
 		delete window.cohubEnableVConsole;
 		stopDesktopCommands?.();
+		stopViewportOffsetGuard();
 		turnNotifications.stop();
 		vConsoleRequestId += 1;
 		vConsole?.destroy();
