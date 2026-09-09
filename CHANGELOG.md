@@ -4,6 +4,21 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v2.45 — 2026-09-09
+
+- **Board edit-history replay**: A read-only transaction log API (`GET /spaces/:id/boards/:boardId/transactions`, snapshot-consistent newest-first pages with server-computed inverses) plus the SDK's `createBoardReplayPlayer()` and the CLI's `cohub boards transactions` (alias `history`) make any Board's edit history rewindable and playable. The web workspace adds a private read-only replay stage with a scrubber, play/pause, 1–4× speed, step, camera follow, and live tail appends.
+- **Desktop overlay surfaces**: Apps can run as a transparent, chrome-free overlay above the Space workspace instead of a preview tab — requested with `cohub desktop open <app> --as overlay` or declared at publish time via `<meta name="cohub:surface" content="overlay">`. Overlays set their geometry and pointer-event regions through `cohub.app.requestConfigure()`, expose `context.invocation.surface`, and keep the full App runtime (context, auth, Space APIs, realtime, `--call`, composer chips, commerce), with up to eight mounted at once.
+- **Board rendering**: Entrance motion is now an optional `effects.deal` preset (Board-wide default or per-node `on-enter`) rather than always-on, with reduced-motion preserved. Image textures are shared through an application-level reference-counted pool over Pixi's global `Assets` cache so multiple Board windows reuse one GPU texture, and the unused Board theme registry was removed in favor of `createBoardBackground`/`updateBoardBackground`.
+- **Generation model pricing**: Model declarations can carry a display `pricing` block (`unit` plus `amount` or a `min`/`max` range), surfaced through `models.listMultimodal()` and rendered beside each model in the web model picker.
+- **`space.create` permission**: Space creation is now authorized by a user-level permission instead of the caller's principal type — execution tokens work again (`cohub spaces create` inside a Sandbox), app sessions need an explicit viewer grant, preview sessions are denied, and account sessions are unchanged.
+
+### Bug Fixes
+
+- **App republish**: page-derived metadata (title, description, icon, image, lang, theme color, surface) is now updated or cleared only when the current value is the one extraction last wrote, so hand-set publisher values are preserved.
+- **Overlays**: geometry is resolved per axis and clamped so an overlay can never land off-screen, and pointer events are clipped to the declared input region.
+- **Board file cards**: dropped the redundant `TYPE · size` meta line; the title, excerpt and category stripe already identify the file.
+- **Search**: query responses now report `truncated` correctly when the result limit is reached.
+
 ## v2.44 — 2026-09-08
 
 - **App embedding**: Apps can now host other Apps by rendering their public pages in iframes through `cohub.app.embed.attach(frame, { appId, shell, onCloseRequest })`; the embedded App sees `shell.surface: "embed"` and a verified `invocation.embedder`, and any App can call `cohub.app.requestClose()` to ask its host to close the surface it runs in.
