@@ -14,9 +14,17 @@
 /* ============================================================
    Global Styles
    ============================================================ */
+/*
+ The root chain is sized with `height: 100%` rather than `100dvh`: the shell
+ must equal the layout viewport exactly, and Chrome's dvh estimate in a
+ standalone PWA can lag behind the real viewport (browser-UI heuristics that
+ do not apply without a URL bar), leaving a canvas strip below the shell.
+ Document-flow pages (landing, docs) still scroll normally — a fixed root
+ height only bounds the boxes, not their overflow.
+*/
 html,
 body {
-	min-height: 100%;
+	height: 100%;
 	scrollbar-width: thin;
 	scrollbar-color: var(--scrollbar-thumb) transparent;
 	background-color: var(--bg-primary);
@@ -27,10 +35,6 @@ body {
 	transition:
 		background-color 0.2s ease,
 		color 0.2s ease;
-}
-
-body {
-	min-height: 100dvh;
 }
 
 /* Motion tokens — keep numeric values aligned with $lib/motion.svelte.ts */

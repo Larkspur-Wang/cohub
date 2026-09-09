@@ -1,7 +1,8 @@
 /**
  * Viewport offset guard for the fixed-height app shell.
  *
- * The shell is `100dvh` + `overflow: hidden`, so the document itself must
+ * The shell fills the viewport through the `html → body → .app-shell`
+ * `height: 100%` chain with `overflow: hidden`, so the document itself must
  * never scroll. Mobile browsers still pan the visual viewport (and bump
  * `window.scrollY`) to keep a focused input visible above the soft keyboard,
  * and some Android Chrome / PWA builds fail to pan back when the keyboard

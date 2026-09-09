@@ -80,7 +80,6 @@ import {
 	writeSessionComposerDraftText,
 } from "$lib/stores/session-composer-drafts";
 import { sessionGenerationStore } from "$lib/stores/session-generation.svelte";
-import { reconcileGenerationStateFromSessionList } from "$lib/stores/session-generation-list-reconcile";
 import {
 	buildStreamingStoredIntermediateMessages,
 	clearCompletedIntermediateHandoff,
@@ -92,6 +91,7 @@ import {
 	resetGeneration,
 	startGenerationRequest,
 } from "$lib/stores/session-generation-controller";
+import { reconcileGenerationStateFromSessionList } from "$lib/stores/session-generation-list-reconcile";
 import {
 	fetchSessionListWithCache,
 	getCachedSessionListSnapshot,
@@ -1014,26 +1014,33 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		});
 	});
 
-	// Keep pinned to bottom when content grows (markdown/images) while following.
+	// Keep pinned to bottom while following when content grows (markdown/images)
+	// or the viewport shrinks (soft keyboard under `interactive-widget=
+	// resizes-content`, split screen) — either one pushes the tail out of view.
 	$effect(() => {
 		const el = listEl;
 		const ownerSessionId = el?.dataset.sessionId;
 		if (!el || !ownerSessionId) return;
 		let prevHeight = el.scrollHeight;
+		let prevClientHeight = el.clientHeight;
 		const ro = new ResizeObserver(() => {
 			if (listEl !== el || activeSessionId !== ownerSessionId) return;
 			const currentHeight = el.scrollHeight;
+			const currentClientHeight = el.clientHeight;
+			const tailPushedOut =
+				currentHeight > prevHeight || currentClientHeight < prevClientHeight;
 			const restoringBottom = restoringBottomSessionId === ownerSessionId;
 			const restoringPosition = isRestoringSessionScroll(ownerSessionId);
 			if (restoringPosition) maybeCompleteAnchorRestore();
 			if (
-				currentHeight > prevHeight &&
+				tailPushedOut &&
 				!restoringPosition &&
 				(shouldAutoFollow || restoringBottom)
 			) {
 				requestBottomFollow({ immediate: restoringBottom });
 			}
 			prevHeight = currentHeight;
+			prevClientHeight = currentClientHeight;
 			updateTimelineScrollMetrics();
 			scroll.scheduleTurnMarkerMeasureThrottled();
 		});

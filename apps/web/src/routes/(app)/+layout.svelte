@@ -610,11 +610,11 @@ onMount(() => {
 </svelte:head>
 
 {#if !authReady}
-  <main class="app-shell min-h-screen text-text-primary">
+  <main class="app-shell h-full text-text-primary">
     <CenteredLoading label={m.shell_loading({}, { locale })} size="page" />
   </main>
 {:else}
-  <div class="app-shell h-[100dvh] min-h-0 overflow-hidden flex flex-col lg:flex-row text-text-primary font-sans text-[13px] leading-[1.6]">
+  <div class="app-shell h-full min-h-0 overflow-hidden flex flex-col lg:flex-row text-text-primary font-sans text-[13px] leading-[1.6]">
     <!-- Desktop sidebar — hidden on mobile -->
     <!-- z-30 keeps collapsed rail flyouts above main workspace stacking contexts.
          Width-only panel-shell: the icon rail stays interactive (no --collapsed). -->
