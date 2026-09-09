@@ -179,6 +179,7 @@ export type SessionSubscriptionHandlers = {
   patchState?: (result: SessionPatchApplyResult) => void;
   turnUpdated?: (event: WebsocketEventPayload) => void;
   turnFinalized?: (event: WebsocketEventPayload) => void;
+  /** A failed turn, or a rejected subscription (`system.subscribe.error`). */
   error?: (event: WebsocketEventPayload) => void;
   persisted?: (event: WebsocketEventPayload) => void;
   event?: (event: WebsocketEventPayload) => void;
@@ -794,6 +795,22 @@ class SessionTurnsClient {
   }
 }
 
+/**
+ * Routes a rejected subscription for `room` (for example a missing
+ * `space.view` permission) to `onRejected`. Without this an unauthorized
+ * subscriber would simply never receive events, with no way to tell.
+ */
+const onRoomRejected = (
+  websocketClient: WebsocketClient,
+  room: string,
+  onRejected: (event: WebsocketEventPayload) => void,
+) =>
+  websocketClient.on("event", (event) => {
+    if (event.type !== "system.subscribe.error") return;
+    const rejected = (event.payload as { rejected?: Array<{ room?: string }> }).rejected;
+    if (rejected?.some((entry) => entry.room === room)) onRejected(event);
+  });
+
 class SessionRealtimeClient {
   private readonly patchReducer = new SessionPatchReducer();
 
@@ -808,7 +825,12 @@ class SessionRealtimeClient {
       throw new Error("realtime transport is not configured for this client");
     }
     ensureRealtimeConnected(this.websocketClient);
-    const releaseRoom = this.websocketClient.retainRooms([getRealtimeSpaceRoom(this.spaceId)]);
+    const room = getRealtimeSpaceRoom(this.spaceId);
+    const releaseRoom = this.websocketClient.retainRooms([room]);
+    const offRejected = onRoomRejected(this.websocketClient, room, (event) => {
+      handlers.event?.(event);
+      handlers.error?.(event);
+    });
     const unsubscribe = this.websocketClient.on("event", (event) => {
       if (event.spaceId !== this.spaceId || event.sessionId !== this.sessionId) return;
       handlers.event?.(event);
@@ -874,6 +896,7 @@ class SessionRealtimeClient {
     });
     return () => {
       unsubscribe();
+      offRejected();
       releaseRoom();
     };
   }
@@ -1096,13 +1119,16 @@ export class SpaceEventsApi {
       throw new Error("realtime transport is not configured for this client");
     }
     ensureRealtimeConnected(this.websocketClient);
-    const releaseRoom = this.websocketClient.retainRooms([getRealtimeSpaceRoom(this.spaceId)]);
+    const room = getRealtimeSpaceRoom(this.spaceId);
+    const releaseRoom = this.websocketClient.retainRooms([room]);
+    const offRejected = onRoomRejected(this.websocketClient, room, handler);
     const offEvent = this.websocketClient.on("event", (event) => {
       if (event.spaceId !== this.spaceId) return;
       handler(event);
     });
     return () => {
       offEvent();
+      offRejected();
       releaseRoom();
     };
   }
