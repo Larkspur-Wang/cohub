@@ -66,6 +66,8 @@ type OpenOptions = {
   timeoutMs?: string;
   noWait?: boolean;
   json?: boolean;
+  /** Surface role for app targets (`window` | `overlay`). */
+  as?: string;
 };
 
 function readCallInput(opts: OpenOptions): unknown {
@@ -165,12 +167,18 @@ async function openWindow(target: string, opts: OpenOptions, command: Command): 
   if (opts.noWait && opts.timeoutMs !== undefined) {
     return error("Conflicting wait options", "Use either --no-wait or --timeout-ms, not both.");
   }
+  if (opts.as !== undefined && opts.as !== "window" && opts.as !== "overlay") {
+    return error("Invalid surface", "--as must be one of: window, overlay.");
+  }
   const timeoutMs = parseTimeout(opts.timeoutMs);
   const client = createClient();
   try {
     const resolved = await resolveOpenTarget(client, command, target);
     if (resolved.kind === "file" && opts.call) {
       return error("Unsupported option", "--call only applies to app targets.");
+    }
+    if (resolved.kind === "file" && opts.as) {
+      return error("Unsupported option", "--as only applies to app targets.");
     }
     const call: DesktopCall | undefined = opts.call
       ? { method: opts.call, ...(callInput === undefined ? {} : { input: callInput }) }
@@ -187,6 +195,7 @@ async function openWindow(target: string, opts: OpenOptions, command: Command): 
                 appId: resolved.appId,
                 label: resolved.label,
                 ...(resolved.launch.search || resolved.launch.hash ? { launch: resolved.launch } : {}),
+                ...(opts.as === "overlay" ? { surface: "overlay" as const } : {}),
               },
         ...(call ? { call } : {}),
       },
@@ -240,6 +249,7 @@ function registerOpen(parent: Command, deprecated: boolean): void {
     .option("--client <clientId>", "Target a specific desktop instance of your account")
     .option("--command-id <id>", "Stable id so retries never dispatch twice")
     .option("--no-wait", "Dispatch the command and exit without waiting for a result")
+    .option("--as <surface>", "Surface role for app targets: window (default) or overlay")
     .option(
       "--timeout-ms <ms>",
       `How long to wait for the desktop (default: ${DESKTOP_COMMAND_DEFAULT_TIMEOUT_MS}; max: ${DESKTOP_COMMAND_MAX_TIMEOUT_MS})`,

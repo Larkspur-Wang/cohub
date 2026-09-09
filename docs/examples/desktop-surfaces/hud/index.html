@@ -226,163 +226,155 @@
   const context = await cohub.context();
 
   // ── DOM refs ─────────────────────────────────────────────────────
-  const hud        = document.getElementById("hud");
-  const dot        = document.getElementById("dot");
+  const hud = document.getElementById("hud");
+  const dot = document.getElementById("dot");
   const statusLine = document.getElementById("status-line");
-  const toolList   = document.getElementById("tool-list");
+  const toolList = document.getElementById("tool-list");
   const btnSession = document.getElementById("btn-session");
   const btnDismiss = document.getElementById("btn-dismiss");
-  const closeBtn   = document.getElementById("close-btn");
+  const closeBtn = document.getElementById("close-btn");
 
   // ── State ────────────────────────────────────────────────────────
   let runState = "idle"; // idle | thinking | done | error
-  let tools = [];        // [{ name, state }]
+  const tools = []; // [{ id, name, state }]
   const MAX_TOOLS = 12;
 
-  const HUD_W = 260;
-  const HUD_H = 220; // approximate — measured on first render
-
-  // ── Register hit region once the DOM has a known size ────────────
+  // ── Hit region ───────────────────────────────────────────────────
+  // The overlay fills the workspace; claim only the panel rectangle
+  // (overlay-local coordinates) so the rest of the desktop stays clickable.
   function reportGeometry() {
     const rect = hud.getBoundingClientRect();
     cohub.app.requestConfigure({
-      geometry: {
-        anchor: "top-right",
-        x: 12,
-        y: 12,
-        width: Math.round(rect.width) || HUD_W,
-        height: Math.round(rect.height) || HUD_H,
-      },
-      // Pointer events exactly over the panel.
-      inputRegion: [{
-        x: window.innerWidth - 12 - (Math.round(rect.width) || HUD_W),
-        y: 12,
-        width: Math.round(rect.width) || HUD_W,
-        height: Math.round(rect.height) || HUD_H,
-      }],
+      inputRegion: [
+        {
+          x: Math.round(rect.left),
+          y: Math.round(rect.top),
+          width: Math.round(rect.width),
+          height: Math.round(rect.height),
+        },
+      ],
     });
   }
 
-  // Give the browser one frame to lay out.
   requestAnimationFrame(reportGeometry);
   window.addEventListener("resize", reportGeometry);
 
   // ── Render ───────────────────────────────────────────────────────
-  const stateIcon  = { running: "⟳", done: "✓", error: "✕", pending: "·" };
-  const stateLabel = { running: "running", done: "done", error: "error", pending: "…" };
+  const stateIcon = { running: "⟳", done: "✓", error: "✕" };
+  const statusText = {
+    idle: "Waiting for the agent…",
+    thinking: "Agent is working…",
+    done: "Run complete.",
+    error: "An error occurred.",
+  };
 
   function render() {
-    // Status dot
-    dot.className = "status-dot " + (runState === "thinking" ? "thinking" : runState === "error" ? "error" : runState === "done" ? "" : "idle");
-
-    // Status text
-    const msgs = {
-      idle:     "Waiting for the agent…",
-      thinking: "Agent is working…",
-      done:     "Run complete.",
-      error:    "An error occurred.",
-    };
-    statusLine.textContent = msgs[runState] || "";
+    dot.className =
+      "status-dot " +
+      (runState === "thinking"
+        ? "thinking"
+        : runState === "error"
+          ? "error"
+          : runState === "done"
+            ? ""
+            : "idle");
+    statusLine.textContent = statusText[runState];
     statusLine.className = "hud-status" + (runState === "thinking" ? " active" : "");
 
-    // Tool list
-    const recent = tools.slice(-MAX_TOOLS);
-    toolList.innerHTML = recent.map(t => `
-      <li class="tool-item">
-        <span class="tool-icon">${stateIcon[t.state] ?? "·"}</span>
-        <span class="tool-name">${t.name}</span>
-        <span class="tool-state ${t.state}">${stateLabel[t.state] ?? ""}</span>
-      </li>
-    `).join("");
+    toolList.replaceChildren(
+      ...tools.slice(-MAX_TOOLS).map((tool) => {
+        const item = document.createElement("li");
+        item.className = "tool-item";
+        const icon = document.createElement("span");
+        icon.className = "tool-icon";
+        icon.textContent = stateIcon[tool.state] ?? "·";
+        const name = document.createElement("span");
+        name.className = "tool-name";
+        name.textContent = tool.name;
+        const state = document.createElement("span");
+        state.className = `tool-state ${tool.state}`;
+        state.textContent = tool.state;
+        item.append(icon, name, state);
+        return item;
+      }),
+    );
     toolList.scrollTop = toolList.scrollHeight;
 
-    // Recalculate hit region after DOM update.
+    // The panel may have grown; re-claim the hit region.
     requestAnimationFrame(reportGeometry);
   }
 
-  // ── Real-time: subscribe to the current session ───────────────────
-  async function subscribeSession(sessionId) {
-    if (!context || !sessionId) return;
-    const spaceId = context.invocation?.spaceId ?? context.shell?.space?.id;
-    if (!spaceId) return;
-    const session = cohub.space(spaceId).session(sessionId);
+  // ── Session realtime ─────────────────────────────────────────────
+  // Needs `session.view` on the Space (grant it to the App when publishing).
+  let stopSession = null;
 
-    session.subscribe({
-      progress: ({ payload }) => {
-        if (!payload) return;
-        if (payload.type === "generating") {
+  function subscribeSession(sessionId) {
+    stopSession?.();
+    stopSession = null;
+    const spaceId = context?.invocation?.spaceId ?? context?.shell?.space?.id;
+    if (!spaceId || !sessionId) return;
+
+    stopSession = cohub
+      .space(spaceId)
+      .session(sessionId)
+      .subscribe({
+        // Streaming patches mark the run as active and carry tool activity.
+        patch: ({ payload }) => {
           runState = "thinking";
-        }
-        // Tool calls come through as intermediate messages.
-        if (payload.type === "tool_call" && payload.name) {
-          const existing = tools.find(t => t.id === payload.id);
-          if (existing) {
-            existing.state = "running";
-          } else {
-            tools.push({ id: payload.id ?? Math.random(), name: payload.name, state: "running" });
+          for (const op of payload?.ops ?? []) {
+            const value = op?.value;
+            if (value?.type === "tool_use" && typeof value.name === "string") {
+              const existing = tools.find((tool) => tool.id === value.id);
+              if (existing) existing.state = "running";
+              else tools.push({ id: value.id, name: value.name, state: "running" });
+            }
+            if (value?.type === "tool_result" && value.tool_use_id) {
+              const tool = tools.find((tool) => tool.id === value.tool_use_id);
+              if (tool) tool.state = value.is_error ? "error" : "done";
+            }
           }
-        }
-        if (payload.type === "tool_result" && payload.toolCallId) {
-          const t = tools.find(t => t.id === payload.toolCallId);
-          if (t) t.state = payload.error ? "error" : "done";
-        }
-        render();
-      },
-      finalized: () => {
-        runState = "done";
-        // Mark any still-running tools as done.
-        tools.forEach(t => { if (t.state === "running") t.state = "done"; });
-        render();
-        // Auto-close after a short pause.
-        setTimeout(() => {
-          cohub.app.requestClose();
-        }, 4000);
-      },
-    });
+          render();
+        },
+        error: () => {
+          runState = "error";
+          render();
+        },
+        turnFinalized: () => {
+          runState = "done";
+          for (const tool of tools) if (tool.state === "running") tool.state = "done";
+          render();
+          // Auto-close after a short pause.
+          setTimeout(() => cohub.app.requestClose(), 4000);
+        },
+      });
   }
 
-  // Initial session from shell context.
-  const initialSession = context?.shell?.session?.id;
-  if (initialSession) subscribeSession(initialSession);
+  subscribeSession(context?.shell?.session?.id);
+  cohub.app.onContextChanged((next) => subscribeSession(next?.shell?.session?.id));
 
-  // Re-subscribe when the shell location changes.
-  cohub.app.onContextChanged(ctx => {
-    const newSession = ctx?.shell?.session?.id;
-    if (newSession && newSession !== initialSession) subscribeSession(newSession);
-  });
-
-  // ── Surface method: agent can push a status ping ──────────────────
+  // ── Surface method: an agent can push a status line ──────────────
+  // cohub desktop open <this-app> --call hud.ping --data '{"message":"Deploying…"}'
   cohub.app.surface.handle("hud.ping", async ({ message, state }) => {
-    if (typeof message === "string") {
-      statusLine.textContent = message;
-      statusLine.className = "hud-status active";
-    }
-    if (state === "error") runState = "error";
-    else if (state === "done") runState = "done";
-    else runState = "thinking";
+    if (typeof message === "string") statusText.thinking = message;
+    runState = state === "error" || state === "done" ? state : "thinking";
     render();
 
-    // Visual flash.
     const flash = document.createElement("div");
     flash.className = "ping-flash";
     hud.appendChild(flash);
     setTimeout(() => flash.remove(), 700);
-
     return { received: true };
   });
 
-  // ── Buttons ───────────────────────────────────────────────────────
-  btnSession.addEventListener("click", async () => {
+  // ── Buttons ──────────────────────────────────────────────────────
+  btnSession.addEventListener("click", () => {
     const sessionId = context?.shell?.session?.id;
-    const spaceId   = context?.invocation?.spaceId ?? context?.shell?.space?.id;
-    if (!sessionId || !spaceId) return;
-    await cohub.open({ kind: "session", spaceId, sessionId });
+    const spaceId = context?.invocation?.spaceId ?? context?.shell?.space?.id;
+    if (sessionId && spaceId) cohub.navigation.open({ kind: "session", spaceId, sessionId });
   });
-
   btnDismiss.addEventListener("click", () => cohub.app.requestClose());
-  closeBtn.addEventListener("click",   () => cohub.app.requestClose());
+  closeBtn.addEventListener("click", () => cohub.app.requestClose());
 
-  // Initial render.
   render();
 </script>
 </body>

@@ -227,19 +227,17 @@
 
   // ── DOM refs ───────────────────────────────────────────────────────
   const mascot = document.getElementById("mascot");
-  const head   = document.getElementById("head");
-  const mouth  = document.getElementById("mouth");
+  const head = document.getElementById("head");
+  const mouth = document.getElementById("mouth");
   const bubble = document.getElementById("bubble");
 
   // ── Walk state ─────────────────────────────────────────────────────
   const vpW = window.innerWidth;
   const vpH = window.innerHeight;
-  let x = -90;           // start off-screen left
-  const y = 0;           // bottom offset handled by CSS
-  const speed = 1.8;     // px / frame
+  let x = -90; // start off-screen left
+  const speed = 1.8; // px / frame
   let bubbleTimer = null;
   let walkDone = false;
-  let frameId;
 
   // ── Lines the mascot sings / says on the way ───────────────────────
   const lines = [
@@ -305,8 +303,8 @@
     el.className = "burst";
     el.textContent = emojis[Math.floor(Math.random() * emojis.length)];
     const rect = mascot.getBoundingClientRect();
-    el.style.left = (rect.left + 20 + Math.random() * 30) + "px";
-    el.style.top  = (rect.top  - 10)  + "px";
+    el.style.left = rect.left + 20 + Math.random() * 30 + "px";
+    el.style.top = rect.top - 10 + "px";
     document.body.appendChild(el);
     setTimeout(() => el.remove(), 900);
     say("Hey! That tickles! 😄");
@@ -316,22 +314,24 @@
   let frameSince = 0;
   const SAY_EVERY = 90; // frames between lines
 
-  function walk(ts) {
+  function walk() {
     x += speed;
     mascot.style.transform = `translateX(${x}px)`;
 
-    // Update hit region: a 80×80 rect following the character.
-    const bottom = vpH - 80 - 80; // 80px from bottom, 80 tall
-    cohub.app.requestConfigure({
-      geometry: { anchor: "top-left", x, y: bottom, width: 80, height: 80 },
-      inputRegion: [{ x: 0, y: 0, width: 80, height: 80 }],
-    });
+    // Keep the host's hit region on the character only (overlay-local coords),
+    // so everything else on the workspace stays clickable while it walks.
+    // Throttled: geometry updates are cheap but there is no need to post 60/s.
+    if (frameSince % 3 === 0) {
+      cohub.app.requestConfigure({
+        inputRegion: [{ x: Math.max(0, x), y: vpH - 160, width: 80, height: 80 }],
+      });
+    }
 
     frameSince++;
     if (frameSince % SAY_EVERY === 0) say(nextLine());
 
     if (x < vpW + 20) {
-      frameId = requestAnimationFrame(walk);
+      requestAnimationFrame(walk);
     } else {
       // Reached the other side — wave goodbye and close.
       say("Bye! See you next time~ 👋", 1800);
@@ -353,7 +353,7 @@
       });
       // Wave back when the mascot is clicked.
       mascot.addEventListener("click", () => {
-        room.publish("wave", { name: context.viewer?.userUuid ? "You" : "A viewer" });
+        room.publish("wave", { name: "A viewer" });
       });
     } catch {
       // Realtime is best-effort; continue without it.

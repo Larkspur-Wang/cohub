@@ -424,7 +424,7 @@ const imageCursor = $derived(
 
 {#if mediaLightbox.open && mediaLightbox.current}
 	<div
-		class="fixed inset-0 z-[9999] flex items-center justify-center bg-overlay-scrim-strong"
+		class="fixed inset-0 z-[var(--z-lightbox)] flex items-center justify-center bg-overlay-scrim-strong"
 		onclick={onBackdropClick}
 		onkeydown={onBackdropKeyDown}
 		ontouchstart={onTouchStart}

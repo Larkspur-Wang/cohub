@@ -1156,7 +1156,7 @@ onMount(() => {
 	.command-palette-root {
 		position: fixed;
 		inset: 0;
-		z-index: 80;
+		z-index: var(--z-fullscreen);
 		display: flex;
 		align-items: flex-start;
 		justify-content: center;

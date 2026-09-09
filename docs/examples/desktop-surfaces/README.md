@@ -34,9 +34,23 @@ the current turn's tool calls, and a quick-action bar.  Demonstrates:
 cohub desktop open app://<username>/<space>/hud --as overlay
 ```
 
-## Running locally
+## How an overlay works
 
-Both files are self-contained HTML published as directory Apps.  Publish
-`mascot/` or `hud/` as an App in any Space, then open with `--as overlay`.
+An overlay App fills the whole workspace with a transparent, chrome-free
+iframe.  By default it receives no pointer events, so the desktop underneath
+stays fully usable.  The App claims the parts it wants to be clickable through
+`cohub.app.requestConfigure({ inputRegion })`:
 
-Requires the Cohub SDK (loaded from `esm.sh` — no build step needed).
+- `"none"` (default) — purely decorative, click-through everywhere
+- `"all"` — the whole overlay is interactive
+- `Rect[]` — only these rectangles, in the overlay's own CSS pixel coordinates
+
+Because the overlay is the same size as the workspace, overlay coordinates and
+`getBoundingClientRect()` inside the App line up one-to-one.
+
+## Publishing
+
+Each folder is a self-contained directory App.  Publish `mascot/` or `hud/` in
+any Space, then open with `--as overlay`.  The HUD subscribes to the current
+Chat, so grant it `session.view` when publishing.  No build step — the SDK is
+loaded from `esm.sh`.

@@ -25,7 +25,7 @@ export { buildSpaceInvitePath, buildSpacePath } from "./apis/invitations.js";
 export type { BuildSpaceInvitePathInput, BuildSpacePathInput } from "./apis/invitations.js";
 export type { ReferenceResourceSelector } from "./apis/references.js";
 export { ParentBridgeTransport, PopupBrokerTransport, AppRuntimeApi, createSlugAppIdResolver, createAppRuntime, resolveAppTransport } from "./app-runtime.js";
-export type { AppContextChangedListener, AppIdResolver, AppRuntimeInvocationContext, AppRuntimeModeConfig, AppRuntimeRequestOptions, AppRuntimeShellContext, AppRuntimeTransport } from "./app-runtime.js";
+export type { AppContextChangedListener, AppIdResolver, AppRuntimeInvocationContext, AppRuntimeModeConfig, AppRuntimeRequestOptions, AppRuntimeShellContext, AppRuntimeTransport, AppRuntimeConfigureRequest, AppRuntimeAnchor, AppRuntimeRect } from "./app-runtime.js";
 export { attachAppEmbed } from "./app-embed.js";
 export type { AppEmbedAttachOptions, AppEmbedHandle, AppEmbedShell } from "./app-embed.js";
 export type { AppNavigationCall, AppNavigationLaunch, AppNavigationOpenMessage, AppNavigationOpenResponse, AppNavigationTarget } from "@cohub/protocol/app-navigation";

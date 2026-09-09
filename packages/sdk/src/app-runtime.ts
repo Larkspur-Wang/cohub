@@ -1,4 +1,7 @@
-import { buildAppRuntimeCloseRequest, buildAppRuntimeReady } from "@cohub/protocol/app-runtime";
+import { buildAppRuntimeCloseRequest, buildAppRuntimeReady, buildAppRuntimeConfigureRequest, type AppRuntimeConfigureRequest, type AppRuntimeAnchor, type AppRuntimeRect } from "@cohub/protocol/app-runtime";
+
+// Re-export configure types so tsdown can emit them in the DTS bundle.
+export type { AppRuntimeConfigureRequest, AppRuntimeAnchor, AppRuntimeRect };
 import {
   buildAppNavigationOpenMessage,
   type AppNavigationOpenResponse,
@@ -591,6 +594,15 @@ export class AppRuntimeApi {
    */
   requestClose() {
     this.transport.notify?.(buildAppRuntimeCloseRequest());
+  }
+
+  /**
+   * Requests the host to update the overlay's geometry or pointer hit regions.
+   * Only meaningful when the App was opened as an `overlay` surface; the host
+   * is free to clamp or ignore values that violate its layout policy.
+   */
+  requestConfigure(input: Omit<AppRuntimeConfigureRequest, "protocol" | "version" | "type">) {
+    this.transport.notify?.(buildAppRuntimeConfigureRequest(input));
   }
 
   async getAccessToken(options?: { forceRefresh?: boolean }) {

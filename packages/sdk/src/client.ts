@@ -39,6 +39,7 @@ import {
   type AppIdResolver,
   type AppContextChangedListener,
   type AppRuntimeApi,
+  type AppRuntimeConfigureRequest,
 } from "./app-runtime.js";
 import type { CreateSpaceInput, Permission } from "./types.js";
 import type { AppCommerceCheckoutStatus } from "./apis/app-commerce.js";
@@ -193,6 +194,12 @@ export class CohubClient {
     onContextChanged: (listener: AppContextChangedListener) => this.appRuntime.onContextChanged(listener),
     /** Ask the host to close this App's surface. */
     requestClose: () => this.appRuntime.requestClose(),
+    /**
+     * Request that the host update this overlay's geometry or pointer hit
+     * regions.  Only meaningful for `overlay` surfaces; ignored otherwise.
+     */
+    requestConfigure: (input: Omit<AppRuntimeConfigureRequest, "protocol" | "version" | "type">) =>
+      this.appRuntime.requestConfigure(input),
     embed: {
       /** Host another App's public page in an iframe and forward the shell location to it. */
       attach: attachAppEmbed,

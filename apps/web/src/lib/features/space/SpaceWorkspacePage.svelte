@@ -131,6 +131,8 @@ import type { WorkspaceFileLinkTarget } from "$lib/workspace-file-links";
 import { resolveWorkspaceSpaceId } from "$lib/workspace-route";
 import { createAppPreviewController } from "./modules/app-window-controller.svelte";
 import { createBoardWindowController } from "./modules/board-window-controller.svelte";
+import DesktopLayerHost from "./modules/DesktopLayerHost.svelte";
+import { createDesktopLayerManager } from "./modules/desktop-layer-manager.svelte";
 import { createFileWorkspaceController } from "./modules/file-workspace-controller.svelte";
 import { classifyInlineFileFsChange } from "./modules/file-workspace-utils";
 import {
@@ -185,6 +187,7 @@ import {
 	workspaceFilePreviewKind,
 } from "./modules/windows";
 import type { WorkspaceAppOpenContext } from "./modules/workspace-app-context";
+import { createWorkspaceAppInvocation } from "./modules/workspace-app-context";
 import { createWorkspaceLayoutController } from "./modules/workspace-layout-controller.svelte";
 import { displayUserName, fallbackUserName } from "./space-utils";
 
@@ -541,6 +544,9 @@ const appPreview = createAppPreviewController({
 	},
 	onAppClosed: (appId) => windowManager.tabClosed("app", appId),
 });
+
+// Desktop overlay layer — manages App surfaces that float above the workspace.
+const desktopLayers = createDesktopLayerManager();
 const inlineAppPreview = $derived(appPreview.preview);
 const inlineAppTabs = $derived(appPreview.previews);
 const activeInlineAppId = $derived(appPreview.activeAppId);
@@ -2499,6 +2505,25 @@ onMount(() => {
 					? { toolCallId: context.source.toolCallId }
 					: {}),
 			};
+
+			// Overlay surfaces bypass the tab-based preview system.
+			if (command.target.surface === "overlay") {
+				const result = desktopLayers.openOverlay({
+					appId: command.target.appId,
+					label: command.target.label,
+					invocation: createWorkspaceAppInvocation(spaceId, openContext),
+				});
+				if (result === "limit") {
+					return {
+						status: "rejected",
+						error: {
+							code: "overlay_limit",
+							message: "Too many overlay surfaces are already open.",
+						},
+					};
+				}
+				return { status: "applied" };
+			}
 			const opened = await openResolvedAppNavigation(
 				{
 					protocol: "cohub.app.navigation",
@@ -2553,6 +2578,7 @@ onMount(() => {
 		for (const dispose of appSurfaceDisposers.values()) dispose();
 		appSurfaceDisposers.clear();
 		appPreview.dispose();
+		desktopLayers.dismissAll();
 		sessionChat.scroll.stopVimScroll();
 		sessionChat.scroll.clearPendingVimG();
 		sessionChat.persistSessionScrollAnchorsNow();
@@ -3182,6 +3208,11 @@ const headerActions = {
 	style={`--immersive-chat-width: ${uiState.immersiveChatWidth}px; --immersive-chat-edge-gap: ${FLOAT_CHAT_EDGE_GAP}px; --immersive-chat-max-width: calc(100% - ${immersiveFilesInset}px - ${FLOAT_PREVIEW_MIN_WIDTH + FLOAT_PANEL_GAP}px); --preview-safe-left: ${previewImmersiveMode && immersiveChatVisible ? `calc(min(var(--immersive-chat-width), var(--immersive-chat-max-width)) + var(--immersive-chat-edge-gap) + ${FLOAT_PANEL_GAP}px)` : `${FLOAT_PANEL_GAP}px`}; --preview-safe-right: ${immersiveFilesInset}px`}
 >
   <SpaceDanmakuLayer controller={danmakuController} {spaceId} hidden={previewImmersiveMode} />
+  <DesktopLayerHost
+    manager={desktopLayers}
+    shell={appShell}
+    onNavigationOpen={handleAppNavigationOpen}
+  />
   <div
     class="workspace-main flex-1 min-h-0 flex flex-col min-w-0 bg-bg-content"
     class:workspace-main--immersive-hidden={!immersiveChatVisible}
@@ -3415,7 +3446,7 @@ const headerActions = {
 
     .workspace-body--preview-immersive .workspace-main {
       position: relative;
-      z-index: 20;
+      z-index: var(--z-workspace-chrome);
       flex: 0 0 min(var(--immersive-chat-width), var(--immersive-chat-max-width));
       max-width: min(var(--immersive-chat-width), var(--immersive-chat-max-width));
       min-width: min(320px, calc(100vw - 96px));
@@ -3437,7 +3468,7 @@ const headerActions = {
     top: 7px;
     right: auto;
     left: 7px;
-    z-index: 20;
+    z-index: var(--z-workspace-chrome);
     display: flex;
     align-items: center;
     gap: 4px;
@@ -3468,7 +3499,7 @@ const headerActions = {
     top: 0;
     right: -4px;
     bottom: 0;
-    z-index: 10;
+    z-index: var(--z-panel-float);
     width: 8px;
     border: 0;
     padding: 0;
@@ -3504,7 +3535,7 @@ const headerActions = {
     cursor: col-resize;
     background: transparent;
     touch-action: none;
-    z-index: 10;
+    z-index: var(--z-panel-float);
   }
   :global(.right-sidebar-resize-handle)::after {
     content: "";
@@ -3531,7 +3562,7 @@ const headerActions = {
     cursor: col-resize;
     background: transparent;
     touch-action: none;
-    z-index: 10;
+    z-index: var(--z-panel-float);
   }
   :global(.inline-panel-resize-handle)::after {
     content: "";
@@ -3551,7 +3582,7 @@ const headerActions = {
     position: fixed;
     right: 1rem;
     bottom: 1rem;
-    z-index: 70;
+    z-index: var(--z-workspace-toast);
     max-width: min(22rem, calc(100vw - 2rem));
     border: 1px solid var(--color-border-subtle);
     border-radius: 0.75rem;
@@ -3567,7 +3598,7 @@ const headerActions = {
     position: fixed;
     left: 50%;
     top: 58px;
-    z-index: 80;
+    z-index: var(--z-fullscreen);
     display: flex;
     max-width: min(680px, calc(100vw - 24px));
     min-width: min(520px, calc(100vw - 24px));
