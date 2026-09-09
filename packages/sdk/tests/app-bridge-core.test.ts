@@ -1737,7 +1737,7 @@ test("dismissing a pending dialog notifies so the UI closes before silent auth",
 			version: 1,
 			userUuid: "viewer-uuid",
 			appId: "work_123",
-			scopes: ["file.view"],
+			scopes: ["file.view", "session.view"],
 			updatedAt: Date.now(),
 		}),
 	};
@@ -1762,7 +1762,7 @@ test("dismissing a pending dialog notifies so the UI closes before silent auth",
 			messageEvent({
 				type: "cohub.app.authorize",
 				requestId: "r2",
-				scopes: ["file.view"],
+				scopes: ["session.view"],
 			}),
 		);
 		assert.equal(core.getState().authOpen, false);
@@ -1778,4 +1778,52 @@ test("dismissing a pending dialog notifies so the UI closes before silent auth",
 		globalThis.fetch = originalFetch;
 		globalThis.localStorage = originalLocalStorage;
 	}
+});
+
+test("an identical authorize joins the open dialog and shares its answer", async () => {
+	const originalFetch = globalThis.fetch;
+	globalThis.fetch = (async () =>
+		jsonResponse({ token: "granted-token", grant: { spaceId: "space-2", scopes: ["file.view"] } })) as typeof fetch;
+	try {
+		const config = makeConfig();
+		const core = createAppBridgeCore(config);
+		const ask = (requestId: string) =>
+			core.handleMessage(
+				messageEvent({ type: "cohub.app.authorize", requestId, scopes: ["file.view"], spaceId: "space-2" }),
+			);
+		await ask("r1");
+		const opened = config.states.length;
+		await ask("r2");
+		await ask("r3");
+		// One dialog, nobody was told "denied".
+		assert.equal(core.getState().authOpen, true);
+		assert.equal(core.getState().pendingAuth?.requestId, "r1");
+		assert.deepEqual(core.getState().pendingAuth?.joinedRequestIds, ["r2", "r3"]);
+		assert.equal(config.replies.length, 0);
+		assert.equal(config.states.length, opened);
+
+		await core.confirmAuth();
+		assert.deepEqual(
+			config.replies.map((reply) => [reply.requestId, reply.payload.token]),
+			[["r1", "granted-token"], ["r2", "granted-token"], ["r3", "granted-token"]],
+		);
+		assert.equal(core.getState().pendingAuth, null);
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
+test("cancelling a joined dialog denies every waiter", async () => {
+	const config = makeConfig();
+	const core = createAppBridgeCore(config);
+	for (const requestId of ["r1", "r2"]) {
+		await core.handleMessage(
+			messageEvent({ type: "cohub.app.authorize", requestId, scopes: ["file.view"], spaceId: "space-2" }),
+		);
+	}
+	core.cancelAuth();
+	assert.deepEqual(
+		config.replies.map((reply) => [reply.requestId, reply.payload.token]),
+		[["r1", null], ["r2", null]],
+	);
 });

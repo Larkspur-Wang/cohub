@@ -47,6 +47,8 @@ export type AppAuthorizeSpaceOption = {
  */
 export type AppAuthorizeRequest = {
 	requestId: string;
+	/** Identical requests made while the dialog is open, answered with it. */
+	joinedRequestIds?: string[];
 	scopes: Permission[];
 	reason?: string;
 	spaceId?: string;
@@ -220,6 +222,24 @@ class AppAuthorizationError extends Error {
 
 const isDefinitiveAuthorizationFailure = (error: unknown) =>
 	error instanceof AppAuthorizationError && [401, 403, 404].includes(error.status);
+
+/**
+ * Whether a new authorize request asks for exactly the consent a pending
+ * dialog already shows: same scopes, same target and same mode. Such a request
+ * joins the dialog instead of replacing it, so an App that asks twice (for
+ * example on every context update) gets one dialog and one shared answer.
+ */
+function isSameConsent(
+	pending: AppAuthorizeRequest,
+	next: { scopes: Permission[]; spaceId?: string; selectSpace: boolean; createSpace?: CreateSpaceInput | null },
+) {
+	if (next.createSpace || pending.createSpace) return false;
+	if (Boolean(pending.selectSpace) !== next.selectSpace) return false;
+	if (pending.spaceId !== next.spaceId) return false;
+	const a = normalizePermissionScopes(pending.scopes);
+	const b = normalizePermissionScopes(next.scopes);
+	return a.length === b.length && a.every((scope) => b.includes(scope));
+}
 
 function sanitizeReason(value: unknown): string | undefined {
 	if (typeof value !== "string") return undefined;
@@ -954,7 +974,16 @@ export function createAppBridgeCore(
 					}, true);
 					return;
 				}
-				if (state.pendingAuth) dismissPendingAuth();
+				if (state.pendingAuth) {
+					if (isSameConsent(state.pendingAuth, { scopes, spaceId, selectSpace, createSpace })) {
+						state.pendingAuth.joinedRequestIds = [
+							...(state.pendingAuth.joinedRequestIds ?? []),
+							data.requestId,
+						];
+						return;
+					}
+					dismissPendingAuth();
+				}
 				// Creating a Space is a side effect: always a consent dialog, never
 				// silent reuse or publisher auto-authorization.
 				if (createSpace) {
@@ -1064,12 +1093,19 @@ export function createAppBridgeCore(
 		}
 	}
 
+	/** Answers the dialog's request and every request that joined it. */
+	function replyPendingAuth(pending: AppAuthorizeRequest, payload: Record<string, unknown>) {
+		for (const requestId of [pending.requestId, ...(pending.joinedRequestIds ?? [])]) {
+			replyForRequest(requestId, payload, true);
+		}
+	}
+
 	function dismissPendingAuth() {
 		if (!state.pendingAuth) return;
-		replyForRequest(state.pendingAuth.requestId, {
+		replyPendingAuth(state.pendingAuth, {
 			type: "cohub.app.authorize.result",
 			token: null,
-		}, true);
+		});
 		state.pendingAuth = null;
 		state.authOpen = false;
 		state.authError = null;
@@ -1153,14 +1189,13 @@ export function createAppBridgeCore(
 				if (!mintedSpace.provisioned) {
 					// Space row exists, bootstrap did not. Close with a structured
 					// denial so the app can handle it — do not grant, do not hang.
-					replyForRequest(
-						pending.requestId,
+					replyPendingAuth(
+						pending,
 						authorizeResult(
 							null,
 							mintedSpace.id,
 							mintedSpace.name ?? pending.createSpace.name,
 						),
-						true,
 					);
 					state.authOpen = false;
 					state.pendingAuth = null;
@@ -1174,10 +1209,9 @@ export function createAppBridgeCore(
 			const viewerUuid = await getViewerUuid();
 			setGrantedAppScopes(viewerUuid, app.id, result.scopes, result.spaceId);
 			if (pending.selectSpace || pending.createSpace) writeLastPickedSpace(result.spaceId);
-			replyForRequest(
-				pending.requestId,
+			replyPendingAuth(
+				pending,
 				authorizeResult(result.token, result.spaceId, spaceName),
-				true,
 			);
 			state.authOpen = false;
 			state.pendingAuth = null;
