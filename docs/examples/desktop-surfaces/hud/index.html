@@ -27,10 +27,11 @@
       right: 0;
       width: 260px;
       border-radius: 12px;
-      background: oklch(14% 0.01 255 / 88%);
+      /* Solid, not blurred: an overlay floats over content that changes every
+         frame while the agent streams, and backdrop-filter would re-blur it all
+         for as long as the panel is visible. */
+      background: oklch(14% 0.01 255 / 96%);
       border: 1px solid oklch(28% 0.04 255);
-      backdrop-filter: blur(14px);
-      -webkit-backdrop-filter: blur(14px);
       box-shadow:
         0 4px 24px oklch(0% 0 0 / 28%),
         inset 0 1px 0 oklch(40% 0.04 255 / 20%);
@@ -307,7 +308,10 @@
     }
   }
 
-  function render() {
+  // Two render levels. Streaming patches arrive per token, so `renderStatus`
+  // touches only the header; the list, hint and overlay size are rebuilt by
+  // `render` when something they show actually changed.
+  function renderStatus() {
     dot.className =
       "status-dot " +
       (runState === "thinking"
@@ -319,6 +323,10 @@
             : "idle");
     statusLine.textContent = customStatus ?? statusText[runState];
     statusLine.className = `hud-status${runState === "thinking" ? " active" : ""}`;
+  }
+
+  function render() {
+    renderStatus();
     renderHint();
 
     toolList.replaceChildren(
@@ -343,7 +351,6 @@
     // The panel may have grown; resize the overlay to match.
     requestAnimationFrame(reportGeometry);
   }
-
   // ── Follow the Chat ──────────────────────────────────────────────
   // The HUD follows whatever Space the viewer is looking at, which is rarely
   // the App's own home Space. App-side scopes only apply at home, so it asks
@@ -395,7 +402,9 @@
       .subscribe({
         // Streaming patches mark the run as active and carry tool activity.
         patch: ({ payload }) => {
+          const wasIdle = runState !== "thinking";
           runState = "thinking";
+          let toolsChanged = false;
           for (const op of payload?.ops ?? []) {
             // Patch ops carry their payload in `v`; see RealtimePatchOperation.
             const value = op?.v;
@@ -403,13 +412,19 @@
               const existing = tools.find((tool) => tool.id === value.id);
               if (existing) existing.state = "running";
               else tools.push({ id: value.id, name: value.name, state: "running" });
+              toolsChanged = true;
             }
             if (value?.type === "tool_result" && value.tool_use_id) {
               const tool = tools.find((tool) => tool.id === value.tool_use_id);
-              if (tool) tool.state = value.is_error ? "error" : "done";
+              if (tool) {
+                tool.state = value.is_error ? "error" : "done";
+                toolsChanged = true;
+              }
             }
           }
-          render();
+          // Most patches are text tokens: they only need the status strip.
+          if (toolsChanged || wasIdle) render();
+          else renderStatus();
         },
         // A failed turn, or a rejected subscription (e.g. missing permission).
         error: (event) => {

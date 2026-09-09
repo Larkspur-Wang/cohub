@@ -70,6 +70,12 @@ host theme. A color-scheme mismatch between the host and the frame makes
 Chromium paint an opaque backdrop behind the frame, and the overlay would lose
 its transparency.
 
+Keep overlays cheap to composite: no `backdrop-filter` (the content underneath
+changes every frame while the agent streams, so a blur never stops re-rendering),
+and do per-token work in the realtime handlers only for what actually changed —
+the HUD updates its status strip per patch and rebuilds the list only when a tool
+call starts or ends.
+
 Overlays have no chrome of their own. An App closes itself with
 `cohub.app.requestClose()`; the viewer can always press `Escape` in the
 workspace to dismiss every open overlay.

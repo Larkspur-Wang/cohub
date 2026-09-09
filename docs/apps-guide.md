@@ -421,8 +421,12 @@ the first tap on a touch screen — `"all"` and `geometry` work everywhere.
 The App must paint its own transparency: `html, body { background: transparent }`
 plus `<meta name="color-scheme" content="light dark">` so the frame follows the
 host theme — a color-scheme mismatch makes Chromium paint an opaque backdrop
-behind the frame. The App closes itself with `cohub.app.requestClose()`; the
-viewer can always press `Escape` in the workspace to dismiss every overlay.
+behind the frame. Avoid `backdrop-filter`: an overlay floats over content that
+changes every frame while the agent streams, so a blurred panel keeps the GPU
+re-blurring for as long as it is visible — noticeably on phones. Use a solid,
+mostly opaque background instead. The App closes itself with
+`cohub.app.requestClose()`; the viewer can always press `Escape` in the
+workspace to dismiss every overlay.
 
 ### What stays the same
 
