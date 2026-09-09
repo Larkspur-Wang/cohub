@@ -278,13 +278,9 @@ export const parseDesktopCommand = (input: unknown): ParsedDesktopCommand => {
     };
   }
 
-  // Validate surface — only known values are accepted; unknown values from
-  // future clients are silently dropped to stay forward-compatible.
-  const surfaceRaw = isRecord(input.target) ? input.target.surface : undefined;
-  const surface: DesktopSurface | undefined =
-    surfaceRaw === "overlay" ? "overlay"
-    : surfaceRaw === "window" || surfaceRaw === undefined ? undefined
-    : undefined; // unrecognised values are ignored
+  // `window` is the default and stays implicit; unknown values from newer
+  // clients are dropped rather than rejected so older desktops keep working.
+  const surface: DesktopSurface | undefined = target.surface === "overlay" ? "overlay" : undefined;
 
   const command: DesktopCommand = {
     type: "desktop.open",

@@ -12,7 +12,7 @@ import {
 import type { CreateSpaceInput, Permission } from "./types.js";
 
 export type AppRuntimeInvocationContext = {
-  surface: "page" | "app" | "background" | "broker";
+  surface: "page" | "app" | "overlay" | "background" | "broker";
   source?: "desktop_command" | "user" | "route" | "embed";
   spaceId?: string;
   sessionId?: string;

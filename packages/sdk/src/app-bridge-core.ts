@@ -108,7 +108,7 @@ export type AppPromotionAttributionContext = {
 
 export type AppBridgeAuthorizationContext = {
 	/** The host surface handling this authorization request. */
-	surface: "page" | "app" | "background" | "broker" | "overlay";
+	surface: "page" | "app" | "overlay" | "background" | "broker";
 };
 
 /**
@@ -499,7 +499,8 @@ export function createAppBridgeCore(
 	function allowsOwnerAutoAuthorization() {
 		return (
 			authorizationContext.surface === "background" ||
-			authorizationContext.surface === "app"
+			authorizationContext.surface === "app" ||
+			authorizationContext.surface === "overlay"
 		);
 	}
 

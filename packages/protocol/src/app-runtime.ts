@@ -66,19 +66,15 @@ export const buildAppRuntimeCloseRequest = (): AppRuntimeCloseRequestMessage => 
 	type: "close.request",
 });
 
-// ── Overlay geometry ─────────────────────────────────────────────────────────
+/** Axis-aligned rectangle in CSS pixels, overlay-local (top-left origin). */
+export type AppRuntimeRect = {
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+};
 
-/**
- * An axis-aligned rectangle in CSS pixels relative to the overlay's own
- * viewport (top-left origin).  Used to describe pointer-event hit regions.
- */
-export type AppRuntimeRect = { x: number; y: number; width: number; height: number };
-
-/**
- * Anchor edge(s) used when the overlay requests a specific screen position.
- * Corresponds to the `anchor` in CSS anchor-positioning:
- * `"top-left"` means the overlay's top-left corner is at (x, y).
- */
+/** Which corner of the overlay `geometry.x` / `geometry.y` are measured from. */
 export type AppRuntimeAnchor =
 	| "top-left"
 	| "top-right"
@@ -87,34 +83,47 @@ export type AppRuntimeAnchor =
 	| "center";
 
 /**
- * The App requests that its host update the overlay's geometry or pointer
- * hit regions.  Only meaningful for overlay surfaces; the host is free to
- * clamp or ignore values that would violate its layout policy.
+ * The App asks its overlay host to change where it sits or where it accepts
+ * pointer events. The host clamps geometry to the viewport. Absent fields keep
+ * their current value; an axis without a size fills the layer.
  *
- * Absent fields are left unchanged.  Sending an empty message is a no-op.
+ * `inputRegion`: `"none"` (default) makes the overlay click-through, `"all"`
+ * makes it fully interactive, and a rect list limits interaction to those
+ * overlay-local rectangles.
  */
 export type AppRuntimeConfigureRequest = RuntimeEnvelope & {
 	type: "configure.request";
-	/**
-	 * Desired position and size in CSS pixels relative to the host viewport.
-	 * The host may clamp to keep the overlay on-screen.
-	 */
 	geometry?: {
-		/** Corner to anchor the (x, y) coordinate to.  Defaults to `"top-left"`. */
 		anchor?: AppRuntimeAnchor;
 		x?: number;
 		y?: number;
 		width?: number;
 		height?: number;
 	};
-	/**
-	 * Rectangles inside the overlay that should receive pointer events.
-	 * `"all"` makes the entire overlay interactive; `"none"` (default for
-	 * overlays) makes it fully transparent to pointer events.  An explicit
-	 * rect array lets the App define arbitrary hit regions.
-	 */
 	inputRegion?: "all" | "none" | AppRuntimeRect[];
 };
+
+const ANCHORS: readonly AppRuntimeAnchor[] = [
+	"top-left",
+	"top-right",
+	"bottom-left",
+	"bottom-right",
+	"center",
+];
+
+const finite = (value: unknown): value is number =>
+	typeof value === "number" && Number.isFinite(value);
+
+const positive = (value: unknown): value is number => finite(value) && value > 0;
+
+const parseRect = (value: unknown): AppRuntimeRect | null =>
+	isRecord(value) &&
+	finite(value.x) &&
+	finite(value.y) &&
+	positive(value.width) &&
+	positive(value.height)
+		? { x: value.x, y: value.y, width: value.width, height: value.height }
+		: null;
 
 export const parseAppRuntimeConfigureRequest = (
 	value: unknown,
@@ -127,43 +136,31 @@ export const parseAppRuntimeConfigureRequest = (
 	) {
 		return null;
 	}
-
-	const msg: AppRuntimeConfigureRequest = {
+	const message: AppRuntimeConfigureRequest = {
 		protocol: APP_RUNTIME_PROTOCOL,
 		version: APP_RUNTIME_VERSION,
 		type: "configure.request",
 	};
-
 	if (isRecord(value.geometry)) {
-		const g = value.geometry;
-		const validAnchors: AppRuntimeAnchor[] = ["top-left", "top-right", "bottom-left", "bottom-right", "center"];
-		msg.geometry = {
-			...(validAnchors.includes(g.anchor as AppRuntimeAnchor) ? { anchor: g.anchor as AppRuntimeAnchor } : {}),
-			...(typeof g.x === "number" && Number.isFinite(g.x) ? { x: g.x } : {}),
-			...(typeof g.y === "number" && Number.isFinite(g.y) ? { y: g.y } : {}),
-			...(typeof g.width === "number" && Number.isFinite(g.width) && g.width > 0 ? { width: g.width } : {}),
-			...(typeof g.height === "number" && Number.isFinite(g.height) && g.height > 0 ? { height: g.height } : {}),
+		const { anchor, x, y, width, height } = value.geometry;
+		message.geometry = {
+			...(ANCHORS.includes(anchor as AppRuntimeAnchor)
+				? { anchor: anchor as AppRuntimeAnchor }
+				: {}),
+			...(finite(x) ? { x } : {}),
+			...(finite(y) ? { y } : {}),
+			...(positive(width) ? { width } : {}),
+			...(positive(height) ? { height } : {}),
 		};
 	}
-
 	if (value.inputRegion === "all" || value.inputRegion === "none") {
-		msg.inputRegion = value.inputRegion;
+		message.inputRegion = value.inputRegion;
 	} else if (Array.isArray(value.inputRegion)) {
-		const rects = value.inputRegion.filter(isRecord).flatMap((r) => {
-			if (
-				typeof r.x === "number" && Number.isFinite(r.x) &&
-				typeof r.y === "number" && Number.isFinite(r.y) &&
-				typeof r.width === "number" && Number.isFinite(r.width) && r.width > 0 &&
-				typeof r.height === "number" && Number.isFinite(r.height) && r.height > 0
-			) {
-				return [{ x: r.x as number, y: r.y as number, width: r.width as number, height: r.height as number }];
-			}
-			return [];
-		});
-		msg.inputRegion = rects;
+		message.inputRegion = value.inputRegion
+			.map(parseRect)
+			.filter((rect): rect is AppRuntimeRect => rect !== null);
 	}
-
-	return msg;
+	return message;
 };
 
 export const buildAppRuntimeConfigureRequest = (

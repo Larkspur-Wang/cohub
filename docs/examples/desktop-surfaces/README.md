@@ -48,6 +48,10 @@ stays fully usable.  The App claims the parts it wants to be clickable through
 Because the overlay is the same size as the workspace, overlay coordinates and
 `getBoundingClientRect()` inside the App line up one-to-one.
 
+Overlays have no chrome of their own. An App closes itself with
+`cohub.app.requestClose()`; the viewer can always press `Escape` in the
+workspace to dismiss every open overlay.
+
 ## Publishing
 
 Each folder is a self-contained directory App.  Publish `mascot/` or `hud/` in

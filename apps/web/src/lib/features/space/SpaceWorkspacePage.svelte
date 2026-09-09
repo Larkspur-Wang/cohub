@@ -2213,6 +2213,13 @@ async function handleFileKeyboardSave(event: KeyboardEvent) {
 		event.preventDefault();
 		if (inlinePortPreview) closeInlinePort();
 		else closeInlineFile();
+		return;
+	}
+	// Overlays have no chrome of their own, so Escape is the one host-owned way
+	// to get rid of an App that never calls requestClose().
+	if (event.key === "Escape" && desktopLayers.count > 0) {
+		event.preventDefault();
+		desktopLayers.dismissAll();
 	}
 }
 async function copyInlineFileContent() {
@@ -2511,7 +2518,7 @@ onMount(() => {
 				const result = desktopLayers.openOverlay({
 					appId: command.target.appId,
 					label: command.target.label,
-					invocation: createWorkspaceAppInvocation(spaceId, openContext),
+					invocation: createWorkspaceAppInvocation(spaceId, openContext, "overlay"),
 				});
 				if (result === "limit") {
 					return {
