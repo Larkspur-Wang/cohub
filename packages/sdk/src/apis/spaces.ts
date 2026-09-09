@@ -102,6 +102,8 @@ import type {
   BoardPlaybackSnapshot,
   BoardSemanticMutation,
   BoardSummary,
+  BoardTransactionsPage,
+  BoardTransactionsReadInput,
   ChannelConfig,
   ChannelHealth,
 } from "../types.js";
@@ -1775,6 +1777,11 @@ export class BoardClient {
     return this.boards.authoring(this.id, input, customFetch);
   }
 
+  /** Read-only transaction log, newest first; the first page carries the current rows. */
+  transactions(input: BoardTransactionsReadInput = {}, customFetch?: Fetch) {
+    return this.boards.transactions(this.id, input, customFetch);
+  }
+
   mutateSemantic(
     input: Omit<BoardSemanticMutation, "mutationId" | "dryRun"> & {
       mutationId?: string;
@@ -1898,6 +1905,18 @@ export class SpaceBoardsApi {
   capabilities(boardId: string, customFetch?: Fetch) {
     return this.transport.request<BoardCapabilities>(
       `/api/spaces/${this.spaceId}/boards/${boardId}/capabilities`,
+      { fetch: customFetch },
+    );
+  }
+
+  transactions(boardId: string, input: BoardTransactionsReadInput = {}, customFetch?: Fetch) {
+    const params = new URLSearchParams();
+    if (input.before !== undefined) params.set("before", String(input.before));
+    if (input.limit !== undefined) params.set("limit", String(input.limit));
+    if (input.snapshot !== undefined) params.set("snapshot", String(input.snapshot));
+    const query = params.toString();
+    return this.transport.request<BoardTransactionsPage>(
+      `/api/spaces/${this.spaceId}/boards/${boardId}/transactions${query ? `?${query}` : ""}`,
       { fetch: customFetch },
     );
   }

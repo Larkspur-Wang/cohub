@@ -73,6 +73,10 @@ export type {
   BoardTimeline,
   BoardTimelineMarker,
   BoardTrack,
+  BoardTransactionOperation,
+  BoardTransactionRecord,
+  BoardTransactionsPage,
+  BoardTransactionsReadInput,
   BoardValidationResult,
   SpaceStartupResponse,
 } from "@cohub/protocol";

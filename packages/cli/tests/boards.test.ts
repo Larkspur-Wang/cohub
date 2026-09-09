@@ -48,6 +48,7 @@ test("Board commands and every subcommand expose -h", () => {
     "items",
     "effects",
     "compositions",
+    "transactions",
     "export",
     "playback",
     "watch",
