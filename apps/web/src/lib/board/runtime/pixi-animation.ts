@@ -40,7 +40,10 @@ import {
 	samplePathPose,
 	timelinePosition,
 } from "$lib/board/runtime/animation-core";
-import type { BoardRuntimeData } from "$lib/board/runtime/board-runtime";
+import {
+	type BoardRuntimeData,
+	diffBoardRuntimeData,
+} from "$lib/board/runtime/board-runtime";
 import {
 	type EntranceMotionParams,
 	entranceLandingAlpha,
@@ -1266,20 +1269,31 @@ export function createBoardAnimationRuntime(options: RuntimeOptions) {
 	}
 
 	function setData(next: BoardRuntimeData) {
-		if (next.compositions !== data.compositions) {
+		const diff = diffBoardRuntimeData(data, next);
+		if (
+			!diff.compositions &&
+			!diff.effects &&
+			!diff.playback &&
+			!diff.playbackPolicy &&
+			!diff.board &&
+			!diff.enter
+		)
+			return;
+
+		if (diff.compositions) {
 			clearResources();
 			cameraFocusBySequence = prepareCameraFocusClips(next.compositions);
 			cameraFocusTargetCache.clear();
 		}
-		if (
-			next.compositions !== data.compositions ||
-			next.effects !== data.effects
-		) {
+		if (diff.compositions || diff.effects) {
 			rebuildRuntimeIndexes(next);
+			// Only the materialization index depends on these; `enter` is resolved
+			// per node at activation time, so it never invalidates the cache.
+			materializationVersion += 1;
 		}
 		data = next;
-		materializationVersion += 1;
-		syncPlayback();
+		if (diff.compositions || diff.playback || diff.playbackPolicy || diff.board)
+			syncPlayback();
 		start();
 	}
 

@@ -61,6 +61,47 @@ export function boardRuntimeDataFromAuthoring(
 }
 
 /**
+ * Compare an entrance preset by value. Every appearance parse rebuilds it, so
+ * reference equality would report a change on unrelated background edits.
+ */
+export function sameBoardAnimationSpec(
+	a: BoardAnimationSpec | null,
+	b: BoardAnimationSpec | null,
+): boolean {
+	if (a === b) return true;
+	if (!a || !b) return false;
+	return (
+		a.kind === b.kind &&
+		a.kindVersion === b.kindVersion &&
+		JSON.stringify(a.params) === JSON.stringify(b.params)
+	);
+}
+
+export type BoardRuntimeDataDiff = {
+	board: boolean;
+	effects: boolean;
+	compositions: boolean;
+	enter: boolean;
+	playback: boolean;
+	playbackPolicy: boolean;
+};
+
+/** Reference diff for the runtime slices, with `enter` compared by value. */
+export function diffBoardRuntimeData(
+	prev: BoardRuntimeData,
+	next: BoardRuntimeData,
+): BoardRuntimeDataDiff {
+	return {
+		board: next.boardId !== prev.boardId,
+		effects: next.effects !== prev.effects,
+		compositions: next.compositions !== prev.compositions,
+		enter: !sameBoardAnimationSpec(next.enter, prev.enter),
+		playback: next.playback !== prev.playback,
+		playbackPolicy: next.playbackPolicy !== prev.playbackPolicy,
+	};
+}
+
+/**
  * How a Board runtime is being used.
  *
  * `view` is not "edit with the buttons hidden": it also drops realtime awareness,

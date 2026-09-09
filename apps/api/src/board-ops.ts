@@ -581,6 +581,24 @@ export type BoardValidationContext = {
   metadata?: Record<string, unknown>;
 };
 
+type EffectBinding = Pick<BoardEffect, "target" | "lifecycle">;
+
+/**
+ * The id of the on-enter effect already bound to an item, if any. A node carries
+ * at most one, so a second id targeting the same item is a conflict.
+ */
+function conflictingOnEnterEffectId(
+  effects: ReadonlyMap<string, EffectBinding>,
+  itemId: string,
+  exceptId: string,
+): string | null {
+  for (const [id, effect] of effects) {
+    if (id === exceptId || effect.lifecycle !== "on-enter") continue;
+    if (effect.target.type === "item" && effect.target.itemId === itemId) return id;
+  }
+  return null;
+}
+
 export function structuralValidation(transaction: BoardTransaction): BoardValidationResult {
   const diagnostics: BoardDiagnostic[] = [];
   const peakCost = { ...ZERO_BOARD_COST };
@@ -668,7 +686,12 @@ export function contextualValidation(
   const connections = new Map(
     [...context.connections].map((connection) => [connection.id, connection]),
   );
-  const effects = new Map([...context.effects].map((effect) => [effect.id, { target: effect.target, lifecycle: effect.lifecycle }]));
+  const effects = new Map<string, EffectBinding>(
+    [...context.effects].map((effect) => [
+      effect.id,
+      { target: effect.target, lifecycle: effect.lifecycle },
+    ]),
+  );
   const compositions = new Map([...context.compositions].map((composition) => [composition.id, composition]));
   let boardMetadata = context.metadata ?? {};
   const error = (code: string, message: string, path: string) => {
@@ -717,7 +740,7 @@ export function contextualValidation(
     }
     if (operation.type === "node.delete") {
       if (!nodeIds.has(operation.payload.nodeId)) error("NODE_NOT_FOUND", `node does not exist: ${operation.payload.nodeId}`, `${path}.payload.nodeId`);
-   if ([...effects.values()].some(({ target }) => target.type === "item" && target.itemId === operation.payload.nodeId)) {
+      if ([...effects.values()].some(({ target }) => target.type === "item" && target.itemId === operation.payload.nodeId)) {
         error("ITEM_REFERENCED", "delete item effects before deleting the item", `${path}.payload.nodeId`);
       }
       if ([...compositions.values()].some((composition) =>
@@ -796,12 +819,9 @@ export function contextualValidation(
       }
       // One enter motion per node: two on-enter effects have no meaningful composition.
       if (effect.lifecycle === "on-enter" && effect.target.type === "item") {
-        const itemId = effect.target.itemId;
-        for (const [id, existing] of effects) {
-          if (id === effect.id || existing.lifecycle !== "on-enter") continue;
-    if (existing.target.type === "item" && existing.target.itemId === itemId) {
-            error("ITEM_ENTER_CONFLICT", `item already has an on-enter effect: ${id}`, `${path}.payload.effect.target`);
-          }
+        const conflictId = conflictingOnEnterEffectId(effects, effect.target.itemId, effect.id);
+        if (conflictId) {
+          error("ITEM_ENTER_CONFLICT", `item already has an on-enter effect: ${conflictId}`, `${path}.payload.effect.target`);
         }
       }
       effects.set(effect.id, { target: effect.target, lifecycle: effect.lifecycle });

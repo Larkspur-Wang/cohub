@@ -347,6 +347,8 @@ export function createBoardEditor(options: BoardEditorOptions) {
 	let hoverPointerType = $state("mouse");
 	let editingId = $state<string | null>(null);
 	let saveError = $state<string | null>(null);
+	/** In-flight commits, so the UI can show a saving state without polling. */
+	let pendingCommits = $state(0);
 	let surfaceSize = $state<{ width: number; height: number }>({
 		width: 0,
 		height: 0,
@@ -696,21 +698,27 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		const snapshot = document;
 		const rev = localRev;
 		const gen = syncGeneration;
-		void queue.commit(snapshot).then((outcome) => {
-			// A genuine external load happened since; this result is stale.
-			if (gen !== syncGeneration) return;
-			if (outcome.ok) {
-				committedRev = Math.max(committedRev, rev);
-				// The server now has this snapshot; it is the new rebase baseline.
-				externalBaseline = snapshot;
-				saveError = null;
-			} else {
-				saveError =
-					outcome.error instanceof Error
-						? outcome.error.message
-						: "Failed to sync board";
-			}
-		});
+		pendingCommits += 1;
+		void queue
+			.commit(snapshot)
+			.then((outcome) => {
+				// A genuine external load happened since; this result is stale.
+				if (gen !== syncGeneration) return;
+				if (outcome.ok) {
+					committedRev = Math.max(committedRev, rev);
+					// The server now has this snapshot; it is the new rebase baseline.
+					externalBaseline = snapshot;
+					saveError = null;
+				} else {
+					saveError =
+						outcome.error instanceof Error
+							? outcome.error.message
+							: "Failed to sync board";
+				}
+			})
+			.finally(() => {
+				pendingCommits -= 1;
+			});
 	}
 
 	function retrySave() {
@@ -3123,6 +3131,9 @@ export function createBoardEditor(options: BoardEditorOptions) {
 		},
 		get saveError() {
 			return saveError;
+		},
+		get saving() {
+			return pendingCommits > 0;
 		},
 		get canUndo() {
 			return undoStack.length > 0;
