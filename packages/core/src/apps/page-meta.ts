@@ -263,11 +263,16 @@ function ownedByExtraction(
  * Merge extracted page fields into App / version meta.
  *
  * - `extracted` is always refreshed: it is the raw provenance snapshot.
- * - An effective field follows the page when its current value is what
- *   extraction last wrote (or is empty); a value the publisher set by hand is
- *   never touched. The previous snapshot is what tells the two apart.
+ * - An effective field follows the page while its value is what extraction
+ *   last wrote (or is empty). A value that differs from the last snapshot is
+ *   taken to be the publisher's and is kept.
  * - `presentation.surface` follows the same rule, with `window` (the default)
  *   kept implicit.
+ *
+ * Ownership is inferred from values, not recorded, so a publisher who types in
+ * exactly what extraction already produced has not pinned anything: the field
+ * keeps following the page. Pinning is done by editing the page itself, or by
+ * setting a value that differs from it.
  */
 export function mergeAppPageMeta(
   current: AppPageMetaInput,

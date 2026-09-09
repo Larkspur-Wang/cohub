@@ -117,7 +117,7 @@ assert.equal(
 assert.equal((merged?.extracted as { surface?: string })?.surface, "overlay");
 
 // A surface written by extraction follows the page across publishes: it can be
-// changed or removed, while a publisher's own value is never touched.
+// changed or removed, while a value that differs from the last snapshot is kept.
 const published = mergeAppPageMeta({}, extracted);
 assert.equal((published?.presentation as { surface?: string })?.surface, "overlay");
 const toWindow = mergeAppPageMeta(published, { ...extracted, surface: "window" });
@@ -136,7 +136,7 @@ const keepsSiblings = mergeAppPageMeta(
 assert.deepEqual(keepsSiblings?.presentation, { hideCohubBar: true });
 
 // Every extracted field follows the page the same way surface does: a value
-// extraction wrote last time is updated or dropped, a hand-set one is kept.
+// extraction wrote last time is updated or dropped, one that differs from the snapshot is kept.
 const first = mergeAppPageMeta({}, extracted);
 const retitled = mergeAppPageMeta(first, {
   ...extracted,
