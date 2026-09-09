@@ -11,53 +11,52 @@ export type OverlayInputRegion = NonNullable<
 
 type Viewport = { width: number; height: number };
 
-const clamp = (value: number, max: number) => Math.max(0, Math.min(value, max));
+type Axis = { size: number; offset: number };
+
+const clamp = (value: number, min: number, max: number) =>
+	Math.max(min, Math.min(value, max));
 
 /**
- * Inline style for one overlay. Geometry is clamped to the viewport so an App
- * can never park itself off-screen; an overlay without a size fills the layer.
+ * Resolves one axis: a missing size fills that axis; a given size is clamped
+ * to the viewport and the offset is kept inside `[0, viewport - size]` so no
+ * part of the overlay can end up off-screen. `anchorEnd` measures the offset
+ * from the far edge, `anchorCenter` from the middle.
+ */
+function resolveAxis(
+	size: number | undefined,
+	offset: number,
+	extent: number,
+	anchor: "start" | "end" | "center",
+): Axis {
+	if (size == null) return { size: extent, offset: 0 };
+	const clampedSize = clamp(size, 1, extent);
+	const room = extent - clampedSize;
+	const start =
+		anchor === "start"
+			? offset
+			: anchor === "end"
+				? room - offset
+				: room / 2 + offset;
+	return { size: clampedSize, offset: clamp(start, 0, room) };
+}
+
+/**
+ * Inline style for one overlay. Each axis is resolved independently: an axis
+ * without a size fills the layer, an axis with a size is clamped so the
+ * overlay always stays fully on-screen regardless of anchor.
  */
 export function resolveOverlayStyle(
 	geometry: OverlayGeometry,
 	viewport: Viewport,
 ): string {
 	const anchor = geometry.anchor ?? "top-left";
-	const x = clamp(geometry.x ?? 0, viewport.width);
-	const y = clamp(geometry.y ?? 0, viewport.height);
-	const parts: string[] = [];
-
-	if (geometry.width != null && geometry.height != null) {
-		parts.push(
-			`width: ${Math.max(1, Math.min(geometry.width, viewport.width))}px`,
-			`height: ${Math.max(1, Math.min(geometry.height, viewport.height))}px`,
-		);
-	} else {
-		parts.push("inset: 0");
-		return parts.join("; ");
-	}
-
-	switch (anchor) {
-		case "top-left":
-			parts.push(`left: ${x}px`, `top: ${y}px`);
-			break;
-		case "top-right":
-			parts.push(`right: ${x}px`, `top: ${y}px`);
-			break;
-		case "bottom-left":
-			parts.push(`left: ${x}px`, `bottom: ${y}px`);
-			break;
-		case "bottom-right":
-			parts.push(`right: ${x}px`, `bottom: ${y}px`);
-			break;
-		case "center":
-			parts.push(
-				`left: calc(50% + ${geometry.x ?? 0}px)`,
-				`top: calc(50% + ${geometry.y ?? 0}px)`,
-				"transform: translate(-50%, -50%)",
-			);
-			break;
-	}
-	return parts.join("; ");
+	const horizontal =
+		anchor === "center" ? "center" : anchor.endsWith("right") ? "end" : "start";
+	const vertical =
+		anchor === "center" ? "center" : anchor.startsWith("bottom") ? "end" : "start";
+	const x = resolveAxis(geometry.width, geometry.x ?? 0, viewport.width, horizontal);
+	const y = resolveAxis(geometry.height, geometry.y ?? 0, viewport.height, vertical);
+	return `left: ${x.offset}px; top: ${y.offset}px; width: ${x.size}px; height: ${y.size}px`;
 }
 
 /**
