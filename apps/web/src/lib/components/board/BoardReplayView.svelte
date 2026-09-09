@@ -7,6 +7,7 @@ import {
 } from "@neta-art/cohub/board";
 import { onDestroy, onMount, untrack } from "svelte";
 import type { BoardCollaboratorProfile } from "$lib/board/board-activity";
+import type { BoardAssetManager } from "$lib/board/board-asset-manager";
 import type { BoardAssetSource } from "$lib/board/board-asset-source";
 import { createBoardAwarenessController } from "$lib/board/board-awareness";
 import {
@@ -42,6 +43,7 @@ const {
 	path,
 	spaceId,
 	runtime,
+	assets,
 	assetSource,
 	initialDocument,
 	initialCamera,
@@ -55,6 +57,8 @@ const {
 	path: string;
 	spaceId: string;
 	runtime: BoardRuntimeData;
+	/** Shared with the live stage; replay must never destroy it. */
+	assets: BoardAssetManager;
 	assetSource: BoardAssetSource;
 	/** The live document, shown until the log arrives so the canvas never blanks. */
 	initialDocument: BoardDocument;
@@ -337,6 +341,7 @@ onDestroy(() => {
 	<BoardStage
 		{editor}
 		{runtime}
+		{assets}
 		{spaceId}
 		{assetSource}
 		{awareness}

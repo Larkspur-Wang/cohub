@@ -6,6 +6,7 @@ import {
 	worldPoint,
 } from "@neta-art/cohub/board";
 import { onDestroy, onMount, untrack } from "svelte";
+import { createBoardAssetManager } from "$lib/board/board-asset-manager";
 import { createSpaceBoardAssetSource } from "$lib/board/board-asset-source";
 import {
 	type BoardAwarenessController,
@@ -88,6 +89,21 @@ const readonly = $derived(mode === "view");
 const resolvedAssetSource = $derived(
 	assetSource ?? createSpaceBoardAssetSource(spaceId),
 );
+
+/**
+ * One preview-texture owner for the whole panel. The live stage and the replay
+ * overlay share it: Pixi's `Assets` cache returns the same texture per URL, so
+ * two independent owners would tear down each other's textures on release.
+ */
+const assets = createBoardAssetManager({
+	spaceId: untrack(() => spaceId),
+	loadVideoPreviews:
+		typeof navigator === "undefined" ||
+		!(navigator as Navigator & { connection?: { saveData?: boolean } })
+			.connection?.saveData,
+	resolveSpaceFileUrl: (_spaceId, path) =>
+		untrack(() => resolvedAssetSource).resolveFileUrl(path),
+});
 
 let stageWrap: HTMLDivElement | null = $state(null);
 let contextMenu = $state<{ x: number; y: number } | null>(null);
@@ -721,6 +737,7 @@ onDestroy(() => {
 	unsubscribeAwareness = null;
 	void awareness.destroy().finally(() => unsubscribe?.());
 	editor.destroy();
+	assets.destroy();
 });
 </script>
 
@@ -754,6 +771,7 @@ onDestroy(() => {
 		<BoardStage
 			{editor}
 			{runtime}
+			{assets}
 			{active}
 			{awareness}
 			{awarenessVersion}
@@ -850,6 +868,7 @@ onDestroy(() => {
 					{path}
 					{spaceId}
 					{runtime}
+					{assets}
 					assetSource={resolvedAssetSource}
 					initialDocument={editor.document}
 					initialCamera={editor.camera}
