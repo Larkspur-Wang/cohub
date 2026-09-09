@@ -263,7 +263,7 @@
     bubble.textContent = text;
     // Position bubble above the mascot, clamped to viewport.
     const bx = Math.min(x + 8, vpW - 240);
-    bubble.style.left = Math.max(4, bx) + "px";
+    bubble.style.left = `${Math.max(4, bx)}px`;
     bubble.classList.add("visible");
     head.classList.add("singing");
 
@@ -303,8 +303,8 @@
     el.className = "burst";
     el.textContent = emojis[Math.floor(Math.random() * emojis.length)];
     const rect = mascot.getBoundingClientRect();
-    el.style.left = rect.left + 20 + Math.random() * 30 + "px";
-    el.style.top = rect.top - 10 + "px";
+    el.style.left = `${rect.left + 20 + Math.random() * 30}px`;
+    el.style.top = `${rect.top - 10}px`;
     document.body.appendChild(el);
     setTimeout(() => el.remove(), 900);
     say("Hey! That tickles! 😄");
