@@ -110,10 +110,23 @@ function parseTimeout(value: string | undefined): number {
   return parsed;
 }
 
+/**
+ * The surface a desktop.open should request: an explicit `--as` wins, then
+ * whatever the App declared at publish time. `window` is the implicit default
+ * and yields `undefined` so the command stays compact.
+ */
+export function resolveOpenSurface(
+  requested: string | undefined,
+  declared: unknown,
+): DesktopSurface | undefined {
+  return (requested ?? declared) === "overlay" ? "overlay" : undefined;
+}
+
 async function resolveAppTarget(client: CohubHttpClient, ref: string): Promise<OpenTarget> {
   const normalized = hasAppScheme(ref) ? ref.replace(/^[a-zA-Z]+:\/\//, "") : ref;
   const parsed = parseAppRef(normalized);
   const detail = await getAppByRef(client, normalized);
+  const declared = detail.app.meta?.presentation?.surface;
   return {
     kind: "app",
     appId: detail.app.id,
@@ -122,6 +135,7 @@ async function resolveAppTarget(client: CohubHttpClient, ref: string): Promise<O
       ...(parsed.search ? { search: parsed.search } : {}),
       ...(parsed.hash ? { hash: parsed.hash } : {}),
     },
+    ...(declared === "overlay" || declared === "window" ? { surface: declared } : {}),
   };
 }
 
@@ -203,8 +217,7 @@ async function openWindow(target: string, opts: OpenOptions, command: Command): 
                 appId: resolved.appId,
                 label: resolved.label,
                 ...(resolved.launch.search || resolved.launch.hash ? { launch: resolved.launch } : {}),
-                // --as wins; otherwise honour what the App declared when it was published.
-                ...((opts.as ?? resolved.surface) === "overlay" ? { surface: "overlay" as const } : {}),
+                ...(resolveOpenSurface(opts.as, resolved.surface) ? { surface: "overlay" as const } : {}),
               },
         ...(call ? { call } : {}),
       },
