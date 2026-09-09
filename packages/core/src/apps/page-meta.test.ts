@@ -135,6 +135,36 @@ const keepsSiblings = mergeAppPageMeta(
 );
 assert.deepEqual(keepsSiblings?.presentation, { hideCohubBar: true });
 
+// Every extracted field follows the page the same way surface does: a value
+// extraction wrote last time is updated or dropped, a hand-set one is kept.
+const first = mergeAppPageMeta({}, extracted);
+const retitled = mergeAppPageMeta(first, {
+  ...extracted,
+  title: "Board v2",
+  description: null,
+  themeColor: "#000000",
+});
+assert.equal(retitled?.title, "Board v2");
+assert.equal(retitled?.description, undefined);
+assert.equal(retitled?.themeColor, "#000000");
+const handSet = mergeAppPageMeta(
+  { ...first, title: "Manual Title", description: "Manual blurb" },
+  { ...extracted, title: "Board v2", description: null },
+);
+assert.equal(handSet?.title, "Manual Title");
+assert.equal(handSet?.description, "Manual blurb");
+
+// Records from before snapshots existed: a weak relative icon still upgrades,
+// and stays put when the new page declares none; a solid hand-set icon is kept.
+assert.equal(
+  mergeAppPageMeta({ icon: "/favicon.svg" }, { ...extracted, icon: null })?.icon,
+  "/favicon.svg",
+);
+assert.equal(
+  mergeAppPageMeta({ icon: "https://cdn.example/own.png" }, extracted)?.icon,
+  "https://cdn.example/own.png",
+);
+
 assert.equal(appTitleFromMeta({ title: "A", name: "B" }, "fallback"), "A");
 assert.equal(appTitleFromMeta({ name: "B" }, "fallback"), "B");
 assert.equal(appTitleFromMeta(null, "fallback"), "fallback");
