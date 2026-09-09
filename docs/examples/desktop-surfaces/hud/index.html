@@ -23,8 +23,8 @@
     /* ── Panel ────────────────────────────────────────────────────── */
     #hud {
       position: absolute;
-      top: 12px;
-      right: 12px;
+      top: 0;
+      right: 0;
       width: 260px;
       border-radius: 12px;
       background: oklch(14% 0.01 255 / 88%);
@@ -106,6 +106,22 @@
       transition: color 200ms ease;
     }
     .hud-status.active { color: oklch(82% 0.04 255); }
+
+    .hud-hint {
+      padding: 0 12px 8px;
+      font-size: 10.5px;
+      line-height: 1.5;
+      color: oklch(55% 0.02 255);
+    }
+    .hud-hint code {
+      display: block;
+      margin-top: 4px;
+      font-family: "Geist Mono", "Fira Code", ui-monospace, monospace;
+      font-size: 10px;
+      color: oklch(70% 0.04 255);
+      word-break: break-all;
+    }
+    .hud-hint:empty { display: none; }
 
     /* ── Tool call list ──────────────────────────────────────────── */
     .hud-tools {
@@ -214,10 +230,11 @@
     <button type="button" class="hud-close" id="close-btn" aria-label="Close HUD" title="Close">×</button>
   </div>
   <div class="hud-status" id="status-line">Waiting for the agent…</div>
+  <div class="hud-hint" id="hint"></div>
   <ul class="hud-tools" id="tool-list" aria-label="Recent tool calls"></ul>
   <div class="hud-actions">
-    <button type="button" class="action-btn" id="btn-session" title="Open current session">Session</button>
-    <button type="button" class="action-btn" id="btn-dismiss" title="Dismiss HUD">Dismiss</button>
+    <button type="button" class="action-btn" id="btn-session" title="Open the Chat this HUD follows">Open chat</button>
+    <button type="button" class="action-btn" id="btn-dismiss" title="Close this HUD">Dismiss</button>
   </div>
 </aside>
 
@@ -232,6 +249,7 @@
   const hud = document.getElementById("hud");
   const dot = document.getElementById("dot");
   const statusLine = document.getElementById("status-line");
+  const hint = document.getElementById("hint");
   const toolList = document.getElementById("tool-list");
   const btnSession = document.getElementById("btn-session");
   const btnDismiss = document.getElementById("btn-dismiss");
@@ -243,25 +261,20 @@
   const tools = []; // [{ id, name, state }]
   const MAX_TOOLS = 12;
 
-  // ── Hit region ───────────────────────────────────────────────────
-  // The overlay fills the workspace; claim only the panel rectangle
-  // (overlay-local coordinates) so the rest of the desktop stays clickable.
+  // ── Geometry ─────────────────────────────────────────────────────
+  // A fixed panel shrinks the overlay to its own size and takes input
+  // everywhere inside it. Unlike a rect list, `"all"` needs no hover to
+  // activate, so it works on touch screens too.
+  const PANEL = { anchor: "top-right", x: 12, y: 12, width: 260 };
+
   function reportGeometry() {
-    const rect = hud.getBoundingClientRect();
     cohub.app.requestConfigure({
-      inputRegion: [
-        {
-          x: Math.round(rect.left),
-          y: Math.round(rect.top),
-          width: Math.round(rect.width),
-          height: Math.round(rect.height),
-        },
-      ],
+      geometry: { ...PANEL, height: Math.ceil(hud.getBoundingClientRect().height) },
+      inputRegion: "all",
     });
   }
 
   requestAnimationFrame(reportGeometry);
-  window.addEventListener("resize", reportGeometry);
 
   // ── Render ───────────────────────────────────────────────────────
   const stateIcon = { running: "⟳", done: "✓", error: "✕" };
@@ -271,6 +284,26 @@
     done: "Run complete.",
     error: "An error occurred.",
   };
+  const PING_EXAMPLE =
+    "cohub desktop open <this-app> --call hud.ping --data '{\"message\":\"Hi\"}'";
+
+  // What this HUD is for, shown until there is something live to display.
+  function renderHint() {
+    if (!context) {
+      hint.textContent = "Open this App from a Cohub workspace to follow a Chat.";
+    } else if (!context.shell?.session?.id) {
+      hint.textContent = "Open a Chat and this HUD follows it.";
+    } else if (runState === "idle" && tools.length === 0) {
+      const code = document.createElement("code");
+      code.textContent = PING_EXAMPLE;
+      hint.replaceChildren(
+        "Lists this Chat's tool calls live while the agent runs. Send a message, or ping it from a shell:",
+        code,
+      );
+    } else {
+      hint.replaceChildren();
+    }
+  }
 
   function render() {
     dot.className =
@@ -284,6 +317,7 @@
             : "idle");
     statusLine.textContent = customStatus ?? statusText[runState];
     statusLine.className = `hud-status${runState === "thinking" ? " active" : ""}`;
+    renderHint();
 
     toolList.replaceChildren(
       ...tools.slice(-MAX_TOOLS).map((tool) => {
@@ -304,7 +338,7 @@
     );
     toolList.scrollTop = toolList.scrollHeight;
 
-    // The panel may have grown; re-claim the hit region.
+    // The panel may have grown; resize the overlay to match.
     requestAnimationFrame(reportGeometry);
   }
 
@@ -341,8 +375,9 @@
           }
           render();
         },
-        error: () => {
+     error: ({ message }) => {
           runState = "error";
+          customStatus = message || null;
           render();
         },
         turnFinalized: () => {
@@ -360,6 +395,7 @@
   cohub.app.onContextChanged((next) => {
     context = next;
     subscribeSession(next?.shell?.session?.id);
+    render();
   });
 
   // ── Surface method: an agent can push a status line ──────────────

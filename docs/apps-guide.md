@@ -404,6 +404,20 @@ decorative parts can stay outside it. `geometry` (`anchor`, `x`, `y`, `width`,
 `height`) shrinks the overlay to a region of the screen; the host clamps it
 on-screen. An axis without a size fills the layer.
 
+Pick the shape that matches the App. A fixed panel should shrink to its own
+size with `geometry` and take `inputRegion: "all"`:
+
+```js
+cohub.app.requestConfigure({
+  geometry: { anchor: "top-right", x: 12, y: 12, width: 260, height: 180 },
+  inputRegion: "all",
+});
+```
+
+A rect list suits things that move across the whole screen. The host activates
+a rect when the pointer hovers over it, so rects respond to a mouse but not to
+the first tap on a touch screen — `"all"` and `geometry` work everywhere.
+
 The App must paint its own transparency: `html, body { background: transparent }`
 plus `<meta name="color-scheme" content="light dark">` so the frame follows the
 host theme — a color-scheme mismatch makes Chromium paint an opaque backdrop

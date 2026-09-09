@@ -22,11 +22,14 @@ cohub desktop open app://<username>/<space>/mascot --as overlay --call mascot.sa
 
 ## hud
 
-A heads-up display that floats in the corner and shows live agent status,
-the current turn's tool calls, and a quick-action bar.  Demonstrates:
+A heads-up display that floats in the corner and follows the current Chat:
+live agent status, the running turn's tool calls, and a quick-action bar.
+Demonstrates:
 
-- `inputRegion` with explicit `Rect[]` so the workspace stays fully clickable
-  outside the HUD panel.
+- `geometry` + `inputRegion: "all"` — the overlay shrinks to the panel, so it
+  is fully interactive (mouse and touch) while the rest of the workspace stays
+  clickable.
+- Subscribing to the Chat's realtime stream with `session.view`.
 - `cohub.app.surface.handle("hud.ping")` so an agent can push a status
   update into the overlay.
 - Auto-dismiss via `requestClose()` when the agent finishes a run.
@@ -54,6 +57,11 @@ Because the overlay is the same size as the workspace, overlay coordinates and
 The region only decides where pointer events go; it never clips what the
 overlay paints. Decorative parts — bubbles, tooltips, effects — can stay outside
 it and remain visible.
+
+Fixed panels (like the HUD) should shrink the overlay with `geometry` and use
+`"all"`; rect lists suit things that move across the screen (like the mascot).
+Rects activate on hover, so they respond to a mouse but not to the first tap on
+a touch screen.
 
 Declare `<meta name="color-scheme" content="light dark">` so the App follows the
 host theme. A color-scheme mismatch between the host and the frame makes
