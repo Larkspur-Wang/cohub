@@ -3,6 +3,8 @@ import type { AppNavigationOpenMessage } from "@cohub/protocol/app-navigation";
 import type { AppRuntimeShellContext } from "@neta-art/cohub";
 import { RefreshCw, X } from "lucide-svelte";
 import AppSurface from "$lib/components/app/AppSurface.svelte";
+import type { AppSurfaceHost } from "$lib/features/app/surface-host";
+import type { AppSurfaceRegistry } from "$lib/features/app/surface-registry";
 import {
 	resolveOverlayInputClip,
 	resolveOverlayStyle,
@@ -11,6 +13,7 @@ import type { DesktopLayerManager } from "./desktop-layer-manager.svelte";
 
 type Props = {
 	manager: DesktopLayerManager;
+	surfaces: AppSurfaceRegistry;
 	shell: AppRuntimeShellContext;
 	onNavigationOpen?: (message: AppNavigationOpenMessage) => Promise<{
 		handled: boolean;
@@ -18,7 +21,25 @@ type Props = {
 	}>;
 };
 
-const { manager, shell, onNavigationOpen = undefined }: Props = $props();
+const { manager, surfaces, shell, onNavigationOpen = undefined }: Props =
+	$props();
+
+/**
+ * Each surface hands its host up on mount and `null` on unmount. Disposers are
+ * kept here so a remount never leaves a stale invoker pointing at a detached
+ * frame — the same contract AppWindow follows.
+ */
+const surfaceDisposers = new Map<string, () => void>();
+
+function registerSurface(appId: string, host: AppSurfaceHost | null) {
+	surfaceDisposers.get(appId)?.();
+	surfaceDisposers.delete(appId);
+	if (!host) return;
+	surfaceDisposers.set(
+		appId,
+		surfaces.register(appId, (input) => host.call(input)),
+	);
+}
 
 /** Host viewport size, used to clamp overlay geometry on-screen. */
 let viewport = $state({
@@ -79,6 +100,7 @@ function syncViewport() {
 								content={overlay.detail.content ?? null}
 								invocation={overlay.invocation}
 								{shell}
+								onSurfaceHost={(host) => registerSurface(overlay.appId, host)}
 								onCloseRequest={() => manager.closeOverlay(overlay.appId)}
 								onConfigureRequest={(request) => manager.configure(overlay.appId, request)}
 								{onNavigationOpen}

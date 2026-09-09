@@ -71,7 +71,14 @@ import {
 	upsertAppSnapshot,
 } from "$lib/features/app/app-realtime";
 import type { AppSurfaceHost } from "$lib/features/app/surface-host";
-import { registerDesktopCommandHost } from "$lib/features/desktop-command/bus";
+import {
+	type AppSurfaceCallOutcome,
+	createAppSurfaceRegistry,
+} from "$lib/features/app/surface-registry";
+import {
+	type DesktopCommandOutcome,
+	registerDesktopCommandHost,
+} from "$lib/features/desktop-command/bus";
 import {
 	createSessionChatHost,
 	getSessionTitle,
@@ -531,8 +538,39 @@ async function openResolvedAppNavigation(
 			};
 }
 
+/**
+ * Maps a surface call result onto a desktop command outcome. `ok` is
+ * `pending`, not `applied`: the App acknowledged delivery and settles the
+ * command itself through `client.ui.reportResult()`.
+ */
+function desktopCallOutcome(
+	called: AppSurfaceCallOutcome | undefined,
+): DesktopCommandOutcome {
+	if (!called) {
+		return {
+			status: "rejected",
+			error: {
+				code: "surface_unavailable",
+				message: "The App surface did not return a call result.",
+			},
+		};
+	}
+	if (called.ok) return { status: "pending" };
+	return {
+		status:
+			called.code === "surface_not_supported" ||
+			called.code === "method_not_found"
+				? "unsupported"
+				: "rejected",
+		error: { code: called.code, message: called.message },
+	};
+}
+
+/** Mounted App iframes across every host (tabs and overlays), keyed by app id. */
+const appSurfaces = createAppSurfaceRegistry();
 const appPreview = createAppPreviewController({
 	getSpaceId: () => spaceId,
+	surfaces: appSurfaces,
 	onOpenPanel: () => {
 		if (uiState.filesColumnHidden) uiState.setFilesColumnHidden(false);
 		ensurePreviewPanelFits();
@@ -546,7 +584,7 @@ const appPreview = createAppPreviewController({
 });
 
 // Desktop overlay layer — manages App surfaces that float above the workspace.
-const desktopLayers = createDesktopLayerManager();
+const desktopLayers = createDesktopLayerManager({ surfaces: appSurfaces });
 const inlineAppPreview = $derived(appPreview.preview);
 const inlineAppTabs = $derived(appPreview.previews);
 const activeInlineAppId = $derived(appPreview.activeAppId);
@@ -2168,7 +2206,7 @@ function registerAppSurface(appId: string, host: AppSurfaceHost | null) {
 	if (!host) return;
 	appSurfaceDisposers.set(
 		appId,
-		appPreview.registerSurface(appId, (input) => host.call(input)),
+		appSurfaces.register(appId, (input) => host.call(input)),
 	);
 }
 async function downloadInlineFile() {
@@ -2515,12 +2553,16 @@ onMount(() => {
 
 			// Overlay surfaces bypass the tab-based preview system.
 			if (command.target.surface === "overlay") {
-				const result = desktopLayers.openOverlay({
+				const opened = desktopLayers.openOverlay({
 					appId: command.target.appId,
 					label: command.target.label,
-					invocation: createWorkspaceAppInvocation(spaceId, openContext, "overlay"),
+					invocation: createWorkspaceAppInvocation(
+						spaceId,
+						openContext,
+						"overlay",
+					),
 				});
-				if (result === "limit") {
+				if (opened === "limit") {
 					return {
 						status: "rejected",
 						error: {
@@ -2529,7 +2571,14 @@ onMount(() => {
 						},
 					};
 				}
-				return { status: "applied" };
+				if (!command.call) return { status: "applied" };
+				return desktopCallOutcome(
+					await desktopLayers.callSurface({
+						appId: command.target.appId,
+						commandId: context.commandId,
+						...command.call,
+					}),
+				);
 			}
 			const opened = await openResolvedAppNavigation(
 				{
@@ -2546,25 +2595,7 @@ onMount(() => {
 				command.target.launch,
 			);
 			if (!command.call) return { status: "applied" };
-			const called = opened.call;
-			if (!called) {
-				return {
-					status: "rejected",
-					error: {
-						code: "surface_unavailable",
-						message: "The App surface did not return a call result.",
-					},
-				};
-			}
-			if (called.ok) return { status: "pending" };
-			return {
-				status:
-					called.code === "surface_not_supported" ||
-					called.code === "method_not_found"
-						? "unsupported"
-						: "rejected",
-				error: { code: called.code, message: called.message },
-			};
+			return desktopCallOutcome(opened.call);
 		},
 	);
 	return () => {
@@ -2586,6 +2617,7 @@ onMount(() => {
 		appSurfaceDisposers.clear();
 		appPreview.dispose();
 		desktopLayers.dismissAll();
+		appSurfaces.clear();
 		sessionChat.scroll.stopVimScroll();
 		sessionChat.scroll.clearPendingVimG();
 		sessionChat.persistSessionScrollAnchorsNow();
@@ -3217,6 +3249,7 @@ const headerActions = {
   <SpaceDanmakuLayer controller={danmakuController} {spaceId} hidden={previewImmersiveMode} />
   <DesktopLayerHost
     manager={desktopLayers}
+    surfaces={appSurfaces}
     shell={appShell}
     onNavigationOpen={handleAppNavigationOpen}
   />

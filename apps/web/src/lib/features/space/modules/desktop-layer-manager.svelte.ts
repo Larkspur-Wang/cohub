@@ -5,6 +5,7 @@ import type {
 } from "@neta-art/cohub";
 import { appDisplayTitle } from "$lib/app-page-meta";
 import { loadAppPreview } from "$lib/features/app/app-open";
+import type { AppSurfaceRegistry } from "$lib/features/app/surface-registry";
 import type {
 	OverlayGeometry,
 	OverlayInputRegion,
@@ -28,6 +29,7 @@ export type DesktopOverlay = {
 };
 
 type DesktopLayerManagerOptions = {
+	surfaces: AppSurfaceRegistry;
 	loadApp?: (appId: string) => Promise<AppDetailResponse>;
 	loadPublicApp?: (appId: string) => Promise<AppDetailResponse>;
 };
@@ -37,11 +39,11 @@ type DesktopLayerManagerOptions = {
  * preview controllers there is no "active" overlay: every overlay is visible
  * at once and positions itself through `configure.request`.
  */
-export function createDesktopLayerManager(
-	options: DesktopLayerManagerOptions = {},
-) {
+export function createDesktopLayerManager(options: DesktopLayerManagerOptions) {
 	let overlays = $state<DesktopOverlay[]>([]);
 	let nextMountKey = 0;
+	/** Detail fetch per overlay, so a call issued right after opening waits for it. */
+	const detailSettled = new Map<string, Promise<void>>();
 
 	const loadApp =
 		options.loadApp ??
@@ -61,25 +63,28 @@ export function createDesktopLayerManager(
 		);
 	}
 
-	async function loadDetail(appId: string) {
-		try {
-			const detail = await loadAppPreview(
-				{ get: loadApp, getPublicById: loadPublicApp },
-				appId,
-			);
-			if (!find(appId)) return;
-			patch(appId, {
-				detail,
-				error: null,
-				label: appDisplayTitle(detail.app.meta, detail.app.slug),
-			});
-		} catch (cause) {
-			if (!find(appId)) return;
-			patch(appId, {
-				error:
-					cause instanceof Error ? cause.message : "Failed to load this App.",
-			});
-		}
+	function loadDetail(appId: string) {
+		const settle = (async () => {
+			try {
+				const detail = await loadAppPreview(
+					{ get: loadApp, getPublicById: loadPublicApp },
+					appId,
+				);
+				if (!find(appId)) return;
+				patch(appId, {
+					detail,
+					error: null,
+					label: appDisplayTitle(detail.app.meta, detail.app.slug),
+				});
+			} catch (cause) {
+				if (!find(appId)) return;
+				patch(appId, {
+					error:
+						cause instanceof Error ? cause.message : "Failed to load this App.",
+				});
+			}
+		})();
+		detailSettled.set(appId, settle);
 	}
 
 	/** Opens an overlay, or refreshes the invocation of one already showing. */
@@ -107,16 +112,32 @@ export function createDesktopLayerManager(
 				inputRegion: "none",
 			},
 		];
-		void loadDetail(input.appId);
+		loadDetail(input.appId);
 		return "opened";
 	}
 
 	function closeOverlay(appId: string) {
 		overlays = overlays.filter((overlay) => overlay.appId !== appId);
+		detailSettled.delete(appId);
+		options.surfaces.unregister(appId);
 	}
 
 	function dismissAll() {
-		overlays = [];
+		for (const overlay of overlays) closeOverlay(overlay.appId);
+	}
+
+	/** Calls a method the App registered via `client.app.surface.handle()`. */
+	function callSurface(input: {
+		appId: string;
+		method: string;
+		input?: unknown;
+		commandId: string;
+	}) {
+		return options.surfaces.call({
+			...input,
+			settled: detailSettled.get(input.appId),
+			getTarget: () => find(input.appId) ?? null,
+		});
 	}
 
 	/** Applies a `configure.request`; absent fields keep their current value. */
@@ -136,7 +157,7 @@ export function createDesktopLayerManager(
 	function retry(appId: string) {
 		if (!find(appId)) return;
 		patch(appId, { mountKey: ++nextMountKey, error: null, detail: null });
-		void loadDetail(appId);
+		loadDetail(appId);
 	}
 
 	return {
@@ -150,6 +171,7 @@ export function createDesktopLayerManager(
 		openOverlay,
 		closeOverlay,
 		dismissAll,
+		callSurface,
 		configure,
 		retry,
 	};

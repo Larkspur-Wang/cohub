@@ -15,8 +15,9 @@ features at once:
 - **Navigation** — the character can open a file when the agent names one.
 
 ```bash
-# Publish from a Space that has the file
 cohub desktop open app://<username>/<space>/mascot --as overlay
+# Make it say something while it walks
+cohub desktop open app://<username>/<space>/mascot --as overlay --call mascot.say --data '{"text":"Ship it!"}'
 ```
 
 ## hud
@@ -32,6 +33,8 @@ the current turn's tool calls, and a quick-action bar.  Demonstrates:
 
 ```bash
 cohub desktop open app://<username>/<space>/hud --as overlay
+# Push a status line from a script or an agent
+cohub desktop open app://<username>/<space>/hud --as overlay --call hud.ping --data '{"message":"Deploying…"}'
 ```
 
 ## How an overlay works
