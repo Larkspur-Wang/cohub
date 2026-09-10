@@ -24,6 +24,28 @@ export function commandItemKey(
 	return keyFor(item);
 }
 
+type CommandItemKeySource = Pick<
+	CommandPaletteItem,
+	"type" | "spaceId" | "sessionId" | "turnId" | "id"
+>;
+
+/**
+ * True when two lists resolve to the same ordered keys. The palette result
+ * list is keyed by these identities, so a refresh that lands on an identical
+ * sequence changes nothing visually — callers can skip the state update (and
+ * the re-render) entirely instead of swapping in an equivalent list.
+ */
+export function sameCommandItemSequence(
+	left: readonly CommandItemKeySource[],
+	right: readonly CommandItemKeySource[],
+) {
+	if (left.length !== right.length) return false;
+	for (let index = 0; index < left.length; index += 1) {
+		if (keyFor(left[index]) !== keyFor(right[index])) return false;
+	}
+	return true;
+}
+
 function remoteToItem(item: GlobalSearchResult): CommandPaletteItem {
 	return {
 		...item,

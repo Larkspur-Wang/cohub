@@ -7,6 +7,7 @@ import {
 import {
 	isOverviewSnapshotExpired,
 	isOverviewSnapshotStale,
+	shouldRevalidateOverview,
 } from "$lib/command-palette/palette-overview-staleness";
 import { sdk } from "$lib/sdk";
 import { getRecentSpaces } from "$lib/stores/recent-space";
@@ -14,17 +15,26 @@ import { getRecentSpaces } from "$lib/stores/recent-space";
 /**
  * Client cache for /api/palette/overview — the empty-query default list data.
  *
- * Memory + localStorage snapshot with a 60s freshness window. Stale data is
- * revalidated when the palette opens; failures retain the last-known-good
- * snapshot and let the UI use its local fallback path.
+ * Memory + localStorage snapshot with a 60s freshness window. Viewer activity
+ * records a user-scoped invalidation marker, and a debounced, throttled
+ * background revalidation warms the snapshot afterwards, so the palette
+ * usually opens straight from cache instead of fetching. Failures retain the
+ * last-known-good snapshot and let the UI use its local fallback path.
  *
- * Freshness is not purely time-based: sending a message (or otherwise touching
- * viewer activity) records a user-scoped invalidation marker so this and other
- * tabs revalidate instead of serving pre-send data.
+ * Both the snapshot and the throttle are shared through localStorage, so the
+ * warm is browser-wide: a refresh in one tab suppresses the warm and the
+ * foreground revalidation in every other tab, and those tabs receive the
+ * refreshed payload instead of refetching it themselves.
+ *
+ * Freshness is not purely time-based: device-local activity (opening a Space)
+ * is folded into the rendered list instead of invalidating the snapshot;
+ * cross-device changes are picked up by the freshness window and the
+ * foreground (focus / visibility) revalidation.
  */
 
 const STORAGE_PREFIX = "cohub:palette-overview";
 const INVALIDATION_STORAGE_PREFIX = "cohub:palette-overview-invalidated";
+const REFRESH_STORAGE_PREFIX = "cohub:palette-overview-refreshed";
 const CACHE_VERSION = 1;
 
 type StoredOverview = PaletteOverviewResponse & { cachedAt: number };
@@ -34,6 +44,8 @@ type MemoryState = {
 	snapshot: StoredOverview | null;
 	/** Persisted so this and other tabs can observe viewer activity. */
 	invalidatedAt: number;
+	/** When the last refresh attempt started; throttles background revalidation. */
+	lastRefreshStartedAt: number;
 	latestRequestId: number;
 	inFlight: Promise<PaletteOverviewResponse | null> | null;
 };
@@ -53,6 +65,10 @@ function invalidationStorageKey(userKey: string) {
 	return `${INVALIDATION_STORAGE_PREFIX}:${encodeURIComponent(userKey)}:v${CACHE_VERSION}`;
 }
 
+function refreshStorageKey(userKey: string) {
+	return `${REFRESH_STORAGE_PREFIX}:${encodeURIComponent(userKey)}:v${CACHE_VERSION}`;
+}
+
 function readInvalidatedAt(userKey: string) {
 	if (!isBrowser()) return 0;
 	try {
@@ -62,6 +78,31 @@ function readInvalidatedAt(userKey: string) {
 		return Number.isFinite(value) && value > 0 ? value : 0;
 	} catch {
 		return 0;
+	}
+}
+
+/**
+ * When the last refresh attempt started, shared across tabs through
+ * localStorage. This is what makes the warmer browser-wide: a refresh in one
+ * tab suppresses the warm and the foreground revalidation in every other tab
+ * until the minimum interval elapses.
+ */
+function readLastRefreshAt(userKey: string) {
+	if (!isBrowser()) return 0;
+	try {
+		const value = Number(localStorage.getItem(refreshStorageKey(userKey)) ?? 0);
+		return Number.isFinite(value) && value > 0 ? value : 0;
+	} catch {
+		return 0;
+	}
+}
+
+function writeLastRefreshAt(userKey: string, at: number) {
+	if (!isBrowser()) return;
+	try {
+		localStorage.setItem(refreshStorageKey(userKey), String(at));
+	} catch {
+		// Best-effort: the in-memory timestamp still throttles this tab.
 	}
 }
 
@@ -106,6 +147,7 @@ function getMemoryState(userKey = getCacheUserKey()): MemoryState {
 		userKey,
 		snapshot,
 		invalidatedAt,
+		lastRefreshStartedAt: readLastRefreshAt(userKey),
 		latestRequestId: 0,
 		inFlight: null,
 	};
@@ -118,6 +160,33 @@ function syncPersistedInvalidation(state: MemoryState) {
 	state.invalidatedAt = persisted;
 }
 
+/** Adopt a refresh another tab started, so the throttle is browser-wide. */
+function syncPersistedRefresh(state: MemoryState) {
+	const persisted = readLastRefreshAt(state.userKey);
+	if (persisted <= state.lastRefreshStartedAt) return;
+	state.lastRefreshStartedAt = persisted;
+}
+
+/**
+ * Adopt a snapshot another tab committed. The payload is shared through
+ * localStorage, so a warm in one tab leaves every other tab warm too; without
+ * this, a tab that warmed elsewhere would still render its own older snapshot
+ * while the browser-wide throttle stops it from refetching.
+ */
+function syncPersistedSnapshot(state: MemoryState) {
+	const persisted = readCached(state.userKey);
+	if (!persisted) return;
+	if (state.snapshot && persisted.cachedAt <= state.snapshot.cachedAt) return;
+	state.snapshot = persisted;
+}
+
+/** Pull in anything other tabs have written before reading or deciding. */
+function syncFromOtherTabs(state: MemoryState) {
+	syncPersistedInvalidation(state);
+	syncPersistedRefresh(state);
+	syncPersistedSnapshot(state);
+}
+
 export type PaletteOverviewSnapshot = {
 	data: PaletteOverviewResponse | null;
 	/** True when the next palette open must refetch before/at first render. */
@@ -126,7 +195,7 @@ export type PaletteOverviewSnapshot = {
 
 export function getPaletteOverviewSnapshot(): PaletteOverviewSnapshot {
 	const state = getMemoryState();
-	syncPersistedInvalidation(state);
+	syncFromOtherTabs(state);
 	const snapshot = state.snapshot;
 	if (!snapshot) return { data: null, isStale: true };
 	return {
@@ -141,8 +210,11 @@ export function getPaletteOverviewSnapshot(): PaletteOverviewSnapshot {
 
 /**
  * Mark the overview cache as outdated after viewer activity (message sent,
- * session created, ...). Fetching is deferred until the palette needs the
- * data, so chat sends do not create an unrelated network/DB read.
+ * session created, pin changed, ...). The refetch itself is deferred and
+ * coalesced: a debounced background revalidation warms the snapshot so the
+ * next palette open serves from cache instead of fetching, and the minimum
+ * revalidate interval keeps a burst of activity from becoming a burst of
+ * requests. Local-activity ordering is folded in at render time regardless.
  */
 export function invalidatePaletteOverview() {
 	const state = getMemoryState();
@@ -157,9 +229,11 @@ export function invalidatePaletteOverview() {
 	} catch {
 		// The in-memory timestamp still protects this tab.
 	}
+	schedulePaletteOverviewRevalidate();
 }
 
 export function clearCachedPaletteOverview() {
+	cancelScheduledPaletteOverviewRevalidate();
 	const userKey = getCacheUserKey();
 	if (memoryState?.userKey === userKey) {
 		// Invalidate in-flight writers before dropping the snapshot.
@@ -172,6 +246,7 @@ export function clearCachedPaletteOverview() {
 	try {
 		localStorage.removeItem(storageKey(userKey));
 		localStorage.removeItem(invalidationStorageKey(userKey));
+		localStorage.removeItem(refreshStorageKey(userKey));
 	} catch {
 		// Storage is best-effort.
 	}
@@ -188,6 +263,10 @@ export function refreshPaletteOverview(options?: {
 
 	const requestId = ++nextRequestId;
 	state.latestRequestId = requestId;
+	state.lastRefreshStartedAt = Date.now();
+	// Persist first: another tab that wakes up before this request commits must
+	// still see the throttle and skip its own fetch.
+	writeLastRefreshAt(userKey, state.lastRefreshStartedAt);
 	const requestInvalidatedAt = state.invalidatedAt;
 	const promise = (async (): Promise<PaletteOverviewResponse | null> => {
 		try {
@@ -252,7 +331,68 @@ export function refreshPaletteOverview(options?: {
 	return promise;
 }
 
-/** Mark viewer activity; the next palette open will revalidate lazily. */
+const REVALIDATE_DEBOUNCE_MS = 1_500;
+let revalidateTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Refresh the overview only when it can actually change what the palette
+ * shows: skip when the snapshot is already fresh (local activity is folded in
+ * at render time) and throttle bursts of invalidations.
+ *
+ * The throttle and the snapshot are shared across tabs, so an open in one tab
+ * is served by a warm another tab already did.
+ *
+ * Resolves with the fresh payload only when a request was made, so callers do
+ * not rebuild the list for a no-op.
+ */
+export function revalidatePaletteOverview(options?: {
+	signal?: AbortSignal;
+	force?: boolean;
+}): Promise<PaletteOverviewResponse | null> {
+	const state = getMemoryState();
+	syncFromOtherTabs(state);
+	const now = Date.now();
+	const snapshot = state.snapshot;
+	if (!options?.force && snapshot) {
+		const stale = isOverviewSnapshotStale({
+			cachedAt: snapshot.cachedAt,
+			invalidatedAt: state.invalidatedAt,
+			now,
+		});
+		if (!stale) return Promise.resolve(null);
+		if (
+			!shouldRevalidateOverview({
+				lastRefreshStartedAt: state.lastRefreshStartedAt,
+				now,
+			})
+		)
+			return Promise.resolve(null);
+	}
+	return refreshPaletteOverview(options);
+}
+
+/**
+ * Coalesced background revalidation used outside the palette's open path
+ * (viewer activity, tab focus / visibility). Coalescing plus the minimum
+ * interval keeps a burst of activity from turning into a burst of requests.
+ */
+export function schedulePaletteOverviewRevalidate() {
+	if (!isBrowser()) return;
+	if (revalidateTimer != null) return;
+	revalidateTimer = setTimeout(() => {
+		revalidateTimer = null;
+		void revalidatePaletteOverview();
+	}, REVALIDATE_DEBOUNCE_MS);
+}
+
+/** Drop a pending background revalidation (logout / cache reset). */
+export function cancelScheduledPaletteOverviewRevalidate() {
+	if (revalidateTimer == null) return;
+	clearTimeout(revalidateTimer);
+	revalidateTimer = null;
+}
+
+/** Mark viewer activity; invalidation schedules a background revalidation. */
 export function noteViewerActivity() {
 	invalidatePaletteOverview();
 }

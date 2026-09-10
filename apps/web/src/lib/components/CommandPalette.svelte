@@ -24,10 +24,14 @@ import {
 	getLocalPaletteOverview,
 } from "$lib/command-palette/default-items";
 import { searchLocalCommandItems } from "$lib/command-palette/local-search";
-import { mergeCommandResults } from "$lib/command-palette/merge-results";
+import {
+	mergeCommandResults,
+	sameCommandItemSequence,
+} from "$lib/command-palette/merge-results";
 import {
 	getPaletteOverviewSnapshot,
-	refreshPaletteOverview,
+	revalidatePaletteOverview,
+	schedulePaletteOverviewRevalidate,
 } from "$lib/command-palette/palette-overview";
 import { mergeLocalOverviewIntoSnapshot } from "$lib/command-palette/palette-overview-local";
 import { parseCommandPaletteQuery } from "$lib/command-palette/query";
@@ -82,6 +86,18 @@ const RESULT_LIMIT = 30;
 const DEBOUNCE_MS = 180;
 const POINTER_HOVER_ARM_MS = 220;
 const SPACE_LIST_REFRESH_MIN_INTERVAL_MS = 15_000;
+
+/**
+ * Land a rebuilt default list without a redundant render. The result list is
+ * keyed by item identity, so an identical ordered sequence would not move any
+ * DOM node anyway — skipping the assignment keeps a background revalidation
+ * (which usually predicts the same order via the local merge) invisible.
+ */
+function applyDefaultItems(next: CommandPaletteItem[]) {
+	if (sameCommandItemSequence(defaultItems, next)) return;
+	defaultItems = next;
+}
+
 function defaultPlaceholder() {
 	return m.command_placeholder({}, { locale });
 }
@@ -612,7 +628,7 @@ function scheduleSearch(plan: typeof searchPlan, spaceId: string | null) {
 				.then(buildDefaults)
 				.then((items) => {
 					if (token !== searchToken) return;
-					defaultItems = items;
+					applyDefaultItems(items);
 				})
 				.catch((error) => {
 					if (error?.name === "AbortError") return;
@@ -621,22 +637,22 @@ function scheduleSearch(plan: typeof searchPlan, spaceId: string | null) {
 				.finally(() => {
 					if (token === searchToken) defaultDone = true;
 				});
-			if (snapshot.isStale || !snapshot.data) {
-				// Detached from the search signal: the refetch survives tab/query
-				// changes (aborting it here previously delayed the correct list by a
-				// full re-request cycle). The fresh server response is authoritative
-				// and replaces the merged frame in place.
-				void refreshPaletteOverview().then((fresh) => {
-					if (!fresh || token !== searchToken) return;
-					return buildDefaults(fresh)
-						.then((items) => {
-							if (token === searchToken) defaultItems = items;
-						})
-						.catch(() => {
-							// Keep the merged frame on refresh failures.
-						});
-				});
-			}
+			// Detached from the search signal: the refetch survives tab/query changes
+			// (aborting it here previously delayed the correct list by a full
+			// re-request cycle). Revalidation is throttled and skipped while the
+			// snapshot is fresh — viewer activity is folded in locally at render
+			// time, so most opens land here with nothing to fetch. The fresh server
+			// response is authoritative and replaces the merged frame in place.
+			void revalidatePaletteOverview().then((fresh) => {
+				if (!fresh || token !== searchToken) return;
+				return buildDefaults(fresh)
+					.then((items) => {
+						if (token === searchToken) applyDefaultItems(items);
+					})
+					.catch(() => {
+						// Keep the merged frame on refresh failures.
+					});
+			});
 			legacyDefaultDone = true;
 		} else {
 			// Pre-overview behavior: the local default list is the source of truth
@@ -935,7 +951,19 @@ onMount(() => {
 	const offSpaceListCache = onSpaceListCacheUpdated(() => {
 		if (open && !runMode) spaceListRefreshToken += 1;
 	});
+	// Warm the overview when the app returns to the foreground, so the Recent
+	// tab opens from cache instead of fetching. Cross-device activity is the
+	// one signal the local caches cannot fold in at render time.
+	const onVisibility = () => {
+		if (document.visibilityState === "visible")
+			schedulePaletteOverviewRevalidate();
+	};
+	const onFocus = () => schedulePaletteOverviewRevalidate();
+	document.addEventListener("visibilitychange", onVisibility);
+	window.addEventListener("focus", onFocus);
 	return () => {
+		document.removeEventListener("visibilitychange", onVisibility);
+		window.removeEventListener("focus", onFocus);
 		window.removeEventListener("keydown", handleGlobalKeydown, {
 			capture: true,
 		});
