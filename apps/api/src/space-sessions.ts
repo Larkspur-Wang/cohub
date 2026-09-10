@@ -1,7 +1,7 @@
 import { createLogger } from "@cohub/infra/logging";
 import { and, asc, desc, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import type { Usage } from "@cohub/protocol/core";
-import type { PersistMessageInput, RegisterSessionInput, SessionActiveTurn, SessionTurnRecord, UpdateSessionInfoInput } from "@cohub/protocol/model";
+import type { PersistMessageInput, RegisterSessionInput, SessionTurnRecord, UpdateSessionInfoInput } from "@cohub/protocol/model";
 import type { ModelThinkingLevel } from "@cohub/protocol";
 import { getOrCreateRequestId } from "@cohub/infra/tracing";
 import { injectTrace } from "@cohub/infra/tracing/propagator";
@@ -40,6 +40,7 @@ import { fallbackPublicUserProfile, getProfilesByUuids } from "./user-profiles.j
 import { enqueueSessionMessagePostprocess } from "./session-message-postprocess-queue.js";
 import { enqueueSessionTitleGeneration } from "./session-title-queue.js";
 import { touchSpaceActivity } from "./space-activity.js";
+import { pickActiveTurns } from "./session-active-turns.js";
 import {
   decodeSessionListCursor,
   mergeUserSessionListBranches,
@@ -345,8 +346,8 @@ const sessionListOrderBy = [
 
 const ACTIVE_TURN_STATUSES = ["queued", "running", "abort_requested"] as const;
 
-async function attachActiveTurns<T extends { id: string }>(sessions: T[]) {
-  if (sessions.length === 0) return sessions.map((session) => ({ ...session, activeTurn: null }));
+export async function attachActiveTurns<T extends { id: string }>(sessions: T[]) {
+  if (sessions.length === 0) return pickActiveTurns(sessions, []);
 
   const rows = await db
     .select({
@@ -357,7 +358,6 @@ async function attachActiveTurns<T extends { id: string }>(sessions: T[]) {
       model: sessionTurns.model,
       startedAt: sessionTurns.startedAt,
       meta: sessionTurns.meta,
-      sequence: sessionTurns.sequence,
     })
     .from(sessionTurns)
     .where(and(
@@ -366,25 +366,7 @@ async function attachActiveTurns<T extends { id: string }>(sessions: T[]) {
     ))
     .orderBy(asc(sessionTurns.sessionId), desc(sessionTurns.sequence));
 
-  const activeTurnBySessionId = new Map<string, SessionActiveTurn>();
-  for (const row of rows) {
-    if (activeTurnBySessionId.has(row.sessionId)) continue;
-    const meta = normalizeRecord(row.meta);
-    activeTurnBySessionId.set(row.sessionId, {
-      id: row.id,
-      status: row.status as SessionActiveTurn["status"],
-      provider: row.provider ?? null,
-      model: row.model ?? null,
-      startedAt: row.startedAt?.toISOString() ?? null,
-      anchorUserMessageId:
-        typeof meta?.userMessageId === "string" ? meta.userMessageId : null,
-    });
-  }
-
-  return sessions.map((session) => ({
-    ...session,
-    activeTurn: activeTurnBySessionId.get(session.id) ?? null,
-  }));
+  return pickActiveTurns(sessions, rows);
 }
 
 export const listSpaceSessions = async (

@@ -4,6 +4,7 @@ import { Hono } from "hono";
 import { hasPermission } from "../permissions.js";
 import { getOptionalAuth, useAuth, requireValidId, authzDenied } from "../lib/middleware.js";
 import {
+  attachActiveTurns,
   getSpaceById,
   getSpaceSessionById,
   getSessionMessageById,
@@ -107,7 +108,8 @@ router.get("/:id", async (c) => {
   if (!space) return c.json({ message: "session not found" }, 404);
 
   const [hydratedSession] = await hydrateSessionParticipantProfiles([session]);
-  return c.json({ space, session: hydratedSession ?? session, user });
+  const [sessionWithActiveTurn] = await attachActiveTurns([hydratedSession ?? session]);
+  return c.json({ space, session: sessionWithActiveTurn ?? hydratedSession ?? session, user });
 });
 
 // ── PATCH /api/sessions/:id (rename) ─────────────────────────────────────────
@@ -131,7 +133,8 @@ router.patch("/:id", async (c) => {
 
   const refreshed = await getSpaceSessionById(sessionId);
   const [hydratedSession] = await hydrateSessionParticipantProfiles([refreshed ?? session]);
-  return c.json({ session: hydratedSession ?? refreshed ?? session });
+  const [sessionWithActiveTurn] = await attachActiveTurns([hydratedSession ?? refreshed ?? session]);
+  return c.json({ session: sessionWithActiveTurn ?? hydratedSession ?? refreshed ?? session });
 });
 
 router.get("/:id/turns", async (c) => {
