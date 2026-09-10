@@ -50,10 +50,12 @@ ctx.permissions;                   // appScopes + viewerGrants, for rendering st
 and `toolCallId` when available. It describes where an open came from — it is
 context, not authorization.
 
-`ctx.shell` contains the current workspace `space`, `session`, and `turn` ids.
+`ctx.shell` contains the current `space`, `session`, and `turn` ids.
 Its `turn` is the Turn currently in view, not necessarily the Turn being
 generated. These values can differ from `app.homeSpace` and `invocation`.
-They are null when the shell has no matching location.
+They are null when the shell has no matching location. A workspace App has
+`shell.surface: "workspace"`. A new chat background has
+`shell.surface: "background"`, with `shell.space` set to the hosting Space.
 
 `client.app.onContextChanged(cb)` pushes fresh context when the shell location,
 sign-in state, or grants change. Keep the latest context in memory for frequent
@@ -63,7 +65,8 @@ authorization source.
 ## Capability scenarios
 
 Every scenario below assumes `client` is initialized and `spaceId` is known
-(`ctx.app.homeSpace.id` or `ctx.invocation.spaceId`). Scope lines show the
+(`ctx.shell.space.id`, `ctx.app.homeSpace.id`, or `ctx.invocation.spaceId`).
+Scope lines show the
 minimum authorization; app scopes cover only the App's own Space, and viewer
 grants via `client.auth.request()` are needed elsewhere.
 

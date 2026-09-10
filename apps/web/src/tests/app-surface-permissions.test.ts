@@ -119,12 +119,21 @@ test("App previews pass invocation context through the runtime bridge", () => {
 	);
 });
 
-test("New Chat App receives the hosting Space invocation context", () => {
+test("New Chat App receives the hosting Space invocation and shell context", () => {
 	assert.match(workBackgroundSource, /currentSpaceId\?: string \| null/);
 	assert.match(
 		workBackgroundSource,
-		/invocation=\{currentSpaceId[\s\S]*?surface: "background", source: "route", spaceId: currentSpaceId/,
+		/invocation: \{[\s\S]*?surface: "background" as const,[\s\S]*?source: "route" as const,[\s\S]*?spaceId: currentSpaceId/,
 	);
+	assert.match(
+		workBackgroundSource,
+		/shell: \{[\s\S]*?surface: "background" as const,[\s\S]*?space: \{ id: currentSpaceId \},[\s\S]*?session: null,[\s\S]*?turn: null/,
+	);
+	assert.match(
+		workBackgroundSource,
+		/invocation=\{hostContext\?\.invocation\}/,
+	);
+	assert.match(workBackgroundSource, /shell=\{hostContext\?\.shell\}/);
 	assert.match(backgroundSource, /currentSpaceId=\{spaceId\}/);
 });
 

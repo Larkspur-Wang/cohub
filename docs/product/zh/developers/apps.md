@@ -50,7 +50,9 @@ ctx.permissions;                   // appScopes + viewerGrants，用于渲染状
 
 `ctx.shell` 描述当前壳中的 `space`、`session` 和 `turn`。其中 `turn` 是当前
 正在查看的 Turn，不一定是正在生成的 Turn。它们可能与 `app.homeSpace` 和
-`invocation` 不同；没有对应位置时返回 `null`。
+`invocation` 不同；没有对应位置时返回 `null`。workspace App 的
+`shell.surface` 为 `"workspace"`；新对话背景为 `"background"`，
+`shell.space` 是当前宿主 Space。
 
 `client.app.onContextChanged(cb)` 会在壳位置、登录或授权变化时推送新 context。
 高频读取时请在 App 内缓存最近一次 context，不要轮询 `client.context()`。
@@ -58,9 +60,10 @@ context 仅用于提供信息，不能作为授权依据。
 
 ## 能力场景
 
-以下场景假设 `client` 已初始化、`spaceId` 已知（`ctx.app.homeSpace.id` 或
-`ctx.invocation.spaceId`）。权限行给出最小授权；app scopes 只覆盖 App 自己的
-Space，其他 Space 需通过 `client.auth.request()` 获取 viewer grant。
+以下场景假设 `client` 已初始化、`spaceId` 已知（`ctx.shell.space.id`、
+`ctx.app.homeSpace.id` 或 `ctx.invocation.spaceId`）。权限行给出最小授权；
+app scopes 只覆盖 App 自己的 Space，其他 Space 需通过 `client.auth.request()`
+获取 viewer grant。
 
 ### Agent 对话
 

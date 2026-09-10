@@ -65,7 +65,7 @@ These runtime-only APIs form the foundation; everything else is standard SDK:
 
 | API | What it does | Returns |
 |---|---|---|
-| `client.context()` | Asks the host for the App's identity | `{ app, space, viewer?, invocation?, permissions }` or `null` |
+| `client.context()` | Asks the host for the App's identity | `{ app, space, viewer?, invocation?, shell?, permissions }` or `null` |
 | `client.auth.request({ scopes, reason, spaceId?, alwaysAsk? })` | Ensures the app holds these scopes; silent when a grant already covers them, consent dialog otherwise | `true` / `false` |
 | `client.auth.requestSpace({ scopes, reason, alwaysAsk? })` | One consent: the viewer picks a Space and grants the scopes on it | `{ granted, space }` |
 | `client.auth.requestCreateSpace({ scopes, space, reason })` | One consent: create a viewer-owned Space (`CreateSpaceInput`) and grant the scopes on it | `{ granted, space }` |

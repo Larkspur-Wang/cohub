@@ -122,11 +122,11 @@ For no-build HTML, import the SDK from an ESM CDN and create a client:
 const { createCohubClient } = await import(SDK_URL);
 const cohub = createCohubClient();
 const context = await cohub.context();
-const spaceId = context.invocation?.spaceId ?? context.app.homeSpace?.id ?? context.space.id;
+const spaceId = context.shell?.space?.id ?? context.invocation?.spaceId ?? context.app.homeSpace?.id ?? context.space.id;
 const space = cohub.space(spaceId);
 ```
 
-`cohub.context()` returns App identity, App home Space identity, the current Cohub shell location, and permission scopes. In a workspace App, `context.shell` contains the current `space`, `session`, and viewed `turn` (each location may be null). For a new chat background, the Space currently hosting the App is available as `context.invocation.spaceId`; `context.app.homeSpace` is the App home Space. Use `client.app.onContextChanged()` for updates and cache the latest context for frequent reads instead of polling.
+`cohub.context()` returns App identity, App home Space identity, the current Cohub shell location, and permission scopes. `context.shell` contains the current `space`, `session`, and viewed `turn` (each location may be null). In a workspace App, `shell.surface` is `"workspace"`. For a new chat background, `shell.surface` is `"background"`, `shell.space` is the hosting Space, and `session` / `turn` are null. `context.invocation.spaceId` is the same hosting Space for compatibility. `context.app.homeSpace` is the App home Space. Use `client.app.onContextChanged()` for updates and cache the latest context for frequent reads instead of polling.
 
 To call APIs that need App permissions, use the SDK client after the context is loaded. For example, `space.getConfig()` expects `space.view`; file tree reads expect `file.view`; session list reads expect `session.view`. Realtime subscriptions (`space.events`, `session.subscribe`) join the Space room, which expects `space.view`; a rejected subscription reaches the `error` handler as a `system.subscribe.error` event.
 

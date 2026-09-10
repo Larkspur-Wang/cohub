@@ -234,8 +234,10 @@ provides short-lived access tokens — no API keys required.
 These runtime-only APIs are available **exclusively inside a published App**:
 
 - `client.context()` — returns App identity, App home Space identity, the current
-  viewer, permissions, and optional invocation identifiers. The hosting Space
-  for a new chat background is available as `context.invocation.spaceId`.
+  viewer, permissions, optional invocation identifiers, and the current shell
+  location (`context.shell`). A new chat background has `shell.surface:
+  "background"` with the hosting Space in `shell.space` (`session` / `turn` are
+  null); `invocation.spaceId` is the same Space for compatibility.
   Returns `null` outside an App runtime. `client.app.onContextChanged()` pushes
   fresh state.
 - `client.auth.request({ scopes, reason, spaceId?, alwaysAsk? })` — ensures
@@ -261,9 +263,9 @@ const ctx = await client.context();
 if (!ctx?.space?.id) throw new Error("Not inside a published app.");
 
 const sourceSessionId = ctx.invocation?.sessionId ?? null;
-// `app.homeSpace` is the App's owning Space. For a new chat background,
-// `invocation.spaceId` is the Space currently hosting the App.
-const spaceId = ctx.invocation?.spaceId ?? ctx.app.homeSpace?.id ?? ctx.space.id;
+// `shell.space` is the current Cohub location. `app.homeSpace` is the App's
+// owning Space. A new chat background also has `invocation.spaceId`.
+const spaceId = ctx.shell?.space?.id ?? ctx.invocation?.spaceId ?? ctx.app.homeSpace?.id ?? ctx.space.id;
 const space = client.space(spaceId);
 
 // Request viewer grants from a user gesture (button click)
