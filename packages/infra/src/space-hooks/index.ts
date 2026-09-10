@@ -5,6 +5,7 @@ import {
   shouldRefreshSpaceHooksCache,
   SPACE_HOOK_DISPATCH_JOB,
   SPACE_HOOK_TASK_TYPE,
+  SPACE_HOOK_WEBHOOK_EVENT,
   type SpaceHookEventEnvelope,
 } from "@cohub/protocol";
 import { buildAgentRunCommandJobId } from "../agent-queue/index.js";
@@ -183,6 +184,9 @@ export async function maybeEnqueueSpaceHookTask(input: {
   const spaceId = asString(input.event.spaceId);
   const type = asString(input.event.type);
   if (!spaceId || !type || !isSpaceHookableEvent(type)) return null;
+  // Webhooks are addressed HTTP triggers, not broadcast domain events.
+  // Secret checks live on the HTTP receiver; never fan them out here.
+  if (type === SPACE_HOOK_WEBHOOK_EVENT) return null;
 
   const payload = isRecord(input.event.payload) ? input.event.payload : {};
   if (isReentrantSpaceHookEvent({ type, payload })) return null;

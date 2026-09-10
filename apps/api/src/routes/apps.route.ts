@@ -5,7 +5,13 @@ import { spaces, apps, appPromotions, appPromotionStatsHourly, appVersions, appV
 import { createAppAssetPublicUrl, deleteAppAssetsByObjectKey, isConfiguredAppAssetPublicUrl } from "../app-asset-storage.js";
 import { publishAppAssetInWorker, type AppPublishAssetJobResult } from "../app-publish-asset-queue.js";
 import { ALL_PERMISSIONS, APP_PUBLISHER_SCOPES, isUserLevelPermission, normalizePermissionScopes, scopeListHasPermission, type Permission } from "@cohub/core/permissions";
-import { materializeHtmlPageMeta, mergeAppPageMeta } from "@cohub/core/apps";
+import {
+  APP_ACTION_INPUT_MAX_BYTES,
+  buildAppActionCommand,
+  isAppActionKey,
+  materializeHtmlPageMeta,
+  mergeAppPageMeta,
+} from "@cohub/core/apps";
 import { db } from "../db/index.js";
 import { isPostgresUniqueViolation } from "../db/postgres-error.js";
 import {
@@ -57,11 +63,6 @@ import {
 } from "../app-realtime-rooms.js";
 import { enqueueTask } from "../tasks.js";
 import { RUN_COMMAND_TASK_TYPE } from "@cohub/core/commands";
-import {
-  APP_ACTION_INPUT_MAX_BYTES,
-  buildAppActionCommand,
-  isAppActionKey,
-} from "../lib/app-action-command.js";
 
 const logger = createLogger({ serviceName: "cohub-api" });
 /**

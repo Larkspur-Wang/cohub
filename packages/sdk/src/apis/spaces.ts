@@ -1,11 +1,13 @@
 import type { SpacePublicEndpoints } from "@cohub/protocol/ports";
 import type { ContentBlock } from "@cohub/protocol/core";
-import { BoardAuthoringItemSchema } from "@cohub/protocol";
+import { BoardAuthoringItemSchema, SPACE_HOOK_WEBHOOK_SECRET_HEADER } from "@cohub/protocol";
 import type {
   PublicFileCreateUploadInput,
   PublicFileCreateUploadResponse,
   PublicFileListResponse,
   PublicFileUrlResponse,
+  SpaceWebhookListItem,
+  SpaceWebhookTriggerResponse,
 } from "@cohub/protocol";
 import {
   getRealtimeBoardRoom,
@@ -1379,6 +1381,41 @@ export class SpaceModsApi {
   }
 }
 
+/**
+ * Inbound webhooks declared by `.cohub/hooks/<name>.yml` with `on.event: webhook`.
+ * The trigger endpoint is unauthenticated; the hook's optional `on.secret` is the credential.
+ */
+export class SpaceWebhooksApi {
+  constructor(
+    private readonly transport: HttpTransport,
+    private readonly spaceId: string,
+  ) {}
+
+  list(customFetch?: Fetch) {
+    return this.transport.request<{ items: SpaceWebhookListItem[] }>(
+      `/api/spaces/${this.spaceId}/webhooks`,
+      { fetch: customFetch },
+    );
+  }
+
+  /** Path a caller POSTs to; prefix with the API origin. */
+  path(name: string) {
+    return `/api/spaces/${this.spaceId}/webhooks/${encodeURIComponent(name)}`;
+  }
+
+  trigger(name: string, body: unknown = null, options: { secret?: string | null } = {}) {
+    return this.transport.request<SpaceWebhookTriggerResponse>(this.path(name), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(options.secret ? { [SPACE_HOOK_WEBHOOK_SECRET_HEADER]: options.secret } : {}),
+      },
+      body: JSON.stringify(body ?? null),
+      skipUnauthorizedHandler: true,
+    });
+  }
+}
+
 export class SpaceEnvApi {
   constructor(
     private readonly transport: HttpTransport,
@@ -2161,6 +2198,7 @@ export class SpaceClient {
   readonly activity: SpaceActivityApi;
   readonly channels: SpaceChannelsApi;
   readonly mods: SpaceModsApi;
+  readonly webhooks: SpaceWebhooksApi;
   readonly env: SpaceEnvApi;
   readonly sandbox: SpaceSandboxApi;
   readonly invitations: SpaceInvitationsApi;
@@ -2185,6 +2223,7 @@ export class SpaceClient {
     this.activity = new SpaceActivityApi(transport, id);
     this.channels = new SpaceChannelsApi(transport, id);
     this.mods = new SpaceModsApi(transport, id);
+    this.webhooks = new SpaceWebhooksApi(transport, id);
     this.env = new SpaceEnvApi(transport, id);
     this.sandbox = new SpaceSandboxApi(transport, id);
     this.invitations = new SpaceInvitationsApi(transport, id);

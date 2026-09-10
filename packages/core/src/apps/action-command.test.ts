@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { describe, it } from "node:test";
-import { buildAppActionCommand, isAppActionKey } from "./app-action-command.js";
+import { buildAppActionCommand, isAppActionKey } from "./action-command.js";
 
 describe("App Action command", () => {
   it("accepts simple action keys only", () => {

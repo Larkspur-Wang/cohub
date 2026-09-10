@@ -171,7 +171,9 @@ export type {
 export {
   BoardClient,
   SpacePublicFilesApi,
+  SpaceWebhooksApi,
 } from "./apis/spaces.js";
+export type { SpaceWebhookListItem, SpaceWebhookTriggerResponse } from "@cohub/protocol";
 export {
   BOARD_COLOR_IDS,
   BOARD_GEO_KINDS,

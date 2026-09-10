@@ -86,6 +86,23 @@ test("isReentrantSpaceHookEvent blocks hook-generated turns", () => {
   );
 });
 
+test("maybeEnqueueSpaceHookTask does not broadcast webhook events", async () => {
+  const calls: unknown[] = [];
+  const result = await maybeEnqueueSpaceHookTask({
+    event: {
+      type: "webhook",
+      spaceId: "space-1",
+      payload: { name: "mail", body: { x: 1 } },
+    },
+    enqueue: async (name, payload, options) => {
+      calls.push({ name, payload, options });
+      return { id: "job-1" };
+    },
+  });
+  assert.equal(result, null);
+  assert.equal(calls.length, 0);
+});
+
 test("maybeEnqueueSpaceHookTask skips non-hookable and re-entrant events", async () => {
   const calls: unknown[] = [];
   const enqueue = async (name: string, payload: unknown, options: unknown) => {

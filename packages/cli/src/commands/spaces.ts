@@ -19,6 +19,7 @@ import { registerSpaceCommerce } from "./space-commerce.js";
 import { registerSpaceActivity } from "./space-activity.js";
 import { registerSpaceInvitations } from "./space-invitations.js";
 import { registerSpaceTurns } from "./space-turns.js";
+import { registerSpaceWebhooks } from "./space-webhooks.js";
 
 type ModOptions = {
   json?: boolean;
@@ -735,6 +736,9 @@ export function registerSpaces(program: Command): void {
 
   // ── spaces labels ──
   registerLabels(spacesCmd);
+
+  // ── spaces webhooks ──
+  registerSpaceWebhooks(spacesCmd);
 
   // ── spaces pin / unpin (user-scope label convenience) ──
   spacesCmd
