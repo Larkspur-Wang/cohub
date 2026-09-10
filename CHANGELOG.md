@@ -4,6 +4,19 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v2.46 — 2026-09-10
+
+- **Space webhooks**: Space Hooks can now be triggered over HTTP — a `.cohub/hooks/<name>.yml` declaring `on.event: webhook` is addressed at `POST /api/spaces/:id/webhooks/:name`, with an optional `on.secret` credential, a 64 KB JSON body, and per-space rate limiting. Also available via the SDK (`space.webhooks`), the CLI (`cohub spaces webhooks ls|url|trigger`), and a Settings listing.
+- **App Action hooks (`uses`)**: Hooks can run a published App Action with `uses: user/space/app/action`, passing a JSON payload via `with`, executing as the Space owner over the existing run_command chain instead of shell or prompt steps.
+- **Unified App surface resolution**: Workspace opens — the Open button, installed Apps, chat links, and App-to-App navigation — now honor the App's published `meta.presentation.surface`, matching `cohub desktop open`. An explicit surface still wins, and reaching the overlay cap surfaces a notice rather than silently falling back to a window.
+- **App preview keep-alive**: Recently used App tabs (default 3) stay mounted in the background across tab switches instead of destroying and rebuilding a single shared iframe, preserving their state; the active App is always retained so the stage never goes empty.
+- **Shell context for background Apps**: New chat background Apps now receive `ctx.shell`, letting them read the current location the same way workspace windows and overlays do.
+
+### Bug Fixes
+
+- Fixed space hooks dropping every event for up to 5 minutes: a stale empty hook cache written before the workspace was ready is no longer treated as authoritative — `space.workspace.ready` refreshes the cache, negative caching is skipped while the workspace is missing, and the short empty-cache TTL is restored.
+- Fixed the App detail view rendering "app not found" when navigating from a higher-version App to a lower-version one, by treating an incoming snapshot from a different App as newer instead of comparing version numbers alone.
+
 ## v2.45 — 2026-09-09
 
 - **Board edit-history replay**: A read-only transaction log API (`GET /spaces/:id/boards/:boardId/transactions`, snapshot-consistent newest-first pages with server-computed inverses) plus the SDK's `createBoardReplayPlayer()` and the CLI's `cohub boards transactions` (alias `history`) make any Board's edit history rewindable and playable. The web workspace adds a private read-only replay stage with a scrubber, play/pause, 1–4× speed, step, camera follow, and live tail appends.
