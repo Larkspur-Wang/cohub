@@ -784,6 +784,8 @@ const windowManager = createWindowManager({
 		showWorkspaceNotice("Closed inactive previews to keep things fast.");
 	},
 });
+/** App tabs whose surfaces stay mounted while inactive (MRU window). */
+const retainedAppIds = $derived(windowManager.retainedAppIds());
 const inlineFileCopied = $derived(fileWorkspace.inlineFileCopied);
 const openAppPublish = (
 	targetType: "file" | "directory" | "port",
@@ -2943,8 +2945,8 @@ const spaceFileDomainProps = $derived.by<
 	inlinePortPreview,
 	inlinePortTabs,
 	activeInlinePort,
-	inlineAppPreview,
 	inlineAppTabs,
+	retainedAppIds,
 	activeInlineAppId,
 	appShell,
 	activeWindowKind,

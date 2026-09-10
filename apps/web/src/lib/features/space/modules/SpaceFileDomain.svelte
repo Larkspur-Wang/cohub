@@ -88,8 +88,9 @@ export type SpaceFileDomainProps = {
 	inlinePortPreview: { port: string; url: string } | null;
 	inlinePortTabs: { port: string; url: string }[];
 	activeInlinePort: string | null;
-	inlineAppPreview: InlineAppPreview | null;
 	inlineAppTabs: InlineAppPreview[];
+	/** App tabs whose background surfaces are kept mounted (MRU window). */
+	retainedAppIds: ReadonlySet<string>;
 	appShell: AppRuntimeShellContext;
 	activeInlineAppId: string | null;
 	activeWindowKind: "file" | "board" | "port" | "app" | null;
@@ -253,8 +254,8 @@ let {
 	inlinePortPreview,
 	inlinePortTabs,
 	activeInlinePort,
-	inlineAppPreview,
 	inlineAppTabs,
+	retainedAppIds,
 	appShell,
 	activeInlineAppId,
 	activeWindowKind,
@@ -404,6 +405,11 @@ const windows = $derived([
 		active: activeWindowKind === "app" && tab.appId === activeInlineAppId,
 	})),
 ]);
+
+/** App tabs whose surfaces stay mounted while inactive (MRU keep-alive). */
+const retainedAppTabs = $derived(
+	inlineAppTabs.filter((tab) => retainedAppIds.has(tab.appId)),
+);
 
 function activateWindow(kind: Window["kind"], key: string) {
 	if (kind === "file") onActivateInlineFile(key);
@@ -592,31 +598,34 @@ function previewContentOut(node: Element) {
 	</div>
 {/if}
 
-{#if inlineAppPreview}
+{#each retainedAppTabs as tab (tab.appId)}
+	{@const isActiveApp =
+		activeWindowKind === "app" && tab.appId === activeInlineAppId}
 	<div
 		class="h-full min-h-0"
-		hidden={activeWindowKind !== "app"}
-		inert={activeWindowKind !== "app"}
-		aria-hidden={activeWindowKind !== "app"}
+		hidden={!isActiveApp}
+		inert={!isActiveApp}
+		aria-hidden={!isActiveApp}
 	>
-	<AppWindow
-		preview={inlineAppPreview}
-		shell={appShell}
-		{windows}
-		{treeVisible}
-		{onToggleTree}
-		onActivateWindow={activateWindow}
-		onCloseWindow={closeWindow}
-		immersive={previewImmersiveMode}
-		{isMobile}
-		onToggleImmersive={onTogglePreviewImmersiveMode}
-		onRetry={onRetryInlineApp}
-		onRegisterSurface={onRegisterAppSurface}
-		onComposerChip={onAppComposerChip}
-		onNavigationOpen={onNavigationOpen}
-	/>
+		<AppWindow
+			preview={tab}
+			active={isActiveApp}
+			shell={appShell}
+			{windows}
+			{treeVisible}
+			{onToggleTree}
+			onActivateWindow={activateWindow}
+			onCloseWindow={closeWindow}
+			immersive={previewImmersiveMode}
+			{isMobile}
+			onToggleImmersive={onTogglePreviewImmersiveMode}
+			onRetry={onRetryInlineApp}
+			onRegisterSurface={onRegisterAppSurface}
+			onComposerChip={onAppComposerChip}
+			onNavigationOpen={onNavigationOpen}
+		/>
 	</div>
-{/if}
+{/each}
 			</div>
 		</div>
 	{/if}

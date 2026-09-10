@@ -19,6 +19,8 @@ type Props = {
 	windows: Window[];
 	immersive: boolean;
 	isMobile: boolean;
+	/** Whether this App is the visible tab. Background tabs mount no chrome. */
+	active?: boolean;
 	treeVisible?: boolean;
 	onToggleTree?: () => void;
 	onToggleImmersive: () => void | Promise<void>;
@@ -42,6 +44,7 @@ const {
 	windows,
 	immersive,
 	isMobile,
+	active = true,
 	treeVisible = true,
 	onToggleTree,
 	onToggleImmersive,
@@ -112,13 +115,13 @@ const isDisabled = $derived(detail?.app.status === "disabled");
 {/snippet}
 
 <div class="flex h-full min-w-0 flex-col bg-bg-content" class:preview-stage--immersive={immersive}>
-	{#if isMobile}
+	{#if isMobile && active}
 		<MobileWindowTabsChrome
 			tabs={windows}
 			onActivate={onActivateWindow}
 			onClose={onCloseWindow}
 		/>
-	{:else if immersive}
+	{:else if immersive && active}
 		<WindowFloatChrome
 			tabs={windows}
 			filesVisible={treeVisible}
