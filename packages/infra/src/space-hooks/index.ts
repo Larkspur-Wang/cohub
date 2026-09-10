@@ -2,9 +2,9 @@ import { createHash, randomUUID } from "node:crypto";
 import {
   getSpaceHooksRedisKey,
   isSpaceHookableEvent,
+  shouldRefreshSpaceHooksCache,
   SPACE_HOOK_DISPATCH_JOB,
   SPACE_HOOK_TASK_TYPE,
-  SPACE_HOOKS_DIR,
   type SpaceHookEventEnvelope,
 } from "@cohub/protocol";
 import { buildAgentRunCommandJobId } from "../agent-queue/index.js";
@@ -62,13 +62,6 @@ function collectChangedPaths(payload: Record<string, unknown>) {
     if (typeof change.oldPath === "string" && change.oldPath.trim()) paths.push(change.oldPath);
   }
   return paths;
-}
-
-function touchesSpaceHooksDir(paths: string[]): boolean {
-  return paths.some((path) => {
-    const normalized = path.replace(/\\/g, "/").replace(/^\.\/+/, "").replace(/^\/+/, "");
-    return normalized === SPACE_HOOKS_DIR || normalized.startsWith(`${SPACE_HOOKS_DIR}/`);
-  });
 }
 
 /**
@@ -168,8 +161,9 @@ function isDuplicateJobError(error: unknown) {
  * Fan-out helper for event publishers.
  *
  * - Filters non-hookable / re-entrant events
- * - Invalidates definition cache when `.cohub/hooks/**` changes
+ * - Invalidates definition cache when `.cohub/hooks/**` changes or the workspace becomes ready
  * - Skips enqueue when Redis cache confirms the space has zero hooks
+ *   (`space.workspace.ready` always bypasses this gate)
  * - Enqueues an internal `space_hook.dispatch` system job (never writes task_runs)
  */
 export async function maybeEnqueueSpaceHookTask(input: {
@@ -202,13 +196,15 @@ export async function maybeEnqueueSpaceHookTask(input: {
     payload,
   };
 
-  const hooksConfigChanged = type === "space.fs.changed"
-    && touchesSpaceHooksDir(collectChangedPaths(payload));
-  if (input.redis && hooksConfigChanged) {
+  const refreshCache = shouldRefreshSpaceHooksCache({
+    type,
+    paths: collectChangedPaths(payload),
+  });
+  if (input.redis && refreshCache) {
     await invalidateSpaceHooksCache(input.redis, spaceId);
   }
 
-  if (input.redis && !hooksConfigChanged) {
+  if (input.redis && !refreshCache) {
     const gate = await resolveHooksCacheGate(input.redis, spaceId);
     if (gate === "empty") return null;
   }

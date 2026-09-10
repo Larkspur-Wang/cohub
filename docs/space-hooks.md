@@ -162,8 +162,13 @@ ttl: 5 minutes when definitions are non-empty
 
 Empty results are still cached to avoid readdir on every event for spaces without hooks.
 The short negative TTL limits how long a transient PVC miss can hide newly written hook files.
+A missing workspace directory is **not** cached as empty — the next event reloads from disk.
 
-If an `space.fs.changed` event touches `.cohub/hooks/**`, the cache is invalidated before the next match.
+The cache is invalidated, and the empty-cache publisher gate is bypassed, when:
+
+- `space.workspace.ready` fires (checkpoint restore / bootstrap finished)
+- an `space.fs.changed` event touches `.cohub/hooks/**`
+
 Matching still ignores `.cohub/**` so hook files themselves do not re-trigger `run` / `prompt` actions.
 
 ## Hook context env

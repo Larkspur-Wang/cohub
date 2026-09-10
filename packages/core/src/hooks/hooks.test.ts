@@ -1,18 +1,24 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   SPACE_HOOKS_CACHE_TTL_SEC,
   SPACE_HOOKS_EMPTY_CACHE_TTL_SEC,
+  getSpaceHooksRedisKey,
 } from "@cohub/protocol";
 import {
   buildHookRunCommand,
   buildSpaceHookDefinitionFingerprint,
   buildSpaceHookEnv,
   buildSpaceHookPromptText,
+  loadSpaceHookDefinitions,
   mergeSpaceHookExecutionEnv,
   parseSpaceHookDefinition,
   partitionSpaceHooksForEvent,
   resolveSpaceHooksCacheTtlSec,
+  shouldInvalidateSpaceHooksCache,
   spaceHookMatchesEvent,
 } from "./index.js";
 
@@ -655,10 +661,95 @@ test("buildSpaceHookEnv summarizes fs changes without resync/truncated flags", (
   assert.equal(emptyFsEnv.COHUB_HOOK_FS_KINDS, "");
 });
 
-test("resolveSpaceHooksCacheTtlSec uses the same TTL for positive and empty caches", () => {
+test("resolveSpaceHooksCacheTtlSec uses a short TTL for empty caches", () => {
   assert.equal(resolveSpaceHooksCacheTtlSec(3), SPACE_HOOKS_CACHE_TTL_SEC);
   assert.equal(resolveSpaceHooksCacheTtlSec(0), SPACE_HOOKS_EMPTY_CACHE_TTL_SEC);
-  assert.equal(SPACE_HOOKS_EMPTY_CACHE_TTL_SEC, SPACE_HOOKS_CACHE_TTL_SEC);
+  assert.equal(SPACE_HOOKS_EMPTY_CACHE_TTL_SEC, 30);
+  assert.notEqual(SPACE_HOOKS_EMPTY_CACHE_TTL_SEC, SPACE_HOOKS_CACHE_TTL_SEC);
+});
+
+test("shouldInvalidateSpaceHooksCache only matches hook declaration paths", () => {
+  assert.equal(shouldInvalidateSpaceHooksCache([".cohub/hooks/on-fs.yml"]), true);
+  assert.equal(shouldInvalidateSpaceHooksCache(["src/a.ts", ".cohub/hooks"]), true);
+  assert.equal(shouldInvalidateSpaceHooksCache(["src/a.ts"]), false);
+});
+
+function createMemoryRedis() {
+  const store = new Map<string, { value: string; ttl: number }>();
+  return {
+    store,
+    async get(key: string) {
+      return this.store.get(key)?.value ?? null;
+    },
+    async set(key: string, value: string, _mode: "EX", ttl: number) {
+      this.store.set(key, { value, ttl });
+    },
+    async del(...keys: string[]) {
+      for (const key of keys) this.store.delete(key);
+      return keys.length;
+    },
+  };
+}
+
+test("loadSpaceHookDefinitions does not cache empty when the workspace is missing", async () => {
+  const redis = createMemoryRedis();
+  const workspaceDir = join(tmpdir(), `cohub-hooks-missing-${Date.now()}-${process.pid}`);
+  const result = await loadSpaceHookDefinitions({
+    spaceId: "space-missing",
+    workspaceDir,
+    redis,
+  });
+  assert.equal(result.definitions.length, 0);
+  assert.equal(result.cache, "miss");
+  assert.equal(redis.store.size, 0);
+});
+
+test("loadSpaceHookDefinitions caches empty when the workspace exists without hooks", async () => {
+  const root = await mkdtemp(join(tmpdir(), "cohub-hooks-empty-"));
+  try {
+    const redis = createMemoryRedis();
+    const result = await loadSpaceHookDefinitions({
+      spaceId: "space-empty",
+      workspaceDir: root,
+      redis,
+    });
+    assert.equal(result.definitions.length, 0);
+    assert.equal(result.cache, "miss");
+    const cached = redis.store.get(getSpaceHooksRedisKey("space-empty"));
+    assert.ok(cached);
+    assert.equal(cached.ttl, SPACE_HOOKS_EMPTY_CACHE_TTL_SEC);
+    assert.equal(JSON.parse(cached.value).definitions.length, 0);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("loadSpaceHookDefinitions caches present definitions with the long TTL", async () => {
+  const root = await mkdtemp(join(tmpdir(), "cohub-hooks-present-"));
+  try {
+    await mkdir(join(root, ".cohub", "hooks"), { recursive: true });
+    await writeFile(
+      join(root, ".cohub", "hooks", "on-ready.yml"),
+      `schema: cohub.space-hook.v1
+on:
+  event: space.workspace.ready
+run: echo ready
+`,
+    );
+    const redis = createMemoryRedis();
+    const result = await loadSpaceHookDefinitions({
+      spaceId: "space-present",
+      workspaceDir: root,
+      redis,
+    });
+    assert.equal(result.definitions.length, 1);
+    assert.equal(result.definitions[0]?.event, "space.workspace.ready");
+    const cached = redis.store.get(getSpaceHooksRedisKey("space-present"));
+    assert.ok(cached);
+    assert.equal(cached.ttl, SPACE_HOOKS_CACHE_TTL_SEC);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("buildSpaceHookPromptText only mirrors present context fields", () => {

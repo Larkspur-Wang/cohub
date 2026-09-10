@@ -8,10 +8,10 @@ export const SPACE_HOOK_DISPATCH_JOB = "space_hook.dispatch";
 export const SPACE_HOOKS_CACHE_TTL_SEC = 5 * 60;
 /**
  * Negative cache TTL for empty definitions.
- * Keep equal to the positive TTL: empty spaces skip dispatch entirely,
- * and recovery is driven by invalidate on `.cohub/hooks/**` changes.
+ * Short so a transient PVC miss cannot hide hooks for long;
+ * `space.workspace.ready` and `.cohub/hooks/**` changes also invalidate.
  */
-export const SPACE_HOOKS_EMPTY_CACHE_TTL_SEC = SPACE_HOOKS_CACHE_TTL_SEC;
+export const SPACE_HOOKS_EMPTY_CACHE_TTL_SEC = 30;
 
 export const SPACE_HOOKABLE_EVENTS = [
   "space.fs.changed",
@@ -38,3 +38,18 @@ export const isSpaceHookableEvent = (type: string): type is SpaceHookableEvent =
   (SPACE_HOOKABLE_EVENTS as readonly string[]).includes(type);
 
 export const getSpaceHooksRedisKey = (spaceId: string) => `cohub:space-hooks:v1:${spaceId}`;
+
+export function isSpaceHooksConfigPath(path: string): boolean {
+  const normalized = path.replace(/\\/g, "/").replace(/^\.\/+/, "").replace(/^\/+/, "");
+  return normalized === SPACE_HOOKS_DIR || normalized.startsWith(`${SPACE_HOOKS_DIR}/`);
+}
+
+/** True when the event must invalidate the definition cache and bypass the empty-cache gate. */
+export function shouldRefreshSpaceHooksCache(input: {
+  type: string;
+  paths?: readonly string[];
+}): boolean {
+  if (input.type === "space.workspace.ready") return true;
+  if (input.type !== "space.fs.changed") return false;
+  return (input.paths ?? []).some(isSpaceHooksConfigPath);
+}
