@@ -1,4 +1,8 @@
 import type { PaletteOverviewResponse } from "@neta-art/cohub";
+import {
+	publishCacheMessage,
+	subscribeCacheMessages,
+} from "$lib/cache/broadcast";
 import { getCacheUserKey } from "$lib/cache/keys";
 import {
 	canCommitPaletteOverviewRefresh,
@@ -21,10 +25,14 @@ import { getRecentSpaces } from "$lib/stores/recent-space";
  * usually opens straight from cache instead of fetching. Failures retain the
  * last-known-good snapshot and let the UI use its local fallback path.
  *
- * Both the snapshot and the throttle are shared through localStorage, so the
- * warm is browser-wide: a refresh in one tab suppresses the warm and the
- * foreground revalidation in every other tab, and those tabs receive the
- * refreshed payload instead of refetching it themselves.
+ * Both the snapshot and the throttle are shared across tabs: the snapshot and
+ * the invalidation marker live in localStorage, and a successful refresh is
+ * announced over the shared cache BroadcastChannel so other tabs adopt the
+ * payload and extend their throttle without refetching it themselves.
+ *
+ * The throttle baseline is the snapshot's own commit time (plus this tab's
+ * last attempt), so it needs no separate bookkeeping and stays consistent
+ * with the other IndexedDB/localStorage caches.
  *
  * Freshness is not purely time-based: device-local activity (opening a Space)
  * is folded into the rendered list instead of invalidating the snapshot;
@@ -34,7 +42,6 @@ import { getRecentSpaces } from "$lib/stores/recent-space";
 
 const STORAGE_PREFIX = "cohub:palette-overview";
 const INVALIDATION_STORAGE_PREFIX = "cohub:palette-overview-invalidated";
-const REFRESH_STORAGE_PREFIX = "cohub:palette-overview-refreshed";
 const CACHE_VERSION = 1;
 
 type StoredOverview = PaletteOverviewResponse & { cachedAt: number };
@@ -44,7 +51,7 @@ type MemoryState = {
 	snapshot: StoredOverview | null;
 	/** Persisted so this and other tabs can observe viewer activity. */
 	invalidatedAt: number;
-	/** When the last refresh attempt started; throttles background revalidation. */
+	/** When the last refresh attempt started in this tab. */
 	lastRefreshStartedAt: number;
 	latestRequestId: number;
 	inFlight: Promise<PaletteOverviewResponse | null> | null;
@@ -65,10 +72,6 @@ function invalidationStorageKey(userKey: string) {
 	return `${INVALIDATION_STORAGE_PREFIX}:${encodeURIComponent(userKey)}:v${CACHE_VERSION}`;
 }
 
-function refreshStorageKey(userKey: string) {
-	return `${REFRESH_STORAGE_PREFIX}:${encodeURIComponent(userKey)}:v${CACHE_VERSION}`;
-}
-
 function readInvalidatedAt(userKey: string) {
 	if (!isBrowser()) return 0;
 	try {
@@ -78,31 +81,6 @@ function readInvalidatedAt(userKey: string) {
 		return Number.isFinite(value) && value > 0 ? value : 0;
 	} catch {
 		return 0;
-	}
-}
-
-/**
- * When the last refresh attempt started, shared across tabs through
- * localStorage. This is what makes the warmer browser-wide: a refresh in one
- * tab suppresses the warm and the foreground revalidation in every other tab
- * until the minimum interval elapses.
- */
-function readLastRefreshAt(userKey: string) {
-	if (!isBrowser()) return 0;
-	try {
-		const value = Number(localStorage.getItem(refreshStorageKey(userKey)) ?? 0);
-		return Number.isFinite(value) && value > 0 ? value : 0;
-	} catch {
-		return 0;
-	}
-}
-
-function writeLastRefreshAt(userKey: string, at: number) {
-	if (!isBrowser()) return;
-	try {
-		localStorage.setItem(refreshStorageKey(userKey), String(at));
-	} catch {
-		// Best-effort: the in-memory timestamp still throttles this tab.
 	}
 }
 
@@ -140,6 +118,7 @@ function readCached(userKey: string): StoredOverview | null {
 }
 
 function getMemoryState(userKey = getCacheUserKey()): MemoryState {
+	ensureBroadcastSubscription();
 	if (memoryState?.userKey === userKey) return memoryState;
 	const snapshot = readCached(userKey);
 	const invalidatedAt = readInvalidatedAt(userKey);
@@ -147,7 +126,7 @@ function getMemoryState(userKey = getCacheUserKey()): MemoryState {
 		userKey,
 		snapshot,
 		invalidatedAt,
-		lastRefreshStartedAt: readLastRefreshAt(userKey),
+		lastRefreshStartedAt: 0,
 		latestRequestId: 0,
 		inFlight: null,
 	};
@@ -158,13 +137,6 @@ function syncPersistedInvalidation(state: MemoryState) {
 	const persisted = readInvalidatedAt(state.userKey);
 	if (persisted <= state.invalidatedAt) return;
 	state.invalidatedAt = persisted;
-}
-
-/** Adopt a refresh another tab started, so the throttle is browser-wide. */
-function syncPersistedRefresh(state: MemoryState) {
-	const persisted = readLastRefreshAt(state.userKey);
-	if (persisted <= state.lastRefreshStartedAt) return;
-	state.lastRefreshStartedAt = persisted;
 }
 
 /**
@@ -183,8 +155,36 @@ function syncPersistedSnapshot(state: MemoryState) {
 /** Pull in anything other tabs have written before reading or deciding. */
 function syncFromOtherTabs(state: MemoryState) {
 	syncPersistedInvalidation(state);
-	syncPersistedRefresh(state);
 	syncPersistedSnapshot(state);
+}
+
+/**
+ * The throttle baseline: the later of this tab's last attempt and the
+ * snapshot's commit time. The commit time is shared (localStorage), so a
+ * refresh in any tab holds off every other tab; the per-tab attempt time
+ * additionally bounds retries after a failure.
+ */
+function lastRefreshBaseline(state: MemoryState) {
+	return Math.max(state.lastRefreshStartedAt, state.snapshot?.cachedAt ?? 0);
+}
+
+let subscribedToBroadcast = false;
+
+/**
+ * Adopt refreshes committed by other tabs as they happen. Same idea as the
+ * other cache repos: the durable payload lives in storage, the shared cache
+ * channel only announces it. This keeps a tab that is already running in
+ * sync without polling storage.
+ */
+function ensureBroadcastSubscription() {
+	if (subscribedToBroadcast) return;
+	subscribedToBroadcast = true;
+	subscribeCacheMessages((message) => {
+		if (message.store !== "palette_overview") return;
+		const state = memoryState;
+		if (!state || state.userKey !== message.userKey) return;
+		syncFromOtherTabs(state);
+	});
 }
 
 export type PaletteOverviewSnapshot = {
@@ -246,7 +246,6 @@ export function clearCachedPaletteOverview() {
 	try {
 		localStorage.removeItem(storageKey(userKey));
 		localStorage.removeItem(invalidationStorageKey(userKey));
-		localStorage.removeItem(refreshStorageKey(userKey));
 	} catch {
 		// Storage is best-effort.
 	}
@@ -264,9 +263,6 @@ export function refreshPaletteOverview(options?: {
 	const requestId = ++nextRequestId;
 	state.latestRequestId = requestId;
 	state.lastRefreshStartedAt = Date.now();
-	// Persist first: another tab that wakes up before this request commits must
-	// still see the throttle and skip its own fetch.
-	writeLastRefreshAt(userKey, state.lastRefreshStartedAt);
 	const requestInvalidatedAt = state.invalidatedAt;
 	const promise = (async (): Promise<PaletteOverviewResponse | null> => {
 		try {
@@ -305,6 +301,13 @@ export function refreshPaletteOverview(options?: {
 					// Quota failures are non-fatal; memory cache still applies.
 				}
 			}
+			// Tell other tabs to adopt the payload and extend their throttle.
+			publishCacheMessage({
+				type: "cache-updated",
+				store: "palette_overview",
+				userKey,
+				updatedAt: stored.cachedAt,
+			});
 			return data;
 		} catch (error) {
 			if ((error as { name?: string })?.name !== "AbortError")
@@ -362,7 +365,7 @@ export function revalidatePaletteOverview(options?: {
 		if (!stale) return Promise.resolve(null);
 		if (
 			!shouldRevalidateOverview({
-				lastRefreshStartedAt: state.lastRefreshStartedAt,
+				lastRefreshStartedAt: lastRefreshBaseline(state),
 				now,
 			})
 		)
