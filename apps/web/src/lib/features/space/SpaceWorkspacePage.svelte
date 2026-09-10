@@ -61,7 +61,10 @@ import ResourceLabelPicker from "$lib/components/ResourceLabelPicker.svelte";
 import UserIdentity from "$lib/components/UserIdentity.svelte";
 import { createDeferredMount } from "$lib/deferred-mount.svelte";
 import { invalidateInstalledApps } from "$lib/features/app/app-center";
-import { resolveAppNavigation } from "$lib/features/app/app-open";
+import {
+	loadAppPreview,
+	resolveAppNavigation,
+} from "$lib/features/app/app-open";
 import {
 	APPS_CHANGED_EVENT,
 	createAppMutationBuffer,
@@ -194,7 +197,11 @@ import {
 	workspaceFilePreviewKind,
 } from "./modules/windows";
 import type { WorkspaceAppOpenContext } from "./modules/workspace-app-context";
-import { createWorkspaceAppInvocation } from "./modules/workspace-app-context";
+import {
+	OVERLAY_LIMIT_MESSAGE,
+	openPublishedApp,
+	type PublishedAppOpenInput,
+} from "./modules/workspace-app-open";
 import { createWorkspaceLayoutController } from "./modules/workspace-layout-controller.svelte";
 import { displayUserName, fallbackUserName } from "./space-utils";
 
@@ -457,6 +464,7 @@ async function handleAppNavigationOpen(message: AppNavigationOpenMessage) {
 			appDisplayTitle(parsed.app.meta, parsed.app.slug),
 			{ source: "user" },
 			launch,
+			parsed.app.meta,
 		);
 	} catch {
 		return { handled: false as const, reason: "inaccessible" as const };
@@ -499,26 +507,64 @@ async function openWorkspaceNavigation(target: AppNavigationTarget) {
 	return { handled: false as const, reason: "unsupported" as const };
 }
 
+async function loadPublishedAppMeta(appId: string) {
+	return (await loadAppPreview(sdk.apps, appId)).app.meta ?? null;
+}
+
+function showWorkspaceNotice(message: string) {
+	workspaceNotice = message;
+	if (workspaceNoticeTimer) clearTimeout(workspaceNoticeTimer);
+	workspaceNoticeTimer = setTimeout(() => {
+		workspaceNotice = null;
+		workspaceNoticeTimer = null;
+	}, 3000);
+}
+
+async function openWorkspaceApp(input: PublishedAppOpenInput) {
+	const opened = await openPublishedApp(input, {
+		spaceId,
+		loadMeta: loadPublishedAppMeta,
+		openWindow: (open) => windowManager.openApp(open),
+		openOverlay: (open) => desktopLayers.openOverlay(open),
+	});
+	if (!opened.ok && opened.reason === "overlay_limit") {
+		showWorkspaceNotice(OVERLAY_LIMIT_MESSAGE);
+	}
+	return opened;
+}
+
+async function callOpenedApp(
+	appId: string,
+	surface: "window" | "overlay",
+	call: { method: string; input?: unknown; commandId: string },
+) {
+	// Applying launch state changes the iframe source reactively. Flush that
+	// update before calling so AppSurface resets the old runtime first; the
+	// surface host then waits for the new document's ready handshake.
+	await tick();
+	return surface === "overlay"
+		? desktopLayers.callSurface({ appId, ...call })
+		: appPreview.callSurface({ appId, ...call });
+}
+
 async function openResolvedAppNavigation(
 	message: AppNavigationOpenMessage,
 	appId: string,
 	label: string,
 	openContext: WorkspaceAppOpenContext,
 	launch?: { search?: string; hash?: string },
+	meta?: AppRecord["meta"],
 ) {
-	windowManager.openApp({
+	const opened = await openWorkspaceApp({
 		appId,
 		label,
 		launch: launch ?? null,
 		openContext,
+		...(meta !== undefined ? { meta } : {}),
 	});
+	if (!opened.ok) return { handled: true as const };
 	if (!message.call) return { handled: true as const };
-	// Applying launch state changes the iframe source reactively. Flush that
-	// update before calling so AppSurface resets the old runtime first; the
-	// surface host then waits for the new document's ready handshake.
-	await tick();
-	const result = await appPreview.callSurface({
-		appId,
+	const result = await callOpenedApp(appId, opened.surface, {
 		method: message.call.method,
 		input: message.call.input,
 		commandId: message.requestId,
@@ -593,9 +639,9 @@ const inlinePortPreview = $derived(portPreview.preview);
 const inlinePortTabs = $derived(portPreview.previews);
 const activeInlinePort = $derived(portPreview.activePort);
 const portReadyToast = $derived(portPreview.readyToast);
-let previewTabCleanupNotice = $state<string | null>(null);
+let workspaceNotice = $state<string | null>(null);
 let fileActionMenuAnchorEl: HTMLElement | null = $state(null);
-let previewTabCleanupNoticeTimer: ReturnType<typeof setTimeout> | null = null;
+let workspaceNoticeTimer: ReturnType<typeof setTimeout> | null = null;
 const spaceStatus = createSpaceStatusController({
 	getSpaceId: () => spaceId,
 	getBootstrapStatus: () => bootstrapStatus,
@@ -735,13 +781,7 @@ const windowManager = createWindowManager({
 	getPortEndpointUrl: (port) => previewEndpoints[port]?.url,
 	syncUrl: (ref, replace = true) => syncPreviewQuery(ref, replace),
 	onBudgetCleanup: () => {
-		previewTabCleanupNotice = "Closed inactive previews to keep things fast.";
-		if (previewTabCleanupNoticeTimer)
-			clearTimeout(previewTabCleanupNoticeTimer);
-		previewTabCleanupNoticeTimer = setTimeout(() => {
-			previewTabCleanupNotice = null;
-			previewTabCleanupNoticeTimer = null;
-		}, 3000);
+		showWorkspaceNotice("Closed inactive previews to keep things fast.");
 	},
 });
 const inlineFileCopied = $derived(fileWorkspace.inlineFileCopied);
@@ -1848,7 +1888,7 @@ onDestroy(() => {
 	if (activeSessionId) sessionChat.captureCurrentScrollAnchor(activeSessionId);
 	sessionChat.flushComposerDraft();
 	sessionChat.dispose();
-	if (previewTabCleanupNoticeTimer) clearTimeout(previewTabCleanupNoticeTimer);
+	if (workspaceNoticeTimer) clearTimeout(workspaceNoticeTimer);
 	spaceBootstrap.resetLoaded();
 });
 
@@ -2215,7 +2255,9 @@ function registerAppSurface(appId: string, host: AppSurfaceHost | null) {
 	if (!host) return;
 	appSurfaceDisposers.set(
 		appId,
-		appSurfaces.register({ appId, surface: "app" }, (input) => host.call(input)),
+		appSurfaces.register({ appId, surface: "app" }, (input) =>
+			host.call(input),
+		),
 	);
 }
 async function downloadInlineFile() {
@@ -2560,51 +2602,30 @@ onMount(() => {
 					: {}),
 			};
 
-			// Overlay surfaces bypass the tab-based preview system.
-			if (command.target.surface === "overlay") {
-				const opened = desktopLayers.openOverlay({
-					appId: command.target.appId,
-					label: command.target.label,
-					invocation: createWorkspaceAppInvocation(
-						spaceId,
-						openContext,
-						"overlay",
-					),
-				});
-				if (opened === "limit") {
-					return {
-						status: "rejected",
-						error: {
-							code: "overlay_limit",
-							message: "Too many overlay surfaces are already open.",
-						},
-					};
-				}
-				if (!command.call) return { status: "applied" };
-				return desktopCallOutcome(
-					await desktopLayers.callSurface({
-						appId: command.target.appId,
-						commandId: context.commandId,
-						...command.call,
-					}),
-				);
-			}
-			const opened = await openResolvedAppNavigation(
-				{
-					protocol: "cohub.app.navigation",
-					version: 1,
-					type: "open",
-					requestId: context.commandId,
-					target: { kind: "app", ref: command.target.appId },
-					...(command.call ? { call: command.call } : {}),
-				},
-				command.target.appId,
-				command.target.label ?? "App",
+			// Compact wire form: absent surface already means window.
+			const opened = await openWorkspaceApp({
+				appId: command.target.appId,
+				label: command.target.label,
+				launch: command.target.launch ?? null,
 				openContext,
-				command.target.launch,
-			);
+				surface: command.target.surface === "overlay" ? "overlay" : "window",
+			});
+			if (!opened.ok) {
+				return {
+					status: "rejected",
+					error: {
+						code: "overlay_limit",
+						message: OVERLAY_LIMIT_MESSAGE,
+					},
+				};
+			}
 			if (!command.call) return { status: "applied" };
-			return desktopCallOutcome(opened.call);
+			return desktopCallOutcome(
+				await callOpenedApp(command.target.appId, opened.surface, {
+					commandId: context.commandId,
+					...command.call,
+				}),
+			);
 		},
 	);
 	return () => {
@@ -3019,7 +3040,7 @@ const spaceFileDomainProps = $derived.by<
 	onOpenAppPublish: openAppPublish,
 	onOpenMarketplace: () => {
 		if (!PUBLIC_MARKETPLACE_APP_ID) return;
-		windowManager.openApp({
+		void openWorkspaceApp({
 			appId: PUBLIC_MARKETPLACE_APP_ID,
 			label: "Marketplace",
 			openContext: { source: "user" },
@@ -3030,7 +3051,7 @@ const spaceFileDomainProps = $derived.by<
 			window.open(app.url, "_blank", "noopener,noreferrer");
 			return;
 		}
-		windowManager.openApp({
+		void openWorkspaceApp({
 			appId: app.source.appId,
 			label: app.snapshot.name,
 			openContext: { source: "user" },
@@ -3244,9 +3265,9 @@ const headerActions = {
 		onClose={closePortReadyToast}
 	/>
 {/if}
-{#if previewTabCleanupNotice}
-	<div class="preview-tab-cleanup-toast pointer-events-none">
-		{previewTabCleanupNotice}
+{#if workspaceNotice}
+	<div class="workspace-notice pointer-events-none">
+		{workspaceNotice}
 	</div>
 {/if}
 <div
@@ -3298,10 +3319,11 @@ const headerActions = {
           routeDetailHeaderMeta = meta;
         }}
         onPreviewApp={(app) => {
-          windowManager.openApp({
+          void openWorkspaceApp({
             appId: app.id,
             label: appDisplayTitle(app.meta, app.slug),
             openContext: { source: "user" },
+            meta: app.meta,
           });
         }}
       />
@@ -3627,7 +3649,7 @@ const headerActions = {
   :global(body.sidebar-resizing .inline-panel-resize-handle::after) {
     background: var(--border-subtle);
   }
-  .preview-tab-cleanup-toast {
+  .workspace-notice {
     position: fixed;
     right: 1rem;
     bottom: 1rem;

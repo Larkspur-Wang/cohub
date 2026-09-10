@@ -47,6 +47,10 @@ const PACKAGE_SOURCES = [
 		"@cohub/protocol/board-constants",
 		`${packagesRoot}/protocol/src/board-constants.ts`,
 	],
+	[
+		"@cohub/protocol/desktop-command",
+		`${packagesRoot}/protocol/src/desktop-command.ts`,
+	],
 	["@cohub/protocol", `${packagesRoot}/protocol/src/index.ts`],
 ];
 

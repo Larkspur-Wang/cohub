@@ -219,6 +219,7 @@ export {
   isTerminalDesktopCommandStatus,
   isDesktopCallMethod,
   parseDesktopCommand,
+  resolveOpenSurface,
   DESKTOP_COMMAND_DEFAULT_TIMEOUT_MS,
   DESKTOP_COMMAND_MAX_TIMEOUT_MS,
   DESKTOP_COMMAND_PAYLOAD_MAX_BYTES,

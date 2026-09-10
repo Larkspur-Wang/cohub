@@ -90,6 +90,26 @@ test("Workspace App tabs require a complete invocation context", () => {
 	);
 });
 
+test("user-initiated App opens go through the published-app dispatcher", () => {
+	assert.match(workspaceSource, /function openWorkspaceApp\(/);
+	assert.match(
+		workspaceSource,
+		/onPreviewApp=\{\(app\) =>[\s\S]*?openWorkspaceApp\(/,
+	);
+	assert.match(
+		workspaceSource,
+		/onOpenMarketplace: \(\) =>[\s\S]*?openWorkspaceApp\(/,
+	);
+	assert.match(
+		workspaceSource,
+		/onOpenInstalledApp: \(app\) =>[\s\S]*?openWorkspaceApp\(/,
+	);
+	assert.match(
+		workspaceSource,
+		/surface: command\.target\.surface === "overlay" \? "overlay" : "window"/,
+	);
+});
+
 test("App previews pass invocation context through the runtime bridge", () => {
 	assert.match(previewSource, /invocation=\{preview\.invocation\}/);
 	assert.match(source, /createAppBridgeHost\(\{[\s\S]*?invocation,/);
@@ -161,7 +181,10 @@ test("overlay surfaces render with their own mode class and forward configure re
 	assert.match(source, /parseAppRuntimeConfigureRequest\(event\.data\)/);
 	assert.match(source, /onConfigureRequest\?\.\(configure\)/);
 	const layerHostSource = readFileSync(
-		new URL("../lib/features/space/modules/DesktopLayerHost.svelte", import.meta.url),
+		new URL(
+			"../lib/features/space/modules/DesktopLayerHost.svelte",
+			import.meta.url,
+		),
 		"utf8",
 	);
 	assert.match(layerHostSource, /mode="overlay"/);

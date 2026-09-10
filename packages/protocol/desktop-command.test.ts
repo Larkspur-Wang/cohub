@@ -6,6 +6,7 @@ import {
   measureDesktopCommandPayload,
   parseDesktopCommand,
   parseDesktopCommandError,
+  resolveOpenSurface,
   DESKTOP_COMMAND_DEFAULT_TIMEOUT_MS,
   DESKTOP_COMMAND_ERROR_CODE_MAX_LENGTH,
   DESKTOP_COMMAND_ERROR_MESSAGE_MAX_LENGTH,
@@ -213,5 +214,21 @@ describe("DesktopSurface field", () => {
     assert.ok(command !== null);
     // "window" is the default, stored as undefined to keep the payload compact.
     assert.equal(command.target.kind === "app" && command.target.surface, undefined);
+  });
+});
+
+describe("resolveOpenSurface", () => {
+  it("uses --as, then the App's published declaration", () => {
+    // Declared overlay opens as an overlay without any flag.
+    assert.equal(resolveOpenSurface(undefined, "overlay"), "overlay");
+    // An explicit request always wins over the declaration, in both directions.
+    assert.equal(resolveOpenSurface("window", "overlay"), undefined);
+    assert.equal(resolveOpenSurface("overlay", "window"), "overlay");
+    assert.equal(resolveOpenSurface("overlay", undefined), "overlay");
+    // `window` is the implicit default and stays off the wire.
+    assert.equal(resolveOpenSurface(undefined, "window"), undefined);
+    assert.equal(resolveOpenSurface(undefined, undefined), undefined);
+    // Anything unknown from an older or newer App record is ignored.
+    assert.equal(resolveOpenSurface(undefined, "popup"), undefined);
   });
 });

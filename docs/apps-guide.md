@@ -381,8 +381,10 @@ A page can declare the surface it wants, so `--as` becomes unnecessary:
 <meta name="cohub:surface" content="overlay" />
 ```
 
-Cohub reads the declaration at publish time into `meta.presentation.surface`;
-`--as window` overrides it for one open.
+Cohub reads the declaration at publish time into `meta.presentation.surface`.
+Opening the App from the workspace — the Open button, installed Apps, chat
+links, App-to-App navigation — follows it too. `--as window` overrides it for
+one desktop command.
 
 ### What the App controls
 

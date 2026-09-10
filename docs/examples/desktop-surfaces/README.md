@@ -90,7 +90,8 @@ overlay-only call is `requestConfigure()`; `invocation.surface` reads
 
 Each folder is a self-contained directory App. Both declare
 `<meta name="cohub:surface" content="overlay">`, which Cohub reads at publish
-time into `meta.presentation.surface` — so `cohub desktop open <app>` opens
-them as overlays without `--as`. Pass `--as window` to override. The HUD asks
+time into `meta.presentation.surface` — so opening them in the workspace, or
+`cohub desktop open <app>` without `--as`, presents them as overlays. Pass
+`--as window` to override. The HUD asks
 the viewer for access at runtime, so it needs no app-side scopes when
 publishing. No build step — the SDK is loaded from `esm.sh`.

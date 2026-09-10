@@ -5,9 +5,8 @@ import {
   type DesktopCommandRecord,
   type DesktopCall,
   type DesktopSurface,
-} from "@neta-art/cohub";
-import {
   parseAppRef,
+  resolveOpenSurface,
   DESKTOP_COMMAND_DEFAULT_TIMEOUT_MS,
   DESKTOP_COMMAND_MAX_TIMEOUT_MS,
 } from "@neta-art/cohub";
@@ -15,6 +14,8 @@ import type { Command } from "commander";
 import { createClient } from "../client.js";
 import { error, handleHttp, json as outJson, jsonRequested, ok } from "../output.js";
 import { getAppByRef } from "../app-ref.js";
+
+export { resolveOpenSurface };
 
 const FILE_SCHEME = "file://";
 const APP_SCHEME = "app://";
@@ -108,18 +109,6 @@ function parseTimeout(value: string | undefined): number {
     );
   }
   return parsed;
-}
-
-/**
- * The surface a desktop.open should request: an explicit `--as` wins, then
- * whatever the App declared at publish time. `window` is the implicit default
- * and yields `undefined` so the command stays compact.
- */
-export function resolveOpenSurface(
-  requested: string | undefined,
-  declared: unknown,
-): DesktopSurface | undefined {
-  return (requested ?? declared) === "overlay" ? "overlay" : undefined;
 }
 
 async function resolveAppTarget(client: CohubHttpClient, ref: string): Promise<OpenTarget> {

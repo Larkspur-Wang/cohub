@@ -71,6 +71,18 @@ export const isTerminalDesktopCommandStatus = (status: DesktopCommandStatus): bo
  */
 export type DesktopSurface = "window" | "overlay";
 
+/**
+ * The surface a desktop open should use: an explicit request wins, then
+ * whatever the App declared at publish time. `window` is the implicit
+ * default and yields `undefined` so the command stays compact.
+ */
+export function resolveOpenSurface(
+  requested: unknown,
+  declared: unknown,
+): DesktopSurface | undefined {
+  return (requested ?? declared) === "overlay" ? "overlay" : undefined;
+}
+
 export type DesktopAppTarget = {
   kind: "app";
   appId: string;

@@ -9,7 +9,7 @@ export type AppVisibility = "public" | "space";
 
 export type AppPresentationMeta = {
   hideCohubBar?: boolean;
-  /** How `cohub desktop open` presents the App when `--as` is not given. */
+  /** How the desktop presents the App when opened without an explicit surface. */
   surface?: "window" | "overlay";
 };
 
