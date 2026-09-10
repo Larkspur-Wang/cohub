@@ -130,7 +130,7 @@ started from, and call methods the App exposes.
 cohub desktop open <appId|url|app://...|username/space/app|file://path>
 cohub desktop open file://src/main.ts
 cohub desktop open app://alice/studio/launch
-cohub desktop open app://alice/studio/mascot --as overlay
+cohub desktop open app://alice/studio/milk-frog --as overlay
 cohub desktop open <app-or-file> --call selection.get
 cohub desktop open <app> --call board.focus --data '{"nodeId":"n1"}'
 ```

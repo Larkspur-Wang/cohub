@@ -1,97 +1,143 @@
-# Desktop Surfaces — Example Apps
+# Milk Frog — Desktop Companion
 
-Two example Apps that demonstrate the `overlay` surface role.
+A single example App that demonstrates the `overlay` surface role, merging the
+two earlier desktop-surface demos (`mascot` + `hud`) into one character:
 
-## mascot
+- **`mascot`** — a little character that walks across the workspace, owns a
+  moving pointer hit region, writes a composer chip, answers `--call`, and
+  shares presence through a realtime room.
+- **`hud`** — an agent heads-up display that follows the current Chat: viewer
+  consent for `space.view` / `session.view`, and the live generation stream.
 
-A character that walks across the screen and reacts to what's happening in the
-workspace.  It uses `requestConfigure` to update its hit region frame by frame,
-`cohub.app.requestClose()` to exit when the walk finishes, and several SDK
-features at once:
+The Milk Frog keeps both capabilities and adds a personality: it wanders, turns
+to gaze at you, and occasionally muses about what is happening in the current
+chat.
 
-- **Realtime room** — shares a "wave back" presence state with any other viewer
-  who has the same overlay open.
-- **Composer chip** — tells the agent what the character just said when it speaks.
-- **Surface method** — an agent can make it speak with `--call mascot.say`.
+![Milk Frog](https://public.cohub.live/p/cf327f11-5065-4f3a-bfe5-cdb0a70f3377/docs/examples/desktop-surfaces/milk-frog/milk-frog.webp)
+
+## What it does
+
+- **Walks** along a floor line just above the chat composer (clear of the input
+  box) and **gazes** at you (the pupils stay centred — the whole head turns, as
+  the character sheet defines), blinks, naps when idle, and hops when you poke
+  it. The floor height is a preference: `milkfrog.configure` with `{"floor":120}`.
+- **Comments** every so often: it reads the current session — the live
+  generation stream first, recent turns second — then asks a chat completion
+  for one or two lines in the Milk Frog's curator voice, streamed into its
+  speech bubble. Language follows the conversation.
+- **Reacts to you.** Poke it and it hops with a little sparkle and a remark;
+  switch to another chat and it reads the new context and speaks up; finish a
+  turn and it muses about what just happened. There is no status panel — the
+  frog is the surface, and the only thing it shows is what it has to say.
+- **Shows its work.** While it reads the chat and waits on the model, three
+  pondering dots float by its head; if a read or the model fails, it pulls a
+  downcast face, puffs a little cloud, and files the incident with a dry line.
+
+## Two overlay shapes in one App
+
+The frog teaches both overlay patterns, switchable from the control strip or
+with `--call milkfrog.mode`:
+
+| Mode | `geometry` | `inputRegion` | Why |
+|---|---|---|---|
+| **roam** (default) | unset — fills the window | a `Rect` that follows the frog | the frog can move anywhere; only its own box takes pointer events, everything else stays clickable |
+| **dock** | `bottom-right`, `360×340` | `"all"` | a fixed, fully-interactive corner panel — touch-safe, and it demonstrates the HUD's original pattern |
+
+Rect regions activate on hover, so they answer to a mouse but not to the first
+tap on a touch screen; `"all"` works everywhere. On touch, therefore, the
+frog's default roaming shape receives no taps (it still walks, blinks and
+comments). Dock mode is the touch-safe alternative — toggle it from the control
+strip or with `--call milkfrog.mode` — since `geometry` + `"all"` activates on
+tap. Neither shape affects what the overlay paints: the speech bubble sits
+outside the hit region and stays visible.
+
+## Use it
 
 ```bash
-cohub desktop open app://<username>/<space>/mascot --as overlay
-# Make it say something while it walks
-cohub desktop open app://<username>/<space>/mascot --as overlay --call mascot.say --data '{"text":"Ship it!"}'
+# Publish the folder as a directory App, then open it as an overlay.
+cohub desktop open app://<username>/<space>/milk-frog --as overlay
+
+# Make it speak (it animates the talking mouth; no model call).
+cohub desktop open <app> --as overlay --call milkfrog.say --data '{"text":"Ship it."}'
+
+# Ask for a comment right now.
+cohub desktop open <app> --as overlay --call milkfrog.comment
+
+# Switch shape, or mute the chatter, or move the floor line.
+cohub desktop open <app> --as overlay --call milkfrog.mode --data '{"mode":"dock"}'
+cohub desktop open <app> --as overlay --call milkfrog.configure --data '{"chatter":false}'
+cohub desktop open <app> --as overlay --call milkfrog.configure --data '{"floor":120}'
 ```
 
-## hud
+`<meta name="cohub:surface" content="overlay">` is declared, so opening it from
+the workspace — or `cohub desktop open <app>` without `--as` — already presents
+it as an overlay.
 
-A heads-up display that floats in the corner and follows the current Chat:
-live agent status, the running turn's tool calls, and a quick-action bar.
-Demonstrates:
+## Permissions
 
-- `geometry` + `inputRegion: "all"` — the overlay shrinks to the panel, so it
-  is fully interactive (mouse and touch) while the rest of the workspace stays
-  clickable.
-- Asking the viewer for `space.view` + `session.view` on the Space they are
-  looking at (`cohub.auth.request({ spaceId })`), then subscribing to the
-  Chat's realtime stream. Realtime rooms are gated on `space.view`.
-- `cohub.app.surface.handle("hud.ping")` so an agent can push a status
-  update into the overlay.
-- Auto-dismiss via `requestClose()` when the agent finishes a run.
+The frog follows whatever Chat the viewer is looking at, which is rarely the
+App's home Space, so it asks the viewer at runtime:
 
-```bash
-cohub desktop open app://<username>/<space>/hud --as overlay
-# Push a status line from a script or an agent
-cohub desktop open app://<username>/<space>/hud --as overlay --call hud.ping --data '{"message":"Deploying…"}'
-```
+1. On open: `space.view` + `session.view` — enough to follow the stream and read
+   recent turns.
+2. Lazily, the first time it wants to speak: `session.prompt.readonly` — the
+   scope the completion endpoint requires.
 
-## How an overlay works
+A denial is not fatal. Without step 1 it cannot follow the chat; without
+step 2 it still comments, using a small built-in pool of curator lines instead
+of a model call. No app-side scopes are needed to publish.
 
-An overlay App fills the whole workspace with a transparent, chrome-free
-iframe.  By default it receives no pointer events, so the desktop underneath
-stays fully usable.  The App claims the parts it wants to be clickable through
-`cohub.app.requestConfigure({ inputRegion })`:
+## Cost and noise
 
-- `"none"` (default) — purely decorative, click-through everywhere
-- `"all"` — the whole overlay is interactive
-- `Rect[]` — only these rectangles, in the overlay's own CSS pixel coordinates
+Every generated comment is a real completion that bills the viewer, so
+unprompted musings are paced: at least 45 s apart, at most 4 per 10 minutes.
+Things you do yourself — poking the frog, switching chats — always get an answer
+(a model call when the pace allows, a curated line otherwise). Mute it from the
+control strip or with `milkfrog.configure`. It never writes to the session —
+reading only.
 
-Because the overlay covers the window, overlay coordinates and
-`getBoundingClientRect()` inside the App line up one-to-one.
+## Files
 
-The region only decides where pointer events go; it never clips what the
-overlay paints. Decorative parts — bubbles, tooltips, effects — can stay outside
-it and remain visible.
+| File | What it is |
+|---|---|
+| `index.html` | The App surface; declares the overlay role |
+| `styles.css` | Theme-aware styling, no `backdrop-filter` |
+| `app.js` | SDK wiring, sprite renderer, behaviour, chatter |
 
-Fixed panels (like the HUD) should shrink the overlay with `geometry` and use
-`"all"`; rect lists suit things that move across the screen (like the mascot).
-Rects activate on hover, so they respond to a mouse but not to the first tap on
-a touch screen.
+The App ships no image binaries: the sprite sheets are referenced by CDN URL
+(`ASSET_BASE` in `app.js`), and the repository stays text-only. No build step —
+the SDK is loaded from an ESM CDN.
 
-Declare `<meta name="color-scheme" content="light dark">` so the App follows the
-host theme. A color-scheme mismatch between the host and the frame makes
-Chromium paint an opaque backdrop behind the frame, and the overlay would lose
-its transparency.
+## Asset provenance
 
-Keep overlays cheap to composite: no `backdrop-filter` (the content underneath
-changes every frame while the agent streams, so a blur never stops re-rendering),
-and do per-token work in the realtime handlers only for what actually changed —
-the HUD updates its status strip per patch and rebuilds the list only when a tool
-call starts or ends.
+The sheets were generated with Cohub Models, cut out with `birefnet-general`,
+then sliced and baseline-aligned locally. Every public URL is under
+`https://public.cohub.live/p/cf327f11-5065-4f3a-bfe5-cdb0a70f3377/docs/examples/desktop-surfaces/milk-frog/`.
 
-Overlays have no chrome of their own. An App closes itself with
-`cohub.app.requestClose()`; the viewer can always press `Escape` in the
-workspace to dismiss every open overlay.
+| Sheet | Frames | Animation |
+|---|---|---|
+| `pet-idle.webp` | 6 | idle breathing (0–3) + blink (4–5) |
+| `pet-walk.webp` | 6 | walk cycle, facing right (flipped at runtime) |
+| `pet-talk.webp` | 3 | talking mouth |
+| `pet-happy.webp` | 2 | celebrate |
+| `pet-down.webp` | 2 | downcast / error |
+| `pet-sleep.webp` | 2 | sleep |
+| `milk-frog.webp` | 1 | character reference |
 
-Overlays keep every other App capability: context, authorization, Space APIs,
-realtime rooms, `surface.handle()` + `--call`, composer chips (the most
-recently set overlay chip is the one shown), navigation and commerce. The one
-overlay-only call is `requestConfigure()`; `invocation.surface` reads
-`"overlay"` so an App can tell how it was opened.
+The character brief used for every strip: a warm butter-yellow, round,
+pear-shaped frog with no neck, pale mint-green eye rings around centred black
+pupils, a very short horizontal mouth line, a cream belly, and stubby
+olive-brown hands and feet — flat cel-shaded, on a pure white background.
+Milk Frog (奶蛙) is used here as a transformative fan mascot.
 
-## Publishing
+## Notes
 
-Each folder is a self-contained directory App. Both declare
-`<meta name="cohub:surface" content="overlay">`, which Cohub reads at publish
-time into `meta.presentation.surface` — so opening them in the workspace, or
-`cohub desktop open <app>` without `--as`, presents them as overlays. Pass
-`--as window` to override. The HUD asks
-the viewer for access at runtime, so it needs no app-side scopes when
-publishing. No build step — the SDK is loaded from `esm.sh`.
+- Fixed panels (like the old HUD) should shrink the overlay with `geometry` and
+  use `inputRegion: "all"`. Rects suit things that move across the screen.
+- Declare `<meta name="color-scheme" content="light dark">` so the App follows
+  the host theme. A mismatch makes Chromium paint an opaque backdrop behind the
+  frame and the overlay loses its transparency.
+- Avoid `backdrop-filter` on an overlay: the content underneath changes every
+  frame while the agent streams, so a blur never stops re-rendering.
+- Overlays have no chrome; the frog closes itself with `cohub.app.requestClose()`,
+  and the viewer can always press `Escape` to dismiss every overlay.

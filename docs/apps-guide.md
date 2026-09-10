@@ -372,7 +372,7 @@ a window.
 
 ```bash
 cohub desktop open <app> --as overlay
-cohub desktop open <app> --as overlay --call hud.ping --data '{"message":"Deploying…"}'
+cohub desktop open <app> --as overlay --call milkfrog.say --data '{"text":"Ship it."}'
 ```
 
 A page can declare the surface it wants, so `--as` becomes unnecessary:
@@ -435,7 +435,7 @@ workspace to dismiss every overlay.
 Everything else works exactly as in a tab: context, authorization, Space APIs,
 realtime rooms, `surface.handle()` + `--call`, composer chips, navigation, and
 commerce. `context.invocation.surface` reads `"overlay"` so an App can tell how
-it was opened. Two reference Apps live in `docs/examples/desktop-surfaces/`.
+it was opened. A reference App lives in `docs/examples/desktop-surfaces/milk-frog/`.
 
 ## Embed Other Apps
 
