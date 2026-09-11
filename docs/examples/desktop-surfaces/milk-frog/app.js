@@ -162,6 +162,7 @@ let ctx = null;
 let dpr = 1;
 let sprites = {};
 let reducedMotion = false;
+let lastDrawKey = null;
 
 // Behaviour.
 let mode = "idle"; // idle | walk | gaze | sleep
@@ -186,6 +187,9 @@ const coarsePointer = window.matchMedia?.("(pointer: coarse)")?.matches ?? false
 let dock = coarsePointer;
 let lastRegionKey = "";
 let lastRegionAt = 0;
+// The last transform actually written, so a resting frog costs no CSS writes.
+let stageLeft = Number.NaN;
+let stageTop = Number.NaN;
 
 // Session following.
 let followed = null; // { spaceId, sessionId, stop }
@@ -237,6 +241,7 @@ function fitCanvas() {
   sprite.width = size;
   sprite.height = size;
   ctx = sprite.getContext("2d");
+  lastDrawKey = null;
 }
 
 // ── Renderer ────────────────────────────────────────────────────────────────
@@ -266,6 +271,14 @@ function drawScene(t) {
   const h = sprite.height;
   const sel = resolveSprite(t);
   const sheet = sprites[sel.name];
+  const hop = sel.name === "happy" ? -h * 0.03 : 0;
+  // Only idle/talk breathe every frame; every other pose is static between its
+  // sprite frames, so redraw when something visible actually changes.
+  const breathing = !reducedMotion && (sel.name === "idle" || sel.name === "talk");
+  const key = breathing ? null : `${sel.name}:${sel.frame}:${facing}:${hop}`;
+  if (key !== null && key === lastDrawKey) return;
+  lastDrawKey = key;
+
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, w, h);
   if (!sheet?.image) return;
@@ -274,10 +287,9 @@ function drawScene(t) {
   const frameH = sheet.image.height;
   let scale = 1;
   if (mode === "gaze") scale *= 1.045;
-  if (!reducedMotion && (sel.name === "idle" || sel.name === "talk")) {
+  if (breathing) {
     scale *= 1 + 0.012 * Math.sin(t / 1400);
   }
-  const hop = sel.name === "happy" ? -h * 0.03 : 0;
 
   // Contact shadow — part of the character, so it scales with the pose.
   const shadow = (sel.name === "happy" ? 0.86 : 1) * scale;
@@ -307,7 +319,12 @@ function applyStagePosition() {
   const vh = window.innerHeight;
   const floor = dock ? DOCK_FLOOR : floorOffset;
   x = clamp(x, EDGE, Math.max(EDGE, vw - STAGE_W - EDGE));
-  stage.style.transform = `translate3d(${Math.round(x)}px, ${Math.round(vh - floor - STAGE_H)}px, 0)`;
+  const left = Math.round(x);
+  const top = Math.round(vh - floor - STAGE_H);
+  if (left === stageLeft && top === stageTop) return;
+  stageLeft = left;
+  stageTop = top;
+  stage.style.transform = `translate3d(${left}px, ${top}px, 0)`;
 }
 
 function clampAbove() {
@@ -326,13 +343,9 @@ function reportRegion(force = false) {
   const t = now();
   if (!force && t - lastRegionAt < 90) return;
   lastRegionAt = t;
-  const rect = stage.getBoundingClientRect();
-  const next = {
-    x: Math.round(rect.left),
-    y: Math.round(rect.top),
-    width: Math.round(rect.width),
-    height: Math.round(rect.height),
-  };
+  // `#stage` is a fixed box moved only by its transform, so its rect is the
+  // written position plus the constant stage size — no layout read needed.
+  const next = { x: stageLeft, y: stageTop, width: STAGE_W, height: STAGE_H };
   const key = JSON.stringify(next);
   if (key === lastRegionKey) return;
   lastRegionKey = key;

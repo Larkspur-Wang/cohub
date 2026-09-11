@@ -95,6 +95,18 @@ function hitTest() {
 	if (!sameSet(next, hotAppIds)) hotAppIds = next;
 }
 
+// Coalesce moves to one hit-test per frame; a release flushes immediately.
+let pointerFrame: number | null = null;
+let pendingPointer: { x: number; y: number } | null = null;
+
+function cancelPointerFrame() {
+	if (pointerFrame !== null) {
+		cancelAnimationFrame(pointerFrame);
+		pointerFrame = null;
+	}
+	pendingPointer = null;
+}
+
 function trackPointer(event: PointerEvent) {
 	// A held button freezes ownership: an App's drag would lose the pointer the
 	// moment it left the declared rect, and an underlying drag must not let a
@@ -104,8 +116,15 @@ function trackPointer(event: PointerEvent) {
 		return;
 	}
 	pointerDown = false;
-	pointer = { x: event.clientX, y: event.clientY };
-	hitTest();
+	pendingPointer = { x: event.clientX, y: event.clientY };
+	if (pointerFrame !== null) return;
+	pointerFrame = requestAnimationFrame(() => {
+		pointerFrame = null;
+		if (!pendingPointer) return;
+		pointer = pendingPointer;
+		pendingPointer = null;
+		hitTest();
+	});
 }
 
 /**
@@ -134,12 +153,14 @@ function beginPointer() {
 
 /** Release: adopt the release point, then let ownership settle again. */
 function endPointer(event: PointerEvent) {
+	cancelPointerFrame();
 	pointerDown = false;
 	pointer = { x: event.clientX, y: event.clientY };
 	hitTest();
 }
 
 function cancelPointer() {
+	cancelPointerFrame();
 	pointerDown = false;
 }
 
@@ -155,7 +176,10 @@ $effect(() => {
 		return;
 	}
 	window.addEventListener("pointermove", trackPointer, true);
-	return () => window.removeEventListener("pointermove", trackPointer, true);
+	return () => {
+		window.removeEventListener("pointermove", trackPointer, true);
+		cancelPointerFrame();
+	};
 });
 
 $effect(() => {
