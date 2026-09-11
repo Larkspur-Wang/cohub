@@ -25,12 +25,14 @@ export { buildSpaceInvitePath, buildSpacePath } from "./apis/invitations.js";
 export type { BuildSpaceInvitePathInput, BuildSpacePathInput } from "./apis/invitations.js";
 export type { ReferenceResourceSelector } from "./apis/references.js";
 export { ParentBridgeTransport, PopupBrokerTransport, AppRuntimeApi, createSlugAppIdResolver, createAppRuntime, resolveAppTransport } from "./app-runtime.js";
-export type { AppContextChangedListener, AppIdResolver, AppRuntimeInvocationContext, AppRuntimeModeConfig, AppRuntimeRequestOptions, AppRuntimeShellContext, AppRuntimeTransport, AppRuntimeConfigureRequest, AppRuntimeAnchor, AppRuntimeRect } from "./app-runtime.js";
+export type { AppContextChangedListener, AppDiagnostic, AppDiagnosticListener, AppIdResolver, AppRuntimeInvocationContext, AppRuntimeModeConfig, AppRuntimeRequestOptions, AppRuntimeShellContext, AppRuntimeTransport, AppRuntimeConfigureRequest, AppRuntimeAnchor, AppRuntimeRect } from "./app-runtime.js";
 export { attachAppEmbed } from "./app-embed.js";
 export type { AppEmbedAttachOptions, AppEmbedHandle, AppEmbedShell } from "./app-embed.js";
 export type { AppNavigationCall, AppNavigationLaunch, AppNavigationOpenMessage, AppNavigationOpenResponse, AppNavigationTarget } from "@cohub/protocol/app-navigation";
 export { createAppBridgeCore } from "./app-bridge-core.js";
-export type { AppBridgeAuthorizationContext, AppBridgeCore, AppBridgeCoreConfig, AppBridgeCoreApp, AppBridgeDialogState, AppAuthorizeRequest, AppCheckoutStarted, AppPurchaseRequest, AppBridgeGetAccessToken, AppBridgeGetViewerUuid, AppBridgeRequestSignIn, AppPromotionAttributionContext } from "./app-bridge-core.js";
+export type { AppBridgeAuthorizationContext, AppBridgeCore, AppBridgeCoreConfig, AppBridgeCoreApp, AppBridgeDialogState, AppBridgeDiagnostic, AppAuthorizeRequest, AppCheckoutStarted, AppPurchaseRequest, AppBridgeGetAccessToken, AppBridgeGetViewerUuid, AppBridgeRequestSignIn, AppPromotionAttributionContext } from "./app-bridge-core.js";
+export { normalizeSpacePickerQuery, orderSpacePickerItems, filterSpacePickerItems, selectSpacePickerItems } from "./space-picker.js";
+export type { SpacePickerFilter, SpacePickerItem, SpacePickerOptions } from "./space-picker.js";
 export { clearGrantedAppScopes, hasGrantedAppScopes, setGrantedAppScopes } from "./app-grant-cache.js";
 export { SessionPatchReducer, createSessionPatchReducer } from "./session-patch-reducer.js";
 export {

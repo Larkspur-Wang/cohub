@@ -23,6 +23,10 @@ const packagesRoot = resolvePath(here, "..", "..", "..", "packages");
  */
 const PACKAGE_SOURCES = [
 	[
+		"@neta-art/cohub/space-picker",
+		`${packagesRoot}/sdk/src/space-picker.ts`,
+	],
+	[
 		"@neta-art/cohub/board/headless",
 		`${packagesRoot}/sdk/src/board/headless/index.ts`,
 	],

@@ -94,12 +94,23 @@ export type AppRuntimeRequestOptions = {
  */
 export type AppContextChangedListener = (context: AppRuntimeContext) => void;
 
+/** A developer-facing diagnostic forwarded by the host. */
+export type AppDiagnostic = {
+  code: string;
+  message: string;
+  detail?: Record<string, unknown>;
+};
+
+export type AppDiagnosticListener = (diagnostic: AppDiagnostic) => void;
+
 export interface AppRuntimeTransport {
   request<T>(
     message: Record<string, unknown>,
     options?: AppRuntimeRequestOptions,
   ): Promise<T | null>;
   subscribeContextChanged?: (listener: AppContextChangedListener) => () => void;
+  /** Subscribes to host diagnostics (developer-facing, non-blocking). */
+  subscribeDiagnostics?: (listener: AppDiagnosticListener) => () => void;
   /** Whether this transport can address the embedding Cohub workspace. */
   supportsNavigation?: boolean;
   /** Posts a one-way message to the host; no reply is expected. */
@@ -131,8 +142,61 @@ const generateRequestId = () =>
 export class ParentBridgeTransport implements AppRuntimeTransport {
   readonly supportsNavigation = true;
   private trustedParentOrigin: string | null = null;
+  private readyAnnounced = false;
   private contextListeners = new Set<AppContextChangedListener>();
   private contextListener: ((event: MessageEvent) => void) | null = null;
+  private diagnosticListeners = new Set<AppDiagnosticListener>();
+  private diagnosticListener: ((event: MessageEvent) => void) | null = null;
+
+  /**
+   * Tells the host the runtime is ready once, before any subscription. Hosts
+   * gate unsolicited messages (context pushes, diagnostics) on this handshake,
+   * so the diagnostic subscription must trigger it too — an app that never
+   * subscribes to context still needs diagnostics to arrive.
+   */
+  private announceReady() {
+    if (this.readyAnnounced || !hasParent()) return;
+    const parentOrigin = this.trustedParentOrigin ?? getParentOrigin();
+    if (!parentOrigin) return;
+    try {
+      window.parent.postMessage(buildAppRuntimeReady(), parentOrigin);
+      this.readyAnnounced = true;
+    } catch {
+      // The host may have been disposed during app startup.
+    }
+  }
+
+  subscribeDiagnostics(listener: AppDiagnosticListener) {
+    if (!hasParent() || typeof window.addEventListener !== "function") return () => {};
+    this.diagnosticListeners.add(listener);
+    this.announceReady();
+    if (!this.diagnosticListener) {
+      this.diagnosticListener = (event) => {
+        if (event.source !== window.parent) return;
+        const parentOrigin = this.trustedParentOrigin ?? getParentOrigin();
+        if (parentOrigin && event.origin !== parentOrigin) return;
+        const data = event.data as { type?: string; code?: unknown; message?: unknown; detail?: unknown };
+        if (data?.type !== "cohub.app.diagnostic") return;
+        if (typeof data.code !== "string" || typeof data.message !== "string") return;
+        const diagnostic: AppDiagnostic = {
+          code: data.code,
+          message: data.message,
+          ...(data.detail && typeof data.detail === "object"
+            ? { detail: data.detail as Record<string, unknown> }
+            : {}),
+        };
+        for (const current of this.diagnosticListeners) current(diagnostic);
+      };
+      window.addEventListener("message", this.diagnosticListener);
+    }
+    return () => {
+      this.diagnosticListeners.delete(listener);
+      if (this.diagnosticListeners.size === 0 && this.diagnosticListener) {
+        window.removeEventListener("message", this.diagnosticListener);
+        this.diagnosticListener = null;
+      }
+    };
+  }
 
   subscribeContextChanged(listener: AppContextChangedListener) {
     if (!hasParent()) return () => {};
@@ -147,14 +211,7 @@ export class ParentBridgeTransport implements AppRuntimeTransport {
         for (const current of this.contextListeners) current(data.context);
       };
       window.addEventListener("message", this.contextListener);
-      const parentOrigin = this.trustedParentOrigin ?? getParentOrigin();
-      if (parentOrigin) {
-        try {
-          window.parent.postMessage(buildAppRuntimeReady(), parentOrigin);
-        } catch {
-          // The host may have been disposed during app startup.
-        }
-      }
+      this.announceReady();
     }
     return () => {
       this.contextListeners.delete(listener);
@@ -457,6 +514,8 @@ export class AppRuntimeApi {
   private pointerDown = false;
   private pointerFrame: number | null = null;
   private pointerPending: { x: number; y: number } | null = null;
+  /** Cleanup for the constructor's diagnostic subscription; cleared on dispose. */
+  private diagnosticUnsubscribe: (() => void) | null;
 
   private readonly onPointerMove = (event: PointerEvent) => {
     if (!this.pointerForwarding) return;
@@ -531,6 +590,16 @@ export class AppRuntimeApi {
   ) {
     this.transport = transport;
     this.appIdResolver = appIdResolver;
+    // Surface host diagnostics (e.g. an app requesting a Space the viewer can't
+    // access) to the app author's console. Non-blocking and viewer-invisible.
+    // Kept so `dispose()` can release the window listener.
+    this.diagnosticUnsubscribe =
+      transport.subscribeDiagnostics?.((diagnostic) => {
+        console.warn(
+          `[cohub] ${diagnostic.message} (${diagnostic.code})`,
+          diagnostic.detail ?? {},
+        );
+      }) ?? null;
     if (appId) {
       // appId known up-front — keys are immediately available.
       this.tokenStorageKey = `${TOKEN_STORAGE_PREFIX}:${appId}`;
@@ -627,6 +696,38 @@ export class AppRuntimeApi {
 
   onContextChanged(listener: AppContextChangedListener) {
     return this.transport.subscribeContextChanged?.(listener) ?? (() => {});
+  }
+
+  /** Subscribes to developer-facing host diagnostics. */
+  onDiagnostic(listener: AppDiagnosticListener) {
+    return this.transport.subscribeDiagnostics?.(listener) ?? (() => {});
+  }
+
+  /**
+   * Releases listeners and any pending pointer frame this runtime registered.
+   * Safe to call more than once.
+   */
+  dispose() {
+    // Clear before invoking so an injected transport's non-idempotent cleanup
+    // still runs exactly once.
+    const unsubscribe = this.diagnosticUnsubscribe;
+    this.diagnosticUnsubscribe = null;
+    unsubscribe?.();
+    this.pointerForwarding = false;
+    this.pointerPending = null;
+    if (this.pointerFrame !== null) {
+      if (typeof cancelAnimationFrame === "function") {
+        cancelAnimationFrame(this.pointerFrame);
+      }
+      this.pointerFrame = null;
+    }
+    if (this.pointerListening && typeof window !== "undefined") {
+      window.removeEventListener("pointermove", this.onPointerMove, { capture: true });
+      window.removeEventListener("pointerdown", this.onPointerDown, true);
+      window.removeEventListener("pointerup", this.onPointerUp, true);
+      window.removeEventListener("pointercancel", this.onPointerCancel, true);
+      this.pointerListening = false;
+    }
   }
 
   async navigationOpen(
@@ -745,10 +846,15 @@ export class AppRuntimeApi {
   }
 
   /**
-   * Requests viewer consent. Without a `spaceId` the grant targets the app's
-   * home space; with one it targets that space — the app may only grant what
-   * the viewer can already do there themselves. Reuses a previous grant
-   * silently unless `alwaysAsk` forces the consent dialog.
+   * Requests viewer consent. With an accessible `spaceId` the grant targets
+   * that Space; otherwise the host resolves a viewer-controlled Space (the
+   * invocation or embedding Space, then the viewer's last picked Space, then
+   * their first accessible one) — never the app author's home Space. The app
+   * may only grant what the viewer can already do there themselves. Reuses a
+   * previous grant silently unless `alwaysAsk` forces the consent dialog.
+   *
+   * Returns whether a token was granted; use
+   * {@link requestSpaceAuthorization} when the app needs to know which Space.
    */
   async requestAuthorization(input: { scopes: Permission[]; reason?: string; spaceId?: string; alwaysAsk?: boolean }) {
     await this.ensureStorageKeys();

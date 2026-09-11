@@ -1,4 +1,4 @@
-import { PERMISSIONS, type CreateSpaceInput, type Permission, type SpaceBootstrapSource } from "./types.js";
+import { PERMISSIONS, isUserLevelPermission, type CreateSpaceInput, type Permission, type SpaceBootstrapSource } from "./types.js";
 import type { AppRecord } from "./apis/apps.js";
 import type {
 	AppRuntimeCheckoutState,
@@ -10,6 +10,7 @@ import {
 	syncGrantedAppScopes,
 	clearGrantedAppScopes,
 	hasGrantedAppScopes,
+	listGrantedAppSpacesForScopes,
 	listGrantedAppScopes,
 	setGrantedAppScopes,
 } from "./app-grant-cache.js";
@@ -35,10 +36,20 @@ export type AppAuthorizeSpaceOption = {
 	isPinned?: boolean;
 };
 
+/** Untrusted Space payload from the API, normalized into a picker candidate. */
+type RawSpacePayload = {
+	id?: unknown;
+	name?: unknown;
+	userUuid?: unknown;
+	ownerUserUuid?: unknown;
+	isPinned?: unknown;
+};
+
 /**
  * A pending authorize request surfaced to the UI as a consent dialog.
- * `spaceId` targets a space other than the app's home space; `spaceName` is
- * resolved by the host (never trusted from the app) for the dialog copy.
+ * `spaceId` is the app's requested target (kept for duplicate detection even
+ * when the viewer cannot access it); `spaceName` is resolved by the host from
+ * the viewer's Space list (never trusted from the app) for the dialog copy.
  * `selectSpace` asks the viewer to pick the target space inside the dialog —
  * one consent covers both the choice and the grant.
  * `createSpace` asks the host to create a viewer-owned Space (same payload as
@@ -55,6 +66,12 @@ export type AppAuthorizeRequest = {
 	spaceName?: string | null;
 	selectSpace?: boolean;
 	spaces?: AppAuthorizeSpaceOption[] | null;
+	/**
+	 * The viewer-controlled Space resolved as the target. Absent only when the
+	 * target couldn't be resolved (e.g. the viewer's Space list failed to load).
+	 * This — not `spaceId` — is what the grant uses.
+	 */
+	defaultSpaceId?: string;
 	/** App home space display name, for context on home-space grants. */
 	homeSpaceName?: string | null;
 	/** Viewer-owned Space to create as part of this consent. */
@@ -85,6 +102,20 @@ export type AppBridgeDialogState = {
 	pendingAuth: AppAuthorizeRequest | null;
 	authError: string | null;
 	authSaving: boolean;
+	/** Space currently selected in the consent dialog. */
+	selectedSpaceId: string | null;
+	/** Whether the viewer may change the target (more than one candidate). */
+	canChangeSpace: boolean;
+};
+
+/**
+ * A non-fatal diagnostic for the app author. Diagnostics never block the
+ * viewer; they explain why the host silently corrected an app request.
+ */
+export type AppBridgeDiagnostic = {
+	code: string;
+	message: string;
+	detail?: Record<string, unknown>;
 };
 
 /**
@@ -175,6 +206,8 @@ export type AppBridgeCore = {
 	notifyContextChanged: (
 		invocation?: AppRuntimeInvocationContext,
 	) => Promise<void>;
+	/** Selects the target Space in the open consent dialog. */
+	setSelectedSpace: (spaceId: string) => void;
 	/** Confirm/cancel handlers for the authorize dialog. `confirmAuth` receives the space picked in picker mode. */
 	confirmAuth: (pickedSpaceId?: string) => Promise<void>;
 	cancelAuth: () => void;
@@ -210,10 +243,28 @@ function sanitizeRequestedScopes(value: unknown): Permission[] {
 /** Consent dialogs render the reason; keep hostile input bounded. */
 const MAX_REASON_LENGTH = 280;
 
+/**
+ * Bound the viewer's Space lookup so a stalled network can't leave the consent
+ * dialog reserved but invisible until the SDK request times out.
+ */
+const SPACE_LIST_TIMEOUT_MS = 10_000;
+/** Bound a single authorize call so a stalled network can't wedge the flow. */
+const AUTHORIZE_TIMEOUT_MS = 30_000;
+/** Cap serial silent-renewal attempts per request (account grants may span Spaces). */
+const MAX_SILENT_SPACE_ATTEMPTS = 4;
+
+const timeoutSignal = (ms: number) =>
+	typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
+		? AbortSignal.timeout(ms)
+		: undefined;
+
+const spaceListSignal = () => timeoutSignal(SPACE_LIST_TIMEOUT_MS);
+
 class AppAuthorizationError extends Error {
 	constructor(
 		message: string,
 		readonly status: number,
+		readonly code?: string,
 	) {
 		super(message);
 		this.name = "AppAuthorizationError";
@@ -222,6 +273,26 @@ class AppAuthorizationError extends Error {
 
 const isDefinitiveAuthorizationFailure = (error: unknown) =>
 	error instanceof AppAuthorizationError && [401, 403, 404].includes(error.status);
+
+/** A grant the server rejected (revoked / not found) — safe to drop from cache. */
+const isGrantRejection = (error: unknown) =>
+	error instanceof AppAuthorizationError && [403, 404].includes(error.status);
+
+/** A stale access token — never a revoked grant, so never clear the cache. */
+const isAuthFailure = (error: unknown) =>
+	error instanceof AppAuthorizationError && error.status === 401;
+
+/** Viewer-facing copy for grant failures the viewer cannot act on technically. */
+const VIEWER_OPAQUE_AUTH_MESSAGES: Record<string, string> = {
+	space_inaccessible: "Couldn't connect this app to your Space. Try another Space.",
+	app_not_accessible: "This app isn't available in this Space right now.",
+	scope_not_held: "This app needs permissions you don't have yet.",
+};
+
+const viewerOpaqueAuthMessage = (error: unknown): string | null =>
+	error instanceof AppAuthorizationError && error.code
+		? VIEWER_OPAQUE_AUTH_MESSAGES[error.code] ?? null
+		: null;
 
 /**
  * Whether a new authorize request asks for exactly the consent a pending
@@ -480,10 +551,37 @@ export function createAppBridgeCore(
 		pendingAuth: null,
 		authError: null,
 		authSaving: false,
+		selectedSpaceId: null,
+		canChangeSpace: false,
 	};
 
 	function notify() {
 		onStateChange?.({ ...state });
+	}
+
+	/** notify() that never lets a broken host callback escape. */
+	function safeNotify() {
+		try {
+			notify();
+		} catch {
+			// The host's state callback threw; nothing safe to do here.
+		}
+	}
+
+	/** Sends a developer-facing diagnostic to the app; never surfaced to viewers. */
+	function emitDiagnostic(diagnostic: AppBridgeDiagnostic) {
+		// Diagnostics are non-fatal: a broken or torn-down host must never turn a
+		// warning into a rejection of the surrounding authorization flow.
+		try {
+			config.notify?.({
+				type: "cohub.app.diagnostic",
+				code: diagnostic.code,
+				message: diagnostic.message,
+				...(diagnostic.detail ? { detail: diagnostic.detail } : {}),
+			});
+		} catch {
+			// Ignore transport failures.
+		}
 	}
 
 	const pendingPurchaseStorageKey = `cohub-app-purchase:${app.id}`;
@@ -556,9 +654,11 @@ export function createAppBridgeCore(
 	async function authorize(
 		scopes: Permission[],
 		spaceId?: string,
-		options?: { silent?: boolean },
+		options?: { silent?: boolean; forceRefreshToken?: boolean },
 	) {
-		const userToken = await getAccessToken();
+		const userToken = await getAccessToken(
+			options?.forceRefreshToken ? { forceRefresh: true } : undefined,
+		);
 		if (!userToken) {
 			await config.requestSignIn(
 				typeof location !== "undefined" ? location.pathname : "/",
@@ -569,6 +669,7 @@ export function createAppBridgeCore(
 			`${apiOrigin}/api/apps/${app.id}/authorize`,
 			{
 				method: "POST",
+				signal: timeoutSignal(AUTHORIZE_TIMEOUT_MS),
 				headers: {
 					Authorization: `Bearer ${userToken}`,
 					"Content-Type": "application/json",
@@ -584,11 +685,13 @@ export function createAppBridgeCore(
 			token?: unknown;
 			grant?: { spaceId?: unknown; scopes?: unknown } | null;
 			message?: unknown;
+			code?: unknown;
 		} | null;
 		if (!response.ok) {
 			throw new AppAuthorizationError(
 				typeof payload?.message === "string" ? payload.message : "Authorization failed.",
 				response.status,
+				typeof payload?.code === "string" ? payload.code : undefined,
 			);
 		}
 		const token = readTokenResponse(payload);
@@ -610,6 +713,32 @@ export function createAppBridgeCore(
 	}
 
 	/**
+	 * Silent renewal with a single stale-token retry: a 401 means the access
+	 * token expired, not that the grant was revoked, so refresh once before
+	 * letting the caller classify the failure.
+	 */
+	async function authorizeSilent(scopes: Permission[], spaceId?: string) {
+		try {
+			return await authorize(scopes, spaceId, { silent: true });
+		} catch (error) {
+			if (!isAuthFailure(error)) throw error;
+			return authorize(scopes, spaceId, { silent: true, forceRefreshToken: true });
+		}
+	}
+
+	/** Normalizes a raw Space payload into a picker candidate. */
+	function toSpaceOption(value: RawSpacePayload): AppAuthorizeSpaceOption | null {
+		if (typeof value.id !== "string" || !value.id) return null;
+		const owner = value.ownerUserUuid ?? value.userUuid;
+		return {
+			id: value.id,
+			name: typeof value.name === "string" && value.name ? value.name : null,
+			...(typeof owner === "string" ? { ownerUserUuid: owner } : {}),
+			...(typeof value.isPinned === "boolean" ? { isPinned: value.isPinned } : {}),
+		};
+	}
+
+	/**
 	 * Lists the viewer's spaces for the consent dialog picker. Fetched by the
 	 * host with the viewer's own token — the app only ever learns the space
 	 * the viewer picks, never the list.
@@ -620,6 +749,7 @@ export function createAppBridgeCore(
 			if (!userToken) return null;
 			return fetch(`${apiOrigin}/api/spaces`, {
 				headers: { Authorization: `Bearer ${userToken}` },
+				signal: spaceListSignal(),
 			});
 		};
 
@@ -630,25 +760,40 @@ export function createAppBridgeCore(
 			// Space list without retrying genuine authorization failures forever.
 			if (response?.status === 401) response = await request(true);
 			if (!response?.ok) return null;
-			const spaces = (await response.json()) as Array<{
-				id?: unknown;
-				name?: unknown;
-				userUuid?: unknown;
-				ownerUserUuid?: unknown;
-				isPinned?: unknown;
-			}>;
+			const spaces = (await response.json()) as RawSpacePayload[];
 			if (!Array.isArray(spaces)) return null;
 			return spaces.flatMap((space): AppAuthorizeSpaceOption[] => {
-				if (typeof space.id !== "string" || !space.id) return [];
-				return [{
-					id: space.id,
-					name: typeof space.name === "string" && space.name ? space.name : null,
-					...(typeof (space.ownerUserUuid ?? space.userUuid) === "string"
-						? { ownerUserUuid: (space.ownerUserUuid ?? space.userUuid) as string }
-						: {}),
-					...(typeof space.isPinned === "boolean" ? { isPinned: space.isPinned } : {}),
-				}];
+				const option = toSpaceOption(space);
+				return option ? [option] : [];
 			});
+		} catch {
+			return null;
+		}
+	}
+
+	/**
+	 * Ensures the viewer has a Space to target when their accessible list is
+	 * empty. `GET /api/spaces/default` returns their home Space, creating it on
+	 * first use — the same path taken when they first enter Cohub.
+	 */
+	async function ensureDefaultSpace(): Promise<AppAuthorizeSpaceOption | null> {
+		const request = async (forceRefresh = false) => {
+			const userToken = await getAccessToken({ forceRefresh });
+			if (!userToken) return null;
+			return fetch(`${apiOrigin}/api/spaces/default`, {
+				headers: { Authorization: `Bearer ${userToken}` },
+				signal: spaceListSignal(),
+			});
+		};
+
+		try {
+			let response = await request();
+			if (response?.status === 401) response = await request(true);
+			if (!response?.ok) return null;
+			const payload = (await response.json()) as {
+				space?: RawSpacePayload | null;
+			};
+			return payload?.space ? toSpaceOption(payload.space) : null;
 		} catch {
 			return null;
 		}
@@ -670,6 +815,30 @@ export function createAppBridgeCore(
 		} catch {
 			// Ignore storage failures.
 		}
+	}
+
+	/**
+	 * Resolves the default target for a Space-bound request to a Space the
+	 * viewer controls — preferring wherever the app was invoked, then the last
+	 * Space the viewer picked. Returns undefined when nothing is accessible.
+	 */
+	function resolveDefaultSpaceId(
+		candidates: AppAuthorizeSpaceOption[] | null,
+	): string | undefined {
+		if (!candidates?.length) return undefined;
+		const accessible = (id: string | null | undefined) =>
+			id && candidates.some((space) => space.id === id) ? id : undefined;
+		const invocation =
+			activeInvocation !== undefined
+				? activeInvocation
+				: config.getInvocation?.() ?? config.invocation;
+		const shell = config.getShell?.() ?? config.shell;
+		return (
+			accessible(invocation?.spaceId) ??
+			accessible(shell?.space?.id) ??
+			accessible(readLastPickedSpace()) ??
+			candidates[0]?.id
+		);
 	}
 
 	/**
@@ -716,27 +885,6 @@ export function createAppBridgeCore(
 		// not 409, but do not treat this as a successful consent.
 		if (space) return { ...space, provisioned: false, error: message };
 		throw new Error(message);
-	}
-
-	/**
-	 * Resolves the target space's name for the consent dialog. The host — not
-	 * the app — resolves it, so the dialog cannot be tricked into labeling a
-	 * grant with the wrong space.
-	 */
-	async function resolveSpaceName(spaceId: string): Promise<string | null> {
-		const userToken = await getAccessToken();
-		if (!userToken) return null;
-		try {
-			const response = await fetch(
-				`${apiOrigin}/api/spaces/${encodeURIComponent(spaceId)}`,
-				{ headers: { Authorization: `Bearer ${userToken}` } },
-			);
-			if (!response.ok) return null;
-			const space = (await response.json()) as { name?: unknown };
-			return typeof space.name === "string" && space.name ? space.name : null;
-		} catch {
-			return null;
-		}
 	}
 
 	function writePendingPurchase(input: {
@@ -846,6 +994,9 @@ export function createAppBridgeCore(
 		if (!data?.requestId) return;
 		const isLegacyWork = data.type?.startsWith("cohub.work.") === true;
 		if (isLegacyWork) legacyRequestIds.add(data.requestId);
+		// The dialog reservation this message created, when it got that far. Lets
+		// the catch below answer joined requests and clear stale state on error.
+		let reservedAuth: AppAuthorizeRequest | null = null;
 		try {
 			if (data.type === "cohub.app.context" || data.type === "cohub.work.context") {
 				const context = await getContext();
@@ -988,13 +1139,17 @@ export function createAppBridgeCore(
 				// silent reuse or publisher auto-authorization.
 				if (createSpace) {
 					mintedSpace = null;
-					state.pendingAuth = {
+					const pendingCreate: AppAuthorizeRequest = {
 						requestId: data.requestId,
 						scopes,
 						reason: sanitizeReason(data.reason),
 						homeSpaceName: app.spaceName ?? null,
 						createSpace,
 					};
+					state.pendingAuth = pendingCreate;
+					reservedAuth = pendingCreate;
+					state.selectedSpaceId = null;
+					state.canChangeSpace = false;
 					state.authError = null;
 					state.authOpen = true;
 					notify();
@@ -1013,7 +1168,7 @@ export function createAppBridgeCore(
 					(await isCurrentViewerAppOwner())
 				) {
 					try {
-						const result = await authorize(scopes, spaceId, { silent: true });
+						const result = await authorizeSilent(scopes, spaceId);
 						replyForRequest(
 							data.requestId,
 							authorizeResult(
@@ -1035,60 +1190,178 @@ export function createAppBridgeCore(
 						// A definitive rejection needs fresh viewer consent.
 					}
 				}
-				// Returning viewers who previously granted the requested scopes are
-				// re-authorized silently with a fresh token — no consent dialog. In
-				// picker mode the last picked space is reused.
-				const viewerUuid = await getViewerUuid();
-				// Picker mode can only go silent against the last picked space;
-				// a home-space request needs no target at all.
-				const silentSpaceId = selectSpace ? readLastPickedSpace() : spaceId;
-				if (
-					!alwaysAsk &&
-					viewerUuid &&
-					(selectSpace ? Boolean(silentSpaceId) : true) &&
-					silentSpaceId !== null &&
-					hasGrantedAppScopes(viewerUuid, app.id, scopes, silentSpaceId ?? undefined)
-				) {
-					try {
-						const result = await authorize(scopes, silentSpaceId, { silent: true });
-						replyForRequest(
+				// A dialog may have opened while we resolved the owner path. Re-check so
+				// a concurrent request joins or replaces it instead of both proceeding
+				// and overwriting each other.
+				if (state.pendingAuth) {
+					if (isSameConsent(state.pendingAuth, { scopes, spaceId, selectSpace, createSpace })) {
+						state.pendingAuth.joinedRequestIds = [
+							...(state.pendingAuth.joinedRequestIds ?? []),
 							data.requestId,
-							authorizeResult(result.token, result.spaceId, null),
-							true,
-						);
+						];
 						return;
-					} catch (error) {
-						if (!isDefinitiveAuthorizationFailure(error)) {
-							replyForRequest(data.requestId, {
-								type: "cohub.app.error",
-								message: error instanceof Error ? error.message : "Authorization failed.",
-							}, true);
-							return;
-						}
-						// The server rejected this grant: clear it and ask again.
-						clearGrantedAppScopes(viewerUuid, app.id, silentSpaceId);
 					}
+					dismissPendingAuth();
 				}
-				const [spaceName, spaces] = await Promise.all([
-					spaceId ? resolveSpaceName(spaceId) : Promise.resolve(null),
-					selectSpace ? listViewerSpaces() : Promise.resolve(undefined),
-				]);
-				state.pendingAuth = {
-					requestId: data.requestId,
+				const requestId = data.requestId;
+				// Reserve the dialog synchronously before any further async work, so a
+				// concurrent request sees it (and joins or replaces) rather than racing
+				// us into an overwrite that would leave it waiting for a reply.
+				// `spaceId` keeps the app's requested target for duplicate detection;
+				// `defaultSpaceId` below carries the resolved, viewer-controlled one.
+				const reserved: AppAuthorizeRequest = {
+					requestId,
 					scopes,
 					reason: sanitizeReason(data.reason),
 					homeSpaceName: app.spaceName ?? null,
-					...(spaceId ? { spaceId, spaceName } : {}),
-					...(selectSpace ? { selectSpace: true, spaces: spaces ?? null } : {}),
+					...(spaceId ? { spaceId } : {}),
+					...(selectSpace ? { selectSpace: true } : {}),
 				};
+				state.pendingAuth = reserved;
+				reservedAuth = reserved;
+				state.selectedSpaceId = null;
+				state.canChangeSpace = false;
 				state.authError = null;
+
+				// Resolve the target before any silent reuse, so a legacy home-space
+				// cache entry cannot silently re-authorize the app author's Space.
+				// Space-bound requests carry the viewer's Spaces so the consent dialog
+				// can show — and let them change — the target Space. Account-only
+				// requests need no Space and no picker.
+				const spaceLevel =
+					Boolean(spaceId) ||
+					selectSpace ||
+					scopes.some((scope) => !isUserLevelPermission(scope));
+				let spaces = spaceLevel ? await listViewerSpaces() : undefined;
+				if (state.pendingAuth !== reserved) return;
+				// A viewer with no accessible Space still needs a target:
+				// /spaces/default ensures and returns their home Space.
+				if (spaces && spaces.length === 0) {
+					const fallback = await ensureDefaultSpace();
+					if (state.pendingAuth !== reserved) return;
+					if (fallback) spaces = [fallback];
+				}
+				const candidates = spaces ?? null;
+				// An explicit target is honoured only when the viewer can use it. A list
+				// that failed to load stays unresolved for every Space-bound request, so
+				// confirmation is blocked rather than trusting an unverified target.
+				const explicitAccessible =
+					Boolean(spaceId) &&
+					candidates?.some((space) => space.id === spaceId) === true;
+				const defaultSpaceId = explicitAccessible
+					? spaceId
+					: resolveDefaultSpaceId(candidates);
+
+				// Returning viewers who previously granted these scopes on the target
+				// Space are re-authorized silently with a fresh token — no dialog.
+				// Picker mode reuses the last picked Space; an explicit target the
+				// viewer can't access always needs fresh consent.
+				const viewerUuid = await getViewerUuid();
+				if (state.pendingAuth !== reserved) return;
+				const lastPicked = readLastPickedSpace();
+				// Account-level scopes are not Space-bound: try every Space that has a
+				// covering grant (legacy, Space-less entries included). Space-level
+				// requests target one Space; picker mode only reuses the last picked
+				// Space while the viewer still has it.
+				const silentTargets = (
+					!spaceLevel
+						? listGrantedAppSpacesForScopes(viewerUuid, app.id, scopes, app.spaceId)
+						: [
+								selectSpace
+									? lastPicked && candidates?.some((space) => space.id === lastPicked)
+										? lastPicked
+										: null
+									: explicitAccessible
+										? spaceId
+										: spaceId === undefined
+											? defaultSpaceId
+											: null,
+							].filter(
+								(target): target is string =>
+									Boolean(target) &&
+									hasGrantedAppScopes(viewerUuid, app.id, scopes, target ?? undefined),
+							)
+				).slice(0, MAX_SILENT_SPACE_ATTEMPTS);
+				if (!alwaysAsk && viewerUuid && silentTargets.length > 0) {
+					for (const target of silentTargets) {
+						try {
+							const result = await authorizeSilent(scopes, target);
+							// A different request may have replaced us while we waited; it already
+							// answered us, and clearing state here would wipe its reservation.
+							if (state.pendingAuth !== reserved) return;
+							replyPendingAuth(reserved, authorizeResult(result.token, result.spaceId, null));
+							resetDialogState();
+							safeNotify();
+							return;
+						} catch (error) {
+							if (state.pendingAuth !== reserved) return;
+							// Only a grant the server rejected clears the cache. A 401 is a stale
+							// token (already retried with a refresh) and a 5xx/network error is
+							// transient: neither may drop a valid grant.
+							if (isGrantRejection(error)) {
+								clearGrantedAppScopes(viewerUuid, app.id, target);
+								if (target === app.spaceId) clearGrantedAppScopes(viewerUuid, app.id);
+								continue;
+							}
+							replyPendingAuth(reserved, {
+								type: "cohub.app.error",
+								message: error instanceof Error ? error.message : "Authorization failed.",
+							});
+							resetDialogState();
+							safeNotify();
+							return;
+						}
+					}
+				}
+				if (state.pendingAuth !== reserved) return;
+
+				if (spaceId && candidates && !explicitAccessible) {
+					// No resolved id: that would leak the viewer's Space to the app
+					// before they consent.
+					emitDiagnostic({
+						code: "space_inaccessible",
+						message: defaultSpaceId
+							? "The app requested a Space this viewer cannot access; using a Space the viewer controls instead."
+							: "The app requested a Space this viewer cannot access, and no viewer-controlled Space was available.",
+						detail: { requestedSpaceId: spaceId },
+					});
+				}
+				const spaceName = defaultSpaceId
+					? candidates?.find((space) => space.id === defaultSpaceId)?.name ?? null
+					: null;
+				// Mutate in place so the reservation keeps its identity: the outer catch
+				// releases state by identity, not by an app-supplied id.
+				Object.assign(reserved, {
+					...(explicitAccessible && spaceName ? { spaceName } : {}),
+					...(spaces !== undefined ? { spaces: spaces ?? null } : {}),
+					...(defaultSpaceId ? { defaultSpaceId } : {}),
+				});
+				state.selectedSpaceId = defaultSpaceId ?? null;
+				// An explicit, accessible target is fixed: the caller receives only a
+				// boolean and acts on the Space it named, so the viewer must not be able
+				// to redirect the grant elsewhere. Change is offered only when there is
+				// no target or the requested one is inaccessible.
+				state.canChangeSpace =
+					!explicitAccessible && (candidates?.length ?? 0) > 1;
 				state.authOpen = true;
 				notify();
 			}
 		} catch (error) {
+			const message =
+				error instanceof Error ? error.message : "Request failed.";
+			// An error after the reservation (e.g. `onStateChange` threw) must answer
+			// every joined request and release the dialog, or they would wait for the
+			// SDK timeout and leave invisible stale state. Identity — not the
+			// app-supplied request id — decides what is still the current reservation.
+			if (reservedAuth && state.pendingAuth === reservedAuth) {
+				replyPendingAuth(reservedAuth, { type: "cohub.app.error", message });
+				resetDialogState();
+				safeNotify();
+				return;
+			}
 			replyForRequest(data.requestId, {
 				type: "cohub.app.error",
-				message: error instanceof Error ? error.message : "Request failed.",
+				message,
 			}, true);
 		}
 	}
@@ -1100,15 +1373,22 @@ export function createAppBridgeCore(
 		}
 	}
 
+	/** Closes the consent dialog and drops its transient selection state. */
+	function resetDialogState() {
+		state.pendingAuth = null;
+		state.authOpen = false;
+		state.authError = null;
+		state.selectedSpaceId = null;
+		state.canChangeSpace = false;
+	}
+
 	function dismissPendingAuth() {
 		if (!state.pendingAuth) return;
 		replyPendingAuth(state.pendingAuth, {
 			type: "cohub.app.authorize.result",
 			token: null,
 		});
-		state.pendingAuth = null;
-		state.authOpen = false;
-		state.authError = null;
+		resetDialogState();
 		mintedSpace = null;
 		notify();
 	}
@@ -1118,6 +1398,21 @@ export function createAppBridgeCore(
 		if (!state.pendingAuth) return;
 		dismissPendingAuth();
 		state.authSaving = false;
+		notify();
+	}
+
+	/**
+	 * Only a Space the host actually loaded may become the target, so a UI bug
+	 * cannot mint a grant against an arbitrary id.
+	 */
+	function setSelectedSpace(spaceId: string) {
+		if (!state.pendingAuth || state.authSaving || !state.canChangeSpace) return;
+		// Only a candidate the host actually loaded may become the target, so a UI
+		// bug cannot mint a grant against an arbitrary id.
+		const spaces = state.pendingAuth.spaces;
+		if (!spaces?.some((space) => space.id === spaceId)) return;
+		if (state.selectedSpaceId === spaceId) return;
+		state.selectedSpaceId = spaceId;
 		notify();
 	}
 
@@ -1171,19 +1466,31 @@ export function createAppBridgeCore(
 	async function confirmAuth(pickedSpaceId?: string) {
 		if (!state.pendingAuth || state.authSaving) return;
 		const pending = state.pendingAuth;
-		if (pending.selectSpace && !pickedSpaceId) {
-			state.authError = "Pick a Space to continue.";
-			notify();
-			return;
+		// The dialog passes the Space it selected; fall back to the core's
+		// selection. The app's raw `spaceId` is never trusted: a Space-bound
+		// request must target one of the Spaces the host actually loaded.
+		// A pinned target (an accessible explicit `spaceId`) ignores any caller pick:
+		// the caller only receives a boolean and acts on the Space it named.
+		const picked = state.canChangeSpace ? pickedSpaceId : undefined;
+		let requestedSpaceId = picked ?? state.selectedSpaceId ?? undefined;
+		if (pending.spaces !== undefined) {
+			const candidates = pending.spaces;
+			const resolved =
+				requestedSpaceId !== undefined &&
+				candidates?.some((space) => space.id === requestedSpaceId) === true;
+			if (!resolved) {
+				state.authError =
+					!candidates || candidates.length === 0
+						? "Couldn't load your Spaces. Please try again."
+						: "Choose a Space to continue.";
+				notify();
+				return;
+			}
 		}
 		state.authError = null;
 		state.authSaving = true;
 		notify();
 		try {
-			let requestedSpaceId = pending.selectSpace ? pickedSpaceId : pending.spaceId;
-			let spaceName = pending.selectSpace
-				? pending.spaces?.find((space) => space.id === requestedSpaceId)?.name ?? null
-				: pending.spaceName ?? app.spaceName ?? null;
 			if (pending.createSpace) {
 				mintedSpace ??= await createViewerSpace(pending.createSpace);
 				if (!mintedSpace.provisioned) {
@@ -1197,28 +1504,56 @@ export function createAppBridgeCore(
 							mintedSpace.name ?? pending.createSpace.name,
 						),
 					);
-					state.authOpen = false;
-					state.pendingAuth = null;
+					resetDialogState();
 					mintedSpace = null;
 					return;
 				}
 				requestedSpaceId = mintedSpace.id;
-				spaceName = mintedSpace.name ?? pending.createSpace.name;
 			}
 			const result = await authorize(pending.scopes, requestedSpaceId);
 			const viewerUuid = await getViewerUuid();
 			setGrantedAppScopes(viewerUuid, app.id, result.scopes, result.spaceId);
-			if (pending.selectSpace || pending.createSpace) writeLastPickedSpace(result.spaceId);
+			if (
+				pending.selectSpace ||
+				pending.createSpace ||
+				(pickedSpaceId && pickedSpaceId !== pending.spaceId)
+			) {
+				writeLastPickedSpace(result.spaceId);
+			}
+			// Name the Space the server actually granted; fall back to the
+			// request's own labels for the implicit home-space and create paths.
+			let spaceName: string | null = null;
+			if (pending.createSpace) {
+				spaceName = mintedSpace?.name ?? pending.createSpace.name;
+			} else {
+				const listed = pending.spaces?.find(
+					(space) => space.id === result.spaceId,
+				)?.name;
+				if (listed) spaceName = listed;
+				else if (result.spaceId === pending.spaceId) spaceName = pending.spaceName ?? null;
+				else if (result.spaceId === app.spaceId) spaceName = app.spaceName ?? null;
+			}
 			replyPendingAuth(
 				pending,
 				authorizeResult(result.token, result.spaceId, spaceName),
 			);
-			state.authOpen = false;
-			state.pendingAuth = null;
+			resetDialogState();
 			mintedSpace = null;
 		} catch (error) {
+			// Grant failures whose cause is the app's own configuration are never
+			// surfaced to the viewer; they go to the app author as diagnostics. Other
+			// failures keep their message because the viewer can act on them (e.g. a
+			// Space that already exists).
+			if (error instanceof AppAuthorizationError) {
+				emitDiagnostic({
+					code: error.code ?? "authorize_failed",
+					message: error.message,
+					detail: { scopes: pending.scopes },
+				});
+			}
 			state.authError =
-				error instanceof Error ? error.message : "Authorization failed.";
+				viewerOpaqueAuthMessage(error) ??
+				(error instanceof Error ? error.message : "Authorization failed.");
 		} finally {
 			state.authSaving = false;
 			notify();
@@ -1229,6 +1564,7 @@ export function createAppBridgeCore(
 		getState: () => ({ ...state }),
 		handleMessage,
 		notifyContextChanged,
+		setSelectedSpace,
 		confirmAuth,
 		cancelAuth,
 	};

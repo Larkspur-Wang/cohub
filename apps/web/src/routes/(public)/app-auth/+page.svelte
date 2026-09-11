@@ -195,6 +195,9 @@ onDestroy(() => window.removeEventListener("message", onMessage));
 			saving={h.authSaving}
 			appName={detail.app.slug}
 			authorName={detail.owner.displayName}
+			selectedSpaceId={h.selectedSpaceId}
+			canChangeSpace={h.canChangeSpace}
+			onSelectSpace={h.setSelectedSpace}
 			onConfirm={(spaceId) => void h.confirmAuth(spaceId)}
 			onCancel={h.cancelAuth}
 		/>

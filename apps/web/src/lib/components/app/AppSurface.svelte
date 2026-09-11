@@ -398,6 +398,9 @@ onMount(() => {
 	saving={host.authSaving}
 	appName={appTitle}
 	authorName={owner?.displayName}
+	selectedSpaceId={host.selectedSpaceId}
+	canChangeSpace={host.canChangeSpace}
+	onSelectSpace={host.setSelectedSpace}
 	onConfirm={(spaceId) => void host.confirmAuth(spaceId)}
 	onCancel={host.cancelAuth}
 />

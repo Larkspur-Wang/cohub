@@ -1116,18 +1116,20 @@ router.post("/:id/authorize", async (c) => {
   if (!requireValidId(id)) return c.json({ message: "app not found" }, 404);
   const app = await getAppById(id);
   if (app?.status !== "published") return c.json({ message: "app not found" }, 404);
-  if (requiresSpaceAppAccess(app) && !(await hasPermission(user, "space.view", { spaceId: app.spaceId }))) return authzDenied(c);
+  if (requiresSpaceAppAccess(app) && !(await hasPermission(user, "space.view", { spaceId: app.spaceId }))) {
+    return c.json({ message: "app is not accessible in this space", code: "app_not_accessible" }, 403);
+  }
   const body = await c.req.json().catch(() => null) as { scopes?: unknown; spaceId?: unknown; silent?: unknown } | null;
   const requested = normalizeScopes(body?.scopes, ALLOWED_VIEWER_SCOPES);
   if (requested.length === 0) return c.json({ message: "no valid scopes requested" }, 400);
   const targetSpaceId = typeof body?.spaceId === "string" && body.spaceId.trim() ? body.spaceId.trim() : app.spaceId;
-  if (!requireValidId(targetSpaceId)) return c.json({ message: "space not found" }, 404);
+  if (!requireValidId(targetSpaceId)) return c.json({ message: "space not found", code: "space_not_found" }, 404);
   // A caller-supplied target must exist — the per-scope permission gate skips
   // account scopes, so without this an arbitrary UUID could become a grant's
   // space id and leave orphan rows behind.
   if (targetSpaceId !== app.spaceId) {
     const [space] = await db.select({ id: spaces.id }).from(spaces).where(eq(spaces.id, targetSpaceId)).limit(1);
-    if (!space) return c.json({ message: "space not found" }, 404);
+    if (!space) return c.json({ message: "space not found", code: "space_not_found" }, 404);
   }
 
   // A silent refresh (host-side reuse of a previous consent) may only renew a
@@ -1146,7 +1148,7 @@ router.post("/:id/authorize", async (c) => {
         eq(appViewerGrants.spaceId, targetSpaceId),
       ))
       .limit(1);
-    if (existing?.revokedAt) return c.json({ message: "grant was revoked; viewer consent is required again" }, 403);
+    if (existing?.revokedAt) return c.json({ message: "grant was revoked; viewer consent is required again", code: "consent_required" }, 403);
     const renewed = await renewViewerGrant({ existing, requested });
     if (renewed) {
       const renewedScopes = normalizePermissionScopes(renewed.scopes as string[]);
@@ -1163,7 +1165,7 @@ router.post("/:id/authorize", async (c) => {
       });
     }
     if (user.uuid !== app.userUuid) {
-      return c.json({ message: "grant is no longer active; viewer consent is required again" }, 403);
+      return c.json({ message: "grant is no longer active; viewer consent is required again", code: "consent_required" }, 403);
     }
   }
 
@@ -1171,7 +1173,14 @@ router.post("/:id/authorize", async (c) => {
   // the target space themselves. Account scopes need no space.
   const ungrantable = await findUngrantableScopes(user, requested, targetSpaceId);
   if (ungrantable.length > 0) {
-    return c.json({ message: `you cannot grant these permissions for this space: ${ungrantable.join(", ")}` }, 403);
+    // Distinguish "the viewer can't see this Space" from "the viewer can see it
+    // but can't grant these scopes" so hosts can fall back instead of showing
+    // the viewer a technical error.
+    const canView = await hasPermission(user, "space.view", { spaceId: targetSpaceId });
+    return c.json({
+      message: `you cannot grant these permissions for this space: ${ungrantable.join(", ")}`,
+      code: canView ? "scope_not_held" : "space_inaccessible",
+    }, 403);
   }
 
   const expiresAt = new Date(Date.now() + APP_VIEWER_GRANT_TTL_SECONDS * 1000);
@@ -1183,7 +1192,7 @@ router.post("/:id/authorize", async (c) => {
     expiresAt,
   });
   if (grant === "migration_pending") {
-    return c.json({ message: "space-scoped grants are not enabled yet; run the pending database migration" }, 409);
+    return c.json({ message: "space-scoped grants are not enabled yet; run the pending database migration", code: "migration_pending" }, 409);
   }
   if (!grant) return c.json({ message: "failed to create grant" }, 500);
 

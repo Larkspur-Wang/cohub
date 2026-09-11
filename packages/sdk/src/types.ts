@@ -1594,6 +1594,22 @@ export const PERMISSIONS = [
 
 export type Permission = (typeof PERMISSIONS)[number];
 
+/**
+ * Account-level permissions, not bound to a specific Space. Mirrored from
+ * `@cohub/core` alongside {@link PERMISSIONS}. A request whose scopes are all
+ * account-level needs no target Space and must not open a Space picker.
+ */
+export const USER_LEVEL_PERMISSIONS = new Set<Permission>([
+	"user.space.list",
+	"user.session.list",
+	"user.taskrun.list",
+	"user.usage.read",
+	"space.create",
+]);
+
+export const isUserLevelPermission = (permission: Permission): boolean =>
+	USER_LEVEL_PERMISSIONS.has(permission);
+
 /** A held permission that already covers the checked one. */
 const IMPLIED_PERMISSIONS: Partial<Record<Permission, readonly Permission[]>> = {
   "session.prompt.readonly": ["session.prompt.fullaccess"],

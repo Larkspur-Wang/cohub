@@ -178,8 +178,18 @@ export class CohubClient {
     return this.appRuntime.context();
   }
 
+  /** Releases listeners this client registered. Safe to call more than once. */
+  dispose() {
+    this.appRuntime.dispose();
+  }
+
   readonly auth = {
-    /** Ensure the app holds these scopes. Silent when a grant already covers them; `alwaysAsk` forces the dialog. */
+    /**
+     * Ensure the app holds these scopes. Without an accessible `spaceId` the
+     * host targets a viewer-controlled Space (never the app author's home
+     * Space) — use `requestSpace` when the app needs to know which Space.
+     * Silent when a grant already covers them; `alwaysAsk` forces the dialog.
+     */
     request: (input: { scopes: Permission[]; reason?: string; spaceId?: string; alwaysAsk?: boolean }) => this.appRuntime.requestAuthorization(input),
     /** One consent: the viewer picks a Space and grants the scopes on it. `alwaysAsk` re-opens the picker. */
     requestSpace: (input: { scopes: Permission[]; reason?: string; alwaysAsk?: boolean }) => this.appRuntime.requestSpaceAuthorization(input),

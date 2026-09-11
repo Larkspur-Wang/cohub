@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { afterEach, test } from "node:test";
+import { afterEach, beforeEach, test } from "node:test";
 import {
 	createAppBridgeCore,
 	type AppBridgeCoreConfig,
@@ -82,6 +82,15 @@ function storageMock(store: Record<string, string>): Storage {
 afterEach(() => {
 	globalThis.localStorage = originalLocalStorage;
 	globalThis.sessionStorage = originalSessionStorage;
+	globalThis.fetch = initialFetch;
+});
+
+// Keep unmocked tests hermetic: the host may probe `/api/spaces`, and any
+// other endpoint a test forgets to mock resolves to an empty object.
+const initialFetch = globalThis.fetch;
+beforeEach(() => {
+	globalThis.fetch = (async (url: unknown) =>
+		String(url).endsWith("/api/spaces") ? jsonResponse([]) : jsonResponse({})) as typeof fetch;
 });
 
 // --- Tests ------------------------------------------------------------------
@@ -180,28 +189,37 @@ test("legacy work token reuses the current app session path", async () => {
 });
 
 test("legacy work authorize and purchase replies preserve their protocol", async () => {
-	const config = makeConfig({ viewerUuid: "viewer-uuid" });
-	const core = createAppBridgeCore(config);
+	const originalFetch = globalThis.fetch;
+	globalThis.fetch = (async (url: unknown) =>
+		String(url).endsWith("/api/spaces")
+			? jsonResponse([])
+			: new Response("server error", { status: 500 })) as typeof fetch;
+	try {
+		const config = makeConfig({ viewerUuid: "viewer-uuid" });
+		const core = createAppBridgeCore(config);
 
-	await core.handleMessage(
-		messageEvent({
-			type: "cohub.work.authorize",
-			requestId: "legacy-auth",
-			scopes: ["session.prompt.readonly"],
-		}),
-	);
-	core.cancelAuth();
-	assert.equal(config.replies[0].payload.type, "cohub.work.authorize.result");
-	assert.equal(config.replies[0].payload.token, null);
+		await core.handleMessage(
+			messageEvent({
+				type: "cohub.work.authorize",
+				requestId: "legacy-auth",
+				scopes: ["session.prompt.readonly"],
+			}),
+		);
+		core.cancelAuth();
+		assert.equal(config.replies[0].payload.type, "cohub.work.authorize.result");
+		assert.equal(config.replies[0].payload.token, null);
 
-	await core.handleMessage(
-		messageEvent({
-			type: "cohub.work.purchase",
-			requestId: "legacy-purchase",
-			productKey: "pro-monthly",
-		}),
-	);
-	assert.equal(config.replies[1].payload.type, "cohub.work.error");
+		await core.handleMessage(
+			messageEvent({
+				type: "cohub.work.purchase",
+				requestId: "legacy-purchase",
+				productKey: "pro-monthly",
+			}),
+		);
+		assert.equal(config.replies[1].payload.type, "cohub.work.error");
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
 });
 
 test("context requests read the latest invocation and notify full snapshots", async () => {
@@ -566,12 +584,12 @@ test("selectSpace refreshes an expired user token before loading spaces", async 
 	}
 });
 
-test("selectSpace without a pick keeps the dialog open with an error", async () => {
+test("selectSpace with no accessible Space keeps the dialog open with an error", async () => {
 	const config = makeConfig({ viewerUuid: "some-other-viewer" });
 	const core = createAppBridgeCore(config);
 	const originalFetch = globalThis.fetch;
-	globalThis.fetch = (async () =>
-		jsonResponse([{ id: "space-a", name: "Alpha" }])) as typeof fetch;
+	globalThis.fetch = (async (url: unknown) =>
+		String(url).endsWith("/api/spaces") ? jsonResponse([]) : jsonResponse({})) as typeof fetch;
 	try {
 		await core.handleMessage(
 			messageEvent({
@@ -583,7 +601,7 @@ test("selectSpace without a pick keeps the dialog open with an error", async () 
 		);
 		await core.confirmAuth();
 		assert.equal(core.getState().authOpen, true);
-		assert.equal(core.getState().authError, "Pick a Space to continue.");
+		assert.equal(core.getState().authError, "Couldn't load your Spaces. Please try again.");
 		assert.equal(config.replies.length, 0);
 	} finally {
 		globalThis.fetch = originalFetch;
@@ -603,7 +621,10 @@ test("selectSpace re-authorizes silently against the last picked space", async (
 		"cohub:app-picked-space:work_123": "space-a",
 	};
 	globalThis.localStorage = storageMock(store);
-	globalThis.fetch = (async () => jsonResponse({ token: "silent-token" })) as typeof fetch;
+	globalThis.fetch = (async (url: unknown) =>
+		String(url).endsWith("/api/spaces")
+			? jsonResponse([{ id: "space-a", name: null }])
+			: jsonResponse({ token: "silent-token" })) as typeof fetch;
 	try {
 		const config = makeConfig();
 		const core = createAppBridgeCore(config);
@@ -622,6 +643,48 @@ test("selectSpace re-authorizes silently against the last picked space", async (
 		assert.equal(config.replies.length, 1);
 		assert.equal(config.replies[0].payload.token, "silent-token");
 		assert.deepEqual(config.replies[0].payload.space, { id: "space-a", name: null });
+	} finally {
+		globalThis.fetch = originalFetch;
+		globalThis.localStorage = originalLocalStorage;
+	}
+});
+
+test("selectSpace does not silently reuse a last picked Space the viewer lost", async () => {
+	const originalFetch = globalThis.fetch;
+	const store: Record<string, string> = {
+		"cohub:work-grants:viewer-uuid:work_123:space-gone:v1": JSON.stringify({
+			version: 1,
+			userUuid: "viewer-uuid",
+			appId: "work_123",
+			scopes: ["file.view"],
+			updatedAt: Date.now(),
+		}),
+		"cohub:app-picked-space:work_123": "space-gone",
+	};
+	globalThis.localStorage = storageMock(store);
+	const urls: string[] = [];
+	globalThis.fetch = (async (url: unknown) => {
+		urls.push(String(url));
+		return String(url).endsWith("/api/spaces")
+			? jsonResponse([{ id: "space-a", name: "Alpha" }])
+			: jsonResponse({ token: "silent-token" });
+	}) as typeof fetch;
+	try {
+		const config = makeConfig();
+		const core = createAppBridgeCore(config);
+		await core.handleMessage(
+			messageEvent({
+				type: "cohub.app.authorize",
+				requestId: "r1",
+				scopes: ["file.view"],
+				selectSpace: true,
+			}),
+		);
+
+		// The last picked Space is no longer accessible: show the picker instead
+		// of silently renewing a grant the viewer can no longer use.
+		assert.equal(urls.some((url) => url.endsWith("/authorize")), false);
+		assert.equal(core.getState().authOpen, true);
 	} finally {
 		globalThis.fetch = originalFetch;
 		globalThis.localStorage = originalLocalStorage;
@@ -719,7 +782,7 @@ test("authorize replies always carry the target space", async () => {
 
 test("silent reuse sends silent: true; dialog confirm does not", async () => {
 	const store: Record<string, string> = {
-		"cohub:work-grants:viewer-uuid:work_123:v1": JSON.stringify({
+		"cohub:work-grants:viewer-uuid:work_123:space-a:v1": JSON.stringify({
 			version: 1,
 			userUuid: "viewer-uuid",
 			appId: "work_123",
@@ -730,7 +793,10 @@ test("silent reuse sends silent: true; dialog confirm does not", async () => {
 	globalThis.localStorage = storageMock(store);
 	const originalFetch = globalThis.fetch;
 	const bodies: Array<Record<string, unknown>> = [];
-	globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
+	globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+		if (String(url).endsWith("/api/spaces")) {
+			return jsonResponse([{ id: "space-a", name: "Alpha" }]);
+		}
 		bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
 		return jsonResponse({ token: "tok" });
 	}) as typeof fetch;
@@ -739,7 +805,7 @@ test("silent reuse sends silent: true; dialog confirm does not", async () => {
 		const core = createAppBridgeCore(config);
 
 		// Cached-grant reuse marks the call silent — the server may then only
-		// renew, never revive a revoked grant.
+		// renew, never revive a revoked grant. The target is the resolved Space.
 		await core.handleMessage(
 			messageEvent({
 				type: "cohub.app.authorize",
@@ -748,6 +814,7 @@ test("silent reuse sends silent: true; dialog confirm does not", async () => {
 			}),
 		);
 		assert.equal(bodies[0]?.silent, true);
+		assert.equal(bodies[0]?.spaceId, "space-a");
 
 		// A dialog confirmation is an explicit consent: no silent flag.
 		await core.handleMessage(
@@ -760,6 +827,7 @@ test("silent reuse sends silent: true; dialog confirm does not", async () => {
 		);
 		await core.confirmAuth();
 		assert.equal(bodies[1]?.silent, undefined);
+		assert.equal(bodies[1]?.spaceId, "space-a");
 	} finally {
 		globalThis.fetch = originalFetch;
 		globalThis.localStorage = originalLocalStorage;
@@ -768,7 +836,7 @@ test("silent reuse sends silent: true; dialog confirm does not", async () => {
 
 test("transient silent authorization failures preserve cache and return a retryable error", async () => {
 	const store: Record<string, string> = {
-		"cohub:work-grants:viewer-uuid:work_123:v1": JSON.stringify({
+		"cohub:work-grants:viewer-uuid:work_123:space-a:v1": JSON.stringify({
 			version: 1,
 			userUuid: "viewer-uuid",
 			appId: "work_123",
@@ -778,10 +846,12 @@ test("transient silent authorization failures preserve cache and return a retrya
 	};
 	globalThis.localStorage = storageMock(store);
 	const originalFetch = globalThis.fetch;
-	globalThis.fetch = (async () =>
-		new Response(JSON.stringify({ message: "temporarily unavailable" }), {
-			status: 503,
-		})) as typeof fetch;
+	globalThis.fetch = (async (url: unknown) =>
+		String(url).endsWith("/api/spaces")
+			? jsonResponse([{ id: "space-a", name: "Alpha" }])
+			: new Response(JSON.stringify({ message: "temporarily unavailable" }), {
+					status: 503,
+				})) as typeof fetch;
 	try {
 		const config = makeConfig();
 		const core = createAppBridgeCore(config);
@@ -794,7 +864,7 @@ test("transient silent authorization failures preserve cache and return a retrya
 		assert.equal(core.getState().authOpen, false);
 		assert.equal(config.replies[0]?.payload.type, "cohub.app.error");
 		assert.equal(config.replies[0]?.payload.message, "temporarily unavailable");
-		assert.ok(store["cohub:work-grants:viewer-uuid:work_123:v1"]);
+		assert.ok(store["cohub:work-grants:viewer-uuid:work_123:space-a:v1"]);
 	} finally {
 		globalThis.fetch = originalFetch;
 		globalThis.localStorage = originalLocalStorage;
@@ -803,7 +873,7 @@ test("transient silent authorization failures preserve cache and return a retrya
 
 test("definitive silent authorization failures clear cache and ask again", async () => {
 	const store: Record<string, string> = {
-		"cohub:work-grants:viewer-uuid:work_123:v1": JSON.stringify({
+		"cohub:work-grants:viewer-uuid:work_123:space-a:v1": JSON.stringify({
 			version: 1,
 			userUuid: "viewer-uuid",
 			appId: "work_123",
@@ -813,10 +883,12 @@ test("definitive silent authorization failures clear cache and ask again", async
 	};
 	globalThis.localStorage = storageMock(store);
 	const originalFetch = globalThis.fetch;
-	globalThis.fetch = (async () =>
-		new Response(JSON.stringify({ message: "grant revoked" }), {
-			status: 403,
-		})) as typeof fetch;
+	globalThis.fetch = (async (url: unknown) =>
+		String(url).endsWith("/api/spaces")
+			? jsonResponse([{ id: "space-a", name: "Alpha" }])
+			: new Response(JSON.stringify({ message: "grant revoked" }), {
+					status: 403,
+				})) as typeof fetch;
 	try {
 		const config = makeConfig();
 		const core = createAppBridgeCore(config);
@@ -828,7 +900,7 @@ test("definitive silent authorization failures clear cache and ask again", async
 
 		assert.equal(core.getState().authOpen, true);
 		assert.equal(config.replies.length, 0);
-		assert.equal(store["cohub:work-grants:viewer-uuid:work_123:v1"], undefined);
+		assert.equal(store["cohub:work-grants:viewer-uuid:work_123:space-a:v1"], undefined);
 	} finally {
 		globalThis.fetch = originalFetch;
 		globalThis.localStorage = originalLocalStorage;
@@ -837,7 +909,7 @@ test("definitive silent authorization failures clear cache and ask again", async
 
 test("alwaysAsk skips silent reuse and opens the consent dialog", async () => {
 	const store: Record<string, string> = {
-		"cohub:work-grants:viewer-uuid:work_123:v1": JSON.stringify({
+		"cohub:work-grants:viewer-uuid:work_123:space-a:v1": JSON.stringify({
 			version: 1,
 			userUuid: "viewer-uuid",
 			appId: "work_123",
@@ -847,8 +919,10 @@ test("alwaysAsk skips silent reuse and opens the consent dialog", async () => {
 	};
 	globalThis.localStorage = storageMock(store);
 	const originalFetch = globalThis.fetch;
-	globalThis.fetch = (async () =>
-		jsonResponse({ token: "silent-token" })) as typeof fetch;
+	globalThis.fetch = (async (url: unknown) =>
+		String(url).endsWith("/api/spaces")
+			? jsonResponse([{ id: "space-a", name: "Alpha" }])
+			: jsonResponse({ token: "silent-token" })) as typeof fetch;
 	try {
 		const config = makeConfig();
 		const core = createAppBridgeCore(config);
@@ -873,6 +947,262 @@ test("alwaysAsk skips silent reuse and opens the consent dialog", async () => {
 			}),
 		);
 		assert.equal(core.getState().authOpen, true);
+	} finally {
+		globalThis.fetch = originalFetch;
+		globalThis.localStorage = originalLocalStorage;
+	}
+});
+
+test("a legacy home-space grant is not reused for an implicit request", async () => {
+	const store: Record<string, string> = {
+		"cohub:work-grants:viewer-uuid:work_123:v1": JSON.stringify({
+			version: 1,
+			userUuid: "viewer-uuid",
+			appId: "work_123",
+			scopes: ["file.view"],
+			updatedAt: Date.now(),
+		}),
+	};
+	globalThis.localStorage = storageMock(store);
+	const originalFetch = globalThis.fetch;
+	const urls: string[] = [];
+	globalThis.fetch = (async (url: unknown) => {
+		urls.push(String(url));
+		return String(url).endsWith("/api/spaces")
+			? jsonResponse([{ id: "space-a", name: "Alpha" }])
+			: jsonResponse({ token: "silent-token" });
+	}) as typeof fetch;
+	try {
+		const config = makeConfig();
+		const core = createAppBridgeCore(config);
+		await core.handleMessage(
+			messageEvent({ type: "cohub.app.authorize", requestId: "r1", scopes: ["file.view"] }),
+		);
+
+		// The legacy home grant must not silently re-authorize the app author's
+		// Space; the host resolves the viewer-controlled target and asks.
+		assert.equal(urls.some((url) => url.endsWith("/authorize")), false);
+		assert.equal(core.getState().authOpen, true);
+		assert.equal(core.getState().pendingAuth?.defaultSpaceId, "space-a");
+	} finally {
+		globalThis.fetch = originalFetch;
+		globalThis.localStorage = originalLocalStorage;
+	}
+});
+
+test("account-level scopes silently reuse a grant made on any Space", async () => {
+	// Deliberately NOT the app home (space_1): account scopes must renew against
+	// the Space whose grant actually exists.
+	const store: Record<string, string> = {
+		"cohub:work-grants:viewer-uuid:work_123:space-other:v1": JSON.stringify({
+			version: 1,
+			userUuid: "viewer-uuid",
+			appId: "work_123",
+			scopes: ["user.taskrun.list"],
+			updatedAt: Date.now(),
+		}),
+	};
+	globalThis.localStorage = storageMock(store);
+	const originalFetch = globalThis.fetch;
+	const urls: string[] = [];
+	let authorizeBody: Record<string, unknown> | null = null;
+	globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+		const target = String(url);
+		urls.push(target);
+		if (target.endsWith("/authorize")) {
+			authorizeBody = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+		}
+		return jsonResponse({ token: "silent-token" });
+	}) as typeof fetch;
+	try {
+		const config = makeConfig();
+		const core = createAppBridgeCore(config);
+		await core.handleMessage(
+			messageEvent({
+				type: "cohub.app.authorize",
+				requestId: "r1",
+				scopes: ["user.taskrun.list"],
+			}),
+		);
+
+		// No Space list, no dialog, and the silent call targets the grant's Space.
+		assert.equal(core.getState().authOpen, false);
+		assert.equal(config.replies[0]?.payload.token, "silent-token");
+		assert.equal(urls.some((url) => url.endsWith("/api/spaces")), false);
+		assert.equal(authorizeBody?.spaceId, "space-other");
+	} finally {
+		globalThis.fetch = originalFetch;
+		globalThis.localStorage = originalLocalStorage;
+	}
+});
+
+test("a legacy account grant (no Space key) still silently reuses", async () => {
+	const store: Record<string, string> = {
+		"cohub:work-grants:viewer-uuid:work_123:v1": JSON.stringify({
+			version: 1,
+			userUuid: "viewer-uuid",
+			appId: "work_123",
+			scopes: ["user.taskrun.list"],
+			updatedAt: Date.now(),
+		}),
+	};
+	globalThis.localStorage = storageMock(store);
+	const originalFetch = globalThis.fetch;
+	let authorizeBody: Record<string, unknown> | null = null;
+	globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+		if (String(url).endsWith("/authorize")) {
+			authorizeBody = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+		}
+		return jsonResponse({ token: "silent-token" });
+	}) as typeof fetch;
+	try {
+		const config = makeConfig();
+		const core = createAppBridgeCore(config);
+		await core.handleMessage(
+			messageEvent({
+				type: "cohub.app.authorize",
+				requestId: "r1",
+				scopes: ["user.taskrun.list"],
+			}),
+		);
+
+		// The legacy entry maps to the app home Space, which is what we renew.
+		assert.equal(core.getState().authOpen, false);
+		assert.equal(config.replies[0]?.payload.token, "silent-token");
+		assert.equal(authorizeBody?.spaceId, "space_1");
+	} finally {
+		globalThis.fetch = originalFetch;
+		globalThis.localStorage = originalLocalStorage;
+	}
+});
+
+test("a dead account grant falls through to the next Space's grant", async () => {
+	const store: Record<string, string> = {
+		"cohub:work-grants:viewer-uuid:work_123:space-a:v1": JSON.stringify({
+			version: 1,
+			userUuid: "viewer-uuid",
+			appId: "work_123",
+			scopes: ["user.taskrun.list"],
+			updatedAt: Date.now(),
+		}),
+		"cohub:work-grants:viewer-uuid:work_123:space-b:v1": JSON.stringify({
+			version: 1,
+			userUuid: "viewer-uuid",
+			appId: "work_123",
+			scopes: ["user.taskrun.list"],
+			updatedAt: Date.now(),
+		}),
+	};
+	globalThis.localStorage = storageMock(store);
+	const originalFetch = globalThis.fetch;
+	let calls = 0;
+	globalThis.fetch = (async () => {
+		calls += 1;
+		return calls === 1
+			? new Response(JSON.stringify({ message: "revoked", code: "consent_required" }), {
+					status: 403,
+				})
+			: jsonResponse({ token: "next-token" });
+	}) as typeof fetch;
+	try {
+		const config = makeConfig();
+		const core = createAppBridgeCore(config);
+		await core.handleMessage(
+			messageEvent({
+				type: "cohub.app.authorize",
+				requestId: "r1",
+				scopes: ["user.taskrun.list"],
+			}),
+		);
+
+		assert.equal(core.getState().authOpen, false);
+		assert.equal(config.replies[0]?.payload.token, "next-token");
+		assert.equal(
+			store["cohub:work-grants:viewer-uuid:work_123:space-a:v1"],
+			undefined,
+		);
+	} finally {
+		globalThis.fetch = originalFetch;
+		globalThis.localStorage = originalLocalStorage;
+	}
+});
+
+test("a stale access token during silent renewal refreshes instead of dropping the grant", async () => {
+	const store: Record<string, string> = {
+		"cohub:work-grants:viewer-uuid:work_123:space-a:v1": JSON.stringify({
+			version: 1,
+			userUuid: "viewer-uuid",
+			appId: "work_123",
+			scopes: ["file.view"],
+			updatedAt: Date.now(),
+		}),
+	};
+	globalThis.localStorage = storageMock(store);
+	const originalFetch = globalThis.fetch;
+	let forcedRefresh = false;
+	globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+		const target = String(url);
+		if (target.endsWith("/api/spaces")) {
+			return jsonResponse([{ id: "space-a", name: "Alpha" }]);
+		}
+		const auth = String(new Headers(init?.headers).get("Authorization") ?? "");
+		if (auth.includes("stale-token")) {
+			return new Response("unauthorized", { status: 401 });
+		}
+		return jsonResponse({ token: "silent-token" });
+	}) as typeof fetch;
+	try {
+		const config = makeConfig({
+			viewerUuid: "viewer-uuid",
+			getAccessToken: async (options) => {
+				if (options?.forceRefresh) forcedRefresh = true;
+				return options?.forceRefresh ? "fresh-token" : "stale-token";
+			},
+		});
+		const core = createAppBridgeCore(config);
+		await core.handleMessage(
+			messageEvent({ type: "cohub.app.authorize", requestId: "r1", scopes: ["file.view"] }),
+		);
+
+		assert.equal(core.getState().authOpen, false);
+		assert.equal(config.replies[0]?.payload.token, "silent-token");
+		assert.equal(forcedRefresh, true);
+		assert.ok(store["cohub:work-grants:viewer-uuid:work_123:space-a:v1"]);
+	} finally {
+		globalThis.fetch = originalFetch;
+		globalThis.localStorage = originalLocalStorage;
+	}
+});
+
+test("a persistent 401 never clears a valid grant cache", async () => {
+	const store: Record<string, string> = {
+		"cohub:work-grants:viewer-uuid:work_123:space-a:v1": JSON.stringify({
+			version: 1,
+			userUuid: "viewer-uuid",
+			appId: "work_123",
+			scopes: ["file.view"],
+			updatedAt: Date.now(),
+		}),
+	};
+	globalThis.localStorage = storageMock(store);
+	const originalFetch = globalThis.fetch;
+	globalThis.fetch = (async (url: unknown) =>
+		String(url).endsWith("/api/spaces")
+			? jsonResponse([{ id: "space-a", name: "Alpha" }])
+			: new Response("unauthorized", { status: 401 })) as typeof fetch;
+	try {
+		const config = makeConfig({
+			viewerUuid: "viewer-uuid",
+			getAccessToken: async () => "stale-token",
+		});
+		const core = createAppBridgeCore(config);
+		await core.handleMessage(
+			messageEvent({ type: "cohub.app.authorize", requestId: "r1", scopes: ["file.view"] }),
+		);
+
+		assert.equal(core.getState().authOpen, false);
+		assert.equal(config.replies[0]?.payload.type, "cohub.app.error");
+		assert.ok(store["cohub:work-grants:viewer-uuid:work_123:space-a:v1"]);
 	} finally {
 		globalThis.fetch = originalFetch;
 		globalThis.localStorage = originalLocalStorage;
@@ -923,10 +1253,15 @@ test("authorize for a specific space surfaces the space on the dialog", async ()
 	const originalFetch = globalThis.fetch;
 	const fetchedUrls: string[] = [];
 	globalThis.fetch = (async (url: unknown) => {
-		fetchedUrls.push(String(url));
-		return new Response(JSON.stringify({ name: "Target Space" }), {
-			status: 200,
-		});
+		const target = String(url);
+		fetchedUrls.push(target);
+		if (target.endsWith("/api/spaces")) {
+			return jsonResponse([
+				{ id: "space-2", name: "Target Space" },
+				{ id: "space-9", name: "Other Space" },
+			]);
+		}
+		return jsonResponse({ name: "Target Space" });
 	}) as typeof fetch;
 	try {
 		const config = makeConfig({ viewerUuid: "some-other-viewer" });
@@ -942,12 +1277,663 @@ test("authorize for a specific space surfaces the space on the dialog", async ()
 			}),
 		);
 
-		// The host resolves the target space name itself.
-		assert.deepEqual(fetchedUrls, ["https://api.test/api/spaces/space-2"]);
+		// The host loads the viewer's Spaces; the target's name comes from that
+		// list, so no separate per-Space lookup is needed.
+		assert.deepEqual(fetchedUrls, ["https://api.test/api/spaces"]);
 		const state = core.getState();
 		assert.equal(state.authOpen, true);
 		assert.equal(state.pendingAuth?.spaceId, "space-2");
 		assert.equal(state.pendingAuth?.spaceName, "Target Space");
+		assert.equal(state.pendingAuth?.defaultSpaceId, "space-2");
+		assert.equal(state.selectedSpaceId, "space-2");
+		assert.deepEqual(state.pendingAuth?.spaces, [
+			{ id: "space-2", name: "Target Space" },
+			{ id: "space-9", name: "Other Space" },
+		]);
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
+test("space-bound authorize loads the viewer's spaces so it can be changed", async () => {
+	const originalFetch = globalThis.fetch;
+	const authorizeBodies: unknown[] = [];
+	globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+		const target = String(url);
+		if (target.endsWith("/api/spaces")) {
+			return jsonResponse([
+				{ id: "space-a", name: "Alpha" },
+				{ id: "space-b", name: "Beta" },
+			]);
+		}
+		if (target.endsWith("/authorize")) {
+			authorizeBodies.push(JSON.parse(String(init?.body ?? "{}")));
+			return jsonResponse({
+				token: "tok",
+				grant: { spaceId: "space-b", scopes: ["file.view"] },
+			});
+		}
+		return jsonResponse({});
+	}) as typeof fetch;
+	try {
+		const config = makeConfig({ viewerUuid: "some-other-viewer" });
+		const core = createAppBridgeCore(config);
+
+		await core.handleMessage(
+			messageEvent({ type: "cohub.app.authorize", requestId: "r1", scopes: ["file.view"] }),
+		);
+
+		const pending = core.getState().pendingAuth;
+		assert.equal(pending?.spaceId, undefined);
+		assert.deepEqual(pending?.spaces, [
+			{ id: "space-a", name: "Alpha" },
+			{ id: "space-b", name: "Beta" },
+		]);
+
+		// The viewer changes the target: the grant follows the picked Space.
+		await core.confirmAuth("space-b");
+		assert.deepEqual(authorizeBodies, [{ scopes: ["file.view"], spaceId: "space-b" }]);
+		assert.deepEqual(config.replies[0].payload.space, { id: "space-b", name: "Beta" });
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
+test("account-only authorize never loads Spaces", async () => {
+	const originalFetch = globalThis.fetch;
+	const urls: string[] = [];
+	globalThis.fetch = (async (url: unknown) => {
+		urls.push(String(url));
+		return jsonResponse({});
+	}) as typeof fetch;
+	try {
+		const config = makeConfig({ viewerUuid: "some-other-viewer" });
+		const core = createAppBridgeCore(config);
+
+		await core.handleMessage(
+			messageEvent({
+				type: "cohub.app.authorize",
+				requestId: "r1",
+				scopes: ["user.taskrun.list"],
+			}),
+		);
+
+		assert.equal(urls.some((url) => url.endsWith("/api/spaces")), false);
+		assert.equal(core.getState().pendingAuth?.spaces, undefined);
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
+test("resolves the default target from the invocation Space", async () => {
+	const originalFetch = globalThis.fetch;
+	globalThis.fetch = (async (url: unknown) => {
+		const target = String(url);
+		if (target.endsWith("/api/spaces")) {
+			return jsonResponse([
+				{ id: "space-a", name: "Alpha" },
+				{ id: "space-b", name: "Beta" },
+			]);
+		}
+		return jsonResponse({ token: "silent-token" });
+	}) as typeof fetch;
+	try {
+		const config = makeConfig({
+			viewerUuid: "some-other-viewer",
+			invocation: { surface: "app", spaceId: "space-b" },
+		});
+		const core = createAppBridgeCore(config);
+
+		await core.handleMessage(
+			messageEvent({ type: "cohub.app.authorize", requestId: "r1", scopes: ["file.view"] }),
+		);
+
+		// The default lands on the Space the app was invoked in, not the app home.
+		assert.equal(core.getState().pendingAuth?.defaultSpaceId, "space-b");
+		assert.equal(core.getState().selectedSpaceId, "space-b");
+		assert.equal(core.getState().canChangeSpace, true);
+		assert.equal(core.getState().pendingAuth?.spaceId, undefined);
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
+test("a single accessible Space selects without offering a change", async () => {
+	const originalFetch = globalThis.fetch;
+	globalThis.fetch = (async (url: unknown) =>
+		String(url).endsWith("/api/spaces")
+			? jsonResponse([{ id: "only-space", name: "Only" }])
+			: jsonResponse({})) as typeof fetch;
+	try {
+		const config = makeConfig({ viewerUuid: "some-other-viewer" });
+		const core = createAppBridgeCore(config);
+
+		await core.handleMessage(
+			messageEvent({ type: "cohub.app.authorize", requestId: "r1", scopes: ["file.view"] }),
+		);
+
+		assert.equal(core.getState().selectedSpaceId, "only-space");
+		assert.equal(core.getState().canChangeSpace, false);
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
+test("an empty Space list falls back to the viewer's default Home", async () => {
+	const originalFetch = globalThis.fetch;
+	const urls: string[] = [];
+	globalThis.fetch = (async (url: unknown) => {
+		const target = String(url);
+		urls.push(target);
+		if (target.endsWith("/api/spaces/default")) {
+			return jsonResponse({
+				space: { id: "home-space", name: "Home", userUuid: "viewer-uuid" },
+			});
+		}
+		if (target.endsWith("/api/spaces")) return jsonResponse([]);
+		return jsonResponse({});
+	}) as typeof fetch;
+	try {
+		const config = makeConfig({ viewerUuid: "viewer-uuid" });
+		const core = createAppBridgeCore(config);
+
+		await core.handleMessage(
+			messageEvent({ type: "cohub.app.authorize", requestId: "r1", scopes: ["file.view"] }),
+		);
+
+		const pending = core.getState().pendingAuth;
+		assert.equal(pending?.defaultSpaceId, "home-space");
+		assert.equal(core.getState().selectedSpaceId, "home-space");
+		assert.equal(core.getState().canChangeSpace, false);
+		assert.deepEqual(pending?.spaces, [
+			{ id: "home-space", name: "Home", ownerUserUuid: "viewer-uuid" },
+		]);
+		assert.ok(urls.some((url) => url.endsWith("/api/spaces/default")));
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
+test("an inaccessible explicit Space is replaced with a viewer-controlled one", async () => {
+	const originalFetch = globalThis.fetch;
+	const diagnostics: Record<string, unknown>[] = [];
+	globalThis.fetch = (async (url: unknown) =>
+		String(url).endsWith("/api/spaces")
+			? jsonResponse([
+					{ id: "space-a", name: "Alpha" },
+					{ id: "space-b", name: "Beta" },
+				])
+			: jsonResponse({ token: "tok", grant: { spaceId: "space-a", scopes: ["file.view"] } })) as typeof fetch;
+	try {
+		const config = makeConfig({
+			viewerUuid: "some-other-viewer",
+			notify: (payload) => diagnostics.push(payload),
+		});
+		const core = createAppBridgeCore(config);
+
+		await core.handleMessage(
+			messageEvent({
+				type: "cohub.app.authorize",
+				requestId: "r1",
+				scopes: ["file.view"],
+				spaceId: "author-space",
+			}),
+		);
+
+		const pending = core.getState().pendingAuth;
+		// The app's requested target stays for duplicate detection; the grant uses
+		// the resolved, viewer-controlled one.
+		assert.equal(pending?.spaceId, "author-space");
+		assert.equal(pending?.defaultSpaceId, "space-a");
+		assert.equal(core.getState().selectedSpaceId, "space-a");
+		const diagnostic = diagnostics.find((entry) => entry.type === "cohub.app.diagnostic");
+		assert.equal(diagnostic?.code, "space_inaccessible");
+		// Never leak the viewer's Space id to the app before they consent.
+		assert.deepEqual(diagnostic?.detail, { requestedSpaceId: "author-space" });
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
+test("a failed Space load blocks confirm instead of falling back to the app Space", async () => {
+	const originalFetch = globalThis.fetch;
+	const urls: string[] = [];
+	globalThis.fetch = (async (url: unknown) => {
+		urls.push(String(url));
+		// Malformed/absent responses: the viewer's Space list cannot be loaded.
+		return jsonResponse({});
+	}) as typeof fetch;
+	try {
+		const config = makeConfig({ viewerUuid: "some-other-viewer" });
+		const core = createAppBridgeCore(config);
+
+		await core.handleMessage(
+			messageEvent({ type: "cohub.app.authorize", requestId: "r1", scopes: ["file.view"] }),
+		);
+
+		assert.equal(core.getState().authOpen, true);
+		assert.equal(core.getState().pendingAuth?.spaces, null);
+		assert.equal(core.getState().selectedSpaceId, null);
+
+		// Confirming must not silently target the app author's Space.
+		await core.confirmAuth();
+		assert.equal(
+			core.getState().authError,
+			"Couldn't load your Spaces. Please try again.",
+		);
+		assert.equal(urls.some((url) => url.endsWith("/authorize")), false);
+		assert.equal(config.replies.length, 0);
+		assert.equal(core.getState().authOpen, true);
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
+test("concurrent identical authorize requests join instead of overwriting", async () => {
+	const originalFetch = globalThis.fetch;
+	let spacesCalls = 0;
+	globalThis.fetch = (async (url: unknown) => {
+		const target = String(url);
+		if (target.endsWith("/api/spaces")) {
+			spacesCalls += 1;
+			// Hold the first load open so the second request arrives mid-flight.
+			await new Promise((resolve) => setTimeout(resolve, 5));
+			return jsonResponse([{ id: "space-a", name: "Alpha" }]);
+		}
+		if (target.endsWith("/authorize")) {
+			return jsonResponse({ token: "tok", grant: { spaceId: "space-a", scopes: ["file.view"] } });
+		}
+		return jsonResponse({});
+	}) as typeof fetch;
+	try {
+		const config = makeConfig({ viewerUuid: "some-other-viewer" });
+		const core = createAppBridgeCore(config);
+		const ask = (requestId: string) =>
+			core.handleMessage(
+				messageEvent({ type: "cohub.app.authorize", requestId, scopes: ["file.view"] }),
+			);
+
+		await Promise.all([ask("r1"), ask("r2")]);
+
+		// One dialog, one Space load, and no request left unanswered.
+		assert.equal(core.getState().authOpen, true);
+		assert.equal(spacesCalls, 1);
+		await core.confirmAuth();
+		assert.deepEqual(
+			config.replies.map((reply) => [reply.requestId, reply.payload.token]).sort(),
+			[
+				["r1", "tok"],
+				["r2", "tok"],
+			],
+		);
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
+test("a replaced silent authorization does not clear the newer request", async () => {
+	const store: Record<string, string> = {
+		"cohub:work-grants:viewer-uuid:work_123:space-a:v1": JSON.stringify({
+			version: 1,
+			userUuid: "viewer-uuid",
+			appId: "work_123",
+			scopes: ["file.view", "session.view"],
+			updatedAt: Date.now(),
+		}),
+	};
+	globalThis.localStorage = storageMock(store);
+	const originalFetch = globalThis.fetch;
+	const holds: Array<() => void> = [];
+	globalThis.fetch = (async (url: unknown) => {
+		if (String(url).endsWith("/api/spaces")) {
+			return jsonResponse([{ id: "space-a", name: "Alpha" }]);
+		}
+		await new Promise<void>((resolve) => holds.push(resolve));
+		return jsonResponse({ token: "silent-token" });
+	}) as typeof fetch;
+	try {
+		const config = makeConfig();
+		const core = createAppBridgeCore(config);
+		const waitFor = async (predicate: () => boolean) => {
+			for (let i = 0; i < 200 && !predicate(); i += 1) {
+				await new Promise((resolve) => setTimeout(resolve, 0));
+			}
+		};
+
+		const first = core.handleMessage(
+			messageEvent({ type: "cohub.app.authorize", requestId: "r-a", scopes: ["file.view"] }),
+		);
+		await waitFor(() => holds.length === 1);
+
+		// A different request replaces the first while its silent call is in flight.
+		const second = core.handleMessage(
+			messageEvent({ type: "cohub.app.authorize", requestId: "r-b", scopes: ["session.view"] }),
+		);
+		await waitFor(() => holds.length === 2);
+
+		// Releasing the replaced request must not wipe the newer reservation.
+		holds[0]?.();
+		await first;
+		assert.equal(core.getState().pendingAuth?.requestId, "r-b");
+
+		holds[1]?.();
+		await second;
+		const replies = new Map(config.replies.map((reply) => [reply.requestId, reply.payload]));
+		assert.equal(replies.get("r-a")?.token, null);
+		assert.equal(replies.get("r-b")?.token, "silent-token");
+	} finally {
+		globalThis.fetch = originalFetch;
+		globalThis.localStorage = originalLocalStorage;
+	}
+});
+
+test("repeating an inaccessible target request joins the open dialog", async () => {
+	const originalFetch = globalThis.fetch;
+	globalThis.fetch = (async (url: unknown) =>
+		String(url).endsWith("/api/spaces")
+			? jsonResponse([{ id: "space-a", name: "Alpha" }])
+			: jsonResponse({})) as typeof fetch;
+	try {
+		const config = makeConfig({ viewerUuid: "some-other-viewer" });
+		const core = createAppBridgeCore(config);
+		const ask = (requestId: string) =>
+			core.handleMessage(
+				messageEvent({
+					type: "cohub.app.authorize",
+					requestId,
+					scopes: ["file.view"],
+					spaceId: "author-space",
+				}),
+			);
+
+		await ask("r1");
+		await ask("r2");
+
+		// The retained requested target keeps duplicate detection working.
+		assert.equal(core.getState().pendingAuth?.requestId, "r1");
+		assert.deepEqual(core.getState().pendingAuth?.joinedRequestIds, ["r2"]);
+		assert.equal(config.replies.length, 0);
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
+test("a pinned explicit target ignores a different confirm pick", async () => {
+	const originalFetch = globalThis.fetch;
+	let authorizeBody: Record<string, unknown> | null = null;
+	globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+		const target = String(url);
+		if (target.endsWith("/api/spaces")) {
+			return jsonResponse([
+				{ id: "space-a", name: "Alpha" },
+				{ id: "space-b", name: "Beta" },
+			]);
+		}
+		if (target.endsWith("/authorize")) {
+			authorizeBody = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+		}
+		return jsonResponse({ token: "tok", grant: { spaceId: "space-a", scopes: ["file.view"] } });
+	}) as typeof fetch;
+	try {
+		const config = makeConfig({ viewerUuid: "some-other-viewer" });
+		const core = createAppBridgeCore(config);
+		await core.handleMessage(
+			messageEvent({
+				type: "cohub.app.authorize",
+				requestId: "r1",
+				scopes: ["file.view"],
+				spaceId: "space-a",
+			}),
+		);
+		assert.equal(core.getState().canChangeSpace, false);
+
+		// The core pins the target even if a host passes a different id.
+		await core.confirmAuth("space-b");
+		assert.equal(authorizeBody?.spaceId, "space-a");
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
+test("a throwing state callback still answers joined requests", async () => {
+	const originalFetch = globalThis.fetch;
+	const originalLocalStorage = globalThis.localStorage;
+	globalThis.fetch = (async (url: unknown) =>
+		String(url).endsWith("/api/spaces")
+			? jsonResponse([{ id: "space-a", name: "Alpha" }])
+			: jsonResponse({})) as typeof fetch;
+	try {
+		let releaseViewer: (() => void) | null = null;
+		const config = makeConfig({
+			viewerUuid: "some-other-viewer",
+			getViewerUuid: () =>
+				new Promise<string | null>((resolve) => {
+					releaseViewer = () => resolve("some-other-viewer");
+				}),
+			onStateChange: (next) => {
+				if (next.authOpen) throw new Error("ui gone");
+			},
+		});
+		const core = createAppBridgeCore(config);
+		const first = core.handleMessage(
+			messageEvent({ type: "cohub.app.authorize", requestId: "r1", scopes: ["file.view"] }),
+		);
+		for (let i = 0; i < 200 && !releaseViewer; i += 1) {
+			await new Promise((resolve) => setTimeout(resolve, 0));
+		}
+		await core.handleMessage(
+			messageEvent({ type: "cohub.app.authorize", requestId: "r2", scopes: ["file.view"] }),
+		);
+		releaseViewer?.();
+		await first;
+
+		assert.deepEqual(
+			config.replies.map((reply) => [reply.requestId, reply.payload.type]).sort(),
+			[
+				["r1", "cohub.app.error"],
+				["r2", "cohub.app.error"],
+			],
+		);
+		assert.equal(core.getState().pendingAuth, null);
+		assert.equal(core.getState().authOpen, false);
+	} finally {
+		globalThis.fetch = originalFetch;
+		globalThis.localStorage = originalLocalStorage;
+	}
+});
+
+test("confirmAuth rejects a target outside the loaded candidates", async () => {
+	const originalFetch = globalThis.fetch;
+	const urls: string[] = [];
+	globalThis.fetch = (async (url: unknown) => {
+		urls.push(String(url));
+		return String(url).endsWith("/api/spaces")
+			? jsonResponse([
+					{ id: "space-a", name: "Alpha" },
+					{ id: "space-b", name: "Beta" },
+				])
+			: jsonResponse({ token: "tok" });
+	}) as typeof fetch;
+	try {
+		const config = makeConfig({ viewerUuid: "some-other-viewer" });
+		const core = createAppBridgeCore(config);
+		await core.handleMessage(
+			messageEvent({ type: "cohub.app.authorize", requestId: "r1", scopes: ["file.view"] }),
+		);
+
+		// A target the host never loaded must not be granted.
+		await core.confirmAuth("space-foreign");
+		assert.equal(urls.some((url) => url.endsWith("/authorize")), false);
+		assert.equal(core.getState().authOpen, true);
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
+test("an accessible explicit target cannot be changed by the viewer", async () => {
+	const originalFetch = globalThis.fetch;
+	globalThis.fetch = (async (url: unknown) =>
+		String(url).endsWith("/api/spaces")
+			? jsonResponse([
+					{ id: "space-a", name: "Alpha" },
+					{ id: "space-b", name: "Beta" },
+				])
+			: jsonResponse({})) as typeof fetch;
+	try {
+		const config = makeConfig({ viewerUuid: "some-other-viewer" });
+		const core = createAppBridgeCore(config);
+		await core.handleMessage(
+			messageEvent({
+				type: "cohub.app.authorize",
+				requestId: "r1",
+				scopes: ["file.view"],
+				spaceId: "space-a",
+			}),
+		);
+
+		// The caller only gets a boolean and acts on `space-a`; the grant must
+		// not be redirectable.
+		assert.equal(core.getState().selectedSpaceId, "space-a");
+		assert.equal(core.getState().canChangeSpace, false);
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
+test("a throwing diagnostic transport never breaks authorization", async () => {
+	const originalFetch = globalThis.fetch;
+	globalThis.fetch = (async (url: unknown) =>
+		String(url).endsWith("/api/spaces")
+			? jsonResponse([{ id: "space-a", name: "Alpha" }])
+			: jsonResponse({})) as typeof fetch;
+	try {
+		const config = makeConfig({
+			viewerUuid: "some-other-viewer",
+			notify: () => {
+				throw new Error("host gone");
+			},
+		});
+		const core = createAppBridgeCore(config);
+		// An inaccessible explicit target emits a diagnostic through notify.
+		await core.handleMessage(
+			messageEvent({
+				type: "cohub.app.authorize",
+				requestId: "r1",
+				scopes: ["file.view"],
+				spaceId: "author-space",
+			}),
+		);
+		assert.equal(core.getState().authOpen, true);
+		assert.equal(core.getState().pendingAuth?.defaultSpaceId, "space-a");
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
+test("an error after the dialog reservation answers every joined request", async () => {
+	const originalFetch = globalThis.fetch;
+	const originalLocalStorage = globalThis.localStorage;
+	globalThis.fetch = (async (url: unknown) =>
+		String(url).endsWith("/api/spaces")
+			? jsonResponse([{ id: "space-a", name: "Alpha" }])
+			: jsonResponse({})) as typeof fetch;
+	try {
+		let releaseViewer: (() => void) | null = null;
+		const config = makeConfig({
+			viewerUuid: "some-other-viewer",
+			getViewerUuid: () =>
+				new Promise<string | null>((_resolve, reject) => {
+					releaseViewer = () => reject(new Error("host exploded"));
+				}),
+		});
+		const core = createAppBridgeCore(config);
+		const first = core.handleMessage(
+			messageEvent({ type: "cohub.app.authorize", requestId: "r1", scopes: ["file.view"] }),
+		);
+		for (let i = 0; i < 200 && !releaseViewer; i += 1) {
+			await new Promise((resolve) => setTimeout(resolve, 0));
+		}
+		// A duplicate joins the reserved dialog before the host dependency fails.
+		await core.handleMessage(
+			messageEvent({ type: "cohub.app.authorize", requestId: "r2", scopes: ["file.view"] }),
+		);
+		releaseViewer?.();
+		await first;
+
+		assert.deepEqual(
+			config.replies.map((reply) => [reply.requestId, reply.payload.type]).sort(),
+			[
+				["r1", "cohub.app.error"],
+				["r2", "cohub.app.error"],
+			],
+		);
+		assert.equal(core.getState().pendingAuth, null);
+		assert.equal(core.getState().authOpen, false);
+	} finally {
+		globalThis.fetch = originalFetch;
+		globalThis.localStorage = originalLocalStorage;
+	}
+});
+
+test("selectSpace only accepts a loaded candidate", async () => {
+	const originalFetch = globalThis.fetch;
+	globalThis.fetch = (async (url: unknown) =>
+		String(url).endsWith("/api/spaces")
+			? jsonResponse([
+					{ id: "space-a", name: "Alpha" },
+					{ id: "space-b", name: "Beta" },
+				])
+			: jsonResponse({})) as typeof fetch;
+	try {
+		const config = makeConfig({ viewerUuid: "some-other-viewer" });
+		const core = createAppBridgeCore(config);
+		await core.handleMessage(
+			messageEvent({ type: "cohub.app.authorize", requestId: "r1", scopes: ["file.view"] }),
+		);
+
+		core.setSelectedSpace("space-b");
+		assert.equal(core.getState().selectedSpaceId, "space-b");
+		core.setSelectedSpace("space-not-loaded");
+		assert.equal(core.getState().selectedSpaceId, "space-b");
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
+test("an app-config grant failure stays opaque to the viewer but logs a diagnostic", async () => {
+	const originalFetch = globalThis.fetch;
+	const diagnostics: Record<string, unknown>[] = [];
+	globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+		const target = String(url);
+		if (target.endsWith("/api/spaces")) {
+			return jsonResponse([{ id: "space-a", name: "Alpha" }]);
+		}
+		if (target.endsWith("/authorize")) {
+			assert.equal(JSON.parse(String(init?.body)).spaceId, "space-a");
+			return new Response(
+				JSON.stringify({ message: "you cannot grant these permissions for this space: file.edit", code: "scope_not_held" }),
+				{ status: 403 },
+			);
+		}
+		return jsonResponse({});
+	}) as typeof fetch;
+	try {
+		const config = makeConfig({
+			viewerUuid: "some-other-viewer",
+			notify: (payload) => diagnostics.push(payload),
+		});
+		const core = createAppBridgeCore(config);
+		await core.handleMessage(
+			messageEvent({ type: "cohub.app.authorize", requestId: "r1", scopes: ["file.edit"] }),
+		);
+		await core.confirmAuth();
+
+		assert.equal(
+			core.getState().authError,
+			"This app needs permissions you don't have yet.",
+		);
+		const diagnostic = diagnostics.find((entry) => entry.type === "cohub.app.diagnostic");
+		assert.equal(diagnostic?.code, "scope_not_held");
 	} finally {
 		globalThis.fetch = originalFetch;
 	}
@@ -1054,6 +2040,11 @@ test("confirmAuth uses the server's canonical grant Space for replies and cache"
 	globalThis.localStorage = storageMock(store);
 	const originalFetch = globalThis.fetch;
 	globalThis.fetch = ((url: string, init: RequestInit) => {
+		if (url.endsWith("/api/spaces")) {
+			return Promise.resolve(
+				new Response(JSON.stringify([{ id: "space_1", name: null }]), { status: 200 }),
+			);
+		}
 		if (url.endsWith("/authorize")) {
 			authorizeBody = init.body as string;
 		}
@@ -1090,7 +2081,10 @@ test("confirmAuth uses the server's canonical grant Space for replies and cache"
 		assert.equal(config.replies[0].payload.type, "cohub.app.authorize.result");
 		assert.equal(config.replies[0].payload.token, "auth-token-xyz");
 		assert.deepEqual(config.replies[0].payload.space, { id: "space_1", name: null });
-		assert.deepEqual(JSON.parse(authorizeBody ?? "{}"), { scopes: ["session.prompt.readonly"] });
+		assert.deepEqual(JSON.parse(authorizeBody ?? "{}"), {
+			scopes: ["session.prompt.readonly"],
+			spaceId: "space_1",
+		});
 		assert.equal("cohub:work-grants:viewer-uuid:work_123:v1" in store, false);
 		const cached = JSON.parse(
 			store["cohub:work-grants:viewer-uuid:work_123:space_1:v1"] ?? "null",
@@ -1733,7 +2727,7 @@ test("dismissing a pending dialog notifies so the UI closes before silent auth",
 	const originalFetch = globalThis.fetch;
 	const originalLocalStorage = globalThis.localStorage;
 	const store: Record<string, string> = {
-		"cohub:work-grants:viewer-uuid:work_123:v1": JSON.stringify({
+		"cohub:work-grants:viewer-uuid:work_123:space-a:v1": JSON.stringify({
 			version: 1,
 			userUuid: "viewer-uuid",
 			appId: "work_123",
@@ -1742,7 +2736,10 @@ test("dismissing a pending dialog notifies so the UI closes before silent auth",
 		}),
 	};
 	globalThis.localStorage = storageMock(store);
-	globalThis.fetch = (async () => jsonResponse({ token: "silent-token" })) as typeof fetch;
+	globalThis.fetch = (async (url: unknown) =>
+		String(url).endsWith("/api/spaces")
+			? jsonResponse([{ id: "space-a", name: "Alpha" }])
+			: jsonResponse({ token: "silent-token" })) as typeof fetch;
 	try {
 		const config = makeConfig();
 		const core = createAppBridgeCore(config);
@@ -1782,8 +2779,10 @@ test("dismissing a pending dialog notifies so the UI closes before silent auth",
 
 test("an identical authorize joins the open dialog and shares its answer", async () => {
 	const originalFetch = globalThis.fetch;
-	globalThis.fetch = (async () =>
-		jsonResponse({ token: "granted-token", grant: { spaceId: "space-2", scopes: ["file.view"] } })) as typeof fetch;
+	globalThis.fetch = (async (url: unknown) =>
+		String(url).endsWith("/api/spaces")
+			? jsonResponse([{ id: "space-2", name: null }])
+			: jsonResponse({ token: "granted-token", grant: { spaceId: "space-2", scopes: ["file.view"] } })) as typeof fetch;
 	try {
 		const config = makeConfig();
 		const core = createAppBridgeCore(config);

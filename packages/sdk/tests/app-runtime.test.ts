@@ -4,10 +4,13 @@ import { CohubClient } from "../src/client.js";
 import {
 	createSlugAppIdResolver,
 	createAppRuntime,
+	AppRuntimeApi,
 	ParentBridgeTransport,
 	PopupBrokerTransport,
 	resolveAppTransport,
 	type AppContextChangedListener,
+	type AppDiagnostic,
+	type AppDiagnosticListener,
 	type AppRuntimeTransport,
 } from "../src/app-runtime.js";
 
@@ -101,6 +104,122 @@ test("ParentBridgeTransport does not announce readiness without a trusted parent
 
 	new ParentBridgeTransport().subscribeContextChanged(() => {});
 	assert.equal(posts, 0);
+});
+
+test("ParentBridgeTransport forwards host diagnostics to subscribers", () => {
+	let handler: ((event: MessageEvent) => void) | null = null;
+	const parent = { postMessage: () => {} };
+	globalThis.window = {
+		parent,
+		location: { ancestorOrigins: ["https://dev.cohub.live"] },
+		addEventListener: (_type: "message", next: (event: MessageEvent) => void) => {
+			handler = next;
+		},
+		removeEventListener: () => {
+			handler = null;
+		},
+	} as unknown as Window & typeof globalThis;
+	globalThis.document = { referrer: "" } as Document;
+
+	const transport = new ParentBridgeTransport();
+	const seen: AppDiagnostic[] = [];
+	const unsubscribe = transport.subscribeDiagnostics((diagnostic) => seen.push(diagnostic));
+	const emit = (data: unknown, origin = "https://dev.cohub.live") => {
+		handler?.({ data, origin, source: parent } as unknown as MessageEvent);
+	};
+
+	emit({ type: "cohub.app.context.changed", context: {} });
+	emit({ type: "cohub.app.diagnostic", code: "space_inaccessible", message: "unknown Space" });
+	assert.deepEqual(seen, [{ code: "space_inaccessible", message: "unknown Space" }]);
+
+	emit(
+		{ type: "cohub.app.diagnostic", code: "space_inaccessible", message: "forged" },
+		"https://evil.example",
+	);
+	assert.equal(seen.length, 1);
+	unsubscribe();
+});
+
+test("AppRuntimeApi.dispose removes pointer listeners", () => {
+	const added = new Set<string>();
+	const removed: string[] = [];
+	globalThis.window = {
+		addEventListener: (type: string) => {
+			added.add(type);
+		},
+		removeEventListener: (type: string) => {
+			removed.push(type);
+		},
+	} as unknown as Window & typeof globalThis;
+
+	const transport: AppRuntimeTransport = {
+		request: async () => null,
+		notify: () => {},
+	};
+	const runtime = new AppRuntimeApi(transport);
+	runtime.requestConfigure({ inputRegion: [{ x: 0, y: 0, width: 1, height: 1 }] });
+	assert.equal(added.has("pointermove"), true);
+
+	runtime.dispose();
+	assert.deepEqual(removed.slice().sort(), [
+		"pointercancel",
+		"pointerdown",
+		"pointermove",
+		"pointerup",
+	]);
+});
+
+test("ParentBridgeTransport announces readiness when diagnostics are subscribed", () => {
+	let posted: { origin: string; protocol?: string; type?: string } | null = null;
+	const parent = {
+		postMessage: (message: Record<string, unknown>, origin: string) => {
+			posted = { origin, protocol: String(message.protocol), type: String(message.type) };
+		},
+	};
+	globalThis.window = {
+		parent,
+		location: { ancestorOrigins: ["https://dev.cohub.live"] },
+		addEventListener: () => {},
+		removeEventListener: () => {},
+	} as unknown as Window & typeof globalThis;
+	globalThis.document = { referrer: "" } as Document;
+
+	new ParentBridgeTransport().subscribeDiagnostics(() => {});
+
+	assert.deepEqual(posted, {
+		origin: "https://dev.cohub.live",
+		protocol: "cohub.app.runtime",
+		type: "ready",
+	});
+});
+
+test("AppRuntimeApi warns on host diagnostics", () => {
+	const warnings: unknown[][] = [];
+	const originalWarn = console.warn;
+	console.warn = (...args: unknown[]) => {
+		warnings.push(args);
+	};
+	try {
+		let listener: AppDiagnosticListener | null = null;
+		let unsubscribed = false;
+		const transport: AppRuntimeTransport = {
+			request: async () => null,
+			subscribeDiagnostics: (next) => {
+				listener = next;
+				return () => {
+					unsubscribed = true;
+				};
+			},
+		};
+		const runtime = new AppRuntimeApi(transport);
+		listener?.({ code: "space_inaccessible", message: "bad Space" });
+		assert.equal(warnings.length, 1);
+		assert.match(String(warnings[0]?.[0]), /bad Space/);
+		runtime.dispose();
+		assert.equal(unsubscribed, true);
+	} finally {
+		console.warn = originalWarn;
+	}
 });
 
 test("AppRuntimeApi sends navigation targets and optional calls through the bridge", async () => {

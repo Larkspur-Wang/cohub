@@ -30,6 +30,9 @@ const {
 	saving,
 	appName,
 	authorName,
+	selectedSpaceId,
+	canChangeSpace,
+	onSelectSpace,
 	onConfirm,
 	onCancel,
 }: {
@@ -39,6 +42,9 @@ const {
 	saving: boolean;
 	appName?: string;
 	authorName?: string;
+	selectedSpaceId: string | null;
+	canChangeSpace: boolean;
+	onSelectSpace: (spaceId: string) => void;
 	onConfirm: (pickedSpaceId?: string) => void;
 	onCancel: () => void;
 } = $props();
@@ -116,22 +122,21 @@ const operationGroups = $derived.by<OperationGroup[]>(() => {
 
 const displayName = $derived(appName?.trim() || "this app");
 
-// Picker selection resets whenever a new request opens the dialog.
-let selectedSpaceId = $state("");
+// Picker selection is owned by the host bridge core; this dialog only renders
+// it. Picker step resets whenever a new request opens the dialog, and a single
+// accessible Space needs no choice.
 let spaceQuery = $state("");
 let spaceFilter = $state<SpacePickerFilter>("recent");
 let pickerStep = $state<"choose" | "review">("review");
 $effect(() => {
-	void pending;
-	selectedSpaceId = "";
+	const spaces = pending?.spaces ?? null;
 	spaceQuery = "";
 	spaceFilter = "recent";
-	pickerStep = pending?.selectSpace ? "choose" : "review";
+	pickerStep =
+		pending?.selectSpace && spaces?.length !== 1 ? "choose" : "review";
 });
 
-const picking = $derived(
-	Boolean(pending?.selectSpace && pickerStep === "choose"),
-);
+const picking = $derived(pickerStep === "choose");
 const spaceOptions = $derived(pending?.spaces ?? null);
 function handleSpaceQueryInput(event: Event) {
 	spaceQuery = (event.currentTarget as HTMLInputElement).value;
@@ -153,6 +158,18 @@ const spaceLabel = $derived.by(() => {
 	if (pending.selectSpace) return null;
 	return pending.homeSpaceName?.trim() || null;
 });
+// The Space shown in the dialog: the viewer's pick wins, then the request's
+// explicit target, then the implicit home Space.
+const displaySpaceName = $derived.by(() => {
+	const id = selectedSpaceId || pending?.spaceId || "";
+	if (!id) return spaceLabel;
+	const fromList = pending?.spaces
+		?.find((space) => space.id === id)
+		?.name?.trim();
+	if (fromList) return fromList;
+	if (id === pending?.spaceId) return pending?.spaceName?.trim() || id;
+	return id;
+});
 const createSpaceName = $derived(pending?.createSpace?.name?.trim() || null);
 const createSpaceSource = $derived.by(() =>
 	createSpaceSourceLabel(pending?.createSpace?.bootstrapSource),
@@ -166,7 +183,7 @@ const confirmLabel = $derived(
 		: "Authorize and continue",
 );
 const confirmDisabled = $derived(
-	saving || (Boolean(pending?.selectSpace) && !selectedSpaceId),
+	saving || (pending?.spaces !== undefined && !selectedSpaceId),
 );
 
 function createSpaceSourceLabel(
@@ -220,7 +237,7 @@ const scopeLabel = (scope: string) =>
 					{#if spaceOptions === null}
 						<div class="auth-space-empty">Couldn't load your Spaces. Deny and try again.</div>
 					{:else if spaceOptions.length === 0}
-						<div class="auth-space-empty">You don't have any Spaces yet.</div>
+						<div class="auth-space-empty">Couldn't prepare a Space for you. Deny and try again.</div>
 					{:else}
 						<label class="auth-space-search">
 							<Search class="h-3.5 w-3.5" />
@@ -234,7 +251,7 @@ const scopeLabel = (scope: string) =>
 						<div class="auth-space-list" role="radiogroup" aria-label="Choose a Space">
 							{#each visibleSpaceOptions ?? [] as space (space.id)}
 								<label class="auth-space-option" class:selected={selectedSpaceId === space.id}>
-									<input type="radio" bind:group={selectedSpaceId} value={space.id} />
+									<input type="radio" name="auth-space" checked={selectedSpaceId === space.id} onchange={() => onSelectSpace(space.id)} />
 									<span class="auth-space-option-name">{space.name || space.id}</span>
 								</label>
 							{/each}
@@ -258,18 +275,20 @@ const scopeLabel = (scope: string) =>
 						{/if}
 						<div class="auth-space-note">You will own this Space.</div>
 					</section>
-				{:else if pending.selectSpace}
+				{:else if !selectedSpaceId && (pending.spaces === null || pending.spaces?.length === 0)}
+					<section class="auth-space">
+						<div class="auth-space-label">Space</div>
+						<div class="auth-space-empty">Couldn't load your Spaces. Please try again.</div>
+					</section>
+				{:else if pending.selectSpace || selectedSpaceId || spaceLabel}
 					<section class="auth-space auth-selected-space">
 						<div class="auth-space-label">Space</div>
 						<div class="auth-selected-row">
-							<div class="auth-space-name" title={selectedSpaceId}>{pending.spaces?.find((space) => space.id === selectedSpaceId)?.name || selectedSpaceId}</div>
-							<button type="button" class="auth-change-space" onclick={() => (pickerStep = "choose")}><ArrowLeft class="h-3 w-3" /> Change</button>
+							<div class="auth-space-name" title={selectedSpaceId || undefined}>{displaySpaceName}</div>
+							{#if canChangeSpace}
+								<button type="button" class="auth-change-space" onclick={() => (pickerStep = "choose")}><ArrowLeft class="h-3 w-3" /> Change</button>
+							{/if}
 						</div>
-					</section>
-				{:else if spaceLabel}
-					<section class="auth-space">
-						<div class="auth-space-label">Space</div>
-						<div class="auth-space-name" title={pending.spaceId ?? undefined}>{spaceLabel}</div>
 					</section>
 				{/if}
 			{/if}
