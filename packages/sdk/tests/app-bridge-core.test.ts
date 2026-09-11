@@ -834,6 +834,43 @@ test("silent reuse sends silent: true; dialog confirm does not", async () => {
 	}
 });
 
+test("silent renewal in the invocation Space skips the Space list", async () => {
+	const store: Record<string, string> = {
+		"cohub:work-grants:viewer-uuid:work_123:space-b:v1": JSON.stringify({
+			version: 1,
+			userUuid: "viewer-uuid",
+			appId: "work_123",
+			scopes: ["file.view"],
+			updatedAt: Date.now(),
+		}),
+	};
+	globalThis.localStorage = storageMock(store);
+	const originalFetch = globalThis.fetch;
+	const urls: string[] = [];
+	globalThis.fetch = (async (url: unknown) => {
+		urls.push(String(url));
+		return jsonResponse({ token: "silent-token" });
+	}) as typeof fetch;
+	try {
+		const config = makeConfig({
+			viewerUuid: "viewer-uuid",
+			invocation: { surface: "app", spaceId: "space-b" },
+		});
+		const core = createAppBridgeCore(config);
+		await core.handleMessage(
+			messageEvent({ type: "cohub.app.authorize", requestId: "r1", scopes: ["file.view"] }),
+		);
+
+		assert.equal(core.getState().authOpen, false);
+		assert.equal(config.replies[0]?.payload.token, "silent-token");
+		// The known target is renewed without loading the Space list at all.
+		assert.equal(urls.some((url) => url.endsWith("/api/spaces")), false);
+	} finally {
+		globalThis.fetch = originalFetch;
+		globalThis.localStorage = originalLocalStorage;
+	}
+});
+
 test("transient silent authorization failures preserve cache and return a retryable error", async () => {
 	const store: Record<string, string> = {
 		"cohub:work-grants:viewer-uuid:work_123:space-a:v1": JSON.stringify({

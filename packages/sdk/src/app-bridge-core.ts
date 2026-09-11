@@ -726,6 +726,50 @@ export function createAppBridgeCore(
 		}
 	}
 
+	/**
+	 * Attempts silent renewal against each target in order. Returns true when the
+	 * request was answered (success or terminal error); false when every target
+	 * was a rejected grant, so the caller should fall back to consent.
+	 */
+	async function attemptSilentRenewal(
+		reserved: AppAuthorizeRequest,
+		viewerUuid: string | null,
+		scopes: Permission[],
+		targets: readonly string[],
+	): Promise<boolean> {
+		if (!viewerUuid || targets.length === 0) return false;
+		for (const target of targets) {
+			try {
+				const result = await authorizeSilent(scopes, target);
+				// A different request may have replaced us while we waited; it already
+				// answered us, and clearing state here would wipe its reservation.
+				if (state.pendingAuth !== reserved) return true;
+				replyPendingAuth(reserved, authorizeResult(result.token, result.spaceId, null));
+				resetDialogState();
+				safeNotify();
+				return true;
+			} catch (error) {
+				if (state.pendingAuth !== reserved) return true;
+				// Only a grant the server rejected clears the cache. A 401 is a stale
+				// token (already retried with a refresh) and a 5xx/network error is
+				// transient: neither may drop a valid grant.
+				if (isGrantRejection(error)) {
+					clearGrantedAppScopes(viewerUuid, app.id, target);
+					if (target === app.spaceId) clearGrantedAppScopes(viewerUuid, app.id);
+					continue;
+				}
+				replyPendingAuth(reserved, {
+					type: "cohub.app.error",
+					message: error instanceof Error ? error.message : "Authorization failed.",
+				});
+				resetDialogState();
+				safeNotify();
+				return true;
+			}
+		}
+		return false;
+	}
+
 	/** Normalizes a raw Space payload into a picker candidate. */
 	function toSpaceOption(value: RawSpacePayload): AppAuthorizeSpaceOption | null {
 		if (typeof value.id !== "string" || !value.id) return null;
@@ -839,6 +883,19 @@ export function createAppBridgeCore(
 			accessible(readLastPickedSpace()) ??
 			candidates[0]?.id
 		);
+	}
+
+	/**
+	 * The Space the app is currently in, from trusted host context only (no
+	 * network). Used to attempt silent renewal before loading the Space list.
+	 */
+	function resolveContextSpaceId(): string | undefined {
+		const invocation =
+			activeInvocation !== undefined
+				? activeInvocation
+				: config.getInvocation?.() ?? config.invocation;
+		const shell = config.getShell?.() ?? config.shell;
+		return invocation?.spaceId ?? shell?.space?.id ?? undefined;
 	}
 
 	/**
@@ -1223,6 +1280,11 @@ export function createAppBridgeCore(
 				state.canChangeSpace = false;
 				state.authError = null;
 
+				// The viewer's identity is cheap (token store) and needed for the
+				// client-side cache checks before we decide whether to load Spaces.
+				const viewerUuid = await getViewerUuid();
+				if (state.pendingAuth !== reserved) return;
+
 				// Resolve the target before any silent reuse, so a legacy home-space
 				// cache entry cannot silently re-authorize the app author's Space.
 				// Space-bound requests carry the viewer's Spaces so the consent dialog
@@ -1232,6 +1294,29 @@ export function createAppBridgeCore(
 					Boolean(spaceId) ||
 					selectSpace ||
 					scopes.some((scope) => !isUserLevelPermission(scope));
+				const lastPicked = readLastPickedSpace();
+
+				// Fast path: renew without loading the Space list when the target is
+				// already known client-side — account-level grants, or the Space the app
+				// was invoked in. A returning viewer thus skips the list round trip and
+				// is not blocked by a transient list failure.
+				const contextSpaceId = resolveContextSpaceId();
+				const preListTargets = !spaceLevel
+					? listGrantedAppSpacesForScopes(viewerUuid, app.id, scopes, app.spaceId)
+					: spaceId === undefined &&
+						  !selectSpace &&
+						  contextSpaceId &&
+						  hasGrantedAppScopes(viewerUuid, app.id, scopes, contextSpaceId)
+						? [contextSpaceId]
+						: [];
+				if (
+					!alwaysAsk &&
+					(await attemptSilentRenewal(reserved, viewerUuid, scopes, preListTargets))
+				) {
+					return;
+				}
+				if (state.pendingAuth !== reserved) return;
+
 				let spaces = spaceLevel ? await listViewerSpaces() : undefined;
 				if (state.pendingAuth !== reserved) return;
 				// A viewer with no accessible Space still needs a target:
@@ -1252,20 +1337,12 @@ export function createAppBridgeCore(
 					? spaceId
 					: resolveDefaultSpaceId(candidates);
 
-				// Returning viewers who previously granted these scopes on the target
-				// Space are re-authorized silently with a fresh token — no dialog.
-				// Picker mode reuses the last picked Space; an explicit target the
-				// viewer can't access always needs fresh consent.
-				const viewerUuid = await getViewerUuid();
-				if (state.pendingAuth !== reserved) return;
-				const lastPicked = readLastPickedSpace();
-				// Account-level scopes are not Space-bound: try every Space that has a
-				// covering grant (legacy, Space-less entries included). Space-level
-				// requests target one Space; picker mode only reuses the last picked
-				// Space while the viewer still has it.
+				// Remaining silent targets that need the loaded candidates: picker mode
+				// (last picked, only if still accessible), an accessible explicit target,
+				// or the resolved default. Account grants were already tried above.
 				const silentTargets = (
 					!spaceLevel
-						? listGrantedAppSpacesForScopes(viewerUuid, app.id, scopes, app.spaceId)
+						? []
 						: [
 								selectSpace
 									? lastPicked && candidates?.some((space) => space.id === lastPicked)
@@ -1282,36 +1359,11 @@ export function createAppBridgeCore(
 									hasGrantedAppScopes(viewerUuid, app.id, scopes, target ?? undefined),
 							)
 				).slice(0, MAX_SILENT_SPACE_ATTEMPTS);
-				if (!alwaysAsk && viewerUuid && silentTargets.length > 0) {
-					for (const target of silentTargets) {
-						try {
-							const result = await authorizeSilent(scopes, target);
-							// A different request may have replaced us while we waited; it already
-							// answered us, and clearing state here would wipe its reservation.
-							if (state.pendingAuth !== reserved) return;
-							replyPendingAuth(reserved, authorizeResult(result.token, result.spaceId, null));
-							resetDialogState();
-							safeNotify();
-							return;
-						} catch (error) {
-							if (state.pendingAuth !== reserved) return;
-							// Only a grant the server rejected clears the cache. A 401 is a stale
-							// token (already retried with a refresh) and a 5xx/network error is
-							// transient: neither may drop a valid grant.
-							if (isGrantRejection(error)) {
-								clearGrantedAppScopes(viewerUuid, app.id, target);
-								if (target === app.spaceId) clearGrantedAppScopes(viewerUuid, app.id);
-								continue;
-							}
-							replyPendingAuth(reserved, {
-								type: "cohub.app.error",
-								message: error instanceof Error ? error.message : "Authorization failed.",
-							});
-							resetDialogState();
-							safeNotify();
-							return;
-						}
-					}
+				if (
+					!alwaysAsk &&
+					(await attemptSilentRenewal(reserved, viewerUuid, scopes, silentTargets))
+				) {
+					return;
 				}
 				if (state.pendingAuth !== reserved) return;
 
