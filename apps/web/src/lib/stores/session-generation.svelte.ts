@@ -7,6 +7,7 @@ import {
 	removeGenerationStatesForSpace,
 	resolveGenerationProgressResiduals,
 	resolveGenerationStreamResiduals,
+	shouldResumePendingGeneration,
 } from "$lib/stores/session-generation-state";
 
 export type SessionGenerationStatus =
@@ -424,6 +425,8 @@ class SessionGenerationStore {
 		const current = this.get(sessionId) ?? createIdleState(sessionId);
 		if (current.status === "streaming") return;
 		if (isPersistable(current)) return;
+		// A stale active-turn hint must not downgrade a locally finished turn.
+		if (!shouldResumePendingGeneration(current, input?.turnId)) return;
 		// Resume from a terminal generation state (e.g. previous turn completed
 		// and a queued follow-up became running). Always drop residual
 		// preview/process data so the handoff intermediate from the previous

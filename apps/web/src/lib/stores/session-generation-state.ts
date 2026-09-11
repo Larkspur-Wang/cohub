@@ -15,6 +15,35 @@ export function generationTurnChanged(
 	return Boolean(currentTurnId && nextTurnId && currentTurnId !== nextTurnId);
 }
 
+/** Generation statuses that represent a finished turn (idle is resumable). */
+export const TERMINAL_GENERATION_STATUSES = new Set([
+	"completed",
+	"failed",
+	"interrupted",
+]);
+
+export function isTerminalGenerationStatus(status: string | null | undefined) {
+	return Boolean(status && TERMINAL_GENERATION_STATUSES.has(status));
+}
+
+/**
+ * A locally terminal generation for the same turn is the newest fact we own.
+ * A stale `activeTurn` hint (list cache, background refresh) must never
+ * downgrade it back to pending. New turns and idle states still resume.
+ */
+export function shouldResumePendingGeneration(
+	current: { status: string; turnId?: string | null } | null | undefined,
+	nextTurnId: string | null | undefined,
+): boolean {
+	if (!current) return true;
+	return !(
+		isTerminalGenerationStatus(current.status) &&
+		current.turnId &&
+		nextTurnId &&
+		current.turnId === nextTurnId
+	);
+}
+
 export function emptyGenerationStreamResiduals<
 	TContent,
 	TIntermediate,

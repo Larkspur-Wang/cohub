@@ -3,9 +3,11 @@ import { test } from "node:test";
 import {
 	emptyGenerationStreamResiduals,
 	generationTurnChanged,
+	isTerminalGenerationStatus,
 	removeGenerationStatesForSpace,
 	resolveGenerationProgressResiduals,
 	resolveGenerationStreamResiduals,
+	shouldResumePendingGeneration,
 } from "../lib/stores/session-generation-state.ts";
 
 const residuals = {
@@ -96,4 +98,52 @@ test("space reset preserves the original state for an empty space id", () => {
 		assert.equal(result.remaining, states);
 		assert.deepEqual(result.removedSessionIds, []);
 	}
+});
+
+test("idle is not terminal, finished statuses are", () => {
+	assert.equal(isTerminalGenerationStatus("idle"), false);
+	assert.equal(isTerminalGenerationStatus("pending"), false);
+	assert.equal(isTerminalGenerationStatus("streaming"), false);
+	assert.equal(isTerminalGenerationStatus("completed"), true);
+	assert.equal(isTerminalGenerationStatus("failed"), true);
+	assert.equal(isTerminalGenerationStatus("interrupted"), true);
+});
+
+test("stale active-turn hint never downgrades a finished same turn", () => {
+	assert.equal(
+		shouldResumePendingGeneration(
+			{ status: "completed", turnId: "turn-1" },
+			"turn-1",
+		),
+		false,
+	);
+	assert.equal(
+		shouldResumePendingGeneration(
+			{ status: "failed", turnId: "turn-1" },
+			"turn-1",
+		),
+		false,
+	);
+});
+
+test("resume still applies to new turns and resumable states", () => {
+	assert.equal(
+		shouldResumePendingGeneration(
+			{ status: "completed", turnId: "turn-1" },
+			"turn-2",
+		),
+		true,
+	);
+	assert.equal(
+		shouldResumePendingGeneration({ status: "idle", turnId: null }, "turn-2"),
+		true,
+	);
+	assert.equal(shouldResumePendingGeneration(null, "turn-2"), true);
+	assert.equal(
+		shouldResumePendingGeneration(
+			{ status: "completed", turnId: null },
+			"turn-2",
+		),
+		true,
+	);
 });
