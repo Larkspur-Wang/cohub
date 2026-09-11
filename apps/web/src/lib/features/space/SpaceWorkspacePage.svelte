@@ -315,7 +315,11 @@ let newChatProfileBodyEl: HTMLDivElement | null = $state(null);
 function hasAccessPermission(permission: Permission): boolean {
 	return space?.access?.permissions.includes(permission) === true;
 }
-const canManageSessionAccess = $derived(hasAccessPermission("member.manage"));
+// Sharing manages a session's access policy, a distinct capability from content
+// editing. Builders and hosts both hold `session.access.manage`.
+const canManageSessionAccess = $derived(
+	hasAccessPermission("session.access.manage"),
+);
 // True when the backend returned only minimal info (session-level access only)
 const spaceHasMinimalAccess = $derived(space?.accessLevel === "minimal");
 // Right sidebar (files panel) is only available when the user has full space

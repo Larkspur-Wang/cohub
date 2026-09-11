@@ -1564,6 +1564,7 @@ export const PERMISSIONS = [
   "session.edit",
   "session.prompt.readonly",
   "session.prompt.fullaccess",
+  "session.access.manage",
   "generation.create",
   "file.view",
   "file.view.filtered",

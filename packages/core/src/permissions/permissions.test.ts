@@ -8,3 +8,14 @@ it("space.create is account-level, never a role permission", () => {
     assert.ok(!ROLE_PERMISSIONS[role].has("space.create"));
   }
 });
+
+// Session sharing is gated on the dedicated `session.access.manage` permission:
+// builders and hosts may share a session, while member management stays host-only.
+it("session sharing is a builder capability, member management is not", () => {
+  assert.ok(ROLE_PERMISSIONS.builder.has("session.access.manage"));
+  assert.ok(ROLE_PERMISSIONS.builder.has("session.view"));
+  assert.ok(!ROLE_PERMISSIONS.builder.has("member.manage"));
+  assert.ok(ROLE_PERMISSIONS.host.has("session.access.manage"));
+  assert.ok(ROLE_PERMISSIONS.host.has("member.manage"));
+  assert.ok(!ROLE_PERMISSIONS.guest.has("session.access.manage"));
+});
