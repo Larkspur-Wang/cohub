@@ -1,4 +1,4 @@
-import { buildAppRuntimeCloseRequest, buildAppRuntimeReady, buildAppRuntimeConfigureRequest, type AppRuntimeConfigureRequest, type AppRuntimeAnchor, type AppRuntimeRect } from "@cohub/protocol/app-runtime";
+import { buildAppRuntimeCloseRequest, buildAppRuntimeReady, buildAppRuntimeConfigureRequest, buildAppRuntimePointer, type AppRuntimeConfigureRequest, type AppRuntimeAnchor, type AppRuntimeRect } from "@cohub/protocol/app-runtime";
 
 // Re-export configure types so tsdown can emit them in the DTS bundle.
 export type { AppRuntimeConfigureRequest, AppRuntimeAnchor, AppRuntimeRect };
@@ -445,6 +445,85 @@ export class AppRuntimeApi {
    * back to a base session token that only carries app-side scopes. */
   private authorizedGrants: AppRuntimeAuthorizedGrant[] | null = null;
 
+  /**
+   * Rect input regions are hover-gated by the host, which needs to know when
+   * the pointer leaves them. A cross-origin frame swallows those moves once
+   * the host makes it interactive, so while a rect region is active we report
+   * the pointer ourselves. `all`/`none` need no reporting: their state is
+   * known without it.
+   */
+  private pointerListening = false;
+  private pointerForwarding = false;
+  private pointerDown = false;
+  private pointerFrame: number | null = null;
+  private pointerPending: { x: number; y: number } | null = null;
+
+  private readonly onPointerMove = (event: PointerEvent) => {
+    if (!this.pointerForwarding) return;
+    this.pointerDown = event.buttons !== 0;
+    this.queuePointer(event.clientX, event.clientY);
+  };
+
+  private readonly onPointerDown = (event: PointerEvent) => {
+    if (!this.pointerForwarding) return;
+    this.pointerDown = true;
+    this.flushPointer(event.clientX, event.clientY);
+  };
+
+  private readonly onPointerUp = (event: PointerEvent) => {
+    // Deliver the release even after forwarding stopped mid-press (the App
+    // may have switched to `none`), or the host would keep the region hot.
+    if (!this.pointerForwarding && !this.pointerDown) return;
+    this.pointerDown = false;
+    this.flushPointer(event.clientX, event.clientY);
+  };
+
+  private readonly onPointerCancel = (event: PointerEvent) => {
+    if (!this.pointerForwarding && !this.pointerDown) return;
+    this.pointerDown = false;
+    this.flushPointer(event.clientX, event.clientY);
+  };
+
+  /** Coalesce moves to one message per frame; presses flush immediately. */
+  private queuePointer(x: number, y: number) {
+    this.pointerPending = { x, y };
+    if (this.pointerFrame !== null) return;
+    this.pointerFrame = requestAnimationFrame(() => {
+      this.pointerFrame = null;
+      const pending = this.pointerPending;
+      this.pointerPending = null;
+      if (pending && this.pointerForwarding) {
+        this.reportPointer(pending.x, pending.y, this.pointerDown);
+      }
+    });
+  }
+
+  private flushPointer(x: number, y: number) {
+    if (this.pointerFrame !== null) {
+      cancelAnimationFrame(this.pointerFrame);
+      this.pointerFrame = null;
+    }
+    this.pointerPending = null;
+    this.reportPointer(x, y, this.pointerDown);
+  }
+
+  private reportPointer(x: number, y: number, down: boolean) {
+    this.transport.notify?.(buildAppRuntimePointer({ x, y, down }));
+  }
+
+  private setPointerForwarding(on: boolean) {
+    if (typeof window === "undefined" || !this.transport.notify) return;
+    this.pointerForwarding = on;
+    if (!on || this.pointerListening) return;
+    // Listeners stay attached once a rect region has been declared, so an
+    // in-flight release is still reported after the App opts out.
+    this.pointerListening = true;
+    window.addEventListener("pointermove", this.onPointerMove, { passive: true, capture: true });
+    window.addEventListener("pointerdown", this.onPointerDown, true);
+    window.addEventListener("pointerup", this.onPointerUp, true);
+    window.addEventListener("pointercancel", this.onPointerCancel, true);
+  }
+
   constructor(
     transport: AppRuntimeTransport = new ParentBridgeTransport(),
     appId?: string,
@@ -600,9 +679,17 @@ export class AppRuntimeApi {
    * Requests the host to update the overlay's geometry or pointer hit regions.
    * Only meaningful when the App was opened as an `overlay` surface; the host
    * is free to clamp or ignore values that violate its layout policy.
+   *
+   * A non-empty rect `inputRegion` also starts reporting the pointer to the
+   * host, which is how the host learns when it leaves the region.
    */
   requestConfigure(input: Omit<AppRuntimeConfigureRequest, "protocol" | "version" | "type">) {
     this.transport.notify?.(buildAppRuntimeConfigureRequest(input));
+    if (input.inputRegion !== undefined) {
+      this.setPointerForwarding(
+        Array.isArray(input.inputRegion) && input.inputRegion.length > 0,
+      );
+    }
   }
 
   async getAccessToken(options?: { forceRefresh?: boolean }) {

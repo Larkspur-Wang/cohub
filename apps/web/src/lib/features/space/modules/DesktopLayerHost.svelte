@@ -7,8 +7,10 @@ import AppSurface from "$lib/components/app/AppSurface.svelte";
 import type { AppSurfaceHost } from "$lib/features/app/surface-host";
 import type { AppSurfaceRegistry } from "$lib/features/app/surface-registry";
 import {
-	inputRegionContains,
+	hotAppIdsAt,
 	isTrackedInputRegion,
+	ownsInput,
+	pruneHotAppIds,
 	resolveOverlayRect,
 	resolveOverlayStyle,
 } from "./desktop-layer-geometry";
@@ -67,42 +69,78 @@ function syncViewport() {
  * Rect regions are hit-tested by the host: the overlay paints everywhere but
  * only takes pointer events while the pointer is inside a declared rect. The
  * flag flips on the move that enters the region, so that event still reaches
- * whatever is underneath — one move later the App owns the pointer. Regions
- * are re-checked against the last pointer position when an App moves them, as
- * moves inside an interactive frame never reach this window.
+ * whatever is underneath — one move later the App owns the pointer. Once it
+ * does, a cross-origin frame swallows the moves this window would need, so the
+ * App reports the pointer back through `onPointerState`.
  */
 let layerHost: HTMLDivElement | null = $state(null);
 let hotAppIds = $state<ReadonlySet<string>>(new Set());
 let pointer: { x: number; y: number } | null = null;
+// A held button freezes the current owners: every hit-test entry point honours
+// it, so a config update mid-drag cannot release the App's pointer.
+let pointerDown = false;
 
 const tracksPointer = $derived(
 	manager.overlays.some((overlay) => isTrackedInputRegion(overlay.inputRegion)),
 );
 
 function isInteractive(overlay: DesktopOverlay) {
-	return overlay.inputRegion === "all" || hotAppIds.has(overlay.appId);
+	return overlay.inputRegion === "all" || ownsInput(overlay, hotAppIds);
 }
 
 function hitTest() {
-	if (!pointer || !layerHost) return;
+	if (!pointer || !layerHost || pointerDown) return;
 	const origin = layerHost.getBoundingClientRect();
-	const next = new Set<string>();
-	for (const overlay of manager.overlays) {
-		if (!isTrackedInputRegion(overlay.inputRegion)) continue;
-		const rect = resolveOverlayRect(overlay.geometry, viewport);
-		const x = pointer.x - origin.left - rect.left;
-		const y = pointer.y - origin.top - rect.top;
-		if (inputRegionContains(overlay.inputRegion, x, y)) next.add(overlay.appId);
-	}
+	const next = hotAppIdsAt(manager.overlays, pointer, viewport, origin);
 	if (!sameSet(next, hotAppIds)) hotAppIds = next;
 }
 
 function trackPointer(event: PointerEvent) {
-	// Never flip while a button is held: an App's drag would lose the pointer
-	// the moment it left the declared rect.
-	if (event.buttons !== 0) return;
+	// A held button freezes ownership: an App's drag would lose the pointer the
+	// moment it left the declared rect, and an underlying drag must not let a
+	// region that moves under the cursor grab it mid-gesture.
+	if (event.buttons !== 0) {
+		pointerDown = true;
+		return;
+	}
+	pointerDown = false;
 	pointer = { x: event.clientX, y: event.clientY };
 	hitTest();
+}
+
+/**
+ * Pointer reported by an overlay that currently owns it. Coordinates are
+ * frame-local and the frame fills the overlay, so adding the overlay rect
+ * gives layer coordinates — the same space `trackPointer` records. `down`
+ * freezes ownership in `hitTest` until the button is released.
+ */
+function trackAppPointer(
+	overlay: DesktopOverlay,
+	state: { x: number; y: number; down: boolean },
+) {
+	const rect = resolveOverlayRect(overlay.geometry, viewport);
+	const origin = layerHost?.getBoundingClientRect();
+	pointer = {
+		x: (origin?.left ?? 0) + rect.left + state.x,
+		y: (origin?.top ?? 0) + rect.top + state.y,
+	};
+	pointerDown = state.down;
+	hitTest();
+}
+
+function beginPointer() {
+	pointerDown = true;
+}
+
+/** Release: adopt the release point, then let ownership settle again. */
+function endPointer(event: PointerEvent) {
+	pointerDown = false;
+	pointer = { x: event.clientX, y: event.clientY };
+	hitTest();
+}
+
+function cancelPointer() {
+	pointerDown = false;
 }
 
 function sameSet(a: ReadonlySet<string>, b: ReadonlySet<string>) {
@@ -123,7 +161,45 @@ $effect(() => {
 $effect(() => {
 	void manager.overlays;
 	void viewport;
-	untrack(hitTest);
+	untrack(() => {
+		// An overlay that closed or left the rect family must lose its hot flag
+		// at once — even mid-press — since it no longer reports the pointer.
+		const pruned = pruneHotAppIds(hotAppIds, manager.overlays);
+		if (!sameSet(pruned, hotAppIds)) hotAppIds = pruned;
+		hitTest();
+	});
+});
+
+$effect(() => {
+	// A real loss of focus (or a hidden page) drops every owner and clears the
+	// resting pointer, so a later config update cannot reactivate an overlay
+	// from stale coordinates. Focus moving into an iframe also blurs this
+	// window while `document.hasFocus()` stays true; that is not a real loss.
+	const release = () => {
+		hotAppIds = new Set();
+		pointer = null;
+		pointerDown = false;
+	};
+	const onBlur = () => {
+		if (!document.hasFocus()) release();
+	};
+	const onVisibility = () => {
+		if (document.hidden) release();
+	};
+	window.addEventListener("blur", onBlur);
+	document.addEventListener("visibilitychange", onVisibility);
+	// Presses that begin on the page underneath (a drag, a selection) must
+	// freeze ownership too, so a resting region cannot be grabbed mid-gesture.
+	window.addEventListener("pointerdown", beginPointer, true);
+	window.addEventListener("pointerup", endPointer, true);
+	window.addEventListener("pointercancel", cancelPointer, true);
+	return () => {
+		window.removeEventListener("blur", onBlur);
+		document.removeEventListener("visibilitychange", onVisibility);
+		window.removeEventListener("pointerdown", beginPointer, true);
+		window.removeEventListener("pointerup", endPointer, true);
+		window.removeEventListener("pointercancel", cancelPointer, true);
+	};
 });
 </script>
 
@@ -184,6 +260,7 @@ $effect(() => {
 							onComposerChip={(chip) => manager.setComposerChip(overlay.appId, chip)}
 							onCloseRequest={() => manager.closeOverlay(overlay.appId)}
 							onConfigureRequest={(request) => manager.configure(overlay.appId, request)}
+							onPointerState={(state) => trackAppPointer(overlay, state)}
 							{onNavigationOpen}
 						/>
 					{/key}

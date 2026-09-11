@@ -40,16 +40,15 @@ with `--call milkfrog.mode`:
 
 | Mode | `geometry` | `inputRegion` | Why |
 |---|---|---|---|
-| **roam** (default) | unset — fills the window | a `Rect` that follows the frog | the frog can move anywhere; only its own box takes pointer events, everything else stays clickable |
-| **dock** | `bottom-right`, `360×340` | `"all"` | a fixed, fully-interactive corner panel — touch-safe, and it demonstrates the HUD's original pattern |
+| **roam** (mouse default) | `{}` | a `Rect` that follows the frog | the frog can move anywhere; only its own box takes pointer events, everything else stays clickable |
+| **dock** (touch default) | `bottom-right`, `360×340` | `"all"` | a fixed, fully-interactive corner panel — touch-safe, and it demonstrates the HUD's original pattern |
 
 Rect regions activate on hover, so they answer to a mouse but not to the first
-tap on a touch screen; `"all"` works everywhere. On touch, therefore, the
-frog's default roaming shape receives no taps (it still walks, blinks and
-comments). Dock mode is the touch-safe alternative — toggle it from the control
-strip or with `--call milkfrog.mode` — since `geometry` + `"all"` activates on
-tap. Neither shape affects what the overlay paints: the speech bubble sits
-outside the hit region and stays visible.
+tap on a touch screen; `"all"` works everywhere. A coarse pointer therefore
+opens straight into dock mode, so the frog is tappable without a hover; a mouse
+starts in roam. The host releases a rect as soon as the pointer leaves it, so a
+resting frog never traps the window. Neither shape affects what the overlay
+paints: the speech bubble sits outside the hit region and stays visible.
 
 ## Use it
 

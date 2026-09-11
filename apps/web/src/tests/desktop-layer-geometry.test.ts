@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+	hotAppIdsAt,
 	inputRegionContains,
 	isTrackedInputRegion,
+	ownsInput,
+	pruneHotAppIds,
 	resolveOverlayStyle,
 	sameGeometry,
 	sameInputRegion,
@@ -122,4 +125,81 @@ test("geometry and input region compare structurally", () => {
 	assert.equal(sameInputRegion([rect], [{ ...rect }]), true);
 	assert.equal(sameInputRegion([rect], [{ ...rect, x: 1 }]), false);
 	assert.equal(sameInputRegion([rect], [rect, rect]), false);
+});
+
+const origin = { left: 0, top: 0 };
+const region = [{ x: 300, y: 300, width: 120, height: 120 }];
+const overlayA = { appId: "a", geometry: {}, inputRegion: region };
+const overlayB = { appId: "b", geometry: {}, inputRegion: region };
+
+test("hot ids follow the point across overlapping tracked regions", () => {
+	assert.deepEqual(
+		[
+			...hotAppIdsAt(
+				[overlayA, overlayB],
+				{ x: 350, y: 350 },
+				viewport,
+				origin,
+			),
+		],
+		["a", "b"],
+	);
+	assert.deepEqual(
+		[
+			...hotAppIdsAt(
+				[overlayA, overlayB],
+				{ x: 700, y: 500 },
+				viewport,
+				origin,
+			),
+		],
+		[],
+	);
+	// "all" and "none" overlays are never part of the tracked set.
+	assert.deepEqual(
+		[
+			...hotAppIdsAt(
+				[{ appId: "c", geometry: {}, inputRegion: "all" }],
+				{ x: 350, y: 350 },
+				viewport,
+				origin,
+			),
+		],
+		[],
+	);
+});
+
+test("only a tracked region can own the pointer", () => {
+	assert.equal(ownsInput(overlayA, new Set(["a"])), true);
+	assert.equal(
+		ownsInput({ ...overlayA, inputRegion: "none" }, new Set(["a"])),
+		false,
+	);
+	assert.equal(
+		ownsInput({ ...overlayA, inputRegion: "all" }, new Set(["a"])),
+		false,
+	);
+	assert.equal(ownsInput(overlayA, new Set()), false);
+});
+
+test("opting out revokes ownership even while hot (the mid-press P1 case)", () => {
+	// overlayA was hot, then switched to `none` while the button was held; a
+	// sibling still tracks the pointer, so nothing else clears the set.
+	const hot = new Set(["a"]);
+	const pruned = pruneHotAppIds(hot, [
+		{ ...overlayA, inputRegion: "none" },
+		overlayB,
+	]);
+	assert.deepEqual([...pruned], []);
+	assert.equal(ownsInput({ ...overlayA, inputRegion: "none" }, pruned), false);
+});
+
+test("pruning drops closed overlays and keeps the rest", () => {
+	const hot = new Set(["a", "b", "gone"]);
+	assert.deepEqual([...pruneHotAppIds(hot, [overlayA, overlayB])].sort(), [
+		"a",
+		"b",
+	]);
+	assert.deepEqual([...pruneHotAppIds(new Set(["a"]), [overlayA])], ["a"]);
+	assert.deepEqual([...pruneHotAppIds(new Set(["a"]), [])], []);
 });

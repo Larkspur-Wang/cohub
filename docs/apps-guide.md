@@ -404,7 +404,10 @@ cohub.app.requestConfigure({
 decides where pointer events go and never clips what the overlay paints, so
 decorative parts can stay outside it. `geometry` (`anchor`, `x`, `y`, `width`,
 `height`) shrinks the overlay to a region of the window; the host clamps it
-on-screen. An axis without a size fills the window.
+on-screen. A present `geometry` replaces the current shape and an axis without
+a size fills the window, so `geometry: {}` returns a panel to the full layer.
+An invalid axis makes the whole geometry ignored (keeping the current shape),
+and omitting `geometry` leaves it unchanged.
 
 Pick the shape that matches the App. A fixed panel should shrink to its own
 size with `geometry` and take `inputRegion: "all"`:
@@ -418,7 +421,9 @@ cohub.app.requestConfigure({
 
 A rect list suits things that move across the whole screen. The host activates
 a rect when the pointer hovers over it, so rects respond to a mouse but not to
-the first tap on a touch screen — `"all"` and `geometry` work everywhere.
+the first tap on a touch screen — `"all"` and `geometry` work everywhere. The
+host follows the pointer back out (the App reports it while it owns the region),
+so leaving a rect restores click-through to the desktop underneath.
 
 The App must paint its own transparency: `html, body { background: transparent }`
 plus `<meta name="color-scheme" content="light dark">` so the frame follows the

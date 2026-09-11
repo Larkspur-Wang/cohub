@@ -128,6 +128,61 @@ export function isTrackedInputRegion(region: OverlayInputRegion): boolean {
 	return Array.isArray(region) && region.length > 0;
 }
 
+type PointerOverlay = {
+	appId: string;
+	geometry: OverlayGeometry;
+	inputRegion: OverlayInputRegion;
+};
+
+/**
+ * Whether a tracked overlay currently owns the pointer. Only a rect region can
+ * be hot: `"all"` is always interactive and `"none"`/empty never is, so a stale
+ * hot flag on an overlay that just opted out must not keep it interactive.
+ */
+export function ownsInput(
+	overlay: PointerOverlay,
+	hotAppIds: ReadonlySet<string>,
+): boolean {
+	return (
+		isTrackedInputRegion(overlay.inputRegion) && hotAppIds.has(overlay.appId)
+	);
+}
+
+/** App ids whose declared rect contains a layer-local point. */
+export function hotAppIdsAt(
+	overlays: readonly PointerOverlay[],
+	point: { x: number; y: number },
+	viewport: Viewport,
+	origin: { left: number; top: number },
+): Set<string> {
+	const hot = new Set<string>();
+	for (const overlay of overlays) {
+		if (!isTrackedInputRegion(overlay.inputRegion)) continue;
+		const rect = resolveOverlayRect(overlay.geometry, viewport);
+		const x = point.x - origin.left - rect.left;
+		const y = point.y - origin.top - rect.top;
+		if (inputRegionContains(overlay.inputRegion, x, y)) hot.add(overlay.appId);
+	}
+	return hot;
+}
+
+/**
+ * Drops hot ids that are gone or left the rect-region family (closed, or
+ * switched to `"none"`/`"all"`). Opting out must revoke interaction at once,
+ * even mid-press — the App stops reporting, so the host has nothing to wait for.
+ */
+export function pruneHotAppIds(
+	hotAppIds: ReadonlySet<string>,
+	overlays: readonly PointerOverlay[],
+): Set<string> {
+	const tracked = new Set<string>();
+	for (const overlay of overlays) {
+		if (isTrackedInputRegion(overlay.inputRegion)) tracked.add(overlay.appId);
+	}
+	if ([...hotAppIds].every((id) => tracked.has(id))) return new Set(hotAppIds);
+	return new Set([...hotAppIds].filter((id) => tracked.has(id)));
+}
+
 /**
  * Whether an overlay-local point falls inside the declared input region.
  * `all` accepts everything, `none` (and an empty list) nothing; a rect list

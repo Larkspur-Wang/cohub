@@ -8,6 +8,7 @@ import type { AppRuntimeConfigureRequest } from "@cohub/protocol/app-runtime";
 import {
 	parseAppRuntimeCloseRequest,
 	parseAppRuntimeConfigureRequest,
+	parseAppRuntimePointer,
 	parseAppRuntimeReady,
 } from "@cohub/protocol/app-runtime";
 import type { AppComposerChip } from "@cohub/protocol/app-surface";
@@ -82,6 +83,8 @@ type Props = {
 	onCloseRequest?: () => void;
 	/** The App asked to change its overlay geometry or input region. */
 	onConfigureRequest?: (request: AppRuntimeConfigureRequest) => void;
+	/** The App reported the pointer while it owns it (overlay rect regions). */
+	onPointerState?: (state: { x: number; y: number; down: boolean }) => void;
 	onNavigationOpen?: (
 		message: AppNavigationOpenMessage,
 	) => Promise<
@@ -106,6 +109,7 @@ const {
 	onReady = undefined,
 	onCloseRequest = undefined,
 	onConfigureRequest = undefined,
+	onPointerState = undefined,
 	onNavigationOpen = undefined,
 }: Props = $props();
 
@@ -245,6 +249,11 @@ async function onFrameMessage(event: MessageEvent) {
 	const configure = parseAppRuntimeConfigureRequest(event.data);
 	if (configure) {
 		onConfigureRequest?.(configure);
+		return;
+	}
+	const pointer = parseAppRuntimePointer(event.data);
+	if (pointer) {
+		onPointerState?.({ x: pointer.x, y: pointer.y, down: pointer.down });
 		return;
 	}
 	const navigation = parseAppNavigationOpenMessage(event.data);

@@ -180,9 +180,10 @@ let blinkUntil = 0;
 // Overlay.
 let cohub = null;
 let context = null;
-let dock = false;
-let fullW = window.innerWidth;
-let fullH = window.innerHeight;
+// Touch has no hover, so the roaming rect shape never receives a tap; a coarse
+// pointer starts in the fixed, fully-interactive dock panel instead.
+const coarsePointer = window.matchMedia?.("(pointer: coarse)")?.matches ?? false;
+let dock = coarsePointer;
 let lastRegionKey = "";
 let lastRegionAt = 0;
 
@@ -348,9 +349,10 @@ function applyOverlayShape() {
       inputRegion: "all",
     });
   } else {
-    // Full window, with a rect that follows the frog.
+    // Fill the window, with a rect that follows the frog. An empty geometry is
+    // the fill shape, so it tracks the host viewport with no resize traffic.
     cohub.app.requestConfigure({
-      geometry: { anchor: "top-left", x: 0, y: 0, width: fullW, height: fullH },
+      geometry: {},
       inputRegion: [],
     });
     lastRegionKey = "";
@@ -963,10 +965,6 @@ function bindInteractions() {
   });
 
   window.addEventListener("resize", () => {
-    if (!dock) {
-      fullW = window.innerWidth;
-      fullH = window.innerHeight;
-    }
     applyStagePosition();
     clampAbove();
   });
@@ -1049,9 +1047,10 @@ async function boot() {
 
   if (!context) return;
 
-  fullW = window.innerWidth;
-  fullH = window.innerHeight;
   bindSurface();
+  document.body.classList.toggle("dock", dock);
+  applyOverlayShape();
+  if (dock) nudge();
   await followSession();
   void joinPresence();
   cohub.app.onContextChanged((next) => {

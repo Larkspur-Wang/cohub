@@ -164,16 +164,15 @@ export function createDesktopLayerManager(options: DesktopLayerManagerOptions) {
 	}
 
 	/**
-	 * Applies a `configure.request`; absent fields keep their current value.
-	 * Apps re-send their geometry freely (every render, on resize), so an
-	 * unchanged request must not produce a new overlay list.
+	 * Applies a `configure.request`. A present `geometry` replaces the current
+	 * shape (`{}` fills the layer); omitting it keeps the current one. Apps
+	 * re-send their geometry freely (every render, on resize), so an unchanged
+	 * request must not produce a new overlay list.
 	 */
 	function configure(appId: string, request: AppRuntimeConfigureRequest) {
 		const overlay = find(appId);
 		if (!overlay) return;
-		const geometry = request.geometry
-			? { ...overlay.geometry, ...request.geometry }
-			: overlay.geometry;
+		const geometry = request.geometry ?? overlay.geometry;
 		const inputRegion = request.inputRegion ?? overlay.inputRegion;
 		if (
 			sameGeometry(geometry, overlay.geometry) &&

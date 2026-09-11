@@ -214,6 +214,73 @@ test("AppRuntimeApi delegates context change subscriptions to its transport", ()
 	assert.equal(subscribed, null);
 });
 
+test("requestConfigure reports the pointer while a rect region is active and still delivers the release after opting out", () => {
+	const listeners = new Map<string, (event: { clientX: number; clientY: number; buttons?: number }) => void>();
+	const notified: Record<string, unknown>[] = [];
+	globalThis.window = {
+		addEventListener: (type: string, handler: (event: { clientX: number; clientY: number; buttons?: number }) => void) => {
+			listeners.set(type, handler);
+		},
+		removeEventListener: () => {},
+	} as unknown as Window & typeof globalThis;
+
+	let frame: FrameRequestCallback | null = null;
+	const originalRaf = globalThis.requestAnimationFrame;
+	const originalCancel = globalThis.cancelAnimationFrame;
+	globalThis.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+		frame = callback;
+		return 1;
+	}) as typeof requestAnimationFrame;
+	globalThis.cancelAnimationFrame = (() => {
+		frame = null;
+	}) as typeof cancelAnimationFrame;
+
+	try {
+		const transport: AppRuntimeTransport = {
+			request: () => Promise.resolve(null),
+			notify: (message) => notified.push(message),
+		};
+		const runtime = createAppRuntime(transport);
+
+		runtime.requestConfigure({ inputRegion: [{ x: 0, y: 0, width: 10, height: 10 }] });
+		listeners.get("pointermove")?.({ clientX: 5, clientY: 6, buttons: 1 });
+		frame?.(0);
+		assert.deepEqual(notified.at(-1), {
+			protocol: "cohub.app.runtime",
+			version: 1,
+			type: "pointer",
+			x: 5,
+			y: 6,
+			down: true,
+		});
+
+		// Opting out stops moves...
+		runtime.requestConfigure({ inputRegion: "none" });
+		const settled = notified.length;
+		listeners.get("pointermove")?.({ clientX: 7, clientY: 8, buttons: 0 });
+		assert.equal(notified.length, settled);
+
+		// ...but the in-flight release is still delivered so the host can clear.
+		listeners.get("pointerup")?.({ clientX: 9, clientY: 10 });
+		assert.deepEqual(notified.at(-1), {
+			protocol: "cohub.app.runtime",
+			version: 1,
+			type: "pointer",
+			x: 9,
+			y: 10,
+			down: false,
+		});
+
+		// A later release with no press in flight stays silent.
+		const afterRelease = notified.length;
+		listeners.get("pointerup")?.({ clientX: 11, clientY: 12 });
+		assert.equal(notified.length, afterRelease);
+	} finally {
+		globalThis.requestAnimationFrame = originalRaf;
+		globalThis.cancelAnimationFrame = originalCancel;
+	}
+});
+
 test("AppRuntimeApi delegates to the injected transport", async () => {
 	const calls: { message: Record<string, unknown>; options?: object }[] = [];
 	const transport: AppRuntimeTransport = {
