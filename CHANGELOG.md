@@ -4,6 +4,19 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v2.47 — 2026-09-12
+
+- **Viewer-controlled app authorization**: Space-bound consent now resolves to a Space the viewer controls (invocation/embedding Space, last-picked, then first accessible) instead of the app author's home Space, keeping misconfiguration off the viewer's screen. Failed grants return structured error codes (`space_inaccessible`, `scope_not_held`, `consent_required`, …), developer diagnostics are forwarded to the app author, and a shared `@neta-art/cohub/space-picker` model is exported so every host renders the same chooser.
+- **Builder session sharing**: A new `session.access.manage` permission lets builders and hosts share/unshare sessions, decoupled from the host-only `member.manage`. Space-level access and member management stay host-only, and the permission is not granted to Apps.
+- **Model pricing in the CLI**: `cohub models ls` and `cohub models show` now print per-million-token costs and compact multimodal unit prices (e.g. `$0.04 / image`), expose the raw `pricing` object in `--json`, and hide hidden models and providers left with no visible models.
+- **Overlay performance**: The host coalesces pointermove hit-testing into a single pass per frame (flushed on release, cancelled on unmount), while companions skip redundant stage-transform writes, derive hit-region rects without a layout read, and redraw sprites only when the pose changes.
+- **Paged app-authorization Space picker**: Each filter tab now windows its full match set on a shared `INITIAL + n * PAGE` curve with a rAF gate, making Spaces beyond the first few reachable; the dialog body scrolls on short viewports and the tabs use `aria-pressed` with per-tab empty-state copy.
+
+### Bug Fixes
+
+- Overlay rect input regions are released as soon as the pointer leaves them, fixing a resting overlay that kept the whole window unclickable; ownership stays frozen while any button is held, including a drag that began on the page underneath.
+- Completed session turns no longer regress to pending on tab resume: a stale `activeTurn` from the session-list cache can no longer downgrade a locally terminal generation or hide its persisted answer.
+
 ## v2.46 — 2026-09-11
 
 - **Space webhooks**: Space Hooks can now be triggered over HTTP — a `.cohub/hooks/<name>.yml` declaring `on.event: webhook` is addressed at `POST /api/spaces/:id/webhooks/:name`, with an optional `on.secret` credential, a 64 KB JSON body, and per-space rate limiting. Also available via the SDK (`space.webhooks`), the CLI (`cohub spaces webhooks ls|url|trigger`), and a Settings listing.
