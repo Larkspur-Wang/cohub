@@ -123,9 +123,9 @@ const operationGroups = $derived.by<OperationGroup[]>(() => {
 
 const displayName = $derived(appName?.trim() || "this app");
 
-/** Initial rows rendered; scrolling or "Show more" reveals the next pages. */
+/** Initial rows rendered; scrolling reveals the next pages. */
 const SPACE_PICKER_INITIAL = 8;
-/** Rows added per scroll page / "Show more" press. */
+/** Rows added per scroll page. */
 const SPACE_PICKER_PAGE = 20;
 
 // Picker selection is owned by the host bridge core; this dialog only renders
@@ -238,7 +238,7 @@ function resetSpaceWindow(matches: readonly { id: string }[]) {
 	if (index < 0) return;
 	const needed = index + 1;
 	if (needed > spaceDisplayLimit) {
-		// Grow on the same `INITIAL + n * PAGE` curve as scroll / Show more.
+		// Grow on the same `INITIAL + n * PAGE` curve as the scroll reveals.
 		spaceDisplayLimit = Math.min(
 			matches.length,
 			SPACE_PICKER_INITIAL +
@@ -252,7 +252,7 @@ function resetSpaceWindow(matches: readonly { id: string }[]) {
 }
 
 // `spaceMatches` is the match scope: it changes on open/filter/query but not on
-// scroll or Show more, so this never fights the viewer's scrolling.
+// scroll, so this never fights the viewer's scrolling.
 $effect(() => {
 	if (!picking) return;
 	const matches = spaceMatches;
@@ -374,12 +374,6 @@ const scopeLabel = (scope: string) =>
 								<div class="auth-space-empty-list">{spaceEmptyCopy}</div>
 							{/if}
 						</div>
-						{#if spaceMoreCount > 0}
-							<div class="auth-space-more">
-								<span>Showing {visibleSpaceOptions?.length ?? 0} of {spaceMatches?.length ?? 0}</span>
-								<button type="button" onclick={requestMoreSpaces}>Show more</button>
-							</div>
-						{/if}
 					{/if}
 					<div class="auth-picker-actions">
 						<button type="button" class="auth-cancel" disabled={saving} onclick={onCancel}>Deny</button>
@@ -554,35 +548,6 @@ const scopeLabel = (scope: string) =>
 		line-height: 1.4;
 		text-align: center;
 		color: var(--text-tertiary);
-	}
-
-	.auth-space-more {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 8px;
-		font-size: 11px;
-		color: var(--text-tertiary);
-	}
-
-	.auth-space-more button {
-		border: 0;
-		background: transparent;
-		padding: 2px 0;
-		font-size: 11px;
-		font-weight: 550;
-		color: var(--brand);
-		cursor: pointer;
-	}
-
-	.auth-space-more button:hover {
-		text-decoration: underline;
-	}
-
-	.auth-space-more button:focus-visible {
-		outline: none;
-		box-shadow: 0 0 0 2px var(--bg-primary), 0 0 0 4px var(--brand-ring);
-		border-radius: 4px;
 	}
 
 	.auth-space-option {
@@ -965,10 +930,6 @@ const scopeLabel = (scope: string) =>
 
 		.auth-space-option {
 			padding: 11px 12px;
-		}
-
-		.auth-space-more button {
-			min-height: 32px;
 		}
 
 		.auth-actions {
