@@ -12,6 +12,7 @@ import {
 	Search,
 	ShieldCheck,
 } from "lucide-svelte";
+import { tick, untrack } from "svelte";
 import Dialog from "$lib/components/Dialog.svelte";
 import { APP_SCOPE_OPTIONS } from "$lib/features/space/modules/app-utils";
 import { getLocale } from "$lib/i18n/locale.svelte";
@@ -122,18 +123,29 @@ const operationGroups = $derived.by<OperationGroup[]>(() => {
 
 const displayName = $derived(appName?.trim() || "this app");
 
+/** Initial rows rendered; scrolling or "Show more" reveals the next pages. */
+const SPACE_PICKER_INITIAL = 8;
+/** Rows added per scroll page / "Show more" press. */
+const SPACE_PICKER_PAGE = 20;
+
 // Picker selection is owned by the host bridge core; this dialog only renders
 // it. Picker step resets whenever a new request opens the dialog, and a single
 // accessible Space needs no choice.
 let spaceQuery = $state("");
 let spaceFilter = $state<SpacePickerFilter>("recent");
 let pickerStep = $state<"choose" | "review">("review");
+let spaceDisplayLimit = $state(SPACE_PICKER_INITIAL);
+let spaceListEl = $state<HTMLDivElement | null>(null);
+/** Coalesces a scroll burst into at most one page reveal per frame. */
+let spaceLoadFrame: number | null = null;
 $effect(() => {
 	const spaces = pending?.spaces ?? null;
 	spaceQuery = "";
 	spaceFilter = "recent";
 	pickerStep =
 		pending?.selectSpace && spaces?.length !== 1 ? "choose" : "review";
+	// A fresh request must not inherit a page reveal queued for the old one.
+	cancelSpaceLoad();
 });
 
 const picking = $derived(pickerStep === "choose");
@@ -143,14 +155,117 @@ function handleSpaceQueryInput(event: Event) {
 	if (spaceQuery.trim()) spaceFilter = "all";
 }
 
-const visibleSpaceOptions = $derived.by(() => {
+// Full ordered match set; the template windows it so the DOM stays bounded
+// even when the viewer has hundreds of Spaces.
+const spaceMatches = $derived.by(() => {
 	if (!spaceOptions) return null;
 	return selectSpacePickerItems(spaceOptions, {
 		filter: spaceFilter,
 		query: normalizeSpacePickerQuery(spaceQuery),
 		viewerUserUuid: authStore.userUuid,
-		limit: 6,
 	});
+});
+const visibleSpaceOptions = $derived(
+	spaceMatches?.slice(0, spaceDisplayLimit) ?? null,
+);
+const spaceMoreCount = $derived(
+	spaceMatches ? Math.max(0, spaceMatches.length - spaceDisplayLimit) : 0,
+);
+
+/** Drops a queued page reveal, e.g. when the window is about to reset. */
+function cancelSpaceLoad() {
+	if (spaceLoadFrame !== null) {
+		cancelAnimationFrame(spaceLoadFrame);
+		spaceLoadFrame = null;
+	}
+}
+$effect(() => () => cancelSpaceLoad());
+
+// Reveals the next page only after the current one has been painted, so a burst
+// of inertial scroll events cannot flush the entire window in a single frame.
+function requestMoreSpaces() {
+	if (spaceLoadFrame !== null) return;
+	spaceLoadFrame = requestAnimationFrame(() => {
+		spaceLoadFrame = null;
+		loadMoreSpaces();
+	});
+}
+
+function loadMoreSpaces() {
+	if (!spaceMatches) return;
+	spaceDisplayLimit = Math.min(
+		spaceDisplayLimit + SPACE_PICKER_PAGE,
+		spaceMatches.length,
+	);
+}
+
+function handleSpaceListScroll(event: Event) {
+	if (spaceMoreCount <= 0) return;
+	const el = event.currentTarget as HTMLElement | null;
+	// Ignore the programmatic reset scroll (scrollTop = 0).
+	if (!el || el.scrollTop <= 0) return;
+	if (el.scrollTop + el.clientHeight >= el.scrollHeight - 64)
+		requestMoreSpaces();
+}
+
+function scrollSelectedIntoView() {
+	const list = spaceListEl;
+	const option = list?.querySelector<HTMLElement>(
+		".auth-space-option.selected",
+	);
+	if (!list || !option) return;
+	// Adjust the list's own scrollTop so revealing a row never moves the dialog.
+	const listRect = list.getBoundingClientRect();
+	const optionRect = option.getBoundingClientRect();
+	if (optionRect.top < listRect.top) {
+		list.scrollTop -= listRect.top - optionRect.top;
+	} else if (optionRect.bottom > listRect.bottom) {
+		list.scrollTop += optionRect.bottom - listRect.bottom;
+	}
+}
+
+/**
+ * Single reset path for a new match scope (new request / filter / query):
+ * drops queued loads, restarts the window, and reveals the preselected Space
+ * when it is part of the new match set.
+ */
+function resetSpaceWindow(matches: readonly { id: string }[]) {
+	cancelSpaceLoad();
+	spaceDisplayLimit = SPACE_PICKER_INITIAL;
+	if (spaceListEl) spaceListEl.scrollTop = 0;
+	const spaceId = selectedSpaceId;
+	const index = matches.findIndex((space) => space.id === spaceId);
+	if (index < 0) return;
+	const needed = index + 1;
+	if (needed > spaceDisplayLimit) {
+		// Grow on the same `INITIAL + n * PAGE` curve as scroll / Show more.
+		spaceDisplayLimit = Math.min(
+			matches.length,
+			SPACE_PICKER_INITIAL +
+				Math.ceil((needed - SPACE_PICKER_INITIAL) / SPACE_PICKER_PAGE) *
+					SPACE_PICKER_PAGE,
+		);
+		void tick().then(scrollSelectedIntoView);
+	} else {
+		scrollSelectedIntoView();
+	}
+}
+
+// `spaceMatches` is the match scope: it changes on open/filter/query but not on
+// scroll or Show more, so this never fights the viewer's scrolling.
+$effect(() => {
+	if (!picking) return;
+	const matches = spaceMatches;
+	if (!matches) return;
+	untrack(() => resetSpaceWindow(matches));
+});
+
+const spaceEmptyCopy = $derived.by(() => {
+	if (spaceQuery.trim()) return "No matching Spaces.";
+	if (spaceFilter === "pinned") return "No pinned Spaces.";
+	if (spaceFilter === "mine") return "No Spaces you own.";
+	if (spaceFilter === "recent") return "No recent Spaces.";
+	return "No Spaces yet.";
 });
 const spaceLabel = $derived.by(() => {
 	if (!pending || pending.createSpace) return null;
@@ -207,7 +322,7 @@ const scopeLabel = (scope: string) =>
 	APP_SCOPE_OPTIONS.find((option) => option.scope === scope)?.label ?? scope;
 </script>
 
-<Dialog {open} onClose={onCancel} maxWidth="440px" maxHeight="90vh" scrollable={false}>
+<Dialog {open} onClose={onCancel} maxWidth="440px" maxHeight="90vh">
 	{#if pending}
 		<div class="auth-panel" class:auth-review={!picking}>
 			<div class="auth-intro">
@@ -243,12 +358,12 @@ const scopeLabel = (scope: string) =>
 							<Search class="h-3.5 w-3.5" />
 							<input value={spaceQuery} oninput={handleSpaceQueryInput} placeholder="Search Spaces" aria-label="Search Spaces" />
 						</label>
-						<div class="auth-space-filters" role="tablist" aria-label="Filter Spaces">
+						<div class="auth-space-filters" role="group" aria-label="Filter Spaces">
 							{#each [{ key: "recent", label: "Recent" }, { key: "all", label: "All" }, { key: "mine", label: "Mine" }, { key: "pinned", label: "Pinned" }] as filter}
-								<button type="button" class:active={spaceFilter === filter.key} role="tab" aria-selected={spaceFilter === filter.key} onclick={() => (spaceFilter = filter.key as SpacePickerFilter)}>{filter.label}</button>
+								<button type="button" class:active={spaceFilter === filter.key} aria-pressed={spaceFilter === filter.key} onclick={() => (spaceFilter = filter.key as SpacePickerFilter)}>{filter.label}</button>
 							{/each}
 						</div>
-						<div class="auth-space-list" role="radiogroup" aria-label="Choose a Space">
+						<div class="auth-space-list" role="radiogroup" aria-label="Choose a Space" bind:this={spaceListEl} onscroll={handleSpaceListScroll}>
 							{#each visibleSpaceOptions ?? [] as space (space.id)}
 								<label class="auth-space-option" class:selected={selectedSpaceId === space.id}>
 									<input type="radio" name="auth-space" checked={selectedSpaceId === space.id} onchange={() => onSelectSpace(space.id)} />
@@ -256,9 +371,15 @@ const scopeLabel = (scope: string) =>
 								</label>
 							{/each}
 							{#if (visibleSpaceOptions?.length ?? 0) === 0}
-								<div class="auth-space-empty">No matching Spaces.</div>
+								<div class="auth-space-empty-list">{spaceEmptyCopy}</div>
 							{/if}
 						</div>
+						{#if spaceMoreCount > 0}
+							<div class="auth-space-more">
+								<span>Showing {visibleSpaceOptions?.length ?? 0} of {spaceMatches?.length ?? 0}</span>
+								<button type="button" onclick={requestMoreSpaces}>Show more</button>
+							</div>
+						{/if}
 					{/if}
 					<div class="auth-picker-actions">
 						<button type="button" class="auth-cancel" disabled={saving} onclick={onCancel}>Deny</button>
@@ -416,9 +537,52 @@ const scopeLabel = (scope: string) =>
 
 	.auth-space-list {
 		display: grid;
+		max-height: min(40vh, 300px);
+		overflow: hidden auto;
+		overscroll-behavior: contain;
 		border: 1px solid var(--border-subtle);
 		border-radius: 10px;
 		background: var(--bg-elevated);
+	}
+
+	.auth-space-empty-list {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 18px 12px;
+		font-size: 12px;
+		line-height: 1.4;
+		text-align: center;
+		color: var(--text-tertiary);
+	}
+
+	.auth-space-more {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 8px;
+		font-size: 11px;
+		color: var(--text-tertiary);
+	}
+
+	.auth-space-more button {
+		border: 0;
+		background: transparent;
+		padding: 2px 0;
+		font-size: 11px;
+		font-weight: 550;
+		color: var(--brand);
+		cursor: pointer;
+	}
+
+	.auth-space-more button:hover {
+		text-decoration: underline;
+	}
+
+	.auth-space-more button:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--bg-primary), 0 0 0 4px var(--brand-ring);
+		border-radius: 4px;
 	}
 
 	.auth-space-option {
@@ -785,6 +949,26 @@ const scopeLabel = (scope: string) =>
 
 		.auth-scope-row {
 			padding: 11px;
+		}
+
+		.auth-space-search {
+			min-height: 40px;
+		}
+
+		.auth-space-filters {
+			gap: 4px;
+		}
+
+		.auth-space-filters button {
+			min-height: 36px;
+		}
+
+		.auth-space-option {
+			padding: 11px 12px;
+		}
+
+		.auth-space-more button {
+			min-height: 32px;
 		}
 
 		.auth-actions {
