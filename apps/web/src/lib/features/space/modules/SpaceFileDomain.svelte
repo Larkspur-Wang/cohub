@@ -42,7 +42,10 @@ import type { Window } from "./windows";
 import { workspaceFilePreviewKind } from "./windows";
 
 type PanHandlers = {
-	start: (event: MouseEvent) => void;
+	onPointerDown: (event: PointerEvent) => void;
+	onPointerMove: (event: PointerEvent) => void;
+	onPointerUp: (event: PointerEvent) => void;
+	onPointerCancel: (event: PointerEvent) => void;
 };
 
 type PublishTarget = {

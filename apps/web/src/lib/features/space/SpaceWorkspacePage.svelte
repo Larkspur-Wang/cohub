@@ -88,6 +88,7 @@ import {
 	subscribeSpaceChannel,
 } from "$lib/features/session-chat";
 import SessionChatPanel from "$lib/features/session-chat/SessionChatPanel.svelte";
+import { createImageGestureHandlers } from "$lib/gestures/image-gesture";
 // SettingsOverlay removed — settings merged inline into detail page
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import {
@@ -942,14 +943,19 @@ $effect(() => {
 	sessionChat.reportActiveSource(null);
 });
 
-const inlineFilePanHandlers = makeImagePanHandlers(
-	() => fileWorkspace.inlineFileZoom,
-	() => fileWorkspace.inlineFilePanX,
-	() => fileWorkspace.inlineFilePanY,
-	(v) => (fileWorkspace.inlineFilePanX = v),
-	(v) => (fileWorkspace.inlineFilePanY = v),
-	(v) => (fileWorkspace.inlineFileDragging = v),
-);
+const inlineFilePanHandlers = createImageGestureHandlers({
+	getState: () => ({
+		zoom: fileWorkspace.inlineFileZoom,
+		panX: fileWorkspace.inlineFilePanX,
+		panY: fileWorkspace.inlineFilePanY,
+	}),
+	setState: (state) => {
+		fileWorkspace.inlineFileZoom = state.zoom;
+		fileWorkspace.inlineFilePanX = state.panX;
+		fileWorkspace.inlineFilePanY = state.panY;
+	},
+	onDraggingChange: (value) => (fileWorkspace.inlineFileDragging = value),
+});
 let workspaceBodyEl = $state<HTMLDivElement | null>(null);
 const previewLayout = createWorkspaceLayoutController({
 	getIsCompact: () => isMobile,
@@ -1495,45 +1501,6 @@ function userTitle(
 		.filter(Boolean)
 		.join(" · ");
 }
-// Image pan handlers
-function makeImagePanHandlers(
-	zoom: () => number,
-	panX: () => number,
-	panY: () => number,
-	setPanX: (v: number) => void,
-	setPanY: (v: number) => void,
-	setDragging: (v: boolean) => void,
-) {
-	let dragStartX = 0;
-	let dragStartY = 0;
-	let startPanX = 0;
-	let startPanY = 0;
-	return {
-		start: (e: MouseEvent) => {
-			if (zoom() <= 1) return;
-			e.preventDefault();
-			dragStartX = e.clientX;
-			dragStartY = e.clientY;
-			startPanX = panX();
-			startPanY = panY();
-			setDragging(true);
-			document.addEventListener("mousemove", handleMove);
-			document.addEventListener("mouseup", handleEnd);
-		},
-	};
-	function handleMove(e: MouseEvent) {
-		const dx = e.clientX - dragStartX;
-		const dy = e.clientY - dragStartY;
-		setPanX(startPanX + dx);
-		setPanY(startPanY + dy);
-	}
-	function handleEnd() {
-		setDragging(false);
-		document.removeEventListener("mousemove", handleMove);
-		document.removeEventListener("mouseup", handleEnd);
-	}
-}
-
 // ── Session rename (header inline edit) ────────────────────────────────
 function startSessionRename() {
 	const session = activeSessionState?.session;
