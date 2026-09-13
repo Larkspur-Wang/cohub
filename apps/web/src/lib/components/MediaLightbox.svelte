@@ -394,6 +394,7 @@ const imageCursor = $derived(
 			<div
 				bind:this={imageStageEl}
 				class="absolute inset-0 z-0 flex items-center justify-center overflow-hidden touch-none overscroll-none"
+				data-drawer-swipe-ignore
 				role="button"
 				tabindex="0"
 				aria-label={m.media_image_hint({}, { locale })}
@@ -424,8 +425,8 @@ const imageCursor = $derived(
 					src={mediaLightbox.current.src}
 					alt={mediaLightbox.current.alt ?? ""}
 					draggable="false"
-					style={`transform: translate(${panX}px, ${panY}px) scale(${zoom}); ${dragging || gestureZooming ? "" : "transition: transform 120ms ease-out;"}`}
-					class="max-w-[90vw] max-h-[85vh] object-contain rounded-lg select-none"
+					style={`transform: translate3d(${panX}px, ${panY}px, 0) scale(${zoom}); ${dragging || gestureZooming ? "" : "transition: transform 120ms ease-out;"}`}
+					class="max-w-[90vw] max-h-[85vh] object-contain rounded-lg select-none will-change-transform"
 				/>
 			</div>
 		{:else}

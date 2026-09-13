@@ -950,9 +950,7 @@ const inlineFilePanHandlers = createImageGestureHandlers({
 		panY: fileWorkspace.inlineFilePanY,
 	}),
 	setState: (state) => {
-		fileWorkspace.inlineFileZoom = state.zoom;
-		fileWorkspace.inlineFilePanX = state.panX;
-		fileWorkspace.inlineFilePanY = state.panY;
+		fileWorkspace.setInlineFileViewport(state);
 	},
 	onDraggingChange: (value) => (fileWorkspace.inlineFileDragging = value),
 });

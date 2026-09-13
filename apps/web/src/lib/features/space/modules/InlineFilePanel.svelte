@@ -803,6 +803,8 @@ $effect(() => {
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
             class="relative flex flex-1 items-center justify-center overflow-hidden p-4 touch-none overscroll-none"
+            data-drawer-swipe-ignore
+            style:touch-action="none"
             onpointerdown={inlineFilePanHandlers.onPointerDown}
             onpointermove={inlineFilePanHandlers.onPointerMove}
             onpointerup={inlineFilePanHandlers.onPointerUp}
@@ -825,8 +827,8 @@ $effect(() => {
               src={inlineFileDataUrl}
               alt={inlineFile.response.name}
               draggable="false"
-              style={`transform: translate(${inlineFilePanX}px, ${inlineFilePanY}px) scale(${inlineFileZoom}); ${inlineFileDragging ? "" : "transition: transform 150ms ease;"}`}
-              class="max-h-full max-w-full rounded-md select-none"
+              style={`transform: translate3d(${inlineFilePanX}px, ${inlineFilePanY}px, 0) scale(${inlineFileZoom}); ${inlineFileDragging ? "" : "transition: transform 150ms ease;"}`}
+              class="max-h-full max-w-full rounded-md select-none will-change-transform"
             />
           </div>
         {:else if inlineFileIsVideo && inlineFileDataUrl}
@@ -1014,7 +1016,7 @@ $effect(() => {
                 </button>
               </div>
               <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-              <div class="flex flex-1 items-center justify-center overflow-hidden p-4 touch-none overscroll-none" tabindex="-1" role="group" aria-label={m.inline_image_preview_aria({}, { locale })} onpointerdown={inlineFilePanHandlers.onPointerDown} onpointermove={inlineFilePanHandlers.onPointerMove} onpointerup={inlineFilePanHandlers.onPointerUp} onpointercancel={inlineFilePanHandlers.onPointerCancel} onwheel={(e) => {
+              <div class="flex flex-1 items-center justify-center overflow-hidden p-4 touch-none overscroll-none" data-drawer-swipe-ignore tabindex="-1" role="group" aria-label={m.inline_image_preview_aria({}, { locale })} style:touch-action="none" onpointerdown={inlineFilePanHandlers.onPointerDown} onpointermove={inlineFilePanHandlers.onPointerMove} onpointerup={inlineFilePanHandlers.onPointerUp} onpointercancel={inlineFilePanHandlers.onPointerCancel} onwheel={(e) => {
                 if (e.ctrlKey || e.metaKey) {
                   e.preventDefault();
                   inlineFileZoom = Math.max(0.25, Math.min(4, inlineFileZoom + (e.deltaY < 0 ? 0.1 : -0.1)));
@@ -1022,7 +1024,7 @@ $effect(() => {
                   inlineFilePanY = 0;
                 }
               }} ondblclick={() => { inlineFileZoom = 1; inlineFilePanX = 0; inlineFilePanY = 0; }} style={inlineFileDragging ? 'cursor: grabbing;' : (inlineFileZoom > 1 ? 'cursor: grab;' : '')}>
-                <img src={inlineFileDataUrl} alt={inlineFile.response.name} style={`transform: translate(${inlineFilePanX}px, ${inlineFilePanY}px) scale(${inlineFileZoom}); ${inlineFileDragging ? '' : 'transition: transform 150ms ease;'}`} class="max-h-full max-w-full select-none" />
+                <img src={inlineFileDataUrl} alt={inlineFile.response.name} style={`transform: translate3d(${inlineFilePanX}px, ${inlineFilePanY}px, 0) scale(${inlineFileZoom}); ${inlineFileDragging ? '' : 'transition: transform 150ms ease;'}`} class="max-h-full max-w-full select-none will-change-transform" />
               </div>
             </div>
           {:else if inlineFileIsVideo && inlineFileDataUrl}
