@@ -41,13 +41,6 @@ import WindowTabs from "./WindowTabs.svelte";
 import type { Window } from "./windows";
 import { workspaceFilePreviewKind } from "./windows";
 
-type PanHandlers = {
-	onPointerDown: (event: PointerEvent) => void;
-	onPointerMove: (event: PointerEvent) => void;
-	onPointerUp: (event: PointerEvent) => void;
-	onPointerCancel: (event: PointerEvent) => void;
-};
-
 type PublishTarget = {
 	targetType: "file" | "directory" | "port";
 	targetRef: string;
@@ -123,7 +116,6 @@ export type SpaceFileDomainProps = {
 	inlineFilePanX: number;
 	inlineFilePanY: number;
 	inlineFileDragging: boolean;
-	inlineFilePanHandlers: PanHandlers;
 	uploadPaneVisible: boolean;
 	uploadPaneTargetDir: string;
 	pendingUploadFiles: File[];
@@ -288,7 +280,6 @@ let {
 	inlineFilePanX = $bindable(),
 	inlineFilePanY = $bindable(),
 	inlineFileDragging,
-	inlineFilePanHandlers,
 	uploadPaneVisible,
 	uploadPaneTargetDir,
 	pendingUploadFiles,
@@ -518,7 +509,6 @@ function previewContentOut(node: Element) {
 		bind:inlineFilePanX
 		bind:inlineFilePanY
 		{inlineFileDragging}
-		{inlineFilePanHandlers}
 		onCloseInlineFile={onCloseInlineFile}
 		onBackInlineFile={onBackInlineFile}
 		onOpenLinkedInlineFile={onOpenLinkedInlineFile}

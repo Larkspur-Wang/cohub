@@ -24,6 +24,7 @@ import { floatNear } from "$lib/actions/portal";
 import AudioPlayer from "$lib/components/AudioPlayer.svelte";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import type { FileViewMode } from "$lib/components/file-diff-view";
+import ImageViewer from "$lib/components/ImageViewer.svelte";
 import MarkdownView from "$lib/components/MarkdownView.svelte";
 import type { PdfPreviewControls } from "$lib/components/PdfPreview.svelte";
 import type { PreviewCaptureTarget } from "$lib/features/preview-mark";
@@ -53,13 +54,6 @@ type InlineFilePanelState = {
 	saveError: string | null;
 	error: string | null;
 	tooLarge: boolean;
-};
-
-type PanHandlers = {
-	onPointerDown: (event: PointerEvent) => void;
-	onPointerMove: (event: PointerEvent) => void;
-	onPointerUp: (event: PointerEvent) => void;
-	onPointerCancel: (event: PointerEvent) => void;
 };
 
 type Props = {
@@ -97,7 +91,6 @@ type Props = {
 	inlineFilePanX: number;
 	inlineFilePanY: number;
 	inlineFileDragging: boolean;
-	inlineFilePanHandlers: PanHandlers;
 	onCloseInlineFile: () => void;
 	onActivateWindow: (kind: Window["kind"], key: string) => void;
 	onCloseWindow: (kind: Window["kind"], key: string) => void;
@@ -164,7 +157,6 @@ let {
 	inlineFilePanX = $bindable(),
 	inlineFilePanY = $bindable(),
 	inlineFileDragging,
-	inlineFilePanHandlers,
 	onCloseInlineFile,
 	onActivateWindow,
 	onCloseWindow,
@@ -800,22 +792,17 @@ $effect(() => {
             {@render TextFileBody()}
           </div>
         {:else if inlineFileIsImage && inlineFileDataUrl}
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <div
-            class="relative flex flex-1 items-center justify-center overflow-hidden p-4 touch-none overscroll-none"
-            data-drawer-swipe-ignore
-            style:touch-action="none"
-            onpointerdown={inlineFilePanHandlers.onPointerDown}
-            onpointermove={inlineFilePanHandlers.onPointerMove}
-            onpointerup={inlineFilePanHandlers.onPointerUp}
-            onpointercancel={inlineFilePanHandlers.onPointerCancel}
-            ondblclick={() => {
-              inlineFileZoom = 1;
-              inlineFilePanX = 0;
-              inlineFilePanY = 0;
-            }}
-            style={inlineFileDragging ? "cursor: grabbing;" : inlineFileZoom > 1 ? "cursor: grab;" : ""}
-          >
+          <div class="relative flex min-h-0 flex-1 p-4">
+            <ImageViewer
+              src={inlineFileDataUrl}
+              alt={inlineFile.response.name}
+              bind:zoom={inlineFileZoom}
+              bind:panX={inlineFilePanX}
+              bind:panY={inlineFilePanY}
+              bind:dragging={inlineFileDragging}
+              showControls
+              class="rounded-md"
+            />
             {#if imageMarkTarget}
               <div class="pointer-events-none absolute top-2 right-2 z-20">
                 <div class="pointer-events-auto rounded-md border border-border-subtle bg-bg-surface/95 shadow-sm backdrop-blur-sm">
@@ -823,17 +810,10 @@ $effect(() => {
                 </div>
               </div>
             {/if}
-            <img
-              src={inlineFileDataUrl}
-              alt={inlineFile.response.name}
-              draggable="false"
-              style={`transform: translate3d(${inlineFilePanX}px, ${inlineFilePanY}px, 0) scale(${inlineFileZoom}); ${inlineFileDragging ? "" : "transition: transform 150ms ease;"}`}
-              class="max-h-full max-w-full rounded-md select-none will-change-transform"
-            />
           </div>
         {:else if inlineFileIsVideo && inlineFileDataUrl}
           <div class="flex flex-1 items-center justify-center p-4">
-            <video src={inlineFileDataUrl} controls class="max-h-full max-w-full rounded-md">
+            <video src={inlineFileDataUrl} controls playsinline preload="metadata" class="max-h-full max-w-full rounded-md">
               <track kind="captions" />
             </video>
           </div>
@@ -1015,16 +995,24 @@ $effect(() => {
                   <X class="w-4 h-4" />
                 </button>
               </div>
-              <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-              <div class="flex flex-1 items-center justify-center overflow-hidden p-4 touch-none overscroll-none" data-drawer-swipe-ignore tabindex="-1" role="group" aria-label={m.inline_image_preview_aria({}, { locale })} style:touch-action="none" onpointerdown={inlineFilePanHandlers.onPointerDown} onpointermove={inlineFilePanHandlers.onPointerMove} onpointerup={inlineFilePanHandlers.onPointerUp} onpointercancel={inlineFilePanHandlers.onPointerCancel} onwheel={(e) => {
-                if (e.ctrlKey || e.metaKey) {
-                  e.preventDefault();
-                  inlineFileZoom = Math.max(0.25, Math.min(4, inlineFileZoom + (e.deltaY < 0 ? 0.1 : -0.1)));
-                  inlineFilePanX = 0;
-                  inlineFilePanY = 0;
-                }
-              }} ondblclick={() => { inlineFileZoom = 1; inlineFilePanX = 0; inlineFilePanY = 0; }} style={inlineFileDragging ? 'cursor: grabbing;' : (inlineFileZoom > 1 ? 'cursor: grab;' : '')}>
-                <img src={inlineFileDataUrl} alt={inlineFile.response.name} style={`transform: translate3d(${inlineFilePanX}px, ${inlineFilePanY}px, 0) scale(${inlineFileZoom}); ${inlineFileDragging ? '' : 'transition: transform 150ms ease;'}`} class="max-h-full max-w-full select-none will-change-transform" />
+              <div class="relative flex flex-1 min-h-0 p-4">
+                <ImageViewer
+                  src={inlineFileDataUrl}
+                  alt={inlineFile.response.name}
+                  bind:zoom={inlineFileZoom}
+                  bind:panX={inlineFilePanX}
+                  bind:panY={inlineFilePanY}
+                  bind:dragging={inlineFileDragging}
+                  showControls
+                  class="rounded-md"
+                />
+                {#if imageMarkTarget}
+                  <div class="pointer-events-none absolute top-2 right-2 z-20">
+                    <div class="pointer-events-auto rounded-md border border-border-subtle bg-bg-surface/95 shadow-sm backdrop-blur-sm">
+                      <PreviewMarkHost bind:open={imageMarkOpen} target={imageMarkTarget} />
+                    </div>
+                  </div>
+                {/if}
               </div>
             </div>
           {:else if inlineFileIsVideo && inlineFileDataUrl}
@@ -1039,7 +1027,7 @@ $effect(() => {
               </button>
             </div>
             <div class="flex flex-1 items-center justify-center p-4">
-              <video src={inlineFileDataUrl} controls class="max-h-full max-w-full rounded-md">
+              <video src={inlineFileDataUrl} controls playsinline preload="metadata" class="max-h-full max-w-full rounded-md">
                 <track kind="captions" />
               </video>
             </div>

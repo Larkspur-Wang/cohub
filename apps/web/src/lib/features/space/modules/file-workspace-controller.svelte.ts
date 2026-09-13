@@ -16,7 +16,6 @@ import {
 	type FileViewMode,
 } from "$lib/components/file-diff-view";
 import { filePreviewModel } from "$lib/file-preview-model";
-import type { ImageGestureState } from "$lib/gestures/image-gesture";
 import { sdk } from "$lib/sdk";
 import {
 	isTextFileResponse,
@@ -171,16 +170,6 @@ export function createFileWorkspaceController(
 		inlineFileTabs = inlineFileTabs.map((tab) =>
 			tab.path === path ? updater(tab) : tab,
 		);
-	}
-
-	function setInlineFileViewport(state: ImageGestureState) {
-		if (!activeInlineFilePath) return;
-		setInlineFileTab(activeInlineFilePath, (tab) => ({
-			...tab,
-			zoom: state.zoom,
-			panX: state.panX,
-			panY: state.panY,
-		}));
 	}
 
 	function makeInlineFileTab(
@@ -2017,7 +2006,6 @@ export function createFileWorkspaceController(
 		openSpaceFile,
 		openInlineFile,
 		closeInlineFile,
-		setInlineFileViewport,
 		activateInlineFile: (path: string) => {
 			if (activeInlineFilePath && activeInlineFilePath !== path)
 				void fileAutosave.flush(activeInlineFilePath);

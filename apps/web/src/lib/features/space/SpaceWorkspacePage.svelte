@@ -88,7 +88,6 @@ import {
 	subscribeSpaceChannel,
 } from "$lib/features/session-chat";
 import SessionChatPanel from "$lib/features/session-chat/SessionChatPanel.svelte";
-import { createImageGestureHandlers } from "$lib/gestures/image-gesture";
 // SettingsOverlay removed — settings merged inline into detail page
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import {
@@ -943,17 +942,6 @@ $effect(() => {
 	sessionChat.reportActiveSource(null);
 });
 
-const inlineFilePanHandlers = createImageGestureHandlers({
-	getState: () => ({
-		zoom: fileWorkspace.inlineFileZoom,
-		panX: fileWorkspace.inlineFilePanX,
-		panY: fileWorkspace.inlineFilePanY,
-	}),
-	setState: (state) => {
-		fileWorkspace.setInlineFileViewport(state);
-	},
-	onDraggingChange: (value) => (fileWorkspace.inlineFileDragging = value),
-});
 let workspaceBodyEl = $state<HTMLDivElement | null>(null);
 const previewLayout = createWorkspaceLayoutController({
 	getIsCompact: () => isMobile,
@@ -2940,7 +2928,6 @@ const spaceFileDomainProps = $derived.by<
 	inlineFileDataUrl,
 	inlineFileApp,
 	inlineFileDragging: fileWorkspace.inlineFileDragging,
-	inlineFilePanHandlers,
 	uploadPaneVisible: fileWorkspace.uploadPaneVisible,
 	uploadPaneTargetDir: fileWorkspace.uploadPaneTargetDir,
 	pendingUploadFiles: fileWorkspace.pendingUploadFiles,
