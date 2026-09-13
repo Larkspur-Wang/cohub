@@ -800,7 +800,20 @@ $effect(() => {
             {@render TextFileBody()}
           </div>
         {:else if inlineFileIsImage && inlineFileDataUrl}
-          <div class="relative flex flex-1 items-center justify-center overflow-hidden p-4">
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div
+            class="relative flex flex-1 items-center justify-center overflow-hidden p-4 touch-none overscroll-none"
+            onpointerdown={inlineFilePanHandlers.onPointerDown}
+            onpointermove={inlineFilePanHandlers.onPointerMove}
+            onpointerup={inlineFilePanHandlers.onPointerUp}
+            onpointercancel={inlineFilePanHandlers.onPointerCancel}
+            ondblclick={() => {
+              inlineFileZoom = 1;
+              inlineFilePanX = 0;
+              inlineFilePanY = 0;
+            }}
+            style={inlineFileDragging ? "cursor: grabbing;" : inlineFileZoom > 1 ? "cursor: grab;" : ""}
+          >
             {#if imageMarkTarget}
               <div class="pointer-events-none absolute top-2 right-2 z-20">
                 <div class="pointer-events-auto rounded-md border border-border-subtle bg-bg-surface/95 shadow-sm backdrop-blur-sm">
@@ -808,7 +821,13 @@ $effect(() => {
                 </div>
               </div>
             {/if}
-            <img src={inlineFileDataUrl} alt={inlineFile.response.name} class="max-h-full max-w-full rounded-md" />
+            <img
+              src={inlineFileDataUrl}
+              alt={inlineFile.response.name}
+              draggable="false"
+              style={`transform: translate(${inlineFilePanX}px, ${inlineFilePanY}px) scale(${inlineFileZoom}); ${inlineFileDragging ? "" : "transition: transform 150ms ease;"}`}
+              class="max-h-full max-w-full rounded-md select-none"
+            />
           </div>
         {:else if inlineFileIsVideo && inlineFileDataUrl}
           <div class="flex flex-1 items-center justify-center p-4">
