@@ -4,6 +4,11 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v2.49 — 2026-09-14
+
+- **Chats inbox source filter**: The cross-space inbox now filters by any session source instead of only Web App — a "From" picker built from server-provided `sourceCounts` (so it only offers origins the account actually has), multi-select with a filtered-empty state and one-click reset, keeping Web App as the default. `GET /api/me/sessions?source=web,feishu` takes a comma-separated list of kinds — `web` also matches legacy null sources, `other` catches unlabelled rows, and unknown kinds return `400` with the offending keys — and the SDK types them as `UserSessionSourceKey` (`user.listSessions({ source: ["web"] })`, SDK 8.16.0). The source vocabulary also drops Telegram and Slack, which no gateway produces.
+- **Seedance 2 reference audio**: `@neta-art/generation` moves to 0.1.28, and the Seedance 2 / 2.0 Fast declarations accept public-URL `reference_audio` (alongside an explicit `reference_video` block) — `cohub generate --audio reference_audio=<url>` can lip-sync a portrait to a spoken take. Audio is additive to an image or video input: audio-only is rejected and first/last frame roles cannot mix with reference roles. Stale `aspect_ratio`/`fps`/`watermark` parameters are replaced by `ratio`.
+
 ## v2.48 — 2026-09-14
 
 - **Unified image viewer**: A new shared gesture engine (`image-gesture`) and `ImageViewer` component give every image surface — media lightbox, inline file panel, and app previews — consistent pinch, pan, wheel zoom, and double-click reset, with proper touch handling on mobile.
