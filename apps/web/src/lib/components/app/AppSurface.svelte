@@ -368,22 +368,17 @@ onMount(() => {
 						<span class="hidden min-w-0 truncate font-medium leading-none text-text-primary sm:inline">{appTitle}</span>
 					</div>
 				</div>
-				<div class="flex shrink-0 items-center gap-2">
-					<div class="flex min-w-0 items-center gap-2 overflow-hidden">
-						<span class="hidden shrink-0 leading-none text-text-tertiary md:inline">Published by</span>
-						<UserIdentity
-							name={publisherName}
-							avatarUrl={publisherAvatarUrl}
-							username={owner?.username}
-							size="xs"
-							class="min-w-0 text-text-secondary"
-							avatarClass="h-5 w-5 rounded-full bg-bg-elevated text-[8px]"
-							nameClass="hidden max-w-32 truncate font-medium leading-none sm:inline"
-						/>
-					</div>
-					<button type="button" class="inline-flex h-8 shrink-0 items-center justify-center rounded-md px-2.5 font-medium leading-none text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/60 disabled:pointer-events-none disabled:opacity-50">
-						Remix
-					</button>
+				<div class="flex min-w-0 shrink-0 items-center gap-2 overflow-hidden">
+					<span class="hidden shrink-0 leading-none text-text-tertiary md:inline">Published by</span>
+					<UserIdentity
+						name={publisherName}
+						avatarUrl={publisherAvatarUrl}
+						username={owner?.username}
+						size="xs"
+						class="min-w-0 text-text-secondary"
+						avatarClass="h-5 w-5 rounded-full bg-bg-elevated text-[8px]"
+						nameClass="hidden max-w-32 truncate font-medium leading-none sm:inline"
+					/>
 				</div>
 			</div>
 		</footer>
