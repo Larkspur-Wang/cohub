@@ -613,13 +613,11 @@ $effect(() => {
 			<LazyRenderedFilePreview
 				name={inlineFile.response.name}
 				source={inlineFile.draft}
-				type="html"
 				path={inlineFile.response.path}
 				spaceId={inlineFileSpaceId}
 				readonly={activeFsReadonly}
 				app={inlineFileApp}
 				bind:markTarget={htmlMarkTarget}
-				onOpenFile={onOpenLinkedInlineFile}
 			/>
 		{:catch}
 			{@render LazyLoadError(m.preview_failed({}, { locale }), () => {

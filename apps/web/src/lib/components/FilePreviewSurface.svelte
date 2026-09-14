@@ -56,7 +56,6 @@ function formatSize(bytes: number) {
 			<RenderedPreview
 				name={file.name}
 				{source}
-				type="html"
 				path={file.path}
 				readonly
 			/>
