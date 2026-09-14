@@ -36,10 +36,15 @@ function safeDecodeUri(value: string) {
 function extractLinePosition(value: string) {
 	const match = value.match(/:(\d+)(?::(\d+))?$/);
 	if (!match) return { path: value };
+	const path = value.slice(0, match.index);
+	// Only a path-like prefix (contains a directory or extension) can carry a
+	// line suffix; otherwise `tel:123` / `a:1` would be read as a line reference
+	// instead of a scheme.
+	if (!path.includes("/") && !path.includes(".")) return { path: value };
 	const line = Number(match[1]);
 	const column = match[2] ? Number(match[2]) : undefined;
 	return {
-		path: value.slice(0, match.index),
+		path,
 		position:
 			line > 0
 				? {
@@ -88,18 +93,21 @@ export function normalizeWorkspaceFileLinkTarget(
 ): WorkspaceFileLinkTarget | null {
 	const raw = href.trim();
 	if (!raw || raw.startsWith("#")) return null;
-	if (raw.startsWith("//") || SCHEME_PATTERN.test(raw)) return null;
+	if (raw.startsWith("//")) return null;
 
 	const withoutQuery = stripQueryAndHash(raw).trim();
 	if (!withoutQuery) return null;
 
 	const decoded = safeDecodeUri(withoutQuery)?.trim();
 	if (!decoded || decoded.startsWith("#")) return null;
-	if (decoded.startsWith("//") || SCHEME_PATTERN.test(decoded)) return null;
+	if (decoded.startsWith("//")) return null;
 	if (decoded.includes("\\") || hasControlCharacter(decoded)) return null;
 
 	const { path: pathWithPosition, position } = extractLinePosition(decoded);
 	if (!pathWithPosition) return null;
+	// A leading scheme (http:, mailto:, cohub:, …) is not a workspace file. This
+	// runs after position extraction so `file.ts:12` isn't mistaken for a scheme.
+	if (SCHEME_PATTERN.test(pathWithPosition)) return null;
 	if (pathWithPosition === "/workspace" || pathWithPosition === "workspace")
 		return null;
 

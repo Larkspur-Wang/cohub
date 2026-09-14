@@ -1116,6 +1116,8 @@
 	"vctx_port_n": "port {port}",
 	"vctx_port_url": "port {port} · {url}",
 	"preview_failed": "Preview failed to load.",
+	"markdown_asset_unavailable": "Unavailable",
+	"markdown_asset_no_access": "No access",
 	"pdf_preview_failed": "PDF preview failed to load.",
 	"pdf_password_protected": "Password protected",
 	"pdf_password": "Password",

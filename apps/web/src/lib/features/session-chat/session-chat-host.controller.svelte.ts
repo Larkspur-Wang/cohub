@@ -4689,6 +4689,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		openShareModal: (sessionId: string) => share.openFor(sessionId),
 		openPath: (target: string | WorkspaceFileLinkTarget) =>
 			options.openPath(target),
+		resolveWorkspaceAsset: options.resolveWorkspaceAsset,
 		captureCurrentScrollAnchor,
 	};
 }

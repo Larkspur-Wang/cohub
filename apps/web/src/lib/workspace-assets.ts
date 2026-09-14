@@ -14,6 +14,23 @@ export type ResolveWorkspaceAsset = (
 	options: { signal: AbortSignal },
 ) => Promise<WorkspaceAsset>;
 
+/**
+ * Raised when the viewer cannot read workspace files at all, e.g. a shared
+ * session viewed with minimal access. Surfaces render a lightweight placeholder
+ * instead of a broken asset, and no request is issued.
+ */
+export class WorkspaceAssetAccessError extends Error {
+	override name = "WorkspaceAssetAccessError";
+
+	constructor(message = "No access to workspace files") {
+		super(message);
+	}
+}
+
+/** Resolver for surfaces where the viewer has no workspace file access. */
+export const denyWorkspaceAsset: ResolveWorkspaceAsset = () =>
+	Promise.reject(new WorkspaceAssetAccessError());
+
 type ReadWorkspaceAssetFile = (
 	path: string,
 	signal: AbortSignal,
@@ -98,7 +115,7 @@ export async function resolveWorkspaceFileAsset(
 	}
 }
 
-function resolveWorkspaceAssetPath(reference: string, basePath: string) {
+function resolveWorkspaceAssetPath(reference: string, basePath: string | null) {
 	return normalizeWorkspaceFileLink(reference, { basePath });
 }
 
@@ -128,7 +145,10 @@ export function fileResponseAsset(file: SpaceFsFileResponse): WorkspaceAsset {
 	};
 }
 
-export function prepareWorkspaceAssetHtml(html: string, basePath: string) {
+export function prepareWorkspaceAssetHtml(
+	html: string,
+	basePath: string | null,
+) {
 	if (typeof document === "undefined") return html;
 	const template = document.createElement("template");
 	template.innerHTML = html;

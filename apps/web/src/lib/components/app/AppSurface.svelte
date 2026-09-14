@@ -1,6 +1,7 @@
 <script lang="ts">
 import {
 	type AppNavigationOpenMessage,
+	buildAppNavigationOpenMessage,
 	buildAppNavigationOpenResponse,
 	parseAppNavigationOpenMessage,
 } from "@cohub/protocol/app-navigation";
@@ -35,6 +36,8 @@ import {
 } from "$lib/features/app/surface-host";
 import { parseNewChatBackgroundAction } from "$lib/new-chat-background-bridge";
 import { emitSpaceConfigBackgroundAction } from "$lib/space-config";
+import { createSpaceWorkspaceAssetResolver } from "$lib/space-workspace-assets";
+import type { WorkspaceFileLinkTarget } from "$lib/workspace-file-links";
 
 type AppSurfaceMode = "page" | "background" | "app" | "overlay";
 
@@ -135,6 +138,56 @@ const hideCohubBar = $derived(app?.meta?.presentation?.hideCohubBar === true);
 // Board and file Works render natively; only web and port Works are embedded.
 const boardContent = $derived(content?.kind === "board" ? content : null);
 const fileContent = $derived(content?.kind === "file" ? content : null);
+const workspaceAssetResolver = $derived(
+	createSpaceWorkspaceAssetResolver(app.spaceId),
+);
+const appNavigationEnabled = $derived(Boolean(onNavigationOpen));
+
+/**
+ * Native Works (board/file) render markdown in the host, outside the App
+ * iframe, so their links need to reach the same navigation bridge the iframe
+ * uses instead of falling through to a raw browser navigation.
+ */
+function openWorkFileLink(target: WorkspaceFileLinkTarget) {
+	if (!onNavigationOpen) return;
+	void onNavigationOpen(
+		buildAppNavigationOpenMessage({
+			requestId: crypto.randomUUID(),
+			target: {
+				kind: "file",
+				spaceId: app.spaceId,
+				path: target.path,
+				...(target.position ? { view: target.position } : {}),
+			},
+		}),
+	);
+}
+
+async function openWorkUrlLink(href: string, event: MouseEvent) {
+	if (!onNavigationOpen) return;
+	let url: URL;
+	try {
+		url = new URL(href, window.location.href);
+	} catch {
+		return;
+	}
+	// External links and non-App routes keep the default browser behavior.
+	if (url.origin !== window.location.origin || !url.pathname.includes("/w/")) {
+		return;
+	}
+	event.preventDefault();
+	try {
+		const result = await onNavigationOpen(
+			buildAppNavigationOpenMessage({
+				requestId: crypto.randomUUID(),
+				target: { kind: "app", ref: url.href },
+			}),
+		);
+		if (!result.handled) window.location.assign(url.href);
+	} catch {
+		window.location.assign(url.href);
+	}
+}
 const embeddedContent = $derived(
 	content && (content.kind === "web" || content.kind === "port")
 		? content
@@ -325,7 +378,12 @@ onMount(() => {
 		</div>
 	{:else if fileContent}
 		<div class="app-native">
-			<WorkFileSurface content={fileContent} />
+			<WorkFileSurface
+				content={fileContent}
+				resolveWorkspaceAsset={workspaceAssetResolver}
+				onOpenFile={appNavigationEnabled ? openWorkFileLink : undefined}
+				onOpenUrl={appNavigationEnabled ? openWorkUrlLink : undefined}
+			/>
 		</div>
 	{:else if !app}
 		<div class="empty-state">Loading App…</div>

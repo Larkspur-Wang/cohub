@@ -134,6 +134,7 @@ import {
 } from "$lib/stores/ui.svelte";
 import type { LocalUploadEntry } from "$lib/upload-entries";
 import {
+	denyWorkspaceAsset,
 	type ResolveWorkspaceAsset,
 	resolveWorkspaceFileAsset,
 } from "$lib/workspace-assets";
@@ -344,6 +345,12 @@ let connectionStateBox: {
 
 const sessionChat = createSessionChatHost({
 	openPath: (target) => openLinkedInlineFile(target),
+	// Shared, non-member sessions can't read workspace files: short-circuit to a
+	// lightweight placeholder instead of issuing requests that always fail.
+	resolveWorkspaceAsset: (path, options) =>
+		spaceHasMinimalAccess
+			? denyWorkspaceAsset(path, options)
+			: resolveWorkspaceAsset(path, options),
 	router: {
 		toSession: async (sessionId, opts) => {
 			// Keep open file/board/port preview when new chat becomes a real session.

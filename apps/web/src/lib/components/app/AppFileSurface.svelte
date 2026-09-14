@@ -9,9 +9,20 @@ import { m } from "$lib/paraglide/messages.js";
 const locale = $derived(getLocale());
 
 import { isTextMime, tryResolveTextFileResponse } from "$lib/space-file-text";
+import type { ResolveWorkspaceAsset } from "$lib/workspace-assets";
+import type { WorkspaceFileLinkTarget } from "$lib/workspace-file-links";
 
-const { content }: { content: Extract<WorkContent, { kind: "file" }> } =
-	$props();
+const {
+	content,
+	resolveWorkspaceAsset,
+	onOpenFile,
+	onOpenUrl,
+}: {
+	content: Extract<WorkContent, { kind: "file" }>;
+	resolveWorkspaceAsset?: ResolveWorkspaceAsset;
+	onOpenFile?: (target: WorkspaceFileLinkTarget) => void | Promise<void>;
+	onOpenUrl?: (href: string, event: MouseEvent) => void | Promise<void>;
+} = $props();
 
 function responseFromContent(value: typeof content): SpaceFsFileResponse {
 	const text = isTextMime(value.mimeType);
@@ -79,7 +90,14 @@ $effect(() => {
 		{#if loading}
 			<CenteredLoading label="Loading file…" size="panel" />
 		{:else}
-			<FilePreviewSurface {file} source={file.content} downloadUrl={content.url} />
+			<FilePreviewSurface
+				{file}
+				source={file.content}
+				downloadUrl={content.url}
+				{resolveWorkspaceAsset}
+				{onOpenFile}
+				{onOpenUrl}
+			/>
 		{/if}
 	</div>
 </div>

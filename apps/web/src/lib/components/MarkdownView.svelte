@@ -137,7 +137,7 @@ function renderFullMarkdown(
 		.then((html) => {
 			if (seq !== renderSeq) return;
 			stableHtml =
-				assetBasePath && assetResolver
+				assetResolver
 					? prepareWorkspaceAssetHtml(html, assetBasePath)
 					: html;
 			tailHtml = "";

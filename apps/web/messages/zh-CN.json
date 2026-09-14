@@ -1116,6 +1116,8 @@
 	"vctx_port_n": "端口 {port}",
 	"vctx_port_url": "端口 {port} · {url}",
 	"preview_failed": "预览加载失败。",
+	"markdown_asset_unavailable": "无法显示",
+	"markdown_asset_no_access": "无权访问",
 	"pdf_preview_failed": "PDF 预览加载失败。",
 	"pdf_password_protected": "受密码保护",
 	"pdf_password": "密码",

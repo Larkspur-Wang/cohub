@@ -23,6 +23,7 @@ import {
 } from "$lib/drag/chat-draft-drop";
 import SessionModelSelectorDialog from "$lib/features/space/modules/SessionModelSelectorDialog.svelte";
 import { getLocale } from "$lib/i18n/locale.svelte";
+import { provideMarkdownWorkspaceAsset } from "$lib/markdown-asset-context";
 import { m } from "$lib/paraglide/messages.js";
 import type { NewChatBackgroundConfig } from "$lib/space-config";
 import { insertComposerSnippet } from "$lib/stores/composer-insert";
@@ -68,6 +69,10 @@ let {
 } = $props();
 
 const locale = $derived(getLocale());
+
+// Chat markdown resolves workspace-relative images and media to workspace
+// files. Provide it once here instead of threading it through the timeline.
+provideMarkdownWorkspaceAsset(untrack(() => host.resolveWorkspaceAsset));
 
 const access = $derived(host.access);
 const activeSessionState = $derived(host.activeSessionState);

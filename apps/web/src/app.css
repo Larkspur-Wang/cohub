@@ -737,16 +737,32 @@ body.pointer-dragging {
 	cursor: progress;
 }
 
-.markdown-content [data-workspace-asset-state="error"] {
-	border-color: color-mix(in srgb, var(--error-soft) 45%, var(--border-subtle));
-	background: var(--error-bg);
-	opacity: 0.72;
+.markdown-content .markdown-asset-fallback {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.4rem;
+	max-width: 100%;
+	margin: 0.15em 0;
+	padding: 0.28rem 0.6rem;
+	border: 1px solid var(--border-subtle);
+	border-radius: 0.5rem;
+	background: color-mix(in srgb, var(--bg-surface) 65%, transparent);
+	color: var(--text-tertiary);
+	font-size: 0.82em;
+	line-height: 1.25;
+	vertical-align: middle;
 }
 
-.markdown-content img[data-workspace-asset-state="error"] {
-	min-height: 4.5rem;
-	padding: 0.75rem;
-	cursor: default;
+.markdown-content .markdown-asset-fallback svg {
+	flex: none;
+	opacity: 0.7;
+}
+
+.markdown-content .markdown-asset-fallback-label {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 .markdown-content audio {

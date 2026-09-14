@@ -26,6 +26,7 @@ import {
 	buildUserSessionRoute,
 	buildUserSessionTurnRoute,
 } from "$lib/space-routes";
+import { createSpaceWorkspaceAssetResolver } from "$lib/space-workspace-assets";
 import { authStore } from "$lib/stores/auth.svelte";
 import {
 	clearLastUserSessionId,
@@ -37,6 +38,10 @@ import {
 	fetchSpaceListWithCache,
 	getCachedSpaceList,
 } from "$lib/stores/space-list-cache";
+import {
+	type ResolveWorkspaceAsset,
+	WorkspaceAssetAccessError,
+} from "$lib/workspace-assets";
 import type { WorkspaceFileLinkTarget } from "$lib/workspace-file-links";
 
 const {
@@ -64,6 +69,23 @@ type ConnectionState =
 
 const connectionBox: { current: ConnectionState } = { current: "idle" };
 let hasOpenedOnce = false;
+
+/**
+ * Workspace asset resolver for the cross-space sessions page. The active space
+ * changes with the selected session, so the resolver is rebuilt per space.
+ */
+let workspaceAssetResolverKey = "";
+let workspaceAssetResolver: ResolveWorkspaceAsset | null = null;
+
+function chatWorkspaceAssetResolver(): ResolveWorkspaceAsset {
+	const spaceId = spaceBox.current;
+	if (!spaceId) throw new WorkspaceAssetAccessError();
+	if (spaceId !== workspaceAssetResolverKey) {
+		workspaceAssetResolverKey = spaceId;
+		workspaceAssetResolver = createSpaceWorkspaceAssetResolver(spaceId);
+	}
+	return workspaceAssetResolver as ResolveWorkspaceAsset;
+}
 
 function resolveOpenPathTarget(
 	target: string | WorkspaceFileLinkTarget,
@@ -93,6 +115,8 @@ const sessionChat = createSessionChatHost({
 		);
 		await goto(href);
 	},
+	resolveWorkspaceAsset: (path, options) =>
+		chatWorkspaceAssetResolver()(path, options),
 	router: {
 		toSession: async (sessionId, opts) => {
 			// Mobile chats open in the space workspace; desktop stays on /sessions/:id.

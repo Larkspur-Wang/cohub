@@ -7,17 +7,25 @@ import { filePreviewModel } from "$lib/file-preview-model";
 import { getLocale } from "$lib/i18n/locale.svelte";
 import { createLazyModuleLoader } from "$lib/lazy-module";
 import { m } from "$lib/paraglide/messages.js";
+import type { ResolveWorkspaceAsset } from "$lib/workspace-assets";
+import type { WorkspaceFileLinkTarget } from "$lib/workspace-file-links";
 
 const {
 	file,
 	source = file.content,
 	downloadUrl = file.delivery === "url" ? (file.url ?? "") : "",
 	isMobile = false,
+	resolveWorkspaceAsset,
+	onOpenFile,
+	onOpenUrl,
 }: {
 	file: SpaceFsFileResponse;
 	source?: string;
 	downloadUrl?: string;
 	isMobile?: boolean;
+	resolveWorkspaceAsset?: ResolveWorkspaceAsset;
+	onOpenFile?: (target: WorkspaceFileLinkTarget) => void | Promise<void>;
+	onOpenUrl?: (href: string, event: MouseEvent) => void | Promise<void>;
 } = $props();
 
 const locale = $derived(getLocale());
@@ -49,7 +57,14 @@ function formatSize(bytes: number) {
 
 <div class="file-preview-surface">
 	{#if model.kind === "markdown"}
-		<MarkdownView {source} variant="document" baseFilePath={file.path} />
+		<MarkdownView
+			{source}
+			variant="document"
+			baseFilePath={file.path}
+			{resolveWorkspaceAsset}
+			{onOpenFile}
+			{onOpenUrl}
+		/>
 	{:else if model.kind === "html"}
 		{#await loadRenderedPreview() then module}
 			{@const RenderedPreview = module.default}
