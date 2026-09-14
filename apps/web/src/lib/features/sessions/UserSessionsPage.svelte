@@ -3,6 +3,7 @@ import type {
 	SessionRecord,
 	SpaceRecord,
 	UserSessionListItem,
+	UserSessionSourceFilter,
 } from "@neta-art/cohub";
 import { onDestroy, onMount, untrack } from "svelte";
 import { goto } from "$app/navigation";
@@ -55,7 +56,17 @@ const {
 	};
 } = $props();
 
-const list = createUserSessionListController();
+const list = createUserSessionListController({ source: "web" });
+
+// Scheduled prompts and channel bots flood the cross-space inbox; default to
+// human web chats and keep "All" one click away.
+let sourceFilter = $state<UserSessionSourceFilter | null>("web");
+
+function setSourceFilter(next: UserSessionSourceFilter | null) {
+	if (next === sourceFilter) return;
+	sourceFilter = next;
+	void list.setSource(next);
+}
 
 /** Mutable space identity for host environment ports (set before syncContext). */
 const spaceBox = { current: "" as string };
@@ -618,6 +629,8 @@ onDestroy(() => {
 		>
 			<UserSessionsList
 				sessions={list.sessions}
+				{sourceFilter}
+				onSourceFilterChange={setSourceFilter}
 				activeSessionId={isDesktop ? (routeIsNew ? null : routeSessionId) : null}
 				loading={list.loading}
 				loadingMore={list.loadingMore}

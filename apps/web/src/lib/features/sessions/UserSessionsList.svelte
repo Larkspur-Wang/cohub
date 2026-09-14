@@ -1,5 +1,8 @@
 <script lang="ts">
-import type { UserSessionListItem } from "@neta-art/cohub";
+import type {
+	UserSessionListItem,
+	UserSessionSourceFilter,
+} from "@neta-art/cohub";
 import { Loader2, Search } from "lucide-svelte";
 import SessionSidebarRowContent from "$lib/components/SessionSidebarRowContent.svelte";
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
@@ -27,6 +30,8 @@ const {
 	hasMore = false,
 	isDesktop = true,
 	modelsCatalog = null,
+	sourceFilter = null,
+	onSourceFilterChange,
 	onSelect,
 	onLoadMore,
 	onNewChat,
@@ -40,6 +45,8 @@ const {
 	hasMore?: boolean;
 	isDesktop?: boolean;
 	modelsCatalog?: ModelCatalogItem[] | null;
+	sourceFilter?: UserSessionSourceFilter | null;
+	onSourceFilterChange?: (filter: UserSessionSourceFilter | null) => void;
 	onSelect: (session: UserSessionListItem) => void;
 	onLoadMore: () => void;
 	onNewChat: () => void;
@@ -92,6 +99,17 @@ function spaceName(session: UserSessionListItem) {
 					aria-label="Search everywhere"
 				>
 					<Search class="h-3.5 w-3.5 text-text-placeholder transition-colors group-hover/search:text-brand" />
+				</button>
+			{/if}
+			{#if onSourceFilterChange}
+				<button
+					type="button"
+					class="inline-flex h-7 items-center rounded-[6px] px-2 text-[12px] transition-colors {sourceFilter === 'web' ? 'bg-[var(--sidebar-item-active-bg)] font-medium text-[var(--sidebar-item-active-fg)]' : 'text-text-tertiary hover:bg-[var(--sidebar-item-hover-bg)] hover:text-text-secondary'}"
+					aria-pressed={sourceFilter === "web"}
+					title={sourceFilter === "web" ? "Showing Web App chats only" : "Showing all chats"}
+					onclick={() => onSourceFilterChange(sourceFilter === "web" ? null : "web")}
+				>
+					{sourceFilter === "web" ? "Web App" : "All"}
 				</button>
 			{/if}
 			<button
