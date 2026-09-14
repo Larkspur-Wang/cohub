@@ -4,6 +4,21 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v2.48 — 2026-09-14
+
+- **Unified image viewer**: A new shared gesture engine (`image-gesture`) and `ImageViewer` component give every image surface — media lightbox, inline file panel, and app previews — consistent pinch, pan, wheel zoom, and double-click reset, with proper touch handling on mobile.
+- **Session inbox source filter**: `GET /api/me/sessions` now accepts `source=web` to isolate human web chats; `user.listSessions({ source: "web" })` exposes it in the SDK, and the cross-space inbox defaults to Web App chats with a one-click All toggle, so scheduled prompts and channel bots no longer bury real conversations.
+- **App view counts**: App detail responses (`by-slug`, `:id/public`, `:id`) now expose `totalViews`, surfaced in the public Cohub bar. The all-time rollup SUM is cached for 60s and computed best-effort, so a slow count never fails an app detail response.
+- **Public file CDN references**: Root-relative `/p/{spaceId}/{path}` links and assets in markdown are parsed and rewritten to absolute CDN URLs with per-segment decoding and path-traversal rejection, configurable via the new `PUBLIC_FILES_ORIGIN`.
+- **Workspace assets in chat and previews**: Chat timelines and app file previews now resolve workspace-relative images and media through an injected resolver, rendering a quiet placeholder instead of a broken asset when files are unavailable or the viewer has no workspace access.
+
+### Bug Fixes
+
+- Workspace file links such as `tel:...`, `mailto:...`, and `cohub://` are no longer misread as line references; scheme detection now runs after line-position extraction, so `file.ts:12` still resolves correctly.
+- Cached app view totals reject corrupted entries (negatives, floats, unsafe integers) instead of coercing them to zero.
+- Video generation preflight now requires a $1.01 minimum balance, up from $0.60.
+- Removed the redundant "Showing X of Y / Show more" row from the app authorization Space picker, leaving scroll to reveal more.
+
 ## v2.47 — 2026-09-12
 
 - **Viewer-controlled app authorization**: Space-bound consent now resolves to a Space the viewer controls (invocation/embedding Space, last-picked, then first accessible) instead of the app author's home Space, keeping misconfiguration off the viewer's screen. Failed grants return structured error codes (`space_inaccessible`, `scope_not_held`, `consent_required`, …), developer diagnostics are forwarded to the app author, and a shared `@neta-art/cohub/space-picker` model is exported so every host renders the same chooser.
