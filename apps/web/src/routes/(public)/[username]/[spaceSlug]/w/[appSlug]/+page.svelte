@@ -37,7 +37,6 @@ type ReadyView = {
 
 type ReadyData = ReadyView & {
 	mode: "ready";
-	versions: PublicAppVersionSummary[];
 	requestedVersion: number | null;
 };
 
@@ -254,11 +253,20 @@ $effect(() => {
 	resolvedVersionParam = version;
 });
 
-// Version history renders server-side when possible; the auth-gated client
-// shell resolves it after hydration. The anonymous SSR fetch cannot see
-// member-only session provenance, so a hydrated refresh folds it back in.
+// Version history is secondary chrome: fetch it after hydration, and only for
+// apps that actually have history, so the SSR critical path stays a single
+// request. The browser request carries the caller's identity, so member-only
+// session provenance is available without a server-side refresh.
 $effect(() => {
 	const data = props.data;
+	const latestVersion =
+		data.mode === "ready"
+			? data.app.latestVersion
+			: (clientDetail?.app.latestVersion ?? 0);
+	if (latestVersion <= 1) {
+		versions = [];
+		return;
+	}
 	const identity =
 		data.mode === "ready"
 			? {
@@ -271,15 +279,7 @@ $effect(() => {
 					spaceSlug: data.spaceSlug,
 					appSlug: data.appSlug,
 				};
-	const skipRefresh = data.mode === "ready" && data.versions.length <= 1;
-	if (data.mode === "ready") versions = data.versions;
-	if (
-		skipRefresh ||
-		!identity.username ||
-		!identity.spaceSlug ||
-		!identity.appSlug
-	)
-		return;
+	if (!identity.username || !identity.spaceSlug || !identity.appSlug) return;
 	let cancelled = false;
 	void sdk.apps
 		.listPublicVersions(identity.username, identity.spaceSlug, identity.appSlug)

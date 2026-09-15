@@ -1,8 +1,5 @@
 import { error } from "@sveltejs/kit";
-import {
-	loadPublicAppDetail,
-	loadPublicAppVersions,
-} from "$lib/server/public-api";
+import { loadPublicAppDetail } from "$lib/server/public-api";
 import { setPublicPageCache } from "$lib/server/public-cache";
 import type { PageServerLoad } from "./$types";
 
@@ -38,7 +35,6 @@ export const load: PageServerLoad = async ({
 			private: (result.detail.app.visibility ?? "public") === "space",
 		});
 		const app = result.detail.app;
-		const versions = await loadPublicAppVersions(path, fetch);
 		return {
 			mode: "ready" as const,
 			app,
@@ -50,7 +46,6 @@ export const load: PageServerLoad = async ({
 			publicUrl: result.detail.publicUrl,
 			totalViews: result.detail.totalViews ?? null,
 			version: result.detail.version ?? null,
-			versions,
 			requestedVersion,
 			pathname: url.pathname,
 			origin: url.origin,

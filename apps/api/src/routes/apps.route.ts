@@ -560,23 +560,18 @@ router.get("/by-slug/:username/:spaceSlug/:appSlug", async (c) => {
   // An explicit version must exist; the implicit current version may legitimately be absent.
   if (requested.version !== null && !version) return c.json({ message: "app version not found" }, 404);
 
-  const source = version
-    ? (await resolveAppVersionSources({ versions: [version], spaceId: row.space.id, user })).get(version.id) ?? null
-    : null;
-
   recordResolvedAppView(c, row.app, "web", version?.id ?? null);
   const [content, totalViews] = await Promise.all([
     getAppVersionContent(row.app, version),
     getAppTotalViews(row.app.id),
   ]);
 
-  // Public apps are anonymous-readable; space apps depend on the caller.
-  // A viewer-scoped session must never be cached for other viewers either.
+  // Public apps are anonymous-readable; space apps depend on the caller. The
+  // version provenance is served separately by `/versions`, so this stays
+  // cacheable and off the session-resolution hot path.
   c.header(
     "Cache-Control",
-    requiresSpaceAppAccess(row.app) || source?.session
-      ? PRIVATE_APP_HTTP_CACHE
-      : PUBLIC_APP_HTTP_CACHE,
+    requiresSpaceAppAccess(row.app) ? PRIVATE_APP_HTTP_CACHE : PUBLIC_APP_HTTP_CACHE,
   );
   return c.json({
     ...wrapAppRecord(wire, serializeApp(row.app)),
@@ -584,7 +579,7 @@ router.get("/by-slug/:username/:spaceSlug/:appSlug", async (c) => {
     owner: { ...row.owner, username: row.owner.username },
     publicUrl: createAppPublicUrl({ ownerUsername: row.owner.username, spaceSlug: row.space.slug, appSlug: row.app.slug, status: row.app.status }),
     content,
-    version: version ? publicVersionSummary(version, source) : null,
+    version: version ? publicVersionSummary(version, null) : null,
     totalViews,
   });
 });
