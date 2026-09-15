@@ -2,11 +2,13 @@
 import type { AppRecord } from "@neta-art/cohub";
 import { Eye } from "lucide-svelte";
 import type { Snippet } from "svelte";
+import { page } from "$app/state";
 import { appDisplayTitle } from "$lib/app-page-meta";
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
 import UserIdentity from "$lib/components/UserIdentity.svelte";
 import { formatCompactNumber, formatNumber } from "$lib/i18n/format";
 import { getLocale } from "$lib/i18n/locale.svelte";
+import { resolvePublicLocale } from "$lib/i18n/public-locale";
 import { m } from "$lib/paraglide/messages.js";
 
 export type CohubBarSpace = {
@@ -41,6 +43,12 @@ const {
 }: Props = $props();
 
 const locale = $derived(getLocale());
+// Brand link follows the page's URL locale, exactly like the public header.
+const zh = $derived(resolvePublicLocale(page.url.pathname) === "zh-CN");
+const homeHref = $derived(zh ? "/zh" : "/");
+const homeLabel = $derived(
+	m.head_home_aria({}, { locale: zh ? "zh-CN" : "en" }),
+);
 const spaceName = $derived(space?.name || space?.slug || "Space");
 const appTitle = $derived(appDisplayTitle(app?.meta, app?.slug ?? "App"));
 const publisherName = $derived(owner?.displayName ?? "Cohub");
@@ -69,11 +77,20 @@ const totalViewsTitle = $derived(
 	class="cohub-bar relative z-40 flex shrink-0 items-center gap-3 border-b border-border-subtle bg-bg-primary px-3 text-[11px] text-text-tertiary sm:px-4"
 >
 	<div class="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden">
-		<img
-			src="/favicon.svg"
-			alt="Cohub"
-			class="block h-5 w-5 shrink-0 rounded-[5px]"
-		/>
+		<a
+			href={homeHref}
+			class="flex shrink-0 items-center gap-1.5 transition-opacity hover:opacity-80"
+			aria-label={homeLabel}
+		>
+			<img
+				src="/favicon.svg"
+				alt="Cohub"
+				class="block h-5 w-5 shrink-0 rounded-[5px]"
+			/>
+			<span class="text-[13px] font-semibold tracking-tight text-text-primary"
+				>Cohub</span
+			>
+		</a>
 		<div class="hidden h-4 w-px shrink-0 bg-border-subtle sm:block"></div>
 		<div class="flex min-w-0 items-center gap-2 overflow-hidden">
 			<SpaceAvatar
