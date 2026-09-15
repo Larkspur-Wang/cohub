@@ -3,13 +3,16 @@ import type {
 	AppDetailResponse,
 	AppRuntimeInvocationContext,
 	AppRuntimeShellContext,
+	PublicAppVersionSummary,
 } from "@neta-art/cohub";
 import { onMount } from "svelte";
+import { replaceState } from "$app/navigation";
 import { page } from "$app/state";
 import { buildAppPageMeta } from "$lib/app-page-meta";
 import { reportAppPromotionReady, startAppPromotion } from "$lib/app-promotion";
 import AppPageHead from "$lib/components/app/AppPageHead.svelte";
 import AppSurface from "$lib/components/app/AppSurface.svelte";
+import AppVersionBar from "$lib/components/app/AppVersionBar.svelte";
 import {
 	type AppEmbedConnection,
 	type AppEmbedState,
@@ -20,16 +23,22 @@ import {
 import { loadAppPreview } from "$lib/features/app/app-open";
 import { sdk } from "$lib/sdk";
 
-type ReadyData = {
-	mode: "ready";
+type ReadyView = {
 	app: AppDetailResponse["app"];
 	space: AppDetailResponse["space"];
 	owner: AppDetailResponse["owner"];
 	content: AppDetailResponse["content"];
 	publicUrl: AppDetailResponse["publicUrl"];
 	totalViews: number | null;
+	version: PublicAppVersionSummary | null;
 	pathname: string;
 	origin: string;
+};
+
+type ReadyData = ReadyView & {
+	mode: "ready";
+	versions: PublicAppVersionSummary[];
+	requestedVersion: number | null;
 };
 
 type ClientData = {
@@ -39,6 +48,7 @@ type ClientData = {
 	username: string;
 	spaceSlug: string;
 	appSlug: string;
+	requestedVersion: number | null;
 };
 
 const props = $props<{ data: ReadyData | ClientData }>();
@@ -48,9 +58,23 @@ const launchState = $derived({
 	hash: page.url.hash,
 });
 
+const requestedVersion = $derived.by(() => {
+	const raw = page.url.searchParams.get("cohub_v");
+	if (!raw || !/^\d{1,9}$/.test(raw)) return null;
+	const version = Number(raw);
+	return version >= 1 ? version : null;
+});
+
 let clientDetail = $state<AppDetailResponse | null>(null);
 let clientError = $state("");
 let clientLoading = $state(false);
+/** Client-side version override, set when the switcher changes the URL. */
+let versionDetail = $state<AppDetailResponse | null>(null);
+let versions = $state<PublicAppVersionSummary[]>([]);
+/** True while the selected version's content is being fetched. */
+let switching = $state(false);
+/** Version the on-screen content corresponds to; used to recover a failed switch. */
+let resolvedVersionParam: number | null = null;
 /** AppSurface uses window/postMessage; mount only after hydration. */
 let surfaceReady = $state(false);
 let surfaceLoaded = false;
@@ -151,22 +175,32 @@ function handleSurfaceReady() {
 	maybeReportPromotionReady();
 }
 
-const ready = $derived(
-	props.data.mode === "ready"
-		? props.data
-		: clientDetail
-			? {
-					mode: "ready" as const,
-					app: clientDetail.app,
-					space: clientDetail.space,
-					owner: clientDetail.owner,
-					content: clientDetail.content,
-					publicUrl: clientDetail.publicUrl,
-					totalViews: clientDetail.totalViews ?? null,
-					pathname: props.data.pathname,
-					origin: props.data.origin,
-				}
-			: null,
+function toReadyView(
+	detail: AppDetailResponse,
+	pathname: string,
+	origin: string,
+): ReadyView {
+	return {
+		app: detail.app,
+		space: detail.space,
+		owner: detail.owner,
+		content: detail.content,
+		publicUrl: detail.publicUrl,
+		totalViews: detail.totalViews ?? null,
+		version: detail.version ?? null,
+		pathname,
+		origin,
+	};
+}
+
+const ready = $derived<ReadyView | null>(
+	versionDetail
+		? toReadyView(versionDetail, props.data.pathname, props.data.origin)
+		: props.data.mode === "ready"
+			? props.data
+			: clientDetail
+				? toReadyView(clientDetail, props.data.pathname, props.data.origin)
+				: null,
 );
 
 const pageMeta = $derived(
@@ -208,6 +242,54 @@ $effect(() => {
 	maybeReportPromotionReady();
 });
 
+/** A real route load (initial or navigation) invalidates the version override. */
+$effect(() => {
+	void props.data.pathname;
+	void props.data.requestedVersion;
+	versionDetail = null;
+	resolvedVersionParam = props.data.requestedVersion ?? null;
+});
+
+// Version history renders server-side when possible; the auth-gated client
+// shell resolves it after hydration. The anonymous SSR fetch cannot see
+// member-only session provenance, so a hydrated refresh folds it back in.
+$effect(() => {
+	const data = props.data;
+	const identity =
+		data.mode === "ready"
+			? {
+					username: data.owner.username,
+					spaceSlug: data.space.slug ?? "",
+					appSlug: data.app.slug,
+				}
+			: {
+					username: data.username,
+					spaceSlug: data.spaceSlug,
+					appSlug: data.appSlug,
+				};
+	const skipRefresh = data.mode === "ready" && data.versions.length <= 1;
+	if (data.mode === "ready") versions = data.versions;
+	if (
+		skipRefresh ||
+		!identity.username ||
+		!identity.spaceSlug ||
+		!identity.appSlug
+	)
+		return;
+	let cancelled = false;
+	void sdk.apps
+		.listPublicVersions(identity.username, identity.spaceSlug, identity.appSlug)
+		.then((result) => {
+			if (!cancelled) versions = result.versions;
+		})
+		.catch(() => undefined);
+	return () => {
+		cancelled = true;
+	};
+});
+
+// Initial detail for the auth-gated client shell. The version switcher handles
+// later changes through the override effect below, so this runs once per load.
 $effect(() => {
 	if (props.data.mode !== "client") {
 		clientDetail = null;
@@ -215,13 +297,20 @@ $effect(() => {
 		clientLoading = false;
 		return;
 	}
-	const { username, spaceSlug, appSlug } = props.data;
+	const {
+		username,
+		spaceSlug,
+		appSlug,
+		requestedVersion: version,
+	} = props.data;
 	let cancelled = false;
 	clientLoading = true;
 	clientError = "";
 	clientDetail = null;
 	void sdk.apps
-		.getBySlug(username, spaceSlug, appSlug)
+		.getBySlug(username, spaceSlug, appSlug, {
+			version: version ?? undefined,
+		})
 		.then((detail) => {
 			if (!cancelled) {
 				clientDetail = detail;
@@ -246,9 +335,71 @@ $effect(() => {
 		cancelled = true;
 	};
 });
+
+// The switcher changes the URL without re-running load, so fetch the selected
+// version here. Matching the loaded version restores the server's payload.
+$effect(() => {
+	const version = requestedVersion;
+	if (version === (props.data.requestedVersion ?? null)) {
+		versionDetail = null;
+		resolvedVersionParam = version;
+		switching = false;
+		return;
+	}
+	const { username, spaceSlug, appSlug } = page.params;
+	if (!username || !spaceSlug || !appSlug) {
+		switching = false;
+		return;
+	}
+	const controller = new AbortController();
+	switching = true;
+	void sdk.apps
+		.getBySlug(username, spaceSlug, appSlug, {
+			version: version ?? undefined,
+			signal: controller.signal,
+		})
+		.then((detail) => {
+			if (controller.signal.aborted) return;
+			versionDetail = detail;
+			resolvedVersionParam = version;
+		})
+		.catch(() => {
+			if (controller.signal.aborted) return;
+			// Keep the URL honest: fall back to the version still on screen.
+			const url = new URL(page.url);
+			if (resolvedVersionParam === null) url.searchParams.delete("cohub_v");
+			else url.searchParams.set("cohub_v", String(resolvedVersionParam));
+			replaceState(url, {});
+		})
+		.finally(() => {
+			if (!controller.signal.aborted) switching = false;
+		});
+	return () => {
+		controller.abort();
+	};
+});
+
+function handleSelectVersion(version: number | null) {
+	if (version === requestedVersion) return;
+	const url = new URL(page.url);
+	if (version === null) url.searchParams.delete("cohub_v");
+	else url.searchParams.set("cohub_v", String(version));
+	replaceState(url, {});
+}
 </script>
 
 <AppPageHead meta={pageMeta} />
+
+{#snippet versionBar()}
+	<AppVersionBar
+		{versions}
+		spaceId={ready?.space.id ?? ""}
+		selectedVersion={requestedVersion}
+		latestVersion={ready?.app.latestVersion ?? 0}
+		loading={switching}
+		onSelect={handleSelectVersion}
+	/>
+{/snippet}
 
 {#if ready && surfaceReady}
 	<AppSurface
@@ -260,6 +411,7 @@ $effect(() => {
 		{launchState}
 		{shell}
 		{invocation}
+		barActions={versions.length > 1 ? versionBar : undefined}
 		onCloseRequest={handleCloseRequest}
 		onReady={handleSurfaceReady}
 	/>

@@ -1,5 +1,6 @@
 import type {
 	AppDetailResponse,
+	PublicAppVersionSummary,
 	PublicUserPageResponse,
 } from "@neta-art/cohub";
 import { PUBLIC_API_ORIGIN } from "$env/static/public";
@@ -35,6 +36,14 @@ function asPublicUserPage(value: unknown): PublicUserPageResponse | null {
 	return value as PublicUserPageResponse;
 }
 
+function asVersionSummaries(value: unknown): PublicAppVersionSummary[] | null {
+	if (!isRecord(value) || !Array.isArray(value.versions)) return null;
+	return value.versions.filter(
+		(item): item is PublicAppVersionSummary =>
+			isRecord(item) && typeof item.version === "number",
+	);
+}
+
 export type PublicApiFailure = {
 	ok: false;
 	status: number;
@@ -49,10 +58,12 @@ export type PublicApiFailure = {
 export async function loadPublicAppDetail(
 	path: PublicAppPath | null,
 	fetcher: typeof fetch,
+	options: { version?: number | null } = {},
 ): Promise<{ ok: true; detail: AppDetailResponse } | PublicApiFailure> {
 	if (!path) return { ok: false, status: 0 };
+	const query = options.version != null ? `?cohub_v=${options.version}` : "";
 	const url = apiUrl(
-		`/api/apps/by-slug/${encodeURIComponent(path.username)}/${encodeURIComponent(path.spaceSlug)}/${encodeURIComponent(path.appSlug)}`,
+		`/api/apps/by-slug/${encodeURIComponent(path.username)}/${encodeURIComponent(path.spaceSlug)}/${encodeURIComponent(path.appSlug)}${query}`,
 	);
 	const response = await fetcher(url).catch(() => null);
 	if (!response) return { ok: false, status: 502 };
@@ -69,6 +80,23 @@ export async function loadPublicAppDetail(
 	const detail = asAppDetail(await readJson(response));
 	if (!detail) return { ok: false, status: 502 };
 	return { ok: true, detail };
+}
+
+/**
+ * Public version history for the Cohub bar. Best-effort: the page renders
+ * without it, so a failure simply hides the switcher.
+ */
+export async function loadPublicAppVersions(
+	path: PublicAppPath | null,
+	fetcher: typeof fetch,
+): Promise<PublicAppVersionSummary[]> {
+	if (!path) return [];
+	const url = apiUrl(
+		`/api/apps/by-slug/${encodeURIComponent(path.username)}/${encodeURIComponent(path.spaceSlug)}/${encodeURIComponent(path.appSlug)}/versions`,
+	);
+	const response = await fetcher(url).catch(() => null);
+	if (!response?.ok) return [];
+	return asVersionSummaries(await readJson(response)) ?? [];
 }
 
 /** Public profile page payload for SSR. */

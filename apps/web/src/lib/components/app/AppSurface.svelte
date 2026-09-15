@@ -20,7 +20,7 @@ import type {
 	AppRuntimeShellContext,
 } from "@neta-art/cohub";
 import { Eye } from "lucide-svelte";
-import { onMount, untrack } from "svelte";
+import { onMount, type Snippet, untrack } from "svelte";
 import { page } from "$app/state";
 import { appDisplayTitle } from "$lib/app-page-meta";
 import { type AppLaunchState, resolveAppFrame } from "$lib/app-url";
@@ -102,6 +102,8 @@ type Props = {
 			"protocol" | "version" | "type" | "requestId"
 		>
 	>;
+	/** Extra controls rendered in the public Cohub bar (e.g. version switcher). */
+	barActions?: Snippet;
 };
 
 const {
@@ -121,6 +123,7 @@ const {
 	onConfigureRequest = undefined,
 	onPointerState = undefined,
 	onNavigationOpen = undefined,
+	barActions = undefined,
 }: Props = $props();
 
 let frame: HTMLIFrameElement | null = $state(null);
@@ -436,7 +439,7 @@ onMount(() => {
 
 	{#if mode === "page" && !hideCohubBar}
 		<footer class="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex justify-center px-3 pb-3 sm:pb-4">
-			<div class="app-bar pointer-events-auto flex h-12 w-full max-w-[860px] items-center gap-3 rounded-lg border border-border-subtle bg-bg-surface/95 px-2.5 text-[11px] text-text-tertiary shadow-lg shadow-bg-primary/15 backdrop-blur-md supports-[not(backdrop-filter:blur(0))]:bg-bg-surface sm:px-3">
+			<div class="app-bar pointer-events-auto relative flex h-12 w-full max-w-[860px] items-center gap-3 rounded-lg border border-border-subtle bg-bg-surface/95 px-2.5 text-[11px] text-text-tertiary shadow-lg shadow-bg-primary/15 backdrop-blur-md supports-[not(backdrop-filter:blur(0))]:bg-bg-surface sm:px-3">
 				<div class="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden">
 					<img src="/favicon.svg" alt="Cohub" class="block h-5 w-5 shrink-0 rounded-[5px]" />
 					<div class="hidden h-4 w-px shrink-0 bg-border-subtle sm:block"></div>
@@ -447,6 +450,12 @@ onMount(() => {
 						<span class="hidden min-w-0 truncate font-medium leading-none text-text-primary sm:inline">{appTitle}</span>
 					</div>
 				</div>
+				{#if barActions}
+					<div class="shrink-0">
+						{@render barActions()}
+					</div>
+					<div class="hidden h-4 w-px shrink-0 bg-border-subtle sm:block"></div>
+				{/if}
 				<div class="flex min-w-0 shrink-0 items-center gap-2 overflow-hidden">
 					{#if totalViewsText}
 						<span class="flex shrink-0 items-center gap-1.5 text-text-tertiary" title={totalViewsTitle}>

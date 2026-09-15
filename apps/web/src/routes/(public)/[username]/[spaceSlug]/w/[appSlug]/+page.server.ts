@@ -1,7 +1,18 @@
 import { error } from "@sveltejs/kit";
-import { loadPublicAppDetail } from "$lib/server/public-api";
+import {
+	loadPublicAppDetail,
+	loadPublicAppVersions,
+} from "$lib/server/public-api";
 import { setPublicPageCache } from "$lib/server/public-cache";
 import type { PageServerLoad } from "./$types";
+
+/** Read `?cohub_v=` as a version number; ignore anything malformed. */
+function readRequestedVersion(searchParams: URLSearchParams): number | null {
+	const raw = searchParams.get("cohub_v");
+	if (!raw || !/^\d{1,9}$/.test(raw)) return null;
+	const version = Number(raw);
+	return version >= 1 ? version : null;
+}
 
 export const load: PageServerLoad = async ({
 	params,
@@ -9,21 +20,25 @@ export const load: PageServerLoad = async ({
 	url,
 	setHeaders,
 }) => {
-	const result = await loadPublicAppDetail(
-		{
-			username: params.username,
-			spaceSlug: params.spaceSlug,
-			appSlug: params.appSlug,
-			pathname: url.pathname,
-		},
-		fetch,
-	);
+	const path = {
+		username: params.username,
+		spaceSlug: params.spaceSlug,
+		appSlug: params.appSlug,
+		pathname: url.pathname,
+	};
+	const requestedVersion = readRequestedVersion(url.searchParams);
+	const result = await loadPublicAppDetail(path, fetch, {
+		version: requestedVersion,
+	});
 
 	if (result.ok) {
+		// This loader fetches the API anonymously, so the rendered document can only
+		// ever reflect anonymous-visible data — app visibility alone governs caching.
 		setPublicPageCache(setHeaders, {
 			private: (result.detail.app.visibility ?? "public") === "space",
 		});
 		const app = result.detail.app;
+		const versions = await loadPublicAppVersions(path, fetch);
 		return {
 			mode: "ready" as const,
 			app,
@@ -34,6 +49,9 @@ export const load: PageServerLoad = async ({
 			content: result.detail.content,
 			publicUrl: result.detail.publicUrl,
 			totalViews: result.detail.totalViews ?? null,
+			version: result.detail.version ?? null,
+			versions,
+			requestedVersion,
 			pathname: url.pathname,
 			origin: url.origin,
 		};
@@ -54,5 +72,6 @@ export const load: PageServerLoad = async ({
 		username: params.username,
 		spaceSlug: params.spaceSlug,
 		appSlug: params.appSlug,
+		requestedVersion,
 	};
 };

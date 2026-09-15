@@ -11,7 +11,7 @@ import type { BoardComposition } from "../board-composition.js";
 import type { BoardEffect } from "../board-effect.js";
 import type { RequestSource } from "../provenance.js";
 import type { DesktopCommandDispatchedPayload } from "../desktop-command.js";
-import type { AppArtifactDescriptor, AppContentKind } from "../app.js";
+import type { AppArtifactDescriptor, AppContentKind, AppVersionSource } from "../app.js";
 import type {
   BoardAwarenessClientPayload,
   BoardAwarenessUpdate,
@@ -753,6 +753,8 @@ export type RealtimeAppVersionRecord = {
   contentKind: AppContentKind;
   artifact: AppArtifactDescriptor | null;
   meta: Record<string, unknown> | null;
+  /** Version provenance; session identity is gated on `session.view`. */
+  source: AppVersionSource | null;
   createdAt: string | null;
 };
 

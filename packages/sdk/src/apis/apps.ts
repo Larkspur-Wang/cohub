@@ -1,6 +1,6 @@
 import type { HttpTransport } from "../transport.js";
 import type { RequestSource } from "@cohub/protocol/provenance";
-import type { AppArtifactDescriptor, AppContentKind, AppPromotionEventKey } from "@cohub/protocol";
+import type { AppArtifactDescriptor, AppContentKind, AppPromotionEventKey, AppVersionSource } from "@cohub/protocol";
 import type { Permission, SpacePublicProfile } from "../types.js";
 
 export type AppTargetType = "file" | "directory" | "port";
@@ -101,6 +101,17 @@ export type AppVersionRecord = {
   contentKind: AppContentKind;
   artifact: AppArtifactDescriptor | null;
   meta: AppMeta | null;
+  /** Version provenance; the session is present only when the caller may view it. */
+  source?: AppVersionSource | null;
+  createdAt: string | null;
+};
+
+/** Read-only version summary served on the public app page. */
+export type PublicAppVersionSummary = {
+  id: string;
+  version: number;
+  contentKind: AppContentKind;
+  source: AppVersionSource | null;
   createdAt: string | null;
 };
 
@@ -156,6 +167,8 @@ export type AppDetailResponse = {
   owner: AppPublicOwnerRecord;
   publicUrl: string | null;
   content: AppContent | null;
+  /** Version whose content is served; the current version when omitted. */
+  version?: PublicAppVersionSummary | null;
   /** All-time view count; `null` when the rollup total is unavailable. */
   totalViews?: number | null;
 };
@@ -298,10 +311,25 @@ export class AppsApi {
     username: string,
     spaceSlug: string,
     appSlug: string,
+    options?: { signal?: AbortSignal; version?: number },
+  ) {
+    const query =
+      options?.version !== undefined ? `?cohub_v=${options.version}` : "";
+    return this.transport.request<AppResolveResponse>(
+      `/api/apps/by-slug/${encodeURIComponent(username)}/${encodeURIComponent(spaceSlug)}/${encodeURIComponent(appSlug)}${query}`,
+      options?.signal ? { signal: options.signal } : undefined,
+    );
+  }
+
+  /** Version history for the public app page; empty for disabled apps. */
+  listPublicVersions(
+    username: string,
+    spaceSlug: string,
+    appSlug: string,
     options?: { signal?: AbortSignal },
   ) {
-    return this.transport.request<AppResolveResponse>(
-      `/api/apps/by-slug/${encodeURIComponent(username)}/${encodeURIComponent(spaceSlug)}/${encodeURIComponent(appSlug)}`,
+    return this.transport.request<{ versions: PublicAppVersionSummary[] }>(
+      `/api/apps/by-slug/${encodeURIComponent(username)}/${encodeURIComponent(spaceSlug)}/${encodeURIComponent(appSlug)}/versions`,
       options?.signal ? { signal: options.signal } : undefined,
     );
   }

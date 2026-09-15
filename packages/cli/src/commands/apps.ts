@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { basename } from "node:path";
-import { getCohubContext, HttpError, type CohubHttpClient, type Permission, type AppCreateInput, type AppMeta, type AppStatus, type AppUpdateInput, type AppViewStatsResponse, type AppVisibility } from "@neta-art/cohub";
+import { getCohubContext, HttpError, type CohubHttpClient, type Permission, type AppCreateInput, type AppMeta, type AppStatus, type AppUpdateInput, type AppVersionRecord, type AppViewStatsResponse, type AppVisibility } from "@neta-art/cohub";
 import type { Command } from "commander";
 import { createClient, createClientWithAccessToken } from "../client.js";
 import { error, handleHttp, json as outJson, jsonRequested, ok, table } from "../output.js";
@@ -31,6 +31,14 @@ function parseJsonObject(value: string | undefined, name: string): Record<string
     // handled below
   }
   return error(`Invalid ${name}`, `${name} must be a JSON object`);
+}
+
+/** Human-readable version provenance: a session title, a channel, or blank. */
+function formatVersionSource(value: unknown): string {
+  if (!value || typeof value !== "object") return "";
+  const source = value as AppVersionRecord["source"];
+  if (source?.session) return source.session.title?.trim() || source.session.id;
+  return source?.via ? `via ${source.via}` : "";
 }
 
 function parseJsonValue(value: string | undefined, name: string): unknown {
@@ -615,6 +623,7 @@ export function registerApps(program: Command): void {
           { key: "id", label: "ID" },
           { key: "targetType", label: "Target" },
           { key: "targetRef", label: "Ref" },
+          { key: "source", label: "Source", format: formatVersionSource },
           { key: "createdAt", label: "Created" },
         ]);
       } catch (e: unknown) {

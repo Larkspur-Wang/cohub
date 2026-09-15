@@ -1,10 +1,11 @@
 <script lang="ts">
-import type { AppRecord } from "@neta-art/cohub";
+import type { AppRecord, AppVersionRecord } from "@neta-art/cohub";
 import {
 	Check,
 	Copy,
 	ExternalLink,
 	Loader2,
+	MessageSquare,
 	PanelRight,
 	Pencil,
 	Power,
@@ -19,6 +20,10 @@ import {
 } from "$lib/features/app/app-realtime";
 import { getLocale } from "$lib/i18n/locale.svelte";
 import { m } from "$lib/paraglide/messages.js";
+import {
+	buildSpaceSessionRoute,
+	buildSpaceSessionTurnRoute,
+} from "$lib/space-routes";
 import { formatDateTime } from "../space-utils";
 import AppPromotions from "./AppPromotions.svelte";
 import AppViewStats from "./AppViewStats.svelte";
@@ -85,6 +90,17 @@ const workCanToggleHideCohubBar = $derived(
 const workStats = $derived(appDetailController.stats);
 const workStatsLoading = $derived(appDetailController.statsLoading);
 const workStatsError = $derived(appDetailController.statsError);
+
+/** Deep link into the session (and turn) that produced a version, when visible. */
+function versionSessionRoute(
+	source: AppVersionRecord["source"],
+): string | null {
+	const session = source?.session;
+	if (!session) return null;
+	return source?.turnSequence !== undefined
+		? buildSpaceSessionTurnRoute(spaceId, session.id, source.turnSequence)
+		: buildSpaceSessionRoute(spaceId, session.id);
+}
 
 $effect(() => {
 	appDetailController.syncRoute();
@@ -353,12 +369,23 @@ onDestroy(() => {
           {:else if appVersions.length}
             <div class="divide-y divide-border-subtle/60">
               {#each appVersions as version (version.id)}
-                <div class="py-3 text-[12px] sm:grid sm:grid-cols-[96px_minmax(0,1fr)_180px] sm:items-center sm:gap-3 sm:py-2.5">
+                {@const sessionHref = versionSessionRoute(version.source)}
+                <div class="py-3 text-[12px] sm:grid sm:grid-cols-[88px_minmax(0,1fr)_minmax(0,200px)_150px] sm:items-center sm:gap-3 sm:py-2.5">
                   <div class="flex items-center gap-2 px-1">
                     <span class="font-mono text-text-primary">v{version.version}</span>
                     {#if version.id === appDetail.currentVersionId}<span class="rounded-full bg-brand-muted px-2 py-0.5 text-[10px] font-medium text-brand">Current</span>{/if}
                   </div>
                   <div class="mt-1 truncate font-mono text-text-tertiary sm:mt-0" title={`${version.targetType}:${version.targetRef}`}>{version.targetType}:{version.targetRef}</div>
+                  {#if sessionHref && version.source?.session}
+                    <a class="mt-1 flex min-w-0 items-center gap-1.5 text-text-secondary transition-colors hover:text-brand sm:mt-0" href={sessionHref} title={version.source.session.title ?? version.source.session.id}>
+                      <MessageSquare class="h-3.5 w-3.5 shrink-0 text-text-placeholder" aria-hidden="true" />
+                      <span class="truncate">{version.source.session.title || 'Untitled session'}</span>
+                    </a>
+                  {:else if version.source?.via}
+                    <div class="mt-1 truncate text-text-placeholder sm:mt-0">via {version.source.via}</div>
+                  {:else}
+                    <div class="mt-1 text-text-placeholder sm:mt-0">—</div>
+                  {/if}
                   <div class="mt-1 font-mono text-text-placeholder sm:mt-0">{formatDateTime(version.createdAt)}</div>
                 </div>
               {/each}
