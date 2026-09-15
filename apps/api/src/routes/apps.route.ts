@@ -324,12 +324,11 @@ function recordResolvedAppView(
   c: Context,
   app: typeof apps.$inferSelect,
   fallbackSource: AppViewSource,
-  versionId: string | null = app.currentVersionId,
 ) {
-  if (app.status !== "published" || !versionId) return;
+  if (app.status !== "published" || !app.currentVersionId) return;
   void recordAppViewStatsHourly({
     appId: app.id,
-    appVersionId: versionId,
+    appVersionId: app.currentVersionId,
     source: resolveAppViewSource(getRequestSource(c), fallbackSource),
   }).catch((error) => {
     const now = Date.now();
@@ -560,7 +559,7 @@ router.get("/by-slug/:username/:spaceSlug/:appSlug", async (c) => {
   // An explicit version must exist; the implicit current version may legitimately be absent.
   if (requested.version !== null && !version) return c.json({ message: "app version not found" }, 404);
 
-  recordResolvedAppView(c, row.app, "web", version?.id ?? null);
+  recordResolvedAppView(c, row.app, "web");
   const [content, totalViews] = await Promise.all([
     getAppVersionContent(row.app, version),
     getAppTotalViews(row.app.id),

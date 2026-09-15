@@ -377,7 +377,7 @@ onDestroy(() => {
                   </div>
                   <div class="mt-1 truncate font-mono text-text-tertiary sm:mt-0" title={`${version.targetType}:${version.targetRef}`}>{version.targetType}:{version.targetRef}</div>
                   {#if sessionHref && version.source?.session}
-                    <a class="mt-1 flex min-w-0 items-center gap-1.5 text-text-secondary transition-colors hover:text-brand sm:mt-0" href={sessionHref} title={version.source.session.title ?? version.source.session.id}>
+                    <a class="mt-1 flex min-w-0 items-center gap-1.5 text-text-secondary transition-colors hover:text-brand sm:mt-0" href={sessionHref} target="_blank" rel="noopener noreferrer" title={version.source.session.title ?? version.source.session.id}>
                       <MessageSquare class="h-3.5 w-3.5 shrink-0 text-text-placeholder" aria-hidden="true" />
                       <span class="truncate">{version.source.session.title || 'Untitled session'}</span>
                     </a>

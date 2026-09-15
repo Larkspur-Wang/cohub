@@ -1,6 +1,6 @@
 <script lang="ts">
 import type { PublicAppVersionSummary } from "@neta-art/cohub";
-import { Check, History, Loader2, MessageSquare } from "lucide-svelte";
+import { History, Loader2, MessageSquare } from "lucide-svelte";
 import { formatShortDateTime } from "$lib/features/space/space-utils";
 import { getLocale } from "$lib/i18n/locale.svelte";
 import {
@@ -113,14 +113,12 @@ function sessionRoute(
 								{/if}
 								<span class="block font-mono text-[10px] text-text-placeholder">{formatShortDateTime(version.createdAt, locale)}</span>
 							</span>
-							<Check
-								class="h-3.5 w-3.5 shrink-0 {isActive ? 'text-brand' : 'invisible'}"
-								aria-hidden="true"
-							/>
 						</button>
 						{#if sessionHref && version.source?.session}
 							<a
 								href={sessionHref}
+								target="_blank"
+								rel="noopener noreferrer"
 								class="flex max-w-[140px] shrink-0 items-center gap-1 rounded-[5px] px-1.5 py-1 text-[11px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary"
 								title={version.source.session.title ?? version.source.session.id}
 							>
