@@ -1,5 +1,23 @@
 [
 	{
+		"version": "2.50",
+		"date": "2026-09-15",
+		"tags": ["v2.50.0"],
+		"highlights": [
+			"**App version history & provenance**: Published apps now expose their immutable version history — the public Cohub bar gains a version switcher (`?cohub_v=<n>`, `getBySlug(…, { version })`, `listPublicVersions()`), and every version deep-links to the session and turn that produced it. Provenance is validated against the app's own space and session identity is gated on `session.view`, so a private session never leaks; the raw publish-time `meta.source` is no longer emitted, and viewer-scoped responses are never shared-cached.",
+			"**Source-label session filtering**: `GET /api/me/sessions?source=…` now filters by each session's source **system label** instead of the raw `space_sessions.source` string, so channel sessions are attributed by the same provider-aware labels a space sidebar shows. The per-origin `sourceCounts` aggregate was removed, dropping a full account-wide scan from every page fetch; the inbox picker lists the full source vocabulary statically.",
+			"**Unified `@` mention search**: Composer Space mentions reuse the command palette's search and ranking (fuzzy text weighted against viewer tier and recency) instead of maintaining a second scorer, so mentions and the palette can no longer disagree about ordering — and the removed duplicate logic eliminates the per-keystroke scan over cached session lists.",
+			"**Docked public App bar**: The public App page is now a full-height flex column with the Cohub bar (wordmark, space/app identity, views, publisher, version switcher) rendered above the App rather than floating over it, so the embedded App's viewport is exactly what the viewer sees. Version history is fetched after hydration, keeping the SSR critical path to a single request.",
+			"**Live generation vs. queued turns**: Generation state is now resumed only from `running` / `abort_requested` turns, since a session's newest unfinished turn can be a queued follow-up waiting behind a running one. Queued turns stay in the follow-up queue, and empty pending snapshots are no longer persisted or restored."
+		],
+		"fixes": [
+			"Fixed `?source=` filters dropping Feishu/WeChat/Discord/QQ channel sessions and mislabeling them as `other`, caused by matching the raw source column instead of the assigned labels.",
+			"Fixed the public app version switcher not actually switching: selection is driven by local state, rewrites `?cohub_v`, refetches the version, and restores the previous version in the URL on failure.",
+			"Fixed the model picker omitting availability dots for generation (image/video/audio) models — the status feed now marks them in both the collapsed row and the expanded list.",
+			"Fixed generation sessions created by direct generation missing their source system label, which previously excluded them from source-based filtering."
+		]
+	},
+	{
 		"version": "2.49",
 		"date": "2026-09-14",
 		"tags": ["v2.49.0"],
