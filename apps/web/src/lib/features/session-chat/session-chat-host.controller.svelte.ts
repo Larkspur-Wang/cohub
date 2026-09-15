@@ -92,6 +92,7 @@ import {
 	startGenerationRequest,
 } from "$lib/stores/session-generation-controller";
 import { reconcileGenerationStateFromSessionList } from "$lib/stores/session-generation-list-reconcile";
+import { isLiveTurnStatus } from "$lib/stores/session-generation-state";
 import {
 	fetchSessionListWithCache,
 	getCachedSessionListSnapshot,
@@ -2448,11 +2449,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		turn: Partial<SessionTurnRecord> | undefined,
 	) {
 		if (sessionId === activeSessionId || !turn?.id) return;
-		if (
-			turn.status === "queued" ||
-			turn.status === "running" ||
-			turn.status === "abort_requested"
-		) {
+		if (isLiveTurnStatus(turn.status)) {
 			const userMessageId =
 				turn.meta && typeof turn.meta.userMessageId === "string"
 					? turn.meta.userMessageId

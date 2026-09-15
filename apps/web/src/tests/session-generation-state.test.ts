@@ -3,7 +3,9 @@ import { test } from "node:test";
 import {
 	emptyGenerationStreamResiduals,
 	generationTurnChanged,
+	isLiveTurnStatus,
 	isTerminalGenerationStatus,
+	planGenerationReconcile,
 	removeGenerationStatesForSpace,
 	resolveGenerationProgressResiduals,
 	resolveGenerationStreamResiduals,
@@ -107,6 +109,88 @@ test("idle is not terminal, finished statuses are", () => {
 	assert.equal(isTerminalGenerationStatus("completed"), true);
 	assert.equal(isTerminalGenerationStatus("failed"), true);
 	assert.equal(isTerminalGenerationStatus("interrupted"), true);
+});
+
+test("only running and abort_requested are live turn statuses", () => {
+	assert.equal(isLiveTurnStatus("running"), true);
+	assert.equal(isLiveTurnStatus("abort_requested"), true);
+	assert.equal(isLiveTurnStatus("queued"), false);
+	assert.equal(isLiveTurnStatus("completed"), false);
+	assert.equal(isLiveTurnStatus(null), false);
+});
+
+test("a queued active turn never resumes or replaces live generation", () => {
+	// A queued turn behind a running one must not steal the live state.
+	assert.deepEqual(
+		planGenerationReconcile({
+			current: { status: "streaming", turnId: "turn-running" },
+			activeTurn: { id: "turn-queued", status: "queued" },
+			authoritative: true,
+			requestStartedAt: 100,
+		}),
+		{ reset: false, resumeTurnId: null },
+	);
+	// A legacy pending state pinned to the queued turn is cleared.
+	assert.deepEqual(
+		planGenerationReconcile({
+			current: { status: "pending", turnId: "turn-queued" },
+			activeTurn: { id: "turn-queued", status: "queued" },
+			authoritative: true,
+			requestStartedAt: 100,
+		}),
+		{ reset: true, resumeTurnId: null },
+	);
+});
+
+test("a live active turn resets the previous turn and resumes itself", () => {
+	assert.deepEqual(
+		planGenerationReconcile({
+			current: { status: "streaming", turnId: "turn-old" },
+			activeTurn: { id: "turn-new", status: "running" },
+			authoritative: false,
+			requestStartedAt: 0,
+		}),
+		{ reset: true, resumeTurnId: "turn-new" },
+	);
+	assert.deepEqual(
+		planGenerationReconcile({
+			current: { status: "streaming", turnId: "turn-1" },
+			activeTurn: { id: "turn-1", status: "abort_requested" },
+			authoritative: false,
+			requestStartedAt: 0,
+		}),
+		{ reset: false, resumeTurnId: "turn-1" },
+	);
+});
+
+test("missing hints keep state; authoritative null clears a stale pending turn", () => {
+	assert.deepEqual(
+		planGenerationReconcile({
+			current: { status: "pending", turnId: "turn-1" },
+			activeTurn: undefined,
+			authoritative: true,
+			requestStartedAt: 0,
+		}),
+		{ reset: false, resumeTurnId: null },
+	);
+	assert.deepEqual(
+		planGenerationReconcile({
+			current: { status: "pending", turnId: "turn-1", lastEventAt: 50 },
+			activeTurn: null,
+			authoritative: true,
+			requestStartedAt: 100,
+		}),
+		{ reset: true, resumeTurnId: null },
+	);
+	assert.deepEqual(
+		planGenerationReconcile({
+			current: { status: "pending", turnId: "turn-1", lastEventAt: 50 },
+			activeTurn: null,
+			authoritative: false,
+			requestStartedAt: 100,
+		}),
+		{ reset: false, resumeTurnId: null },
+	);
 });
 
 test("stale active-turn hint never downgrades a finished same turn", () => {
