@@ -53,7 +53,6 @@ import {
 } from "./session-list.js";
 
 export {
-  countUserSessionsBySource,
   encodeSessionListCursor,
   InvalidSessionListCursorError,
   InvalidSessionSourceFilterError,
@@ -520,6 +519,7 @@ export const listUserSessions = async (
     sessions: await attachActiveTurns(page.sessions),
   };
 };
+
 
 const getNextSessionSequence = async (sessionId: string) => {
   const [row] = await db.select({ max: sql<number>`coalesce(max(${sessionMessages.sequence}), 0)::int` }).from(sessionMessages).where(eq(sessionMessages.sessionId, sessionId));
