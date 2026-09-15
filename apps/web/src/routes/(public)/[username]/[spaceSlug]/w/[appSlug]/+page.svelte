@@ -417,16 +417,16 @@ function handleSelectVersion(version: number | null) {
 	/>
 {:else if ready}
 	<!-- SSR / first paint: head already has share meta; surface hydrates client-side. -->
-	<div class="min-h-screen bg-bg-primary" aria-hidden="true"></div>
+	<div class="h-full bg-bg-primary" aria-hidden="true"></div>
 {:else if clientLoading}
 	<div
-		class="flex min-h-screen items-center justify-center bg-bg-primary px-4 text-[13px] text-text-tertiary"
+		class="flex h-full items-center justify-center bg-bg-primary px-4 text-[13px] text-text-tertiary"
 	>
 		Loading App…
 	</div>
 {:else}
 	<div
-		class="flex min-h-screen items-center justify-center bg-bg-primary px-4 text-[13px] text-text-secondary"
+		class="flex h-full items-center justify-center bg-bg-primary px-4 text-[13px] text-text-secondary"
 	>
 		{clientError || "App is unavailable."}
 	</div>

@@ -88,7 +88,7 @@ function sessionRoute(
 
 	{#if open}
 		<div
-			class="absolute right-0 bottom-full left-0 z-[61] mb-2 w-auto overflow-hidden rounded-lg border border-border-subtle bg-bg-surface shadow-xl sm:left-auto sm:w-[340px]"
+			class="absolute right-0 top-full left-0 z-[61] mt-2 w-auto overflow-hidden rounded-lg border border-border-subtle bg-bg-surface shadow-xl sm:left-auto sm:w-[340px]"
 			role="dialog"
 			aria-label="Versions"
 		>

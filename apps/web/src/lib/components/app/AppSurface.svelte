@@ -19,7 +19,6 @@ import type {
 	AppRuntimeInvocationContext,
 	AppRuntimeShellContext,
 } from "@neta-art/cohub";
-import { Eye } from "lucide-svelte";
 import { onMount, type Snippet, untrack } from "svelte";
 import { page } from "$app/state";
 import { appDisplayTitle } from "$lib/app-page-meta";
@@ -27,37 +26,25 @@ import { type AppLaunchState, resolveAppFrame } from "$lib/app-url";
 import WorkBoardSurface from "$lib/components/app/AppBoardSurface.svelte";
 import WorkFileSurface from "$lib/components/app/AppFileSurface.svelte";
 import { readAppCheckoutState } from "$lib/components/app/app-checkout-state";
-import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
-import UserIdentity from "$lib/components/UserIdentity.svelte";
+import CohubBar, {
+	type CohubBarOwner,
+	type CohubBarSpace,
+} from "$lib/components/app/CohubBar.svelte";
 import AppAuthorizeDialog from "$lib/features/app/AppAuthorizeDialog.svelte";
 import { createAppBridgeHost } from "$lib/features/app/bridge-host.svelte";
 import {
 	type AppSurfaceHost,
 	createAppSurfaceHost,
 } from "$lib/features/app/surface-host";
-import { formatCompactNumber, formatNumber } from "$lib/i18n/format";
-import { getLocale } from "$lib/i18n/locale.svelte";
 import { parseNewChatBackgroundAction } from "$lib/new-chat-background-bridge";
-import { m } from "$lib/paraglide/messages.js";
 import { emitSpaceConfigBackgroundAction } from "$lib/space-config";
 import { createSpaceWorkspaceAssetResolver } from "$lib/space-workspace-assets";
 import type { WorkspaceFileLinkTarget } from "$lib/workspace-file-links";
 
 type AppSurfaceMode = "page" | "background" | "app" | "overlay";
 
-type AppSpace = {
-	id: string;
-	slug: string | null;
-	name: string | null;
-	userUuid: string;
-	publicProfile?: { avatarUrl: string | null } | null;
-};
-
-type AppOwner = {
-	username: string | null;
-	displayName: string;
-	avatarUrl?: string | null;
-} | null;
+type AppSpace = CohubBarSpace & { userUuid: string };
+type AppOwner = CohubBarOwner;
 
 type Props = {
 	app: Pick<
@@ -140,26 +127,9 @@ function reportReady() {
 }
 
 const isBackground = $derived(mode === "background");
-const spaceName = $derived(space?.name || space?.slug || "Space");
 const appTitle = $derived(appDisplayTitle(app?.meta, app?.slug ?? "App"));
-const publisherName = $derived(owner?.displayName ?? "Cohub");
-const publisherAvatarUrl = $derived(owner?.avatarUrl?.trim() || null);
 const hideCohubBar = $derived(app?.meta?.presentation?.hideCohubBar === true);
-const locale = $derived(getLocale());
-const totalViewsText = $derived(
-	typeof totalViews === "number" && totalViews > 0
-		? formatCompactNumber(totalViews, locale)
-		: null,
-);
-const totalViewsTitle = $derived(
-	totalViewsText
-		? m.app_stats_total_views_title(
-				{ count: formatNumber(totalViews ?? 0, locale) },
-				{ locale },
-			)
-		: "",
-);
-// Board and file Works render natively; only web and port Works are embedded.
+// Board and file Apps render natively; only web and port Apps are embedded.
 const boardContent = $derived(content?.kind === "board" ? content : null);
 const fileContent = $derived(content?.kind === "file" ? content : null);
 const workspaceAssetResolver = $derived(
@@ -168,7 +138,7 @@ const workspaceAssetResolver = $derived(
 const appNavigationEnabled = $derived(Boolean(onNavigationOpen));
 
 /**
- * Native Works (board/file) render markdown in the host, outside the App
+ * Native Apps (board/file) render markdown in the host, outside the App
  * iframe, so their links need to reach the same navigation bridge the iframe
  * uses instead of falling through to a raw browser navigation.
  */
@@ -396,6 +366,10 @@ onMount(() => {
 </script>
 
 <div class="app-surface {mode}">
+	{#if mode === "page" && !hideCohubBar}
+		<CohubBar {app} {space} {owner} {totalViews} actions={barActions} />
+	{/if}
+
 	{#if boardContent}
 		<div class="app-native">
 			<WorkBoardSurface content={boardContent} />
@@ -436,49 +410,6 @@ onMount(() => {
 	{:else if !hasFrameSource}
 		<div class="empty-state">App asset is unavailable.</div>
 	{/if}
-
-	{#if mode === "page" && !hideCohubBar}
-		<footer class="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex justify-center px-3 pb-3 sm:pb-4">
-			<div class="app-bar pointer-events-auto relative flex h-12 w-full max-w-[860px] items-center gap-3 rounded-lg border border-border-subtle bg-bg-surface/95 px-2.5 text-[11px] text-text-tertiary shadow-lg shadow-bg-primary/15 backdrop-blur-md supports-[not(backdrop-filter:blur(0))]:bg-bg-surface sm:px-3">
-				<div class="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden">
-					<img src="/favicon.svg" alt="Cohub" class="block h-5 w-5 shrink-0 rounded-[5px]" />
-					<div class="hidden h-4 w-px shrink-0 bg-border-subtle sm:block"></div>
-					<div class="flex min-w-0 items-center gap-2 overflow-hidden">
-						<SpaceAvatar name={spaceName} profile={space?.publicProfile} size="xs" class="translate-y-0" />
-						<span class="min-w-0 truncate font-medium leading-none text-text-secondary">{spaceName}</span>
-						<span class="hidden shrink-0 leading-none text-text-tertiary sm:inline">/</span>
-						<span class="hidden min-w-0 truncate font-medium leading-none text-text-primary sm:inline">{appTitle}</span>
-					</div>
-				</div>
-				{#if barActions}
-					<div class="shrink-0">
-						{@render barActions()}
-					</div>
-					<div class="hidden h-4 w-px shrink-0 bg-border-subtle sm:block"></div>
-				{/if}
-				<div class="flex min-w-0 shrink-0 items-center gap-2 overflow-hidden">
-					{#if totalViewsText}
-						<span class="flex shrink-0 items-center gap-1.5 text-text-tertiary" title={totalViewsTitle}>
-							<Eye class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-							<span class="font-mono leading-none tabular-nums">{totalViewsText}</span>
-							<span class="sr-only">{totalViewsTitle}</span>
-						</span>
-						<div class="hidden h-4 w-px shrink-0 bg-border-subtle sm:block"></div>
-					{/if}
-					<span class="hidden shrink-0 leading-none text-text-tertiary md:inline">Published by</span>
-					<UserIdentity
-						name={publisherName}
-						avatarUrl={publisherAvatarUrl}
-						username={owner?.username}
-						size="xs"
-						class="min-w-0 text-text-secondary"
-						avatarClass="h-5 w-5 rounded-full bg-bg-elevated text-[8px]"
-						nameClass="hidden max-w-32 truncate font-medium leading-none sm:inline"
-					/>
-				</div>
-			</div>
-		</footer>
-	{/if}
 </div>
 
 
@@ -504,8 +435,16 @@ onMount(() => {
 		color: var(--text-primary);
 	}
 
+	/*
+	 * The public App page is a column: the Cohub bar reserves its own row and
+	 * the App fills the rest, so the App's viewport is exactly what the viewer
+	 * can see. Height is inherited from the `html, body { height: 100% }` chain
+	 * (see app.css) rather than `dvh`.
+	 */
 	.app-surface.page {
-		min-height: 100vh;
+		display: flex;
+		height: 100%;
+		flex-direction: column;
 	}
 
 	.app-surface.background,
@@ -557,12 +496,12 @@ onMount(() => {
 		min-height: 0;
 	}
 
-	.app-surface.page .app-native {
-		height: 100vh;
-	}
-
-	.app-surface.page .app-frame {
-		height: 100vh;
+	.app-surface.page .app-native,
+	.app-surface.page .app-frame,
+	.app-surface.page .empty-state {
+		flex: 1 1 0;
+		height: auto;
+		min-height: 0;
 	}
 
 	.empty-state {
