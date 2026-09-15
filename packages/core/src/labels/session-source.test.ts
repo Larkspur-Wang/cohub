@@ -6,7 +6,6 @@ import {
   resolveSessionSourceKey,
   resolveSessionSourceLabelRef,
   SESSION_SOURCE_KEYS,
-  sessionSourceRawValues,
 } from "./session-source.js";
 
 test("resolveSessionSourceLabelRef maps known channel providers", () => {
@@ -54,11 +53,6 @@ test("resolveSessionSourceKey collapses label aliases and defaults null to web",
   assert.equal(resolveSessionSourceKey("mystery"), "other");
 });
 
-test("sessionSourceRawValues returns every raw alias of a kind", () => {
-  assert.deepEqual(new Set(sessionSourceRawValues("web")), new Set(["web", "web_app"]));
-  assert.deepEqual(sessionSourceRawValues("qq"), ["qq"]);
-  assert.deepEqual(sessionSourceRawValues("other"), []);
-});
 
 test("SESSION_SOURCE_KEYS lists each kind once, other last", () => {
   assert.equal(SESSION_SOURCE_KEYS.at(-1), "other");
@@ -88,3 +82,4 @@ test("SESSION_SOURCE_KEYS covers the non-channel kinds and the real providers", 
   }
   assert.equal(SESSION_SOURCE_KEYS.length, 7 + chatProviders.length);
 });
+

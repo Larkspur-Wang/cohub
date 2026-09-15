@@ -76,14 +76,6 @@ export function resolveSessionSourceKey(source: string | null | undefined): stri
   return (channelRef && SOURCE_LABEL_REF_TO_KEY.get(channelRef)) || "other";
 }
 
-/** Raw `space_sessions.source` values a kind matches, excluding the null case. */
-export function sessionSourceRawValues(sourceKey: string): string[] {
-  return Object.keys(SOURCE_LABELS).filter((key) => {
-    const ref = SOURCE_LABELS[key];
-    return ref !== undefined && (SOURCE_LABEL_REF_TO_KEY.get(ref) ?? "other") === sourceKey;
-  });
-}
-
 /** Selectable kinds, vocabulary order with `other` last. */
 export const SESSION_SOURCE_KEYS: readonly string[] = [
   ...new Set(Object.keys(SOURCE_LABELS).map(resolveSessionSourceKey)),
