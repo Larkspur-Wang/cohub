@@ -69,7 +69,7 @@ function sessionRoute(
 <div bind:this={root}>
 	<button
 		type="button"
-		class="inline-flex h-7 items-center gap-1.5 rounded-[5px] px-2 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary"
+		class="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-[5px] px-2 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary"
 		aria-haspopup="dialog"
 		aria-expanded={open}
 		aria-label="Versions"
@@ -103,7 +103,7 @@ function sessionRoute(
 					<div class="flex items-center gap-1 px-2 py-1" class:bg-brand-muted={isActive}>
 						<button
 							type="button"
-							class="flex min-w-0 flex-1 items-center gap-2 rounded-[5px] px-1.5 py-1 text-left transition-colors hover:bg-bg-hover"
+							class="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-[5px] px-1.5 py-1 text-left transition-colors hover:bg-bg-hover"
 							onclick={() => select(version.version)}
 						>
 							<span class="w-8 shrink-0 font-mono text-[12px] {isActive ? 'text-brand' : 'text-text-secondary'}">v{version.version}</span>

@@ -5,7 +5,7 @@ import type {
 	AppRuntimeShellContext,
 	PublicAppVersionSummary,
 } from "@neta-art/cohub";
-import { onMount } from "svelte";
+import { onMount, untrack } from "svelte";
 import { replaceState } from "$app/navigation";
 import { page } from "$app/state";
 import { buildAppPageMeta } from "$lib/app-page-meta";
@@ -58,12 +58,14 @@ const launchState = $derived({
 	hash: page.url.hash,
 });
 
-const requestedVersion = $derived.by(() => {
-	const raw = page.url.searchParams.get("cohub_v");
-	if (!raw || !/^\d{1,9}$/.test(raw)) return null;
-	const version = Number(raw);
-	return version >= 1 ? version : null;
-});
+/**
+ * Displayed version; `null` is the current version. Driven by local state, not
+ * `page.url`: `replaceState` rewrites the address bar without updating
+ * `page.url`, so URL-derived reactivity would never fire on a switch.
+ */
+let selectedVersion = $state<number | null>(
+	untrack(() => props.data.requestedVersion ?? null),
+);
 
 let clientDetail = $state<AppDetailResponse | null>(null);
 let clientError = $state("");
@@ -246,8 +248,10 @@ $effect(() => {
 $effect(() => {
 	void props.data.pathname;
 	void props.data.requestedVersion;
+	const version = props.data.requestedVersion ?? null;
 	versionDetail = null;
-	resolvedVersionParam = props.data.requestedVersion ?? null;
+	selectedVersion = version;
+	resolvedVersionParam = version;
 });
 
 // Version history renders server-side when possible; the auth-gated client
@@ -339,7 +343,7 @@ $effect(() => {
 // The switcher changes the URL without re-running load, so fetch the selected
 // version here. Matching the loaded version restores the server's payload.
 $effect(() => {
-	const version = requestedVersion;
+	const version = selectedVersion;
 	if (version === (props.data.requestedVersion ?? null)) {
 		versionDetail = null;
 		resolvedVersionParam = version;
@@ -365,8 +369,8 @@ $effect(() => {
 		})
 		.catch(() => {
 			if (controller.signal.aborted) return;
-			// Keep the URL honest: fall back to the version still on screen.
-			const url = new URL(page.url);
+			// Keep the address bar honest: fall back to the version on screen.
+			const url = new URL(window.location.href);
 			if (resolvedVersionParam === null) url.searchParams.delete("cohub_v");
 			else url.searchParams.set("cohub_v", String(resolvedVersionParam));
 			replaceState(url, {});
@@ -380,8 +384,10 @@ $effect(() => {
 });
 
 function handleSelectVersion(version: number | null) {
-	if (version === requestedVersion) return;
-	const url = new URL(page.url);
+	if (version === selectedVersion) return;
+	selectedVersion = version;
+	// Read `location` directly: `page.url` is stale after `replaceState`.
+	const url = new URL(window.location.href);
 	if (version === null) url.searchParams.delete("cohub_v");
 	else url.searchParams.set("cohub_v", String(version));
 	replaceState(url, {});
@@ -394,7 +400,7 @@ function handleSelectVersion(version: number | null) {
 	<AppVersionBar
 		{versions}
 		spaceId={ready?.space.id ?? ""}
-		selectedVersion={requestedVersion}
+		selectedVersion={selectedVersion}
 		latestVersion={ready?.app.latestVersion ?? 0}
 		loading={switching}
 		onSelect={handleSelectVersion}
