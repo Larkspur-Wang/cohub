@@ -66,20 +66,23 @@ export class RuntimeSessionStore {
         const resolved = input.context.resolvedTurnIds?.includes(pending) === true;
         const settled = input.context.settledTurnIds?.includes(pending) === true;
         const lostAcknowledgement = Boolean(previous.resultChecksum) && pending === input.context.throughTurnId && pending !== input.turnId;
+        // A human-confirmed stop is authoritative: rebuild from durable history instead of
+        // resuming a native projection whose outcome the server never recorded.
+        const retire = resolved || (settled && !lostAcknowledgement);
         const nativeChecksum = await readFile(previous.path, "utf8").then(checksum).catch((error) => { if (missing(error)) return null; throw error; });
         if (previous.resultChecksum && (settled || resolved) && nativeChecksum && nativeChecksum !== previous.resultChecksum) {
           throw new Error("Native session changed outside Cohub; original data was preserved");
         }
-        if (lostAcknowledgement) {
-          // The server already persisted this turn; only our acknowledgement was lost.
-          await this.acknowledge(previous, pending, input.context.revision);
-        } else if (settled || resolved) {
+        if (retire) {
           // The server reached a terminal state for this turn. Archive the local projection and
           // rebuild from durable context; native files are never deleted, so nothing is lost.
           const receipt = await readFile(this.resultPath(previous), "utf8").catch((error) => { if (missing(error)) return null; throw error; });
           const retired = { state: previous, receipt };
           await atomicJson(join(this.root, "retired", `${pending}.${checksum(JSON.stringify(retired))}.json`), retired);
           previous = null;
+        } else if (lostAcknowledgement) {
+          // The server already persisted this turn; only our acknowledgement was lost.
+          await this.acknowledge(previous, pending, input.context.revision);
         } else if (input.context.complete === false) {
           throw new ContextRequiredError("Server resolution is required for the pending native execution");
         } else {

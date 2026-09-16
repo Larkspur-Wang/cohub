@@ -178,6 +178,28 @@ test("confirmed Runtime resolution preserves the old pending projection and mate
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test("a confirmed stop overrides a completed local result and rebuilds from durable history", async () => {
+  const root = await mkdtemp(join(tmpdir(), "cohub-runtime-resolved-receipt-"));
+  try {
+    const store = new RuntimeSessionStore(spaceId, root);
+    const turn = input("pi");
+    const first = await store.prepare(turn, root);
+    await store.started(first.state, turnId);
+    const terminal: RuntimeExecutionEvent = { type: "turn.end", message: { ordinal: 0, content: [{ type: "text", text: "local result" }] }, resume: "handoff" };
+    await store.recordResult(first.state, crypto.randomUUID(), [terminal]);
+    // The server never durably recorded this outcome, so the native projection must not be resumed.
+    const rebuilt = await store.prepare({ ...turn, turnId: previousTurn, context: { complete: true, revision: "resolved", throughTurnId: turnId, resolvedTurnIds: [turnId], messages: [] } }, root);
+    assert.equal(rebuilt.resume, "new");
+    assert.notEqual(rebuilt.state.path, first.state.path);
+    const retired = await readdir(join(store.root, "retired"));
+    assert.equal(retired.length, 1);
+    const archived = JSON.parse(await readFile(join(store.root, "retired", retired[0] ?? ""), "utf8"));
+    assert.equal(archived.state.pendingTurnId, turnId);
+    assert(archived.receipt, "the local result receipt is archived, not discarded");
+    assert.equal(JSON.parse(archived.receipt).events.at(-1).type, "turn.end");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test("changing Workspace requires a fresh projection instead of running in an old cwd", async () => {
   const root = await mkdtemp(join(tmpdir(), "cohub-runtime-cwd-"));
   try {
