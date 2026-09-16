@@ -19,7 +19,6 @@ import type {
 } from "$lib/board/board-activity";
 import AppPublishDialog from "$lib/components/AppPublishDialog.svelte";
 import type { FileViewMode } from "$lib/components/file-diff-view";
-import PreviewExpandMenu from "$lib/components/PreviewExpandMenu.svelte";
 import WorkspaceWindowsPane from "$lib/components/WorkspaceWindowsPane.svelte";
 import type { AppSurfaceHost } from "$lib/features/app/surface-host";
 import { DURATION_PANEL, svelteEaseIn } from "$lib/motion.svelte";
@@ -37,7 +36,7 @@ import FilesSidebarPanel from "./FilesSidebarPanel.svelte";
 import type { FileWorkspaceInlineFile } from "./file-workspace-controller.svelte";
 import InlineFilePanel from "./InlineFilePanel.svelte";
 import PortWindow from "./PortWindow.svelte";
-import WindowTabs from "./WindowTabs.svelte";
+import type { PreviewChrome } from "./preview-header";
 import type { Window } from "./windows";
 import { workspaceFilePreviewKind } from "./windows";
 
@@ -111,7 +110,6 @@ export type SpaceFileDomainProps = {
 	inlineFileIsPdf: boolean;
 	inlineFileDataUrl: string | null;
 	inlineFileApp: AppRecord | null;
-	fileActionMenuOpenPath: string | null;
 	inlineFileZoom: number;
 	inlineFilePanX: number;
 	inlineFilePanY: number;
@@ -145,7 +143,6 @@ export type SpaceFileDomainProps = {
 	resolveWorkspaceAsset: ResolveWorkspaceAsset;
 	onOpenInlineBoard: (path: string) => void | Promise<void>;
 	onOpenTask: (taskRunId: string) => void | Promise<void>;
-	onCloseInlineFile: () => void;
 	onActivateInlineFile: (path: string) => void;
 	onCloseInlineFileTab: (path: string) => void;
 	onActivateInlineBoard: (path: string) => void;
@@ -275,7 +272,6 @@ let {
 	inlineFileIsPdf,
 	inlineFileDataUrl,
 	inlineFileApp,
-	fileActionMenuOpenPath = $bindable(),
 	inlineFileZoom = $bindable(),
 	inlineFilePanX = $bindable(),
 	inlineFilePanY = $bindable(),
@@ -304,7 +300,6 @@ let {
 	resolveWorkspaceAsset,
 	onOpenInlineBoard,
 	onOpenTask,
-	onCloseInlineFile,
 	onActivateInlineFile,
 	onCloseInlineFileTab,
 	onActivateInlineBoard,
@@ -405,6 +400,16 @@ const retainedAppTabs = $derived(
 	inlineAppTabs.filter((tab) => retainedAppIds.has(tab.appId)),
 );
 
+/** Universal preview chrome shared by every panel's header. */
+const chrome = $derived<PreviewChrome>({
+	focus: previewFocusMode,
+	immersive: previewImmersiveMode,
+	treeVisible,
+	onToggleFocus: onTogglePreviewFocusMode,
+	onToggleImmersive: onTogglePreviewImmersiveMode,
+	onToggleTree,
+});
+
 function activateWindow(kind: Window["kind"], key: string) {
 	if (kind === "file") onActivateInlineFile(key);
 	else if (kind === "board") onActivateInlineBoard(key);
@@ -445,25 +450,6 @@ function previewContentOut(node: Element) {
 			aria-hidden={!activeWindowKind}
 			out:previewContentOut
 		>
-			{#if !isMobile && !previewImmersiveMode}
-				<WindowTabs
-					tabs={windows}
-					onActivate={activateWindow}
-					onClose={closeWindow}
-					{treeVisible}
-					{onToggleTree}
-				>
-					{#snippet trailing()}
-						<PreviewExpandMenu
-							focused={previewFocusMode}
-							immersive={previewImmersiveMode}
-							size="sm"
-							onToggleFocus={onTogglePreviewFocusMode}
-							onToggleImmersive={onTogglePreviewImmersiveMode}
-						/>
-					{/snippet}
-				</WindowTabs>
-			{/if}
 			<div class="relative min-h-0 flex-1">
 {#if inlineFile}
 	<div
@@ -475,8 +461,7 @@ function previewContentOut(node: Element) {
 		<InlineFilePanel
 		{inlineFile}
 		{windows}
-		{treeVisible}
-		{onToggleTree}
+		{chrome}
 		onActivateWindow={activateWindow}
 		onCloseWindow={closeWindow}
 		{inlineFileCanGoBack}
@@ -502,14 +487,11 @@ function previewContentOut(node: Element) {
 		{inlineFileDataUrl}
 		inlineFileSpaceId={spaceId}
 		{inlineFileApp}
-		previewImmersiveMode={previewImmersiveMode}
 		{isMobile}
-		bind:fileActionMenuOpenPath
 		bind:inlineFileZoom
 		bind:inlineFilePanX
 		bind:inlineFilePanY
 		{inlineFileDragging}
-		onCloseInlineFile={onCloseInlineFile}
 		onBackInlineFile={onBackInlineFile}
 		onOpenLinkedInlineFile={onOpenLinkedInlineFile}
 		{resolveWorkspaceAsset}
@@ -521,7 +503,6 @@ function previewContentOut(node: Element) {
 		onOverwriteInlineFile={onOverwriteInlineFile}
 		onReloadInlineFile={onReloadInlineFile}
 		onPublishInlineFile={publishInlineFile}
-		onTogglePreviewImmersiveMode={onTogglePreviewImmersiveMode}
 		onLabelFile={(path: string, anchorEl?: HTMLElement | null) =>
 			onEditResourceLabels("file", path, anchorEl)}
 		onInsertFilePathReference={onInsertFilePathReference}
@@ -547,16 +528,13 @@ function previewContentOut(node: Element) {
 		shell={appShell}
 		onNavigationOpen={onNavigationOpen}
 		active={activeWindowKind === "board"}
-		{treeVisible}
-		{onToggleTree}
+		{chrome}
 		onActivateWindow={activateWindow}
 		onCloseWindow={closeWindow}
-		immersive={previewImmersiveMode}
 		{isMobile}
 		collaborators={boardCollaborators}
 		activities={boardActivities}
 		onOpenActivity={onOpenBoardActivity}
-		onToggleImmersive={onTogglePreviewImmersiveMode}
 		onCommit={onCommitInlineBoard}
 		onRetrySave={onRetryInlineBoardSave}
 		onViewStateChange={onBoardViewStateChange}
@@ -575,17 +553,14 @@ function previewContentOut(node: Element) {
 	>
 		<PortWindow
 		windows={windows}
-		{treeVisible}
-		{onToggleTree}
+		{chrome}
 		onActivateWindow={activateWindow}
 		onCloseWindow={closeWindow}
 		port={inlinePortPreview.port}
 		url={inlinePortEndpoint?.url ?? inlinePortPreview.url}
 		status={inlinePortEndpoint?.status ?? "unknown"}
 		observedAt={inlinePortEndpoint?.observedAt}
-		immersive={previewImmersiveMode}
 		{isMobile}
-		onToggleImmersive={onTogglePreviewImmersiveMode}
 		onPublish={() => onOpenAppPublish("port", inlinePortPreview!.port)}
 		/>
 	</div>
@@ -605,13 +580,10 @@ function previewContentOut(node: Element) {
 			active={isActiveApp}
 			shell={appShell}
 			{windows}
-			{treeVisible}
-			{onToggleTree}
+			{chrome}
 			onActivateWindow={activateWindow}
 			onCloseWindow={closeWindow}
-			immersive={previewImmersiveMode}
 			{isMobile}
-			onToggleImmersive={onTogglePreviewImmersiveMode}
 			onRetry={onRetryInlineApp}
 			onRegisterSurface={onRegisterAppSurface}
 			onComposerChip={onAppComposerChip}
