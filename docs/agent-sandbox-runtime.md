@@ -1,12 +1,13 @@
 # Agent / Sandbox 运行说明
 
-本文档描述当前长期方案下的运行方式、环境变量，以及本地联调方式。
+本文档描述 Workspace bridge、环境变量与本地联调。Harness 执行与恢复见 [Local Runtime / 本地 Runtime](local-runtime.md)。
+This document covers the workspace bridge; Harness execution and resume use the Local Runtime pipeline.
 
 ## 当前架构
 
 - `apps/agent`
   - 控制面
-  - 运行 `pi-coding-agent`
+  - 运行 Cohub Harness，调度本地 Pi / Codex Harness
   - 管理 session / Redis / persistence
   - 作为 WebSocket 客户端主动连接 sandbox
   - 将 tools 调用通过 WebSocket RPC 转发给 sandbox
@@ -22,7 +23,7 @@
 - `apps/sandbox --local --space <id> --root <dir> --relay wss://gateway/sandbox/relay`
   - 复用同一套 dispatcher / process / filewatch / ws session 代码
   - **路径围栏**：fs RPC（read/write/stat/ls/find/grep）与 process cwd 强制限制在 `--root` 内（realpath + symlink 防逃逸）
-  - **进程执行不做 OS 级隔离**：`bash` / argv 以当前用户身份运行，可访问 `--root` 之外的宿主机资源。这与"在本机运行 AI coding agent"的信任模型一致，属刻意设计；`sandbox up` 启动前有显式知情同意提示。若需强隔离，请在容器 / VM 内运行 runner
+  - **进程执行不做 OS 级隔离**：`bash` / argv 以当前用户身份运行，可访问 `--root` 之外的宿主机资源。这与"在本机运行 AI coding agent"的信任模型一致，属刻意设计；`runtime up` 启动前有显式知情同意提示。若需强隔离，请在容器 / VM 内运行 runner
   - relay data channel 目前仅以一次性随机 channelId（经已鉴权的 control 通道下发、15s 过期、单次配对）绑定；后续可加 per-channel HMAC
   - 通过 `COHUB_RELAY_TOKEN`（用户 access token）向 gateway 鉴权
 - `apps/gateway` 提供 relay：
@@ -32,7 +33,7 @@
   - control 建立后由 gateway 作为唯一状态上报方：ready + `wsEndpoint`；断开 → stopped(disconnected)
   - 数据通道逐帧透明 pipe，gateway 不解析 RPC
 - `space_sandboxes.provider = "local"` 时，controller 短路 provision / idle-destroy / recover
-- CLI：`cohub sandbox up <dir>` 建/绑 space、拉起 runner、输出 web 链接
+- CLI：`cohub runtime up <dir>` 建/绑 Space，统一托管 Workspace bridge 和本地 Harness
 
 ### 二进制分发
 
@@ -46,7 +47,7 @@
 
 ### 托管下载（CLI）
 
-CLI 首次 `cohub sandbox up` 时按当前 `os/arch` 从公共 CDN 拉取对应单个平台二进制，校验 `.sha256` 后缓存到 `~/.cache/cohub/sandboxd/<version>/`，后续命中缓存：
+CLI 首次 `cohub runtime up` 时按当前 `os/arch` 从公共 CDN 拉取对应单个平台二进制，校验 `.sha256` 后缓存到 `~/.cache/cohub/sandboxd/<version>/`，后续命中缓存：
 
 - 版本由 CLI 内 `SANDBOXD_VERSION` 常量锁定（独立于 CLI 包版本；协议版本 `"1"` 保证向后兼容），随 runner 演进手动 bump
 - `COHUB_SANDBOXD_BIN` 覆盖二进制路径（本地 `go build` / 离线 / 自建）

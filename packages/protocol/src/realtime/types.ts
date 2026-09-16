@@ -80,7 +80,7 @@ export type WsClientEvent =
   | { type: "auth"; requestId?: string; payload: { token: string; capabilities?: string[] } }
   | { type: "subscribe"; requestId?: string; payload: { rooms: string[] } }
   | { type: "unsubscribe"; requestId?: string; payload: { rooms: string[] } }
-  | { type: "session.message.create"; requestId?: string; payload: { spaceId: string; sessionId: string; clientMessageId?: string; content: ContentBlock[]; model?: string; provider?: string; thinkingLevel?: ModelThinkingLevel } }
+  | { type: "session.message.create"; requestId?: string; payload: { spaceId: string; sessionId: string; clientMessageId?: string; content: ContentBlock[]; model?: string; provider?: string; harness?: "cohub" | "pi" | "codex"; thinkingLevel?: ModelThinkingLevel } }
   | { type: "presence.update"; requestId?: string; payload: { spaceId: string; meta?: Record<string, unknown> | null } }
   | { type: "board.awareness.update"; requestId?: string; payload: BoardAwarenessClientPayload }
   | { type: "realtime.room.join"; requestId?: string; payload: { roomId: string; ticket: string } }
@@ -408,6 +408,21 @@ export type RealtimePatchIdentityInput = {
 const getNonEmptyString = (value: unknown) =>
   typeof value === "string" && value.trim() ? value : null;
 
+/** Shared by the API and the Agent: one Redis key holds the live stream state per Session. */
+export const getSessionStreamSnapshotKey = (spaceId: string, sessionId: string) =>
+  `session:stream:snapshot:${spaceId}:${sessionId}`;
+
+/**
+ * Delete a stream snapshot only when it still belongs to the given turn.
+ * A delayed terminal delivery for an older turn must not drop the current stream state.
+ */
+export const SESSION_STREAM_SNAPSHOT_CLEAR_TURN_LUA =
+  `local raw = redis.call('GET', KEYS[1])\n` +
+  `if not raw then return 0 end\n` +
+  `local ok, snapshot = pcall(cjson.decode, raw)\n` +
+  `if ok and type(snapshot) == 'table' and snapshot.turnId == ARGV[1] then return redis.call('DEL', KEYS[1]) end\n` +
+  `return 0`;
+
 export const getSessionTurnPatchStreamKey = (
   input: RealtimePatchIdentityInput,
   options: { includeSessionFallback?: boolean } = {},
@@ -502,6 +517,7 @@ export type RealtimeTurnRecord = Partial<Pick<
   | "summary"
   | "intermediateIndex"
   | "intermediateSummary"
+  | "harnessIndex"
   | "meta"
   | "thinkingLevel"
   | "startedAt"

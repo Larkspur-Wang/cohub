@@ -24,6 +24,7 @@ return 0
 export type SessionLock = {
   sessionId: string;
   token: string;
+  signal: AbortSignal;
   stop: () => void;
   release: () => Promise<void>;
 };
@@ -35,11 +36,13 @@ export async function acquireSessionLock(sessionId: string): Promise<SessionLock
   if (acquired !== "OK") return null;
 
   let closed = false;
+  const lost = new AbortController();
   const timer = setInterval(() => {
     if (closed) return;
     void redis
       .eval(RENEW_SCRIPT, 1, key, token, String(env.AGENT_SESSION_LOCK_TTL_MS))
-      .catch((error) => logger.error(`[AgentLock] renew failed sessionId=${sessionId}:`, error));
+      .then((renewed) => { if (renewed !== 1) lost.abort(new Error("Session execution lease lost")); })
+      .catch((error) => { logger.error(`[AgentLock] renew failed sessionId=${sessionId}:`, error); lost.abort(error); });
   }, env.AGENT_SESSION_LOCK_RENEW_INTERVAL_MS);
 
   const stop = () => {
@@ -51,6 +54,7 @@ export async function acquireSessionLock(sessionId: string): Promise<SessionLock
   return {
     sessionId,
     token,
+    signal: lost.signal,
     stop,
     release: async () => {
       stop();

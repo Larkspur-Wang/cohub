@@ -134,6 +134,7 @@ export function createSessionServices(input: {
   promptTemplateService: PromptTemplateService;
   skillService?: SkillService;
   billingUsageGate?: BillingUsageGate;
+  validateLocalHarness?: (input: SubmitSessionPromptInput) => Promise<void>;
   validatePromptModel?: (input: { userId: string; provider: string; model: string }) => Promise<boolean>;
   sandboxRecovery?: {
     maybeRecoverForPrompt(input: {
@@ -380,6 +381,7 @@ export function createSessionServices(input: {
       createSessionTurn,
       enqueueSpacePrompt,
       failSessionTurn,
+      validateLocalHarness: input.validateLocalHarness,
       validatePromptModel: input.validatePromptModel,
       billingUsageGate: input.billingUsageGate,
     }, promptInput, hooks, options);

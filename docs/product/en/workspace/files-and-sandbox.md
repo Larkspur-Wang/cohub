@@ -109,7 +109,7 @@ Saving freezes the current milestone. See [Saves](/docs/workspace/saves).
 For advanced flows, the CLI can attach a local directory as the Space Sandbox:
 
 ```bash
-cohub sandbox up ./my-project
+cohub runtime up ./my-project
 ```
 
 This is useful when you want Cohub Agents against a local working tree. See [CLI](/docs/developers/cli).

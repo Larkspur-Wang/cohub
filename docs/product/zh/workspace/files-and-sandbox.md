@@ -109,7 +109,7 @@ Save 会冻结当前里程碑。详见 [Saves](/zh/docs/workspace/saves)。
 进阶场景下，CLI 可把本地目录挂为 Space Sandbox：
 
 ```bash
-cohub sandbox up ./my-project
+cohub runtime up ./my-project
 ```
 
 这适合让 Cohub Agents 直接面对本地工作树。详见 [CLI](/zh/docs/developers/cli)。

@@ -237,6 +237,7 @@ export const submitInternalSessionPrompt = async (input: {
   source: string;
   model?: string | null;
   provider?: string | null;
+  harness?: "cohub" | "pi" | "codex";
   thinkingLevel?: string | null;
   context?: Record<string, unknown> | null;
 }): Promise<{ ok: true; turnId: string; userMessageId: string; trace: TraceIdentifiers }> => {
@@ -256,6 +257,7 @@ export const submitInternalSessionPrompt = async (input: {
       source: input.source,
       model: input.model ?? null,
       provider: input.provider ?? null,
+      harness: input.harness ?? "cohub",
       thinkingLevel: input.thinkingLevel ?? null,
       context: input.context ?? null,
     }),
@@ -386,6 +388,7 @@ export const authorizeLocalSandbox = async (input: {
       ...buildTraceHeaders(),
     },
     body: JSON.stringify({ spaceId: input.spaceId }),
+    signal: AbortSignal.timeout(10_000),
   });
   const data = await parseJson<{ ok?: boolean; spaceId?: string; userId?: string; message?: string }>(response);
   if (!response.ok || !data?.ok || !data.spaceId || !data.userId) {

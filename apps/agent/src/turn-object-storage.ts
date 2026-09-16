@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { normalize } from "node:path";
-import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { RUNTIME_MAX_FRAME_BYTES, type HarnessArchiveIndex } from "@cohub/protocol";
 import { env } from "./env.js";
 
 const IMMUTABLE_PUBLIC_CACHE_CONTROL = "public, max-age=31536000, immutable";
@@ -49,6 +50,17 @@ export const sanitizeTurnObjectKey = (objectKey: string) => {
   }
   return normalized;
 };
+
+export async function readTurnObjectJson(index: HarnessArchiveIndex, scope: { spaceId: string; sessionId: string; turnId: string }): Promise<unknown> {
+  const key = sanitizeTurnObjectKey(index.objectKey);
+  if (!key.startsWith(buildTurnObjectPrefix(scope))) throw new Error("Archive is outside turn scope");
+  const response = await getS3Client().send(new GetObjectCommand({ Bucket: env.TURN_OBJECT_S3_BUCKET, Key: key }), { abortSignal: AbortSignal.timeout(30_000) });
+  if (!response.Body) throw new Error("Archive is empty");
+  if ((response.ContentLength ?? 0) > RUNTIME_MAX_FRAME_BYTES) throw new Error("Archive exceeds runtime transfer limit");
+  const data = await response.Body.transformToString();
+  if (index.sha256 && createHash("sha256").update(data).digest("hex") !== index.sha256) throw new Error("Archive checksum mismatch");
+  return JSON.parse(data);
+}
 
 const envObjectKeyPrefix = () => env.ENV === "dev" ? "dev/" : "";
 

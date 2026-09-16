@@ -3,7 +3,7 @@ import { DEFAULT_SANDBOX_SPEC_ID, SANDBOX_SPECS, getSandboxSpecRank, isSandboxSp
 import { createLogger } from "@cohub/infra/logging";
 import { Hono, type Context } from "hono";
 import type { ContentBlock } from "@cohub/protocol/core";
-import { getDefaultSpaceModsForEnv } from "@cohub/protocol";
+import { getDefaultSpaceModsForEnv, runtimeStopConfirmationSchema } from "@cohub/protocol";
 import {
   parseSpaceSlug,
   validatePublicIdentifierAssignment,
@@ -72,7 +72,8 @@ import {
 import { checkpointFsJsonError, listCheckpointDirectory, readCheckpointFile } from "../../checkpoint-fs.js";
 import type { AuthUser } from "../../lib/middleware.js";
 import { submitSessionPrompt } from "../../session-prompts.js";
-import { ModelUnavailableError, parsePromptEnv, PromptEnvValidationError } from "@cohub/core/sessions";
+import { getRuntimeRegistration, getRuntimeRecovery, confirmRuntimeStopped } from "../../runtime.js";
+import { HarnessUnavailableError, ModelUnavailableError, parsePromptEnv, PromptEnvValidationError } from "@cohub/core/sessions";
 import { delegatedPromptAuthFromAppSession, promptAuthContextFromAppSession } from "../../prompt-auth-context.js";
 import { buildSessionTurnResponse } from "../../session-turn-response.js";
 import { getSessionTurnById, hydrateTurnAuthorProfiles } from "../../session-turns.js";
@@ -314,6 +315,7 @@ type SpacePromptInput = {
   content?: ContentBlock[];
   model?: string | null;
   provider?: string | null;
+  harness?: "cohub" | "pi" | "codex" | null;
   thinkingLevel?: string | null;
   clientMessageId?: string | null;
   generationPolicy?: unknown;
@@ -1807,6 +1809,31 @@ router.post("/:id/commands", async (c) => {
 
 // ── Sessions ─────────────────────────────────────────────────────────────────
 
+router.get("/:id/runtime", async (c) => {
+  const user = useAuth(c);
+  if (user instanceof Response) return user;
+  const spaceId = c.req.param("id");
+  if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
+  if (!(await hasPermission(user, "sandbox.view", { spaceId }))) return authzDenied(c);
+  const [sandbox, registration, recovery, canManage] = await Promise.all([
+    getSpaceSandboxBySpaceId(spaceId), getRuntimeRegistration(spaceId), getRuntimeRecovery(spaceId), hasPermission(user, "sandbox.manage", { spaceId }),
+  ]);
+  return c.json({ kind: sandbox?.provider ?? "cloud", online: Boolean(registration), capabilities: registration?.capabilities ?? null, recovery, canManage });
+});
+
+router.post("/:id/runtime/confirm-stopped", async (c) => {
+  const user = useAuth(c);
+  if (user instanceof Response) return user;
+  const spaceId = c.req.param("id");
+  if (!requireValidId(spaceId)) return c.json({ message: "Space not found / Space 不存在" }, 404);
+  if (!(await hasPermission(user, "sandbox.manage", { spaceId }))) return authzDenied(c);
+  const parsed = runtimeStopConfirmationSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ message: "Invalid confirmation / 确认请求无效" }, 400);
+  const accepted = await confirmRuntimeStopped(spaceId, user.uuid, parsed.data);
+  if (!accepted) return c.json({ message: "Runtime state changed; refresh before confirming / Runtime 状态已变化，请刷新后确认" }, 409);
+  return c.json({ accepted: true }, 202);
+});
+
 router.post("/:id/prompt", async (c) => {
   const user = useAuth(c);
   if (user instanceof Response) return user;
@@ -1860,6 +1887,9 @@ router.post("/:id/prompt", async (c) => {
   if (!promptIntent) return c.json({ message: "intent must be one of: followup, steer" }, 400);
   const promptThinkingLevel = normalizePromptThinkingLevel(body.thinkingLevel);
   if (promptThinkingLevel === null) return c.json({ message: "thinkingLevel must be one of: off, minimal, low, medium, high, xhigh, max" }, 400);
+  if (body.harness !== undefined && body.harness !== null && !["cohub", "pi", "codex"].includes(body.harness)) {
+    return c.json({ message: "harness must be one of: cohub, pi, codex" }, 400);
+  }
   const promptPermission = accessMode === "read_only" ? "session.prompt.readonly" : "session.prompt.fullaccess";
   if (!(await hasPermission(user, promptPermission, { spaceId }))) return authzDenied(c);
 
@@ -1894,10 +1924,13 @@ router.post("/:id/prompt", async (c) => {
   }
 
   const requestedModel = body.model?.trim() || null;
-  const requestedProvider = body.provider?.trim() || (requestedModel ? "cohub" : null);
+  const requestedProvider = body.provider?.trim() || (requestedModel && body.harness !== "pi" && body.harness !== "codex" ? "cohub" : null);
+  if (mode !== "immediate" && (body.harness === "pi" || body.harness === "codex")) return c.json({ message: "Local Harness scheduling is unavailable" }, 422);
   if (
     requestedModel &&
     requestedProvider &&
+    body.harness !== "pi" &&
+    body.harness !== "codex" &&
     !(await validatePromptModel({ userId: user.uuid, provider: requestedProvider, model: requestedModel }))
   ) {
     return c.json({ code: "model_unavailable", message: "requested model is not available" }, 422);
@@ -1984,6 +2017,7 @@ router.post("/:id/prompt", async (c) => {
         sourceClientId: getRequestSource(c)?.clientId ?? null,
         model: requestedModel,
         provider: requestedProvider,
+        harness: body.harness ?? null,
         thinkingLevel: promptThinkingLevel ?? null,
         generationPolicy,
         intent: promptIntent,
@@ -2009,6 +2043,7 @@ router.post("/:id/prompt", async (c) => {
         }
         return res;
       }
+      if (error instanceof HarnessUnavailableError) return c.json({ code: error.code, message: error.message, ...(createdSessionId ? { sessionId: createdSessionId } : {}) }, 503);
       if (error instanceof ModelUnavailableError) {
         return c.json(
           { code: error.code, message: "requested model is not available", ...(createdSessionId ? { sessionId: createdSessionId } : {}) },

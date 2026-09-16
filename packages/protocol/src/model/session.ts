@@ -28,6 +28,7 @@ export type SessionTurnSegmentRecord = {
 };
 
 export type {
+  HarnessArchiveIndex,
   ContextCompactionMeta,
   ContextCompactionScope,
   ContextCompactionTriggerReason,
@@ -63,6 +64,8 @@ export type SessionPromptInput = {
     model?: string;
     provider?: string;
     thinkingLevel?: string;
+    harness?: "cohub" | "pi" | "codex";
+    runtime?: "cloud" | "local";
     turnId?: string;
   } | null;
 };

@@ -40,6 +40,10 @@ import {
 } from "$lib/features/space/modules/prompt-template-controller.svelte";
 import { createKeyedRouteRequestGuard } from "$lib/features/space/modules/route-request-guard";
 import { createSkillController } from "$lib/features/space/modules/skill-controller.svelte";
+import {
+	cachedRuntimeStatus,
+	refreshRuntimeStatus,
+} from "$lib/features/space/runtime-status.svelte";
 import { asRecord } from "$lib/features/space/space-utils";
 import { resolvePreferredGenerationModel } from "$lib/generation-model-catalog";
 import { formatGenerationPolicyLabel } from "$lib/generation-policy-label";
@@ -142,6 +146,7 @@ import {
 	reconcileOptimisticTurn,
 	resolveComposerSelectionFromTurn,
 	resolveLastAgentTurnModel,
+	resolveTurnHarness,
 	type SessionComposerSelection,
 	shouldClearComposerDraftAfterSend,
 } from "./session-utils";
@@ -336,6 +341,54 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	let composerSelection = $state<SessionComposerSelection>({
 		mode: "agent",
 		model: null,
+	});
+	let harnessBySession = $state<Record<string, "cohub" | "pi" | "codex">>({});
+	let localModelsBySession = $state<Record<string, SelectedModel | null>>({});
+	const harnessSelectionKey = $derived(
+		`${spaceId}:${activeSessionId ?? "draft"}`,
+	);
+	const composerAgentTurns = $derived.by(() =>
+		mergeComposerTurnSources(
+			activeSessionState?.turns ?? [],
+			activeTurnIndex,
+		).filter((turn) => turn.executionKind !== "direct_generation"),
+	);
+	const composerHarness = $derived(
+		harnessBySession[harnessSelectionKey] ??
+			resolveTurnHarness(composerAgentTurns.at(-1)),
+	);
+	const localModel = $derived.by(() => {
+		const key = `${harnessSelectionKey}:${composerHarness}`;
+		if (Object.hasOwn(localModelsBySession, key))
+			return localModelsBySession[key] ?? null;
+		const previous = [...composerAgentTurns]
+			.reverse()
+			.find(
+				(turn) => resolveTurnHarness(turn) === composerHarness && turn.model,
+			);
+		return previous?.model && composerHarness !== "cohub"
+			? { id: previous.model, provider: previous.provider ?? composerHarness }
+			: null;
+	});
+	const runtimeCatalog = $derived(cachedRuntimeStatus(spaceId));
+	async function loadRuntimeCatalog() {
+		const targetSpaceId = spaceId;
+		if (!targetSpaceId) return;
+		try {
+			await refreshRuntimeStatus(targetSpaceId);
+		} catch {
+			/* Local capabilities are optional; Cloud remains available. */
+		}
+	}
+	$effect(() => {
+		const target = spaceId;
+		if (!target) return;
+		void loadRuntimeCatalog();
+		const refresh = () => {
+			if (document.visibilityState === "visible") void loadRuntimeCatalog();
+		};
+		window.addEventListener("focus", refresh);
+		return () => window.removeEventListener("focus", refresh);
 	});
 	const composerMode = $derived(composerSelection.mode);
 	let createModelId = $state<string | null>(null);
@@ -2880,6 +2933,12 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		}
 	}
 
+	function setComposerHarness(harness: "cohub" | "pi" | "codex") {
+		if (sending || composerMode === "create") return;
+		harnessBySession = { ...harnessBySession, [harnessSelectionKey]: harness };
+		clearComposerError();
+	}
+
 	function setComposerMode(mode: "agent" | "create") {
 		if (sending || composerMode === mode) return;
 		composerSelection =
@@ -2932,7 +2991,8 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		)
 			return;
 		composer.sending = true;
-		const model = activeSessionModel;
+		const harness = composerHarness;
+		const model = harness === "cohub" ? activeSessionModel : localModel;
 		clearComposerError();
 		// Snapshot identity for the whole send pipeline (multi-space host safe).
 		const opSpaceId = spaceId;
@@ -3149,6 +3209,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 					intermediateSummary: null,
 					meta: {
 						optimistic: true,
+						harness,
 						userId: currentUser.uuid,
 						clientMessageId,
 					},
@@ -3185,11 +3246,14 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 				content,
 				model: model?.id,
 				provider: model?.provider,
-				...(activeSessionThinkingLevel
+				harness,
+				...(harness === "cohub" && activeSessionThinkingLevel
 					? { thinkingLevel: activeSessionThinkingLevel }
 					: {}),
 				clientMessageId,
-				generationPolicy: buildTurnGenerationPolicy(),
+				...(harness === "cohub"
+					? { generationPolicy: buildTurnGenerationPolicy() }
+					: {}),
 				accessMode: "full_access",
 				intent: "followup",
 				schedule: { mode: "immediate" },
@@ -4457,6 +4521,23 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		},
 		get composerMode() {
 			return composerMode;
+		},
+		get composerHarness() {
+			return composerHarness;
+		},
+		setComposerHarness,
+		loadRuntimeCatalog,
+		get runtimeCatalog() {
+			return runtimeCatalog;
+		},
+		get localModel() {
+			return localModel;
+		},
+		setLocalModel(model: SelectedModel | null) {
+			localModelsBySession = {
+				...localModelsBySession,
+				[`${harnessSelectionKey}:${composerHarness}`]: model,
+			};
 		},
 		get generationModelsCatalog() {
 			return generationModelsCatalog;

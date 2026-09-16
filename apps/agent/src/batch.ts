@@ -3,6 +3,8 @@ import type { ContentBlock } from "@cohub/protocol/core";
 import { db } from "./db.js";
 import { env } from "./env.js";
 import type { AgentTurnJobData } from "./queue.js";
+import { resolveHarness } from "@cohub/protocol";
+import { selectCompatibleBatch } from "./runtime/batch-policy.js";
 
 type TurnRow = {
   id: string;
@@ -164,7 +166,7 @@ export async function claimNextTurnBatch(input: Pick<AgentTurnJobData, "sessionI
     `);
     const active = activeRows[0] ? normalizeTurn(activeRows[0] as Record<string, unknown>) : null;
     if (active) {
-      if (isStaleActiveTurn(active)) {
+      if (resolveHarness(active.meta) === "cohub" && isStaleActiveTurn(active)) {
         await markStaleTurnInterrupted(tx, active);
       } else {
         return { kind: "busy" as const, activeTurnId: active.id, activeUpdatedAt: active.updatedAt, activeStatus: active.status };
@@ -207,7 +209,7 @@ export async function claimNextTurnBatch(input: Pick<AgentTurnJobData, "sessionI
     const followups = followupRows.map((row) => normalizeTurn(row as Record<string, unknown>));
     if (followups.length === 0) return { kind: "noop" as const };
 
-    const batch = await claimQueuedTurns(tx, followups);
+    const batch = await claimQueuedTurns(tx, selectCompatibleBatch(followups));
     return batch ? { kind: "claimed" as const, batch } : { kind: "noop" as const };
   });
 }

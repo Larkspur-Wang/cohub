@@ -36,6 +36,10 @@ import { env } from "./env.js";
 import { logger } from "./logger.js";
 import { getPromptAuthScopes, parsePromptEnv, type PromptAccessMode } from "@cohub/core/sessions";
 import { createAgentExecutionToken } from "./execution-grants.js";
+import { resolveHarness } from "@cohub/protocol";
+import { executeRemoteHarnessTurn, RuntimeExecutionUncertainError } from "./runtime/remote-runtime.js";
+import { loadRuntimeContext } from "./runtime/context-store.js";
+import { scheduleHarnessArchive } from "./runtime/archive-dispatch.js";
 
 
 const sessionHandles = new Map<string, SessionHandle>();
@@ -64,7 +68,7 @@ function clearRetryState(data: AgentTurnJobData) {
 async function requeueTurnJob(data: AgentTurnJobData, reason: RetryReason, job?: Job<AgentTurnJobData>, meta?: Record<string, unknown>) {
   const retryKey = getRetryKey(data, reason);
   const delay = nextRetryDelayMs(retryKey);
-  await enqueueAgentTurnJob({ ...data, reason: "retry" }, {
+  await enqueueAgentTurnJob({ ...data, reason: data.reason === "runtime_delivery" ? "runtime_delivery" : "retry" }, {
     jobId: `agent-session-retry-${reason}-${data.sessionId}-${Math.max(1, Math.ceil(Date.now() / delay))}`,
     delay,
     removeOnComplete: true,
@@ -817,10 +821,13 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
     if (queueWaitMs != null) jobSpan.addEvent("agent.queue.dequeued", { "agent.queue.wait_ms": queueWaitMs });
     const lock = await acquireSessionLock(data.sessionId);
     if (!lock) {
+      if (data.reason === "runtime_delivery") return requeueTurnJob(data, "session_busy", job);
       logger.info(`[Agent] session locked; skipped wakeup sessionId=${data.sessionId} reason=${data.reason ?? "prompt"}`);
       return { skipped: "session_locked", jobId: job.id ?? null };
     }
     let activeTurn: { id: string; controller: AbortController } | null = null;
+    const onLeaseLost = () => activeTurn?.controller.abort();
+    lock.signal.addEventListener("abort", onLeaseLost, { once: true });
     let claimedBatch: ClaimedTurnBatch | null = null;
     let handle: SessionHandle | null = null;
     let handleSettled = false;
@@ -891,6 +898,40 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
         drainAfterRelease = { spaceId: data.spaceId, sessionId: data.sessionId, reason: "abort_precheck" };
         return { skipped: "abort_requested", turnId: batch.ownerTurn.id };
       }
+      lock.signal.throwIfAborted();
+      const requestedHarness = resolveHarness(ownerMeta);
+      if (requestedHarness === "pi" || requestedHarness === "codex") {
+        if (fileVisibility !== "full") throw new Error("Local Harness requires full workspace access");
+        const remoteController = new AbortController();
+        activeTurn = { id: batch.ownerTurn.id, controller: remoteController };
+        setActiveAbortController(batch.ownerTurn.id, remoteController);
+        const remoteAbort = await getAbortEvent(batch.ownerTurn.id);
+        if (remoteAbort) {
+          setActiveAbortEvent(remoteAbort);
+          remoteController.abort();
+        }
+        try {
+          await executeRemoteHarnessTurn({
+            spaceId: data.spaceId,
+            sessionId: data.sessionId,
+            batch,
+            actorUserId,
+            accessMode,
+            requestedThinkingLevel: resolveRequestedThinkingLevel(ownerMeta),
+            harness: requestedHarness,
+            provider: typeof ownerMeta.provider === "string" ? ownerMeta.provider : null,
+            model: typeof ownerMeta.model === "string" ? ownerMeta.model : null,
+            abortSignal: remoteController.signal,
+            leaseSignal: lock.signal,
+          });
+          terminalHandled = true;
+          drainAfterRelease = { spaceId: data.spaceId, sessionId: data.sessionId, reason: "remote_turn_complete" };
+          return { ownerTurnId: batch.ownerTurn.id, mergedTurnIds: batch.mergedTurns.map((turn) => turn.id), userMessageCount: batch.turns.length };
+        } finally {
+          clearActiveAbortController(batch.ownerTurn.id, remoteController);
+        }
+      }
+
       const spaceInfo = await getSpace({ spaceId: data.spaceId }).catch(() => null);
       logSpaceBootstrapWarning(data.spaceId, spaceInfo?.space?.meta);
       const spaceEnv = await loadSpaceEnvSnapshot(data.spaceId);
@@ -900,7 +941,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
         actorUserId,
         requestedModel: resolveRequestedModel(ownerMeta),
         requestedThinkingLevel: resolveRequestedThinkingLevel(ownerMeta),
-        beforeTurnSequence: batch.ownerTurn.sequence,
+        beforeTurnSequence: batch.turns[0]?.sequence ?? batch.ownerTurn.sequence,
       });
       const activeHandle = handle;
       try {
@@ -955,6 +996,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
       const assistantMessageTiming = { startedAt: null as string | null };
       const abortController = new AbortController();
       activeTurn = { id: batch.ownerTurn.id, controller: abortController };
+      if (lock.signal.aborted) abortController.abort();
       setActiveAbortController(batch.ownerTurn.id, abortController);
       const pendingAbortEvent = await getAbortEvent(batch.ownerTurn.id);
       if (pendingAbortEvent) {
@@ -1176,6 +1218,13 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
         userMessageCount: turnUserMessages.length,
       };
     } catch (error) {
+      if (error instanceof RuntimeExecutionUncertainError) {
+        // A disconnected host may still be changing files. Keep its turn active;
+        // neither stale recovery nor another harness may automatically take over.
+        terminalHandled = true;
+        logger.error("[Runtime] execution outcome requires reconciliation", { sessionId: data.sessionId, error });
+        return { skipped: "runtime_outcome_unknown", turnId: claimedBatch?.ownerTurn.id };
+      }
       caughtError = error;
       const ownerTurnId = activeTurn?.id ?? claimedBatch?.ownerTurn.id ?? null;
       if (ownerTurnId) {
@@ -1229,7 +1278,23 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
           await settleSessionHandle(handle, terminalHandled ? "strict" : "best_effort");
         }
       }
+      if (handle && claimedBatch && terminalHandled) {
+        try {
+          const completedContext = await loadRuntimeContext({ spaceId: data.spaceId, sessionId: data.sessionId, throughTurnId: claimedBatch.ownerTurn.id, headOnly: true });
+          handle.sessionManager.appendCustomEntry("cohub.context", { revision: completedContext.revision, throughTurnId: completedContext.throughTurnId });
+          await handle.sessionManager.close();
+          await refreshSessionHandleFileSignature(handle);
+          const snapshotHandle = handle;
+          const snapshotTurnId = claimedBatch.ownerTurn.id;
+          scheduleHarnessArchive(data.spaceId, () => ({
+            version: 1, harness: "cohub", sessionId: data.sessionId, turnId: snapshotTurnId,
+            nativeFormat: "cohub.jsonl", nativeSessionId: snapshotHandle.sessionManager.getSessionId(),
+            data: snapshotHandle.sessionManager.serializeSnapshot(),
+          }));
+        } catch (error) { logger.warn("[HarnessArchive] cloud archive failed; native session retained", error); }
+      }
       if (claimedBatch) clearRetryState(data);
+      lock.signal.removeEventListener("abort", onLeaseLost);
       await lock.release();
       if (drainAfterRelease) await drainNextQueuedTurn(drainAfterRelease);
     }

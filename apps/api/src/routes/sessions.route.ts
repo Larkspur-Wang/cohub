@@ -49,8 +49,8 @@ router.post("/:id/turns/:turnId/fork", async (c) => {
 
   const body = await c.req.json<{ title?: string | null }>().catch((): { title?: string | null } => ({}));
   const anchorEntryId = await findLatestVisibleAgentEntryId(session.id, sourceTurn.sequence);
-  if (!anchorEntryId && sourceTurn.executionKind !== "direct_generation") {
-    return c.json({ message: "session checkpoint missing" }, 400);
+  if (!anchorEntryId && !["completed", "failed", "interrupted", "cancelled", "merged"].includes(sourceTurn.status)) {
+    return c.json({ message: "cannot fork an unfinished turn without a durable context boundary" }, 400);
   }
 
   try {
@@ -240,7 +240,7 @@ router.get("/:id/turns/stream-snapshot", async (c) => {
   if (snapshot?.turnId) {
     const turn = await getSessionTurnById(session.id, snapshot.turnId);
     if (!turn || (turn.status !== "running" && turn.status !== "abort_requested")) {
-      await clearSessionStreamSnapshot({ spaceId: session.spaceId, sessionId: session.id });
+      await clearSessionStreamSnapshot({ spaceId: session.spaceId, sessionId: session.id, turnId: snapshot.turnId });
       return c.json({ snapshot: null });
     }
   }

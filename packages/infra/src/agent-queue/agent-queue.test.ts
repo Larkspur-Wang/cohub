@@ -2,9 +2,19 @@ import { test } from "node:test";
 import assert from "node:assert";
 import {
   buildAgentSandboxFsMutationJobId,
+  ensureRuntimeRecoverySchedule,
   sandboxFsMutationJobRetention,
   type AgentSandboxFsMutationOperation,
 } from "./index.js";
+
+test("Runtime recovery schedule is durable and shared across Agent replicas", async () => {
+  const calls: unknown[][] = [];
+  const queue = { upsertJobScheduler: async (...args: unknown[]) => { calls.push(args); } };
+  await ensureRuntimeRecoverySchedule(queue as unknown as Parameters<typeof ensureRuntimeRecoverySchedule>[0]);
+  await ensureRuntimeRecoverySchedule(queue as unknown as Parameters<typeof ensureRuntimeRecoverySchedule>[0]);
+  assert.deepEqual(calls[0], calls[1]);
+  assert.deepEqual(calls[0]?.slice(0, 2), ["runtime_recovery_sweep", { every: 60_000 }]);
+});
 
 const writeA: AgentSandboxFsMutationOperation = { operation: "write", path: "a.txt", content: "hello" };
 const writeB: AgentSandboxFsMutationOperation = { operation: "write", path: "a.txt", content: "world" };

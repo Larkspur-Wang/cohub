@@ -456,6 +456,13 @@
       "when": 1787594729985,
       "tag": "0064_app_viewer_grant_spaces",
       "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1789500000000,
+      "tag": "0065_runtime_harness_index",
+      "breakpoints": true
     }
   ]
 }

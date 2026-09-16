@@ -181,7 +181,7 @@ func (c *Client) Run(ctx context.Context) error {
 			return nil
 		}
 		if isFatalRelayError(err) {
-			opts.Logger.Error("relay access token was rejected; re-run `cohub sandbox up` after logging in again", slog.String("error", err.Error()))
+			opts.Logger.Error("relay access token was rejected; re-run `cohub runtime up` after logging in again", slog.String("error", err.Error()))
 			return err
 		}
 		if err != nil {

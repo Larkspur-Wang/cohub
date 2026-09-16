@@ -13,7 +13,7 @@ import { Readable } from "node:stream";
 //
 // IMPORTANT: this must point at a tag whose CDN artifacts have already been
 // published by .github/workflows/sandbox-binaries-build.yml. Only bump it AFTER
-// that tag's publish-cdn job has succeeded, otherwise `sandbox up` 404s on the
+// that tag's publish-cdn job has succeeded, otherwise `runtime up` 404s on the
 // default download.
 export const SANDBOXD_VERSION = "v1.82.4";
 
@@ -141,7 +141,7 @@ const extractTarGz = (archivePath: string, cwd: string): Promise<void> =>
   });
 
 // Cross-process lock via atomic mkdir, mirroring the CLI self-update lock so two
-// concurrent `sandbox up` invocations don't download the same archive twice.
+// concurrent `runtime up` invocations don't download the same archive twice.
 const withLock = async <T>(version: string, fn: () => Promise<T>): Promise<T> => {
   const lockPath = join(cacheDir(version), ".download.lock");
   await mkdir(dirname(lockPath), { recursive: true });

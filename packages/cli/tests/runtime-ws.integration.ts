@@ -1,0 +1,81 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { mkdtemp, chmod, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
+import { WebSocketServer } from "ws";
+import { serveRuntime } from "../src/runtime/connection.js";
+import { RuntimeSessionStore } from "../src/runtime/session-store.js";
+
+for (const harness of ["pi", "codex"] as const) for (const resolved of [false, true]) {
+  test(`${harness} WebSocket execution restores context and ${resolved ? "retires a confirmed execution" : "acknowledges native resume"}`,  { timeout: 20_000 }, async () => {
+    const root = await mkdtemp(join(tmpdir(), "cohub-runtime-ws-"));
+    const binary = fileURLToPath(new URL(`./fixtures/runtime-${harness}.mjs`, import.meta.url));
+    await chmod(binary, 0o755);
+    const server = new WebSocketServer({ port: 0, host: "127.0.0.1" });
+    await new Promise<void>((resolve) => server.once("listening", resolve));
+    const address = server.address();
+    assert(address && typeof address !== "string");
+    const controller = new AbortController();
+    const spaceId = crypto.randomUUID();
+    const sessionId = crypto.randomUUID();
+    const previousId = crypto.randomUUID();
+    const ids = [crypto.randomUUID(), crypto.randomUUID()];
+    const turns = [crypto.randomUUID(), crypto.randomUUID()];
+    let round = 0;
+    let contextRequests = 0;
+    let deltas = 0;
+    const resumes: string[] = [];
+    let rejectFailure: (error: unknown) => void = () => {};
+    const completed = new Promise<void>((resolve, reject) => {
+      rejectFailure = reject;
+      server.on("connection", (socket) => {
+        const send = (value: unknown) => socket.send(JSON.stringify(value));
+        const start = () => send({ type: "turn.start", requestId: ids[round], input: {
+          spaceId, sessionId, turnId: turns[round], userMessageId: turns[round], harness,
+          content: [{ type: "text", text: "continue" }], accessMode: "full_access",
+          context: { complete: false, revision: round === 0 ? "one" : "two", throughTurnId: round === 0 ? previousId : turns[0], messages: [] },
+        } });
+        socket.on("message", (raw) => {
+          try {
+            const value = JSON.parse(raw.toString());
+            if (value.type === "runtime.hello") { send({ type: "runtime.ready", connectionId: crypto.randomUUID() }); start(); return; }
+            if (value.type !== "runtime.event") return;
+            const event = value.event;
+            if (event.type === "context.required") {
+              contextRequests++;
+              if (resolved && round === 1) assert.deepEqual(event.pendingTurnIds, [turns[0]], "only the actual pending projection is queried");
+              send({ type: "session.context", requestId: value.requestId, context: { complete: true, revision: round === 0 ? "one" : "two", throughTurnId: round === 0 ? previousId : turns[0], ...(resolved && round === 1 ? { resolvedTurnIds: [turns[0]] } : {}), messages: [{ id: "history", turnId: previousId, role: "user", content: [{ type: "text", text: "historical fact" }] }] } });
+            }
+            if (event.type === "text.delta") deltas++;
+            if (event.type === "turn.error") throw new Error(event.message);
+            if (event.type === "turn.end") {
+              assert(deltas > 0, "deltas must arrive before completion");
+              resumes.push(event.resume);
+              if (resolved && round === 0) { round++; start(); return; }
+              send({ type: "turn.ack", requestId: value.requestId, revision: round === 0 ? "two" : "three", turnId: turns[round] });
+            }
+            if (event.type === "turn.acknowledged") {
+              if (round++ === 0) start();
+              else resolve();
+            }
+          } catch (error) { reject(error); controller.abort(); }
+        });
+      });
+    });
+    const running = serveRuntime({ spaceId, cwd: root, url: `ws://127.0.0.1:${address.port}`, capabilities: { harnesses: [harness], models: [] }, harnesses: { [harness]: binary }, token: async () => "fixture-token", signal: controller.signal, store: new RuntimeSessionStore(spaceId, join(root, "state")), onReady: () => {} });
+    void running.catch(rejectFailure);
+    try {
+      await completed;
+      assert.equal(contextRequests, resolved ? 2 : 1);
+      assert.deepEqual(resumes, ["handoff", resolved ? "handoff" : "native"]);
+    } finally {
+      controller.abort();
+      await running;
+      for (const socket of server.clients) socket.terminate();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+}

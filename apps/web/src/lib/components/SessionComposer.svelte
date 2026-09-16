@@ -79,6 +79,8 @@ type SelectedModel = {
 	name?: string;
 };
 
+type Harness = "cohub" | "pi" | "codex";
+
 type Props = {
 	value: string;
 	mode?: "agent" | "create";
@@ -93,6 +95,14 @@ type Props = {
 	attachments?: ComposerAttachment[];
 	viewportContexts?: ViewportContext[];
 	currentModel?: SelectedModel | null;
+	harness?: Harness;
+	onharnesschange?: (harness: Harness) => void;
+	harnesses?: Harness[];
+	localRuntime?: boolean;
+	onharnessopen?: () => void;
+	localModels?: SelectedModel[];
+	localModel?: SelectedModel | null;
+	onlocalmodelchange?: (model: SelectedModel | null) => void;
 	/** Compact thinking level suffix; null/empty hides. */
 	thinkingLevelLabel?: string | null;
 	/** Compact generation-policy suffix; null/empty hides (Auto). */
@@ -130,6 +140,14 @@ let {
 	attachments = [],
 	viewportContexts = [],
 	currentModel = null,
+	harness = "cohub",
+	onharnesschange,
+	harnesses = ["cohub"],
+	localRuntime = false,
+	onharnessopen,
+	localModels = [],
+	localModel = null,
+	onlocalmodelchange,
 	thinkingLevelLabel = null,
 	generationPolicyLabel = null,
 	quickActions = [],
@@ -1514,6 +1532,20 @@ $effect(() => {
 										</div>
 									{/if}
 								</div>
+							{/if}
+
+							{#if onharnesschange && mode === "agent" && (localRuntime || harnesses.length > 1 || harness !== "cohub")}
+								<select class="h-8 w-20 shrink-0 rounded border border-border-subtle bg-bg-primary px-1 text-xs text-text-secondary" title={harness === "cohub" ? m.runtime_cloud({}, { locale }) : m.runtime_local({}, { locale })} aria-label={m.runtime_harness({}, { locale })} value={harness} disabled={disabled || sending} onfocus={() => onharnessopen?.()} onchange={(event) => onharnesschange?.(event.currentTarget.value as Harness)}>
+									{#each [...new Set([...harnesses, harness])] as item}
+										<option value={item} disabled={!harnesses.includes(item)}>{item === "cohub" ? "Cohub" : item === "pi" ? "Pi" : "Codex"}</option>
+									{/each}
+								</select>
+							{/if}
+							{#if mode === "agent" && harness !== "cohub"}
+								<select class="h-8 max-w-40 min-w-0 rounded border border-border-subtle bg-bg-primary px-1 text-xs text-text-secondary" title={localModel?.name ?? localModel?.id ?? m.runtime_default_model({}, { locale })} aria-label={m.runtime_model({}, { locale })} value={localModel ? JSON.stringify([localModel.provider, localModel.id]) : ""} disabled={disabled || sending} onchange={(event) => onlocalmodelchange?.(localModels.find((model) => JSON.stringify([model.provider, model.id]) === event.currentTarget.value) ?? null)}>
+									<option value="">{m.runtime_default_model({}, { locale })}</option>
+									{#each localModels as model}<option value={JSON.stringify([model.provider, model.id])}>{model.name ?? model.id}</option>{/each}
+								</select>
 							{/if}
 
 							{#if onModelSelect}

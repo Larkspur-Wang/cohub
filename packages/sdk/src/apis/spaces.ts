@@ -2238,6 +2238,16 @@ export class SpaceClient {
     });
   }
 
+  getRuntime(customFetch?: Fetch) {
+    return this.transport.request<import("@cohub/protocol").RuntimeStatus>(
+      `/api/spaces/${this.id}/runtime`, { fetch: customFetch },
+    );
+  }
+
+  confirmRuntimeStopped(confirmation: import("@cohub/protocol").RuntimeStopConfirmation) {
+    return this.transport.request<{ accepted: true }>(`/api/spaces/${this.id}/runtime/confirm-stopped`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(confirmation) });
+  }
+
   getStartup(customFetch?: Fetch) {
     return this.transport.request<SpaceStartupResponse>(
       `/api/spaces/${this.id}/startup`,

@@ -1,3 +1,12 @@
+export {
+  RUNTIME_PROTOCOL_VERSION, RUNTIME_MAX_FRAME_BYTES, runtimeCommandSchema, runtimeEventSchema, runtimeReadySchema,
+  contextToPiMessages, contextToTranscript, resolveHarness,
+} from "@cohub/protocol";
+export type {
+  HarnessKind, LocalHarness, RuntimeCapabilities, RuntimeCommand, RuntimeContext,
+  RuntimeContextMessage, RuntimeTurnInput, RuntimeMessage, RuntimeExecutionEvent, HarnessArchive,
+  RuntimeStatus, RuntimeStopConfirmation,
+} from "@cohub/protocol";
 export { CohubHttpClient, createHttpClient } from "./http.js";
 export { BillingApi } from "./apis/billing.js";
 export { CohubClient, createCohubClient } from "./client.js";

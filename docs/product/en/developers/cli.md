@@ -149,8 +149,8 @@ no DOM access or script evaluation.
 Expose a local folder as the Space Sandbox:
 
 ```bash
-cohub sandbox up ./my-project
-cohub sandbox status
+cohub runtime up ./my-project
+cohub runtime status
 ```
 
 ### Boards

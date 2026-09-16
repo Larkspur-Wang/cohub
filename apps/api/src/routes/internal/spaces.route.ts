@@ -19,7 +19,7 @@ import { abortSessionTurn, failSessionTurn, interruptSessionTurn } from "../../s
 import { hasPermission } from "../../permissions.js";
 import { dispatchTurnFinalized } from "../../session-output.js";
 import { submitSessionPrompt, type PromptAccessMode, type SubmitSessionPromptContext } from "../../session-prompts.js";
-import { ModelUnavailableError, parsePromptEnv, PromptEnvValidationError } from "@cohub/core/sessions";
+import { HarnessUnavailableError, ModelUnavailableError, parsePromptEnv, PromptEnvValidationError } from "@cohub/core/sessions";
 import { verifyAppSessionToken } from "../../app-sessions.js";
 import { mergePromptContextAuth, promptAuthContextFromAppSession } from "../../prompt-auth-context.js";
 import { getSpaceSandboxBySpaceId, updateSpaceSandbox, recoverSpaceSandbox } from "../../space-sandboxes.js";
@@ -388,6 +388,7 @@ router.post("/:spaceId/sessions/:sessionId/prompt", async (c) => {
       source?: string | null;
       model?: string | null;
       provider?: string | null;
+      harness?: "cohub" | "pi" | "codex" | null;
       thinkingLevel?: string | null;
       accessMode?: PromptAccessMode | null;
       env?: unknown;
@@ -436,6 +437,7 @@ router.post("/:spaceId/sessions/:sessionId/prompt", async (c) => {
       source: body.source?.trim() || "scheduled_task",
       model: body.model ?? null,
       provider: body.provider ?? null,
+      harness: body.harness ?? null,
       thinkingLevel: promptThinkingLevel ?? null,
       accessMode,
       env: promptEnv,
@@ -443,6 +445,7 @@ router.post("/:spaceId/sessions/:sessionId/prompt", async (c) => {
     });
     return c.json({ ok: true, ...result });
   } catch (error) {
+    if (error instanceof HarnessUnavailableError) return c.json({ code: error.code, message: error.message }, 503);
     if (error instanceof ModelUnavailableError) {
       return c.json({ code: error.code, message: "requested model is not available" }, 422);
     }

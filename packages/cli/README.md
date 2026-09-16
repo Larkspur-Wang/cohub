@@ -79,6 +79,27 @@ cohub -s <spaceId> spaces prompt "message" --json
 COHUB_SPACE_ID=<spaceId> cohub spaces prompt "message" --json
 ```
 
+## Local Runtime / 本地 Runtime
+
+Connect one local workspace to a Space and select Pi or Codex per turn.
+将一个本地工作区连接到 Space，每轮可选择 Pi 或 Codex。
+
+```bash
+cohub runtime up ./project --harness pi --harness codex
+cohub runtime up ./project --space <spaceId> --harness codex
+cohub -s <spaceId> spaces prompt "Continue / 继续" --harness codex
+cohub runtime status --space <spaceId>
+```
+
+The Runtime uses WebSockets, native Pi RPC / Codex app-server, and existing cloud
+streaming. Local executables and credentials are required. `sandbox up` has been
+removed. Reconnection and result reconciliation are automatic; no recovery command is needed.
+See [Runtime details](../../docs/local-runtime.md).
+
+Runtime 使用 WebSocket、原生 Pi RPC / Codex app-server 和现有云端流式链路。
+需要本机已安装并登录对应程序。Runtime 断线重连和结果核对自动完成，无需恢复命令。
+仅在无法确定结果时，由 Space 页头提供异常确认。旧 `sandbox up` 命令已移除。
+
 ## Chats and prompts
 
 Use `spaces prompt` for immediate sends, delayed sends, one-time schedules, recurring schedules, new Chats, and existing Chats.

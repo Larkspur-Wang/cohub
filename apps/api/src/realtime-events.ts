@@ -109,6 +109,7 @@ export const toRealtimeTurnRecord = (turn: SessionTurnRecord): RealtimeTurnRecor
   summary: turn.summary,
   intermediateIndex: turn.intermediateIndex,
   intermediateSummary: turn.intermediateSummary,
+  harnessIndex: turn.harnessIndex ?? null,
   meta: turn.meta,
   thinkingLevel: turn.thinkingLevel ?? null,
   startedAt: turn.startedAt,

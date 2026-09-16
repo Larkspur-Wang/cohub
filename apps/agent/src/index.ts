@@ -9,8 +9,10 @@ import {
   createQueueTelemetry,
 } from "@cohub/infra/bullmq";
 import { env } from "./env.js";
-import { AGENT_SANDBOX_BASH_JOB_NAME, AGENT_SANDBOX_BASH_ATOMIC_JOB_NAME, AGENT_RUN_COMMAND_JOB_NAME, AGENT_SESSION_FORK_JOB_NAME, AGENT_TURN_JOB_NAME, AGENT_TURN_QUEUE_NAME, AGENT_SANDBOX_FS_MUTATION_JOB_NAME, type AgentJobData, type AgentTurnJobData, type AgentSessionForkJobData, type AgentSandboxBashUploadJobData, type AgentRunCommandJobData, type AgentSandboxFsMutationJobData } from "./queue.js";
+import { agentTurnQueue, AGENT_SANDBOX_BASH_JOB_NAME, AGENT_SANDBOX_BASH_ATOMIC_JOB_NAME, AGENT_RUN_COMMAND_JOB_NAME, AGENT_SESSION_FORK_JOB_NAME, AGENT_TURN_JOB_NAME, AGENT_TURN_QUEUE_NAME, AGENT_SANDBOX_FS_MUTATION_JOB_NAME, type AgentJobData, type AgentTurnJobData, type AgentSessionForkJobData, type AgentSandboxBashUploadJobData, type AgentRunCommandJobData, type AgentSandboxFsMutationJobData } from "./queue.js";
 import { processAgentTurnJob, disposeAllSessionHandles } from "./processor.js";
+import { AGENT_RUNTIME_RECOVERY_JOB_NAME, AGENT_RUNTIME_SWEEP_JOB_NAME, ensureRuntimeRecoverySchedule, type AgentRuntimeRecoveryJobData, type AgentRuntimeSweepJobData } from "@cohub/infra/agent-queue";
+import { recoverRuntime, sweepRuntimeRecovery } from "./runtime/recovery.js";
 import { processSessionForkJob } from "./fork.js";
 import { processSandboxBashJob } from "./sandbox-bash.js";
 import { processSandboxFsMutationJob, redactSandboxFsMutationJobPayload } from "./sandbox-fs-mutation.js";
@@ -18,6 +20,7 @@ import { processRunCommandJob } from "./run-command.js";
 import { subscribeAbortEvents, closeAbortSubscriber } from "./abort.js";
 import { abortActiveTurnExecutions } from "./active-turns.js";
 import { closeDb } from "./db.js";
+import { drainHarnessArchives } from "./runtime/archive-dispatch.js";
 import { closeOwnershipRedis } from "./ownership.js";
 import { closeRedisConnections } from "./redis.js";
 import { logger } from "./logger.js";
@@ -30,8 +33,12 @@ export const __test = {
 };
 
 const connection = createBullmqRedisConnection(env.BULLMQ_REDIS_URL);
+// One durable schedule shared by all Agent replicas, independent of Gateway lifetime.
+await ensureRuntimeRecoverySchedule(agentTurnQueue);
 
 const processor: Processor<AgentJobData> = async (job) => {
+  if (job.name === AGENT_RUNTIME_SWEEP_JOB_NAME) return sweepRuntimeRecovery(job.data as AgentRuntimeSweepJobData);
+  if (job.name === AGENT_RUNTIME_RECOVERY_JOB_NAME) return recoverRuntime(job.data as AgentRuntimeRecoveryJobData);
   if (job.name === AGENT_SESSION_FORK_JOB_NAME) {
     return processSessionForkJob(job as Job<AgentSessionForkJobData>);
   }
@@ -162,6 +169,7 @@ async function shutdown(signal: string, options?: { exitCode?: number }) {
     pauseBeforeClose: true,
   });
   await disposeAllSessionHandles();
+  await drainHarnessArchives();
   closeSandboxPool();
   await closeAbortSubscriber().catch(() => undefined);
   await closeSandboxLifecycleEventSubscriber().catch(() => undefined);

@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { and, asc, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import type { ContentBlock, Usage } from "@cohub/protocol/core";
 import type {
@@ -14,14 +14,17 @@ import type {
   StoredToolCall,
   TurnIntermediateMessagesFile,
 } from "@cohub/protocol/model";
+import type { HarnessArchive, HarnessArchiveIndex } from "@cohub/protocol/runtime";
 import type { ModelThinkingLevel } from "@cohub/protocol";
 import type { ChannelProvider, GatewayOutboundCommand } from "@cohub/protocol/gateway";
 import { getRealtimeUserRoom } from "@cohub/protocol/realtime";
 import { sessionMessages, sessionTurns, spaceChannels, spaceSessionBindings, spaceSessions, providerMessageRefs, userChannels, userProfiles } from "@cohub/db";
 import { listResourceLabelRefs } from "@cohub/core/labels";
+import { runtimeResolutionOpen } from "@cohub/core/sessions";
 import { sanitizeContentBlocksForPostgresJson, sanitizePostgresJsonValue } from "@cohub/core/content/sanitize";
 import { addImageToTextCallsToSummary, claimSessionFallbackTitle, countToolCallsInContent, createImageToTextUsageSummaryAccumulator, deriveMessagePreviewText, deriveSessionFallbackTitle, finalizeImageToTextUsageSummary, readImageToTextCalls, readSessionTitleSource, resolveMessageTurnId, shouldGenerateSessionTitle, summarizeSessionTurnCompactions, sumImageToTextUsage } from "@cohub/core/sessions";
 import { buildTraceHeaders, getCurrentRequestId } from "@cohub/infra/tracing";
+import { enqueueAgentTurnJob } from "./queue.js";
 import { enqueueSessionMessagePostprocess } from "./session-message-postprocess-queue.js";
 import { enqueueSessionTitleGeneration } from "./session-title-queue.js";
 import { normalizeAssistantTurn } from "./assistant-message-normalizer.js";
@@ -165,6 +168,7 @@ const toTurnRecord = (row: typeof sessionTurns.$inferSelect): SessionTurnRecord 
   summary: row.summary ?? null,
   intermediateIndex: row.intermediateIndex ?? null,
   intermediateSummary: row.intermediateSummary ?? null,
+  harnessIndex: row.harnessIndex ?? null,
   meta: normalizeRecord(row.meta),
   thinkingLevel: extractThinkingLevel(row.meta),
   startedAt: toIsoOrNull(row.startedAt),
@@ -248,7 +252,7 @@ export async function publishSessionTurnsUpdated(input: {
 }
 
 async function publishTurnFinalized(spaceId: string, turn: SessionTurnRecord) {
-  await clearPersistedSessionStreamSnapshot(spaceId, turn.sessionId);
+  await clearPersistedSessionStreamSnapshot(spaceId, turn.sessionId, turn.id);
   const sessionLabelRefs = await listResourceLabelRefs({
     db,
     spaceId,
@@ -297,7 +301,8 @@ async function updateSessionAfterAppend(sessionId: string, message: typeof sessi
   await db.update(spaceSessions).set({ lastMessageId: message.id, latestMessageText: message.text, lastMessageAt: message.createdAt ?? new Date(), updatedAt: new Date() }).where(eq(spaceSessions.id, sessionId));
 }
 
-async function persistMessageNode(input: PersistMessageInput & { message: PersistMessageInput["message"] & { id?: string } }): Promise<{ message: typeof sessionMessages.$inferSelect; created: boolean }> {
+type PersistenceTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+async function persistMessageNode(input: PersistMessageInput & { message: PersistMessageInput["message"] & { id?: string } }, finalizeLocal?: (tx: PersistenceTransaction, message: typeof sessionMessages.$inferSelect) => Promise<void>): Promise<{ message: typeof sessionMessages.$inferSelect; created: boolean }> {
   const [existing] = await db.select().from(sessionMessages).where(and(eq(sessionMessages.sessionId, input.sessionId), eq(sessionMessages.idempotencyKey, input.idempotencyKey))).limit(1);
   if (existing) {
     if (existing.role === "user") {
@@ -342,21 +347,21 @@ async function persistMessageNode(input: PersistMessageInput & { message: Persis
   if (messageRole === "assistant" && content.length === 0 && !text?.trim() && !isUnsuccessful) throw new Error("Refusing to persist empty assistant message");
 
   const requestedMessageKind = input.message.meta?.messageKind;
-  const messageKind = messageRole !== "assistant" ? messageRole : isUnsuccessful ? "assistant_error" : requestedMessageKind === "shell_command_result" ? "assistant_final" : (countToolCallsInContent(content) > 0 || input.message.stopReason === "tool_use") ? "assistant_intermediate" : "assistant_final";
+  const messageKind = messageRole !== "assistant" ? messageRole : requestedMessageKind === "assistant_intermediate" ? "assistant_intermediate" : isUnsuccessful ? "assistant_error" : requestedMessageKind === "shell_command_result" || requestedMessageKind === "assistant_final" ? "assistant_final" : requestedMessageKind === "assistant_intermediate" || countToolCallsInContent(content) > 0 || input.message.stopReason === "tool_use" ? "assistant_intermediate" : "assistant_final";
   const completedAt = toDateOrNull(input.message.completedAt) ?? new Date();
   const startedAt = toDateOrNull(input.message.startedAt) ?? completedAt;
   const durationMs = typeof input.message.durationMs === "number" ? Math.max(0, Math.floor(input.message.durationMs)) : Math.max(0, completedAt.getTime() - startedAt.getTime());
   const anchorUserMessageId = input.anchorUserMessageId?.trim() || null;
   const messageTurnId = resolveMessageTurnId(input.message.meta);
 
-  const [messageNode] = await db.insert(sessionMessages).values({
+  const values: typeof sessionMessages.$inferInsert = {
     id: input.message.id?.trim() || undefined,
     sessionId: input.sessionId,
     turnId: messageTurnId,
     role: messageRole,
     content,
     text,
-    meta: sanitizePostgresJsonValue({ ...input.message.meta, messageKind, anchorUserMessageId, actorUserId: input.userId ?? null, providerResponseId: input.message.meta?.responseId ?? null }),
+    meta: sanitizePostgresJsonValue({ ...input.message.meta, ...(input.message.meta?.runtime === "local" && messageRole === "assistant" ? { runtimeDeliveryPending: true } : {}), messageKind, anchorUserMessageId, actorUserId: input.userId ?? null, providerResponseId: input.message.meta?.responseId ?? null }),
     idempotencyKey: input.idempotencyKey,
     sequence,
     provider: input.message.provider ?? null,
@@ -367,7 +372,24 @@ async function persistMessageNode(input: PersistMessageInput & { message: Persis
     startedAt,
     completedAt,
     durationMs,
-  }).returning();
+  };
+  const localResult = messageRole === "assistant" && input.message.meta?.runtime === "local";
+  let created = true;
+  const [messageNode] = localResult ? await db.transaction(async (tx) => {
+    if (!messageTurnId) throw new Error("Runtime result has no turn identity");
+    const resolution = input.message.meta?.runtimeResolution === true;
+    const [turn] = await tx.select({ id: sessionTurns.id, status: sessionTurns.status }).from(sessionTurns)
+      .where(and(eq(sessionTurns.id, messageTurnId), eq(sessionTurns.sessionId, input.sessionId), resolution ? sql`${sessionTurns.meta}->'runtimeRecovery'->>'state' = 'confirmed_stopped'` : runtimeResolutionOpen)).limit(1).for("update");
+    if (!turn) throw new Error("Runtime execution was manually resolved; late result retained locally");
+    const [duplicate] = await tx.select().from(sessionMessages).where(and(eq(sessionMessages.sessionId, input.sessionId), eq(sessionMessages.idempotencyKey, input.idempotencyKey))).limit(1);
+    if (duplicate) { created = false; return [duplicate]; }
+    if (!["running", "abort_requested"].includes(turn.status)) throw new Error("Runtime execution already finalized");
+    const [message] = await tx.insert(sessionMessages).values(values).returning();
+    if (!message) throw new Error("Failed to persist Runtime message");
+    if (finalizeLocal) await finalizeLocal(tx, message);
+    await tx.update(spaceSessions).set({ lastMessageId: message.id, latestMessageText: message.text, lastMessageAt: message.createdAt ?? new Date(), updatedAt: new Date() }).where(eq(spaceSessions.id, input.sessionId));
+    return [message];
+  }) : await db.insert(sessionMessages).values(values).returning();
   if (!messageNode) throw new Error("Failed to persist message");
 
   if (messageRole === "user") {
@@ -388,8 +410,8 @@ async function persistMessageNode(input: PersistMessageInput & { message: Persis
       logger.warn("[SessionTitle] failed to prepare title generation", error);
     }
   }
-  await updateSessionAfterAppend(input.sessionId, messageNode);
-  return { message: messageNode, created: true };
+  if (!localResult) await updateSessionAfterAppend(input.sessionId, messageNode);
+  return { message: messageNode, created };
 }
 
 const addUsage = (a: Usage | null | undefined, b: Usage | null | undefined): Usage | null => {
@@ -510,6 +532,21 @@ const summarizeIntermediateContent = (content: ContentBlock[], tools: StoredTool
   });
 };
 
+export async function persistHarnessArchive(spaceId: string, archive: HarnessArchive): Promise<HarnessArchiveIndex | null> {
+  const digest = createHash("sha256").update(JSON.stringify(archive)).digest("hex");
+  const objectKey = `${buildTurnObjectPrefix({ spaceId, sessionId: archive.sessionId, turnId: archive.turnId })}harness/${digest}.json`;
+  try {
+    const written = await writeTurnObjectJson(objectKey, archive);
+    const index: HarnessArchiveIndex = { version: 1, objectKey, ...written, harness: archive.harness, nativeFormat: archive.nativeFormat };
+    await db.update(sessionTurns).set({ harnessIndex: index }).where(and(eq(sessionTurns.id, archive.turnId), eq(sessionTurns.sessionId, archive.sessionId)));
+    await publishSessionTurnsUpdated({ sessionId: archive.sessionId, turnIds: [archive.turnId] });
+    return index;
+  } catch (error) {
+    logger.warn(`[HarnessArchive] failed to archive turn ${archive.turnId}`, error);
+    return null;
+  }
+}
+
 const writeTurnObjects = async (files: Array<{ objectKey: string; value: unknown }>) => {
   const concurrency = Math.min(4, files.length);
   await Promise.all(Array.from({ length: concurrency }, async (_, workerIndex) => {
@@ -627,8 +664,8 @@ const buildIntermediateObjectsForTurn = async (input: { spaceId: string; session
   }
 };
 
-async function finalizeSessionTurnFromMessage(input: { spaceId: string; sessionId: string; turnId: string; status: Exclude<SessionTurnStatus, "running">; assistantContent: ContentBlock[]; assistantText: string | null; provider: string | null; model: string | null; stopReason: string | null; errorMessage: string | null; usage: Usage | null; metaPatch?: Record<string, unknown> | null }) {
-  const intermediate = await buildIntermediateObjectsForTurn(input);
+async function finalizeSessionTurnFromMessage(input: { spaceId: string; sessionId: string; turnId: string; status: Exclude<SessionTurnStatus, "running">; assistantContent: ContentBlock[]; assistantText: string | null; provider: string | null; model: string | null; stopReason: string | null; errorMessage: string | null; usage: Usage | null; metaPatch?: Record<string, unknown> | null }, executor: Pick<typeof db, "update"> = db, prepared?: Awaited<ReturnType<typeof buildIntermediateObjectsForTurn>>) {
+  const intermediate = prepared ?? await buildIntermediateObjectsForTurn(input);
   const imageToText = intermediate?.imageToTextAccumulator ?? createImageToTextUsageSummaryAccumulator();
   const finalCalls = readImageToTextCalls(input.metaPatch);
   addImageToTextCallsToSummary(imageToText, finalCalls);
@@ -642,7 +679,7 @@ async function finalizeSessionTurnFromMessage(input: { spaceId: string; sessionI
   };
   const completedAt = new Date();
   const completedAtIso = completedAt.toISOString();
-  const [row] = await db.update(sessionTurns).set({
+  const [row] = await executor.update(sessionTurns).set({
     status: input.status,
     assistantContent: input.assistantContent,
     assistantText: input.assistantText,
@@ -659,7 +696,7 @@ async function finalizeSessionTurnFromMessage(input: { spaceId: string; sessionI
     completedAt,
     durationMs: sql<number>`greatest(0, floor(extract(epoch from (${completedAtIso}::timestamptz - ${sessionTurns.startedAt})) * 1000)::int)`,
     updatedAt: completedAt,
-  }).where(and(eq(sessionTurns.id, input.turnId), eq(sessionTurns.sessionId, input.sessionId), inArray(sessionTurns.status, ["running", "abort_requested", "interrupted"]))).returning();
+  }).where(and(eq(sessionTurns.id, input.turnId), eq(sessionTurns.sessionId, input.sessionId), inArray(sessionTurns.status, ["running", "abort_requested", "interrupted"]), input.metaPatch?.runtimeResolution === true ? undefined : runtimeResolutionOpen)).returning();
   return { turn: row ? toTurnRecord(row) : null, messages: intermediate.rows };
 }
 
@@ -693,36 +730,72 @@ async function resolveGatewayNodeForOutbound(input: { spaceChannelId: string; sp
   throw new Error(`Gateway route is missing for final assistant outbound channel ${input.spaceChannelId}`);
 }
 
+type RuntimeGatewayTarget = { spaceChannelId: string; provider: string; externalChatId: string | null; bindingKey: string };
+type RuntimeGatewayDelivery = { targets: RuntimeGatewayTarget[]; enqueued: Record<string, boolean> };
+const readRuntimeGatewayDelivery = (meta: unknown): RuntimeGatewayDelivery | undefined => {
+  const value = normalizeRecord(meta)?.runtimeGatewayDelivery;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return;
+  const record = value as Record<string, unknown>;
+  if (!Array.isArray(record.targets) || !record.enqueued || typeof record.enqueued !== "object" || Array.isArray(record.enqueued)) return;
+  const targets = record.targets.filter((target): target is RuntimeGatewayTarget => {
+    if (!target || typeof target !== "object" || Array.isArray(target)) return false;
+    const item = target as Record<string, unknown>;
+    return typeof item.spaceChannelId === "string" && typeof item.provider === "string" && (item.externalChatId === null || typeof item.externalChatId === "string") && typeof item.bindingKey === "string";
+  });
+  if (targets.length !== record.targets.length) return;
+  return { targets, enqueued: Object.fromEntries(Object.entries(record.enqueued as Record<string, unknown>).filter((entry): entry is [string, boolean] => entry[1] === true)) };
+};
+
 async function dispatchFinalAssistantToGateway(input: { spaceId: string; sessionId: string; message: MessageRecord }) {
   if (input.message.role !== "assistant") return;
   const kind = input.message.meta?.messageKind;
   if (kind !== "assistant_final" && kind !== "assistant_error") return;
 
-  const bindings = await db.select().from(spaceSessionBindings).where(eq(spaceSessionBindings.spaceSessionId, input.sessionId));
-  const targetBindings = bindings.length > 0
+  const local = input.message.meta?.runtime === "local";
+  let delivery: RuntimeGatewayDelivery | undefined;
+  if (local) {
+    const [row] = await db.select({ meta: sessionMessages.meta }).from(sessionMessages).where(eq(sessionMessages.id, input.message.id)).limit(1);
+    delivery = readRuntimeGatewayDelivery(row?.meta);
+  }
+  const bindings = delivery ? [] : await db.select().from(spaceSessionBindings).where(eq(spaceSessionBindings.spaceSessionId, input.sessionId));
+  let targetBindings: RuntimeGatewayTarget[] = delivery?.targets ?? (bindings.length > 0
     ? bindings.map((binding) => ({ spaceChannelId: binding.spaceChannelId, provider: binding.provider, externalChatId: binding.externalChatId, bindingKey: binding.bindingKey }))
-    : (await db.select({ spaceChannelId: spaceChannels.id, provider: userChannels.provider, externalChatId: sql<string | null>`null`, bindingKey: sql<string>`''` }).from(spaceChannels).innerJoin(userChannels, eq(userChannels.id, spaceChannels.channelId)).where(eq(spaceChannels.spaceId, input.spaceId))).map((row) => ({ ...row, externalChatId: row.externalChatId ?? null }));
-
+    : (await db.select({ spaceChannelId: spaceChannels.id, provider: userChannels.provider, externalChatId: sql<string | null>`null`, bindingKey: sql<string>`''` }).from(spaceChannels).innerJoin(userChannels, eq(userChannels.id, spaceChannels.channelId)).where(eq(spaceChannels.spaceId, input.spaceId))).map((row) => ({ ...row, externalChatId: row.externalChatId ?? null })));
+  if (local && !delivery) {
+    await db.update(sessionMessages).set({ meta: sql`coalesce(${sessionMessages.meta}, '{}'::jsonb) || ${JSON.stringify({ runtimeGatewayDelivery: { targets: targetBindings.filter((target) => target.externalChatId), enqueued: {} } })}::jsonb` })
+      .where(and(eq(sessionMessages.id, input.message.id), sql`${sessionMessages.meta}->'runtimeGatewayDelivery' is null`));
+    const [row] = await db.select({ meta: sessionMessages.meta }).from(sessionMessages).where(eq(sessionMessages.id, input.message.id)).limit(1);
+    delivery = readRuntimeGatewayDelivery(row?.meta);
+    if (!delivery) throw new Error("Runtime channel targets were not persisted");
+    targetBindings = delivery.targets;
+  }
+  const failures: unknown[] = [];
   for (const binding of targetBindings) {
     if (!binding.externalChatId) continue;
-    const nodeId = await resolveGatewayNodeForOutbound({ spaceChannelId: binding.spaceChannelId, spaceId: input.spaceId, sessionId: input.sessionId, messageId: input.message.id });
-    const turnAnchorMessageId = typeof input.message.meta?.anchorUserMessageId === "string" ? input.message.meta.anchorUserMessageId : input.message.id;
-    const [anchorRef] = await db.select({ externalMessageId: providerMessageRefs.externalMessageId }).from(providerMessageRefs).where(and(eq(providerMessageRefs.spaceChannelId, binding.spaceChannelId), eq(providerMessageRefs.sessionMessageId, turnAnchorMessageId), eq(providerMessageRefs.direction, "inbound"))).orderBy(desc(providerMessageRefs.createdAt)).limit(1);
-    const command: GatewayOutboundCommand = {
-      commandId: randomUUID(),
-      timestamp: Date.now(),
-      channelId: binding.spaceChannelId,
-      provider: binding.provider as ChannelProvider,
-      externalChatId: binding.externalChatId,
-      content: input.message.content,
-      replyToExternalMessageId: anchorRef?.externalMessageId,
-      spaceId: input.spaceId,
-      spaceSessionId: input.sessionId,
-      sessionMessageId: input.message.id,
-      meta: { sessionOutput: { type: "session.message.persisted", spaceId: input.spaceId, sessionId: input.sessionId, message: input.message }, bindingKey: binding.bindingKey, sessionMessageRole: input.message.role, turnAnchorMessageId, targetNodeId: nodeId },
-    };
-    await xaddWithMaxlen(redis, getGatewayNodeOutboundStreamKey(nodeId), "*", "payload", JSON.stringify(command));
+    const commandId = local ? createHash("sha256").update(JSON.stringify([input.message.id, binding.spaceChannelId, binding.provider, binding.externalChatId, binding.bindingKey])).digest("hex") : randomUUID();
+    if (delivery?.enqueued[commandId]) continue;
+    try {
+      const nodeId = await resolveGatewayNodeForOutbound({ spaceChannelId: binding.spaceChannelId, spaceId: input.spaceId, sessionId: input.sessionId, messageId: input.message.id });
+      const turnAnchorMessageId = typeof input.message.meta?.anchorUserMessageId === "string" ? input.message.meta.anchorUserMessageId : input.message.id;
+      const [anchorRef] = await db.select({ externalMessageId: providerMessageRefs.externalMessageId }).from(providerMessageRefs).where(and(eq(providerMessageRefs.spaceChannelId, binding.spaceChannelId), eq(providerMessageRefs.sessionMessageId, turnAnchorMessageId), eq(providerMessageRefs.direction, "inbound"))).orderBy(desc(providerMessageRefs.createdAt)).limit(1);
+      const command: GatewayOutboundCommand = {
+        commandId,
+        timestamp: Date.now(),
+        channelId: binding.spaceChannelId,
+        provider: binding.provider as ChannelProvider,
+        externalChatId: binding.externalChatId,
+        content: input.message.content,
+        replyToExternalMessageId: anchorRef?.externalMessageId,
+        spaceId: input.spaceId,
+        spaceSessionId: input.sessionId,
+        sessionMessageId: input.message.id,
+        meta: { sessionOutput: { type: "session.message.persisted", spaceId: input.spaceId, sessionId: input.sessionId, message: input.message }, bindingKey: binding.bindingKey, sessionMessageRole: input.message.role, turnAnchorMessageId, targetNodeId: nodeId },
+      };
+      await xaddWithMaxlen(redis, getGatewayNodeOutboundStreamKey(nodeId), "*", "payload", JSON.stringify(command));
+      if (local) await db.update(sessionMessages).set({ meta: sql`jsonb_set(${sessionMessages.meta}, '{runtimeGatewayDelivery,enqueued}', coalesce(${sessionMessages.meta}->'runtimeGatewayDelivery'->'enqueued', '{}'::jsonb) || ${JSON.stringify({ [commandId]: true })}::jsonb)` }).where(eq(sessionMessages.id, input.message.id));
+    } catch (error) { if (!local) throw error; failures.push(error); }
   }
+  if (failures.length) throw new AggregateError(failures, "Runtime channel delivery remains pending");
 }
 
 export async function persistUserMessage(input: { spaceId: string; sessionId: string; userMessageId: string; turnId: string; agentSessionEntryId?: string | null; content: ContentBlock[]; meta?: Record<string, unknown> | null; startedAt?: string | null }) {
@@ -749,9 +822,29 @@ export async function persistUserMessage(input: { spaceId: string; sessionId: st
   return { ok: true, message: record };
 }
 
+export async function deliverRuntimeMessage(spaceId: string, row: typeof sessionMessages.$inferSelect) {
+  if (normalizeRecord(row.meta)?.runtimeDeliveryPending !== true) return;
+  const record = toMessageRecord(row);
+  const final = record.meta?.messageKind === "assistant_final" || record.meta?.messageKind === "assistant_error";
+  const work: Promise<unknown>[] = [publishMessagePersisted(spaceId, record), enqueueSessionMessagePostprocess({ sessionId: row.sessionId, messageId: row.id })];
+  if (final && row.turnId) {
+    work.push(dispatchFinalAssistantToGateway({ spaceId, sessionId: row.sessionId, message: record }));
+    work.push(enqueueAgentTurnJob({ spaceId, sessionId: row.sessionId, reason: "runtime_delivery" }));
+    work.push(publishSessionTurnsUpdated({ sessionId: row.sessionId, turnIds: [row.turnId] }));
+    work.push((async () => {
+      const [turn] = await db.select().from(sessionTurns).where(eq(sessionTurns.id, row.turnId as string)).limit(1);
+      if (turn) await publishTurnFinalized(spaceId, toTurnRecord(turn));
+    })());
+  }
+  const results = await Promise.allSettled(work);
+  const failures = results.flatMap((result) => result.status === "rejected" ? [result.reason] : []);
+  if (failures.length) throw new AggregateError(failures, "Runtime delivery is pending");
+  await db.update(sessionMessages).set({ meta: sql`${sessionMessages.meta} - 'runtimeDeliveryPending'` }).where(eq(sessionMessages.id, row.id));
+}
+
 const EMPTY_ASSISTANT_MESSAGE_ERROR = "LLM returned an empty assistant message after streaming completed.";
 
-export async function persistAssistantMessage(input: { spaceId: string; spaceSessionId: string; userMessageId: string; event: Record<string, unknown>; userId?: string | null; turnId?: string | null; startedAt?: string | null; completedAt?: string | null; messageOrdinal?: number | null; thinkingLevel?: string | null }) {
+export async function persistAssistantMessage(input: { spaceId: string; spaceSessionId: string; userMessageId: string; event: Record<string, unknown>; userId?: string | null; turnId?: string | null; startedAt?: string | null; completedAt?: string | null; messageOrdinal?: number | null; thinkingLevel?: string | null; idempotencyKey?: string }) {
   const assistantMessage = input.event.message;
   const toolResultsRaw = Array.isArray(input.event.toolResults) ? input.event.toolResults as Array<Record<string, unknown>> : [];
   if (!assistantMessage || typeof assistantMessage !== "object") {
@@ -787,23 +880,48 @@ export async function persistAssistantMessage(input: { spaceId: string; spaceSes
     usage: normalizeUsage(assistant.usage as PersistMessageInput["message"]["usage"]),
     ...timing,
   };
-  const persisted = await persistMessageNode({ spaceId: input.spaceId, sessionId: input.spaceSessionId, previousMessageId: input.userMessageId, anchorUserMessageId: input.userMessageId, userId: input.userId ?? null, idempotencyKey: await buildAssistantIdempotencyKey({ previousMessageId: input.userMessageId, message }), message });
+  const local = message.meta?.runtime === "local";
+  const localFinal = local && (message.meta?.messageKind === "assistant_final" || message.meta?.messageKind === "assistant_error");
+  if (local && input.idempotencyKey) {
+    const [existing] = await db.select().from(sessionMessages).where(and(eq(sessionMessages.sessionId, input.spaceSessionId), eq(sessionMessages.idempotencyKey, input.idempotencyKey))).limit(1);
+    if (existing) {
+      await deliverRuntimeMessage(input.spaceId, existing).catch((error) => logger.warn("[Runtime] durable delivery pending", error));
+      return { ok: true, message: toMessageRecord(existing), created: false };
+    }
+  }
+  const prepared = localFinal && input.turnId ? await buildIntermediateObjectsForTurn({ spaceId: input.spaceId, sessionId: input.spaceSessionId, turnId: input.turnId }) : undefined;
+  const persisted = await persistMessageNode({ spaceId: input.spaceId, sessionId: input.spaceSessionId, previousMessageId: input.userMessageId, anchorUserMessageId: input.userMessageId, userId: input.userId ?? null, idempotencyKey: input.idempotencyKey ?? await buildAssistantIdempotencyKey({ previousMessageId: input.userMessageId, message }), message }, localFinal ? async (tx, row) => {
+    if (!input.turnId) throw new Error("Missing Runtime final turn identity");
+    const result = await finalizeSessionTurnFromMessage({ spaceId: input.spaceId, sessionId: input.spaceSessionId, turnId: input.turnId,
+      status: effectiveStopReason === "aborted" ? "interrupted" : effectiveStopReason === "error" || effectiveErrorMessage ? "failed" : "completed",
+      assistantContent: row.content, assistantText: row.text, provider: row.provider, model: row.model, stopReason: row.stopReason, errorMessage: row.errorMessage, usage: row.usage as Usage | null,
+      metaPatch: { ...(message.meta?.runtimeResolution === true ? { runtimeResolution: true } : {}), finalMessageDurationMs: row.durationMs,
+        ...(input.thinkingLevel ? { effectiveThinkingLevel: input.thinkingLevel } : {}),
+      },
+    }, tx, prepared);
+    if (!result.turn) throw new Error("Runtime finalization lost its turn");
+  } : undefined);
   const record = toMessageRecord(persisted.message);
-  if (!persisted.created) {
+  if (local) {
+    if (persisted.created && prepared && input.turnId) indexTurnReferences({ spaceId: input.spaceId, sessionId: input.spaceSessionId, turnId: input.turnId, messages: [...prepared.rows, persisted.message] });
+    await deliverRuntimeMessage(input.spaceId, persisted.message).catch((error) => logger.warn("[Runtime] durable delivery pending; automatic retry scheduled", error));
+    return { ok: true, message: record, created: persisted.created };
+  }
+  if (!persisted.created && !input.idempotencyKey) {
     await enqueueSessionMessagePostprocess({ sessionId: input.spaceSessionId, messageId: record.id });
     return { ok: true, message: record, created: false };
   }
-  await publishMessagePersisted(input.spaceId, record);
+  if (persisted.created) await publishMessagePersisted(input.spaceId, record);
   if (record.meta?.messageKind === "assistant_final" || record.meta?.messageKind === "assistant_error") {
     const turnId = typeof record.meta.turnId === "string" ? record.meta.turnId : null;
     if (turnId) {
-      const { turn: finalized, messages: turnMessages } = await finalizeSessionTurnFromMessage({ spaceId: input.spaceId, sessionId: input.spaceSessionId, turnId, status: effectiveStopReason === "aborted" ? "interrupted" : record.meta.messageKind === "assistant_error" ? "failed" : "completed", assistantContent: record.content, assistantText: record.text, provider: record.provider, model: record.model, stopReason: record.stopReason, errorMessage: record.errorMessage, usage: record.usage, metaPatch: { ...(typeof record.meta.agentSessionEntryId === "string" ? { agentSessionEntryId: record.meta.agentSessionEntryId } : {}), ...(record.meta.imageToText ? { imageToText: record.meta.imageToText } : {}), ...(typeof record.durationMs === "number" ? { finalMessageDurationMs: record.durationMs } : {}), ...(typeof input.thinkingLevel === "string" && input.thinkingLevel.trim() ? { effectiveThinkingLevel: input.thinkingLevel } : {}) } });
+      const { turn: finalized, messages: turnMessages } = await finalizeSessionTurnFromMessage({ spaceId: input.spaceId, sessionId: input.spaceSessionId, turnId, status: effectiveStopReason === "aborted" ? "interrupted" : record.meta.messageKind === "assistant_error" ? "failed" : "completed", assistantContent: record.content, assistantText: record.text, provider: record.provider, model: record.model, stopReason: record.stopReason, errorMessage: record.errorMessage, usage: record.usage, metaPatch: { ...(record.meta.runtimeResolution === true ? { runtimeResolution: true } : {}), ...(typeof record.meta.agentSessionEntryId === "string" ? { agentSessionEntryId: record.meta.agentSessionEntryId } : {}), ...(record.meta.imageToText ? { imageToText: record.meta.imageToText } : {}), ...(typeof record.durationMs === "number" ? { finalMessageDurationMs: record.durationMs } : {}), ...(typeof input.thinkingLevel === "string" && input.thinkingLevel.trim() ? { effectiveThinkingLevel: input.thinkingLevel } : {}) } });
       if (finalized) {
         indexTurnReferences({ spaceId: input.spaceId, sessionId: finalized.sessionId, turnId: finalized.id, messages: turnMessages });
         await publishTurnFinalized(input.spaceId, finalized).catch((error) => logger.warn("[Realtime] failed to publish finalized turn", error));
       }
     }
-    await dispatchFinalAssistantToGateway({ spaceId: input.spaceId, sessionId: input.spaceSessionId, message: record }).catch((error) => logger.error("[GatewayOutbound] failed to dispatch assistant message", error));
+    if (persisted.created) await dispatchFinalAssistantToGateway({ spaceId: input.spaceId, sessionId: input.spaceSessionId, message: record }).catch((error) => logger.error("[GatewayOutbound] failed to dispatch assistant message", error));
   }
   // Every assistant round is postprocessed, including intermediate tool-use messages.
   // Billing uses a stable message operation ID; hourly aggregation intentionally runs last.

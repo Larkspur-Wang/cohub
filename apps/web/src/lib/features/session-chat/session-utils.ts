@@ -1,5 +1,18 @@
 import type { SessionTurnRecord } from "@cohub/protocol/model";
-import type { SessionRecord, TaskRunRecord } from "@neta-art/cohub";
+import {
+	resolveHarness,
+	type SessionRecord,
+	type TaskRunRecord,
+} from "@neta-art/cohub";
+
+type HarnessTurn = {
+	meta?: Record<string, unknown> | null;
+	harness?: "cohub" | "pi" | "codex";
+};
+export const resolveTurnHarness = (turn?: HarnessTurn) =>
+	resolveHarness({ harness: turn?.meta?.harness ?? turn?.harness });
+const isCloudTurn = (turn: HarnessTurn) => resolveTurnHarness(turn) === "cohub";
+
 import type { ModelCatalogItem } from "$lib/model-catalog";
 import { mergeTurnsById } from "$lib/stores/turn-cache";
 import type { SessionViewState } from "./session-workspace-controller.svelte";
@@ -19,7 +32,8 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 type ComposerTurnSource = Pick<
 	SessionTurnRecord,
 	"id" | "sequence" | "executionKind" | "provider" | "model"
->;
+> &
+	HarnessTurn;
 
 export function mergeComposerTurnSources(
 	turns: ComposerTurnSource[],
@@ -46,13 +60,14 @@ export function shouldClearComposerDraftAfterSend(
 }
 
 export function resolveComposerSelectionFromTurn(
-	turn: Pick<SessionTurnRecord, "executionKind" | "provider" | "model">,
+	turn: Pick<SessionTurnRecord, "executionKind" | "provider" | "model"> &
+		HarnessTurn,
 	catalog: ModelCatalogItem[] | null | undefined,
 ): SessionComposerSelection {
 	if (turn.executionKind === "direct_generation") {
 		return { mode: "create", modelId: turn.model ?? null };
 	}
-	if (!turn.model) return { mode: "agent", model: null };
+	if (!turn.model || !isCloudTurn(turn)) return { mode: "agent", model: null };
 	const provider = turn.provider ?? "cohub";
 	const catalogItem = catalog?.find(
 		(item) => item.provider === provider && item.id === turn.model,
@@ -76,7 +91,11 @@ function tailText(value: unknown, limit = 420) {
 
 export function resolveLastAgentTurnModel(
 	turns: Array<
-		Pick<SessionTurnRecord, "sequence" | "executionKind" | "provider" | "model">
+		Pick<
+			SessionTurnRecord,
+			"sequence" | "executionKind" | "provider" | "model"
+		> &
+			HarnessTurn
 	>,
 	catalog: ModelCatalogItem[] | null | undefined,
 ): { provider: string; id: string; name?: string } | null {
@@ -84,6 +103,7 @@ export function resolveLastAgentTurnModel(
 		.filter(
 			(turn) =>
 				turn.executionKind !== "direct_generation" &&
+				isCloudTurn(turn) &&
 				typeof turn.model === "string" &&
 				turn.model.trim(),
 		)

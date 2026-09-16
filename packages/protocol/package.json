@@ -99,6 +99,10 @@
       "types": "./dist/sandbox/index.d.ts",
       "default": "./dist/sandbox/index.js"
     },
+    "./runtime": {
+      "types": "./dist/runtime/index.d.ts",
+      "default": "./dist/runtime/index.js"
+    },
     "./space-style": {
       "types": "./dist/space-style.d.ts",
       "default": "./dist/space-style.js"

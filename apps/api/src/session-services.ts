@@ -2,7 +2,7 @@ import { billingOperations, createBillingUsageGate } from "@cohub/billing";
 import { COHUB_AGENT_TURNS_QUEUE, createBullmqQueue, defaultJobRetention } from "@cohub/infra/bullmq";
 import { getCurrentRequestId, getOrCreateRequestId } from "@cohub/infra/tracing";
 import { injectTrace } from "@cohub/infra/tracing/propagator";
-import { createSessionServices } from "@cohub/core/sessions";
+import { createSessionServices, HarnessUnavailableError, ModelUnavailableError } from "@cohub/core/sessions";
 import { assignSessionParticipantSystemLabels } from "@cohub/core/labels/session-user";
 import { createSandboxLifecycleController, getSandboxPromptRecoveryReason } from "@cohub/sandbox-controller";
 import { db } from "./db/index.js";
@@ -18,6 +18,7 @@ import { dispatchTurnUpdated } from "./session-output.js";
 import { hydrateTurnAuthorProfiles } from "./session-turns.js";
 import { createLogger } from "@cohub/infra/logging";
 import { validatePromptModel } from "./llm/models.js";
+import { getRuntimeRegistration } from "./runtime.js";
 
 
 const logger = createLogger({ serviceName: "cohub-api" });
@@ -74,6 +75,12 @@ export function getSessionDomainServices(input?: {
     promptTemplateService: input?.promptTemplateService ?? defaultPromptTemplateService,
     skillService: input?.skillService ?? defaultSkillService,
     billingUsageGate,
+    validateLocalHarness: async (prompt) => {
+      const registration = await getRuntimeRegistration(prompt.spaceId);
+      const harness = prompt.harness;
+      if (!registration || harness === "cohub" || !harness || !registration.capabilities.harnesses.includes(harness)) throw new HarnessUnavailableError();
+      if (prompt.model && !registration.capabilities.models.some((model) => model.harness === harness && model.id === prompt.model && (!prompt.provider || model.provider === prompt.provider))) throw new ModelUnavailableError(prompt.provider ?? harness, prompt.model);
+    },
     validatePromptModel: ({ userId, provider, model }) => validatePromptModel({ userId, provider, model }),
     sandboxRecovery: {
       maybeRecoverForPrompt: async ({ spaceId, userId, source }) => {

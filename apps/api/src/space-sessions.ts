@@ -686,6 +686,7 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
           summary: turnRow.summary ?? null,
           intermediateIndex: turnRow.intermediateIndex ?? null,
           intermediateSummary: turnRow.intermediateSummary ?? null,
+          harnessIndex: turnRow.harnessIndex ?? null,
           meta: normalizeRecord(turnRow.meta),
           thinkingLevel: extractThinkingLevel(turnRow.meta),
           startedAt: turnRow.startedAt instanceof Date ? turnRow.startedAt.toISOString() : null,

@@ -145,8 +145,8 @@ cohub desktop open <app> --call board.focus --data '{"nodeId":"n1"}'
 把本地目录暴露为 Space Sandbox：
 
 ```bash
-cohub sandbox up ./my-project
-cohub sandbox status
+cohub runtime up ./my-project
+cohub runtime status
 ```
 
 ### Boards

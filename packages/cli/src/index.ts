@@ -17,7 +17,7 @@ import { registerReferences } from "./commands/references.js";
 import { registerReferrals } from "./commands/referrals.js";
 import { registerPrompt, registerSpaces } from "./commands/spaces.js";
 import { maybeHandleRunCommand, printRunHelp } from "./commands/run.js";
-import { registerSandbox } from "./commands/sandbox.js";
+import { registerRuntime } from "./commands/runtime.js";
 import { registerTasks } from "./commands/tasks.js";
 import { registerDesktop, registerLegacyUi } from "./commands/desktop.js";
 import { registerApps } from "./commands/apps.js";
@@ -55,7 +55,7 @@ Common commands:
   cohub prompt "Fix the failing tests"
   cohub completion "Summarize AGENTS.md" --system-prompt AGENTS.md --stream
   cohub run -- git status
-  cohub sandbox up ./my-project
+  cohub runtime up ./my-project
   cohub search "release notes"
   cohub -s <space-id> boards inspect <board-id>
   cohub -s <space-id> spaces turns ls --author others
@@ -85,7 +85,7 @@ registerProfile(program);
 registerMe(program);
 registerPrompt(program);
 registerSpaces(program);
-registerSandbox(program);
+registerRuntime(program);
 registerChannels(program);
 registerGenerations(program);
 registerModels(program);

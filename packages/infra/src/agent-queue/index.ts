@@ -8,6 +8,26 @@ export const AGENT_SANDBOX_BASH_JOB_NAME = "sandbox_bash" as const;
 export const AGENT_SANDBOX_BASH_ATOMIC_JOB_NAME = "sandbox_bash_atomic" as const;
 export const AGENT_RUN_COMMAND_JOB_NAME = "run_command" as const;
 export const AGENT_SANDBOX_FS_MUTATION_JOB_NAME = "sandbox_fs_mutation" as const;
+export const AGENT_RUNTIME_RECOVERY_JOB_NAME = "runtime_recovery" as const;
+export const AGENT_RUNTIME_SWEEP_JOB_NAME = "runtime_recovery_sweep" as const;
+export type AgentRuntimeSweepJobData = { runtimeSweep: true; deliveryCursor?: string };
+export function ensureRuntimeRecoverySchedule(queue: Queue) {
+  return queue.upsertJobScheduler(AGENT_RUNTIME_SWEEP_JOB_NAME, { every: 60_000 }, {
+    name: AGENT_RUNTIME_SWEEP_JOB_NAME, data: { runtimeSweep: true },
+    opts: { removeOnComplete: true, removeOnFail: 10 },
+  });
+}
+export type AgentRuntimeRecoveryJobData = {
+  spaceId: string;
+  confirmation?: { actorUserId: string; turnIds: string[]; revision: string };
+};
+export function enqueueRuntimeRecovery(queue: Queue, data: AgentRuntimeRecoveryJobData) {
+  const suffix = data.confirmation ? `confirm-${data.confirmation.revision}` : "recover";
+  return queue.add(AGENT_RUNTIME_RECOVERY_JOB_NAME, data, {
+    jobId: `runtime-${data.spaceId}-${suffix}`, attempts: data.confirmation ? 12 : 3, backoff: { type: "fixed", delay: data.confirmation ? 5000 : 2000 },
+    removeOnComplete: true, removeOnFail: true,
+  });
+}
 
 export type AgentSandboxBashUploadJobData = {
   spaceId: string;

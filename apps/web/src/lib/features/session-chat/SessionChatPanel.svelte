@@ -418,6 +418,14 @@ async function handleDraftDrop(event: DragEvent) {
 					onmodechange={host.setComposerMode}
 					viewportContexts={host.viewportContexts}
 					currentModel={host.composerMode === "create" ? host.activeGenerationModel : host.activeSessionModel}
+					harness={host.composerHarness}
+					onharnesschange={host.setComposerHarness}
+					harnesses={host.runtimeCatalog?.kind === "local" ? ["cohub", ...(host.runtimeCatalog.capabilities?.harnesses ?? [])] : ["cohub"]}
+					onharnessopen={host.loadRuntimeCatalog}
+					localRuntime={host.runtimeCatalog?.kind === "local"}
+					localModels={host.runtimeCatalog?.capabilities?.models.filter((model) => model.harness === host.composerHarness) ?? []}
+					localModel={host.localModel}
+					onlocalmodelchange={host.setLocalModel}
 					thinkingLevelLabel={host.composerMode === "agent" ? host.activeSessionThinkingLevelLabel : null}
 					generationPolicyLabel={host.composerMode === "agent" ? host.generationPolicyLabel : null}
 					quickActions={host.quickPromptActions}
@@ -438,7 +446,7 @@ async function handleDraftDrop(event: DragEvent) {
 					onremoveviewport={host.handleRemoveViewportContext}
 					onsubmit={host.handleSend}
 					onabort={host.handleAbort}
-					onModelSelect={() => {
+					onModelSelect={host.composerMode === "create" || host.composerHarness === "cohub" ? () => {
 						if (host.composerMode === "create") {
 							void host.loadGenerationModelsCatalog();
 							showCreateModelSelector = true;
@@ -448,7 +456,7 @@ async function handleDraftDrop(event: DragEvent) {
 						void host.loadGenerationModelsCatalog();
 						void modelsStatusStore.load();
 						showModelSelector = true;
-					}}
+					} : undefined}
 				/>
 			</div>
 		</div>
