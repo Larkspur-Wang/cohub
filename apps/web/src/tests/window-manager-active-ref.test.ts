@@ -460,6 +460,8 @@ test("workspace App tabs keep recent surfaces mounted while inactive", () => {
 	// reuse a single instance and destroy the inactive iframe.
 	assert.match(domain, /\{#each retainedAppTabs as tab \(tab\.appId\)\}/);
 	assert.match(domain, /active=\{isActiveApp\}/);
-	assert.match(window, /isMobile && active/);
-	assert.match(window, /immersive && active/);
+	// Only the visible tab mounts the shared header; background tabs must not
+	// render duplicate chrome.
+	assert.match(window, /\{#if active\}\s*<PreviewHeader/);
+	assert.equal(window.match(/<PreviewHeader/g)?.length, 1);
 });

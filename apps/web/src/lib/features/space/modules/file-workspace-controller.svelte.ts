@@ -121,7 +121,6 @@ export function createFileWorkspaceController(
 		error: null,
 		requestToken: 0,
 	});
-	let fileActionMenuOpenPath = $state<string | null>(null);
 	let inlineFileCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 	let uploadPaneVisible = $state(false);
 	let uploadPaneTargetDir = $state("");
@@ -1833,12 +1832,6 @@ export function createFileWorkspaceController(
 		},
 		get inlineFileTabs() {
 			return inlineFileTabs;
-		},
-		get fileActionMenuOpenPath() {
-			return fileActionMenuOpenPath;
-		},
-		set fileActionMenuOpenPath(value: string | null) {
-			fileActionMenuOpenPath = value;
 		},
 		get activeInlineFilePath() {
 			return activeInlineFilePath;

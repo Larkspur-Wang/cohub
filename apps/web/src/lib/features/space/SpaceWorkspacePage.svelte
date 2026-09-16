@@ -16,17 +16,7 @@ import type {
 	UserProfile,
 } from "@neta-art/cohub";
 import type { BoardDocument } from "@neta-art/cohub/board";
-import {
-	Check,
-	Copy,
-	Download,
-	ListTree,
-	MoreHorizontal,
-	Pencil,
-	TextCursorInput,
-	Trash2,
-	X,
-} from "lucide-svelte";
+import { Check, Copy, X } from "lucide-svelte";
 import { onDestroy, onMount, tick, untrack } from "svelte";
 import {
 	beforeNavigate,
@@ -41,7 +31,6 @@ import {
 	type AccessState,
 	isBlockingAccessState,
 } from "$lib/access/access-state";
-import { floatNear } from "$lib/actions/portal";
 import { appDisplayTitle } from "$lib/app-page-meta";
 import type {
 	BoardAutomationActivity,
@@ -653,7 +642,6 @@ const inlinePortTabs = $derived(portPreview.previews);
 const activeInlinePort = $derived(portPreview.activePort);
 const portReadyToast = $derived(portPreview.readyToast);
 let workspaceNotice = $state<string | null>(null);
-let fileActionMenuAnchorEl: HTMLElement | null = $state(null);
 let workspaceNoticeTimer: ReturnType<typeof setTimeout> | null = null;
 const spaceStatus = createSpaceStatusController({
 	getSpaceId: () => spaceId,
@@ -2489,14 +2477,12 @@ onMount(() => {
 	const handleResourceActionMenuKeydown = (e: KeyboardEvent) => {
 		if (e.key === "Escape") {
 			closeResourceActionMenu();
-			fileWorkspace.fileActionMenuOpenPath = null;
 		}
 	};
 	const handleResourceActionMenuClickOutside = (e: MouseEvent) => {
 		const target = e.target as HTMLElement;
 		if (!target.closest("[data-resource-actions]")) {
 			closeResourceActionMenu();
-			fileWorkspace.fileActionMenuOpenPath = null;
 		}
 	};
 	const flushInlineFiles = () => {
@@ -2871,7 +2857,6 @@ const spaceFileDomainProps = $derived.by<
 	Omit<
 		SpaceFileDomainProps,
 		| "inlineFileViewMode"
-		| "fileActionMenuOpenPath"
 		| "inlineFileZoom"
 		| "inlineFilePanX"
 		| "inlineFilePanY"
@@ -2966,7 +2951,6 @@ const spaceFileDomainProps = $derived.by<
 	resolveWorkspaceAsset,
 	onOpenInlineBoard: openInlineBoard,
 	onOpenTask: openTask,
-	onCloseInlineFile: closeInlineFile,
 	onActivateInlineBoard: activateInlineBoardTab,
 	onCloseInlineBoardTab: closeInlineBoardTab,
 	onActivateInlinePort: activateInlinePortTab,
@@ -3091,102 +3075,6 @@ const headerActions = {
 	<title>{browserTabTitle}</title>
 </svelte:head>
 
-{#snippet FileHeaderCoreActions(path: string)}
-	<div class="relative shrink-0" data-resource-actions>
-		<button
-			type="button"
-			class="icon-btn"
-			onclick={(event) => {
-				event.stopPropagation();
-				const nextOpen = fileWorkspace.fileActionMenuOpenPath !== path;
-				fileActionMenuAnchorEl = nextOpen ? event.currentTarget : null;
-				fileWorkspace.fileActionMenuOpenPath = nextOpen ? path : null;
-			}}
-			title="More actions"
-			aria-haspopup="menu"
-			aria-expanded={fileWorkspace.fileActionMenuOpenPath === path}
-		>
-			<MoreHorizontal class="w-4 h-4" />
-		</button>
-		{#if fileWorkspace.fileActionMenuOpenPath === path && fileActionMenuAnchorEl}
-			<div
-				class="w-44 overflow-hidden rounded-md border border-border-subtle bg-bg-primary py-1 shadow-lg"
-				role="menu"
-				data-resource-actions
-				use:floatNear={{
-					getAnchor: () => fileActionMenuAnchorEl,
-					placement: "bottom-end",
-					gap: 4,
-					width: 176,
-					zIndex: 120,
-				}}
-			>
-				<button
-					type="button"
-					class="menu-item"
-					onclick={() => {
-						void editResourceLabels("file", path, fileActionMenuAnchorEl);
-						fileWorkspace.fileActionMenuOpenPath = null;
-					}}
-					role="menuitem"
-				>
-					<ListTree class="w-3.5 h-3.5" />
-					<span>Label as…</span>
-				</button>
-				<button
-					type="button"
-					class="menu-item"
-					onclick={() => {
-						insertFilePathReference(path);
-						fileWorkspace.fileActionMenuOpenPath = null;
-					}}
-					role="menuitem"
-				>
-					<TextCursorInput class="w-3.5 h-3.5" />
-					<span>Insert reference</span>
-				</button>
-				<button
-					type="button"
-					class="menu-item"
-					onclick={() => {
-						void handleDownloadNode(getFileActionNode(path));
-						fileWorkspace.fileActionMenuOpenPath = null;
-					}}
-					role="menuitem"
-				>
-					<Download class="w-3.5 h-3.5" />
-					<span>Download</span>
-				</button>
-				{#if canEditFiles && !activeFsReadonly}
-					<button
-						type="button"
-						class="menu-item"
-						onclick={() => {
-							void handleRenameNode(getFileActionNode(path));
-							fileWorkspace.fileActionMenuOpenPath = null;
-						}}
-						role="menuitem"
-					>
-						<Pencil class="w-3.5 h-3.5" />
-						<span>Rename</span>
-					</button>
-					<button
-						type="button"
-						class="menu-item danger"
-						onclick={() => {
-							void handleDeleteNode(getFileActionNode(path));
-							fileWorkspace.fileActionMenuOpenPath = null;
-						}}
-						role="menuitem"
-					>
-						<Trash2 class="w-3.5 h-3.5" />
-						<span>Delete</span>
-					</button>
-				{/if}
-			</div>
-		{/if}
-	</div>
-{/snippet}
 
 {#snippet PanelLoadingState(label: string, compact = false)}
 	<CenteredLoading label={label} size={compact ? "compact" : "panel"} />
@@ -3364,7 +3252,6 @@ const headerActions = {
       <SpaceFileDomain
         {...spaceFileDomainProps}
         bind:inlineFileViewMode={fileWorkspace.inlineFileViewMode}
-        bind:fileActionMenuOpenPath={fileWorkspace.fileActionMenuOpenPath}
         bind:inlineFileZoom={fileWorkspace.inlineFileZoom}
         bind:inlineFilePanX={fileWorkspace.inlineFilePanX}
         bind:inlineFilePanY={fileWorkspace.inlineFilePanY}
