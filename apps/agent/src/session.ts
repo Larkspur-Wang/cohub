@@ -1099,10 +1099,11 @@ export async function loadOrCreateSessionHandle(input: {
   const spaceWorkspaceDir = getAgentWorkspacePath(input.spaceId);
   const spaceSessionsDir = getAgentSpaceSessionsPath(input.spaceId);
   const fileSignature = await getSessionFileSignature(existingSessionFile);
+  const cachedHandle = input.sessionHandles.get(sessionKey);
   const durableHead = await loadRuntimeContext({ spaceId: input.spaceId, sessionId: input.sessionId, beforeSequence: input.beforeTurnSequence ?? undefined, headOnly: true });
-  const cachedMarker = input.sessionHandles.get(sessionKey)?.sessionManager.getCustomEntries("cohub.context").at(-1)?.data as { revision?: string } | undefined;
+  const cachedMarker = cachedHandle?.sessionManager.getCustomEntries("cohub.context").at(-1)?.data as { revision?: string } | undefined;
   const durableContext = cachedMarker?.revision === durableHead.revision && fileSignature
-    && sameSessionFileSignature(input.sessionHandles.get(sessionKey)?.sessionFileSignature ?? null, fileSignature)
+    && sameSessionFileSignature(cachedHandle?.sessionFileSignature ?? null, fileSignature)
     ? durableHead
     : await loadRuntimeContext({ spaceId: input.spaceId, sessionId: input.sessionId, beforeSequence: input.beforeTurnSequence ?? undefined, harness: fileSignature ? undefined : "cohub" });
   if (!fileSignature && durableContext.archive?.sessionId === input.sessionId && durableContext.archive.nativeFormat === "cohub.jsonl") {

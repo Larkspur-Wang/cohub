@@ -218,7 +218,6 @@ export async function hydrateTurnAuthorProfiles(turns: SessionTurnRecord[]) {
 }
 
 export type SessionTurnIndexRow = {
-  harness?: "cohub" | "pi" | "codex";
   id: string;
   sessionId: string;
   sequence: number;
@@ -241,7 +240,6 @@ export type SessionTurnIndexRow = {
 };
 
 export const toTurnIndexItem = (row: SessionTurnIndexRow): SessionTurnIndexItem => ({
-  harness: row.harness ?? "cohub",
   id: row.id,
   sessionId: row.sessionId,
   sequence: row.sequence,
@@ -382,7 +380,6 @@ export const listSessionTurnIndex = async (sessionId: string, options?: { cursor
       id: sessionTurns.id,
       sessionId: sessionTurns.sessionId,
       sequence: sessionTurns.sequence,
-      harness: sql<"cohub" | "pi" | "codex">`coalesce(${sessionTurns.meta}->>'harness', 'cohub')`,
       executionKind: sessionTurns.executionKind,
       status: sessionTurns.status,
       intent: sessionTurns.intent,

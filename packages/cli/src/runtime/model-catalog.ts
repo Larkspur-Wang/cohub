@@ -14,12 +14,7 @@ export function codexModelCatalog(configResponse: JsonRecord, entries: unknown[]
     const model = record(value);
     const id = typeof model.model === "string" ? model.model : typeof model.id === "string" ? model.id : null;
     if (!id || model.hidden) return [];
-    return [{ harness: "codex", provider, id, name: typeof model.displayName === "string" ? model.displayName : id,
-      thinkingLevels: Array.isArray(model.supportedReasoningEfforts) ? model.supportedReasoningEfforts.flatMap((effort) => {
-        const level = record(effort).reasoningEffort;
-        return typeof level === "string" ? [level] : [];
-      }) : [],
-    }];
+    return [{ harness: "codex", provider, id, name: typeof model.displayName === "string" ? model.displayName : id }];
   });
   if (configuredModel && !models.some((model) => model.id === configuredModel)) models.unshift({ harness: "codex", provider, id: configuredModel, name: configuredModel });
   return models;

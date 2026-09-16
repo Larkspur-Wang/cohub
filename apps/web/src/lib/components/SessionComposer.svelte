@@ -80,6 +80,11 @@ type SelectedModel = {
 };
 
 type Harness = "cohub" | "pi" | "codex";
+const harnessLabels: Record<Harness, string> = {
+	cohub: "Cohub",
+	pi: "Pi",
+	codex: "Codex",
+};
 
 type Props = {
 	value: string;
@@ -1537,7 +1542,7 @@ $effect(() => {
 							{#if onharnesschange && mode === "agent" && (localRuntime || harnesses.length > 1 || harness !== "cohub")}
 								<select class="h-8 w-20 shrink-0 rounded border border-border-subtle bg-bg-primary px-1 text-xs text-text-secondary" title={harness === "cohub" ? m.runtime_cloud({}, { locale }) : m.runtime_local({}, { locale })} aria-label={m.runtime_harness({}, { locale })} value={harness} disabled={disabled || sending} onfocus={() => onharnessopen?.()} onchange={(event) => onharnesschange?.(event.currentTarget.value as Harness)}>
 									{#each [...new Set([...harnesses, harness])] as item}
-										<option value={item} disabled={!harnesses.includes(item)}>{item === "cohub" ? "Cohub" : item === "pi" ? "Pi" : "Codex"}</option>
+										<option value={item} disabled={!harnesses.includes(item)}>{harnessLabels[item]}</option>
 									{/each}
 								</select>
 							{/if}

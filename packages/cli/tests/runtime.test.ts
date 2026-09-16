@@ -12,7 +12,7 @@ import { Command } from "commander";
 import { parseRuntimeHarnesses, registerRuntime } from "../src/commands/runtime.js";
 import { codexArchiveTotals, codexTokenTotals, codexUsage, subtractCodexTokens } from "../src/runtime/codex-usage.js";
 
-test("Runtime CLI requires no manual recovery command", () => {
+test("Runtime CLI exposes only the up and status commands", () => {
   const program = new Command();
   registerRuntime(program);
   assert.deepEqual(program.commands[0]?.commands.map((command) => command.name()), ["up", "status"]);

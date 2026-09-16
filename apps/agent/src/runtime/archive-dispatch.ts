@@ -4,7 +4,8 @@ import { logger } from "../logger.js";
 
 const pending = new Set<Promise<unknown>>();
 const MAX_PENDING = 8;
-const MAX_BYTES = 16 * 1024 * 1024;
+// Object storage keeps only small snapshots; anything larger stays on the native host.
+const ARCHIVE_UPLOAD_MAX_BYTES = 16 * 1024 * 1024;
 
 /** Native files remain the recovery copy until best-effort object archival succeeds. */
 export function scheduleHarnessArchive(spaceId: string, snapshot: () => HarnessArchive) {
@@ -14,7 +15,7 @@ export function scheduleHarnessArchive(spaceId: string, snapshot: () => HarnessA
   }
   // Capture while the execution still owns its session. Never serialize a live handle later.
   const archive = snapshot();
-  if (Buffer.byteLength(archive.data) > MAX_BYTES) {
+  if (Buffer.byteLength(archive.data) > ARCHIVE_UPLOAD_MAX_BYTES) {
     logger.warn("[HarnessArchive] native snapshot exceeds upload limit; native file retained", { turnId: archive.turnId });
     return;
   }

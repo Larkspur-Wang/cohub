@@ -67,11 +67,16 @@ const envObjectKeyPrefix = () => env.ENV === "dev" ? "dev/" : "";
 export const buildTurnObjectPrefix = (input: { spaceId: string; sessionId: string; turnId: string }) =>
   `${envObjectKeyPrefix()}spaces/${input.spaceId}/sessions/${input.sessionId}/turns/${input.turnId}/`;
 
-export const writeTurnObjectJson = async (objectKey: string, value: unknown) => {
+export type PreparedTurnObject = { content: string; sha256: string; sizeBytes: number };
+
+/** Serialize once so callers can address an object by its digest without hashing the payload twice. */
+export const prepareTurnObjectJson = (value: unknown): PreparedTurnObject => {
   const content = `${JSON.stringify(value)}\n`;
+  return { content, sha256: createHash("sha256").update(content).digest("hex"), sizeBytes: Buffer.byteLength(content, "utf8") };
+};
+
+export const writeTurnObjectContent = async (objectKey: string, prepared: PreparedTurnObject) => {
   const safeKey = sanitizeTurnObjectKey(objectKey);
-  const sha256 = createHash("sha256").update(content).digest("hex");
-  const sizeBytes = Buffer.byteLength(content, "utf8");
   let lastError: unknown = null;
 
   for (let attempt = 1; attempt <= env.TURN_OBJECT_S3_MAX_ATTEMPTS; attempt++) {
@@ -81,12 +86,12 @@ export const writeTurnObjectJson = async (objectKey: string, value: unknown) => 
       await getS3Client().send(new PutObjectCommand({
         Bucket: env.TURN_OBJECT_S3_BUCKET,
         Key: safeKey,
-        Body: content,
+        Body: prepared.content,
         ContentType: "application/json; charset=utf-8",
         CacheControl: IMMUTABLE_PUBLIC_CACHE_CONTROL,
-        Metadata: { sha256 },
+        Metadata: { sha256: prepared.sha256 },
       }), { abortSignal: abortController.signal });
-      return { sizeBytes, sha256 };
+      return { sizeBytes: prepared.sizeBytes, sha256: prepared.sha256 };
     } catch (error) {
       lastError = error;
       if (attempt >= env.TURN_OBJECT_S3_MAX_ATTEMPTS || !isRetryableStorageError(error)) break;
@@ -98,3 +103,6 @@ export const writeTurnObjectJson = async (objectKey: string, value: unknown) => 
 
   throw lastError instanceof Error ? lastError : new Error(String(lastError));
 };
+
+export const writeTurnObjectJson = (objectKey: string, value: unknown) =>
+  writeTurnObjectContent(objectKey, prepareTurnObjectJson(value));

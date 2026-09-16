@@ -3,7 +3,6 @@ import { mkdir, open, readFile, rename, stat, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { contextToPiMessages, runtimeEventSchema, type RuntimeExecutionEvent, type HarnessArchive, type RuntimeTurnInput } from "@neta-art/cohub";
-
 import { codexArchiveTotals, type CodexTokenTotals } from "./codex-usage.js";
 
 export class ContextRequiredError extends Error {}
@@ -24,8 +23,10 @@ export type NativeSession = {
 };
 const checksum = (data: string) => createHash("sha256").update(data).digest("hex");
 const missing = (error: unknown) => (error as NodeJS.ErrnoException)?.code === "ENOENT";
+// Cap what this host sends over the WebSocket; larger sessions stay local-only.
+const NATIVE_ARCHIVE_MAX_BYTES = 24 * 1024 * 1024;
 
-export async function atomicJson(path: string, value: unknown) {
+async function atomicJson(path: string, value: unknown) {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   const temporary = `${path}.${randomUUID()}.tmp`;
   try {
@@ -168,7 +169,7 @@ export class RuntimeSessionStore {
   async archive(state: NativeSession, turnId: string): Promise<HarnessArchive | null> {
     if (!state.path) return null;
     const info = await stat(state.path);
-    if (info.size > 24 * 1024 * 1024) return null;
+    if (info.size > NATIVE_ARCHIVE_MAX_BYTES) return null;
     const data = await readFile(state.path, "utf8");
     return { version: 1, harness: state.harness, sessionId: state.sessionId, turnId, nativeFormat: state.harness === "pi" ? "pi.jsonl" : "codex.rollout", nativeSessionId: state.nativeSessionId, data };
   }

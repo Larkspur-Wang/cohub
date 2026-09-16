@@ -4,15 +4,6 @@ import {
 	type SessionRecord,
 	type TaskRunRecord,
 } from "@neta-art/cohub";
-
-type HarnessTurn = {
-	meta?: Record<string, unknown> | null;
-	harness?: "cohub" | "pi" | "codex";
-};
-export const resolveTurnHarness = (turn?: HarnessTurn) =>
-	resolveHarness({ harness: turn?.meta?.harness ?? turn?.harness });
-const isCloudTurn = (turn: HarnessTurn) => resolveTurnHarness(turn) === "cohub";
-
 import type { ModelCatalogItem } from "$lib/model-catalog";
 import { mergeTurnsById } from "$lib/stores/turn-cache";
 import type { SessionViewState } from "./session-workspace-controller.svelte";
@@ -22,6 +13,14 @@ export {
 	areSessionTurnsEqual,
 	preserveSessionTurnRefs,
 } from "$lib/session-turn-equality";
+
+type HarnessTurn = {
+	meta?: Record<string, unknown> | null;
+	harness?: "cohub" | "pi" | "codex";
+};
+export const resolveTurnHarness = (turn?: HarnessTurn) =>
+	resolveHarness({ harness: turn?.meta?.harness ?? turn?.harness });
+const isCloudTurn = (turn: HarnessTurn) => resolveTurnHarness(turn) === "cohub";
 
 function asRecord(value: unknown): Record<string, unknown> | null {
 	return value && typeof value === "object" && !Array.isArray(value)

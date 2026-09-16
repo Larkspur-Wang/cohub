@@ -9,6 +9,8 @@ type ArchiveReader = (index: HarnessArchiveIndex, scope: { spaceId: string; sess
 type ContextInput = { spaceId: string; sessionId: string; beforeSequence?: number; throughTurnId?: string; harness?: HarnessKind; headOnly?: boolean; pendingTurnIds?: string[] };
 type ContextDatabase = Pick<typeof db, "select">;
 const asMeta = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
+const UNSETTLED_TURN_STATUSES = new Set(["running", "abort_requested"]);
+const hasUnsettledTurn = (statuses: Array<string | null | undefined>) => statuses.some((status) => status != null && UNSETTLED_TURN_STATUSES.has(status));
 
 /** The hot path reads indexed boundary rows, never the complete conversation. */
 export function createRuntimeContextReader(database: ContextDatabase, readArchive: ArchiveReader, onArchiveError: (turnId: string, error: unknown) => void = () => {}) {
@@ -36,7 +38,7 @@ export function createRuntimeContextReader(database: ContextDatabase, readArchiv
       return head ?? null;
     }));
     const lastTurn = heads.filter((head) => head !== null).at(-1) ?? null;
-    if (heads.some((head) => head && ["running", "abort_requested"].includes(head.status))) throw new Error("Cannot resume before an earlier turn has settled");
+    if (hasUnsettledTurn(heads.map((head) => head?.status))) throw new Error("Cannot resume before an earlier turn has settled");
     const revision = createHash("sha256").update(JSON.stringify(ranges.map((range, index) => [range.sourceSessionId, range.fromSequence, range.toSequence, heads[index]?.id, heads[index]?.sequence, heads[index]?.updatedAt]))).digest("hex");
     const result: RuntimeContext = { complete: !input.headOnly, revision, throughTurnId: lastTurn?.id ?? null, messages: [], resolvedTurnIds: [], settledTurnIds: [] };
     if (input.pendingTurnIds?.length) {
@@ -52,7 +54,7 @@ export function createRuntimeContextReader(database: ContextDatabase, readArchiv
 
     for (const range of ranges) {
       const turns = await database.select().from(sessionTurns).where(predicate(range)).orderBy(asc(sessionTurns.sequence));
-      if (turns.some((turn) => ["running", "abort_requested"].includes(turn.status))) throw new Error("Cannot resume before an earlier turn has settled");
+      if (hasUnsettledTurn(turns.map((turn) => turn.status))) throw new Error("Cannot resume before an earlier turn has settled");
       // Legacy messages may have meta.turnId but no indexed turn_id yet.
       const rows = await database.select({ message: sessionMessages, turnId: sessionTurns.id, turnMeta: sessionTurns.meta, turnSequence: sessionTurns.sequence }).from(sessionMessages)
         .innerJoin(sessionTurns, or(eq(sessionMessages.turnId, sessionTurns.id), and(isNull(sessionMessages.turnId), sql`${sessionMessages.meta}->>'turnId' = ${sessionTurns.id}::text`)))

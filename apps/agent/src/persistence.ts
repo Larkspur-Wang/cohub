@@ -33,7 +33,7 @@ import { db } from "./db.js";
 import { env } from "./env.js";
 import { logger } from "./logger.js";
 import { redis, publishRealtimeEnvelope, clearPersistedSessionStreamSnapshot, getGatewayNodeOutboundStreamKey, xaddWithMaxlen } from "./redis.js";
-import { buildTurnObjectPrefix, writeTurnObjectJson } from "./turn-object-storage.js";
+import { buildTurnObjectPrefix, prepareTurnObjectJson, writeTurnObjectContent, writeTurnObjectJson } from "./turn-object-storage.js";
 import { pickRealtimeMessageMeta } from "./realtime-message-meta.js";
 
 
@@ -347,7 +347,18 @@ async function persistMessageNode(input: PersistMessageInput & { message: Persis
   if (messageRole === "assistant" && content.length === 0 && !text?.trim() && !isUnsuccessful) throw new Error("Refusing to persist empty assistant message");
 
   const requestedMessageKind = input.message.meta?.messageKind;
-  const messageKind = messageRole !== "assistant" ? messageRole : requestedMessageKind === "assistant_intermediate" ? "assistant_intermediate" : isUnsuccessful ? "assistant_error" : requestedMessageKind === "shell_command_result" || requestedMessageKind === "assistant_final" ? "assistant_final" : requestedMessageKind === "assistant_intermediate" || countToolCallsInContent(content) > 0 || input.message.stopReason === "tool_use" ? "assistant_intermediate" : "assistant_final";
+  // Explicit intermediate/final kinds win over inference so local streamed commits stay intermediate.
+  const messageKind = messageRole !== "assistant"
+    ? messageRole
+    : requestedMessageKind === "assistant_intermediate"
+      ? "assistant_intermediate"
+      : isUnsuccessful
+        ? "assistant_error"
+        : requestedMessageKind === "shell_command_result" || requestedMessageKind === "assistant_final"
+          ? "assistant_final"
+          : countToolCallsInContent(content) > 0 || input.message.stopReason === "tool_use"
+            ? "assistant_intermediate"
+            : "assistant_final";
   const completedAt = toDateOrNull(input.message.completedAt) ?? new Date();
   const startedAt = toDateOrNull(input.message.startedAt) ?? completedAt;
   const durationMs = typeof input.message.durationMs === "number" ? Math.max(0, Math.floor(input.message.durationMs)) : Math.max(0, completedAt.getTime() - startedAt.getTime());
@@ -533,10 +544,12 @@ const summarizeIntermediateContent = (content: ContentBlock[], tools: StoredTool
 };
 
 export async function persistHarnessArchive(spaceId: string, archive: HarnessArchive): Promise<HarnessArchiveIndex | null> {
-  const digest = createHash("sha256").update(JSON.stringify(archive)).digest("hex");
-  const objectKey = `${buildTurnObjectPrefix({ spaceId, sessionId: archive.sessionId, turnId: archive.turnId })}harness/${digest}.json`;
+  // Content-addressed keys keep the one-year `immutable` cache honest: different bytes never share
+  // a key, so a cached response can never disagree with the `sha256` recorded on the turn.
+  const prepared = prepareTurnObjectJson(archive);
+  const objectKey = `${buildTurnObjectPrefix({ spaceId, sessionId: archive.sessionId, turnId: archive.turnId })}harness/${prepared.sha256}.json`;
   try {
-    const written = await writeTurnObjectJson(objectKey, archive);
+    const written = await writeTurnObjectContent(objectKey, prepared);
     const index: HarnessArchiveIndex = { version: 1, objectKey, ...written, harness: archive.harness, nativeFormat: archive.nativeFormat };
     await db.update(sessionTurns).set({ harnessIndex: index }).where(and(eq(sessionTurns.id, archive.turnId), eq(sessionTurns.sessionId, archive.sessionId)));
     await publishSessionTurnsUpdated({ sessionId: archive.sessionId, turnIds: [archive.turnId] });

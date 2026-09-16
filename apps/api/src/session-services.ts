@@ -5,6 +5,7 @@ import { injectTrace } from "@cohub/infra/tracing/propagator";
 import { createSessionServices, HarnessUnavailableError, ModelUnavailableError } from "@cohub/core/sessions";
 import { assignSessionParticipantSystemLabels } from "@cohub/core/labels/session-user";
 import { createSandboxLifecycleController, getSandboxPromptRecoveryReason } from "@cohub/sandbox-controller";
+import { isLocalHarness } from "@cohub/protocol";
 import { db } from "./db/index.js";
 import { config } from "./config.js";
 import { redisCommandClient } from "./redis.js";
@@ -76,10 +77,11 @@ export function getSessionDomainServices(input?: {
     skillService: input?.skillService ?? defaultSkillService,
     billingUsageGate,
     validateLocalHarness: async (prompt) => {
-      const registration = await getRuntimeRegistration(prompt.spaceId);
       const harness = prompt.harness;
-      if (!registration || harness === "cohub" || !harness || !registration.capabilities.harnesses.includes(harness)) throw new HarnessUnavailableError();
-      if (prompt.model && !registration.capabilities.models.some((model) => model.harness === harness && model.id === prompt.model && (!prompt.provider || model.provider === prompt.provider))) throw new ModelUnavailableError(prompt.provider ?? harness, prompt.model);
+      if (!isLocalHarness(harness)) throw new HarnessUnavailableError();
+      const capabilities = (await getRuntimeRegistration(prompt.spaceId))?.capabilities;
+      if (!capabilities?.harnesses.includes(harness)) throw new HarnessUnavailableError();
+      if (prompt.model && !capabilities.models.some((model) => model.harness === harness && model.id === prompt.model && (!prompt.provider || model.provider === prompt.provider))) throw new ModelUnavailableError(prompt.provider ?? harness, prompt.model);
     },
     validatePromptModel: ({ userId, provider, model }) => validatePromptModel({ userId, provider, model }),
     sandboxRecovery: {

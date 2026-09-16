@@ -3,7 +3,7 @@ import { DEFAULT_SANDBOX_SPEC_ID, SANDBOX_SPECS, getSandboxSpecRank, isSandboxSp
 import { createLogger } from "@cohub/infra/logging";
 import { Hono, type Context } from "hono";
 import type { ContentBlock } from "@cohub/protocol/core";
-import { getDefaultSpaceModsForEnv, runtimeStopConfirmationSchema } from "@cohub/protocol";
+import { getDefaultSpaceModsForEnv, harnessSchema, isLocalHarness, runtimeStopConfirmationSchema } from "@cohub/protocol";
 import {
   parseSpaceSlug,
   validatePublicIdentifierAssignment,
@@ -1887,7 +1887,7 @@ router.post("/:id/prompt", async (c) => {
   if (!promptIntent) return c.json({ message: "intent must be one of: followup, steer" }, 400);
   const promptThinkingLevel = normalizePromptThinkingLevel(body.thinkingLevel);
   if (promptThinkingLevel === null) return c.json({ message: "thinkingLevel must be one of: off, minimal, low, medium, high, xhigh, max" }, 400);
-  if (body.harness !== undefined && body.harness !== null && !["cohub", "pi", "codex"].includes(body.harness)) {
+  if (body.harness !== undefined && body.harness !== null && !harnessSchema.safeParse(body.harness).success) {
     return c.json({ message: "harness must be one of: cohub, pi, codex" }, 400);
   }
   const promptPermission = accessMode === "read_only" ? "session.prompt.readonly" : "session.prompt.fullaccess";
@@ -1924,13 +1924,13 @@ router.post("/:id/prompt", async (c) => {
   }
 
   const requestedModel = body.model?.trim() || null;
-  const requestedProvider = body.provider?.trim() || (requestedModel && body.harness !== "pi" && body.harness !== "codex" ? "cohub" : null);
-  if (mode !== "immediate" && (body.harness === "pi" || body.harness === "codex")) return c.json({ message: "Local Harness scheduling is unavailable" }, 422);
+  const localHarness = isLocalHarness(body.harness);
+  const requestedProvider = body.provider?.trim() || (requestedModel && !localHarness ? "cohub" : null);
+  if (mode !== "immediate" && localHarness) return c.json({ message: "Local Harness scheduling is unavailable" }, 422);
   if (
     requestedModel &&
     requestedProvider &&
-    body.harness !== "pi" &&
-    body.harness !== "codex" &&
+    !localHarness &&
     !(await validatePromptModel({ userId: user.uuid, provider: requestedProvider, model: requestedModel }))
   ) {
     return c.json({ code: "model_unavailable", message: "requested model is not available" }, 422);

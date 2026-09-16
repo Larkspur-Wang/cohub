@@ -36,7 +36,7 @@ import { env } from "./env.js";
 import { logger } from "./logger.js";
 import { getPromptAuthScopes, parsePromptEnv, type PromptAccessMode } from "@cohub/core/sessions";
 import { createAgentExecutionToken } from "./execution-grants.js";
-import { resolveHarness } from "@cohub/protocol";
+import { isLocalHarness, resolveHarness } from "@cohub/protocol";
 import { executeRemoteHarnessTurn, RuntimeExecutionUncertainError } from "./runtime/remote-runtime.js";
 import { loadRuntimeContext } from "./runtime/context-store.js";
 import { scheduleHarnessArchive } from "./runtime/archive-dispatch.js";
@@ -900,7 +900,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
       }
       lock.signal.throwIfAborted();
       const requestedHarness = resolveHarness(ownerMeta);
-      if (requestedHarness === "pi" || requestedHarness === "codex") {
+      if (isLocalHarness(requestedHarness)) {
         if (fileVisibility !== "full") throw new Error("Local Harness requires full workspace access");
         const remoteController = new AbortController();
         activeTurn = { id: batch.ownerTurn.id, controller: remoteController };

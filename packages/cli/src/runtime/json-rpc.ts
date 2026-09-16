@@ -1,5 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
+import { RUNTIME_MAX_FRAME_BYTES } from "@neta-art/cohub";
 import { stopProcessGroup } from "./process-group.js";
 
 export type JsonRecord = Record<string, unknown>;
@@ -10,7 +11,7 @@ export class JsonLineDecoder {
   private decoder = new StringDecoder("utf8");
   private fragments: string[] = [];
   private bytes = 0;
-  constructor(private onValue: (value: JsonRecord) => void, private maxBytes = 32 * 1024 * 1024) {}
+  constructor(private onValue: (value: JsonRecord) => void, private maxBytes = RUNTIME_MAX_FRAME_BYTES) {}
   private append(fragment: string) {
     this.bytes += Buffer.byteLength(fragment);
     if (this.bytes > this.maxBytes) throw new Error("RPC frame is too large");
@@ -83,7 +84,7 @@ export class JsonRpcProcess {
   write(value: unknown) {
     if (this.failure) throw this.failure;
     const data = `${JSON.stringify(value)}\n`;
-    if (this.child.stdin.writableLength + Buffer.byteLength(data) > 32 * 1024 * 1024) throw new Error("RPC input backpressure limit exceeded");
+    if (this.child.stdin.writableLength + Buffer.byteLength(data) > RUNTIME_MAX_FRAME_BYTES) throw new Error("RPC input backpressure limit exceeded");
     this.child.stdin.write(data);
   }
   request(method: string, params: JsonRecord = {}, timeoutMs = 30_000): Promise<JsonRecord> {

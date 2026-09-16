@@ -226,10 +226,6 @@ export function turnRecordToIndexItem(
 			? normalizeWhitespace(turn.assistantText)
 			: null,
 		provider: turn.provider,
-		harness:
-			turn.meta?.harness === "pi" || turn.meta?.harness === "codex"
-				? turn.meta.harness
-				: "cohub",
 		model: turn.model,
 		finalUsage: turn.finalUsage,
 		totalUsage: turn.totalUsage,

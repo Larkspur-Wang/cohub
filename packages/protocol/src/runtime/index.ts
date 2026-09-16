@@ -9,11 +9,11 @@ export const RUNTIME_MAX_FRAME_BYTES = 32 * 1024 * 1024;
 export const runtimeRegistrationKey = (spaceId: string) => `runtime:space:${spaceId}`;
 export const harnessSchema = z.enum(["cohub", "pi", "codex"]);
 export type HarnessKind = z.infer<typeof harnessSchema>;
-export type RuntimeKind = "cloud" | "local";
 export type LocalHarness = Exclude<HarnessKind, "cohub">;
+export const isLocalHarness = (value: unknown): value is LocalHarness => value === "pi" || value === "codex";
 export const resolveHarness = (meta: unknown): HarnessKind => {
   const value = meta && typeof meta === "object" ? (meta as { harness?: unknown }).harness : null;
-  return value === "pi" || value === "codex" ? value : "cohub";
+  return isLocalHarness(value) ? value : "cohub";
 };
 
 export type HarnessArchiveIndex = {
@@ -63,7 +63,6 @@ export const runtimeCapabilitiesSchema = z.object({
     provider: z.string().max(100),
     id: z.string().min(1).max(255),
     name: z.string().max(255),
-    thinkingLevels: z.array(z.string().max(30)).max(12).optional(),
   })).max(2000),
 });
 export type RuntimeCapabilities = z.infer<typeof runtimeCapabilitiesSchema>;
@@ -157,7 +156,7 @@ export const runtimeEventSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("turn.error"), message: z.string().max(16_384), uncertain: z.boolean().optional() }),
 ]);
 export const runtimeClientFrameSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("runtime.hello"), version: z.literal(1), spaceId: id, token: z.string().min(1).max(16_384), capabilities: runtimeCapabilitiesSchema }),
+  z.object({ type: z.literal("runtime.hello"), version: z.literal(RUNTIME_PROTOCOL_VERSION), spaceId: id, token: z.string().min(1).max(16_384), capabilities: runtimeCapabilitiesSchema }),
   z.object({ type: z.literal("runtime.heartbeat") }),
   z.object({ type: z.literal("runtime.auth"), token: z.string().min(1).max(16_384) }),
   z.object({ type: z.literal("runtime.event"), requestId: id, event: runtimeEventSchema }),

@@ -1,6 +1,6 @@
 export {
   RUNTIME_PROTOCOL_VERSION, RUNTIME_MAX_FRAME_BYTES, runtimeCommandSchema, runtimeEventSchema, runtimeReadySchema,
-  contextToPiMessages, contextToTranscript, resolveHarness,
+  contextToPiMessages, contextToTranscript, isLocalHarness, resolveHarness,
 } from "@cohub/protocol";
 export type {
   HarnessKind, LocalHarness, RuntimeCapabilities, RuntimeCommand, RuntimeContext,

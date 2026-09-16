@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { stat } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
-import { resolveCohubEnvironment, resolveWebsocketUrl } from "@neta-art/cohub";
+import { isLocalHarness, resolveCohubEnvironment, resolveWebsocketUrl } from "@neta-art/cohub";
 import type { Command } from "commander";
 import { requireAccessToken } from "../auth.js";
 import { createClient } from "../client.js";
@@ -18,7 +18,7 @@ export const resolveLocalSpaceName = (root: string, name?: string) => name?.trim
 type Options = { space?: string; name?: string; harness: string[]; pi?: string; codex?: string; yes?: boolean; json?: boolean };
 export function parseRuntimeHarnesses(values: string[]): ("pi" | "codex")[] {
   const names = values.flatMap((value) => value.split(",")).map((name) => name.trim()).filter(Boolean);
-  if (names.some((name) => name !== "pi" && name !== "codex")) throw new Error("Harness must be pi or codex / Harness 必须是 pi 或 codex");
+  if (names.some((name) => !isLocalHarness(name))) throw new Error("Harness must be pi or codex / Harness 必须是 pi 或 codex");
   return [...new Set(names.length ? names : ["pi"])] as ("pi" | "codex")[];
 }
 

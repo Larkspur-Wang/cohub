@@ -1,5 +1,6 @@
 <script lang="ts">
 import type { ContentBlock } from "@cohub/protocol/core";
+import { resolveHarness } from "@neta-art/cohub";
 import { Check, Copy, GitFork, Loader2 } from "lucide-svelte";
 import MessageContentFlow from "$lib/components/MessageContentFlow.svelte";
 import UserIdentity from "$lib/components/UserIdentity.svelte";
@@ -280,6 +281,15 @@ const requestedThinkingLevelShort = $derived(
 		: "",
 );
 
+// Local Harness runs (Pi / Codex) mark the execution origin; cloud turns stay unlabelled.
+const harness = $derived(resolveHarness(turnMeta));
+const harnessLabel = $derived(
+	harness === "pi" ? "Pi" : harness === "codex" ? "Codex" : "",
+);
+const harnessTitle = $derived(
+	`${harnessLabel} · ${m.runtime_local({}, { locale })}`,
+);
+
 const hasDuration = $derived.by(() => {
 	const durationMs = message.meta?.durationMs;
 	return (
@@ -515,7 +525,7 @@ function handleCopy() {
 
     </div>
 
-    {#if (message.role === 'assistant' && (message.meta?.model || hasUsage || hasDuration || timeDisplay)) || (message.role === 'user' && timeDisplay)}
+    {#if (message.role === 'assistant' && (message.meta?.model || hasUsage || hasDuration || timeDisplay || harnessLabel)) || (message.role === 'user' && timeDisplay)}
       <!-- Meta bar: copy | identity/model | tokens | time -->
       <div class="mt-1 flex items-center gap-1 px-2 text-[11px] text-text-placeholder/50 select-none">
         <!-- Copy button -->
@@ -572,6 +582,10 @@ function handleCopy() {
 							: m.chat_not_sent_to_agent({}, { locale })}>{m.chat_cancelled({}, { locale })}</span>
           {/if}
         {:else}
+          {#if harnessLabel}
+            <span class="shrink-0 rounded-[3px] bg-bg-hover-strong px-1.5 py-px text-[10px] font-medium leading-none text-text-tertiary" title={harnessTitle}>{harnessLabel}</span>
+          {/if}
+
           <!-- Model (truncates when space is tight) -->
           {#if modelDisplayName}
             <span class="min-w-0 truncate cursor-default" title={modelHoverText}>

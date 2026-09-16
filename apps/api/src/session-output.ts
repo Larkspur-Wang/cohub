@@ -19,6 +19,10 @@ import { toRealtimeMessageRecord, toRealtimeTurnRecord } from "./realtime-events
 
 
 const logger = createLogger({ serviceName: "cohub-api" });
+
+const messageTurnId = (message: MessageRecord) =>
+  typeof message.meta?.turnId === "string" && message.meta.turnId ? message.meta.turnId : null;
+
 export const buildSessionOutputsForPersistedMessage = async (input: {
   spaceId: string;
   sessionId: string;
@@ -51,9 +55,6 @@ const shouldClearStreamSnapshotForMessage = (message: MessageRecord) => {
   const kind = message.meta?.messageKind;
   return kind === "assistant_final" || kind === "assistant_error" || message.stopReason === "aborted";
 };
-
-const messageTurnId = (message: MessageRecord) =>
-  typeof message.meta?.turnId === "string" && message.meta.turnId ? message.meta.turnId : null;
 
 const dispatchSessionOutputToRealtime = async (output: GatewaySessionOutput) => {
   if (output.type === "session.turn.error") {

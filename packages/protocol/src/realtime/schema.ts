@@ -1,9 +1,10 @@
 import { z } from "zod";
 import { contentBlockSchema } from "../core/content-schema.js";
-export { contentBlockSchema } from "../core/content-schema.js";
+import { harnessSchema } from "../runtime/index.js";
 import type { RealtimeCompactFrame, RealtimeEnvelope, RealtimeRoom } from "./types.js";
 import { REALTIME_DOMAINS, REALTIME_ROOM_EVENT_NAME_PATTERN } from "./types.js";
 import { BoardAwarenessClientPayloadSchema } from "./board-awareness.js";
+export { contentBlockSchema } from "../core/content-schema.js";
 export type * from "./types.js";
 
 const realtimeRoomSchema = z.string().regex(/^(space|user|board|room):[^:]+$/);
@@ -41,7 +42,7 @@ export const wsClientEventSchema = z.discriminatedUnion("type", [
       content: z.array(contentBlockSchema).min(1),
       model: z.string().optional(),
       provider: z.string().optional(),
-      harness: z.enum(["cohub", "pi", "codex"]).optional(),
+      harness: harnessSchema.optional(),
       thinkingLevel: z.enum(["off", "minimal", "low", "medium", "high", "xhigh", "max"]).optional(),
     }),
   }),

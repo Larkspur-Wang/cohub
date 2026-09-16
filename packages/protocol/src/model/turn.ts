@@ -1,7 +1,7 @@
 import type { ContentBlock } from "../core/content.js";
 import type { Usage } from "../core/usage.js";
 import type { ModelThinkingLevel } from "./completion.js";
-import type { HarnessArchiveIndex, HarnessKind, RuntimeKind } from "../runtime/index.js";
+import type { HarnessArchiveIndex } from "../runtime/index.js";
 export type { HarnessArchiveIndex } from "../runtime/index.js";
 
 export type SessionTurnStatus =
@@ -15,11 +15,6 @@ export type SessionTurnStatus =
   | "cancelled";
 export type SessionTurnIntent = "steer" | "followup" | "compact";
 export type SessionTurnExecutionKind = "agent" | "direct_generation";
-
-export type SessionTurnExecution = {
-  harness: HarnessKind;
-  runtime: RuntimeKind;
-};
 
 export type SessionTurnSummary = {
   text?: string | null;
@@ -164,7 +159,6 @@ export type SessionTurnAuthorProfile = {
 };
 
 export type SessionTurnIndexItem = {
-  harness?: HarnessKind;
   id: string;
   sessionId: string;
   sourceSessionId?: string;

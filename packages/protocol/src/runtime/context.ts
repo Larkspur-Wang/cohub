@@ -1,7 +1,7 @@
 import type { ContentBlock } from "../core/content.js";
 import type { RuntimeContextMessage } from "./index.js";
 
-const emptyUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
+const createEmptyUsage = () => ({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } });
 
 function textOrImage(block: ContentBlock): Record<string, unknown> {
   if (block.type === "text") return { type: "text", text: block.text };
@@ -47,7 +47,7 @@ export function contextToPiMessages(messages: RuntimeContextMessage[]): Record<s
     });
     if (content.length) result.push({
       role: "assistant", content, api: "openai-responses", provider: message.provider ?? "cohub",
-      model: message.model ?? "history", usage: emptyUsage, stopReason: calls.size ? "toolUse" : "stop", timestamp: 0, meta,
+      model: message.model ?? "history", usage: createEmptyUsage(), stopReason: calls.size ? "toolUse" : "stop", timestamp: 0, meta,
     });
     for (const block of message.content) {
       if (block.type !== "tool_result") continue;

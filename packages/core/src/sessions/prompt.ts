@@ -3,6 +3,7 @@ import type { ContentBlock } from "@cohub/protocol/core";
 import type { GenerationPolicy } from "@cohub/protocol/generation";
 import type { SessionTurnIntent } from "@cohub/protocol/model";
 import { isRequestSourceClientId } from "@cohub/protocol/provenance";
+import { harnessSchema, isLocalHarness } from "@cohub/protocol/runtime";
 import { normalizeContentBlocks } from "../content/normalize.js";
 import type { PromptEnv } from "./prompt-env.js";
 
@@ -288,7 +289,7 @@ function normalizePromptModelProvider(input: Pick<SubmitSessionPromptInput, "mod
   const provider = input.provider?.trim() || null;
   return {
     model,
-    provider: provider ?? (model && input.harness !== "pi" && input.harness !== "codex" ? "cohub" : null),
+    provider: provider ?? (model && !isLocalHarness(input.harness) ? "cohub" : null),
   };
 }
 
@@ -366,9 +367,9 @@ export const submitSessionPrompt = async (
   if (!Array.isArray(input.content) || input.content.length === 0) throw new Error("content is required");
 
   const modelProvider = normalizePromptModelProvider(input);
-  if (input.harness != null && !["cohub", "pi", "codex"].includes(input.harness)) throw new Error("Invalid Harness");
-  const isLocalHarness = input.harness === "pi" || input.harness === "codex";
-  if (isLocalHarness) {
+  if (input.harness != null && !harnessSchema.safeParse(input.harness).success) throw new Error("Invalid Harness");
+  const localHarness = isLocalHarness(input.harness);
+  if (localHarness) {
     if (input.harness === "pi" && input.accessMode === "read_only") throw new Error("Pi cannot enforce read-only access");
     if (input.env && Object.keys(input.env).length) throw new Error("Local Harness uses its native environment; per-turn environment overrides are unavailable");
     if (!deps.validateLocalHarness) throw new Error("Local Harness execution is unavailable on this prompt entry point");
@@ -384,7 +385,7 @@ export const submitSessionPrompt = async (
     modelProvider.model &&
     modelProvider.provider &&
     !modelPrevalidated &&
-    !isLocalHarness &&
+    !localHarness &&
     deps.validatePromptModel &&
     !(await deps.validatePromptModel({ userId, provider: modelProvider.provider, model: modelProvider.model }))
   ) {
@@ -403,7 +404,7 @@ export const submitSessionPrompt = async (
     });
   }
 
-  const { content: expandedContent, promptTemplate, skillUsage } = isLocalHarness
+  const { content: expandedContent, promptTemplate, skillUsage } = localHarness
     ? { content: input.content, promptTemplate: null, skillUsage: null }
     : await expandPromptContent(deps, {
     content: input.content,
@@ -426,7 +427,7 @@ export const submitSessionPrompt = async (
   const turnIntent: SessionTurnIntent = isDirectShellCommand ? "steer" : (input.intent ?? "followup");
   const userMessageId = deps.randomUUID();
   const requestedThinkingLevel = typeof input.thinkingLevel === "string" && VALID_THINKING_LEVELS.has(input.thinkingLevel.trim()) ? input.thinkingLevel.trim() : undefined;
-  const billingDecision: BillingAccessDecision | null = isDirectShellCommand || isLocalHarness
+  const billingDecision: BillingAccessDecision | null = isDirectShellCommand || localHarness
     ? null
     : (await deps.billingUsageGate?.evaluate({
       userId,

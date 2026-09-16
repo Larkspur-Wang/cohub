@@ -1,5 +1,5 @@
 import { setTimeout as delay } from "node:timers/promises";
-import { RUNTIME_MAX_FRAME_BYTES, runtimeCommandSchema, runtimeReadySchema, type RuntimeCapabilities, type RuntimeExecutionEvent, type RuntimeContext } from "@neta-art/cohub";
+import { RUNTIME_MAX_FRAME_BYTES, RUNTIME_PROTOCOL_VERSION, runtimeCommandSchema, runtimeReadySchema, type RuntimeCapabilities, type RuntimeExecutionEvent, type RuntimeContext } from "@neta-art/cohub";
 import { executeCodex, executePi, type HarnessOptions, type HarnessResult } from "./harness.js";
 import { ProcessCleanupUncertainError } from "./process-group.js";
 import { ContextRequiredError, type RuntimeSessionStore } from "./session-store.js";
@@ -68,7 +68,7 @@ async function connect(options: RuntimeConnectionOptions): Promise<"retry" | "fa
   });
   socket.addEventListener("error", () => socket.close());
   socket.addEventListener("open", () => {
-    try { send({ type: "runtime.hello", version: 1, spaceId: options.spaceId, token, capabilities: options.capabilities }); } catch { stop(); }
+    try { send({ type: "runtime.hello", version: RUNTIME_PROTOCOL_VERSION, spaceId: options.spaceId, token, capabilities: options.capabilities }); } catch { stop(); }
   });
   socket.addEventListener("message", (event) => {
     void (async () => {

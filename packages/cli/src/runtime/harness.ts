@@ -37,6 +37,26 @@ async function initializeCodex(rpc: JsonRpcProcess) {
   rpc.write({ method: "initialized", params: {} });
 }
 
+/** Ask the native process to stop, then hard-close it if the request does not settle quickly. */
+function createAbortEscalation(rpc: JsonRpcProcess, signal: AbortSignal, interrupt: () => void) {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const abort = () => {
+    interrupt();
+    timer ??= setTimeout(() => { void rpc.close().catch(() => undefined); }, 5000);
+  };
+  signal.addEventListener("abort", abort, { once: true });
+  return {
+    abort,
+    clear: () => { signal.removeEventListener("abort", abort); if (timer) clearTimeout(timer); },
+  };
+}
+
+/** Native files stay authoritative; archival failure only degrades cross-host resume. */
+async function finishHarnessTurn(store: RuntimeSessionStore, state: NativeSession, message: RuntimeMessage, resume: HarnessResult["event"]["resume"], turnId: string): Promise<HarnessResult> {
+  const archive = await store.archive(state, turnId).catch((error) => { console.error("Native archive unavailable; local files retained:", error); return null; });
+  return { state, event: { type: "turn.end", message, resume, archive } };
+}
+
 export async function discoverHarnesses(harnesses: ("pi" | "codex")[], options: HarnessOptions, cwd: string): Promise<RuntimeCapabilities> {
   const models: RuntimeCapabilities["models"] = [];
   await Promise.all(harnesses.map(async (harness) => {
@@ -76,12 +96,7 @@ export async function executePi(input: RuntimeTurnInput, options: HarnessOptions
   let ordinal = -1;
   let currentContent: ContentBlock[] = [];
   let last: RuntimeMessage = { ordinal: 0, content: [] };
-  let abortTimer: ReturnType<typeof setTimeout> | null = null;
-  const abort = () => {
-    void rpc.request("abort").catch(() => undefined);
-    abortTimer ??= setTimeout(() => { void rpc.close().catch(() => undefined); }, 5000);
-  };
-  signal.addEventListener("abort", abort, { once: true });
+  const abortEscalation = createAbortEscalation(rpc, signal, () => { void rpc.request("abort").catch(() => undefined); });
   try {
     if (input.model) {
       let provider = input.provider;
@@ -152,12 +167,11 @@ export async function executePi(input: RuntimeTurnInput, options: HarnessOptions
     if (!state.pendingTurnId) throw error;
     last = { ...last, stopReason: signal.aborted ? "aborted" : "error", errorMessage: signal.aborted ? null : error instanceof Error ? error.message : String(error) };
   } finally {
-    signal.removeEventListener("abort", abort);
-    if (abortTimer) clearTimeout(abortTimer);
+    abortEscalation.clear();
     await rpc.close();
   }
   if (signal.aborted) last = { ...last, stopReason: "aborted" };
-  return { state, event: { type: "turn.end", message: last, resume, archive: await store.archive(state, input.turnId).catch((error) => { console.error("Native archive unavailable; local files retained:", error); return null; }) } };
+  return finishHarnessTurn(store, state, last, resume, input.turnId);
 }
 
 export function codexItemContent(item: JsonRecord): ContentBlock[] {
@@ -193,12 +207,9 @@ export async function executeCodex(input: RuntimeTurnInput, options: HarnessOpti
     const item = [...items.entries()].find(([id]) => ordinals.get(id) === ordinal)?.[1];
     return { ordinal: Math.max(0, ordinal), content: item ? codexItemContent(item) : [] };
   };
-  let abortTimer: ReturnType<typeof setTimeout> | null = null;
-  const abort = () => {
+  const abortEscalation = createAbortEscalation(rpc, signal, () => {
     if (nativeTurnId) void rpc.request("turn/interrupt", { threadId: state.nativeSessionId, turnId: nativeTurnId }).catch(() => undefined);
-    abortTimer ??= setTimeout(() => { void rpc.close().catch(() => undefined); }, 5000);
-  };
-  signal.addEventListener("abort", abort, { once: true });
+  });
   try {
     await initializeCodex(rpc);
     const threadOptions = {
@@ -240,7 +251,7 @@ export async function executeCodex(input: RuntimeTurnInput, options: HarnessOpti
             return;
           }
           if (params.threadId !== state.nativeSessionId) return;
-          if (method === "turn/started") { nativeTurnId = text(record(params.turn).id); if (signal.aborted) abort(); }
+          if (method === "turn/started") { nativeTurnId = text(record(params.turn).id); if (signal.aborted) abortEscalation.abort(); }
           if (method === "thread/tokenUsage/updated" && nativeTurnId && params.turnId === nativeTurnId) {
             const nativeUsage = record(params.tokenUsage);
             const total = codexTokenTotals(nativeUsage.total);
@@ -309,18 +320,17 @@ export async function executeCodex(input: RuntimeTurnInput, options: HarnessOpti
         } catch (error) { off(); offFailure(); reject(error); }
       });
       void rpc.request("turn/start", { threadId: state.nativeSessionId, clientUserMessageId: input.userMessageId, input: content, ...(input.thinkingLevel ? { effort: input.thinkingLevel } : {}) })
-        .then((result) => { nativeTurnId = text(record(result.turn).id); if (signal.aborted) abort(); })
+        .then((result) => { nativeTurnId = text(record(result.turn).id); if (signal.aborted) abortEscalation.abort(); })
         .catch((error) => { off(); offFailure(); reject(error); });
     });
   } catch (error) {
     if (!state.pendingTurnId) throw error;
     final = { ...latestMessage(), stopReason: signal.aborted ? "aborted" : "error", errorMessage: signal.aborted ? null : error instanceof Error ? error.message : String(error) };
   } finally {
-    signal.removeEventListener("abort", abort);
-    if (abortTimer) clearTimeout(abortTimer);
+    abortEscalation.clear();
     await rpc.close();
   }
   if (signal.aborted) final = { ...final, stopReason: "aborted" };
   if (usage) final = { ...final, usage };
-  return { state, event: { type: "turn.end", message: final, resume, archive: await store.archive(state, input.turnId).catch((error) => { console.error("Native archive unavailable; local files retained:", error); return null; }) } };
+  return finishHarnessTurn(store, state, final, resume, input.turnId);
 }

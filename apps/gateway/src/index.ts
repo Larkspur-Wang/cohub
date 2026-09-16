@@ -9,6 +9,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { httpInstrumentationMiddleware } from "@hono/otel";
 import { WebSocketServer, type RawData, type WebSocket } from "ws";
+import { isLocalHarness } from "@cohub/protocol/runtime";
 import type { ContentBlock } from "@cohub/protocol/core";
 import type {
   RealtimeCompactFrame,
@@ -792,7 +793,7 @@ const submitWebsocketSessionMessage = async (ctx: WsConnectionContext, requestId
     source: "websocket",
     model,
     provider,
-    harness: payload.harness === "pi" || payload.harness === "codex" ? payload.harness : "cohub",
+    harness: isLocalHarness(payload.harness) ? payload.harness : "cohub",
     thinkingLevel,
     context: {
       kind: "websocket",
