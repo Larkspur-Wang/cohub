@@ -4,6 +4,22 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v2.51 — 2026-09-17
+
+- **Local Runtime**: `cohub runtime up|status` connects a local workspace to a Space and runs turns on local Pi or Codex harnesses chosen per turn — sessions, turns, streaming and resumption stay on the existing Cohub pipeline, with disconnect reconciliation that never replays model or tool work. It replaces the removed `cohub sandbox up|status` commands (requires Node.js 24+).
+- **Structured App authorization**: `client.auth.authorize()` returns explicit targets, viewer-controlled fallback, resolution and the authoritative grant, backed by host capability negotiation, incremental consent (`scopeMode: "extend"`) and login recovery resolved before loading Spaces. Legacy `auth.request`/`requestSpace`/`requestCreateSpace` keep their original return shapes with no database migration, and the CLI gains `apps authorize --extend`.
+- **Unified preview surfaces**: file, board, port and app previews now render through one shared `PreviewHeader` (dock, mobile and float variants from a single action model), and a single `FileContentPreview` renderer serves both workspace files and published file Apps; PDF controls reveal on reader activity instead of permanently covering the document.
+- **Bounded runtime batches and prompt purity**: queued follow-ups merge into one ordered batch owned by the final turn (its harness, model and authorization; any read-only input makes the whole batch read-only), batch size is bounded at claim and protocol level, and platform content is no longer injected into prompt text — blocks without a native form are dropped while the durable copy stays in the platform.
+- **Durable archive pipeline**: Cloud sessions stop snapshotting native files and rebuild from durable DB history and compaction boundaries, local native sessions stream as content-addressed segments uploaded and restored directly against object storage via presigned URLs, and a durable outbox retries background recovery with segment-cache reuse and quarantine for receipts that can never succeed.
+
+### Bug Fixes
+
+- A confirmed stop now overrides a completed local result, retiring the native projection instead of continuing down the lost-acknowledgement resume path.
+- Preview overflow and control popovers render on a real surface, and the resource label picker anchors to the stable menu trigger instead of an unmounting item that left it invisible.
+- Floated preview nodes stay out of document flow from creation, so an unmeasurable anchor can no longer grow the page and introduce a scrollbar.
+- Byte formatting converges on the shared `$lib/format-bytes` helper, fixing the NaN and `500.0 B` divergences between file surfaces.
+- The shared PDF branch is gated on having a source, restoring the neutral fallback for URL-missing files.
+
 ## v2.50 — 2026-09-15
 
 - **Generation SDK 0.1.30**: Upgraded `@neta-art/generation` across API, worker, infra, protocol, and CLI. Suno Chirp Fenix music prompts now map to `gpt_description_prompt`, so natural-language requests use Suno's automatic songwriting; pass explicit lyrics through the new `meta.lyrics` field.
