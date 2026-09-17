@@ -30,10 +30,10 @@ export async function importNativeArchive(input: {
   const writeHeader = async () => {
     const header = JSON.parse(Buffer.concat(fragments).toString("utf8"));
     if (input.harness === "pi") {
-      if (header?.type !== "session" || header.id !== input.nativeSessionId) throw new Error("Pi archive identity mismatch / Pi 归档身份不匹配");
+      if (header?.type !== "session" || header.id !== input.nativeSessionId) throw new Error("Pi archive identity mismatch");
       header.cwd = input.cwd; delete header.parentSession;
     } else {
-      if (header?.type !== "session_meta" || header.payload?.id !== input.nativeSessionId) throw new Error("Codex archive identity mismatch / Codex 归档身份不匹配");
+      if (header?.type !== "session_meta" || header.payload?.id !== input.nativeSessionId) throw new Error("Codex archive identity mismatch");
       header.payload.id = input.id;
       if (header.payload.session_id != null) header.payload.session_id = input.id;
       header.payload.history_mode = "legacy";
@@ -49,7 +49,7 @@ export async function importNativeArchive(input: {
       const newline = bytes.indexOf(10);
       const prefix = newline < 0 ? bytes : bytes.subarray(0, newline);
       headerBytes += prefix.length;
-      if (headerBytes > RUNTIME_MAX_FRAME_BYTES) throw new Error("Native header is too large / 原生文件头过大");
+      if (headerBytes > RUNTIME_MAX_FRAME_BYTES) throw new Error("Native header is too large");
       fragments.push(prefix);
       if (newline >= 0) { await writeHeader(); await write(bytes.subarray(newline + 1)); }
     }

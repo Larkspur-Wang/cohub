@@ -53,7 +53,7 @@ test("outbox retries after restart without another turn; corrupt downloads never
     const target = join(root, "target");
     await writeFile(target, "original");
     const cold = new RuntimeArchiveStore(join(root, "cold"), storage.transport);
-    await assert.rejects(cold.restore(reference, target), /checksum|校验|大小/);
+    await assert.rejects(cold.restore(reference, target), /checksum mismatch/);
     assert.equal(await readFile(target, "utf8"), "original");
     assert.equal((await readdir(root)).some((name) => name.endsWith(".restoring")), false);
   } finally { await storage.close(); await rm(root, { recursive: true, force: true }); }

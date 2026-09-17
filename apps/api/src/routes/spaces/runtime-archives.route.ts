@@ -27,7 +27,7 @@ const key = (spaceId: string, index: HarnessArchiveIndex, sha: string) =>
 const storedIndex = (value: unknown, sessionId: string, turnId: string): HarnessArchiveIndex => {
   const parsed = harnessArchiveIndexSchema.safeParse(value);
   if (!parsed.success || parsed.data.sessionId !== sessionId || parsed.data.turnId !== turnId) {
-    return fail(409, "Archive index unavailable / 归档索引不可用");
+    return fail(409, "Archive index unavailable");
   }
   return parsed.data;
 };
@@ -40,7 +40,7 @@ async function segmentExists(spaceId: string, index: HarnessArchiveIndex, segmen
     throw error;
   });
   if (object?.ContentLength == null) return false;
-  if (object.ContentLength !== segment.sizeBytes || object.ETag?.replaceAll('"', "").toLowerCase() !== segment.md5) fail(409, "Archive segment mismatch / 归档分段校验失败");
+  if (object.ContentLength !== segment.sizeBytes || object.ETag?.replaceAll('"', "").toLowerCase() !== segment.md5) fail(409, "Archive segment mismatch");
   return true;
 }
 
@@ -48,19 +48,19 @@ async function turnInSpace(spaceId: string, sessionId: string, turnId: string) {
   const [row] = await db.select({ id: sessionTurns.id, sequence: sessionTurns.sequence, status: sessionTurns.status, meta: sessionTurns.meta, harnessIndex: sessionTurns.harnessIndex }).from(sessionTurns)
     .innerJoin(spaceSessions, eq(spaceSessions.id, sessionTurns.sessionId))
     .where(and(eq(spaceSessions.spaceId, spaceId), eq(sessionTurns.sessionId, sessionId), eq(sessionTurns.id, turnId))).limit(1);
-  return row ?? fail(404, "Turn not found / Turn 不存在");
+  return row ?? fail(404, "Turn not found");
 }
 async function validateOwner(spaceId: string, userId: string, index: HarnessArchiveIndex) {
   const turn = await turnInSpace(spaceId, index.sessionId, index.turnId);
   const recovery = readRuntimeRecovery(turn.meta);
-  if (recovery?.ownerUserId !== userId || (turn.meta as { harness?: unknown } | null)?.harness !== index.harness) fail(403, "Runtime owner mismatch / Runtime 身份不匹配");
-  if (recovery?.state === "confirmed_stopped") fail(409, "Execution was resolved / 执行已被人工处置");
+  if (recovery?.ownerUserId !== userId || (turn.meta as { harness?: unknown } | null)?.harness !== index.harness) fail(403, "Runtime owner mismatch");
+  if (recovery?.state === "confirmed_stopped") fail(409, "Execution was resolved");
   const parent = index.parentTurnId ? await turnInSpace(spaceId, index.sessionId, index.parentTurnId) : null;
-  if (parent && (parent.sequence >= turn.sequence || readRuntimeRecovery(parent.meta)?.state === "confirmed_stopped" || !parent.harnessIndex)) fail(409, "Archive parent is not ready / 归档前置版本未就绪");
+  if (parent && (parent.sequence >= turn.sequence || readRuntimeRecovery(parent.meta)?.state === "confirmed_stopped" || !parent.harnessIndex)) fail(409, "Archive parent is not ready");
   const parentIndex = parent ? storedIndex(parent.harnessIndex, index.sessionId, parent.id) : null;
   if (turn.harnessIndex) storedIndex(turn.harnessIndex, index.sessionId, turn.id);
   try { validateArchiveBoundary(index, parentIndex); }
-  catch { fail(400, "Invalid archive boundary / 归档边界无效"); }
+  catch { fail(400, "Invalid archive boundary"); }
   return turn;
 }
 
@@ -68,18 +68,18 @@ router.use("*", bodyLimit({ maxSize: 128 * 1024 }));
 router.post("/prepare", async (c) => {
   const user = useAuth(c); if (user instanceof Response) return user;
   const spaceId = c.req.param("id") ?? "";
-  if (!requireValidId(spaceId)) return c.json({ message: "Invalid Space / Space 无效" }, 400);
+  if (!requireValidId(spaceId)) return c.json({ message: "Invalid Space" }, 400);
   if (!await hasPermission(user, "sandbox.manage", { spaceId })) return authzDenied(c);
   const parsed = harnessArchiveIndexSchema.safeParse(await c.req.json().catch(() => null));
-  if (!parsed.success) return c.json({ message: "Invalid archive / 归档无效" }, 400);
+  if (!parsed.success) return c.json({ message: "Invalid archive" }, 400);
   const index = parsed.data;
   const turn = await validateOwner(spaceId, user.uuid, index);
-  if (turn.harnessIndex && digest(turn.harnessIndex) !== digest(index)) fail(409, "Archive already finalized / 归档已确认");
+  if (turn.harnessIndex && digest(turn.harnessIndex) !== digest(index)) fail(409, "Archive already finalized");
   try { await consumeSpaceUploadQuota(user.uuid, Math.max(1, index.segments.length)); }
   catch (error) {
     if (!(error instanceof SpaceUploadRateLimitError)) throw error;
     c.header("Retry-After", String(error.retryAfterSeconds));
-    return c.json({ message: "Archive upload rate limited / 归档上传频率受限", retryAfterSeconds: error.retryAfterSeconds }, 429);
+    return c.json({ message: "Archive upload rate limited", retryAfterSeconds: error.retryAfterSeconds }, 429);
   }
   const uploads: RuntimeArchiveUpload[] = [];
   const unique = [...new Map(index.segments.map((segment) => [segment.sha256, segment])).values()];
@@ -99,21 +99,21 @@ router.post("/prepare", async (c) => {
 router.post("/commit", async (c) => {
   const user = useAuth(c); if (user instanceof Response) return user;
   const spaceId = c.req.param("id") ?? "";
-  if (!requireValidId(spaceId)) return c.json({ message: "Invalid Space / Space 无效" }, 400);
+  if (!requireValidId(spaceId)) return c.json({ message: "Invalid Space" }, 400);
   if (!await hasPermission(user, "sandbox.manage", { spaceId })) return authzDenied(c);
   const parsed = harnessArchiveIndexSchema.safeParse(await c.req.json().catch(() => null));
-  if (!parsed.success) return c.json({ message: "Invalid archive / 归档无效" }, 400);
+  if (!parsed.success) return c.json({ message: "Invalid archive" }, 400);
   const index = parsed.data;
   const turn = await validateOwner(spaceId, user.uuid, index);
   if (turn.harnessIndex) {
-    if (digest(turn.harnessIndex) !== digest(index)) fail(409, "Archive already finalized / 归档已确认");
+    if (digest(turn.harnessIndex) !== digest(index)) fail(409, "Archive already finalized");
   } else {
-    if (!await redisCommandClient.get(ticketKey(spaceId, user.uuid, index))) fail(409, "Upload authorization expired / 上传授权已过期");
-    if (!["completed", "failed", "interrupted"].includes(turn.status)) fail(409, "Turn result is pending / Turn 结果未确认");
+    if (!await redisCommandClient.get(ticketKey(spaceId, user.uuid, index))) fail(409, "Upload authorization expired");
+    if (!["completed", "failed", "interrupted"].includes(turn.status)) fail(409, "Turn result is pending");
     // Single PUT objects: storage validates the signed Content-MD5, HEAD confirms those bytes.
     for (let start = 0; start < index.segments.length; start += 4) {
       await Promise.all(index.segments.slice(start, start + 4).map(async (segment) => {
-        if (!await segmentExists(spaceId, index, segment)) fail(409, "Archive segment missing / 归档分段缺失");
+        if (!await segmentExists(spaceId, index, segment)) fail(409, "Archive segment missing");
       }));
     }
     const [updated] = await db.update(sessionTurns).set({ harnessIndex: index,
@@ -122,7 +122,7 @@ router.post("/commit", async (c) => {
       sql`${sessionTurns.harnessIndex} is null`, sql`${sessionTurns.meta}->'runtimeRecovery'->>'ownerUserId' = ${user.uuid}`)).returning({ id: sessionTurns.id });
     if (!updated) {
       const current = await validateOwner(spaceId, user.uuid, index);
-      if (!current.harnessIndex || digest(current.harnessIndex) !== digest(index)) fail(409, "Archive state changed / 归档状态已变化");
+      if (!current.harnessIndex || digest(current.harnessIndex) !== digest(index)) fail(409, "Archive state changed");
     }
   }
   const record = await getSessionTurnById(index.sessionId, index.turnId);
@@ -133,11 +133,11 @@ router.post("/commit", async (c) => {
 router.get("/:sessionId/:turnId", async (c) => {
   const user = useAuth(c); if (user instanceof Response) return user;
   const spaceId = c.req.param("id") ?? "", sessionId = c.req.param("sessionId"), turnId = c.req.param("turnId");
-  if (![spaceId, sessionId, turnId].every(requireValidId)) return c.json({ message: "Invalid identity / 标识无效" }, 400);
+  if (![spaceId, sessionId, turnId].every(requireValidId)) return c.json({ message: "Invalid identity" }, 400);
   if (!await hasPermission(user, "sandbox.manage", { spaceId }) || !await hasPermission(user, "session.view", { spaceId, sessionId })) return authzDenied(c);
   const turn = await turnInSpace(spaceId, sessionId, turnId);
-  if (readRuntimeRecovery(turn.meta)?.state === "confirmed_stopped") fail(409, "Execution was resolved / 执行已被人工处置");
-  if ((turn.meta as { runtimeArchiveStatus?: unknown } | null)?.runtimeArchiveStatus !== "ready") fail(409, "Archive is not ready / 归档尚未就绪");
+  if (readRuntimeRecovery(turn.meta)?.state === "confirmed_stopped") fail(409, "Execution was resolved");
+  if ((turn.meta as { runtimeArchiveStatus?: unknown } | null)?.runtimeArchiveStatus !== "ready") fail(409, "Archive is not ready");
   const index = storedIndex(turn.harnessIndex, sessionId, turnId);
   return c.json({ index, segments: index.segments.map((segment) => ({ segment, ...createPresignedGetObjectUrl(storage(), key(spaceId, index, segment.sha256)) })) });
 });

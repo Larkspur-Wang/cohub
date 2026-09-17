@@ -18,34 +18,34 @@ export const resolveLocalSpaceName = (root: string, name?: string) => name?.trim
 type Options = { space?: string; name?: string; harness: string[]; pi?: string; codex?: string; yes?: boolean; json?: boolean };
 export function parseRuntimeHarnesses(values: string[]): ("pi" | "codex")[] {
   const names = values.flatMap((value) => value.split(",")).map((name) => name.trim()).filter(Boolean);
-  if (names.some((name) => !isLocalHarness(name))) throw new Error("Harness must be pi or codex / Harness 必须是 pi 或 codex");
+  if (names.some((name) => !isLocalHarness(name))) throw new Error("Harness must be pi or codex");
   return [...new Set(names.length ? names : ["pi"])] as ("pi" | "codex")[];
 }
 
 export function registerRuntime(program: Command) {
-  const runtime = program.command("runtime").description("Connect a local workspace / 连接本地工作区");
+  const runtime = program.command("runtime").description("Connect a local workspace");
   runtime.command("up [dir]")
-    .description("Connect local Harnesses and files / 连接本地 Harness 与文件")
-    .option("-s, --space <id>", "Target Space / 目标 Space")
-    .option("-n, --name <name>", "New Space name / 新 Space 名称")
-    .option("--harness <name>", "Pi or Codex; repeatable / Pi 或 Codex，可重复", (value: string, previous: string[]) => [...previous, value], [])
-    .option("--pi <path>", "Pi executable / Pi 可执行文件")
-    .option("--codex <path>", "Codex executable / Codex 可执行文件")
-    .option("-y, --yes", "Accept local execution access / 同意本机执行权限")
-    .option("--json", "JSON output / JSON 输出")
+    .description("Connect local Harnesses and files")
+    .option("-s, --space <id>", "Target Space")
+    .option("-n, --name <name>", "New Space name")
+    .option("--harness <name>", "Pi or Codex; repeatable", (value: string, previous: string[]) => [...previous, value], [])
+    .option("--pi <path>", "Pi executable")
+    .option("--codex <path>", "Codex executable")
+    .option("-y, --yes", "Accept local execution access")
+    .option("--json", "JSON output")
     .action(async (dir: string | undefined, options: Options) => {
       const controller = new AbortController();
       const stop = () => controller.abort();
       process.once("SIGINT", stop); process.once("SIGTERM", stop);
       try {
         const root = resolve(dir ?? process.cwd());
-        if (!(await stat(root)).isDirectory()) throw new Error("Workspace is not a directory / 工作区不是目录");
+        if (!(await stat(root)).isDirectory()) throw new Error("Workspace is not a directory");
         const harnesses = parseRuntimeHarnesses(options.harness);
         if (!options.yes) {
-          if (!process.stdin.isTTY) throw new Error("Use --yes to authorize local execution / 请使用 --yes 授权本机执行");
+          if (!process.stdin.isTTY) throw new Error("Use --yes to authorize local execution");
           const rl = createInterface({ input: process.stdin, output: process.stderr });
           try {
-            const answer = await rl.question(`Connect ${root}? Space collaborators can run commands as your OS user, beyond this folder.\n连接此目录？Space 协作者可使用当前系统用户执行命令，权限不限于此目录。 [y/N] `);
+            const answer = await rl.question(`Connect ${root}? Space collaborators can run commands as your OS user, beyond this folder. [y/N] `);
             if (!/^y(es)?$/i.test(answer.trim())) return;
           } finally { rl.close(); }
         }
@@ -54,7 +54,7 @@ export function registerRuntime(program: Command) {
         const requested = options.space?.trim() || (program.opts().space as string | undefined)?.trim();
         const spaceId = requested || (await client.spaces.create({ name: resolveLocalSpaceName(root, options.name), config: { sandbox: { provider: "local" } } })).space.id;
         const sandbox = (await client.space(spaceId).sandbox.get()).sandbox;
-        if (sandbox?.provider !== "local") throw new Error("Space does not have a local Runtime / Space 不是本地 Runtime");
+        if (sandbox?.provider !== "local") throw new Error("Space does not have a local Runtime");
         const binary = await ensureSandboxdBinary();
         const wsBase = resolveWebsocketUrl({ url: process.env.COHUB_WS_URL });
         const url = new URL(wsBase); url.pathname = "/runtime/relay";
@@ -75,7 +75,7 @@ export function registerRuntime(program: Command) {
               }
               const webUrl = `${resolveCohubEnvironment() === "prod" ? "https://cohub.live" : "https://dev.cohub.live"}/spaces/${spaceId}`;
               if (jsonRequested(options)) outJson({ spaceId, root, harnesses, url: webUrl });
-              else console.error(`Runtime connected / Runtime 已连接: ${webUrl}`);
+              else console.error(`Runtime connected: ${webUrl}`);
             },
           });
         } finally {
@@ -87,10 +87,10 @@ export function registerRuntime(program: Command) {
             clearTimeout(timeout);
           }
         }
-      } catch (cause) { if (!controller.signal.aborted) error("Runtime failed / Runtime 失败", cause instanceof Error ? cause.message : String(cause)); }
+      } catch (cause) { if (!controller.signal.aborted) error("Runtime failed", cause instanceof Error ? cause.message : String(cause)); }
       finally { process.removeListener("SIGINT", stop); process.removeListener("SIGTERM", stop); }
     });
-  runtime.command("status").description("Runtime status / Runtime 状态").option("-s, --space <id>", "Target Space / 目标 Space").action(async (options: { space?: string }) => {
+  runtime.command("status").description("Runtime status").option("-s, --space <id>", "Target Space").action(async (options: { space?: string }) => {
     const spaceId = options.space?.trim() || await resolveSpace(program);
     const { archives } = new RuntimeSessionStore(spaceId);
     const [status, pendingLocalArchives, failedLocalArchives] = await Promise.all([

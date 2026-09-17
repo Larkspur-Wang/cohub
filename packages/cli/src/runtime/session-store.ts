@@ -55,17 +55,17 @@ export class RuntimeSessionStore {
         receipt = await readFile(join(captures, name), "utf8");
         let state: NativeSession;
         try { state = JSON.parse(receipt) as NativeSession; }
-        catch { throw new CaptureUnavailableError("Invalid capture receipt / 归档捕获记录无效"); }
+        catch { throw new CaptureUnavailableError("Invalid capture receipt"); }
         const turnId = state?.archivePendingTurnId;
         if (typeof turnId !== "string" || typeof state?.path !== "string" || typeof state.resultChecksum !== "string") {
-          throw new CaptureUnavailableError("Invalid capture receipt / 归档捕获记录无效");
+          throw new CaptureUnavailableError("Invalid capture receipt");
         }
         if (!await this.archives.hasCapture(turnId)) {
           const digest = await checksumNativeFile(state.path).catch((error) => {
-            if (missing(error)) throw new CaptureUnavailableError("Native session missing / 原生会话文件不存在");
+            if (missing(error)) throw new CaptureUnavailableError("Native session missing");
             throw error;
           });
-          if (digest !== state.resultChecksum) throw new CaptureUnavailableError("Native session changed; original files retained / 原生会话已变化，原文件已保留");
+          if (digest !== state.resultChecksum) throw new CaptureUnavailableError("Native session changed; original files retained");
           signal.throwIfAborted();
           await this.archives.stage(state, turnId);
         }
@@ -78,8 +78,8 @@ export class RuntimeSessionStore {
             receipt, reason: error.message, failedAt: new Date().toISOString(),
           });
           await rm(join(captures, name), { force: true });
-          console.error("Archive capture unavailable; receipt retained / 归档捕获不可恢复，记录已保留:", error.message);
-        } else console.error("Archive capture pending / 归档捕获待重试:", error);
+          console.error("Archive capture unavailable; receipt retained:", error.message);
+        } else console.error("Archive capture pending:", error);
       }
     }
     await this.archives.flush(signal);
@@ -159,7 +159,7 @@ export class RuntimeSessionStore {
         return { state, resume: "restored" };
       } catch (error) {
         signal?.throwIfAborted();
-        console.error("Native archive unavailable; rebuilding from durable history / 原生归档不可用，将从持久历史重建:", error);
+        console.error("Native archive unavailable; rebuilding from durable history:", error);
       }
     }
     if (input.context.complete === false) throw new ContextRequiredError("Database history is required after archive recovery failed", true);

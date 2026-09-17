@@ -44,6 +44,6 @@ export async function stopProcessGroup(pid: number) {
       await delay(25);
     }
   } catch (cause) {
-    throw new ProcessCleanupUncertainError("Tool process cleanup could not be confirmed; execution remains unresolved / 无法确认工具进程已停止，执行结果保持未确认", { cause });
+    throw new ProcessCleanupUncertainError("Tool process cleanup could not be confirmed; execution remains unresolved", { cause });
   }
 }

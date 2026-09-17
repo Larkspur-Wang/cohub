@@ -19,7 +19,7 @@ export async function serveRuntime(options: RuntimeConnectionOptions) {
   const uploads = new AbortController();
   const uploadSignal = AbortSignal.any([options.signal, uploads.signal]);
   const flush = () => options.store.flushArchives(uploadSignal).catch((error) => {
-    if (!uploadSignal.aborted) console.error("Archive pending / 归档待重试:", error);
+    if (!uploadSignal.aborted) console.error("Archive pending:", error);
   });
   const timer = setInterval(() => { void flush(); }, 10_000);
   void flush();
@@ -27,10 +27,10 @@ export async function serveRuntime(options: RuntimeConnectionOptions) {
     while (!options.signal.aborted) {
       const outcome = await connect({ ...options, onReady: () => { backoff = 500; conflictSince = null; options.onReady(); void flush(); } });
       if (options.signal.aborted) return;
-      if (outcome === "fatal") throw new Error("Runtime connection rejected / Runtime 连接被拒绝");
+      if (outcome === "fatal") throw new Error("Runtime connection rejected");
       if (outcome === "conflict") {
         conflictSince ??= Date.now();
-        if (Date.now() - conflictSince >= (options.leaseConflictTimeoutMs ?? 90_000)) throw new Error("Space is already connected to another Runtime / Space 已连接其他 Runtime");
+        if (Date.now() - conflictSince >= (options.leaseConflictTimeoutMs ?? 90_000)) throw new Error("Space is already connected to another Runtime");
       }
       await delay(backoff, undefined, { signal: options.signal }).catch(() => undefined);
       backoff = Math.min(10_000, backoff * 2);
@@ -106,7 +106,7 @@ async function connect(options: RuntimeConnectionOptions): Promise<"retry" | "fa
         } catch (error) {
           console.error("Runtime acknowledgement failed; result retained:", error);
           active.delete(frame.requestId);
-          send({ type: "runtime.event", requestId: frame.requestId, event: { type: "turn.error", message: "Local acknowledgement failed; result retained / 本地确认失败，结果已保留" } });
+          send({ type: "runtime.event", requestId: frame.requestId, event: { type: "turn.error", message: "Local acknowledgement failed; result retained" } });
           return;
         }
         active.delete(frame.requestId);
@@ -139,7 +139,7 @@ async function connect(options: RuntimeConnectionOptions): Promise<"retry" | "fa
           } catch (error) {
             if (!recovery.controller.signal.aborted) {
               console.error("Runtime recovery failed; original files retained:", error);
-              try { send({ type: "runtime.event", requestId: frame.requestId, event: { type: "turn.error", uncertain: true, message: "Result unavailable; files retained / 结果不可用，原始文件已保留" } }); } catch { /* The next connection can read the same result. */ }
+              try { send({ type: "runtime.event", requestId: frame.requestId, event: { type: "turn.error", uncertain: true, message: "Result unavailable; files retained" } }); } catch { /* The next connection can read the same result. */ }
             }
             active.delete(frame.requestId);
           }
@@ -181,7 +181,7 @@ async function connect(options: RuntimeConnectionOptions): Promise<"retry" | "fa
         active.delete(requestId);
       }
       if ([...active.values()].some((entry) => entry.sessionId === frame.input.sessionId) || active.size >= 8) {
-        send({ type: "runtime.event", requestId: frame.requestId, event: { type: "turn.error", message: "Local Runtime is busy / 本地 Runtime 繁忙" } });
+        send({ type: "runtime.event", requestId: frame.requestId, event: { type: "turn.error", message: "Local Runtime is busy" } });
         return;
       }
       seen.add(frame.requestId);

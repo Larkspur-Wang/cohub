@@ -132,7 +132,7 @@ export function createRuntimeRelay(deps: RuntimeRelayDependencies) {
           const execution = command.type === "turn.start" ? command.input : command.execution;
           if (requestId || execution.spaceId !== spaceId || registration.peers.has(command.requestId)) throw new Error("Invalid execution identity");
           if (registration.peers.size >= 8) {
-            send(socket, { type: "runtime.event", requestId: command.requestId, event: { type: "turn.error", message: "Local Runtime is busy / 本地 Runtime 繁忙" } });
+            send(socket, { type: "runtime.event", requestId: command.requestId, event: { type: "turn.error", message: "Local Runtime is busy" } });
             return;
           }
           requestId = command.requestId; turnId = execution.turnId;
