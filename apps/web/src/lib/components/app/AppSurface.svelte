@@ -36,6 +36,7 @@ import {
 	type AppSurfaceHost,
 	createAppSurfaceHost,
 } from "$lib/features/app/surface-host";
+import { COMPACT_SHELL_MAX_WIDTH_PX } from "$lib/layout/breakpoints";
 import { parseNewChatBackgroundAction } from "$lib/new-chat-background-bridge";
 import { emitSpaceConfigBackgroundAction } from "$lib/space-config";
 import { createSpaceWorkspaceAssetResolver } from "$lib/space-workspace-assets";
@@ -119,6 +120,21 @@ let runtimeReady = $state(false);
 let frameHasLoaded = $state(false);
 let readyReported = false;
 let contextSyncWarningReported = false;
+/** Compact shell width; native file/board surfaces size their media from it. */
+let isMobile = $state(
+	typeof window !== "undefined" &&
+		window.matchMedia(`(max-width: ${COMPACT_SHELL_MAX_WIDTH_PX}px)`).matches,
+);
+
+$effect(() => {
+	if (typeof window === "undefined") return;
+	const query = window.matchMedia(
+		`(max-width: ${COMPACT_SHELL_MAX_WIDTH_PX}px)`,
+	);
+	const handler = (event: MediaQueryListEvent) => (isMobile = event.matches);
+	query.addEventListener("change", handler);
+	return () => query.removeEventListener("change", handler);
+});
 
 function reportReady() {
 	if (readyReported) return;
@@ -378,6 +394,7 @@ onMount(() => {
 		<div class="app-native">
 			<WorkFileSurface
 				content={fileContent}
+				{isMobile}
 				resolveWorkspaceAsset={workspaceAssetResolver}
 				onOpenFile={appNavigationEnabled ? openWorkFileLink : undefined}
 				onOpenUrl={appNavigationEnabled ? openWorkUrlLink : undefined}

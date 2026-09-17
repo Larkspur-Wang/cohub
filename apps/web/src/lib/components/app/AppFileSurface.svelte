@@ -14,11 +14,13 @@ import type { WorkspaceFileLinkTarget } from "$lib/workspace-file-links";
 
 const {
 	content,
+	isMobile = false,
 	resolveWorkspaceAsset,
 	onOpenFile,
 	onOpenUrl,
 }: {
 	content: Extract<WorkContent, { kind: "file" }>;
+	isMobile?: boolean;
 	resolveWorkspaceAsset?: ResolveWorkspaceAsset;
 	onOpenFile?: (target: WorkspaceFileLinkTarget) => void | Promise<void>;
 	onOpenUrl?: (href: string, event: MouseEvent) => void | Promise<void>;
@@ -94,6 +96,7 @@ $effect(() => {
 				{file}
 				source={file.content}
 				downloadUrl={content.url}
+				{isMobile}
 				{resolveWorkspaceAsset}
 				{onOpenFile}
 				{onOpenUrl}

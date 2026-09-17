@@ -24,7 +24,6 @@ import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import type { FileViewMode } from "$lib/components/file-diff-view";
 import ImageViewer from "$lib/components/ImageViewer.svelte";
 import MarkdownView from "$lib/components/MarkdownView.svelte";
-import type { PdfPreviewControls } from "$lib/components/PdfPreview.svelte";
 import type { PreviewCaptureTarget } from "$lib/features/preview-mark";
 import PreviewMarkHost from "$lib/features/preview-mark/ui/PreviewMarkHost.svelte";
 import { getLocale } from "$lib/i18n/locale.svelte";
@@ -37,9 +36,7 @@ import type {
 } from "$lib/workspace-file-links";
 import { formatFileSize } from "../space-utils";
 import PreviewHeader from "./PreviewHeader.svelte";
-import PreviewPdf from "./preview-controls/PreviewPdf.svelte";
 import PreviewViewMode from "./preview-controls/PreviewViewMode.svelte";
-import PreviewZoom from "./preview-controls/PreviewZoom.svelte";
 import type {
 	PreviewChrome,
 	PreviewHeaderAction,
@@ -201,7 +198,6 @@ let htmlPreviewLoadAttempt = $state(0);
 let fileDiffLoadAttempt = $state(0);
 let pdfPreviewLoadAttempt = $state(0);
 let csvPreviewLoadAttempt = $state(0);
-let pdfControls = $state<PdfPreviewControls | null>(null);
 const codeEditorModulePromise = $derived.by(() => {
 	codeEditorLoadAttempt;
 	return loadCodeEditorModule();
@@ -557,9 +553,6 @@ $effect(() => {
 				base64={inlineFile.response.delivery === "url" ? null : inlineFile.response.content}
 				version={`${inlineFile.response.path}:${inlineFile.response.size}:${inlineFile.response.mtimeMs}`}
 				{isMobile}
-				onControlsChange={(controls) => {
-					pdfControls = controls;
-				}}
 			/>
 		{:catch}
 			{@render LazyLoadError(m.pdf_preview_failed({}, { locale }), () => {
@@ -632,32 +625,6 @@ $effect(() => {
 					options={viewModeOptions}
 					triggerIcon={activeViewMode?.icon ?? Code}
 					triggerLabel={activeViewMode?.label ?? m.inline_source({}, { locale })}
-					{compact}
-				/>
-			{:else if inlineFileIsImage && inlineFileDataUrl}
-				<PreviewZoom
-					zoom={inlineFileZoom}
-					onChange={(next) => {
-						inlineFileZoom = next;
-						inlineFilePanX = 0;
-						inlineFilePanY = 0;
-					}}
-					onReset={() => {
-						inlineFileZoom = 1;
-						inlineFilePanX = 0;
-						inlineFilePanY = 0;
-					}}
-					{compact}
-				/>
-			{:else if inlineFileIsPdf && hasUsableMedia && pdfControls}
-				<PreviewPdf
-					page={pdfControls.page}
-					pageCount={pdfControls.pageCount}
-					fitWidth={pdfControls.fitWidth}
-					onGoToPage={(page) => pdfControls?.goToPage(page)}
-					onZoomIn={() => pdfControls?.zoomIn()}
-					onZoomOut={() => pdfControls?.zoomOut()}
-					onFitWidth={() => pdfControls?.fitPageWidth()}
 					{compact}
 				/>
 			{/if}
