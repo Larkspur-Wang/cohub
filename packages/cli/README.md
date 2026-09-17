@@ -93,7 +93,7 @@ cohub runtime status --space <spaceId>
 The Runtime uses WebSockets, native Pi RPC / Codex app-server, and existing cloud
 streaming. Local executables and credentials are required. `sandbox up` has been
 removed. Reconnection and result reconciliation are automatic; no recovery command is needed.
-When a result genuinely cannot be determined, the Space header offers an explicit stop
+When a result genuinely cannot be determined, the affected Chat offers an explicit stop
 confirmation. See [Runtime details](../../docs/local-runtime.md).
 
 ## Chats and prompts

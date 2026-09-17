@@ -1,40 +1,16 @@
-import { and, asc, eq, gt, sql } from "drizzle-orm";
-import { sessionMessages, sessionTurns, spaceSessions } from "@cohub/db";
-import { listRuntimeRecoverySpaces, listRuntimeRecoveryTurns, readRuntimeRecovery, runtimeRecoveryActive } from "@cohub/core/sessions";
-import { isLocalHarness, resolveHarness, type LocalHarness, type RuntimeRecoveryState } from "@cohub/protocol";
-import { AGENT_RUNTIME_SWEEP_JOB_NAME, enqueueRuntimeRecovery, type AgentRuntimeRecoveryJobData, type AgentRuntimeSweepJobData } from "@cohub/infra/agent-queue";
+import { and, eq, sql } from "drizzle-orm";
+import { sessionTurns, spaceSessions } from "@cohub/db";
+import { readRuntimeRecovery, runtimeRecoveryActive } from "@cohub/core/sessions";
+import { resolveHarness, type LocalHarness, type RuntimeRecoveryState } from "@cohub/protocol";
+import type { AgentRuntimeRecoveryJobData } from "@cohub/infra/agent-queue";
 import { db } from "../db.js";
 import { acquireSessionLock, type SessionLock } from "../session-lock.js";
-import { deliverRuntimeMessage, persistAssistantMessage, persistBatchUserMessages, publishSessionTurnsUpdated } from "../persistence.js";
-import { agentTurnQueue, enqueueAgentTurnJob } from "../queue.js";
+import { persistAssistantMessage, persistBatchUserMessages, publishSessionTurnsUpdated } from "../persistence.js";
+import { enqueueAgentTurnJob } from "../queue.js";
 import { loadClaimedTurnBatch } from "../batch.js";
 import { logger } from "../logger.js";
 import { RuntimeResultUnavailableError } from "./exchange.js";
 import { executeRemoteHarnessTurn, markRuntimeRecovery } from "./remote-runtime.js";
-
-export async function sweepRuntimeRecovery(input: AgentRuntimeSweepJobData = { runtimeSweep: true }) {
-  // Wake orphaned executions before attempting potentially slow external deliveries.
-  const spaces = input.deliveryCursor ? [] : await listRuntimeRecoverySpaces(db);
-  for (const { spaceId } of spaces) await enqueueRuntimeRecovery(agentTurnQueue, { spaceId });
-  const pending = await db.select({ message: sessionMessages, spaceId: spaceSessions.spaceId }).from(sessionMessages)
-    .innerJoin(spaceSessions, eq(spaceSessions.id, sessionMessages.sessionId))
-    .where(and(sql`${sessionMessages.meta}->>'runtimeDeliveryPending' = 'true'`, input.deliveryCursor ? gt(sessionMessages.id, input.deliveryCursor) : undefined))
-    .orderBy(asc(sessionMessages.id)).limit(50);
-  const started = Date.now();
-  let processed = 0;
-  for (const row of pending) {
-    await deliverRuntimeMessage(row.spaceId, row.message).catch((error) => logger.warn("[Runtime] delivery remains pending", error));
-    processed++;
-    if (Date.now() - started >= 15_000) break;
-  }
-  const cursor = pending[processed - 1]?.message.id;
-  if (cursor && (processed < pending.length || pending.length === 50)) {
-    await agentTurnQueue.add(AGENT_RUNTIME_SWEEP_JOB_NAME, { runtimeSweep: true, deliveryCursor: cursor }, {
-      jobId: `runtime-delivery-page-${cursor}`, delay: 1000, removeOnComplete: true, removeOnFail: true,
-    });
-  }
-  return { spaces: spaces.length };
-}
 
 const turnMeta = (turn: { meta: unknown }) => turn.meta as Record<string, unknown> | null;
 const turnUserMessageId = (turn: { id: string; meta: unknown }) => {
@@ -85,35 +61,41 @@ async function recoverOrphanTurn(input: { spaceId: string; turn: typeof sessionT
   }
 }
 
-/** Runtime-scoped coordination; only orphaned executions are touched under their existing lock. */
+/** Reconcile one Session as a unit; the turn identity only fences the original execution. */
 export async function recoverRuntime(input: AgentRuntimeRecoveryJobData) {
-  const turns = await listRuntimeRecoveryTurns(db, input.spaceId);
-  let recovered = 0, attention = 0, lockedRecovery = 0;
-  for (const candidate of turns) {
-    const lock = await acquireSessionLock(candidate.sessionId);
-    if (!lock) {
-      if (input.confirmation?.turnIds.includes(candidate.id)) lockedRecovery++;
-      continue;
+  const [session] = await db.select({ id: spaceSessions.id }).from(spaceSessions)
+    .where(and(eq(spaceSessions.id, input.sessionId), eq(spaceSessions.spaceId, input.spaceId))).limit(1);
+  if (!session) throw new Error("Runtime recovery Session does not belong to Space");
+
+  const lock = await acquireSessionLock(input.sessionId);
+  if (!lock) throw new Error("Runtime recovery is waiting for the Session lock");
+  let drain = false;
+  try {
+    const [turn] = await db.select().from(sessionTurns).where(and(
+      eq(sessionTurns.id, input.expectedTurnId),
+      eq(sessionTurns.sessionId, input.sessionId),
+      runtimeRecoveryActive,
+    )).limit(1);
+    if (!turn) return { recovered: 0, attention: 0 };
+
+    const harness = resolveHarness(turn.meta);
+    const recovery = readRuntimeRecovery(turn.meta);
+    if (harness !== input.expectedHarness || recovery?.ownerUserId !== input.expectedOwnerUserId) {
+      throw new Error("Runtime recovery execution identity changed");
     }
-    let drain = false;
-    try {
-      const [turn] = await db.select().from(sessionTurns).where(and(eq(sessionTurns.id, candidate.id), runtimeRecoveryActive)).limit(1);
-      if (!turn) continue;
-      const harness = resolveHarness(turn.meta);
-      if (!isLocalHarness(harness)) continue;
-      const recovery = readRuntimeRecovery(turn.meta);
-      const confirmedBy = input.confirmation?.turnIds.includes(turn.id) && recovery?.state === "attention" ? input.confirmation.actorUserId : undefined;
-      if (confirmedBy || recovery?.state === "confirmed_stopped") {
-        if (await recordConfirmedStop({ spaceId: input.spaceId, turn, harness, recovery, confirmedBy, lock })) { recovered++; drain = true; }
-        continue;
-      }
-      const outcome = await recoverOrphanTurn({ spaceId: input.spaceId, turn, harness, lock });
-      if (outcome === "recovered") { recovered++; drain = true; } else if (outcome === "attention") attention++;
-    } finally {
-      await lock.release();
-      if (drain) await enqueueAgentTurnJob({ spaceId: input.spaceId, sessionId: candidate.sessionId, reason: "drain" });
+
+    const confirmedBy = input.confirmation && recovery.state === "attention" ? input.confirmation.actorUserId : undefined;
+    if (confirmedBy || recovery.state === "confirmed_stopped") {
+      if (await recordConfirmedStop({ spaceId: input.spaceId, turn, harness, recovery, confirmedBy, lock })) drain = true;
+      return { recovered: drain ? 1 : 0, attention: 0 };
     }
+
+    const outcome = await recoverOrphanTurn({ spaceId: input.spaceId, turn, harness, lock });
+    if (outcome === "retry") throw new Error("Runtime recovery transport is unavailable");
+    if (outcome === "recovered") drain = true;
+    return { recovered: outcome === "recovered" ? 1 : 0, attention: outcome === "attention" ? 1 : 0 };
+  } finally {
+    await lock.release();
+    if (drain) await enqueueAgentTurnJob({ spaceId: input.spaceId, sessionId: input.sessionId, reason: "drain" });
   }
-  if (lockedRecovery) throw new Error("Runtime recovery is waiting for active execution locks");
-  return { recovered, attention };
 }

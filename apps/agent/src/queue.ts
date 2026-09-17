@@ -5,7 +5,6 @@ import { injectTrace } from "@cohub/infra/tracing/propagator";
 import {
   createAgentTurnsQueue,
   type AgentRuntimeRecoveryJobData,
-  type AgentRuntimeSweepJobData,
   AGENT_SANDBOX_BASH_JOB_NAME,
   AGENT_SANDBOX_BASH_ATOMIC_JOB_NAME,
   AGENT_RUN_COMMAND_JOB_NAME,
@@ -43,7 +42,7 @@ export type {
 export type AgentTurnJobData = {
   spaceId: string;
   sessionId: string;
-  reason?: "runtime_delivery" | "prompt" | "steer" | "drain" | "retry" | "recovery" | "generation_complete" | "generation_failed";
+  reason?: "prompt" | "steer" | "drain" | "retry" | "recovery" | "generation_complete" | "generation_failed";
   requestId?: string | null;
   trace?: Record<string, unknown>;
 };
@@ -59,7 +58,7 @@ export type AgentSessionForkJobData = {
   trace?: Record<string, unknown>;
 };
 
-export type AgentJobData = AgentRuntimeSweepJobData | AgentRuntimeRecoveryJobData | AgentTurnJobData | AgentSessionForkJobData | AgentSandboxBashUploadJobData | AgentRunCommandJobData | AgentSandboxFsMutationJobData;
+export type AgentJobData = AgentRuntimeRecoveryJobData | AgentTurnJobData | AgentSessionForkJobData | AgentSandboxBashUploadJobData | AgentRunCommandJobData | AgentSandboxFsMutationJobData;
 
 export const agentTurnQueue = createAgentTurnsQueue<AgentJobData, unknown>(env.BULLMQ_REDIS_URL, "cohub-agent");
 export const buildSandboxBashJobId = buildAgentSandboxBashJobId;
@@ -68,7 +67,7 @@ export const buildSandboxFsMutationJobId = buildAgentSandboxFsMutationJobId;
 
 export async function enqueueAgentTurnJob(data: AgentTurnJobData, options: JobsOptions = {}) {
   const trace = injectTrace();
-  const jobId = options.jobId ?? (data.reason === "drain" || data.reason === "runtime_delivery" ? null : `agent-session-wakeup-${data.sessionId}`);
+  const jobId = options.jobId ?? (data.reason === "drain" ? null : `agent-session-wakeup-${data.sessionId}`);
   return agentTurnQueue.add(AGENT_TURN_JOB_NAME, {
     ...data,
     requestId: getCurrentRequestId() ?? data.requestId ?? null,

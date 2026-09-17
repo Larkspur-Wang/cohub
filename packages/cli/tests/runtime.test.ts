@@ -69,6 +69,25 @@ test("local projection verifies native data and refuses to overwrite external or
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test("Runtime inventory streams every pending Session execution in bounded batches", async () => {
+  const root = await mkdtemp(join(tmpdir(), "cohub-runtime-inventory-"));
+  try {
+    const store = new RuntimeSessionStore(spaceId, root);
+    assert.deepEqual(await Array.fromAsync(store.pendingExecutionBatches()), []);
+    const expected = [];
+    for (let index = 0; index < 65; index++) {
+      const pending = { ...input("pi"), sessionId: crypto.randomUUID(), turnId: crypto.randomUUID() };
+      const { state } = await store.prepare(pending, root);
+      await store.started(state, pending.turnId);
+      expected.push({ sessionId: pending.sessionId, turnId: pending.turnId, harness: "pi" });
+    }
+    const batches = await Array.fromAsync(store.pendingExecutionBatches());
+    assert.deepEqual(batches.map((batch) => batch.length), [64, 1]);
+    const bySession = (value: { sessionId: string }[]) => [...value].sort((left, right) => left.sessionId.localeCompare(right.sessionId));
+    assert.deepEqual(bySession(batches.flat()), bySession(expected));
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test("result receipts replay only the same execution and retain one snapshot per Session/Harness", async () => {
   const root = await mkdtemp(join(tmpdir(), "cohub-runtime-receipt-"));
   try {

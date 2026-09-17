@@ -78,22 +78,22 @@ API, Gateway and Agent never proxy archive bytes.
 
 ## Runtime Recovery
 
-Recovery is automatic and Space-scoped. Gateway requests immediate reconciliation
-on connection. A single durable schedule in the existing Agent queue checks active
-local executions every minute, using a partial index, even if Gateway or Agent crashes
-without a disconnect notification. Session locks isolate live work; held locks are
-revisited on the next sweep. Settled executions are excluded from the index and sweep.
-`turn.recover` is internal and reads saved results only, without starting Harnesses
-or replaying tools. Recovery does not depend on the original WebSocket request ID.
+Recovery is event-driven and Session-scoped. The local Runtime streams every pending
+`sessionId` / `turnId` identity in bounded batches after it connects; Gateway peer disconnects and Agent
+transport uncertainty also enqueue reconciliation for that Session. Recovery takes the
+Session lock, validates the active owner and reconstructs its persisted batch before
+reading a saved result. There is no periodic database scan. `turn.recover` is internal
+and reads saved results only, without starting Harnesses or replaying tools. Recovery
+does not depend on the original WebSocket request ID.
 
 ```bash
 cohub runtime status --space <space-id>
 ```
 
-There is no public recovery command, API or button. Space headers show Runtime
-status; only genuinely unavailable results expose an explicit stop confirmation,
-requiring `sandbox.manage`. Confirming stopped executions is bound to a snapshot of the
-uncertain set; new executions are never included. Original turn input, committed
+There is no public recovery command. Space headers show connection status; an affected
+Chat exposes explicit stop confirmation only when its active local execution is uncertain,
+requiring `sandbox.manage`. Confirmation is bound to that Session, active turn and recovery
+revision; newer executions are never included. Original turn input, committed
 messages, native files and result receipts are retained. A durable resolution note
 records that prior effects remain unknown; late results cannot replace this terminal
 state. Local projections are retired before rebuilding from server context. If an ACK
@@ -105,9 +105,10 @@ reports that turn as terminal, the projection is archived under `retired/` and r
 whether or not a local result receipt survived. Only turns the server still considers
 active require explicit local confirmation. Native files are never deleted.
 
-Transport failures remain offline/retrying, not requests for manual intervention.
-Only an explicit missing-result response from Runtime needs attention. Automatic
-reconciliation continues even then. Never infer that a disconnected execution has stopped.
+Transport uncertainty is surfaced immediately on the active Session. Reconnect and
+bounded queue retries can still recover a saved result; an explicit missing-result response
+keeps the Session in attention until Runtime reconnects or a manager confirms it stopped.
+Never infer that a disconnected execution has stopped.
 
 ## Boundaries
 
@@ -147,9 +148,9 @@ reconciliation continues even then. Never infer that a disconnected execution ha
 - Metadata requests are bounded to 256 new segments per version (at most 1 GiB of newly captured bytes).
   Limits fail explicitly and preserve original files. No object GC or lifecycle changes are made by the code.
   Lifecycle policies must retain old segments for as long as any supported recovery version references them.
-- Final local messages, Turn state and durable delivery intent commit together.
-  Realtime, postprocessing, queue wakeups and bound external channels retry from that
-  intent. Channel targets use stable command IDs and per-target enqueue progress.
+- Final local messages and terminal Turn state commit atomically. Realtime,
+  postprocessing and bound external channels are best effort; durable Session data remains
+  authoritative and reloadable when a notification fails.
 
 ## Verification
 

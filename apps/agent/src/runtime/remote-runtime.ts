@@ -27,8 +27,10 @@ function nativeAssistant(event: Extract<RuntimeExecutionEvent, { type: "message.
 }
 
 export async function markRuntimeRecovery(turnId: string, recovery: RuntimeRecoveryState) {
-  await db.update(sessionTurns).set({ meta: sql`coalesce(${sessionTurns.meta}, '{}'::jsonb) || jsonb_build_object('runtimeRecovery', coalesce(${sessionTurns.meta}->'runtimeRecovery', '{}'::jsonb) || ${JSON.stringify(recovery)}::jsonb)` })
-    .where(and(eq(sessionTurns.id, turnId), runtimeRecoveryActive, runtimeResolutionOpen));
+  const [updated] = await db.update(sessionTurns).set({ meta: sql`coalesce(${sessionTurns.meta}, '{}'::jsonb) || jsonb_build_object('runtimeRecovery', coalesce(${sessionTurns.meta}->'runtimeRecovery', '{}'::jsonb) || ${JSON.stringify(recovery)}::jsonb)` })
+    .where(and(eq(sessionTurns.id, turnId), runtimeRecoveryActive, runtimeResolutionOpen))
+    .returning({ meta: sessionTurns.meta });
+  return updated?.meta ?? null;
 }
 
 export async function executeRemoteHarnessTurn(input: {

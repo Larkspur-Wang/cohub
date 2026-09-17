@@ -31,7 +31,13 @@ test("Shared stream snapshot clearing targets one Session and one turn", () => {
 test("Runtime protocol validates execution identities, native archive versions and capabilities", () => {
   assert.equal(runtimeCommandSchema.safeParse({ type: "turn.abort", requestId: "arbitrary" }).success, false);
   assert.equal(runtimeClientFrameSchema.safeParse({ type: "runtime.hello", version: 2, spaceId: crypto.randomUUID(), token: "token", capabilities: { harnesses: ["pi"], models: [] } }).success, false);
-  assert.equal(runtimeClientFrameSchema.safeParse({ type: "runtime.hello", version: 1, spaceId: crypto.randomUUID(), token: "token", capabilities: { harnesses: ["pi"], models: [] } }).success, true);
+  const hello = { type: "runtime.hello", version: 1, spaceId: crypto.randomUUID(), token: "token", capabilities: { harnesses: ["pi"], models: [] } };
+  assert(runtimeClientFrameSchema.safeParse(hello).success);
+  const recovery = { type: "runtime.recovery", executions: [{ sessionId: crypto.randomUUID(), turnId: crypto.randomUUID(), harness: "codex" }] };
+  assert(runtimeClientFrameSchema.safeParse(recovery).success);
+  assert(!runtimeClientFrameSchema.safeParse({ ...recovery, executions: [] }).success);
+  assert(!runtimeClientFrameSchema.safeParse({ ...recovery, executions: [{ sessionId: "bad", turnId: crypto.randomUUID(), harness: "pi" }] }).success);
+  assert(!runtimeClientFrameSchema.safeParse({ ...recovery, executions: Array.from({ length: 65 }, () => recovery.executions[0]) }).success);
 });
 
 test("Runtime registration parsing fails closed for corrupt and incompatible Redis values", () => {

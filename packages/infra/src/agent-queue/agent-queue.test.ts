@@ -2,18 +2,26 @@ import { test } from "node:test";
 import assert from "node:assert";
 import {
   buildAgentSandboxFsMutationJobId,
-  ensureRuntimeRecoverySchedule,
+  enqueueRuntimeRecovery,
   sandboxFsMutationJobRetention,
   type AgentSandboxFsMutationOperation,
 } from "./index.js";
 
-test("Runtime recovery schedule is durable and shared across Agent replicas", async () => {
+test("Runtime recovery jobs are scoped to one Session execution", async () => {
   const calls: unknown[][] = [];
-  const queue = { upsertJobScheduler: async (...args: unknown[]) => { calls.push(args); } };
-  await ensureRuntimeRecoverySchedule(queue as unknown as Parameters<typeof ensureRuntimeRecoverySchedule>[0]);
-  await ensureRuntimeRecoverySchedule(queue as unknown as Parameters<typeof ensureRuntimeRecoverySchedule>[0]);
-  assert.deepEqual(calls[0], calls[1]);
-  assert.deepEqual(calls[0]?.slice(0, 2), ["runtime_recovery_sweep", { every: 60_000 }]);
+  const queue = { add: async (...args: unknown[]) => { calls.push(args); } };
+  const data = {
+    spaceId: "space",
+    sessionId: "session",
+    expectedTurnId: "turn",
+    expectedHarness: "pi" as const,
+    expectedOwnerUserId: "owner",
+  };
+  await enqueueRuntimeRecovery(queue as unknown as Parameters<typeof enqueueRuntimeRecovery>[0], data);
+  const call = calls[0];
+  assert(call);
+  assert.equal(call[0], "runtime_recovery");
+  assert.equal((call[2] as { jobId?: string }).jobId, "runtime-session-recover-turn");
 });
 
 const writeA: AgentSandboxFsMutationOperation = { operation: "write", path: "a.txt", content: "hello" };

@@ -30,6 +30,7 @@ import { insertComposerSnippet } from "$lib/stores/composer-insert";
 import { modelsCatalogStore } from "$lib/stores/models-catalog.svelte";
 import { modelsStatusStore } from "$lib/stores/models-status.svelte";
 import { entriesFromDataTransfer } from "$lib/upload-entries";
+import SessionRuntimeRecovery from "./SessionRuntimeRecovery.svelte";
 import type { SessionChatHost } from "./session-chat-host.controller.svelte";
 
 let {
@@ -81,6 +82,19 @@ const isNewSessionRoute = $derived(host.isNewSessionRoute);
 const timeline = $derived(host.timeline);
 const followupQueue = $derived(host.followupQueue);
 const activeTurnRailItems = $derived(host.activeTurnRailItems);
+const runtimeRecoveryTurn = $derived.by(
+	() =>
+		[...(activeSessionState?.turns ?? [])].reverse().find((turn) => {
+			if (!["running", "abort_requested"].includes(turn.status)) return false;
+			const recovery = turn.meta?.runtimeRecovery;
+			return (
+				recovery &&
+				typeof recovery === "object" &&
+				!Array.isArray(recovery) &&
+				(recovery as { state?: unknown }).state === "attention"
+			);
+		}) ?? null,
+);
 
 // Local DOM / UI binds synced into host (cannot bind directly to host getters).
 let listEl = $state<HTMLDivElement | null>(null);
@@ -399,6 +413,9 @@ async function handleDraftDrop(event: DragEvent) {
 						{/each}
 					</div>
 				</div>
+			{/if}
+			{#if activeSessionId && runtimeRecoveryTurn}
+				<SessionRuntimeRecovery spaceId={host.spaceId} sessionId={activeSessionId} turnId={runtimeRecoveryTurn.id} />
 			{/if}
 			<div
 				bind:this={composerHostEl}

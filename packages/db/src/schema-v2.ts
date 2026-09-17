@@ -956,7 +956,6 @@ export const sessionTurns = v2.table(
       sql`(${table.meta}->>'clientMessageId')`,
     ).where(sql`${table.executionKind} = 'direct_generation' and ${table.meta}->>'clientMessageId' is not null`),
     directGenerationBarrierIdx: index("v2_idx_session_turns_direct_generation_barrier").on(table.sessionId, table.sequence, table.status).where(sql`${table.executionKind} = 'direct_generation'`),
-    activeLocalRuntimeIdx: index("v2_idx_session_turns_active_local_runtime").on(table.sessionId).where(sql`${table.executionKind} = 'agent' and ${table.status} in ('running', 'abort_requested') and ${table.meta}->>'harness' in ('pi', 'codex')`),
     createdAtIdx: index("v2_idx_session_turns_created_at").on(table.createdAt),
     userTextSearchIdx: index("v2_idx_session_turns_user_text_trgm").using("gin", table.userText.op("gin_trgm_ops")),
   }),
@@ -987,7 +986,6 @@ export const sessionMessages = v2.table(
   },
   (table) => ({
     sessionIdx: index("v2_idx_session_messages_session_id").on(table.sessionId),
-    runtimeDeliveryIdx: index("v2_idx_session_messages_runtime_delivery").on(table.id).where(sql`${table.meta}->>'runtimeDeliveryPending' = 'true'`),
     turnSequenceIdx: index("v2_idx_session_messages_turn_sequence")
       .on(table.turnId, table.sequence)
       .where(sql`${table.turnId} is not null`),

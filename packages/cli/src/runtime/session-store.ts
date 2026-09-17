@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, open, readFile, readdir, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { contextToPiMessages, selectRuntimeContextMessages, runtimeEventSchema, type RuntimeExecutionEvent, type HarnessArchive, type RuntimeTurnInput } from "@neta-art/cohub";
+import { contextToPiMessages, RUNTIME_RECOVERY_BATCH_SIZE, selectRuntimeContextMessages, runtimeEventSchema, type RuntimeExecutionEvent, type HarnessArchive, type RuntimePendingExecution, type RuntimeTurnInput } from "@neta-art/cohub";
 import { RuntimeArchiveStore, checksumNativeFile, atomicRuntimeJson as atomicJson, type ArchiveTransport } from "./archive-store.js";
 import type { CodexTokenTotals } from "./codex-usage.js";
 import { importNativeArchive, readCodexArchiveTotals } from "./native-archive.js";
@@ -40,6 +40,28 @@ export class RuntimeSessionStore {
     this.archives = new RuntimeArchiveStore(join(this.root, "archives"), transport);
   }
   private statePath(input: Pick<RuntimeTurnInput, "sessionId" | "harness">) { return join(this.root, input.harness, `${input.sessionId}.json`); }
+  async *pendingExecutionBatches(): AsyncGenerator<RuntimePendingExecution[]> {
+    let batch: RuntimePendingExecution[] = [];
+    for (const harness of ["pi", "codex"] as const) {
+      const directory = join(this.root, harness);
+      const names = await readdir(directory).catch((error) => { if (missing(error)) return []; throw error; });
+      for (const name of names) {
+        if (!name.endsWith(".json")) continue;
+        try {
+          const state = JSON.parse(await readFile(join(directory, name), "utf8")) as NativeSession;
+          if (state.version !== 1 || state.harness !== harness || !state.sessionId || !state.pendingTurnId) continue;
+          batch.push({ sessionId: state.sessionId, turnId: state.pendingTurnId, harness });
+          if (batch.length >= RUNTIME_RECOVERY_BATCH_SIZE) {
+            yield batch;
+            batch = [];
+          }
+        } catch (error) {
+          console.error(`Runtime session state unreadable: ${join(directory, name)}`, error);
+        }
+      }
+    }
+    if (batch.length) yield batch;
+  }
   async flushArchives(signal: AbortSignal) {
     this.archiveFlush ??= this.flushArchiveOutbox(signal).finally(() => { this.archiveFlush = null; });
     return this.archiveFlush;

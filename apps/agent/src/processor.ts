@@ -28,16 +28,17 @@ import { loadOrCreateSessionHandle, ensurePendingUserMessage, hasSessionUserMess
 import { claimNextTurnBatch, buildUserMessagesForBatch, enqueueNextRunnableTurn, resolveBatchAccessMode, type ClaimedTurnBatch } from "./batch.js";
 import { acquireSessionLock } from "./session-lock.js";
 import { defaultJobRetention } from "@cohub/infra/bullmq";
-import { enqueueAgentTurnJob, type AgentTurnJobData } from "./queue.js";
+import { enqueueRuntimeRecovery } from "@cohub/infra/agent-queue";
+import { agentTurnQueue, enqueueAgentTurnJob, type AgentTurnJobData } from "./queue.js";
 import { getAbortEvent } from "./abort.js";
 import { setActiveAbortController, clearActiveAbortController, getActiveAbortEvent, setActiveAbortEvent } from "./active-turns.js";
 import { sendOutput } from "./redis.js";
 import { env } from "./env.js";
 import { logger } from "./logger.js";
-import { getPromptAuthScopes, parsePromptEnv, type PromptAccessMode } from "@cohub/core/sessions";
+import { getPromptAuthScopes, parsePromptEnv, readRuntimeRecovery, type PromptAccessMode } from "@cohub/core/sessions";
 import { createAgentExecutionToken } from "./execution-grants.js";
 import { isLocalHarness, resolveHarness } from "@cohub/protocol";
-import { executeRemoteHarnessTurn, RuntimeExecutionUncertainError } from "./runtime/remote-runtime.js";
+import { executeRemoteHarnessTurn, markRuntimeRecovery, RuntimeExecutionUncertainError } from "./runtime/remote-runtime.js";
 import { loadRuntimeContext } from "./runtime/context-store.js";
 
 
@@ -67,7 +68,7 @@ function clearRetryState(data: AgentTurnJobData) {
 async function requeueTurnJob(data: AgentTurnJobData, reason: RetryReason, job?: Job<AgentTurnJobData>, meta?: Record<string, unknown>) {
   const retryKey = getRetryKey(data, reason);
   const delay = nextRetryDelayMs(retryKey);
-  await enqueueAgentTurnJob({ ...data, reason: data.reason === "runtime_delivery" ? "runtime_delivery" : "retry" }, {
+  await enqueueAgentTurnJob({ ...data, reason: "retry" }, {
     jobId: `agent-session-retry-${reason}-${data.sessionId}-${Math.max(1, Math.ceil(Date.now() / delay))}`,
     delay,
     removeOnComplete: true,
@@ -810,7 +811,6 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
     if (queueWaitMs != null) jobSpan.addEvent("agent.queue.dequeued", { "agent.queue.wait_ms": queueWaitMs });
     const lock = await acquireSessionLock(data.sessionId);
     if (!lock) {
-      if (data.reason === "runtime_delivery") return requeueTurnJob(data, "session_busy", job);
       logger.info(`[Agent] session locked; skipped wakeup sessionId=${data.sessionId} reason=${data.reason ?? "prompt"}`);
       return { skipped: "session_locked", jobId: job.id ?? null };
     }
@@ -1208,11 +1208,32 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
       };
     } catch (error) {
       if (error instanceof RuntimeExecutionUncertainError) {
-        // A disconnected host may still be changing files. Keep its turn active;
-        // neither stale recovery nor another harness may automatically take over.
+        // The Runtime may already have changed local files. Surface the uncertain
+        // Session immediately and wait for reconnect or explicit confirmation.
         terminalHandled = true;
+        const ownerTurn = claimedBatch?.ownerTurn;
+        const turnId = ownerTurn?.id;
+        if (ownerTurn) {
+          const harness = resolveHarness(ownerTurn.meta);
+          const recoveryMeta = await markRuntimeRecovery(ownerTurn.id, {
+            state: "attention",
+            reason: "transport_disconnected",
+            detectedAt: new Date().toISOString(),
+          });
+          const recovery = readRuntimeRecovery(recoveryMeta);
+          await publishSessionTurnsUpdated({ sessionId: data.sessionId, turnIds: [ownerTurn.id] });
+          if (isLocalHarness(harness) && recovery?.ownerUserId) {
+            await enqueueRuntimeRecovery(agentTurnQueue, {
+              spaceId: data.spaceId,
+              sessionId: data.sessionId,
+              expectedTurnId: ownerTurn.id,
+              expectedHarness: harness,
+              expectedOwnerUserId: recovery.ownerUserId,
+            });
+          }
+        }
         logger.error("[Runtime] execution outcome requires reconciliation", { sessionId: data.sessionId, error });
-        return { skipped: "runtime_outcome_unknown", turnId: claimedBatch?.ownerTurn.id };
+        return { skipped: "runtime_outcome_unknown", turnId };
       }
       caughtError = error;
       const ownerTurnId = activeTurn?.id ?? claimedBatch?.ownerTurn.id ?? null;

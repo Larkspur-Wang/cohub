@@ -1,7 +1,7 @@
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 import type { WebSocket } from "ws";
-import { RUNTIME_MAX_FRAME_BYTES, runtimeClientFrameSchema, runtimeCommandSchema, type RuntimeRegistration } from "@cohub/protocol";
+import { RUNTIME_MAX_FRAME_BYTES, runtimeClientFrameSchema, runtimeCommandSchema, type RuntimePendingExecution, type RuntimeRegistration } from "@cohub/protocol";
 
 export type RuntimeRelayDependencies = {
   secret: string;
@@ -11,14 +11,14 @@ export type RuntimeRelayDependencies = {
   renew: (spaceId: string, record: RuntimeRegistration) => Promise<boolean>;
   release: (spaceId: string, record: RuntimeRegistration) => Promise<void>;
   heartbeatMs?: number;
-  recover?: (spaceId: string) => Promise<unknown>;
+  recover?: (spaceId: string, ownerUserId: string, execution: RuntimePendingExecution) => Promise<unknown>;
 };
-export function createRuntimeRecoveryLifecycle(input: { enqueue: (spaceId: string) => Promise<unknown>; close: () => Promise<unknown> }) {
+export function createRuntimeRecoveryLifecycle(input: { enqueue: (spaceId: string, ownerUserId: string, execution: RuntimePendingExecution) => Promise<unknown>; close: () => Promise<unknown> }) {
   const pending = new Set<Promise<unknown>>();
   let closing: Promise<void> | null = null;
-  const recover = (spaceId: string) => {
+  const recover = (spaceId: string, ownerUserId: string, execution: RuntimePendingExecution) => {
     if (closing) return Promise.resolve();
-    const task = input.enqueue(spaceId).finally(() => pending.delete(task));
+    const task = input.enqueue(spaceId, ownerUserId, execution).finally(() => pending.delete(task));
     pending.add(task);
     return task;
   };
@@ -87,7 +87,6 @@ export function createRuntimeRelay(deps: RuntimeRelayDependencies) {
           registrations.set(frame.spaceId, { socket, record, peers: new Map() });
           clearTimeout(handshake);
           send(socket, { type: "runtime.ready", connectionId });
-          void deps.recover?.(frame.spaceId).catch((error) => console.warn("Runtime recovery wakeup failed", error));
         } else {
           if (!current) throw new Error("Runtime is not registered");
           if (frame.type === "runtime.auth") {
@@ -96,7 +95,11 @@ export function createRuntimeRelay(deps: RuntimeRelayDependencies) {
             if (auth.userId !== current.record.ownerUserId) { deny(403); return; }
             token = frame.token; authorizedAt = Date.now();
           } else if (frame.type === "runtime.heartbeat") lastHeartbeat = Date.now();
-          else {
+          else if (frame.type === "runtime.recovery") {
+            for (const execution of frame.executions) {
+              void deps.recover?.(current.spaceId, current.record.ownerUserId, execution).catch((error) => console.warn("Runtime recovery wakeup failed", error));
+            }
+          } else {
             const peer = registrations.get(current.spaceId)?.peers.get(frame.requestId);
             if (peer) send(peer, frame);
           }
@@ -122,6 +125,7 @@ export function createRuntimeRelay(deps: RuntimeRelayDependencies) {
     if (!registration || registration.record.connectionId !== connection || registration.socket.readyState !== registration.socket.OPEN) { socket.close(4404, "Runtime unavailable"); return; }
     let requestId: string | null = null;
     let turnId: string | null = null;
+    let startedExecution: RuntimePendingExecution | null = null;
     let acknowledged = false;
     const handshake = setTimeout(() => socket.close(4408, "Runtime request timed out"), 15_000);
     send(socket, { type: "runtime.ready", connectionId: connection });
@@ -136,6 +140,7 @@ export function createRuntimeRelay(deps: RuntimeRelayDependencies) {
             return;
           }
           requestId = command.requestId; turnId = execution.turnId;
+          if (command.type === "turn.start") startedExecution = { sessionId: execution.sessionId, turnId: execution.turnId, harness: execution.harness };
           registration.peers.set(requestId, socket); clearTimeout(handshake);
         } else if (!requestId || command.requestId !== requestId) throw new Error("Unknown execution");
         if (command.type === "turn.ack" && command.turnId !== turnId) throw new Error("Ack turn identity mismatch");
@@ -148,7 +153,10 @@ export function createRuntimeRelay(deps: RuntimeRelayDependencies) {
       clearTimeout(handshake);
       if (!requestId) return;
       registration.peers.delete(requestId);
-      if (!acknowledged) { try { send(registration.socket, { type: "turn.abort", requestId }); } catch { /* Local watchdog aborts on disconnect. */ } }
+      if (!acknowledged) {
+        try { send(registration.socket, { type: "turn.abort", requestId }); } catch { /* Local watchdog aborts on disconnect. */ }
+        if (startedExecution) void deps.recover?.(spaceId, registration.record.ownerUserId, startedExecution).catch((error) => console.warn("Runtime recovery wakeup failed", error));
+      }
     });
   }
   return { control, peer };

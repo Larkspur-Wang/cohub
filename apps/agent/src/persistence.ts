@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import type { ContentBlock, Usage } from "@cohub/protocol/core";
 import type {
@@ -23,7 +23,6 @@ import { runtimeResolutionOpen } from "@cohub/core/sessions";
 import { sanitizeContentBlocksForPostgresJson, sanitizePostgresJsonValue } from "@cohub/core/content/sanitize";
 import { addImageToTextCallsToSummary, claimSessionFallbackTitle, countToolCallsInContent, createImageToTextUsageSummaryAccumulator, deriveMessagePreviewText, deriveSessionFallbackTitle, finalizeImageToTextUsageSummary, readImageToTextCalls, readSessionTitleSource, resolveMessageTurnId, shouldGenerateSessionTitle, summarizeSessionTurnCompactions, sumImageToTextUsage } from "@cohub/core/sessions";
 import { buildTraceHeaders, getCurrentRequestId } from "@cohub/infra/tracing";
-import { enqueueAgentTurnJob } from "./queue.js";
 import { enqueueSessionMessagePostprocess } from "./session-message-postprocess-queue.js";
 import { enqueueSessionTitleGeneration } from "./session-title-queue.js";
 import { normalizeAssistantTurn } from "./assistant-message-normalizer.js";
@@ -372,7 +371,7 @@ async function persistMessageNode(input: PersistMessageInput & { message: Persis
     role: messageRole,
     content,
     text,
-    meta: sanitizePostgresJsonValue({ ...input.message.meta, ...(input.message.meta?.runtime === "local" && messageRole === "assistant" ? { runtimeDeliveryPending: true } : {}), messageKind, anchorUserMessageId, actorUserId: input.userId ?? null, providerResponseId: input.message.meta?.responseId ?? null }),
+    meta: sanitizePostgresJsonValue({ ...input.message.meta, messageKind, anchorUserMessageId, actorUserId: input.userId ?? null, providerResponseId: input.message.meta?.responseId ?? null }),
     idempotencyKey: input.idempotencyKey,
     sequence,
     provider: input.message.provider ?? null,
@@ -726,72 +725,30 @@ async function resolveGatewayNodeForOutbound(input: { spaceChannelId: string; sp
   throw new Error(`Gateway route is missing for final assistant outbound channel ${input.spaceChannelId}`);
 }
 
-type RuntimeGatewayTarget = { spaceChannelId: string; provider: string; externalChatId: string | null; bindingKey: string };
-type RuntimeGatewayDelivery = { targets: RuntimeGatewayTarget[]; enqueued: Record<string, boolean> };
-const readRuntimeGatewayDelivery = (meta: unknown): RuntimeGatewayDelivery | undefined => {
-  const value = normalizeRecord(meta)?.runtimeGatewayDelivery;
-  if (!value || typeof value !== "object" || Array.isArray(value)) return;
-  const record = value as Record<string, unknown>;
-  if (!Array.isArray(record.targets) || !record.enqueued || typeof record.enqueued !== "object" || Array.isArray(record.enqueued)) return;
-  const targets = record.targets.filter((target): target is RuntimeGatewayTarget => {
-    if (!target || typeof target !== "object" || Array.isArray(target)) return false;
-    const item = target as Record<string, unknown>;
-    return typeof item.spaceChannelId === "string" && typeof item.provider === "string" && (item.externalChatId === null || typeof item.externalChatId === "string") && typeof item.bindingKey === "string";
-  });
-  if (targets.length !== record.targets.length) return;
-  return { targets, enqueued: Object.fromEntries(Object.entries(record.enqueued as Record<string, unknown>).filter((entry): entry is [string, boolean] => entry[1] === true)) };
-};
-
 async function dispatchFinalAssistantToGateway(input: { spaceId: string; sessionId: string; message: MessageRecord }) {
   if (input.message.role !== "assistant") return;
   const kind = input.message.meta?.messageKind;
   if (kind !== "assistant_final" && kind !== "assistant_error") return;
 
-  const local = input.message.meta?.runtime === "local";
-  let delivery: RuntimeGatewayDelivery | undefined;
-  if (local) {
-    const [row] = await db.select({ meta: sessionMessages.meta }).from(sessionMessages).where(eq(sessionMessages.id, input.message.id)).limit(1);
-    delivery = readRuntimeGatewayDelivery(row?.meta);
-  }
-  const bindings = delivery ? [] : await db.select().from(spaceSessionBindings).where(eq(spaceSessionBindings.spaceSessionId, input.sessionId));
-  let targetBindings: RuntimeGatewayTarget[] = delivery?.targets ?? (bindings.length > 0
+  const bindings = await db.select().from(spaceSessionBindings).where(eq(spaceSessionBindings.spaceSessionId, input.sessionId));
+  const targetBindings = bindings.length > 0
     ? bindings.map((binding) => ({ spaceChannelId: binding.spaceChannelId, provider: binding.provider, externalChatId: binding.externalChatId, bindingKey: binding.bindingKey }))
-    : (await db.select({ spaceChannelId: spaceChannels.id, provider: userChannels.provider, externalChatId: sql<string | null>`null`, bindingKey: sql<string>`''` }).from(spaceChannels).innerJoin(userChannels, eq(userChannels.id, spaceChannels.channelId)).where(eq(spaceChannels.spaceId, input.spaceId))).map((row) => ({ ...row, externalChatId: row.externalChatId ?? null })));
-  if (local && !delivery) {
-    await db.update(sessionMessages).set({ meta: sql`coalesce(${sessionMessages.meta}, '{}'::jsonb) || ${JSON.stringify({ runtimeGatewayDelivery: { targets: targetBindings.filter((target) => target.externalChatId), enqueued: {} } })}::jsonb` })
-      .where(and(eq(sessionMessages.id, input.message.id), sql`${sessionMessages.meta}->'runtimeGatewayDelivery' is null`));
-    const [row] = await db.select({ meta: sessionMessages.meta }).from(sessionMessages).where(eq(sessionMessages.id, input.message.id)).limit(1);
-    delivery = readRuntimeGatewayDelivery(row?.meta);
-    if (!delivery) throw new Error("Runtime channel targets were not persisted");
-    targetBindings = delivery.targets;
-  }
-  const failures: unknown[] = [];
+    : (await db.select({ spaceChannelId: spaceChannels.id, provider: userChannels.provider, externalChatId: sql<string | null>`null`, bindingKey: sql<string>`''` }).from(spaceChannels).innerJoin(userChannels, eq(userChannels.id, spaceChannels.channelId)).where(eq(spaceChannels.spaceId, input.spaceId))).map((row) => ({ ...row, externalChatId: row.externalChatId ?? null }));
+
   for (const binding of targetBindings) {
     if (!binding.externalChatId) continue;
-    const commandId = local ? createHash("sha256").update(JSON.stringify([input.message.id, binding.spaceChannelId, binding.provider, binding.externalChatId, binding.bindingKey])).digest("hex") : randomUUID();
-    if (delivery?.enqueued[commandId]) continue;
-    try {
-      const nodeId = await resolveGatewayNodeForOutbound({ spaceChannelId: binding.spaceChannelId, spaceId: input.spaceId, sessionId: input.sessionId, messageId: input.message.id });
-      const turnAnchorMessageId = typeof input.message.meta?.anchorUserMessageId === "string" ? input.message.meta.anchorUserMessageId : input.message.id;
-      const [anchorRef] = await db.select({ externalMessageId: providerMessageRefs.externalMessageId }).from(providerMessageRefs).where(and(eq(providerMessageRefs.spaceChannelId, binding.spaceChannelId), eq(providerMessageRefs.sessionMessageId, turnAnchorMessageId), eq(providerMessageRefs.direction, "inbound"))).orderBy(desc(providerMessageRefs.createdAt)).limit(1);
-      const command: GatewayOutboundCommand = {
-        commandId,
-        timestamp: Date.now(),
-        channelId: binding.spaceChannelId,
-        provider: binding.provider as ChannelProvider,
-        externalChatId: binding.externalChatId,
-        content: input.message.content,
-        replyToExternalMessageId: anchorRef?.externalMessageId,
-        spaceId: input.spaceId,
-        spaceSessionId: input.sessionId,
-        sessionMessageId: input.message.id,
-        meta: { sessionOutput: { type: "session.message.persisted", spaceId: input.spaceId, sessionId: input.sessionId, message: input.message }, bindingKey: binding.bindingKey, sessionMessageRole: input.message.role, turnAnchorMessageId, targetNodeId: nodeId },
-      };
-      await xaddWithMaxlen(redis, getGatewayNodeOutboundStreamKey(nodeId), "*", "payload", JSON.stringify(command));
-      if (local) await db.update(sessionMessages).set({ meta: sql`jsonb_set(${sessionMessages.meta}, '{runtimeGatewayDelivery,enqueued}', coalesce(${sessionMessages.meta}->'runtimeGatewayDelivery'->'enqueued', '{}'::jsonb) || ${JSON.stringify({ [commandId]: true })}::jsonb)` }).where(eq(sessionMessages.id, input.message.id));
-    } catch (error) { if (!local) throw error; failures.push(error); }
+    const nodeId = await resolveGatewayNodeForOutbound({ spaceChannelId: binding.spaceChannelId, spaceId: input.spaceId, sessionId: input.sessionId, messageId: input.message.id });
+    const turnAnchorMessageId = typeof input.message.meta?.anchorUserMessageId === "string" ? input.message.meta.anchorUserMessageId : input.message.id;
+    const [anchorRef] = await db.select({ externalMessageId: providerMessageRefs.externalMessageId }).from(providerMessageRefs).where(and(eq(providerMessageRefs.spaceChannelId, binding.spaceChannelId), eq(providerMessageRefs.sessionMessageId, turnAnchorMessageId), eq(providerMessageRefs.direction, "inbound"))).orderBy(desc(providerMessageRefs.createdAt)).limit(1);
+    const command: GatewayOutboundCommand = {
+      commandId: randomUUID(), timestamp: Date.now(), channelId: binding.spaceChannelId,
+      provider: binding.provider as ChannelProvider, externalChatId: binding.externalChatId,
+      content: input.message.content, replyToExternalMessageId: anchorRef?.externalMessageId,
+      spaceId: input.spaceId, spaceSessionId: input.sessionId, sessionMessageId: input.message.id,
+      meta: { sessionOutput: { type: "session.message.persisted", spaceId: input.spaceId, sessionId: input.sessionId, message: input.message }, bindingKey: binding.bindingKey, sessionMessageRole: input.message.role, turnAnchorMessageId, targetNodeId: nodeId },
+    };
+    await xaddWithMaxlen(redis, getGatewayNodeOutboundStreamKey(nodeId), "*", "payload", JSON.stringify(command));
   }
-  if (failures.length) throw new AggregateError(failures, "Runtime channel delivery remains pending");
 }
 
 export async function persistBatchUserMessages(input: { spaceId: string; sessionId: string; batch: ClaimedTurnBatch }) {
@@ -833,26 +790,6 @@ export async function persistUserMessage(input: { spaceId: string; sessionId: st
   if (!persisted.created) return { ok: true, message: record, created: false };
   await publishMessagePersisted(input.spaceId, record);
   return { ok: true, message: record };
-}
-
-export async function deliverRuntimeMessage(spaceId: string, row: typeof sessionMessages.$inferSelect) {
-  if (normalizeRecord(row.meta)?.runtimeDeliveryPending !== true) return;
-  const record = toMessageRecord(row);
-  const final = record.meta?.messageKind === "assistant_final" || record.meta?.messageKind === "assistant_error";
-  const work: Promise<unknown>[] = [publishMessagePersisted(spaceId, record), enqueueSessionMessagePostprocess({ sessionId: row.sessionId, messageId: row.id })];
-  if (final && row.turnId) {
-    work.push(dispatchFinalAssistantToGateway({ spaceId, sessionId: row.sessionId, message: record }));
-    work.push(enqueueAgentTurnJob({ spaceId, sessionId: row.sessionId, reason: "runtime_delivery" }));
-    work.push(publishSessionTurnsUpdated({ sessionId: row.sessionId, turnIds: [row.turnId] }));
-    work.push((async () => {
-      const [turn] = await db.select().from(sessionTurns).where(eq(sessionTurns.id, row.turnId as string)).limit(1);
-      if (turn) await publishTurnFinalized(spaceId, toTurnRecord(turn));
-    })());
-  }
-  const results = await Promise.allSettled(work);
-  const failures = results.flatMap((result) => result.status === "rejected" ? [result.reason] : []);
-  if (failures.length) throw new AggregateError(failures, "Runtime delivery is pending");
-  await db.update(sessionMessages).set({ meta: sql`${sessionMessages.meta} - 'runtimeDeliveryPending'` }).where(eq(sessionMessages.id, row.id));
 }
 
 const EMPTY_ASSISTANT_MESSAGE_ERROR = "LLM returned an empty assistant message after streaming completed.";
@@ -897,10 +834,7 @@ export async function persistAssistantMessage(input: { spaceId: string; spaceSes
   const localFinal = local && (message.meta?.messageKind === "assistant_final" || message.meta?.messageKind === "assistant_error");
   if (local && input.idempotencyKey) {
     const [existing] = await db.select().from(sessionMessages).where(and(eq(sessionMessages.sessionId, input.spaceSessionId), eq(sessionMessages.idempotencyKey, input.idempotencyKey))).limit(1);
-    if (existing) {
-      await deliverRuntimeMessage(input.spaceId, existing).catch((error) => logger.warn("[Runtime] durable delivery pending", error));
-      return { ok: true, message: toMessageRecord(existing), created: false };
-    }
+    if (existing) return { ok: true, message: toMessageRecord(existing), created: false };
   }
   const prepared = localFinal && input.turnId ? await buildIntermediateObjectsForTurn({ spaceId: input.spaceId, sessionId: input.spaceSessionId, turnId: input.turnId }) : undefined;
   const persisted = await persistMessageNode({ spaceId: input.spaceId, sessionId: input.spaceSessionId, previousMessageId: input.userMessageId, anchorUserMessageId: input.userMessageId, userId: input.userId ?? null, idempotencyKey: input.idempotencyKey ?? await buildAssistantIdempotencyKey({ previousMessageId: input.userMessageId, message }), message }, localFinal ? async (tx, row) => {
@@ -917,7 +851,15 @@ export async function persistAssistantMessage(input: { spaceId: string; spaceSes
   const record = toMessageRecord(persisted.message);
   if (local) {
     if (persisted.created && prepared && input.turnId) indexTurnReferences({ spaceId: input.spaceId, sessionId: input.spaceSessionId, turnId: input.turnId, messages: [...prepared.rows, persisted.message] });
-    await deliverRuntimeMessage(input.spaceId, persisted.message).catch((error) => logger.warn("[Runtime] durable delivery pending; automatic retry scheduled", error));
+    if (persisted.created) {
+      await publishMessagePersisted(input.spaceId, record).catch((error) => logger.warn("[Realtime] failed to publish local Runtime message", error));
+      await enqueueSessionMessagePostprocess({ sessionId: input.spaceSessionId, messageId: record.id }).catch((error) => logger.warn("[Postprocess] failed to enqueue local Runtime message", error));
+    }
+    if (localFinal && input.turnId) {
+      const [turn] = await db.select().from(sessionTurns).where(eq(sessionTurns.id, input.turnId)).limit(1);
+      if (turn) await publishTurnFinalized(input.spaceId, toTurnRecord(turn)).catch((error) => logger.warn("[Realtime] failed to publish local Runtime turn", error));
+      await dispatchFinalAssistantToGateway({ spaceId: input.spaceId, sessionId: input.spaceSessionId, message: record }).catch((error) => logger.warn("[GatewayOutbound] failed to dispatch local Runtime message", error));
+    }
     return { ok: true, message: record, created: persisted.created };
   }
   if (!persisted.created && !input.idempotencyKey) {

@@ -2262,8 +2262,14 @@ export class SpaceClient {
     );
   }
 
-  confirmRuntimeStopped(confirmation: import("@cohub/protocol").RuntimeStopConfirmation) {
-    return this.transport.request<{ accepted: true }>(`/api/spaces/${this.id}/runtime/confirm-stopped`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(confirmation) });
+  getSessionRuntime(sessionId: string, customFetch?: Fetch) {
+    return this.transport.request<import("@cohub/protocol").RuntimeSessionRecoveryStatus>(
+      `/api/spaces/${this.id}/sessions/${sessionId}/runtime`, { fetch: customFetch },
+    );
+  }
+
+  confirmRuntimeStopped(sessionId: string, confirmation: import("@cohub/protocol").RuntimeStopConfirmation) {
+    return this.transport.request<{ accepted: true }>(`/api/spaces/${this.id}/sessions/${sessionId}/runtime/confirm-stopped`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(confirmation) });
   }
 
   getStartup(customFetch?: Fetch) {

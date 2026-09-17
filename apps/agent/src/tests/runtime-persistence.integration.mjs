@@ -54,7 +54,6 @@ mock.module("../session-lock.js", { exports: { acquireSessionLock: async () => n
 mock.module("../runtime/remote-runtime.js", { exports: { executeRemoteHarnessTurn: async () => {}, markRuntimeRecovery: async () => {} } });
 const { persistAssistantMessage, persistBatchUserMessages, persistUserMessage } = await import("../persistence.js");
 const { claimNextTurnBatch, loadClaimedTurnBatch, resolveBatchAccessMode } = await import("../batch.js");
-const { sweepRuntimeRecovery } = await import("../runtime/recovery.js");
 const { createRuntimeContextReader } = await import("../runtime/context-reader.js");
 after(() => engine.close());
 
@@ -221,43 +220,24 @@ test("confirmation winning first rejects a late result without inserting a messa
   assert.equal((await database.select().from(schema.sessionMessages).where(eq(schema.sessionMessages.turnId, identity.turnId))).length, 1);
 });
 
-test("channel delivery retries only failed targets with stable command identity", async () => {
+test("channel delivery failure is best effort after the local result is durable", async () => {
   const identity = await setup(false, 2);
-  let failedOnce = false;
-  const originalPush = gatewayCommands.push.bind(gatewayCommands);
-  gatewayCommands.push = (command) => {
-    if (!failedOnce && command.externalChatId === "chat-1") { failedOnce = true; gatewayUnavailable = true; throw new Error("second target unavailable"); }
-    return originalPush(command);
-  };
+  gatewayUnavailable = true;
   await finish(identity);
   gatewayUnavailable = false;
-  const result = (await database.select().from(schema.sessionMessages).where(eq(schema.sessionMessages.turnId, identity.turnId))).find((message) => message.role === "assistant");
-  assert.equal(result.meta.runtimeDeliveryPending, true);
-  await sweepRuntimeRecovery();
-  const byChat = gatewayCommands.filter((command) => command?.externalChatId).reduce((map, command) => map.set(command.externalChatId, [...(map.get(command.externalChatId) ?? []), command]), new Map());
-  assert.equal(byChat.get("chat-0")?.length, 1);
-  assert.equal(byChat.get("chat-1")?.length, 1);
-  const firstId = byChat.get("chat-0")?.[0].commandId;
-  await sweepRuntimeRecovery();
-  assert.equal(gatewayCommands.filter((command) => command?.externalChatId === "chat-0").length, 1);
-  assert.equal(firstId?.length, 64);
+  assert.equal((await readTurn(identity.turnId)).status, "completed");
+  const messages = await database.select().from(schema.sessionMessages).where(eq(schema.sessionMessages.turnId, identity.turnId));
+  assert(messages.some((message) => message.role === "assistant"));
 });
 
-test("queue failure after confirmed stop leaves a terminal result and retryable delivery intent", async () => {
+test("queue failure after confirmed stop does not weaken the terminal database result", async () => {
   const identity = await setup(true); queueUnavailable = true;
   await finish(identity, true);
+  queueUnavailable = false;
   assert.equal((await readTurn(identity.turnId)).status, "interrupted");
   const messages = await database.select().from(schema.sessionMessages).where(eq(schema.sessionMessages.turnId, identity.turnId));
-  const result = messages.find((message) => message.role === "assistant");
-  assert.equal(result.meta.runtimeDeliveryPending, true);
-  queueUnavailable = false;
-  await sweepRuntimeRecovery();
-  assert(processed.some((job) => job.messageId === result.id));
-  assert(wakes.some((job) => job.sessionId === identity.sessionId && job.reason === "runtime_delivery"));
-  assert.equal((await database.select().from(schema.sessionMessages).where(eq(schema.sessionMessages.id, result.id)))[0].meta.runtimeDeliveryPending, undefined);
-  const deliveredCount = processed.length;
-  await sweepRuntimeRecovery();
-  assert.equal(processed.length, deliveredCount, "delivered intents leave the sweep");
+  assert.equal(messages.length, 2);
+  assert(messages.some((message) => message.role === "assistant"));
   await finish(identity, true);
   assert.equal((await database.select().from(schema.sessionMessages).where(eq(schema.sessionMessages.turnId, identity.turnId))).length, 2);
 });

@@ -7,7 +7,13 @@ import { createRuntimeRecoveryLifecycle, createRuntimeRelay } from "./runtime-re
 
 const recoveryQueue = createAgentTurnsQueue(gatewayConfig.bullmqRedisUrl, "cohub-gateway-runtime");
 const recovery = createRuntimeRecoveryLifecycle({
-  enqueue: (spaceId) => enqueueRuntimeRecovery(recoveryQueue, { spaceId }),
+  enqueue: (spaceId, ownerUserId, execution) => enqueueRuntimeRecovery(recoveryQueue, {
+    spaceId,
+    sessionId: execution.sessionId,
+    expectedTurnId: execution.turnId,
+    expectedHarness: execution.harness,
+    expectedOwnerUserId: ownerUserId,
+  }),
   close: () => recoveryQueue.close(),
 });
 const relay = createRuntimeRelay({

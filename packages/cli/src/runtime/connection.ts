@@ -41,7 +41,7 @@ export async function serveRuntime(options: RuntimeConnectionOptions) {
 }
 
 async function connect(options: RuntimeConnectionOptions): Promise<"retry" | "fatal" | "conflict"> {
-  let token = await options.token();
+  let currentToken = await options.token();
   const socket = new WebSocket(options.url);
   const active = new Map<string, Execution>();
   const seen = new Set<string>();
@@ -64,7 +64,7 @@ async function connect(options: RuntimeConnectionOptions): Promise<"retry" | "fa
     if (Date.now() - lastHeartbeat > 30_000) stop();
     else if (connectionId) {
       try { send({ type: "runtime.heartbeat" }); } catch { stop(); }
-      void options.token().then((next) => { if (next !== token) { send({ type: "runtime.auth", token: next }); token = next; } }).catch(stop);
+      void options.token().then((next) => { if (next !== currentToken) { send({ type: "runtime.auth", token: next }); currentToken = next; } }).catch(stop);
     }
   }, 10_000);
   const closed = new Promise<void>((resolve) => {
@@ -79,7 +79,7 @@ async function connect(options: RuntimeConnectionOptions): Promise<"retry" | "fa
   });
   socket.addEventListener("error", () => socket.close());
   socket.addEventListener("open", () => {
-    try { send({ type: "runtime.hello", version: RUNTIME_PROTOCOL_VERSION, spaceId: options.spaceId, token, capabilities: options.capabilities }); } catch { stop(); }
+    try { send({ type: "runtime.hello", version: RUNTIME_PROTOCOL_VERSION, spaceId: options.spaceId, token: currentToken, capabilities: options.capabilities }); } catch { stop(); }
   });
   socket.addEventListener("message", (event) => {
     void (async () => {
@@ -89,7 +89,11 @@ async function connect(options: RuntimeConnectionOptions): Promise<"retry" | "fa
         if (connectionId === frame.connectionId) return;
         if (connectionId) throw new Error("Runtime connection identity changed");
         connectionId = frame.connectionId;
-        clearTimeout(readyTimer); options.onReady(); return;
+        clearTimeout(readyTimer); options.onReady();
+        for await (const executions of options.store.pendingExecutionBatches()) {
+          send({ type: "runtime.recovery", executions });
+        }
+        return;
       }
       if (!connectionId) throw new Error("Runtime handshake is incomplete");
       if (raw.type === "runtime.heartbeat") { lastHeartbeat = Date.now(); return; }

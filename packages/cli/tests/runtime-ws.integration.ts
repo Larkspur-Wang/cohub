@@ -1,12 +1,56 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mkdtemp, chmod, rm } from "node:fs/promises";
+import { mkdtemp, chmod, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import { serveRuntime } from "../src/runtime/connection.js";
 import { RuntimeSessionStore } from "../src/runtime/session-store.js";
+
+test("Runtime starts and reports more than 64 pending Sessions in bounded recovery frames", { timeout: 20_000 }, async () => {
+  const root = await mkdtemp(join(tmpdir(), "cohub-runtime-recovery-batches-"));
+  const spaceId = crypto.randomUUID();
+  const store = new RuntimeSessionStore(spaceId, join(root, "state"));
+  const stateDirectory = join(store.root, "pi");
+  await mkdir(stateDirectory, { recursive: true });
+  const expected = Array.from({ length: 65 }, () => ({ sessionId: crypto.randomUUID(), turnId: crypto.randomUUID(), harness: "pi" as const }));
+  await Promise.all(expected.map((execution) => writeFile(join(stateDirectory, `${execution.sessionId}.json`), JSON.stringify({
+    version: 1, sessionId: execution.sessionId, harness: execution.harness, pendingTurnId: execution.turnId,
+  }))));
+
+  const server = new WebSocketServer({ port: 0, host: "127.0.0.1" });
+  await new Promise<void>((resolve) => server.once("listening", resolve));
+  const address = server.address(); assert(address && typeof address !== "string");
+  const controller = new AbortController();
+  const frames: Array<typeof expected> = [];
+  const received = new Promise<void>((resolve, reject) => {
+    server.on("connection", (socket) => socket.on("message", (raw) => {
+      try {
+        const frame = JSON.parse(raw.toString());
+        if (frame.type === "runtime.hello") {
+          socket.send(JSON.stringify({ type: "runtime.ready", connectionId: crypto.randomUUID() }));
+          return;
+        }
+        if (frame.type !== "runtime.recovery") return;
+        frames.push(frame.executions);
+        if (frames.flat().length === expected.length) resolve();
+      } catch (error) { reject(error); }
+    }));
+  });
+  const running = serveRuntime({ spaceId, cwd: root, url: `ws://127.0.0.1:${address.port}`, capabilities: { harnesses: ["pi"], models: [] }, harnesses: {}, token: async () => "fixture-token", signal: controller.signal, store, onReady: () => {} });
+  try {
+    await received;
+    assert.deepEqual(frames.map((frame) => frame.length), [64, 1]);
+    const bySession = (value: typeof expected) => [...value].sort((left, right) => left.sessionId.localeCompare(right.sessionId));
+    assert.deepEqual(bySession(frames.flat()), bySession(expected));
+  } finally {
+    controller.abort(); await running;
+    for (const socket of server.clients) socket.terminate();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 for (const harness of ["pi", "codex"] as const) for (const resolved of [false, true]) for (const archiveUnavailable of [false, true]) {
   test(`${harness} WebSocket execution restores context and ${resolved ? "retires a confirmed execution" : "acknowledges native resume"} (archive fallback: ${archiveUnavailable})`,  { timeout: 20_000 }, async () => {

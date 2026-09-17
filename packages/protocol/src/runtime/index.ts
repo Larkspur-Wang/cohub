@@ -11,6 +11,7 @@ export const RUNTIME_MAX_FRAME_BYTES = 32 * 1024 * 1024;
 /** One Runtime execution carries at most this many merged inputs and this many input bytes. */
 export const RUNTIME_MAX_BATCH_MESSAGES = 64;
 export const RUNTIME_MAX_BATCH_INPUT_BYTES = 2 * 1024 * 1024;
+export const RUNTIME_RECOVERY_BATCH_SIZE = 64;
 export const runtimeRegistrationKey = (spaceId: string) => `runtime:space:${spaceId}`;
 export const harnessSchema = z.enum(["cohub", "pi", "codex"]);
 export type HarnessKind = z.infer<typeof harnessSchema>;
@@ -54,6 +55,12 @@ export const runtimeCapabilitiesSchema = z.object({
   })).max(2000),
 });
 export type RuntimeCapabilities = z.infer<typeof runtimeCapabilitiesSchema>;
+export const runtimePendingExecutionSchema = z.object({
+  sessionId: z.string().uuid(),
+  turnId: z.string().uuid(),
+  harness: z.enum(["pi", "codex"]),
+}).strict();
+export type RuntimePendingExecution = z.infer<typeof runtimePendingExecutionSchema>;
 export const runtimeRegistrationSchema = z.object({
   connectionId: z.string().uuid(),
   endpoint: z.url({ protocol: /^wss?$/ }),
@@ -70,12 +77,18 @@ export function parseRuntimeRegistration(raw: string): RuntimeRegistration | nul
 export const runtimeReadySchema = z.object({ type: z.literal("runtime.ready"), connectionId: z.string().uuid() });
 
 export type RuntimeExecutionIdentity = { spaceId: string; sessionId: string; turnId: string; harness: LocalHarness };
-export type RuntimeRecoveryState = { state: "executing" | "attention" | "confirmed_stopped"; ownerUserId?: string | null; resolvedBy?: string; resolvedAt?: string };
+export type RuntimeRecoveryState = { state: "executing" | "attention" | "confirmed_stopped"; ownerUserId?: string | null; resolvedBy?: string; resolvedAt?: string; reason?: string; detectedAt?: string };
 export type RuntimeStatus = {
   kind: "cloud" | "local"; online: boolean; capabilities: RuntimeCapabilities | null;
-  recovery: { pending: number; revision: string }; canManage: boolean;
 };
-export const runtimeStopConfirmationSchema = z.object({ revision: z.string().min(1), confirmed: z.literal(true) }).strict();
+export type RuntimeSessionRecoveryStatus = {
+  pending: boolean;
+  revision: string;
+  turnId: string | null;
+  harness: LocalHarness | null;
+  canManage: boolean;
+};
+export const runtimeStopConfirmationSchema = z.object({ expectedTurnId: z.string().uuid(), revision: z.string().min(1), confirmed: z.literal(true) }).strict();
 export type RuntimeStopConfirmation = z.infer<typeof runtimeStopConfirmationSchema>;
 
 export type RuntimeTurnUserMessage = {
@@ -147,7 +160,8 @@ export const runtimeEventSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("turn.error"), message: z.string().max(16_384), uncertain: z.boolean().optional() }),
 ]);
 export const runtimeClientFrameSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("runtime.hello"), version: z.literal(RUNTIME_PROTOCOL_VERSION), spaceId: id, token: z.string().min(1).max(16_384), capabilities: runtimeCapabilitiesSchema }),
+  z.object({ type: z.literal("runtime.hello"), version: z.literal(RUNTIME_PROTOCOL_VERSION), spaceId: id, token: z.string().min(1).max(16_384), capabilities: runtimeCapabilitiesSchema }).strict(),
+  z.object({ type: z.literal("runtime.recovery"), executions: z.array(runtimePendingExecutionSchema).min(1).max(RUNTIME_RECOVERY_BATCH_SIZE) }).strict(),
   z.object({ type: z.literal("runtime.heartbeat") }),
   z.object({ type: z.literal("runtime.auth"), token: z.string().min(1).max(16_384) }),
   z.object({ type: z.literal("runtime.event"), requestId: id, event: runtimeEventSchema }),

@@ -72,7 +72,7 @@ import {
 import { checkpointFsJsonError, listCheckpointDirectory, readCheckpointFile } from "../../checkpoint-fs.js";
 import type { AuthUser } from "../../lib/middleware.js";
 import { submitSessionPrompt } from "../../session-prompts.js";
-import { getRuntimeRegistration, getRuntimeRecovery, confirmRuntimeStopped } from "../../runtime.js";
+import { getRuntimeRegistration, getSessionRuntimeRecovery, confirmRuntimeStopped } from "../../runtime.js";
 import runtimeArchivesRouter from "./runtime-archives.route.js";
 import { HarnessUnavailableError, ModelUnavailableError, parsePromptEnv, PromptEnvValidationError } from "@cohub/core/sessions";
 import { delegatedPromptAuthFromAppSession, promptAuthContextFromAppSession } from "../../prompt-auth-context.js";
@@ -1817,21 +1817,36 @@ router.get("/:id/runtime", async (c) => {
   const spaceId = c.req.param("id");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
   if (!(await hasPermission(user, "sandbox.view", { spaceId }))) return authzDenied(c);
-  const [sandbox, registration, recovery, canManage] = await Promise.all([
-    getSpaceSandboxBySpaceId(spaceId), getRuntimeRegistration(spaceId), getRuntimeRecovery(spaceId), hasPermission(user, "sandbox.manage", { spaceId }),
+  const [sandbox, registration] = await Promise.all([
+    getSpaceSandboxBySpaceId(spaceId), getRuntimeRegistration(spaceId),
   ]);
-  return c.json({ kind: sandbox?.provider ?? "cloud", online: Boolean(registration), capabilities: registration?.capabilities ?? null, recovery, canManage });
+  return c.json({ kind: sandbox?.provider ?? "cloud", online: Boolean(registration), capabilities: registration?.capabilities ?? null });
 });
 
-router.post("/:id/runtime/confirm-stopped", async (c) => {
+router.get("/:id/sessions/:sessionId/runtime", async (c) => {
   const user = useAuth(c);
   if (user instanceof Response) return user;
   const spaceId = c.req.param("id");
-  if (!requireValidId(spaceId)) return c.json({ message: "Space not found / Space 不存在" }, 404);
+  const sessionId = c.req.param("sessionId");
+  if (!requireValidId(spaceId) || !requireValidId(sessionId)) return c.json({ message: "Session not found / Session 不存在" }, 404);
+  if (!(await hasPermission(user, "session.view", { spaceId, sessionId }))) return authzDenied(c);
+  const [recovery, canManage] = await Promise.all([
+    getSessionRuntimeRecovery(spaceId, sessionId),
+    hasPermission(user, "sandbox.manage", { spaceId }),
+  ]);
+  return c.json({ ...recovery, canManage });
+});
+
+router.post("/:id/sessions/:sessionId/runtime/confirm-stopped", async (c) => {
+  const user = useAuth(c);
+  if (user instanceof Response) return user;
+  const spaceId = c.req.param("id");
+  const sessionId = c.req.param("sessionId");
+  if (!requireValidId(spaceId) || !requireValidId(sessionId)) return c.json({ message: "Session not found / Session 不存在" }, 404);
   if (!(await hasPermission(user, "sandbox.manage", { spaceId }))) return authzDenied(c);
   const parsed = runtimeStopConfirmationSchema.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ message: "Invalid confirmation / 确认请求无效" }, 400);
-  const accepted = await confirmRuntimeStopped(spaceId, user.uuid, parsed.data);
+  const accepted = await confirmRuntimeStopped(spaceId, sessionId, user.uuid, parsed.data);
   if (!accepted) return c.json({ message: "Runtime state changed; refresh before confirming / Runtime 状态已变化，请刷新后确认" }, 409);
   return c.json({ accepted: true }, 202);
 });
