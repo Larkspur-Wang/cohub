@@ -6,6 +6,7 @@ import ImageViewer from "$lib/components/ImageViewer.svelte";
 import MarkdownView from "$lib/components/MarkdownView.svelte";
 import type { PreviewCaptureTarget } from "$lib/features/preview-mark";
 import { filePreviewModel } from "$lib/file-preview-model";
+import { formatBytes } from "$lib/format-bytes";
 import { getLocale } from "$lib/i18n/locale.svelte";
 import { createLazyModuleLoader } from "$lib/lazy-module";
 import { m } from "$lib/paraglide/messages.js";
@@ -90,6 +91,9 @@ let {
 const locale = $derived(getLocale());
 const model = $derived(filePreviewModel(file));
 const rich = $derived(render === "preview");
+const hasPdfSource = $derived(
+	file.delivery === "url" ? Boolean(file.url) : Boolean(file.content),
+);
 
 // Bumping an attempt re-subscribes the matching #await after a failed import.
 let editorAttempt = $state(0);
@@ -112,17 +116,6 @@ const pdfPromise = $derived.by(() => {
 	pdfAttempt;
 	return loadPdfPreview();
 });
-
-function formatSize(bytes: number) {
-	if (bytes <= 0) return "0 B";
-	const units = ["B", "KB", "MB", "GB"];
-	const index = Math.min(
-		units.length - 1,
-		Math.floor(Math.log(bytes) / Math.log(1024)),
-	);
-	const value = bytes / 1024 ** index;
-	return `${value < 10 && index > 0 ? value.toFixed(1) : Math.round(value)} ${units[index]}`;
-}
 </script>
 
 {#snippet LazyError(label: string, retry: () => void)}
@@ -136,7 +129,7 @@ function formatSize(bytes: number) {
 	<div class="flex h-full flex-col items-center justify-center gap-1.5 p-6 text-center">
 		<div class="text-sm font-semibold text-text-primary">{m.preview_not_available({}, { locale })}</div>
 		<div class="text-xs text-text-tertiary">
-			{file.mimeType ?? "application/octet-stream"} · {formatSize(file.size)}
+			{file.mimeType ?? "application/octet-stream"} · {formatBytes(file.size)}
 		</div>
 		{#if downloadUrl}
 			<a class="action-btn primary mt-2" href={downloadUrl} download={downloadName ?? file.name}>
@@ -239,13 +232,13 @@ function formatSize(bytes: number) {
 				<AudioPlayer
 					src={model.mediaUrl}
 					title={file.name}
-					subtitle={formatSize(file.size)}
+					subtitle={formatBytes(file.size)}
 					downloadUrl={downloadUrl ?? undefined}
 					downloadName={downloadName ?? file.name}
 				/>
 			</div>
 		</div>
-	{:else if model.kind === "pdf"}
+	{:else if model.kind === "pdf" && hasPdfSource}
 		<div class="min-h-0 flex-1">
 			{#await pdfPromise then module}
 				{@const PdfPreview = module.default}

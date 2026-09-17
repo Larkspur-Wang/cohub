@@ -83,10 +83,8 @@ import {
 	parseResourceLabelRealtimePayload,
 	syncResourceLabelsToCache,
 } from "$lib/labels/resource-label-cache-sync";
-import {
-	COMPACT_SHELL_MAX_WIDTH_PX,
-	DESKTOP_SHELL_MIN_WIDTH_PX,
-} from "$lib/layout/breakpoints";
+import { DESKTOP_SHELL_MIN_WIDTH_PX } from "$lib/layout/breakpoints";
+import { useCompactShell } from "$lib/layout/compact-shell.svelte";
 import { DURATION_PANEL } from "$lib/motion.svelte";
 import { sdk } from "$lib/sdk";
 import {
@@ -272,20 +270,7 @@ const routeTurnSequence = $derived.by(() => {
 		? Math.floor(sequence)
 		: null;
 });
-let isMobile = $state(
-	typeof window !== "undefined"
-		? window.matchMedia(`(max-width: ${COMPACT_SHELL_MAX_WIDTH_PX}px)`).matches
-		: false,
-);
-$effect(() => {
-	if (typeof window === "undefined") return;
-	const mql = window.matchMedia(`(max-width: ${COMPACT_SHELL_MAX_WIDTH_PX}px)`);
-	const handler = (event: MediaQueryListEvent) => {
-		isMobile = event.matches;
-	};
-	mql.addEventListener("change", handler);
-	return () => mql.removeEventListener("change", handler);
-});
+const isMobile = $derived(useCompactShell());
 const isRouteDetailView = $derived(
 	routeView === "checkpoint-new" ||
 		routeView === "checkpoint" ||

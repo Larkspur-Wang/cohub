@@ -364,7 +364,10 @@ const headerActions = $derived.by((): PreviewHeaderAction[] => {
 });
 
 $effect(() => {
-	if (!showHtmlMark) htmlMarkOpen = false;
+	if (!showHtmlMark) {
+		htmlMarkOpen = false;
+		htmlMarkTarget = null;
+	}
 });
 </script>
 

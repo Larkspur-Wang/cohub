@@ -61,7 +61,6 @@ let manualScale = $state(1);
 let renderedScale = $state(1);
 let fitWidth = $state(true);
 let loading = $state(true);
-let renderingCount = $state(0);
 let progress = $state<number | null>(null);
 let error = $state<string | null>(null);
 let passwordPrompt = $state(false);
@@ -125,8 +124,6 @@ function cancelRenders() {
 	for (const task of renderTasks.values()) task.cancel();
 	renderTasks.clear();
 	renderedScales.clear();
-	// `renderingCount` is not reset here: each in-flight render still runs its own
-	// `finally`, so zeroing it would double-count against the next generation.
 }
 
 function releaseCanvas(canvas: HTMLCanvasElement) {
@@ -337,7 +334,6 @@ async function renderPage(
 	const layout = pageLayouts[pageNumber - 1];
 	if (!document || !layout || renderTasks.has(pageNumber)) return;
 	renderedScales.set(pageNumber, scale);
-	renderingCount += 1;
 	try {
 		const page = await document.getPage(pageNumber);
 		if (canvases.get(pageNumber) !== canvas) return;
@@ -374,8 +370,6 @@ async function renderPage(
 			renderedScales.delete(pageNumber);
 			console.error(`PDF page ${pageNumber} render failed`, cause);
 		}
-	} finally {
-		renderingCount = Math.max(0, renderingCount - 1);
 	}
 }
 
@@ -541,7 +535,7 @@ $effect(() => {
 </script>
 
 <div
-	class="relative h-full min-h-0 w-full overflow-hidden bg-bg-primary"
+	class="pdf-root relative h-full min-h-0 w-full overflow-hidden bg-bg-primary"
 	role="region"
 	aria-label={`PDF preview: ${name}`}
 >
@@ -697,6 +691,16 @@ $effect(() => {
 		box-shadow: 0 8px 20px
 			color-mix(in srgb, var(--overlay-scrim-strong) 14%, transparent);
 		backdrop-filter: blur(12px);
+		/* Idle: stay out of the document's way; reveal on hover or keyboard focus. */
+		opacity: 0;
+		pointer-events: none;
+		transition: opacity 160ms ease;
+	}
+
+	.pdf-root:hover .pdf-controls,
+	.pdf-root:focus-within .pdf-controls {
+		opacity: 1;
+		pointer-events: auto;
 	}
 
 	.pdf-controls-input {
@@ -766,6 +770,9 @@ $effect(() => {
 	@media (pointer: coarse) {
 		.pdf-controls {
 			bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+			/* Touch has no hover: keep the bar visible. */
+			opacity: 1;
+			pointer-events: auto;
 		}
 		.pdf-controls-btn {
 			height: 1.75rem;
