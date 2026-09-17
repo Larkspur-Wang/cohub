@@ -2,10 +2,15 @@ import { z } from "zod";
 import type { ContentBlock } from "../core/content.js";
 import type { Usage } from "../core/usage.js";
 import { contentBlockSchema } from "../core/content-schema.js";
-export { contextToPiMessages, contextToTranscript, selectRuntimeContextMessages } from "./context.js";
+import { harnessArchiveSchema, type HarnessArchive } from "./archive.js";
+export * from "./archive.js";
+export { contextToPiMessages, selectRuntimeContextMessages, type ContextProjectionOptions } from "./context.js";
 
 export const RUNTIME_PROTOCOL_VERSION = 1 as const;
 export const RUNTIME_MAX_FRAME_BYTES = 32 * 1024 * 1024;
+/** One Runtime execution carries at most this many merged inputs and this many input bytes. */
+export const RUNTIME_MAX_BATCH_MESSAGES = 64;
+export const RUNTIME_MAX_BATCH_INPUT_BYTES = 2 * 1024 * 1024;
 export const runtimeRegistrationKey = (spaceId: string) => `runtime:space:${spaceId}`;
 export const harnessSchema = z.enum(["cohub", "pi", "codex"]);
 export type HarnessKind = z.infer<typeof harnessSchema>;
@@ -16,15 +21,6 @@ export const resolveHarness = (meta: unknown): HarnessKind => {
   return isLocalHarness(value) ? value : "cohub";
 };
 
-export type HarnessArchiveIndex = {
-  version: 1;
-  objectKey: string;
-  sizeBytes?: number | null;
-  sha256?: string | null;
-  harness: HarnessKind;
-  nativeFormat: string;
-};
-
 export type RuntimeContextMessage = {
   id: string;
   turnId: string;
@@ -32,6 +28,9 @@ export type RuntimeContextMessage = {
   content: ContentBlock[];
   provider?: string | null;
   model?: string | null;
+  usage?: Usage | null;
+  stopReason?: string | null;
+  errorMessage?: string | null;
   meta?: Record<string, unknown> | null;
 };
 
@@ -43,17 +42,6 @@ export type RuntimeContext = {
   archive?: HarnessArchive | null;
   resolvedTurnIds?: string[];
   settledTurnIds?: string[];
-};
-
-export type HarnessArchive = {
-  version: 1;
-  harness: HarnessKind;
-  sessionId: string;
-  turnId: string;
-  nativeFormat: "pi.jsonl" | "codex.rollout" | "cohub.jsonl";
-  nativeSessionId: string;
-  /** Native JSONL, never a path to a file expected to exist on another host. */
-  data: string;
 };
 
 export const runtimeCapabilitiesSchema = z.object({
@@ -90,13 +78,21 @@ export type RuntimeStatus = {
 export const runtimeStopConfirmationSchema = z.object({ revision: z.string().min(1), confirmed: z.literal(true) }).strict();
 export type RuntimeStopConfirmation = z.infer<typeof runtimeStopConfirmationSchema>;
 
+export type RuntimeTurnUserMessage = {
+  turnId: string;
+  userMessageId: string;
+  userId: string | null;
+  content: ContentBlock[];
+};
+
 export type RuntimeTurnInput = {
   spaceId: string;
   sessionId: string;
   turnId: string;
   userMessageId: string;
   harness: LocalHarness;
-  content: ContentBlock[];
+  /** Ordered claim inputs. The final message owns execution, streaming and archival. */
+  messages: RuntimeTurnUserMessage[];
   context: RuntimeContext;
   provider?: string | null;
   model?: string | null;
@@ -120,7 +116,7 @@ export type RuntimeExecutionEvent =
   | { type: "content.replace"; ordinal: number; content: ContentBlock[] }
   | { type: "message.commit"; message: RuntimeMessage }
   | { type: "turn.end"; message: RuntimeMessage; archive?: HarnessArchive | null; resume: "native" | "restored" | "handoff" | "new" }
-  | { type: "context.required"; pendingTurnIds?: string[] }
+  | { type: "context.required"; pendingTurnIds?: string[]; historyOnly?: boolean }
   | { type: "turn.acknowledged" }
   | { type: "turn.error"; message: string; uncertain?: boolean };
 
@@ -140,18 +136,13 @@ const runtimeMessageSchema = z.object({
   stopReason: z.string().max(64).nullable().optional(),
   errorMessage: z.string().max(16_384).nullable().optional(),
 });
-export const harnessArchiveSchema = z.object({
-  version: z.literal(1), harness: harnessSchema, sessionId: id, turnId: id,
-  nativeFormat: z.enum(["pi.jsonl", "codex.rollout", "cohub.jsonl"]),
-  nativeSessionId: z.string().min(1).max(255), data: z.string().max(RUNTIME_MAX_FRAME_BYTES),
-});
 export const runtimeEventSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("message.start"), ordinal }),
   z.object({ type: z.literal("text.delta"), ordinal, index: ordinal, kind: z.enum(["text", "thinking"]), delta: z.string() }),
   z.object({ type: z.literal("content.replace"), ordinal, content }),
   z.object({ type: z.literal("message.commit"), message: runtimeMessageSchema }),
   z.object({ type: z.literal("turn.end"), message: runtimeMessageSchema, archive: harnessArchiveSchema.nullable().optional(), resume: z.enum(["native", "restored", "handoff", "new"]) }),
-  z.object({ type: z.literal("context.required"), pendingTurnIds: z.array(id).max(2).optional() }),
+  z.object({ type: z.literal("context.required"), pendingTurnIds: z.array(id).max(2).optional(), historyOnly: z.boolean().optional() }),
   z.object({ type: z.literal("turn.acknowledged") }),
   z.object({ type: z.literal("turn.error"), message: z.string().max(16_384), uncertain: z.boolean().optional() }),
 ]);
@@ -165,17 +156,24 @@ export type RuntimeClientFrame = z.infer<typeof runtimeClientFrameSchema>;
 
 const runtimeContextSchema = z.object({ complete: z.boolean().optional(), revision: z.string(), throughTurnId: id.nullable(), messages: z.array(z.object({
   id: z.string(), turnId: id, role: z.enum(["user", "assistant", "system"]), content,
-  provider: z.string().nullable().optional(), model: z.string().nullable().optional(), meta: z.record(z.string(), z.unknown()).nullable().optional(),
+  provider: z.string().nullable().optional(), model: z.string().nullable().optional(), usage: usageSchema.nullable().optional(),
+  stopReason: z.string().nullable().optional(), errorMessage: z.string().nullable().optional(), meta: z.record(z.string(), z.unknown()).nullable().optional(),
 })), archive: harnessArchiveSchema.nullable().optional(), resolvedTurnIds: z.array(id).max(2).optional(), settledTurnIds: z.array(id).max(2).optional() });
 
 export const runtimeCommandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("turn.recover"), requestId: id, execution: z.object({ spaceId: id, sessionId: id, turnId: id, harness: z.enum(["pi", "codex"]) }) }),
   z.object({ type: z.literal("turn.start"), requestId: id, resumeOnly: z.boolean().optional(), input: z.object({
-    spaceId: id, sessionId: id, turnId: id, userMessageId: id, harness: z.enum(["pi", "codex"]), content,
+    spaceId: id, sessionId: id, turnId: id, userMessageId: id, harness: z.enum(["pi", "codex"]),
+    messages: z.array(z.object({ turnId: id, userMessageId: id, userId: z.string().nullable(), content })).min(1).max(RUNTIME_MAX_BATCH_MESSAGES),
     context: runtimeContextSchema,
     provider: z.string().nullable().optional(), model: z.string().nullable().optional(), thinkingLevel: z.string().nullable().optional(),
     accessMode: z.enum(["read_only", "full_access"]),
-  }) }),
+  }).refine((input) => {
+    const owner = input.messages.at(-1);
+    return owner?.turnId === input.turnId && owner.userMessageId === input.userMessageId
+      && new Set(input.messages.map((message) => message.turnId)).size === input.messages.length
+      && new Set(input.messages.map((message) => message.userMessageId)).size === input.messages.length;
+  }, "Runtime batch owner or message identity mismatch") }),
   z.object({ type: z.literal("session.context"), requestId: id, context: runtimeContextSchema }),
   z.object({ type: z.literal("turn.abort"), requestId: id }),
   z.object({ type: z.literal("turn.ack"), requestId: id, revision: z.string(), turnId: id }),

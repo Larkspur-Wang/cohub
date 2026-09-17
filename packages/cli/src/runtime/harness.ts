@@ -1,4 +1,4 @@
-import { contextToTranscript, type ContentBlock, type RuntimeCapabilities, type RuntimeExecutionEvent, type RuntimeMessage, type RuntimeTurnInput } from "@neta-art/cohub";
+import type { ContentBlock, RuntimeCapabilities, RuntimeExecutionEvent, RuntimeMessage, RuntimeTurnInput } from "@neta-art/cohub";
 import { JsonRpcProcess, record, type JsonRecord } from "./json-rpc.js";
 import type { RuntimeSessionStore, NativeSession } from "./session-store.js";
 import { codexModelCatalog } from "./model-catalog.js";
@@ -15,7 +15,7 @@ export function piContent(value: unknown): ContentBlock[] {
   return array(value).flatMap((entry): ContentBlock[] => {
     const block = record(entry);
     if (block.type === "text") return [{ type: "text", text: text(block.text) }];
-    if (block.type === "thinking") return [{ type: "thinking", thinking: text(block.thinking), ...(typeof block.signature === "string" ? { signature: block.signature } : {}) }];
+    if (block.type === "thinking") return [{ type: "thinking", thinking: text(block.thinking), ...(typeof (block.thinkingSignature ?? block.signature) === "string" ? { signature: String(block.thinkingSignature ?? block.signature) } : {}) }];
     if (block.type === "toolCall") return [{ type: "tool_use", id: text(block.id), name: text(block.name), input: record(block.arguments) }];
     if (block.type === "image") return [{ type: "image", source: { type: "base64", data: text(block.data), media_type: text(block.mimeType) } }];
     return [{ type: "text", text: JSON.stringify(block) }];
@@ -91,7 +91,8 @@ export async function discoverHarnesses(harnesses: ("pi" | "codex")[], options: 
 export async function executePi(input: RuntimeTurnInput, options: HarnessOptions, cwd: string, store: RuntimeSessionStore, emit: (event: RuntimeExecutionEvent) => void, signal: AbortSignal): Promise<HarnessResult> {
   if (input.accessMode === "read_only") throw new Error("Pi cannot enforce read-only access; select Cohub or Codex");
   signal.throwIfAborted();
-  const { state, resume } = await store.prepare(input, cwd);
+  const { state, resume } = await store.prepare(input, cwd, signal);
+  signal.throwIfAborted();
   const rpc = new JsonRpcProcess(options.pi || "pi", ["--mode", "rpc", "--session", state.path], cwd, "pi", runtimeEnvironment(input));
   let ordinal = -1;
   let currentContent: ContentBlock[] = [];
@@ -112,7 +113,8 @@ export async function executePi(input: RuntimeTurnInput, options: HarnessOptions
     const stateResult = await rpc.request("get_state");
     state.nativeSessionId = text(stateResult.sessionId) || state.nativeSessionId;
     const model = record(stateResult.model);
-    const images = await Promise.all(input.content.flatMap((block) => block.type === "image" ? [imageForPi(block)] : []));
+    const content = input.messages.flatMap((message) => message.content);
+    const images = await Promise.all(content.flatMap((block) => block.type === "image" ? [imageForPi(block)] : []));
     signal.throwIfAborted();
     await store.started(state, input.turnId);
     await new Promise<void>((resolve, reject) => {
@@ -160,7 +162,7 @@ export async function executePi(input: RuntimeTurnInput, options: HarnessOptions
           if (event.type === "agent_settled" || event.type === "agent_end" && event.willRetry === undefined) { off(); offFailure(); resolve(); }
         } catch (error) { off(); offFailure(); reject(error); }
       });
-      void rpc.request("prompt", { message: promptText(input.content), images }).catch((error) => { off(); offFailure(); reject(error); });
+      void rpc.request("prompt", { message: promptText(content), images }).catch((error) => { off(); offFailure(); reject(error); });
     });
     await rpc.request("get_state");
   } catch (error) {
@@ -190,7 +192,8 @@ export function codexItemContent(item: JsonRecord): ContentBlock[] {
 
 export async function executeCodex(input: RuntimeTurnInput, options: HarnessOptions, cwd: string, store: RuntimeSessionStore, emit: (event: RuntimeExecutionEvent) => void, signal: AbortSignal): Promise<HarnessResult> {
   signal.throwIfAborted();
-  const { state, resume } = await store.prepare(input, cwd);
+  const { state, resume } = await store.prepare(input, cwd, signal);
+  signal.throwIfAborted();
   const rpc = new JsonRpcProcess(options.codex || "codex", ["app-server", "--listen", "stdio://"], cwd, "codex", runtimeEnvironment(input));
   let nativeTurnId: string | null = null;
   let ordinal = -1;
@@ -229,14 +232,13 @@ export async function executeCodex(input: RuntimeTurnInput, options: HarnessOpti
     state.path = thread.path;
     const provider = text(opened.modelProvider) || "codex";
     const model = text(opened.model) || input.model;
-    const content: JsonRecord[] = await Promise.all(input.content.map(async (block) => {
+    const content: JsonRecord[] = await Promise.all(input.messages.flatMap((message) => message.content).map(async (block) => {
       if (block.type === "image") {
         const image = await imageForPi(block);
         return { type: "image", url: `data:${image.mimeType};base64,${image.data}` };
       }
       return { type: "text", text: block.type === "text" ? block.text : JSON.stringify(block), text_elements: [] };
     }));
-    if (resume === "handoff") content.unshift({ type: "text", text: contextToTranscript(input.context.messages), text_elements: [] });
     signal.throwIfAborted();
     await store.started(state, input.turnId);
     await new Promise<void>((resolve, reject) => {

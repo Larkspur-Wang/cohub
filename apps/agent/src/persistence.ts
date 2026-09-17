@@ -14,7 +14,6 @@ import type {
   StoredToolCall,
   TurnIntermediateMessagesFile,
 } from "@cohub/protocol/model";
-import type { HarnessArchive, HarnessArchiveIndex } from "@cohub/protocol/runtime";
 import type { ModelThinkingLevel } from "@cohub/protocol";
 import type { ChannelProvider, GatewayOutboundCommand } from "@cohub/protocol/gateway";
 import { getRealtimeUserRoom } from "@cohub/protocol/realtime";
@@ -30,10 +29,11 @@ import { enqueueSessionTitleGeneration } from "./session-title-queue.js";
 import { normalizeAssistantTurn } from "./assistant-message-normalizer.js";
 import { indexTurnReferences } from "./reference-index.js";
 import { db } from "./db.js";
+import { buildUserMessagesForBatch, type ClaimedTurnBatch } from "./batch.js";
 import { env } from "./env.js";
 import { logger } from "./logger.js";
 import { redis, publishRealtimeEnvelope, clearPersistedSessionStreamSnapshot, getGatewayNodeOutboundStreamKey, xaddWithMaxlen } from "./redis.js";
-import { buildTurnObjectPrefix, prepareTurnObjectJson, writeTurnObjectContent, writeTurnObjectJson } from "./turn-object-storage.js";
+import { buildTurnObjectPrefix, writeTurnObjectJson } from "./turn-object-storage.js";
 import { pickRealtimeMessageMeta } from "./realtime-message-meta.js";
 
 
@@ -543,23 +543,6 @@ const summarizeIntermediateContent = (content: ContentBlock[], tools: StoredTool
   });
 };
 
-export async function persistHarnessArchive(spaceId: string, archive: HarnessArchive): Promise<HarnessArchiveIndex | null> {
-  // Content-addressed keys keep the one-year `immutable` cache honest: different bytes never share
-  // a key, so a cached response can never disagree with the `sha256` recorded on the turn.
-  const prepared = prepareTurnObjectJson(archive);
-  const objectKey = `${buildTurnObjectPrefix({ spaceId, sessionId: archive.sessionId, turnId: archive.turnId })}harness/${prepared.sha256}.json`;
-  try {
-    const written = await writeTurnObjectContent(objectKey, prepared);
-    const index: HarnessArchiveIndex = { version: 1, objectKey, ...written, harness: archive.harness, nativeFormat: archive.nativeFormat };
-    await db.update(sessionTurns).set({ harnessIndex: index }).where(and(eq(sessionTurns.id, archive.turnId), eq(sessionTurns.sessionId, archive.sessionId)));
-    await publishSessionTurnsUpdated({ sessionId: archive.sessionId, turnIds: [archive.turnId] });
-    return index;
-  } catch (error) {
-    logger.warn(`[HarnessArchive] failed to archive turn ${archive.turnId}`, error);
-    return null;
-  }
-}
-
 const writeTurnObjects = async (files: Array<{ objectKey: string; value: unknown }>) => {
   const concurrency = Math.min(4, files.length);
   await Promise.all(Array.from({ length: concurrency }, async (_, workerIndex) => {
@@ -811,6 +794,23 @@ async function dispatchFinalAssistantToGateway(input: { spaceId: string; session
   if (failures.length) throw new AggregateError(failures, "Runtime channel delivery remains pending");
 }
 
+export async function persistBatchUserMessages(input: { spaceId: string; sessionId: string; batch: ClaimedTurnBatch }) {
+  const users = buildUserMessagesForBatch(input.batch);
+  if (!users.length) return;
+  const rows = await db.select({ id: sessionMessages.id, turnId: sessionMessages.turnId, role: sessionMessages.role }).from(sessionMessages)
+    .where(and(eq(sessionMessages.sessionId, input.sessionId), inArray(sessionMessages.id, users.map((user) => user.userMessageId))));
+  const existing = new Map(rows.map((row) => [row.id, row]));
+  // Claim/recovery metadata can change. Stable message IDs, not a metadata hash, fence replay.
+  for (const user of users) {
+    const previous = existing.get(user.userMessageId);
+    if (previous) {
+      if (previous.turnId !== user.turnId || previous.role !== "user") throw new Error("Batch message identity mismatch / 批次消息身份不匹配");
+      continue;
+    }
+    await persistUserMessage({ spaceId: input.spaceId, sessionId: input.sessionId, ...user });
+  }
+}
+
 export async function persistUserMessage(input: { spaceId: string; sessionId: string; userMessageId: string; turnId: string; agentSessionEntryId?: string | null; content: ContentBlock[]; meta?: Record<string, unknown> | null; startedAt?: string | null }) {
   const turnId = resolveMessageTurnId({ turnId: input.turnId });
   if (!turnId) throw new Error("Valid user message turn id is required");
@@ -889,7 +889,7 @@ export async function persistAssistantMessage(input: { spaceId: string; spaceSes
     // 与 stream-snapshot API 重新编号的 ordinal:N 不在同一套去重 key 体系里，
     // 导致同一条中间消息在快照恢复与实时事件两条路径里无法合并，最终在
     // ProcessCard/ToolCallList 的 {#each ... (id)} 产生重复 key(each_key_duplicate)。
-    meta: { ...(normalizeRecord(assistant.meta) ?? {}), turnId: input.turnId ?? null, spaceId: input.spaceId, sessionId: input.spaceSessionId, rawStopReason: stopReason, messageOrdinal: input.messageOrdinal ?? null, ...(isEmptySuccessfulAssistant ? { emptyAssistantMessageConvertedToError: true } : {}), thinking: normalized.thinking, thinkingSummary: normalized.thinkingSummary, toolCallRenderStates: normalized.toolCallRenderStates, agentSessionEntryId: typeof assistant.sessionEntryId === "string" ? assistant.sessionEntryId : null },
+    meta: { ...(normalizeRecord(assistant.meta) ?? {}), turnId: input.turnId ?? null, spaceId: input.spaceId, sessionId: input.spaceSessionId, nativeApi: typeof assistant.api === "string" ? assistant.api : null, rawStopReason: stopReason, messageOrdinal: input.messageOrdinal ?? null, ...(isEmptySuccessfulAssistant ? { emptyAssistantMessageConvertedToError: true } : {}), thinking: normalized.thinking, thinkingSummary: normalized.thinkingSummary, toolCallRenderStates: normalized.toolCallRenderStates, agentSessionEntryId: typeof assistant.sessionEntryId === "string" ? assistant.sessionEntryId : null },
     usage: normalizeUsage(assistant.usage as PersistMessageInput["message"]["usage"]),
     ...timing,
   };
@@ -908,7 +908,7 @@ export async function persistAssistantMessage(input: { spaceId: string; spaceSes
     const result = await finalizeSessionTurnFromMessage({ spaceId: input.spaceId, sessionId: input.spaceSessionId, turnId: input.turnId,
       status: effectiveStopReason === "aborted" ? "interrupted" : effectiveStopReason === "error" || effectiveErrorMessage ? "failed" : "completed",
       assistantContent: row.content, assistantText: row.text, provider: row.provider, model: row.model, stopReason: row.stopReason, errorMessage: row.errorMessage, usage: row.usage as Usage | null,
-      metaPatch: { ...(message.meta?.runtimeResolution === true ? { runtimeResolution: true } : {}), finalMessageDurationMs: row.durationMs,
+      metaPatch: { ...(message.meta?.runtimeResolution === true ? { runtimeResolution: true } : {}), runtimeArchiveStatus: message.meta?.runtimeArchiveStatus ?? "failed", finalMessageDurationMs: row.durationMs,
         ...(input.thinkingLevel ? { effectiveThinkingLevel: input.thinkingLevel } : {}),
       },
     }, tx, prepared);

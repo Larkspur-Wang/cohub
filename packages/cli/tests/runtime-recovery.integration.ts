@@ -46,7 +46,12 @@ for (const harness of ["pi", "codex"] as const) test(`${harness}: cold Runtime r
   const start = (binary: string) => serveRuntime({ spaceId, cwd: root, url: `ws://127.0.0.1:${port}/runtime`, capabilities: { harnesses: [harness], models: [] }, harnesses: { [harness]: binary }, token: async () => "token", signal: controller.signal, store, onReady: () => onReady() });
   let ready = new Promise<void>((resolve) => { onReady = resolve; });
   let running = start(fixture);
-  const turn: RuntimeTurnInput = { spaceId, sessionId: crypto.randomUUID(), turnId: crypto.randomUUID(), userMessageId: crypto.randomUUID(), harness, accessMode: "full_access", content: [{ type: "text", text: "continue" }], context: { complete: true, revision: "initial", throughTurnId: null, messages: [] } };
+  const turnId = crypto.randomUUID(), userMessageId = crypto.randomUUID();
+  const turn: RuntimeTurnInput = { spaceId, sessionId: crypto.randomUUID(), turnId, userMessageId, harness, accessMode: "full_access",
+    messages: [
+      { turnId: crypto.randomUUID(), userMessageId: crypto.randomUUID(), userId: "earlier-author", content: [{ type: "text", text: "original batch input" }] },
+      { turnId, userMessageId, userId: "author", content: [{ type: "text", text: "continue" }] },
+    ], context: { complete: true, revision: "initial", throughTurnId: null, messages: [] } };
   const endpoint = async () => { if (!registration) throw new Error("offline"); return registration.endpoint; };
   let commits = 0;
   try {
@@ -57,6 +62,7 @@ for (const harness of ["pi", "codex"] as const) test(`${harness}: cold Runtime r
     controller.abort(); await running;
     const receipt = await store.recoverResult(turn); assert(receipt);
     const native = await readFile(receipt.state.path, "utf8");
+    assert(native.includes("original batch input")); assert(!native.includes("earlier-author"));
     controller = new AbortController(); dropResult = false;
     ready = new Promise<void>((resolve) => { onReady = resolve; });
     running = start(join(root, "missing-harness-binary"));

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mock, test, after } from "node:test";
 import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
-import { is, eq } from "drizzle-orm";
+import { is, eq, asc } from "drizzle-orm";
 import * as schema from "@cohub/db";
 
 // Opt-in isolated engine; no production DB or test dependency is required by the app.
@@ -26,6 +26,7 @@ const wakes = [], processed = [], publications = [], gatewayCommands = [];
 let gatewayTargets = [];
 const db = new Proxy(database, { get(target, key) {
   if (key === "transaction") return (callback) => target.transaction((tx) => callback(new Proxy(tx, { get(transaction, method) {
+    if (method === "execute") return async (query) => (await transaction.execute(query)).rows;
     if (method === "update") return (table) => {
       if (table === schema.sessionTurns) {
         beforeFinalUpdate?.();
@@ -38,7 +39,7 @@ const db = new Proxy(database, { get(target, key) {
   const value = target[key]; return typeof value === "function" ? value.bind(target) : value;
 } });
 mock.module("../db.js", { exports: { db } });
-mock.module("../env.js", { exports: { env: { ENV: "test" } } });
+mock.module("../env.js", { exports: { env: { ENV: "test", AGENT_STALE_ACTIVE_TURN_MS: 60_000 } } });
 mock.module("../logger.js", { exports: { logger: { warn() {}, error() {}, debug() {} } } });
 mock.module("../redis.js", { exports: {
   redis: { hget: async () => "gateway-node" }, publishRealtimeEnvelope: async (event) => { publications.push(event); }, clearPersistedSessionStreamSnapshot: async () => {}, getGatewayNodeOutboundStreamKey: () => "test",
@@ -51,7 +52,8 @@ mock.module("../reference-index.js", { exports: { indexTurnReferences: () => {} 
 mock.module("../turn-object-storage.js", { exports: { buildTurnObjectPrefix: () => "test/", writeTurnObjectJson: async () => ({ sizeBytes: 0 }) } });
 mock.module("../session-lock.js", { exports: { acquireSessionLock: async () => null } });
 mock.module("../runtime/remote-runtime.js", { exports: { executeRemoteHarnessTurn: async () => {}, markRuntimeRecovery: async () => {} } });
-const { persistAssistantMessage } = await import("../persistence.js");
+const { persistAssistantMessage, persistBatchUserMessages, persistUserMessage } = await import("../persistence.js");
+const { claimNextTurnBatch, loadClaimedTurnBatch, resolveBatchAccessMode } = await import("../batch.js");
 const { sweepRuntimeRecovery } = await import("../runtime/recovery.js");
 const { createRuntimeContextReader } = await import("../runtime/context-reader.js");
 after(() => engine.close());
@@ -74,13 +76,80 @@ const finish = (identity, resolution = false) => persistAssistantMessage({ ...id
 });
 const readTurn = async (id) => (await database.select().from(schema.sessionTurns).where(eq(schema.sessionTurns.id, id)))[0];
 
+for (const harness of ["cohub", "pi", "codex"]) test(`mixed follow-ups use the last ${harness} owner, preserve inputs and recover the original claim`, async () => {
+  const sessionId = crypto.randomUUID(), spaceId = crypto.randomUUID();
+  await database.insert(schema.spaceSessions).values({ id: sessionId, spaceId });
+  const turns = ["cohub", "pi", harness].map((requested, index) => ({
+    id: crypto.randomUUID(), sessionId, sequence: index + 1, executionKind: "agent", intent: "followup", status: "queued",
+    userUuid: `actor-${index}`, userContent: [{ type: "text", text: `message-${index}` }],
+    meta: { userId: `actor-${index}`, harness: requested, userMessageId: crypto.randomUUID(), model: `model-${index}` },
+  }));
+  await database.insert(schema.sessionTurns).values(turns);
+  const claim = await claimNextTurnBatch({ sessionId });
+  assert.equal(claim.kind, "claimed");
+  const { batch } = claim;
+  const owner = turns.at(-1);
+  assert.equal(batch.ownerTurn.id, owner.id);
+  assert.equal(batch.ownerTurn.meta.harness, harness);
+  assert.equal(batch.ownerTurn.meta.model, "model-2");
+  assert.equal(resolveBatchAccessMode(batch), "full_access");
+  assert.equal(resolveBatchAccessMode({ turns: [{ meta: { accessMode: "read_only" } }, ...batch.turns] }), "read_only");
+  assert.deepEqual(batch.executionBatch.turnIds, turns.map((turn) => turn.id));
+  assert.deepEqual(batch.executionBatch.userMessageIds, turns.map((turn) => turn.meta.userMessageId));
+  assert.equal(batch.executionBatch.anchorUserMessageId, owner.meta.userMessageId);
+  assert.deepEqual((await database.select().from(schema.sessionTurns).where(eq(schema.sessionTurns.sessionId, sessionId)).orderBy(asc(schema.sessionTurns.sequence))).map((row) => row.status), ["merged", "merged", "running"]);
+  // A crash can leave only a prefix persisted; claim metadata has changed since submission.
+  await persistUserMessage({ spaceId, sessionId, turnId: turns[0].id, userMessageId: turns[0].meta.userMessageId, content: turns[0].userContent, meta: turns[0].meta });
+  await persistBatchUserMessages({ spaceId, sessionId, batch });
+  const newer = { ...turns[0], id: crypto.randomUUID(), sequence: 4, meta: { ...turns[0].meta, userMessageId: crypto.randomUUID() } };
+  await database.insert(schema.sessionTurns).values(newer);
+  const storedOwner = await readTurn(owner.id);
+  const recovered = await loadClaimedTurnBatch(storedOwner);
+  assert.deepEqual(recovered.executionBatch, batch.executionBatch);
+  await assert.rejects(() => loadClaimedTurnBatch({ ...storedOwner, meta: { ...storedOwner.meta, executionBatch: { ownerTurnId: owner.id, turnIds: [newer.id, owner.id] } } }), /history mismatch/);
+  await assert.rejects(() => loadClaimedTurnBatch({ ...storedOwner, meta: { ...storedOwner.meta, executionBatch: { ownerTurnId: owner.id, turnIds: [owner.id, owner.id] } } }), /Invalid execution batch/);
+  await persistBatchUserMessages({ spaceId, sessionId, batch: recovered });
+  const users = await database.select().from(schema.sessionMessages).where(eq(schema.sessionMessages.sessionId, sessionId)).orderBy(asc(schema.sessionMessages.sequence));
+  assert.deepEqual(users.map((row) => [row.id, row.turnId, row.meta.actorUserId, row.content]), turns.map((turn) => [turn.meta.userMessageId, turn.id, turn.userUuid, turn.userContent]));
+  const load = createRuntimeContextReader(database);
+  assert.equal((await load({ spaceId, sessionId, beforeSequence: recovered.turns[0].sequence })).messages.length, 0, "current batch must not re-enter historical context");
+  if (harness !== "cohub") {
+    await database.update(schema.sessionTurns).set({ updatedAt: new Date(0) }).where(eq(schema.sessionTurns.id, owner.id));
+    assert.equal((await claimNextTurnBatch({ sessionId })).kind, "busy", "uncertain Local execution never gives way to the next harness");
+  }
+  await database.update(schema.sessionTurns).set({ status: "completed" }).where(eq(schema.sessionTurns.id, owner.id));
+  const next = await claimNextTurnBatch({ sessionId });
+  assert.equal(next.batch.ownerTurn.id, newer.id);
+  assert.equal(next.batch.turns.length, 1);
+  const history = await load({ spaceId, sessionId, beforeSequence: newer.sequence });
+  assert.deepEqual(history.messages.map((message) => message.id), turns.map((turn) => turn.meta.userMessageId));
+});
+
+test("steer remains single and direct generation remains a claim barrier", async () => {
+  const sessionId = crypto.randomUUID(), spaceId = crypto.randomUUID();
+  await database.insert(schema.spaceSessions).values({ id: sessionId, spaceId });
+  const turns = ["followup", "steer", "followup", "followup"].map((intent, index) => ({
+    id: crypto.randomUUID(), sessionId, sequence: index + 1, executionKind: index === 2 ? "direct_generation" : "agent", intent, status: "queued", userContent: [], meta: {},
+  }));
+  await database.insert(schema.sessionTurns).values(turns);
+  const steer = await claimNextTurnBatch({ sessionId });
+  assert.equal(steer.batch.ownerTurn.id, turns[1].id); assert.equal(steer.batch.turns.length, 1);
+  await database.update(schema.sessionTurns).set({ status: "completed" }).where(eq(schema.sessionTurns.id, turns[1].id));
+  const earlier = await claimNextTurnBatch({ sessionId });
+  assert.equal(earlier.batch.ownerTurn.id, turns[0].id); assert.equal(earlier.batch.turns.length, 1);
+  await database.update(schema.sessionTurns).set({ status: "completed" }).where(eq(schema.sessionTurns.id, turns[0].id));
+  assert.equal((await claimNextTurnBatch({ sessionId })).kind, "noop");
+  await database.update(schema.sessionTurns).set({ status: "completed" }).where(eq(schema.sessionTurns.id, turns[2].id));
+  assert.equal((await claimNextTurnBatch({ sessionId })).batch.ownerTurn.id, turns[3].id);
+});
+
 test("resolution lookup stays bounded and validates Session and execution boundary", async () => {
   const identity = await setup();
   await database.update(schema.sessionTurns).set({ status: "completed" }).where(eq(schema.sessionTurns.id, identity.turnId));
   const history = Array.from({ length: 300 }, (_, index) => ({ id: crypto.randomUUID(), sessionId: identity.sessionId, sequence: index + 2, status: "interrupted", executionKind: "agent", userContent: [], meta: { harness: "pi", runtimeRecovery: { state: "confirmed_stopped" } } }));
   await database.insert(schema.sessionTurns).values(history);
   const foreign = await setup(true);
-  const load = createRuntimeContextReader(database, async () => { throw new Error("not used"); });
+  const load = createRuntimeContextReader(database);
   const base = { spaceId: identity.spaceId, sessionId: identity.sessionId, beforeSequence: 300, headOnly: true, harness: "pi" };
   assert.deepEqual((await load(base)).resolvedTurnIds, []);
   const normallySettled = await load({ ...base, pendingTurnIds: [identity.turnId] });
@@ -111,6 +180,39 @@ test("confirmation queued after message insertion cannot observe a half-committe
   await finish(identity);
   assert.deepEqual((await confirmation).rows, []);
   assert.equal((await readTurn(identity.turnId)).status, "completed");
+});
+
+test("native archive resume returns only a reference while Cloud and handoff still read DB history", async () => {
+  const identity = await setup();
+  const index = { version: 1, sessionId: identity.sessionId, turnId: identity.turnId, harness: "pi", nativeFormat: "pi.jsonl", nativeSessionId: "native", parentTurnId: null, sizeBytes: 1, sha256: "a".repeat(64), segments: [{ offset: 0, sizeBytes: 1, sha256: "a".repeat(64), md5: "b".repeat(32) }] };
+  const meta = { harness: "pi", runtimeArchiveStatus: "ready" };
+  await database.update(schema.sessionTurns).set({ status: "completed", harnessIndex: index, meta }).where(eq(schema.sessionTurns.id, identity.turnId));
+  const load = createRuntimeContextReader(database);
+  const native = await load({ ...identity, throughTurnId: identity.turnId, harness: "pi" });
+  assert.deepEqual(native.archive, { sessionId: identity.sessionId, turnId: identity.turnId, harness: "pi" });
+  assert.equal(native.messages.length, 0);
+  assert.equal(native.complete, false);
+  const head = await load({ ...identity, throughTurnId: identity.turnId, harness: "pi", headOnly: true });
+  assert.deepEqual(head.archive, native.archive, "the initial head request already includes a ready archive");
+  assert.equal(head.messages.length, 0); assert.equal(head.complete, false);
+  const fallback = await load({ ...identity, throughTurnId: identity.turnId, harness: "pi", historyOnly: true });
+  assert.equal(fallback.archive, undefined); assert.equal(fallback.messages.length, 1); assert.equal(fallback.complete, true);
+  const cloud = await load({ ...identity, throughTurnId: identity.turnId });
+  assert.equal(cloud.archive, undefined); assert.equal(cloud.messages.length, 1);
+  const handoff = await load({ ...identity, throughTurnId: identity.turnId, harness: "codex" });
+  assert.equal(handoff.archive, undefined); assert.equal(handoff.messages.length, 1);
+  for (const status of [undefined, "pending", "failed"]) {
+    await database.update(schema.sessionTurns).set({ meta: { ...meta, runtimeArchiveStatus: status } }).where(eq(schema.sessionTurns.id, identity.turnId));
+    const context = await load({ ...identity, throughTurnId: identity.turnId, harness: "pi" });
+    assert.equal(context.archive, undefined); assert.equal(context.messages.length, 1); assert.equal(context.complete, true);
+    const head = await load({ ...identity, throughTurnId: identity.turnId, harness: "pi", headOnly: true });
+    assert.equal(head.archive, undefined); assert.equal(head.messages.length, 0);
+  }
+  for (const invalid of [{ objectKey: "old.json", harness: "pi", nativeFormat: "pi.jsonl" }, { ...index, sessionId: crypto.randomUUID() }, { ...index, turnId: crypto.randomUUID() }]) {
+    await database.update(schema.sessionTurns).set({ meta, harnessIndex: invalid }).where(eq(schema.sessionTurns.id, identity.turnId));
+    const context = await load({ ...identity, throughTurnId: identity.turnId, harness: "pi" });
+    assert.equal(context.archive, undefined); assert.equal(context.messages.length, 1);
+  }
 });
 
 test("confirmation winning first rejects a late result without inserting a message", async () => {

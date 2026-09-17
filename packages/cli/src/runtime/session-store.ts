@@ -1,11 +1,15 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, open, readFile, rename, stat, rm } from "node:fs/promises";
+import { mkdir, open, readFile, readdir, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { contextToPiMessages, runtimeEventSchema, type RuntimeExecutionEvent, type HarnessArchive, type RuntimeTurnInput } from "@neta-art/cohub";
-import { codexArchiveTotals, type CodexTokenTotals } from "./codex-usage.js";
+import { contextToPiMessages, selectRuntimeContextMessages, runtimeEventSchema, type RuntimeExecutionEvent, type HarnessArchive, type RuntimeTurnInput } from "@neta-art/cohub";
+import { RuntimeArchiveStore, checksumNativeFile, atomicRuntimeJson as atomicJson, type ArchiveTransport } from "./archive-store.js";
+import type { CodexTokenTotals } from "./codex-usage.js";
+import { importNativeArchive, readCodexArchiveTotals } from "./native-archive.js";
 
-export class ContextRequiredError extends Error {}
+export class ContextRequiredError extends Error {
+  constructor(message: string, readonly historyOnly = false) { super(message); }
+}
 
 export type NativeSession = {
   version: 1;
@@ -19,32 +23,67 @@ export type NativeSession = {
   checksum: string;
   pendingTurnId: string | null;
   resultChecksum?: string;
+  archivePendingTurnId?: string;
   codexTokenTotals?: CodexTokenTotals;
 };
 const checksum = (data: string) => createHash("sha256").update(data).digest("hex");
 const missing = (error: unknown) => (error as NodeJS.ErrnoException)?.code === "ENOENT";
-// Cap what this host sends over the WebSocket; larger sessions stay local-only.
-const NATIVE_ARCHIVE_MAX_BYTES = 24 * 1024 * 1024;
-
-async function atomicJson(path: string, value: unknown) {
-  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-  const temporary = `${path}.${randomUUID()}.tmp`;
-  try {
-    const file = await open(temporary, "wx", 0o600);
-    try { await file.writeFile(JSON.stringify(value)); await file.sync(); } finally { await file.close(); }
-    await rename(temporary, path);
-    if (process.platform !== "win32") {
-      const directory = await open(dirname(path), "r");
-      try { await directory.sync(); } finally { await directory.close(); }
-    }
-  } finally { await rm(temporary, { force: true }); }
-}
+class CaptureUnavailableError extends Error {}
 
 /** Local references are hints validated against actual native files, never cloud existence claims. */
 export class RuntimeSessionStore {
   readonly root: string;
-  constructor(spaceId: string, stateRoot = join(homedir(), ".local", "state", "cohub", "runtime")) { this.root = join(stateRoot, spaceId); }
+  readonly archives: RuntimeArchiveStore;
+  private archiveFlush: Promise<void> | null = null;
+  constructor(spaceId: string, stateRoot = join(homedir(), ".local", "state", "cohub", "runtime"), transport?: ArchiveTransport) {
+    this.root = join(stateRoot, spaceId);
+    this.archives = new RuntimeArchiveStore(join(this.root, "archives"), transport);
+  }
   private statePath(input: Pick<RuntimeTurnInput, "sessionId" | "harness">) { return join(this.root, input.harness, `${input.sessionId}.json`); }
+  async flushArchives(signal: AbortSignal) {
+    this.archiveFlush ??= this.flushArchiveOutbox(signal).finally(() => { this.archiveFlush = null; });
+    return this.archiveFlush;
+  }
+  private async flushArchiveOutbox(signal: AbortSignal) {
+    const captures = join(this.archives.root, "captures");
+    const names = await readdir(captures).catch((error) => { if (missing(error)) return []; throw error; });
+    for (const name of names) {
+      signal.throwIfAborted();
+      if (!name.endsWith(".json")) continue;
+      let receipt: string | undefined;
+      try {
+        receipt = await readFile(join(captures, name), "utf8");
+        let state: NativeSession;
+        try { state = JSON.parse(receipt) as NativeSession; }
+        catch { throw new CaptureUnavailableError("Invalid capture receipt / 归档捕获记录无效"); }
+        const turnId = state?.archivePendingTurnId;
+        if (typeof turnId !== "string" || typeof state?.path !== "string" || typeof state.resultChecksum !== "string") {
+          throw new CaptureUnavailableError("Invalid capture receipt / 归档捕获记录无效");
+        }
+        if (!await this.archives.hasCapture(turnId)) {
+          const digest = await checksumNativeFile(state.path).catch((error) => {
+            if (missing(error)) throw new CaptureUnavailableError("Native session missing / 原生会话文件不存在");
+            throw error;
+          });
+          if (digest !== state.resultChecksum) throw new CaptureUnavailableError("Native session changed; original files retained / 原生会话已变化，原文件已保留");
+          signal.throwIfAborted();
+          await this.archives.stage(state, turnId);
+        }
+        await rm(join(captures, name), { force: true });
+      } catch (error) {
+        signal.throwIfAborted();
+        if (error instanceof CaptureUnavailableError && receipt !== undefined) {
+          // Preserve the exact receipt before retiring it from the retry queue. Never alter native files.
+          await atomicJson(join(this.archives.root, "failed", "captures", `${name}.${checksum(receipt)}.json`), {
+            receipt, reason: error.message, failedAt: new Date().toISOString(),
+          });
+          await rm(join(captures, name), { force: true });
+          console.error("Archive capture unavailable; receipt retained / 归档捕获不可恢复，记录已保留:", error.message);
+        } else console.error("Archive capture pending / 归档捕获待重试:", error);
+      }
+    }
+    await this.archives.flush(signal);
+  }
   async pendingTurnIds(sessionId: string): Promise<string[]> {
     const ids: string[] = [];
     for (const harness of ["pi", "codex"] as const) {
@@ -56,7 +95,7 @@ export class RuntimeSessionStore {
     }
     return ids;
   }
-  async prepare(input: RuntimeTurnInput, cwd: string): Promise<{ state: NativeSession; resume: "native" | "restored" | "handoff" | "new" }> {
+  async prepare(input: RuntimeTurnInput, cwd: string, signal?: AbortSignal): Promise<{ state: NativeSession; resume: "native" | "restored" | "handoff" | "new" }> {
     let previous: NativeSession | null = null;
     try { previous = JSON.parse(await readFile(this.statePath(input), "utf8")) as NativeSession; }
     catch (error) { if (!missing(error)) throw new Error("Local session state is unreadable; original files were preserved", { cause: error }); }
@@ -70,7 +109,7 @@ export class RuntimeSessionStore {
         // A human-confirmed stop is authoritative: rebuild from durable history instead of
         // resuming a native projection whose outcome the server never recorded.
         const retire = resolved || (settled && !lostAcknowledgement);
-        const nativeChecksum = await readFile(previous.path, "utf8").then(checksum).catch((error) => { if (missing(error)) return null; throw error; });
+        const nativeChecksum = await checksumNativeFile(previous.path).catch((error) => { if (missing(error)) return null; throw error; });
         if (previous.resultChecksum && (settled || resolved) && nativeChecksum && nativeChecksum !== previous.resultChecksum) {
           throw new Error("Native session changed outside Cohub; original data was preserved");
         }
@@ -93,49 +132,53 @@ export class RuntimeSessionStore {
     }
     if (previous) {
       try {
-        const data = await readFile(previous.path, "utf8");
-        if (checksum(data) !== previous.checksum) throw new Error("Native session changed outside Cohub; original data was preserved");
-        if (input.harness === "codex" && !previous.codexTokenTotals) previous.codexTokenTotals = codexArchiveTotals(data.split("\n").filter((line) => line.trim()).map((line) => JSON.parse(line)));
+        if (await checksumNativeFile(previous.path) !== previous.checksum) throw new Error("Native session changed outside Cohub; original data was preserved");
+        if (previous.archivePendingTurnId) {
+          await this.archives.stage(previous, previous.archivePendingTurnId);
+          previous.archivePendingTurnId = undefined;
+          await atomicJson(this.statePath(previous), previous);
+        }
+        if (input.harness === "codex" && !previous.codexTokenTotals) previous.codexTokenTotals = await readCodexArchiveTotals(previous.path);
         if (previous.cwd === cwd && previous.throughTurnId === input.context.throughTurnId && previous.revision === input.context.revision) return { state: previous, resume: "native" };
       } catch (error) { if (!missing(error)) throw error; }
     }
-    if (input.context.complete === false) throw new ContextRequiredError("Full context is required to materialize this session");
+    if (input.context.complete === false && !input.context.archive) throw new ContextRequiredError("Full context is required to materialize this session");
     const id = randomUUID();
     const path = join(this.root, input.harness, `${id}.jsonl`);
     const archive = input.context.archive;
     const restore = archive?.harness === input.harness && archive.sessionId === input.sessionId && archive.turnId === input.context.throughTurnId;
+    const rawPath = join(this.root, "archives", "restored", `${id}.jsonl`);
     const state: NativeSession = {
-      version: 1, harness: input.harness, sessionId: input.sessionId, nativeSessionId: restore ? archive.nativeSessionId : id,
+      version: 1, harness: input.harness, sessionId: input.sessionId, nativeSessionId: id,
       path, cwd, throughTurnId: input.context.throughTurnId, revision: input.context.revision, checksum: "", pendingTurnId: null,
     };
-    let data: string | null = restore ? archive.data : null;
-    if (data != null) {
-      const lines = data.split("\n").filter((line) => line.trim());
-      const records = lines.map((line) => JSON.parse(line) as Record<string, unknown>);
-      const header = records[0];
-      if (input.harness === "pi") {
-        if (header?.type !== "session" || header.id !== state.nativeSessionId) throw new Error("Pi archive identity mismatch");
-        header.cwd = cwd;
-        delete header.parentSession;
-      } else {
-        const payload = header?.payload as Record<string, unknown> | undefined;
-        if (header?.type !== "session_meta" || payload?.id !== state.nativeSessionId) throw new Error("Codex archive identity mismatch");
-        // Paginated IDs depend on Codex's private SQLite index. Import a separate portable
-        // projection; never rewrite the source archive or the user's existing native thread.
-        payload.id = id;
-        if (payload.session_id != null) payload.session_id = id;
-        payload.history_mode = "legacy";
-        payload.cwd = cwd;
-        state.codexTokenTotals = codexArchiveTotals(records);
-        state.nativeSessionId = id;
+    if (restore) {
+      try {
+        const restored = await this.archives.restore(archive, rawPath, signal);
+        Object.assign(state, await importNativeArchive({ source: rawPath, target: path, harness: input.harness, nativeSessionId: restored.nativeSessionId, id, cwd, signal }));
+        return { state, resume: "restored" };
+      } catch (error) {
+        signal?.throwIfAborted();
+        console.error("Native archive unavailable; rebuilding from durable history / 原生归档不可用，将从持久历史重建:", error);
       }
-      data = `${[JSON.stringify(header), ...lines.slice(1)].join("\n")}\n`;
     }
-    if (!data && input.harness === "pi") {
-      const entries: unknown[] = [{ type: "session", version: 3, id, cwd, timestamp: new Date().toISOString() }];
+    if (input.context.complete === false) throw new ContextRequiredError("Database history is required after archive recovery failed", true);
+    let data: string | null = null;
+    if (input.harness === "pi") {
+      const entries: Record<string, unknown>[] = [{ type: "session", version: 3, id, cwd, timestamp: new Date().toISOString() }];
       let parentId: string | null = null;
-      for (const message of contextToPiMessages(input.context.messages)) {
+      const history = selectRuntimeContextMessages(input.context.messages);
+      const summary = history[0]?.role === "system" ? history[0].content.find((block) => block.type === "system_note" && block.note_type === "compacted") : undefined;
+      let compaction: Record<string, unknown> | undefined;
+      if (summary?.type === "system_note") {
+        parentId = randomUUID().slice(0, 8);
+        compaction = { type: "compaction", id: parentId, parentId: null, timestamp: new Date().toISOString(), summary: summary.text,
+          firstKeptEntryId: "", tokensBefore: (history[0]?.meta?.compaction as { tokensBefore?: number } | undefined)?.tokensBefore ?? 0 };
+        entries.push(compaction);
+      }
+      for (const message of contextToPiMessages(history)) {
         const entryId = randomUUID().slice(0, 8);
+        if (compaction && !compaction.firstKeptEntryId) compaction.firstKeptEntryId = entryId;
         entries.push({ type: "message", id: entryId, parentId, timestamp: new Date().toISOString(), message });
         parentId = entryId;
       }
@@ -147,13 +190,14 @@ export class RuntimeSessionStore {
       try { await file.writeFile(data); await file.sync(); } finally { await file.close(); }
       state.checksum = checksum(data);
     }
-    return { state, resume: restore ? "restored" : input.context.messages.length ? "handoff" : "new" };
+    return { state, resume: input.context.messages.length ? "handoff" : "new" };
   }
   async started(state: NativeSession, turnId: string) { state.pendingTurnId = turnId; state.resultChecksum = undefined; await atomicJson(this.statePath(state), state); }
   private resultPath(state: Pick<NativeSession, "sessionId" | "harness">) { return join(this.root, "results", `${state.sessionId}.${state.harness}.json`); }
   async recordResult(state: NativeSession, requestId: string, events: RuntimeExecutionEvent[]) {
     if (!state.pendingTurnId) throw new Error("Cannot record a result for an idle native session");
-    state.resultChecksum = checksum(await readFile(state.path, "utf8"));
+    state.resultChecksum = await checksumNativeFile(state.path);
+    if (state.archivePendingTurnId) await atomicJson(join(this.archives.root, "captures", `${state.archivePendingTurnId}.json`), state);
     await atomicJson(this.resultPath(state), { requestId, state, events });
     await atomicJson(this.statePath(state), state);
   }
@@ -168,14 +212,14 @@ export class RuntimeSessionStore {
   }
   async archive(state: NativeSession, turnId: string): Promise<HarnessArchive | null> {
     if (!state.path) return null;
-    const info = await stat(state.path);
-    if (info.size > NATIVE_ARCHIVE_MAX_BYTES) return null;
-    const data = await readFile(state.path, "utf8");
-    return { version: 1, harness: state.harness, sessionId: state.sessionId, turnId, nativeFormat: state.harness === "pi" ? "pi.jsonl" : "codex.rollout", nativeSessionId: state.nativeSessionId, data };
+    state.archivePendingTurnId = turnId;
+    const reference = await this.archives.stage(state, turnId);
+    state.archivePendingTurnId = undefined;
+    return reference;
   }
   async acknowledge(state: NativeSession, turnId: string, revision: string) {
     if (state.pendingTurnId !== turnId) throw new Error("Runtime acknowledgement identity mismatch");
-    const currentChecksum = await readFile(state.path, "utf8").then(checksum).catch((error) => { if (missing(error)) return state.resultChecksum ?? state.checksum; throw error; });
+    const currentChecksum = await checksumNativeFile(state.path).catch((error) => { if (missing(error)) return state.resultChecksum ?? state.checksum; throw error; });
     if (state.resultChecksum && currentChecksum !== state.resultChecksum) throw new Error("Native data changed before acknowledgement; files preserved");
     const acknowledged: NativeSession = { ...state, checksum: currentChecksum, pendingTurnId: null, resultChecksum: undefined, throughTurnId: turnId, revision };
     await atomicJson(this.statePath(state), acknowledged);

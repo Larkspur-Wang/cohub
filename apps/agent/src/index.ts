@@ -20,7 +20,6 @@ import { processRunCommandJob } from "./run-command.js";
 import { subscribeAbortEvents, closeAbortSubscriber } from "./abort.js";
 import { abortActiveTurnExecutions } from "./active-turns.js";
 import { closeDb } from "./db.js";
-import { drainHarnessArchives } from "./runtime/archive-dispatch.js";
 import { closeOwnershipRedis } from "./ownership.js";
 import { closeRedisConnections } from "./redis.js";
 import { logger } from "./logger.js";
@@ -169,7 +168,6 @@ async function shutdown(signal: string, options?: { exitCode?: number }) {
     pauseBeforeClose: true,
   });
   await disposeAllSessionHandles();
-  await drainHarnessArchives();
   closeSandboxPool();
   await closeAbortSubscriber().catch(() => undefined);
   await closeSandboxLifecycleEventSubscriber().catch(() => undefined);

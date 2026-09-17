@@ -5,6 +5,7 @@ import type { SQL } from "drizzle-orm";
 import { readRuntimeRecovery } from "@cohub/core/sessions";
 import type { RuntimeRecoveryState } from "@cohub/protocol";
 import { RuntimeResultUnavailableError } from "../runtime/exchange.js";
+import type { ClaimedTurnBatch } from "../batch.js";
 
 const spaceId = crypto.randomUUID();
 const dialect = new PgDialect();
@@ -13,6 +14,7 @@ const locked = new Set<string>();
 const released: string[] = [], restored: string[] = [], drained: string[] = [], finalized: string[] = [];
 let failFinalization = false;
 let completedBeforeConfirmation = false;
+const recoveredBatches: ClaimedTurnBatch[] = [], persistedBatches: ClaimedTurnBatch[] = [];
 function makeTurn(outcome: "saved" | "unknown" | "offline" = "unknown") {
   return { id: crypto.randomUUID(), sessionId: crypto.randomUUID(), userUuid: "owner", sequence: 1, status: "running", intent: "followup", userContent: [{ type: "text", text: "original" }], userText: "original", updatedAt: new Date(), outcome, meta: { harness: "pi", runtimeRecovery: { state: "attention", ownerUserId: "owner" } as RuntimeRecoveryState } };
 }
@@ -22,7 +24,11 @@ function matches(where: SQL) {
 }
 const db = {
   select() {
-    const query = { from: () => query, innerJoin: () => query, where: (_where: SQL) => ({ groupBy: async () => [...rows.values()].some((row) => row.status === "running") ? [{ spaceId }] : [], orderBy: () => Object.assign(Promise.resolve([...rows.values()].filter((row) => ["running", "abort_requested"].includes(row.status))), { limit: async () => [] }), limit: async () => matches(_where) }) };
+    const query = { from: () => query, innerJoin: () => query, where: (_where: SQL) => ({ groupBy: async () => [...rows.values()].some((row) => row.status === "running") ? [{ spaceId }] : [], orderBy: () => Object.assign(Promise.resolve([...rows.values()].filter((row) => {
+      const params = dialect.sqlToQuery(_where).params;
+      const batchQuery = [...rows.keys()].some((id) => params.includes(id));
+      return batchQuery ? params.includes(row.id) : ["running", "abort_requested"].includes(row.status);
+    }).sort((a, b) => a.sequence - b.sequence)),  { limit: async () => [] }), limit: async () => matches(_where) }) };
     return query;
   },
   update() {
@@ -40,9 +46,10 @@ const db = {
   },
 };
 mock.module("../db.js", { exports: { db } });
+mock.module("../env.js", { exports: { env: { AGENT_STALE_ACTIVE_TURN_MS: 60_000 } } });
 mock.module("../session-lock.js", { exports: { acquireSessionLock: async (sessionId: string) => locked.has(sessionId) ? null : { signal: new AbortController().signal, release: async () => { released.push(sessionId); } } } });
 mock.module("../persistence.js", { exports: {
-  deliverRuntimeMessage: async () => {}, persistUserMessage: async () => {}, publishSessionTurnsUpdated: async () => {},
+  deliverRuntimeMessage: async () => {}, persistBatchUserMessages: async ({ batch }: { batch: ClaimedTurnBatch }) => { persistedBatches.push(batch); }, publishSessionTurnsUpdated: async () => {},
   persistAssistantMessage: async ({ turnId }: { turnId: string }) => { if (failFinalization) { failFinalization = false; throw new Error("temporary DB error"); } const turn = rows.get(turnId); assert(turn); turn.status = "interrupted"; finalized.push(turnId); },
 } });
 const wakeups: unknown[] = [];
@@ -50,7 +57,8 @@ mock.module("../queue.js", { exports: { agentTurnQueue: { add: async (...args: u
 mock.module("../logger.js", { exports: { logger: { warn: () => {}, debug: () => {} } } });
 mock.module("../runtime/remote-runtime.js", { exports: {
   markRuntimeRecovery: async (id: string, state: RuntimeRecoveryState) => { const row = rows.get(id); assert(row); row.meta.runtimeRecovery = { ...row.meta.runtimeRecovery, ...state }; },
-  executeRemoteHarnessTurn: async (input: { recovery: boolean; batch: { ownerTurn: { id: string } } }) => {
+  executeRemoteHarnessTurn: async (input: { recovery: boolean; batch: ClaimedTurnBatch }) => {
+    recoveredBatches.push(input.batch);
     assert.equal(input.recovery, true, "coordinator must never dispatch execution");
     const row = rows.get(input.batch.ownerTurn.id); assert(row); restored.push(row.id);
     if (row.outcome === "offline") throw new Error("offline");
@@ -78,6 +86,24 @@ test("Runtime reconciliation isolates live sessions, recovers saved results and 
   await recoverRuntime({ spaceId, confirmation: { actorUserId: "manager", revision: "snapshot", turnIds: [unknown.id] } });
   assert.equal(finalized.filter((id) => id === unknown.id).length, 1);
   assert(released.includes(unknown.sessionId));
+});
+
+test("recovery and confirmed stop retain every message from the original mixed batch", async () => {
+  rows.clear(); locked.clear(); recoveredBatches.length = 0; persistedBatches.length = 0;
+  const owner = makeTurn("saved"), first = makeTurn();
+  first.sessionId = owner.sessionId; first.status = "merged"; first.userUuid = "other-actor";
+  first.meta = { ...first.meta, harness: "cohub", mergedIntoTurnId: owner.id } as typeof first.meta;
+  owner.sequence = 2;
+  owner.meta = { ...owner.meta, executionBatch: { ownerTurnId: owner.id, turnIds: [first.id, owner.id] } } as typeof owner.meta;
+  rows.set(first.id, first); rows.set(owner.id, owner);
+  await recoverRuntime({ spaceId });
+  assert.deepEqual(recoveredBatches[0]?.executionBatch.turnIds, [first.id, owner.id]);
+  assert.equal(first.status, "merged"); assert.equal(owner.status, "completed");
+  owner.status = "running";
+  await recoverRuntime({ spaceId, confirmation: { actorUserId: "manager", revision: "snapshot", turnIds: [owner.id] } });
+  assert.deepEqual(persistedBatches[0]?.executionBatch.turnIds, [first.id, owner.id]);
+  assert.equal(owner.status, "interrupted"); assert.equal(first.status, "merged");
+  assert.equal(recoveredBatches.length, 1, "confirmed stop must not read late native results");
 });
 
 test("durable sweeps retry after a missing disconnect event without requiring user action", async () => {

@@ -73,6 +73,7 @@ import { checkpointFsJsonError, listCheckpointDirectory, readCheckpointFile } fr
 import type { AuthUser } from "../../lib/middleware.js";
 import { submitSessionPrompt } from "../../session-prompts.js";
 import { getRuntimeRegistration, getRuntimeRecovery, confirmRuntimeStopped } from "../../runtime.js";
+import runtimeArchivesRouter from "./runtime-archives.route.js";
 import { HarnessUnavailableError, ModelUnavailableError, parsePromptEnv, PromptEnvValidationError } from "@cohub/core/sessions";
 import { delegatedPromptAuthFromAppSession, promptAuthContextFromAppSession } from "../../prompt-auth-context.js";
 import { buildSessionTurnResponse } from "../../session-turn-response.js";
@@ -98,6 +99,7 @@ const logger = createLogger({ serviceName: "cohub-api" });
 const getSpaceSaveCheckpointLockKey = (spaceId: string) => `cohub:space:${spaceId}:save-checkpoint`;
 
 const router = new Hono();
+router.route("/:id/runtime/archives", runtimeArchivesRouter);
 const { CronExpressionParser } = cronParser;
 
 type SpaceRouteSessionRecord = NonNullable<Awaited<ReturnType<typeof getSpaceSessionById>>>;

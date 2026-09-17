@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { HarnessArchive, RuntimeContextMessage, RuntimeExecutionEvent, RuntimeTurnInput } from "@neta-art/cohub";
 import { executeCodex, executePi } from "../src/runtime/harness.js";
 import { RuntimeSessionStore } from "../src/runtime/session-store.js";
+import { archiveStorageFixture } from "./fixtures/runtime-archive-storage.js";
 
 // Explicit opt-in: callers provide isolated, configured native homes and model credentials.
 function required(key: string) {
@@ -24,22 +25,23 @@ for (const original of ["pi", "codex"] as const) {
   const root = await mkdtemp(join(home, `smoke-${original}-`));
   const spaceId = randomUUID(), sessionId = randomUUID();
   const marker = `CANARY_${randomUUID().slice(0, 8)}`;
-  let store = new RuntimeSessionStore(spaceId, join(root, "state"));
+  const storage = await archiveStorageFixture();
+  let store = new RuntimeSessionStore(spaceId, join(root, "state"), storage.transport);
   const history: RuntimeContextMessage[] = [];
   let archive: HarnessArchive | null | undefined;
   let revision = "initial";
   let throughTurnId: string | null = null;
 
   async function run(harness: "pi" | "codex", stage: string, prompt: string, hot = false, interrupt = false) {
-    const turnId = randomUUID();
+    const turnId = randomUUID(), userMessageId = randomUUID();
     const started = Date.now();
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 90_000);
     const events: RuntimeExecutionEvent[] = [];
     let firstDeltaMs: number | null = null;
     const input: RuntimeTurnInput = {
-      spaceId, sessionId, turnId, userMessageId: randomUUID(), harness, provider, model,
-      accessMode: "full_access", content: [{ type: "text", text: prompt }],
+      spaceId, sessionId, turnId, userMessageId, harness, provider, model,
+      accessMode: "full_access", messages: [{ turnId, userMessageId, userId: "author", content: [{ type: "text", text: prompt }] }],
       context: { complete: !hot, revision, throughTurnId, messages: hot ? [] : history, archive: hot ? null : archive },
     };
     try {
@@ -51,13 +53,14 @@ for (const original of ["pi", "codex"] as const) {
       const output = result.event.message.content.map((block) => block.type === "text" ? block.text : "").join("");
       const messages = events.flatMap((event) => event.type === "message.commit" ? [event.message] : []).concat(result.event.message);
       const toolBlocks = messages.flatMap((message) => message.content).filter((block) => block.type === "tool_use").length;
-      console.log(JSON.stringify({ harness, stage, ms: Date.now() - started, firstDeltaMs, resume: result.event.resume, stop: result.event.message.stopReason, toolBlocks, outputChars: output.length, archiveBytes: result.event.archive?.data.length ?? 0, tokens: result.event.message.usage?.totalTokens }));
+      await store.archives.flush(AbortSignal.timeout(60_000));
+      console.log(JSON.stringify({ harness, stage, ms: Date.now() - started, firstDeltaMs, resume: result.event.resume, stop: result.event.message.stopReason, toolBlocks, outputChars: output.length, archiveBytes: storage.versions.get(turnId)?.sizeBytes ?? 0, tokens: result.event.message.usage?.totalTokens }));
       assert.equal(result.event.message.stopReason, interrupt ? "aborted" : "stop");
       assert.notEqual(firstDeltaMs, null, "must stream before completion");
-      assert(result.event.archive?.data, "native archive must be available");
+      assert(result.event.archive?.turnId === turnId, "native archive reference must be available");
       if (!interrupt) assert((result.event.message.usage?.totalTokens ?? 0) > 0, "native usage must be represented");
       await store.recordResult(result.state, randomUUID(), [...events.filter((event) => event.type === "message.commit"), result.event]);
-      history.push({ id: input.userMessageId, turnId, role: "user", content: input.content }, ...messages.map((message): RuntimeContextMessage => ({ id: randomUUID(), turnId, role: "assistant", content: message.content, provider: message.provider, model: message.model })));
+      history.push({ id: input.userMessageId, turnId, role: "user", content: input.messages[0]?.content ?? [] }, ...messages.map((message): RuntimeContextMessage => ({ id: randomUUID(), turnId, role: "assistant", content: message.content, provider: message.provider, model: message.model })));
       revision = `after-${turnId}`;
       throughTurnId = turnId;
       archive = result.event.archive;
@@ -72,7 +75,7 @@ for (const original of ["pi", "codex"] as const) {
     const tool = await run(original, "tool", `Create cohub-smoke.txt in the current working directory, containing exactly ${marker}. Use a tool. Then reply TOOL_OK.`, true);
     assert(tool.toolBlocks > 0, "native tools must appear in public messages");
     assert.equal((await readFile(join(root, "cohub-smoke.txt"), "utf8")).trim(), marker);
-    store = new RuntimeSessionStore(spaceId, join(root, "restored"));
+    store = new RuntimeSessionStore(spaceId, join(root, "restored"), storage.transport);
     const restored = await run(original, "archive", "Without tools, what is the exact marker I asked you to remember?");
     assert.equal(restored.resume, "restored");
     assert(restored.output.includes(marker));
@@ -82,5 +85,5 @@ for (const original of ["pi", "codex"] as const) {
     assert(handoff.output.includes(marker));
     const aborted = await run(other, "abort", "Output all integers from 1 to 5000, each on a new line. No tools. No explanation.", true, true);
     assert(aborted.output.length > 0, "text streamed before abort must be retained");
-  } finally { await rm(root, { recursive: true, force: true }); }
+  } finally { await storage.close(); await rm(root, { recursive: true, force: true }); }
 }

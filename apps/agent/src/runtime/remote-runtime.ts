@@ -7,13 +7,12 @@ import { redis, sendOutput } from "../redis.js";
 import { env } from "../env.js";
 import { logger } from "../logger.js";
 import { getSpaceSandbox } from "../api.js";
-import { persistAssistantMessage, persistUserMessage } from "../persistence.js";
+import { persistAssistantMessage, persistBatchUserMessages } from "../persistence.js";
 import { createRuntimeStream } from "../stream/runtime-stream.js";
 import { loadRuntimeContext } from "./context-store.js";
 import { buildUserMessagesForBatch, type ClaimedTurnBatch } from "../batch.js";
 import type { PromptAccessMode } from "@cohub/core/sessions";
 import { exchangeRuntimeTurn, RuntimeExecutionUncertainError, RuntimeResultUnavailableError } from "./exchange.js";
-import { scheduleHarnessArchive } from "./archive-dispatch.js";
 export { RuntimeExecutionUncertainError } from "./exchange.js";
 
 function nativeAssistant(event: Extract<RuntimeExecutionEvent, { type: "message.commit" | "turn.end" }>, turnId: string, harness: string, final: boolean) {
@@ -23,7 +22,7 @@ function nativeAssistant(event: Extract<RuntimeExecutionEvent, { type: "message.
     provider: event.message.provider ?? null, model: event.message.model ?? null,
     stopReason: event.message.stopReason ?? (final ? "stop" : "tool_use"),
     errorMessage: event.message.errorMessage ?? null, usage: event.message.usage ?? null,
-    meta: { turnId, harness, runtime: "local", messageKind: final ? "assistant_final" : "assistant_intermediate" },
+    meta: { turnId, harness, runtime: "local", messageKind: final ? "assistant_final" : "assistant_intermediate", ...(final ? { runtimeArchiveStatus: "archive" in event && event.archive ? "pending" : "failed" } : {}) },
   };
 }
 
@@ -40,6 +39,7 @@ export async function executeRemoteHarnessTurn(input: {
   leaseSignal?: AbortSignal;
 }): Promise<void> {
   input.abortSignal.throwIfAborted();
+  if (!input.recovery && input.harness === "pi" && input.accessMode === "read_only") throw new Error("Pi cannot enforce read-only access / Pi 无法保证只读权限");
   const [sandbox, registrationRaw] = await Promise.all([input.recovery ? Promise.resolve(null) : getSpaceSandbox({ spaceId: input.spaceId }), redis.get(runtimeRegistrationKey(input.spaceId))]);
   if ((!input.recovery && sandbox?.sandbox?.provider !== "local") || !registrationRaw) throw new Error("Local Runtime is offline");
   const registration = parseRuntimeRegistration(registrationRaw);
@@ -52,14 +52,19 @@ export async function executeRemoteHarnessTurn(input: {
   if (input.recovery && previousRecovery?.ownerUserId && previousRecovery.ownerUserId !== registration.ownerUserId) throw new RuntimeExecutionUncertainError("Runtime owner changed");
   if (!input.recovery && !capabilities.harnesses.includes(input.harness)) throw new Error("Harness is unavailable on this Runtime");
   if (!input.recovery && input.model && !capabilities.models.some((model) => model.harness === input.harness && model.id === input.model && (!input.provider || model.provider === input.provider))) throw new Error("Model is unavailable on this Runtime");
-  const [user] = buildUserMessagesForBatch(input.batch);
-  if (!user || input.batch.turns.length !== 1) throw new Error("Local Harness expects one turn per execution");
-  const userMessageId = user.userMessageId || user.turnId;
-  const context = await loadRuntimeContext({ spaceId: input.spaceId, sessionId: input.sessionId, beforeSequence: input.batch.ownerTurn.sequence, headOnly: true, harness: input.harness });
-  if (!input.recovery) await persistUserMessage({ spaceId: input.spaceId, sessionId: input.sessionId, userMessageId, turnId: user.turnId, content: user.content, meta: user.meta });
+  const users = buildUserMessagesForBatch(input.batch);
+  const user = users.at(-1);
+  const first = users[0];
+  if (!user || !first || user.turnId !== input.batch.ownerTurn.id) throw new Error("Invalid Runtime batch / Runtime 批次无效");
+  const userMessageId = user.userMessageId;
+  const beforeSequence = first.turnSeq;
+  const context = await loadRuntimeContext({ spaceId: input.spaceId, sessionId: input.sessionId, beforeSequence, headOnly: true, harness: input.harness });
+  await persistBatchUserMessages({ spaceId: input.spaceId, sessionId: input.sessionId, batch: input.batch });
   const command: RuntimeTurnInput = {
     spaceId: input.spaceId, sessionId: input.sessionId, turnId: user.turnId, userMessageId,
-    harness: input.harness, content: user.content, context, provider: input.provider, model: input.model,
+    harness: input.harness, messages: users.map((message, index) => ({ turnId: message.turnId, userMessageId: message.userMessageId,
+      userId: input.batch.turns[index]?.userUuid ?? null, content: message.content })),
+    context, provider: input.provider, model: input.model,
     thinkingLevel: input.requestedThinkingLevel, accessMode: input.accessMode,
   };
   const stream = createRuntimeStream({ spaceId: input.spaceId, sessionId: input.sessionId, turnId: user.turnId, userMessageId }, sendOutput, (error) => logger.warn("[Runtime] stream delivery failed; persistence continues", error));
@@ -90,7 +95,7 @@ export async function executeRemoteHarnessTurn(input: {
         input.leaseSignal?.throwIfAborted();
         if (input.recovery && !["message.commit", "turn.end"].includes(event.type)) throw new Error("Recovery cannot execute or request context");
         if (event.type === "context.required") {
-          send({ type: "session.context", requestId, context: await loadRuntimeContext({ spaceId: input.spaceId, sessionId: input.sessionId, beforeSequence: input.batch.ownerTurn.sequence, harness: input.harness, pendingTurnIds: event.pendingTurnIds }) });
+          send({ type: "session.context", requestId, context: await loadRuntimeContext({ spaceId: input.spaceId, sessionId: input.sessionId, beforeSequence, harness: input.harness, pendingTurnIds: event.pendingTurnIds, historyOnly: event.historyOnly }) });
           return;
         }
         if (["message.start", "text.delta", "content.replace"].includes(event.type)) {
@@ -116,8 +121,6 @@ export async function executeRemoteHarnessTurn(input: {
           committed.add(event.message.ordinal);
           await stream.commit(event.message.ordinal);
           if (event.type === "turn.end") {
-            const archive = event.archive;
-            if (archive) scheduleHarnessArchive(input.spaceId, () => archive);
             const completedContext = await loadRuntimeContext({ spaceId: input.spaceId, sessionId: input.sessionId, throughTurnId: user.turnId, headOnly: true });
             finalRevision = completedContext.revision;
           }

@@ -1,7 +1,25 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { runtimeClientFrameSchema, runtimeCommandSchema, runtimeReadySchema, parseRuntimeRegistration, contextToPiMessages, contextToTranscript } from "./src/runtime/index.js";
+import { runtimeClientFrameSchema, runtimeCommandSchema, runtimeReadySchema, parseRuntimeRegistration, contextToPiMessages, RUNTIME_MAX_BATCH_MESSAGES } from "./src/runtime/index.js";
 import { getSessionStreamSnapshotKey, SESSION_STREAM_SNAPSHOT_CLEAR_TURN_LUA } from "./src/realtime/index.js";
+
+test("Runtime batches retain ordered authors and enforce the final owner identity", () => {
+  const messages = ["first", "last"].map((userId) => ({ userId, turnId: crypto.randomUUID(), userMessageId: crypto.randomUUID(), content: [{ type: "text", text: userId }] }));
+  const owner = messages.at(-1); assert(owner);
+  const input = { spaceId: crypto.randomUUID(), sessionId: crypto.randomUUID(), turnId: owner.turnId, userMessageId: owner.userMessageId, harness: "pi", messages,
+    accessMode: "full_access", context: { revision: "r", throughTurnId: null, messages: [] } };
+  const parse = (patch: object) => runtimeCommandSchema.safeParse({ type: "turn.start", requestId: crypto.randomUUID(), input: { ...input, ...patch } });
+  assert(parse({}).success);
+  assert(!parse({ messages: [] }).success);
+  assert(!parse({ turnId: messages[0]?.turnId }).success);
+  assert(!parse({ userMessageId: messages[0]?.userMessageId }).success);
+  assert(!parse({ messages: [owner, owner] }).success);
+  assert(!parse({ messages: [{ ...messages[0], userMessageId: owner.userMessageId }, owner] }).success);
+  const extra = { userId: null, turnId: crypto.randomUUID(), userMessageId: crypto.randomUUID(), content: [{ type: "text", text: "extra" }] };
+  const full = Array.from({ length: RUNTIME_MAX_BATCH_MESSAGES - 1 }, () => ({ ...extra, turnId: crypto.randomUUID(), userMessageId: crypto.randomUUID() }));
+  assert(parse({ messages: [...full, owner] }).success);
+  assert(!parse({ messages: [...full, extra, owner] }).success, "a batch cannot exceed the message budget");
+});
 
 test("Shared stream snapshot clearing targets one Session and one turn", () => {
   assert.equal(getSessionStreamSnapshotKey("space", "session"), "session:stream:snapshot:space:session");
@@ -31,7 +49,7 @@ test("Runtime ready requires a valid connection identity", () => {
   }
 });
 
-test("Context compiler preserves tool pairing and transcript content without executing anything", () => {
+test("Context compiler preserves tool pairing without executing anything", () => {
   const messages = [{ id: "message", turnId: "turn", role: "assistant" as const, content: [
     { type: "tool_use" as const, id: "tool", name: "bash", input: { command: "echo historical" } },
     { type: "tool_result" as const, tool_use_id: "tool", content: "historical result", is_error: false },
@@ -40,5 +58,44 @@ test("Context compiler preserves tool pairing and transcript content without exe
   assert.equal(pi[0]?.role, "assistant");
   assert.equal(pi[1]?.role, "toolResult");
   assert.equal(pi[1]?.toolCallId, "tool");
-  assert(contextToTranscript(messages).includes("historical result"));
+  const result = (pi[1]?.content as Array<{ text?: string }> | undefined)?.[0];
+  assert(result);
+  assert.equal(result.text, "historical result");
+});
+
+test("Context projection passes native reasoning through and drops what has no native form", () => {
+  const messages = [{
+    id: "assistant", turnId: "turn", role: "assistant" as const,
+    provider: "anthropic", model: "claude",
+    content: [
+      { type: "thinking" as const, thinking: "signed", signature: "sig-1" },
+      { type: "thinking" as const, thinking: "unsigned" },
+      { type: "text" as const, text: "answer" },
+      { type: "image" as const, source: { type: "url" as const, url: "https://example.com/a.png" } },
+      { type: "system_note" as const, note_type: "info" as const, text: "note" },
+    ],
+  }];
+  const pi = contextToPiMessages(messages, { resolveApi: () => "anthropic-messages", fallbackProvider: "anthropic" });
+  const content = pi[0]?.content as Record<string, unknown>[];
+  assert.deepEqual(content[0], { type: "thinking", thinking: "signed", thinkingSignature: "sig-1" });
+  assert.deepEqual(content[1], { type: "thinking", thinking: "unsigned" });
+  assert.deepEqual(content[2], { type: "text", text: "answer" });
+  assert.equal(content.length, 3, "URL images and system notes are dropped, never rewritten as text");
+  assert.equal(pi[0]?.api, "anthropic-messages");
+  assert.equal(pi[0]?.provider, "anthropic");
+});
+
+test("Context projection skips compaction rows, pending generation placeholders and system notes", () => {
+  const messages = [
+    { id: "compact", turnId: "t1", role: "system" as const, content: [{ type: "system_note" as const, note_type: "compacted" as const, text: "summary" }] },
+    { id: "note", turnId: "t1", role: "system" as const, content: [{ type: "system_note" as const, note_type: "info" as const, text: "created" }] },
+    { id: "pending", turnId: "t2", role: "assistant" as const, content: [{ type: "text" as const, text: "placeholder" }], meta: { messageKind: "generation_result", generationStatus: "queued" } },
+    { id: "done", turnId: "t3", role: "assistant" as const, content: [{ type: "text" as const, text: "finished" }], meta: { messageKind: "generation_result", generationStatus: "completed" } },
+  ];
+  const pi = contextToPiMessages(messages, { fallbackProvider: "cohub" });
+  const texts = pi.map((message) => (message.content as Array<{ text?: string }>).map((block) => block.text ?? "").join(""));
+  assert.equal(texts.some((text) => text.includes("summary")), false);
+  assert.equal(texts.some((text) => text.includes("placeholder")), false);
+  assert.equal(texts.some((text) => text.includes("finished")), true);
+  assert.equal(pi.every((message) => message.timestamp === 0), true);
 });

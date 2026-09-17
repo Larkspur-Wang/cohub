@@ -5,9 +5,9 @@ import { isLocalHarness, resolveHarness, type LocalHarness, type RuntimeRecovery
 import { AGENT_RUNTIME_SWEEP_JOB_NAME, enqueueRuntimeRecovery, type AgentRuntimeRecoveryJobData, type AgentRuntimeSweepJobData } from "@cohub/infra/agent-queue";
 import { db } from "../db.js";
 import { acquireSessionLock, type SessionLock } from "../session-lock.js";
-import { deliverRuntimeMessage, persistAssistantMessage, persistUserMessage, publishSessionTurnsUpdated } from "../persistence.js";
+import { deliverRuntimeMessage, persistAssistantMessage, persistBatchUserMessages, publishSessionTurnsUpdated } from "../persistence.js";
 import { agentTurnQueue, enqueueAgentTurnJob } from "../queue.js";
-import type { ClaimedTurnBatch } from "../batch.js";
+import { loadClaimedTurnBatch } from "../batch.js";
 import { logger } from "../logger.js";
 import { RuntimeResultUnavailableError } from "./exchange.js";
 import { executeRemoteHarnessTurn, markRuntimeRecovery } from "./remote-runtime.js";
@@ -53,8 +53,8 @@ async function recordConfirmedStop(input: { spaceId: string; turn: typeof sessio
     .where(and(eq(sessionTurns.id, turn.id), runtimeRecoveryActive)).returning({ id: sessionTurns.id });
   if (!confirmed) return false;
   const userMessageId = turnUserMessageId(turn);
-  const [userMessage] = await db.select({ id: sessionMessages.id }).from(sessionMessages).where(eq(sessionMessages.id, userMessageId)).limit(1);
-  if (!userMessage) await persistUserMessage({ spaceId: input.spaceId, sessionId: turn.sessionId, turnId: turn.id, userMessageId, content: turn.userContent, meta: turnMeta(turn) ?? {} });
+  const batch = await loadClaimedTurnBatch({ ...turn, intent: turn.intent ?? "followup" });
+  await persistBatchUserMessages({ spaceId: input.spaceId, sessionId: turn.sessionId, batch });
   lock.signal.throwIfAborted();
   await persistAssistantMessage({ spaceId: input.spaceId, spaceSessionId: turn.sessionId, turnId: turn.id, userMessageId, userId: turn.userUuid,
     idempotencyKey: `runtime-resolution:${turn.id}`, messageOrdinal: 100_000,
@@ -66,10 +66,8 @@ async function recordConfirmedStop(input: { spaceId: string; turn: typeof sessio
 /** Reconnect a disconnected host: `turn.recover` only replays a saved result, never new work. */
 async function recoverOrphanTurn(input: { spaceId: string; turn: typeof sessionTurns.$inferSelect; harness: LocalHarness; lock: SessionLock }): Promise<"recovered" | "attention" | "retry"> {
   const { turn, lock } = input;
-  const owner = { ...turn, intent: turn.intent ?? "followup" };
-  const userMessageId = turnUserMessageId(turn);
-  const batch: ClaimedTurnBatch = { ownerTurn: owner, turns: [owner], mergedTurns: [], executionBatch: { ownerTurnId: turn.id, turnIds: [turn.id], mergedTurnIds: [], userMessageIds: [userMessageId], anchorUserMessageId: userMessageId } };
   try {
+    const batch = await loadClaimedTurnBatch({ ...turn, intent: turn.intent ?? "followup" });
     await executeRemoteHarnessTurn({ spaceId: input.spaceId, sessionId: turn.sessionId, batch, actorUserId: turn.userUuid, harness: input.harness, accessMode: "read_only", recovery: true, abortSignal: lock.signal, leaseSignal: lock.signal });
     return "recovered";
   } catch (error) {

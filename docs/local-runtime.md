@@ -32,7 +32,10 @@ API prompt -> BullMQ -> Session lock -> Harness dispatch
 
 Harness events -> Agent sendOutput -> existing snapshot / patch -> Web / SDK
 Harness messages -> existing persistence / finalize -> DB / realtime
-Native session -> end-of-turn object archive -> turn.harnessIndex
+Local native session -> durable segments -> CLI presigned PUT -> object storage
+Archive metadata -> API confirmation -> turn.harnessIndex
+Object storage -> CLI presigned GET -> verified native restore
+Cloud native session <- DB context (no harness archive)
 ```
 
 There are no HTTP polling/claim/result endpoints. The outbound local connection
@@ -42,24 +45,50 @@ The existing workspace relay remains responsible for files and processes.
 不再提供 HTTP 轮询领取或结果回传接口。本地主动连接 `/runtime/relay`；Agent 服务通过
 `/internal/runtime-relay/:spaceId` 接入。文件与进程操作仍复用原有工作区 relay。
 
-The same Session lock and queue serialize cloud and local execution. Different
-Harnesses, actors or configurations are never merged into the same execution
-batch. Local model usage is recorded but is not charged again as a cloud turn.
+The same Session lock and queue serialize Cloud and Local execution. At claim time,
+all runnable queued follow-ups form one ordered batch, regardless of author or requested Harness.
+The final turn owns execution: its Harness, model, thinking and supported configuration are selected.
+Execution uses the owner's authorization; author permissions are never combined. A read-only request
+anywhere in the batch makes the entire batch read-only (Pi rejects this before dispatch).
 
-Cloud / Local 共用 Session 锁和队列。不同 Harness、执行身份或配置不会合并执行。
-本地模型用量可记录，但不会再次按云端 turn 收费。
+Cloud / Local 共用 Session 锁和队列。认领时按顺序合并所有可执行的 queued follow-up，不按作者或请求的 Harness 拆批。
+最后一条 turn 为 owner，决定实际 Harness、模型、thinking 和目标 Harness 支持的配置。
+执行使用 owner 的授权，不叠加其他作者的权限；批次任一输入要求只读，整批只读（Pi 在派发前拒绝）。
+
+Each source turn/message and its author, requested Harness and original content remain intact.
+Earlier turns point to the owner through `mergedIntoTurnId`. Local adapters receive the batch content verbatim:
+no prefixes, ordinals, separators, explanations or internal user/turn/message IDs are added to prompt text.
+Representable blocks and tool pairing are preserved; URL images, system notes and unknown blocks are dropped from
+the model input, never described in text, and their durable copy stays in the platform. Only the existing system
+prompt builder may author platform instructions. Streaming, results, usage and native archive references
+belong to the owner. Local tools still run as the Runtime host's OS user; local usage is not charged as a Cloud turn.
+
+每条原始 turn/message、作者、请求 Harness 和内容均保留；较早 turn 通过 `mergedIntoTurnId` 指向 owner。
+Local 适配器按原文接收批次内容：不添加前缀、序号、分隔符、说明或内部 user/turn/message ID；
+可表达的块与工具配对原样保留，url 图片、system note 与未知块直接从模型输入丢弃而不写成文字，
+原始数据仍保留在平台侧；只有原有 system prompt builder 可以生成平台指令。
+流式输出、结果、用量和归档归属 owner。
+本地工具仍以 Runtime 宿主的系统用户运行；本地用量不重复按 Cloud turn 收费。
+
+Steer/direct shell commands remain single-turn; direct-generation barriers remain unchanged.
+New follow-ups arriving after a claim wait for the next batch. An unavailable owner Harness fails explicitly,
+never silently switches executor. Recovery reconstructs the persisted claim and only re-delivers saved results;
+it does not collect new queued inputs or replay models/tools.
+
+Steer 和直接 shell command 仍单独执行，direct-generation 屏障不变。认领后新到的 follow-up 留待下一批。
+owner 指定的 Harness 不可用时明确失败，不自动换执行器；恢复按已保存批次补交结果，不收集新消息，不重跑模型或工具。
 
 ## Resume / 恢复
 
-- Hot resume exchanges only the context revision and new input.
-  热会话只交换上下文版本与新输入。
+- The first head response includes a ready archive reference when available, avoiding an extra cold-resume round trip.
+  本地归档已就绪时，首次 head 响应直接附带归档引用，避免冷恢复多一次上下文往返。
 - A missing or outdated projection requests history over the same WS connection.
   本地投影缺失或过期时，通过同一 WS 连接按需请求历史。
 - Same-Harness native files are validated and reused. A matching archive can
-  restore a missing native file. Cross-Harness handoff compiles durable messages
-  into Pi context or an explicitly marked Codex history transcript.
-  同 Harness 优先校验并复用原生文件，缺失时可从匹配归档恢复；跨 Harness 根据持久消息
-  生成 Pi 上下文或明确标注来源的 Codex 历史文本。
+  restore a missing native file. Pi handoff writes durable messages into its native session file, while
+  Codex handoff has no native history channel yet and starts without history (durable history stays in the platform).
+  同 Harness 优先校验并复用原生文件，缺失时可从匹配归档恢复；Pi 交接将持久消息写入原生会话文件，
+  Codex 交接暂缺原生历史通道，会以无历史启动，持久历史仍保留在平台侧。
 - Codex paginated threads depend on a private SQLite index. Archive import creates
   a separate legacy-history projection and uses native `thread/fork(path)`;
   the original archive and thread are preserved. The private database is never uploaded.
@@ -72,10 +101,13 @@ Cloud / Local 共用 Session 锁和队列。不同 Harness、执行身份或配�
 Local bookkeeping is under `~/.local/state/cohub/runtime/<space-id>`; native
 credentials and configuration remain in the original Harness locations. Existing
 files are not overwritten when they contain unconfirmed or externally modified
-history. Native archives use the existing turn object storage and URL policy.
+history. Native segments reuse the existing turn storage bucket and signing path, without setting object ACLs.
+Access control follows the bucket policy; only short-lived, authorized PUT/GET URLs are issued by the API.
+API, Gateway and Agent never proxy archive bytes.
 
 本地状态位于 `~/.local/state/cohub/runtime/<space-id>`，凭据和配置仍由原生 Harness 管理。
-发现未确认记录或外部修改时，不覆盖原文件。原生归档沿用现有 turn 对象存储和 URL 策略。
+发现未确认记录或外部修改时，不覆盖原文件。分段归档复用现有 turn 存储桶和签名链路，不设置对象 ACL，访问控制沿用 bucket policy。
+CLI 使用短期授权 PUT / GET URL 直接上传与下载，API、Gateway 和 Agent 不转发归档正文。
 
 ## Runtime Recovery / Runtime 恢复协调
 
@@ -152,12 +184,42 @@ reconciliation continues even then. Never infer that a disconnected execution ha
   latest result per Session/Harness is retained, avoiding an unbounded local outbox.
   完成结果先在本机可靠保存再回传。确认丢失时只补发结果，不重跑模型或工具；每个 Session/Harness
   仅保留最近一次结果，避免本地待确认数据无限增长。
-- End-of-turn archival captures a snapshot under the Session lock, then uploads
-  through a bounded background queue (8 uploads, 16 MiB per raw archive). It never
-  changes the actual execution result. Missing or oversized archives fall back to
-  public message context on another host; original local files remain intact.
-  Turn 结束时在 Session 锁内捕获快照，通过有上限的后台队列上传（8 个上传、单份原始归档 16 MiB）。
-  归档失败不改变执行结果；缺失或超限时，其他运行端使用公共消息上下文，本地原始文件仍然保留。
+- Cloud turns do not write `harnessIndex` or upload native files. Missing Cloud files
+  rebuild from DB messages and compaction boundaries; cached handles use lightweight revisions.
+  Cloud 不写 `harnessIndex`，也不上传会话文件；文件缺失时根据 DB 消息和压缩边界重建，缓存复用只查轻量 revision。
+- Local turns capture immutable raw-byte segments (up to 4 MiB each) into a durable outbox.
+  A verified unchanged prefix extends the prior version; truncation or any prefix rewrite starts
+  a new baseline. Each turn stores only its parent reference and new segments, not the whole list.
+  本地 turn 将原始字节分段（每段不超过 4 MiB）可靠落盘；校验前缀未变才续接，截断或前缀重写则建立新基线。
+  每个 turn 只记录父版本和新增段，不重复保存完整分段列表。
+- Uploads retry every 10 seconds while Runtime is running, including after restart with no new turn.
+  Model-result ACK and archive confirmation are independent. `runtime status` reports `pendingLocalArchives`;
+  Web shows pending/ready/unavailable archive state. Failed capture is retried before another turn can mutate the file.
+  Runtime 运行期间每 10 秒重试上传，重启后没有新 turn 也会补传；模型结果确认与归档确认独立。
+  `runtime status` 返回 `pendingLocalArchives`，Web 展示待同步、已归档或暂不可用；捕获失败时先补存再执行下一 turn。
+- Missing/changed native files and malformed capture receipts are quarantined under `archives/failed/captures/`.
+  The exact receipt and failure reason are retained; native files stay untouched. These failures stop retrying and
+  are reported by `runtime status.failedLocalArchives`. Transient I/O errors keep retrying.
+  原生文件丢失、变化或捕获记录损坏时，记录移入 `archives/failed/captures/`，保留原始记录和失败原因，不修改原生文件。
+  此类失败停止重试，由 `runtime status.failedLocalArchives` 展示；临时 I/O 错误继续重试。
+- Confirmation validates authorization, parent identity, contiguous offsets, object lengths and storage-verified MD5.
+  Restoration verifies every SHA-256 and every version digest before atomically publishing a new file.
+  Only ready, valid indexes are offered for native recovery. Pending, failed or invalid indexes use DB history.
+  If download or import fails, CLI logs a warning and requests DB history once before starting a new Harness projection;
+  this is reported as a handoff, never a successful native restore. Cancellation and unconfirmed local execution still block continuation.
+  确认阶段校验身份、父版本、连续偏移、对象长度和存储验证的 MD5；恢复时验证每段 SHA-256 及各版本摘要，
+  全部通过后原子发布新文件。仅已就绪且有效的索引用于原生恢复；待同步、失败或无效索引直接使用 DB 历史。
+  下载或导入失败时，CLI 告警并在执行前单次请求 DB 历史，创建新的 Harness 投影，明确标为 handoff 而非原生恢复成功。
+  用户取消或本地执行尚未确认时仍禁止继续执行。
+- One claim is bounded by message count and estimated input bytes, and the protocol enforces the same
+  message cap. A larger queue splits into consecutive batches instead of failing after turns were merged.
+  单次认领受消息数与预估输入字节限制，协议层执行相同的消息数上限。更大的队列会拆成连续批次，
+  不会在 turn 已合并后才因超限失败。
+- Metadata requests are bounded to 256 new segments per version (at most 1 GiB of newly captured bytes).
+  Limits fail explicitly and preserve original files. No object GC or lifecycle changes are made by the code.
+  Lifecycle policies must retain old segments for as long as any supported recovery version references them.
+  单版本元数据限制为 256 个新增段（最多新增 1 GiB 原始字节），超限明确报错并保留原文件。
+  代码不清理对象或修改 lifecycle；保留策略必须覆盖所有仍需恢复的版本所引用的旧分段。
 - Final local messages, Turn state and durable delivery intent commit together.
   Realtime, postprocessing, queue wakeups and bound external channels retry from that
   intent. Channel targets use stable command IDs and per-target enqueue progress.
@@ -172,23 +234,29 @@ pnpm --filter @cohub/agent test
 pnpm --filter @cohub/agent test:runtime
 pnpm --filter @neta-art/cohub-cli test
 pnpm --filter @neta-art/cohub-cli test:runtime
+RUNTIME_TEST_DB_HOME=/path/to/isolated-db pnpm --filter @cohub/api test:runtime:archives
 ```
 
 `test:runtime` uses loopback WebSockets and fixture RPC processes, never real
 accounts or model requests. The optional `test:runtime:db` uses an isolated PostgreSQL
 engine and requires `RUNTIME_TEST_DB_HOME`; it never connects to production. Apply `0065_runtime_harness_index` before deploying
-services that read `harness_index`. Deploy Worker, API, Gateway and every Agent instance
+services that read `harness_index`. Native object prefixes must remain private, including through any CDN origin authorization;
+verify signed PUT/GET, create-only writes and single-PUT MD5/ETag behavior against the configured storage before release.
+No production-bucket writes are performed by the automated tests.
+Deploy Worker, API, Gateway and every Agent instance
 before enabling the updated Web/CLI. Worker must understand local usage before local
 results arrive, so they cannot be charged as cloud executions.
 
 `test:runtime` 使用本机 WebSocket 和模拟 RPC 进程，不访问真实账号或模型。
 可选的 `test:runtime:db` 使用隔离 PostgreSQL 引擎，需要设置 `RUNTIME_TEST_DB_HOME`，不会连接生产数据库。
-部署前需执行 `0065_runtime_harness_index` 迁移；Worker、API、Gateway 和所有 Agent 实例更新后，
+部署前需执行 `0065_runtime_harness_index` 迁移，并确认 native 前缀不可经公开 CDN 访问；
+使用隔离存储验证签名 PUT / GET、禁止覆盖与单次 PUT 的 MD5 / ETag 行为。自动测试不写生产桶。
+Worker、API、Gateway 和所有 Agent 实例更新后，
 再启用新 Web / CLI。Worker 必须先识别本地用量，避免重复按云端执行计费。
 
 For opt-in real-model testing, prepare an isolated directory containing `home/`,
 `pi/` and `codex/`, with native authentication/configuration. This test makes model
-requests and writes temporary files; it never connects to a Cohub server. Set
+requests and writes temporary files; archive storage is injected in-memory and it never connects to a Cohub server. Set
 `COHUB_NATIVE_TEST_PI_BIN` / `COHUB_NATIVE_TEST_CODEX_BIN` to override executables.
 
 真实模型测试需要显式启用：准备包含 `home/`、`pi/`、`codex/` 的隔离目录，并配置原生鉴权。

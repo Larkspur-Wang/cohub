@@ -25,7 +25,7 @@ import { resolveSpaceFileVisibility } from "./runtime/cross-space-query-access.j
 import { normalizeGenerationPolicy } from "@cohub/protocol/generation";
 import { runWithToolExecutionContext } from "./tool-context.js";
 import { loadOrCreateSessionHandle, ensurePendingUserMessage, hasSessionUserMessage, removePendingUserMessage, resetStreamState, drainStreamStateBeforeReset, persistInterruptedAssistantSnapshot, refreshSessionHandleFileSignature, type SessionHandle } from "./session.js";
-import { claimNextTurnBatch, buildUserMessagesForBatch, enqueueNextRunnableTurn, type ClaimedTurnBatch } from "./batch.js";
+import { claimNextTurnBatch, buildUserMessagesForBatch, enqueueNextRunnableTurn, resolveBatchAccessMode, type ClaimedTurnBatch } from "./batch.js";
 import { acquireSessionLock } from "./session-lock.js";
 import { defaultJobRetention } from "@cohub/infra/bullmq";
 import { enqueueAgentTurnJob, type AgentTurnJobData } from "./queue.js";
@@ -39,7 +39,6 @@ import { createAgentExecutionToken } from "./execution-grants.js";
 import { isLocalHarness, resolveHarness } from "@cohub/protocol";
 import { executeRemoteHarnessTurn, RuntimeExecutionUncertainError } from "./runtime/remote-runtime.js";
 import { loadRuntimeContext } from "./runtime/context-store.js";
-import { scheduleHarnessArchive } from "./runtime/archive-dispatch.js";
 
 
 const sessionHandles = new Map<string, SessionHandle>();
@@ -680,10 +679,6 @@ function resolveSourceClientId(ownerMeta: Record<string, unknown>) {
   return typeof sourceClientId === "string" && sourceClientId.trim() ? sourceClientId.trim() : null;
 }
 
-function resolvePromptAccessMode(ownerMeta: Record<string, unknown>): PromptAccessMode {
-  return ownerMeta.accessMode === "read_only" ? "read_only" : "full_access";
-}
-
 function resolveContextHookEnv(ownerMeta: Record<string, unknown>) {
   const context = ownerMeta.context && typeof ownerMeta.context === "object" && !Array.isArray(ownerMeta.context)
     ? ownerMeta.context as Record<string, unknown>
@@ -711,12 +706,6 @@ function resolvePromptEnv(ownerMeta: Record<string, unknown>) {
   if (!userEnv && !hookEnv) return null;
   // System hook keys win over user prompt.env.
   return { ...(userEnv ?? {}), ...(hookEnv ?? {}) };
-}
-
-function resolveBatchAccessMode(batch: { turns: Array<{ meta: unknown }> }): PromptAccessMode {
-  return batch.turns.some((turn) => resolvePromptAccessMode(turn.meta && typeof turn.meta === "object" && !Array.isArray(turn.meta) ? turn.meta as Record<string, unknown> : {}) === "read_only")
-    ? "read_only"
-    : "full_access";
 }
 
 async function createTurnExecutionToken(input: {
@@ -1280,18 +1269,14 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
       }
       if (handle && claimedBatch && terminalHandled) {
         try {
+          // Cloud sessions rebuild from durable platform data, so only the resume marker
+          // is persisted alongside the native log — no native snapshot is archived.
           const completedContext = await loadRuntimeContext({ spaceId: data.spaceId, sessionId: data.sessionId, throughTurnId: claimedBatch.ownerTurn.id, headOnly: true });
-          handle.sessionManager.appendCustomEntry("cohub.context", { revision: completedContext.revision, throughTurnId: completedContext.throughTurnId });
+          const previousMarker = handle.sessionManager.getCustomEntries("cohub.context").at(-1)?.data as Record<string, unknown> | undefined;
+          handle.sessionManager.appendCustomEntry("cohub.context", { ...previousMarker, revision: completedContext.revision, throughTurnId: completedContext.throughTurnId });
           await handle.sessionManager.close();
           await refreshSessionHandleFileSignature(handle);
-          const snapshotHandle = handle;
-          const snapshotTurnId = claimedBatch.ownerTurn.id;
-          scheduleHarnessArchive(data.spaceId, () => ({
-            version: 1, harness: "cohub", sessionId: data.sessionId, turnId: snapshotTurnId,
-            nativeFormat: "cohub.jsonl", nativeSessionId: snapshotHandle.sessionManager.getSessionId(),
-            data: snapshotHandle.sessionManager.serializeSnapshot(),
-          }));
-        } catch (error) { logger.warn("[HarnessArchive] cloud archive failed; native session retained", error); }
+        } catch (error) { logger.warn("[SessionContext] failed to record the resume marker", error); }
       }
       if (claimedBatch) clearRetryState(data);
       lock.signal.removeEventListener("abort", onLeaseLost);

@@ -7,7 +7,11 @@ import { exchangeRuntimeTurn } from "../../../apps/agent/src/runtime/exchange.js
 import { serveRuntime } from "../src/runtime/connection.js";
 import { RuntimeSessionStore } from "../src/runtime/session-store.js";
 
-const input = (): RuntimeTurnInput => ({ spaceId: crypto.randomUUID(), sessionId: crypto.randomUUID(), turnId: crypto.randomUUID(), userMessageId: crypto.randomUUID(), harness: "pi", accessMode: "full_access", content: [], context: { complete: true, revision: "initial", throughTurnId: null, messages: [] } });
+const input = (): RuntimeTurnInput => {
+  const turnId = crypto.randomUUID(), userMessageId = crypto.randomUUID();
+  return { spaceId: crypto.randomUUID(), sessionId: crypto.randomUUID(), turnId, userMessageId, harness: "pi", accessMode: "full_access",
+    messages: [{ turnId, userMessageId, userId: "author", content: [] }], context: { complete: true, revision: "initial", throughTurnId: null, messages: [] } };
+};
 async function listen() {
   const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
   await new Promise<void>((resolve) => server.once("listening", resolve));

@@ -16,16 +16,27 @@ export type RuntimeConnectionOptions = {
 export async function serveRuntime(options: RuntimeConnectionOptions) {
   let backoff = 500;
   let conflictSince: number | null = null;
-  while (!options.signal.aborted) {
-    const outcome = await connect({ ...options, onReady: () => { backoff = 500; conflictSince = null; options.onReady(); } });
-    if (options.signal.aborted) return;
-    if (outcome === "fatal") throw new Error("Runtime connection rejected / Runtime 连接被拒绝");
-    if (outcome === "conflict") {
-      conflictSince ??= Date.now();
-      if (Date.now() - conflictSince >= (options.leaseConflictTimeoutMs ?? 90_000)) throw new Error("Space is already connected to another Runtime / Space 已连接其他 Runtime");
+  const uploads = new AbortController();
+  const uploadSignal = AbortSignal.any([options.signal, uploads.signal]);
+  const flush = () => options.store.flushArchives(uploadSignal).catch((error) => {
+    if (!uploadSignal.aborted) console.error("Archive pending / 归档待重试:", error);
+  });
+  const timer = setInterval(() => { void flush(); }, 10_000);
+  void flush();
+  try {
+    while (!options.signal.aborted) {
+      const outcome = await connect({ ...options, onReady: () => { backoff = 500; conflictSince = null; options.onReady(); void flush(); } });
+      if (options.signal.aborted) return;
+      if (outcome === "fatal") throw new Error("Runtime connection rejected / Runtime 连接被拒绝");
+      if (outcome === "conflict") {
+        conflictSince ??= Date.now();
+        if (Date.now() - conflictSince >= (options.leaseConflictTimeoutMs ?? 90_000)) throw new Error("Space is already connected to another Runtime / Space 已连接其他 Runtime");
+      }
+      await delay(backoff, undefined, { signal: options.signal }).catch(() => undefined);
+      backoff = Math.min(10_000, backoff * 2);
     }
-    await delay(backoff, undefined, { signal: options.signal }).catch(() => undefined);
-    backoff = Math.min(10_000, backoff * 2);
+  } finally {
+    clearInterval(timer); uploads.abort(); await flush();
   }
 }
 
@@ -144,7 +155,7 @@ async function connect(options: RuntimeConnectionOptions): Promise<"retry" | "fa
         if (saved) for (const event of saved.events) send({ type: "runtime.event", requestId: frame.requestId, event });
         return;
       }
-      const requestContext = async (executionSignal: AbortSignal) => {
+      const requestContext = async (executionSignal: AbortSignal, historyOnly = false) => {
         const signal = AbortSignal.any([executionSignal, disconnected.signal]);
         signal.throwIfAborted();
         const pendingTurnIds = await options.store.pendingTurnIds(frame.input.sessionId);
@@ -153,7 +164,7 @@ async function connect(options: RuntimeConnectionOptions): Promise<"retry" | "fa
           const timeout = setTimeout(abort, 60_000);
           signal.addEventListener("abort", abort, { once: true });
           contexts.set(frame.requestId, (context) => { clearTimeout(timeout); signal.removeEventListener("abort", abort); resolve(context); });
-          try { send({ type: "runtime.event", requestId: frame.requestId, event: { type: "context.required", pendingTurnIds } }); }
+          try { send({ type: "runtime.event", requestId: frame.requestId, event: { type: "context.required", pendingTurnIds, ...(historyOnly ? { historyOnly: true } : {}) } }); }
           catch { abort(); }
           if (signal.aborted) abort();
         });
@@ -199,15 +210,14 @@ async function connect(options: RuntimeConnectionOptions): Promise<"retry" | "fa
             return;
           }
           const run = () => (frame.input.harness === "pi" ? executePi : executeCodex)(frame.input, options.harnesses, options.cwd, options.store, emit, controller.signal);
-          try { execution.result = await run(); }
-          catch (error) {
-            if (!(error instanceof ContextRequiredError)) throw error;
-            frame.input.context = await requestContext(controller.signal);
-            execution.result = await run();
-          }
-          if (Buffer.byteLength(JSON.stringify({ type: "runtime.event", requestId: frame.requestId, event: execution.result.event })) > RUNTIME_MAX_FRAME_BYTES && execution.result.event.archive) {
-            console.error("Native archive exceeds WS transfer limit; the original local session is retained");
-            execution.result.event = { ...execution.result.event, archive: null };
+          // Preparation can request context, then fall back once from native archive to DB.
+          // These retries precede started(), so they never replay model or tool work.
+          for (let attempt = 0; ; attempt++) {
+            try { execution.result = await run(); break; }
+            catch (error) {
+              if (!(error instanceof ContextRequiredError) || attempt >= 2) throw error;
+              frame.input.context = await requestContext(controller.signal, error.historyOnly);
+            }
           }
           await options.store.recordResult(execution.result.state, frame.requestId, [...durableEvents, execution.result.event]);
           emit(execution.result.event);

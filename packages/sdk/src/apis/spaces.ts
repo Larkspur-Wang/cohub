@@ -2238,6 +2238,24 @@ export class SpaceClient {
     });
   }
 
+  prepareRuntimeArchive(index: import("@cohub/protocol").HarnessArchiveIndex, options: { signal?: AbortSignal } = {}) {
+    return this.transport.request<{ uploads: import("@cohub/protocol").RuntimeArchiveUpload[] }>(`/api/spaces/${this.id}/runtime/archives/prepare`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(index), signal: options.signal,
+    });
+  }
+
+  commitRuntimeArchive(index: import("@cohub/protocol").HarnessArchiveIndex, options: { signal?: AbortSignal } = {}) {
+    return this.transport.request<{ ready: true }>(`/api/spaces/${this.id}/runtime/archives/commit`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(index), signal: options.signal,
+    });
+  }
+
+  getRuntimeArchive(sessionId: string, turnId: string, options: { signal?: AbortSignal } = {}) {
+    return this.transport.request<import("@cohub/protocol").RuntimeArchivePage>(
+      `/api/spaces/${this.id}/runtime/archives/${sessionId}/${turnId}`, { signal: options.signal },
+    );
+  }
+
   getRuntime(customFetch?: Fetch) {
     return this.transport.request<import("@cohub/protocol").RuntimeStatus>(
       `/api/spaces/${this.id}/runtime`, { fetch: customFetch },

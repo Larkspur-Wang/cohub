@@ -1,19 +1,17 @@
 import { createHash } from "node:crypto";
 import { and, asc, desc, eq, gte, inArray, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
 import { sessionMessages, sessionTurns, sessionTurnSegments, spaceSessions } from "@cohub/db";
-import { harnessArchiveSchema, selectRuntimeContextMessages, type HarnessKind, type RuntimeContext, type RuntimeContextMessage } from "@cohub/protocol";
+import { harnessArchiveIndexSchema, isLocalHarness, selectRuntimeContextMessages, type HarnessKind, type RuntimeContext, type RuntimeContextMessage } from "@cohub/protocol";
 import type { db } from "../db.js";
-import type { HarnessArchiveIndex } from "@cohub/protocol";
-type ArchiveReader = (index: HarnessArchiveIndex, scope: { spaceId: string; sessionId: string; turnId: string }) => Promise<unknown>;
 
-type ContextInput = { spaceId: string; sessionId: string; beforeSequence?: number; throughTurnId?: string; harness?: HarnessKind; headOnly?: boolean; pendingTurnIds?: string[] };
+type ContextInput = { spaceId: string; sessionId: string; beforeSequence?: number; throughTurnId?: string; harness?: HarnessKind; headOnly?: boolean; historyOnly?: boolean; pendingTurnIds?: string[] };
 type ContextDatabase = Pick<typeof db, "select">;
 const asMeta = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
 const UNSETTLED_TURN_STATUSES = new Set(["running", "abort_requested"]);
 const hasUnsettledTurn = (statuses: Array<string | null | undefined>) => statuses.some((status) => status != null && UNSETTLED_TURN_STATUSES.has(status));
 
 /** The hot path reads indexed boundary rows, never the complete conversation. */
-export function createRuntimeContextReader(database: ContextDatabase, readArchive: ArchiveReader, onArchiveError: (turnId: string, error: unknown) => void = () => {}) {
+export function createRuntimeContextReader(database: ContextDatabase) {
   return async function load(input: ContextInput): Promise<RuntimeContext> {
     const [session] = await database.select({ id: spaceSessions.id }).from(spaceSessions)
       .where(and(eq(spaceSessions.id, input.sessionId), eq(spaceSessions.spaceId, input.spaceId))).limit(1);
@@ -33,7 +31,7 @@ export function createRuntimeContextReader(database: ContextDatabase, readArchiv
       beforeSequence == null ? undefined : lt(sessionTurns.sequence, beforeSequence), ne(sessionTurns.status, "queued"),
     );
     const heads = await Promise.all(ranges.map(async (range) => {
-      const [head] = await database.select({ id: sessionTurns.id, sessionId: sessionTurns.sessionId, sequence: sessionTurns.sequence, status: sessionTurns.status, updatedAt: sessionTurns.updatedAt, harnessIndex: sessionTurns.harnessIndex, recoveryState: sql<string | null>`${sessionTurns.meta}->'runtimeRecovery'->>'state'` })
+      const [head] = await database.select({ id: sessionTurns.id, sessionId: sessionTurns.sessionId, sequence: sessionTurns.sequence, status: sessionTurns.status, updatedAt: sessionTurns.updatedAt, harnessIndex: sessionTurns.harnessIndex, harness: sql<string | null>`${sessionTurns.meta}->>'harness'`, archiveStatus: sql<string | null>`${sessionTurns.meta}->>'runtimeArchiveStatus'`, recoveryState: sql<string | null>`${sessionTurns.meta}->'runtimeRecovery'->>'state'` })
         .from(sessionTurns).where(predicate(range)).orderBy(desc(sessionTurns.sequence)).limit(1);
       return head ?? null;
     }));
@@ -49,6 +47,15 @@ export function createRuntimeContextReader(database: ContextDatabase, readArchiv
           inArray(sessionTurns.status, ["completed", "failed", "interrupted"])));
       result.resolvedTurnIds = settled.filter((turn) => turn.recoveryState === "confirmed_stopped").map((turn) => turn.id);
       result.settledTurnIds = settled.filter((turn) => turn.recoveryState !== "confirmed_stopped").map((turn) => turn.id);
+    }
+    if (!input.historyOnly && input.harness && isLocalHarness(input.harness) && lastTurn?.sessionId === input.sessionId
+      && lastTurn.archiveStatus === "ready" && lastTurn.recoveryState !== "confirmed_stopped") {
+      const index = harnessArchiveIndexSchema.safeParse(lastTurn.harnessIndex);
+      if (index.success && index.data.harness === input.harness && index.data.sessionId === input.sessionId && index.data.turnId === lastTurn.id) {
+        result.archive = { sessionId: lastTurn.sessionId, turnId: lastTurn.id, harness: input.harness };
+        result.complete = false; // Only the archive is supplied; DB history remains available on demand.
+        return result;
+      }
     }
     if (input.headOnly) return result;
 
@@ -78,9 +85,9 @@ export function createRuntimeContextReader(database: ContextDatabase, readArchiv
         const shellResult = asMeta(turnMeta).intent === "shell_command" && message.role === "assistant";
         result.messages.push({
           id: message.id, turnId, role: message.role as RuntimeContextMessage["role"], content: message.content,
-          provider: message.provider, model: message.model,
+          provider: message.provider, model: message.model, usage: message.usage, stopReason: message.stopReason, errorMessage: message.errorMessage,
           meta: { agentSessionEntryId: meta.agentSessionEntryId ?? null, messageKind: shellResult ? "shell_command_result" : meta.messageKind,
-            compaction: meta.compaction, generationTaskId: meta.generationTaskId, generationStatus: meta.generationStatus,
+            compaction: meta.compaction, nativeApi: meta.nativeApi, generationTaskId: meta.generationTaskId, generationStatus: meta.generationStatus,
             command: meta.command, llmContextText: meta.llmContextText, createdAt: message.createdAt?.toISOString(),
           },
         });
@@ -92,14 +99,6 @@ export function createRuntimeContextReader(database: ContextDatabase, readArchiv
       }
     }
     result.messages = selectRuntimeContextMessages(result.messages);
-    const index = lastTurn?.harnessIndex;
-    if (input.harness && index?.harness === input.harness && lastTurn && lastTurn.recoveryState !== "confirmed_stopped") {
-      try {
-        const archived = harnessArchiveSchema.parse(await readArchive(index, { spaceId: input.spaceId, sessionId: lastTurn.sessionId, turnId: lastTurn.id }));
-        if (archived.turnId !== lastTurn.id || archived.sessionId !== lastTurn.sessionId || archived.harness !== input.harness) throw new Error("Harness archive identity mismatch");
-        result.archive = archived;
-      } catch (error) { onArchiveError(lastTurn.id, error); }
-    }
     return result;
   };
 }

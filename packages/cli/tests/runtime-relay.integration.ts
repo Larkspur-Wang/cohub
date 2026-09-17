@@ -113,7 +113,10 @@ for (const harness of ["pi", "codex"] as const) for (const disconnect of ["all",
     };
     const running = serveRuntime({ spaceId, cwd: root, url: `ws://127.0.0.1:${port}/runtime`, capabilities: { harnesses: [harness], models: [] }, harnesses: { [harness]: fixture }, token: async () => "test-token", signal: controller.signal, store, onReady: () => { readyCount++; readyResolve(); } });
     const turnId = crypto.randomUUID();
-    const input: RuntimeTurnInput = { spaceId, sessionId, turnId, userMessageId: turnId, harness, accessMode: "full_access", content: [{ type: "text", text: "continue" }], context: { complete: true, revision: "initial", throughTurnId: null, messages: [] } };
+    const input: RuntimeTurnInput = { spaceId, sessionId, turnId, userMessageId: turnId, harness, accessMode: "full_access", messages: [
+      { turnId: crypto.randomUUID(), userMessageId: crypto.randomUUID(), userId: "earlier-author", content: [{ type: "text", text: "first batch input" }] },
+      { turnId, userMessageId: turnId, userId: "owner-author", content: [{ type: "text", text: "continue" }] },
+    ], context: { complete: true, revision: "initial", throughTurnId: null, messages: [] } };
     const realtime = new WebsocketClient({ url: "ws://unused", getAccessToken: () => "fixture" });
     realtime.state = "open";
     const sdk = new SessionGenerationStreamClient(realtime, spaceId, sessionId);
@@ -151,6 +154,8 @@ for (const harness of ["pi", "codex"] as const) for (const disconnect of ["all",
       const receipt = await store.recoverResult(input, requestId);
       assert(receipt);
       const native = await readFile(receipt.state.path, "utf8");
+      assert(native.includes("first batch input")); assert(!native.includes("earlier-author")); assert(!native.includes("owner-author"));
+      assert.equal(receipt.state.throughTurnId === turnId || receipt.state.pendingTurnId === turnId, true);
       if (harness === "pi") assert.equal(native.split('"id":"user-fixture"').length - 1, 1, "no repeated model execution");
       else assert.equal(native.split('"type":"response_item"').length - 1, 1, "no repeated Codex turn");
       assert.equal((await store.prepare({ ...input, turnId: crypto.randomUUID(), context: { complete: false, revision: "completed", throughTurnId: turnId, messages: [] } }, root)).resume, "native");

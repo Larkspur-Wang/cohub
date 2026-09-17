@@ -8,8 +8,8 @@ import { WebSocketServer } from "ws";
 import { serveRuntime } from "../src/runtime/connection.js";
 import { RuntimeSessionStore } from "../src/runtime/session-store.js";
 
-for (const harness of ["pi", "codex"] as const) for (const resolved of [false, true]) {
-  test(`${harness} WebSocket execution restores context and ${resolved ? "retires a confirmed execution" : "acknowledges native resume"}`,  { timeout: 20_000 }, async () => {
+for (const harness of ["pi", "codex"] as const) for (const resolved of [false, true]) for (const archiveUnavailable of [false, true]) {
+  test(`${harness} WebSocket execution restores context and ${resolved ? "retires a confirmed execution" : "acknowledges native resume"} (archive fallback: ${archiveUnavailable})`,  { timeout: 20_000 }, async () => {
     const root = await mkdtemp(join(tmpdir(), "cohub-runtime-ws-"));
     const binary = fileURLToPath(new URL(`./fixtures/runtime-${harness}.mjs`, import.meta.url));
     await chmod(binary, 0o755);
@@ -34,7 +34,7 @@ for (const harness of ["pi", "codex"] as const) for (const resolved of [false, t
         const send = (value: unknown) => socket.send(JSON.stringify(value));
         const start = () => send({ type: "turn.start", requestId: ids[round], input: {
           spaceId, sessionId, turnId: turns[round], userMessageId: turns[round], harness,
-          content: [{ type: "text", text: "continue" }], accessMode: "full_access",
+          messages: [{ turnId: turns[round], userMessageId: turns[round], userId: "author", content: [{ type: "text", text: "continue" }] }], accessMode: "full_access",
           context: { complete: false, revision: round === 0 ? "one" : "two", throughTurnId: round === 0 ? previousId : turns[0], messages: [] },
         } });
         socket.on("message", (raw) => {
@@ -46,12 +46,23 @@ for (const harness of ["pi", "codex"] as const) for (const resolved of [false, t
             if (event.type === "context.required") {
               contextRequests++;
               if (resolved && round === 1) assert.deepEqual(event.pendingTurnIds, [turns[0]], "only the actual pending projection is queried");
+              if (archiveUnavailable && round === 0 && contextRequests === 1) {
+                assert.notEqual(event.historyOnly, true);
+                send({ type: "session.context", requestId: value.requestId, context: { complete: false, revision: "one", throughTurnId: previousId, messages: [], archive: { sessionId, turnId: previousId, harness } } });
+                return;
+              }
+              if (archiveUnavailable && round === 0) assert.equal(event.historyOnly, true, "failed archive requests DB history once before execution");
               send({ type: "session.context", requestId: value.requestId, context: { complete: true, revision: round === 0 ? "one" : "two", throughTurnId: round === 0 ? previousId : turns[0], ...(resolved && round === 1 ? { resolvedTurnIds: [turns[0]] } : {}), messages: [{ id: "history", turnId: previousId, role: "user", content: [{ type: "text", text: "historical fact" }] }] } });
             }
             if (event.type === "text.delta") deltas++;
             if (event.type === "turn.error") throw new Error(event.message);
             if (event.type === "turn.end") {
               assert(deltas > 0, "deltas must arrive before completion");
+              if (round === 0) {
+                // Pi receives durable history through its native session file; Codex handoff has no native history channel yet.
+                const expected = harness === "pi" ? "history retained" : "native resumed";
+                assert(event.message.content.some((block: { type: string; text?: string }) => block.type === "text" && block.text?.includes(expected)));
+              }
               resumes.push(event.resume);
               if (resolved && round === 0) { round++; start(); return; }
               send({ type: "turn.ack", requestId: value.requestId, revision: round === 0 ? "two" : "three", turnId: turns[round] });
@@ -68,7 +79,7 @@ for (const harness of ["pi", "codex"] as const) for (const resolved of [false, t
     void running.catch(rejectFailure);
     try {
       await completed;
-      assert.equal(contextRequests, resolved ? 2 : 1);
+      assert.equal(contextRequests, (resolved ? 2 : 1) + Number(archiveUnavailable));
       assert.deepEqual(resumes, ["handoff", resolved ? "handoff" : "native"]);
     } finally {
       controller.abort();

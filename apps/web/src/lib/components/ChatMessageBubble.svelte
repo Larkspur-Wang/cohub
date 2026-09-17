@@ -1,7 +1,15 @@
 <script lang="ts">
 import type { ContentBlock } from "@cohub/protocol/core";
 import { resolveHarness } from "@neta-art/cohub";
-import { Check, Copy, GitFork, Loader2 } from "lucide-svelte";
+import {
+	Archive,
+	Check,
+	CloudUpload,
+	Copy,
+	GitFork,
+	Loader2,
+	TriangleAlert,
+} from "lucide-svelte";
 import MessageContentFlow from "$lib/components/MessageContentFlow.svelte";
 import UserIdentity from "$lib/components/UserIdentity.svelte";
 import {
@@ -288,6 +296,25 @@ const harnessLabel = $derived(
 );
 const harnessTitle = $derived(
 	`${harnessLabel} · ${m.runtime_local({}, { locale })}`,
+);
+const archiveStatus = $derived(
+	harnessLabel &&
+		!isStreaming &&
+		(message.meta?.messageKind === "assistant_final" ||
+			message.meta?.messageKind === "assistant_error")
+		? message.meta?.turn?.harnessIndex
+			? "ready"
+			: turnMeta?.runtimeArchiveStatus
+		: null,
+);
+const archiveLabel = $derived(
+	archiveStatus === "ready"
+		? m.runtime_archive_ready({}, { locale })
+		: archiveStatus === "pending"
+			? m.runtime_archive_pending({}, { locale })
+			: archiveStatus === "failed"
+				? m.runtime_archive_failed({}, { locale })
+				: "",
 );
 
 const hasDuration = $derived.by(() => {
@@ -584,6 +611,13 @@ function handleCopy() {
         {:else}
           {#if harnessLabel}
             <span class="shrink-0 rounded-[3px] bg-bg-hover-strong px-1.5 py-px text-[10px] font-medium leading-none text-text-tertiary" title={harnessTitle}>{harnessLabel}</span>
+          {/if}
+          {#if archiveLabel}
+            <span class="shrink-0 text-text-tertiary" title={archiveLabel} aria-label={archiveLabel} role="img">
+              {#if archiveStatus === 'ready'}<Archive size={12} />
+              {:else if archiveStatus === 'pending'}<CloudUpload size={12} />
+              {:else}<TriangleAlert size={12} />{/if}
+            </span>
           {/if}
 
           <!-- Model (truncates when space is tight) -->

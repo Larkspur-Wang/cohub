@@ -5,9 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionManager } from "../runtime/local-session-manager.js";
 import { syncCloudContext } from "../runtime/cloud-context.js";
-import { selectCompatibleBatch } from "../runtime/batch-policy.js";
 import { createRuntimeStream } from "../stream/runtime-stream.js";
-import type { RuntimeContext } from "@cohub/protocol";
+import type { RuntimeContext, RuntimeContextMessage } from "@cohub/protocol";
 import type { SessionStreamEvent } from "@cohub/protocol/realtime";
 
 const history: RuntimeContext = {
@@ -16,6 +15,43 @@ const history: RuntimeContext = {
     { id: "assistant-1", turnId: "turn-1", role: "assistant", content: [{ type: "text", text: "historical result" }] },
   ],
 };
+
+const compactionMessage = (input: { id: string; turnId: string; summary: string; compactionId: string }): RuntimeContextMessage => ({
+  id: input.id,
+  turnId: input.turnId,
+  role: "system",
+  content: [{ type: "system_note", note_type: "compacted", text: input.summary }],
+  meta: { compaction: { compactionId: input.compactionId, compactedAt: "2026-01-01T00:00:00.000Z", tokensBefore: 128 } },
+});
+
+test("a non-projectable retained row never blocks or half-writes a compaction boundary", async () => {
+  const root = await mkdtemp(join(tmpdir(), "cohub-cloud-anchor-"));
+  try {
+    const manager = SessionManager.create(root, root);
+    manager.newSession({ id: "test" });
+    const context: RuntimeContext = {
+      revision: "r1", throughTurnId: "turn-2", messages: [
+        compactionMessage({ id: "compact-1", turnId: "turn-2", summary: "earlier work summarized", compactionId: "c1" }),
+        { id: "image", turnId: "turn-2", role: "user", content: [{ type: "image", source: { type: "url", url: "https://cdn.test/a.png" } }] },
+        { id: "user-3", turnId: "turn-2", role: "user", content: [{ type: "text", text: "after the image" }] },
+      ],
+    };
+    assert.equal(syncCloudContext(manager, context), true);
+    const messages = manager.buildSessionContext().messages;
+    assert.deepEqual(messages.map((message) => message.role), ["compactionSummary", "user"]);
+    const retained = (messages[1] as { content?: Array<{ type?: string; text?: string }> } | undefined)?.content?.[0];
+    assert(retained && retained.type === "text");
+    assert.equal(retained.text, "after the image");
+    assert.equal(JSON.stringify(manager.getEntries()).includes("historical"), false, "nothing is written as invented text");
+    // The dropped row must not make the boundary unstable on later syncs either.
+    const next: RuntimeContext = { ...context, revision: "r2", throughTurnId: "turn-3",
+      messages: [...context.messages, { id: "user-4", turnId: "turn-3", role: "user", content: [{ type: "text", text: "later" }] }] };
+    assert.equal(syncCloudContext(manager, next), true);
+    assert.equal(syncCloudContext(manager, next), false);
+    assert.deepEqual(manager.buildSessionContext().messages.map((message) => message.role), ["compactionSummary", "user", "user"]);
+    await manager.close();
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
 
 test("Cloud materialization restores history and appends a local Harness tail exactly once", async () => {
   const root = await mkdtemp(join(tmpdir(), "cohub-cloud-restore-"));
@@ -35,12 +71,51 @@ test("Cloud materialization restores history and appends a local Harness tail ex
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test("Turn batches never cross Harness, actor or configuration boundaries", () => {
-  const turn = (harness: string, model = "test") => ({ userUuid: "actor", meta: { harness, model } });
-  assert.equal(selectCompatibleBatch([turn("cohub"), turn("pi"), turn("cohub")]).length, 1);
-  assert.equal(selectCompatibleBatch([turn("pi"), turn("pi")]).length, 1);
-  assert.equal(selectCompatibleBatch([turn("cohub"), turn("cohub")]).length, 2);
-  assert.equal(selectCompatibleBatch([turn("cohub"), turn("cohub", "other")]).length, 1);
+test("Durable compactions become native boundaries, never projected messages", async () => {
+  const root = await mkdtemp(join(tmpdir(), "cohub-cloud-compaction-"));
+  try {
+    const manager = SessionManager.create(root, root);
+    manager.newSession({ id: "test" });
+    const context: RuntimeContext = {
+      revision: "r1", throughTurnId: "turn-2", messages: [
+        compactionMessage({ id: "compact-1", turnId: "turn-2", summary: "earlier work summarized", compactionId: "c1" }),
+        { id: "user-2", turnId: "turn-2", role: "user", content: [{ type: "text", text: "after compaction" }] },
+      ],
+    };
+    assert.equal(syncCloudContext(manager, context), true);
+    const messages = manager.buildSessionContext().messages;
+    assert.deepEqual(messages.map((message) => message.role), ["compactionSummary", "user"]);
+    assert.equal((messages[0] as { summary?: string }).summary, "earlier work summarized");
+    assert.equal(JSON.stringify(messages).includes("system_note"), false);
+    assert.equal(manager.getEntries().filter((entry) => entry.type === "compaction").length, 1);
+
+    // A later turn extends the compacted history without anchoring a second boundary.
+    const next: RuntimeContext = {
+      revision: "r2", throughTurnId: "turn-3",
+      messages: [...context.messages, { id: "user-3", turnId: "turn-3", role: "user", content: [{ type: "text", text: "third" }] }],
+    };
+    assert.equal(syncCloudContext(manager, next), true);
+    assert.equal(manager.getEntries().filter((entry) => entry.type === "compaction").length, 1);
+    assert.deepEqual(manager.buildSessionContext().messages.map((message) => message.role), ["compactionSummary", "user", "user"]);
+    await manager.close();
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("A compaction that retains nothing renders as a summary-only context", async () => {
+  const root = await mkdtemp(join(tmpdir(), "cohub-cloud-compaction-empty-"));
+  try {
+    const manager = SessionManager.create(root, root);
+    manager.newSession({ id: "test" });
+    const context: RuntimeContext = {
+      revision: "r1", throughTurnId: "turn-1",
+      messages: [compactionMessage({ id: "compact-1", turnId: "turn-1", summary: "everything summarized", compactionId: "c1" })],
+    };
+    assert.equal(syncCloudContext(manager, context), true);
+    const messages = manager.buildSessionContext().messages;
+    assert.deepEqual(messages.map((message) => message.role), ["compactionSummary"]);
+    assert.equal(JSON.stringify(messages).includes("system_note"), false);
+    await manager.close();
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 test("Runtime stream failures recover with increasing keyframe sequences and never reject final flush", async () => {

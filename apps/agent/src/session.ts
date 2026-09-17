@@ -26,10 +26,12 @@ import { db } from "./db.js";
 import { createCohubAgentSession, type CohubAgentSession } from "./runtime/session-runtime.js";
 import type { AgentTurnAbortEvent } from "./abort.js";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { ContextProjectionOptions } from "@cohub/protocol";
 import { loadRuntimeContext } from "./runtime/context-store.js";
 import { appendTerminalGenerationMessages } from "./generation-session-sync.js";
 import { syncCloudContext } from "./runtime/cloud-context.js";
-import { restoreCloudSnapshot } from "./runtime/cloud-snapshot.js";
+import { hydrateContextImages } from "./runtime/context-images.js";
+import { readPublicAssetImageUrl } from "./public-asset-storage.js";
 import type { createSandboxCodingTools } from "./sandbox/tools.js";
 import type { Permission } from "@cohub/core/permissions";
 import type { PromptAccessMode } from "@cohub/core/sessions";
@@ -1100,15 +1102,15 @@ export async function loadOrCreateSessionHandle(input: {
   const spaceSessionsDir = getAgentSpaceSessionsPath(input.spaceId);
   const fileSignature = await getSessionFileSignature(existingSessionFile);
   const cachedHandle = input.sessionHandles.get(sessionKey);
+  const projectionOptions: ContextProjectionOptions = {
+    resolveApi: ({ provider, model }) => provider && model ? input.modelRegistry.find(provider, model)?.api ?? null : null,
+  };
   const durableHead = await loadRuntimeContext({ spaceId: input.spaceId, sessionId: input.sessionId, beforeSequence: input.beforeTurnSequence ?? undefined, headOnly: true });
   const cachedMarker = cachedHandle?.sessionManager.getCustomEntries("cohub.context").at(-1)?.data as { revision?: string } | undefined;
   const durableContext = cachedMarker?.revision === durableHead.revision && fileSignature
     && sameSessionFileSignature(cachedHandle?.sessionFileSignature ?? null, fileSignature)
     ? durableHead
-    : await loadRuntimeContext({ spaceId: input.spaceId, sessionId: input.sessionId, beforeSequence: input.beforeTurnSequence ?? undefined, harness: fileSignature ? undefined : "cohub" });
-  if (!fileSignature && durableContext.archive?.sessionId === input.sessionId && durableContext.archive.nativeFormat === "cohub.jsonl") {
-    await restoreCloudSnapshot(existingSessionFile, durableContext.archive.data, input.sessionId);
-  }
+    : await hydrateContextImages(await loadRuntimeContext({ spaceId: input.spaceId, sessionId: input.sessionId, beforeSequence: input.beforeTurnSequence ?? undefined }), readPublicAssetImageUrl);
 
   const spaceInfo = await getSpace({ spaceId: input.spaceId }).catch((error: unknown) => {
     logger.warn(`[Agent] Failed to load space info for ${input.spaceId}; falling back to platform config`, error);
@@ -1120,7 +1122,7 @@ export async function loadOrCreateSessionHandle(input: {
   if (existing) {
     if (sameSessionFileSignature(existing.sessionFileSignature, fileSignature)) {
       existing.spaceOwnerUserId = spaceOwnerUserId;
-      if (!existing.currentUserMessageId && syncCloudContext(existing.sessionManager, durableContext)) {
+      if (!existing.currentUserMessageId && syncCloudContext(existing.sessionManager, durableContext, projectionOptions)) {
         await existing.session.reload();
         const appended = await syncGenerationMessagesToSessionFile(input.sessionId, existing.sessionManager, input.beforeTurnSequence);
         if (appended.length > 0) existing.session.agent.state.messages.push(...appended);
@@ -1152,7 +1154,7 @@ export async function loadOrCreateSessionHandle(input: {
     sessionManager = tmpManager;
   }
 
-  syncCloudContext(sessionManager, durableContext);
+  syncCloudContext(sessionManager, durableContext, projectionOptions);
   await syncGenerationMessagesToSessionFile(input.sessionId, sessionManager, input.beforeTurnSequence).catch((error) => {
     logger.warn(`[Session] failed to project generation messages sessionId=${input.sessionId}:`, error);
   });

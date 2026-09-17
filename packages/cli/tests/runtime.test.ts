@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import type { RuntimeTurnInput, RuntimeExecutionEvent } from "@neta-art/cohub";
 import { JsonLineDecoder } from "../src/runtime/json-rpc.js";
+import { archiveStorageFixture } from "./fixtures/runtime-archive-storage.js";
 import { RuntimeSessionStore } from "../src/runtime/session-store.js";
 import { discoverHarnesses, executePi, executeCodex } from "../src/runtime/harness.js";
 import { Command } from "commander";
@@ -23,7 +24,7 @@ const sessionId = "22222222-2222-4222-8222-222222222222";
 const turnId = "33333333-3333-4333-8333-333333333333";
 const previousTurn = "44444444-4444-4444-8444-444444444444";
 const input = (harness: "pi" | "codex"): RuntimeTurnInput => ({
-  spaceId, sessionId, turnId, userMessageId: turnId, harness, content: [{ type: "text", text: "continue" }], accessMode: "full_access",
+  spaceId, sessionId, turnId, userMessageId: turnId, harness, messages: [{ turnId, userMessageId: turnId, userId: "author", content: [{ type: "text", text: "continue" }] }], accessMode: "full_access",
   context: { revision: "one", throughTurnId: previousTurn, messages: [{ id: "history", turnId: previousTurn, role: "user", content: [{ type: "text", text: "historical fact" }] }] },
 });
 
@@ -174,7 +175,7 @@ test("confirmed Runtime resolution preserves the old pending projection and mate
     const retired = await readdir(join(store.root, "retired"));
     assert.equal(retired.length, 1);
     assert.equal(JSON.parse(await readFile(join(store.root, "retired", retired[0] ?? ""), "utf8")).state.pendingTurnId, turnId);
-    assert((await readFile(restored.state.path, "utf8")).includes("Prior effects unknown"));
+    assert(!(await readFile(restored.state.path, "utf8")).includes("Prior effects unknown"), "durable platform notes are never rewritten into the native projection");
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
@@ -218,18 +219,24 @@ for (const harness of ["pi", "codex"] as const) {
     const root = await mkdtemp(join(tmpdir(), `cohub-${harness}-rpc-`));
     const binary = fileURLToPath(new URL(`./fixtures/runtime-${harness}.mjs`, import.meta.url));
     await chmod(binary, 0o755);
+    const storage = await archiveStorageFixture();
     try {
       const options = { [harness]: binary };
       const catalog = await discoverHarnesses([harness], options, root);
       assert.equal(catalog.models[0]?.id, "test");
-      const store = new RuntimeSessionStore(spaceId, join(root, "state"));
+      const store = new RuntimeSessionStore(spaceId, join(root, "state"), storage.transport);
       const turn = input(harness);
       const events: RuntimeExecutionEvent[] = [];
       const run = harness === "pi" ? executePi : executeCodex;
       const first = await run(turn, options, root, store, (event) => events.push(event), new AbortController().signal);
       assert(events.some((event) => event.type === "text.delta"));
-      assert(first.event.message.content.some((block) => block.type === "text" && block.text.includes("history retained")));
-      assert(first.event.archive?.data);
+      // Pi carries durable history in its native session file. Codex has no native history channel for a
+      // handoff yet, so it starts without history instead of receiving a fabricated transcript.
+      const expectedAnswer = harness === "pi" ? "history retained" : "native resumed";
+      assert(first.event.message.content.some((block) => block.type === "text" && block.text.includes(expectedAnswer)));
+      assert.equal(first.event.archive?.turnId, turnId);
+      assert.equal("data" in (first.event.archive ?? {}), false);
+      await store.archives.flush(new AbortController().signal);
       if (harness === "codex") {
         assert.deepEqual(events.filter((event) => event.type === "message.start").map((event) => event.ordinal), [0, 1]);
         assert.equal(first.event.message.ordinal, 1, "Repeated native item/started must keep its ordinal");
@@ -241,12 +248,12 @@ for (const harness of ["pi", "codex"] as const) {
       assert.equal(second.event.resume, "native");
       assert.equal(second.state.nativeSessionId, first.state.nativeSessionId);
       const original = await readFile(first.state.path, "utf8");
-      const coldStore = new RuntimeSessionStore(spaceId, join(root, "cold"));
-      const restored = await run({ ...next, context: { ...next.context, archive: first.event.archive } }, options, root, coldStore, () => {}, new AbortController().signal);
+      const coldStore = new RuntimeSessionStore(spaceId, join(root, "cold"), storage.transport);
+      const restored = await run({ ...next, context: { ...next.context, complete: false, messages: [], archive: first.event.archive } }, options, root, coldStore, () => {}, new AbortController().signal);
       assert.equal(restored.event.resume, "restored");
       if (harness === "pi") assert.equal(restored.state.nativeSessionId, first.state.nativeSessionId);
       else assert.notEqual(restored.state.nativeSessionId, first.state.nativeSessionId);
       assert.equal(await readFile(first.state.path, "utf8"), original, "restoration must not modify the source projection");
-    } finally { await rm(root, { recursive: true, force: true }); }
+    } finally { await storage.close(); await rm(root, { recursive: true, force: true }); }
   });
 }

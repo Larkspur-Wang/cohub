@@ -65,7 +65,7 @@ export function registerRuntime(program: Command) {
         try {
           await serveRuntime({
             spaceId, cwd: root, url: url.toString(), capabilities, harnesses: options,
-            token: requireAccessToken, signal: controller.signal, store: new RuntimeSessionStore(spaceId),
+            token: requireAccessToken, signal: controller.signal, store: new RuntimeSessionStore(spaceId, undefined, client.space(spaceId)),
             onReady: () => {
               if (!bridge) {
                 bridge = spawn(binary, ["--local", "--space", spaceId, "--root", root, "--relay", process.env.COHUB_RELAY_URL?.trim() || relay.toString()], { stdio: ["ignore", "inherit", "inherit"], env: { ...process.env, COHUB_RELAY_TOKEN: token } });
@@ -92,6 +92,10 @@ export function registerRuntime(program: Command) {
     });
   runtime.command("status").description("Runtime status / Runtime 状态").option("-s, --space <id>", "Target Space / 目标 Space").action(async (options: { space?: string }) => {
     const spaceId = options.space?.trim() || await resolveSpace(program);
-    outJson(await createClient().space(spaceId).getRuntime());
+    const { archives } = new RuntimeSessionStore(spaceId);
+    const [status, pendingLocalArchives, failedLocalArchives] = await Promise.all([
+      createClient().space(spaceId).getRuntime(), archives.pendingCount(), archives.failedCaptureCount(),
+    ]);
+    outJson({ ...status, pendingLocalArchives, failedLocalArchives });
   });
 }
