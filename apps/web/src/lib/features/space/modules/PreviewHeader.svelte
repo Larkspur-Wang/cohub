@@ -74,9 +74,13 @@ const activeTab = $derived(
 	windows.find((tab) => tab.active) ?? windows[0] ?? null,
 );
 
-function run(action: PreviewHeaderAction | undefined, event: MouseEvent) {
+function run(
+	action: PreviewHeaderAction | undefined,
+	event: MouseEvent,
+	anchor: HTMLElement | null = null,
+) {
 	if (!action || action.disabled) return;
-	Promise.resolve(action.run(event)).catch((error) => {
+	Promise.resolve(action.run(event, anchor)).catch((error) => {
 		console.error("Preview header action failed", error);
 	});
 }
@@ -165,7 +169,7 @@ $effect(() => {
 			aria-label={action.label}
 			aria-pressed={action.active}
 			disabled={action.disabled}
-			onclick={(event) => run(action, event)}
+			onclick={(event) => run(action, event, event.currentTarget as HTMLElement | null)}
 		>
 			<action.icon class="h-4 w-4" />
 		</button>
@@ -209,7 +213,7 @@ $effect(() => {
 						disabled={action.disabled}
 						onclick={(event) => {
 							actionsMenuOpen = false;
-							run(action, event);
+							run(action, event, actionsMenuAnchor);
 						}}
 					>
 						<action.icon class="h-3.5 w-3.5" />
@@ -401,6 +405,7 @@ $effect(() => {
 		align-items: stretch;
 		gap: 1px;
 		overflow-x: auto;
+		overflow-y: hidden;
 		scrollbar-width: thin;
 	}
 
@@ -545,6 +550,15 @@ $effect(() => {
 	.preview-menu-item--disabled {
 		opacity: 0.45;
 		cursor: not-allowed;
+	}
+
+	.preview-actions-menu {
+		overflow: hidden;
+		border: 1px solid var(--border-subtle);
+		border-radius: 8px;
+		background: var(--bg-elevated);
+		padding: 4px;
+		box-shadow: 0 10px 24px color-mix(in srgb, var(--overlay-scrim-strong) 16%, transparent);
 	}
 
 	/* Float presentation */

@@ -17,7 +17,11 @@ export type PreviewHeaderAction = {
 	id: string;
 	label: string;
 	icon: PreviewIcon;
-	run: (event: MouseEvent) => void | Promise<void>;
+	/**
+	 * Runs the action. `anchor` is a stable element to hang a follow-up popover on
+	 * (the menu trigger for overflow actions), so it survives the menu closing.
+	 */
+	run: (event: MouseEvent, anchor: HTMLElement | null) => void | Promise<void>;
 	/** Rendered inline instead of the ⋯ menu. Keep this list short. */
 	primary?: boolean;
 	active?: boolean;
