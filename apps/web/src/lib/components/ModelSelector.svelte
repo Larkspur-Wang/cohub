@@ -619,12 +619,18 @@ function toggleGenerationModel(model: string, selected: boolean) {
 
 const filteredModels = $derived.by(() => {
 	const queryRaw = searchQuery.trim();
-	const exactHiddenMatches = queryRaw
-		? models.filter((item) => isHiddenModel(item) && item.id === queryRaw)
-		: [];
-	let result = exactHiddenMatches.length
-		? [...models.filter((item) => !isHiddenModel(item)), ...exactHiddenMatches]
-		: models.filter((item) => !isHiddenModel(item));
+	const isCurrent = (item: ModelItem) =>
+		currentModel !== null &&
+		item.provider === currentModel.provider &&
+		item.id === currentModel.id;
+	// Hidden models stay discoverable through an exact id query or while selected.
+	const revealedHidden = models.filter(
+		(item) => isHiddenModel(item) && (isCurrent(item) || item.id === queryRaw),
+	);
+	let result =
+		revealedHidden.length > 0
+			? [...models.filter((item) => !isHiddenModel(item)), ...revealedHidden]
+			: models.filter((item) => !isHiddenModel(item));
 
 	if (queryRaw) {
 		const query = queryRaw.toLowerCase().replace(/\s+/g, "");
