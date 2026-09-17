@@ -217,7 +217,7 @@ Register named methods that the Cohub host — including an Agent via
 ```ts
 client.app.surface.handle("image.open", async (input, { commandId }) => {
   const result = await openImageStudio(input);
-  await client.ui.reportResult(commandId, {
+  await client.desktop.reportResult(commandId, {
     status: "applied",
     result,
     error: null,
@@ -230,7 +230,7 @@ Key points:
 - Only registered methods are reachable. No DOM access, no script execution.
 - Calls are delivered at-least-once; handlers should be safe to repeat.
 - A Surface response only acknowledges delivery; report the final result via
-  `client.ui.reportResult()`.
+  `client.desktop.reportResult()`.
 
 ### Composer context
 

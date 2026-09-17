@@ -109,7 +109,6 @@ src/scope.ts            Session > Space > Mine scope resolution
 src/access.ts           Per-scope viewer authorization requests
 src/task-output.ts      Task Run to multimodal gallery projection
 src/media.ts            Deferred media detail resolution
-work.json               Publish metadata and app scopes
 ```
 
 ## License

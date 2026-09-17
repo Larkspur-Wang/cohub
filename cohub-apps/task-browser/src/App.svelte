@@ -291,7 +291,7 @@ function closeLightbox() {
 
 function applyRuntimeContext(context: Awaited<ReturnType<typeof client.context>>) {
   appReady = Boolean(context?.app?.id);
-  homeSpace = context?.space ? { id: context.space.id, name: context.space.name ?? null } : null;
+  homeSpace = context?.app?.homeSpace ? { id: context.app.homeSpace.id, name: context.app.homeSpace.name ?? null } : null;
   sourceSpaceId = context?.invocation?.spaceId ?? null;
   cacheIdentity = context?.app?.id
     ? { appId: context.app.id, viewerId: context.viewer?.userUuid ?? null }

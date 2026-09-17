@@ -209,7 +209,7 @@ await room.publish("shared.state.updated", { value: 42 });
 ```ts
 client.app.surface.handle("image.open", async (input, { commandId }) => {
   const result = await openImageStudio(input);
-  await client.ui.reportResult(commandId, {
+  await client.desktop.reportResult(commandId, {
     status: "applied",
     result,
     error: null,
@@ -221,7 +221,7 @@ client.app.surface.handle("image.open", async (input, { commandId }) => {
 
 - 只有注册过的方法可达。不提供 DOM 访问，也不执行脚本。
 - 调用语义是 at-least-once，处理函数应可安全重复执行。
-- Surface 响应只确认送达；最终结果通过 `client.ui.reportResult()` 上报。
+- Surface 响应只确认送达；最终结果通过 `client.desktop.reportResult()` 上报。
 
 ### Composer 上下文
 

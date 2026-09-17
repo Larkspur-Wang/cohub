@@ -129,10 +129,11 @@ function applyShellContext(shell, source) {
 function applyContext(context, source = "snapshot") {
   const previousShellPath = shellPath(state.context?.shell);
   state.context = context;
-  state.space = context ? state.client.space(context.space.id) : null;
+  const homeSpaceId = context?.app?.homeSpace?.id || null;
+  state.space = homeSpaceId ? state.client.space(homeSpaceId) : null;
   $("appId").textContent = context?.app?.id || "missing";
   $("appSlug").textContent = context?.app?.slug || "missing";
-  $("spaceId").textContent = context?.space?.id || "missing";
+  $("spaceId").textContent = homeSpaceId || "missing";
   $("contextSource").textContent = context?.invocation?.source || "none";
   $("contextSession").textContent = context?.invocation?.sessionId || "none";
   $("contextTurn").textContent = context?.invocation?.turnId || "none";
@@ -340,7 +341,11 @@ async function getRuntimeToken(forceRefresh = false) {
 
 async function ensureSpace() {
   if (!state.context) await sdkContext();
-  if (!state.space) state.space = state.client.space(state.context.space.id);
+  if (!state.space) {
+    const homeSpaceId = state.context?.app?.homeSpace?.id;
+    if (!homeSpaceId) throw new Error("No App home Space in this runtime context.");
+    state.space = state.client.space(homeSpaceId);
+  }
   return state.space;
 }
 

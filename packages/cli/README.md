@@ -374,7 +374,7 @@ legacy bare targets. A bare target checks the current Space for a file first, th
 falls back to the same App references as `apps get`. Showing a preview is
 idempotent: repeating it re-activates the same tab and refreshes any launch state
 carried by the reference. With `--call`, the command waits for the App to announce readiness, invokes the method,
-and waits for the App to complete the same UI command with `client.ui.reportResult()`.
+and waits for the App to complete the same UI command with `client.desktop.reportResult()`.
 
 App authors decide what is callable by registering handlers inside the App:
 

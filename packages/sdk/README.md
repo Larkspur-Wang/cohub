@@ -262,12 +262,12 @@ These runtime-only APIs are available **exclusively inside a published App**:
 const client = createCohubClient({ env: "prod" });
 
 const ctx = await client.context();
-if (!ctx?.space?.id) throw new Error("Not inside a published app.");
+if (!ctx?.app?.id) throw new Error("Not inside a published app.");
 
 const sourceSessionId = ctx.invocation?.sessionId ?? null;
 // `shell.space` is the current Cohub location. `app.homeSpace` is the App's
 // owning Space. A new chat background also has `invocation.spaceId`.
-const spaceId = ctx.shell?.space?.id ?? ctx.invocation?.spaceId ?? ctx.app.homeSpace?.id ?? ctx.space.id;
+const spaceId = ctx.shell?.space?.id ?? ctx.invocation?.spaceId ?? ctx.app.homeSpace?.id;
 const space = client.space(spaceId);
 
 // Request viewer grants from a user gesture (button click)

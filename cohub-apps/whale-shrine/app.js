@@ -115,7 +115,9 @@ async function initRuntime() {
     state.context = await state.cohub.context();
     if (state.context) {
       state.isApp = true;
-      state.space = state.cohub.space(state.context.space.id);
+      // The Shrine reads and writes its own Space (the one that owns the App).
+      state.homeSpaceId = state.context.app?.homeSpace?.id ?? null;
+      state.space = state.homeSpaceId ? state.cohub.space(state.homeSpaceId) : null;
       // The App runtime context already carries the current viewer identity.
       state.userUuid = state.context.viewer?.userUuid ?? null;
     }
@@ -249,7 +251,7 @@ async function summon(shout) {
     // running in, and the grant is incremental: it adds prompt access without
     // dropping the Space read scope the App already holds.
     const consent = await state.cohub.auth.authorize({
-      target: { kind: "space", spaceId: state.context.space.id },
+      target: { kind: "space", spaceId: state.homeSpaceId },
       scopes: ["session.prompt.fullaccess"],
       reason: "Record your echo.",
     });

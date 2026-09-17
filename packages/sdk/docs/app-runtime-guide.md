@@ -148,7 +148,8 @@ if (isBroker) {
   const detail = await client.apps.getBySlug(ownerUsername, spaceSlug, appSlug);
   spaceId = detail.app.spaceId;
 } else {
-  spaceId = ctx.space.id;
+  // Prefer where the App is running; fall back to the Space that owns it.
+  spaceId = ctx.shell?.space?.id ?? ctx.invocation?.spaceId ?? ctx.app.homeSpace?.id;
 }
 ```
 
@@ -486,28 +487,32 @@ the Cohub iframe both are ignored (bridge mode).
 // 1. Create client (env is mandatory in the browser)
 const client = createCohubClient({ env: isDevApp ? "dev" : "prod" });
 
-// 2. Get runtime context (and keep it fresh)
+// 2. Get runtime context (and keep it fresh). `app` is present in bridge and
+//    broker mode; a Space id is only reported by the bridge.
 const ctx = await client.context();
-if (!ctx?.space?.id) {
-  // Not in an app runtime (or broker mode — see §2)
+if (!ctx?.app?.id) {
   throw new Error("Not running inside a published app.");
 }
 const stopContextWatch = client.app.onContextChanged((next) => renderGrants(next));
 
-// 3. Obtain the space client for API calls
-const space = client.space(ctx.space.id);
-
-// 4. Request viewer grants (from a user gesture, e.g. button click).
-//    Use ctx.shell.space.id, ctx.invocation.spaceId, or a picker target.
+// 3. Request viewer grants from a user gesture (e.g. button click). Target
+//    where the App is running, or `{ kind: "pick-space" }` when it has no
+//    location of its own.
 const consent = await client.auth.authorize({
-  target: { kind: "space", spaceId: ctx.shell?.space?.id ?? ctx.invocation?.spaceId },
+  target: {
+    kind: "space",
+    spaceId: ctx.shell?.space?.id ?? ctx.invocation?.spaceId ?? ctx.app.homeSpace?.id,
+  },
   scopes: ["session.prompt.fullaccess", "generation.create"],
   reason: "This app sends prompts and generates images.",
 });
-if (consent.status !== "granted") throw new Error("Consent was not granted.");
-const activeSpace = client.space(consent.target.kind === "space" ? consent.target.spaceId : ctx.space.id);
+if (consent.status !== "granted" || consent.target.kind !== "space") {
+  throw new Error("Consent was not granted.");
+}
 
-// 5. Call capabilities
+// 4. Call capabilities on the Space that was actually granted — never on the
+//    one you asked for.
+const activeSpace = client.space(consent.target.spaceId);
 const result = await activeSpace.prompt({ content: [{ type: "text", text: "Hello" }] });
 ```
 
@@ -1043,10 +1048,12 @@ function log(el, msg) {
 // --- Runtime initialization ---
 async function ensureRuntime(outEl) {
   const ctx = await client.context();
-  if (!ctx?.space?.id) {
+  if (!ctx?.app?.id) {
     throw new Error("Not running inside a published app runtime.");
   }
-  spaceId = ctx.space.id;
+  // Prefer the current Cohub location, then the Space that owns the App.
+  spaceId = ctx.shell?.space?.id ?? ctx.invocation?.spaceId ?? ctx.app.homeSpace?.id;
+  if (!spaceId) throw new Error("No Space to act on — request one with auth.authorize().");
   space = client.space(spaceId);
   return ctx;
 }
@@ -1055,7 +1062,7 @@ async function ensureRuntime(outEl) {
 // Render state from context; act through auth.authorize (silent when covered).
 function hasViewerGrant(ctx, scope, spaceId) {
   return (ctx?.permissions?.viewerGrants ?? []).some(
-    (g) => g.spaceId === (spaceId ?? ctx?.space?.id) && g.scopes.includes(scope),
+    (g) => g.spaceId === (spaceId ?? ctx?.app?.homeSpace?.id) && g.scopes.includes(scope),
   );
 }
 
@@ -1236,7 +1243,8 @@ $("btn-img").addEventListener("click", async () => {
     if (ctx) {
       setOutput($("output-context"), {
         "app.id": ctx.app?.id,
-        "space.id": ctx.space?.id,
+        "app.homeSpace.id": ctx.app?.homeSpace?.id,
+        mode: ctx.mode,
         permissions: ctx.permissions,
       });
     }

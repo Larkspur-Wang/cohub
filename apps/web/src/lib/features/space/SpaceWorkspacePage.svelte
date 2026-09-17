@@ -577,7 +577,7 @@ async function openResolvedAppNavigation(
 /**
  * Maps a surface call result onto a desktop command outcome. `ok` is
  * `pending`, not `applied`: the App acknowledged delivery and settles the
- * command itself through `client.ui.reportResult()`.
+ * command itself through `client.desktop.reportResult()`.
  */
 function desktopCallOutcome(
 	called: AppSurfaceCallOutcome | undefined,
