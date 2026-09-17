@@ -2,7 +2,7 @@
 import type { SpaceFsFileResponse, WorkContent } from "@neta-art/cohub";
 import { Download } from "lucide-svelte";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
-import FilePreviewSurface from "$lib/components/FilePreviewSurface.svelte";
+import FileContentPreview from "$lib/components/FileContentPreview.svelte";
 import { getLocale } from "$lib/i18n/locale.svelte";
 import { m } from "$lib/paraglide/messages.js";
 
@@ -92,7 +92,7 @@ $effect(() => {
 		{#if loading}
 			<CenteredLoading label="Loading file…" size="panel" />
 		{:else}
-			<FilePreviewSurface
+			<FileContentPreview
 				{file}
 				source={file.content}
 				downloadUrl={content.url}
