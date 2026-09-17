@@ -103,7 +103,6 @@ export type SpaceFileDomainProps = {
 	inlineFileIsCsv: boolean;
 	inlineFileIsHtml: boolean;
 	inlineFileCopied: boolean;
-	inlineFileExt: string;
 	inlineFileIsImage: boolean;
 	inlineFileIsVideo: boolean;
 	inlineFileIsAudio: boolean;
@@ -265,7 +264,6 @@ let {
 	inlineFileIsCsv,
 	inlineFileIsHtml,
 	inlineFileCopied,
-	inlineFileExt,
 	inlineFileIsImage,
 	inlineFileIsVideo,
 	inlineFileIsAudio,
@@ -479,7 +477,6 @@ function previewContentOut(node: Element) {
 		{activeFsReadonly}
 		{canEditFiles}
 		{inlineFileCopied}
-		{inlineFileExt}
 		{inlineFileIsImage}
 		{inlineFileIsVideo}
 		{inlineFileIsAudio}

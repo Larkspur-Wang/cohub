@@ -2,7 +2,7 @@
 import type { SpaceFsFileResponse, WorkContent } from "@neta-art/cohub";
 import { Download } from "lucide-svelte";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
-import FilePreviewSurface from "$lib/components/FilePreviewSurface.svelte";
+import FileContentPreview from "$lib/components/FileContentPreview.svelte";
 import { getLocale } from "$lib/i18n/locale.svelte";
 import { m } from "$lib/paraglide/messages.js";
 
@@ -14,11 +14,13 @@ import type { WorkspaceFileLinkTarget } from "$lib/workspace-file-links";
 
 const {
 	content,
+	isMobile = false,
 	resolveWorkspaceAsset,
 	onOpenFile,
 	onOpenUrl,
 }: {
 	content: Extract<WorkContent, { kind: "file" }>;
+	isMobile?: boolean;
 	resolveWorkspaceAsset?: ResolveWorkspaceAsset;
 	onOpenFile?: (target: WorkspaceFileLinkTarget) => void | Promise<void>;
 	onOpenUrl?: (href: string, event: MouseEvent) => void | Promise<void>;
@@ -90,10 +92,11 @@ $effect(() => {
 		{#if loading}
 			<CenteredLoading label="Loading file…" size="panel" />
 		{:else}
-			<FilePreviewSurface
+			<FileContentPreview
 				{file}
 				source={file.content}
 				downloadUrl={content.url}
+				{isMobile}
 				{resolveWorkspaceAsset}
 				{onOpenFile}
 				{onOpenUrl}
@@ -154,8 +157,10 @@ $effect(() => {
 	}
 
 	.file-content {
+		display: flex;
 		min-height: 0;
 		flex: 1;
+		flex-direction: column;
 	}
 
 	@media (min-width: 640px) {

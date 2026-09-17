@@ -36,6 +36,7 @@ import {
 	type AppSurfaceHost,
 	createAppSurfaceHost,
 } from "$lib/features/app/surface-host";
+import { useCompactShell } from "$lib/layout/compact-shell.svelte";
 import { parseNewChatBackgroundAction } from "$lib/new-chat-background-bridge";
 import { emitSpaceConfigBackgroundAction } from "$lib/space-config";
 import { createSpaceWorkspaceAssetResolver } from "$lib/space-workspace-assets";
@@ -119,6 +120,8 @@ let runtimeReady = $state(false);
 let frameHasLoaded = $state(false);
 let readyReported = false;
 let contextSyncWarningReported = false;
+/** Native file surfaces size their media from the shared compact signal. */
+const isMobile = $derived(useCompactShell());
 
 function reportReady() {
 	if (readyReported) return;
@@ -378,6 +381,7 @@ onMount(() => {
 		<div class="app-native">
 			<WorkFileSurface
 				content={fileContent}
+				{isMobile}
 				resolveWorkspaceAsset={workspaceAssetResolver}
 				onOpenFile={appNavigationEnabled ? openWorkFileLink : undefined}
 				onOpenUrl={appNavigationEnabled ? openWorkUrlLink : undefined}

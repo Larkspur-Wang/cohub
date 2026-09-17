@@ -1865,9 +1865,6 @@ export function createFileWorkspaceController(
 		get inlineFileIsText() {
 			return filePreviewModel(getActiveInlineFile()?.response).isText;
 		},
-		get inlineFileExt() {
-			return filePreviewModel(getActiveInlineFile()?.response).language;
-		},
 		get inlineFileIsImage() {
 			return filePreviewModel(getActiveInlineFile()?.response).kind === "image";
 		},
