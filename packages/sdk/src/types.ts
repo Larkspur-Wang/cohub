@@ -1607,7 +1607,6 @@ export const PERMISSIONS = [
   "space.commerce.view",
   "space.commerce.manage",
   "app.manage",
-  "app.publish",
   "user.space.list",
   "user.session.list",
   "user.taskrun.list",

@@ -41,9 +41,7 @@ type Props = {
 	ownerUsername: string | null;
 	spaceSlug: string | null;
 	canEditSpace: boolean;
-	/** Whether the viewer may create Apps and publish new versions (builder capability). */
-	canPublishApp: boolean;
-	/** Whether the viewer may change an App's configuration, status, and stats (builder capability). */
+	/** Whether the viewer may create, publish, and manage Apps (builder capability). */
 	canManageApp: boolean;
 	onDetailLoaded?: (app: AppRecord | null) => void;
 	/** Show this app in the workspace window pane, beside the detail page. */
@@ -56,7 +54,6 @@ let {
 	ownerUsername,
 	spaceSlug,
 	canEditSpace,
-	canPublishApp,
 	canManageApp,
 	onDetailLoaded,
 	onPreviewApp,
@@ -318,7 +315,7 @@ onDestroy(() => {
                   <div class="text-[10px] font-medium uppercase tracking-[0.18em] text-text-placeholder">Target</div>
                   <div class="mt-1 font-mono text-[11px] text-text-placeholder">Current v{appDetail.latestVersion || 0}</div>
                 </div>
-                {#if canPublishApp && appDetail.status === 'published'}
+                {#if canManageApp && appDetail.status === 'published'}
                   <button type="button" class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover disabled:opacity-50 sm:w-auto" onclick={() => void appDetailController.publishVersion()} disabled={appPublishSubmitting}>
                     {#if appPublishSubmitting}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Rocket class="h-3.5 w-3.5" />{/if}
                     <span>{appPublishSubmitting ? 'Updating…' : 'Update version'}</span>

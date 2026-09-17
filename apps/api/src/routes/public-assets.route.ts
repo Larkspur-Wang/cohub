@@ -29,9 +29,8 @@ router.post("/uploads", async (c) => {
 
   if (body.purpose === "space_avatar" || body.purpose === "app_source") {
     if (!body.spaceId || !requireValidId(body.spaceId)) return c.json({ message: "space not found" }, 404);
-    // App source uploads publish an App, so they follow `app.publish`; space
-    // avatars stay a Space-settings concern on `space.edit`.
-    const permission = body.purpose === "app_source" ? "app.publish" : "space.edit";
+    // App source uploads follow `app.manage`; space avatars stay on `space.edit`.
+    const permission = body.purpose === "app_source" ? "app.manage" : "space.edit";
     if (!(await hasPermission(user, permission, { spaceId: body.spaceId }))) return authzDenied(c);
     if (body.purpose === "app_source" && !body.sessionId) return c.json({ message: "sessionId is required" }, 400);
   }

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { it } from "node:test";
-import { ROLE_PERMISSIONS, isUserLevelPermission } from "./index.js";
+import { ALL_PERMISSIONS, ROLE_PERMISSIONS, isUserLevelPermission } from "./index.js";
 
 it("space.create is account-level, never a role permission", () => {
   assert.ok(isUserLevelPermission("space.create"));
@@ -9,14 +9,13 @@ it("space.create is account-level, never a role permission", () => {
   }
 });
 
-// Publishing an App is a builder capability: hosts and builders may publish
-// and manage Apps, while guests may not.
-it("app publishing and management are host and builder capabilities", () => {
-  for (const permission of ["app.publish", "app.manage"] as const) {
-    assert.ok(ROLE_PERMISSIONS.host.has(permission));
-    assert.ok(ROLE_PERMISSIONS.builder.has(permission));
-    assert.ok(!ROLE_PERMISSIONS.guest.has(permission));
-  }
+// App management is a builder capability: hosts and builders may create and
+// manage Apps, guests may not.
+it("app management is a host and builder capability", () => {
+  assert.ok(ROLE_PERMISSIONS.host.has("app.manage"));
+  assert.ok(ROLE_PERMISSIONS.builder.has("app.manage"));
+  assert.ok(!ROLE_PERMISSIONS.guest.has("app.manage"));
+  assert.ok(!(ALL_PERMISSIONS as readonly string[]).includes("app.publish"));
 });
 
 // Session sharing is gated on the dedicated `session.access.manage` permission:
