@@ -1,5 +1,10 @@
 {
 	"runtime_harness": "执行方式",
+	"runtime_file_watcher": "文件监听",
+	"runtime_watcher_running": "正常",
+	"runtime_watcher_degraded": "已降级",
+	"runtime_watcher_unavailable": "不可用",
+	"runtime_watcher_unknown": "未知",
 	"runtime_online": "在线",
 	"runtime_offline": "离线",
 	"runtime_session_attention": "本地执行已断开，结果暂时未知。请重新连接 Runtime 恢复，或确认执行已停止。",

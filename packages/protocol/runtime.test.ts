@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { runtimeClientFrameSchema, runtimeCommandSchema, runtimeReadySchema, parseRuntimeRegistration, contextToPiMessages, RUNTIME_MAX_BATCH_MESSAGES } from "./src/runtime/index.js";
+import { fileWatcherStatusSchema, runtimeClientFrameSchema, runtimeCommandSchema, runtimeReadySchema, parseRuntimeRegistration, contextToPiMessages, RUNTIME_MAX_BATCH_MESSAGES } from "./src/runtime/index.js";
 import { getSessionStreamSnapshotKey, SESSION_STREAM_SNAPSHOT_CLEAR_TURN_LUA } from "./src/realtime/index.js";
+
+test("file watcher telemetry validates codes and drops local details", () => {
+  const value = { backend: "fsevents", state: "running", observedAt: new Date().toISOString() };
+  assert.deepEqual(fileWatcherStatusSchema.parse({ ...value, path: "/private/project", token: "secret" }), value);
+  assert(!fileWatcherStatusSchema.safeParse({ ...value, backend: "arbitrary" }).success);
+  assert(!fileWatcherStatusSchema.safeParse({ ...value, reason: "/private/error" }).success);
+  assert(!fileWatcherStatusSchema.safeParse({ ...value, observedAt: "invalid" }).success);
+});
 
 test("Runtime batches retain ordered authors and enforce the final owner identity", () => {
   const messages = ["first", "last"].map((userId) => ({ userId, turnId: crypto.randomUUID(), userMessageId: crypto.randomUUID(), content: [{ type: "text", text: userId }] }));

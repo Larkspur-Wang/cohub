@@ -2,6 +2,7 @@ import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 import type { WebSocket } from "ws";
 import { createLogger } from "@cohub/infra/logging";
+import { fileWatcherStatusSchema } from "@cohub/protocol";
 import { gatewayConfig } from "../config.js";
 import { redisCommandClient, REALTIME_OUTBOUND_CHANNEL } from "../redis.js";
 import { enqueueSpaceHookFromEvent } from "../space-hooks.js";
@@ -79,7 +80,7 @@ async function publishRelayWatcherEvent(spaceId: string, frameType: string, payl
     const changes = Array.isArray(record.changes) ? record.changes : [];
     type = "space.fs.changed";
     eventPayload = {
-      source: resync && changes.length === 0 ? "sandbox-watch-started" : "sandbox-inotify",
+      source: resync && changes.length === 0 ? "sandbox-watch-started" : "sandbox-watch",
       seq,
       resync,
       changes,
@@ -189,6 +190,16 @@ export async function handleRelayControlConnection(socket: WebSocket, request: I
 
     if (frame.type === "ping") {
       socket.send(JSON.stringify({ type: "pong" }));
+      return;
+    }
+
+    if (frame.type === "watcher.status" && runner && runnersBySpace.get(runner.spaceId)?.socket === socket) {
+      const value = frame.payload;
+      if (!value || typeof value !== "object" || Array.isArray(value)) return;
+      const parsed = fileWatcherStatusSchema.safeParse({ ...value, observedAt: new Date().toISOString() });
+      if (!parsed.success) return;
+      await redisCommandClient.set(`sandbox:watcher:${runner.spaceId}`, JSON.stringify(parsed.data), "EX", 60)
+        .catch((error) => logger.warn("[Relay] watcher status unavailable", { error }));
       return;
     }
 

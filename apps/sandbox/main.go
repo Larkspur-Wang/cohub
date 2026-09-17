@@ -144,7 +144,7 @@ func buildRuntime(
 	hostname string,
 	fsSink func(protocol.FSChangedPayload),
 	portsSink func(protocol.PortsChangedPayload),
-) (*ws.Server, func(), func(), *search.Manager) {
+) (*ws.Server, func(), func(), *search.Manager, func() filewatch.Status) {
 	processManager := process.NewManager(logger)
 	searchManager := search.NewManager(cfg, logger)
 	searchManager.Start()
@@ -162,6 +162,9 @@ func buildRuntime(
 
 	var closers []func()
 	requestFSResync := func() {}
+	watchStatus := func() filewatch.Status {
+		return filewatch.Status{Backend: "none", State: "unavailable", Reason: "start_failed"}
+	}
 	if watcher, err := filewatch.Start(cfg.WorkspaceDir, logger, func(batch filewatch.Batch) {
 		searchManager.Apply(batch)
 		fsSink(protocol.FSChangedPayload{
@@ -173,6 +176,7 @@ func buildRuntime(
 		logger.Warn("file watcher disabled", slog.String("error", err.Error()))
 	} else {
 		requestFSResync = watcher.RequestResync
+		watchStatus = watcher.Status
 		closers = append(closers, func() { watcher.Close() })
 		logger.Info("file watcher started", slog.String("workspaceDir", cfg.WorkspaceDir))
 	}
@@ -195,7 +199,7 @@ func buildRuntime(
 		for _, close := range closers {
 			close()
 		}
-	}, requestFSResync, searchManager
+	}, requestFSResync, searchManager, watchStatus
 }
 
 func runCloud(logger *slog.Logger, cfg env.Config) {
@@ -204,7 +208,7 @@ func runCloud(logger *slog.Logger, cfg env.Config) {
 	hostname, _ := os.Hostname()
 	reporter := report.NewClient(cfg, hostname)
 
-	server, closeWatchers, _, searchManager := buildRuntime(logger, cfg, state, reporter, hostname, nil, nil)
+	server, closeWatchers, _, searchManager, _ := buildRuntime(logger, cfg, state, reporter, hostname, nil, nil)
 	defer closeWatchers()
 	server.SetFSResyncOnAttach(true)
 
@@ -335,10 +339,11 @@ func runLocal(logger *slog.Logger, spaceID, root, relayURL string) {
 		client.PublishEvent("ports.changed", payload)
 	}
 
-	server, closeWatchers, watcherResync, _ := buildRuntime(logger, cfg, state, nil, hostname, fsSink, portsSink)
+	server, closeWatchers, watcherResync, _, watchStatus := buildRuntime(logger, cfg, state, nil, hostname, fsSink, portsSink)
 	defer closeWatchers()
 	requestFSResync = watcherResync
 	client.SetServer(server)
+	client.SetWatcherStatus(watchStatus)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

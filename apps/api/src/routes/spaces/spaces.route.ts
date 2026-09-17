@@ -3,7 +3,7 @@ import { DEFAULT_SANDBOX_SPEC_ID, SANDBOX_SPECS, getSandboxSpecRank, isSandboxSp
 import { createLogger } from "@cohub/infra/logging";
 import { Hono, type Context } from "hono";
 import type { ContentBlock } from "@cohub/protocol/core";
-import { getDefaultSpaceModsForEnv, harnessSchema, isLocalHarness, runtimeStopConfirmationSchema } from "@cohub/protocol";
+import { fileWatcherStatusSchema, getDefaultSpaceModsForEnv, harnessSchema, isLocalHarness, runtimeStopConfirmationSchema } from "@cohub/protocol";
 import {
   parseSpaceSlug,
   validatePublicIdentifierAssignment,
@@ -1820,7 +1820,16 @@ router.get("/:id/runtime", async (c) => {
   const [sandbox, registration] = await Promise.all([
     getSpaceSandboxBySpaceId(spaceId), getRuntimeRegistration(spaceId),
   ]);
-  return c.json({ kind: sandbox?.provider ?? "cloud", online: Boolean(registration), capabilities: registration?.capabilities ?? null });
+  const rawWatcher = sandbox?.provider === "local" && registration
+    ? await redisCommandClient.get(`sandbox:watcher:${spaceId}`).catch(() => null) : null;
+  let fileWatcher = null;
+  if (rawWatcher) {
+    try {
+      const parsed = fileWatcherStatusSchema.safeParse(JSON.parse(rawWatcher));
+      if (parsed.success) fileWatcher = parsed.data;
+    } catch { /* Invalid telemetry never affects Runtime availability. */ }
+  }
+  return c.json({ kind: sandbox?.provider ?? "cloud", online: Boolean(registration), capabilities: registration?.capabilities ?? null, fileWatcher });
 });
 
 router.get("/:id/sessions/:sessionId/runtime", async (c) => {

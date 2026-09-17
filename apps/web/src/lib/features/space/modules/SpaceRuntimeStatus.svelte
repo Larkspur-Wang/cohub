@@ -12,6 +12,22 @@ const { spaceId }: { spaceId: string } = $props();
 const locale = $derived(getLocale());
 const status = $derived(cachedRuntimeStatus(spaceId));
 let open = $state(false);
+let now = $state(Date.now());
+const watcher = $derived(
+	status?.fileWatcher &&
+		now - Date.parse(status.fileWatcher.observedAt) < 60_000
+		? status.fileWatcher
+		: null,
+);
+const watcherLabel = $derived(
+	watcher?.state === "running"
+		? m.runtime_watcher_running({}, { locale })
+		: watcher?.state === "degraded"
+			? m.runtime_watcher_degraded({}, { locale })
+			: watcher?.state === "unavailable"
+				? m.runtime_watcher_unavailable({}, { locale })
+				: m.runtime_watcher_unknown({}, { locale }),
+);
 const label = $derived(
 	status?.online
 		? m.runtime_online({}, { locale })
@@ -22,6 +38,7 @@ $effect(() => {
 	const target = spaceId;
 	open = false;
 	const refresh = () => {
+		now = Date.now();
 		if (document.visibilityState === "visible")
 			void refreshRuntimeStatus(target).catch(() => {});
 	};
@@ -52,5 +69,6 @@ function show() {
   </div>
   <div class="p-4 text-sm">
     <div class="flex items-center justify-between gap-3"><span>{label}</span><span class="text-text-muted">{status?.capabilities?.harnesses.join(" / ") ?? ""}</span></div>
+    <div class="mt-3 flex flex-wrap items-center justify-between gap-3"><span>{m.runtime_file_watcher({}, { locale })}</span><span class="text-text-muted">{watcherLabel}{watcher ? ` · ${watcher.backend}` : ""}</span></div>
   </div>
 </Sheet>

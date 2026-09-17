@@ -102,6 +102,7 @@ func TestSanitizeIgnorePattern(t *testing.T) {
 }
 
 func TestWatcherDiscoversImmediateWritesInNewNestedDirectory(t *testing.T) {
+	t.Setenv(filewatchBackendEnv, "fsnotify")
 	root := t.TempDir()
 	batches := make(chan Batch, 16)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))

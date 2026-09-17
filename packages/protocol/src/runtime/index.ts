@@ -78,8 +78,15 @@ export const runtimeReadySchema = z.object({ type: z.literal("runtime.ready"), c
 
 export type RuntimeExecutionIdentity = { spaceId: string; sessionId: string; turnId: string; harness: LocalHarness };
 export type RuntimeRecoveryState = { state: "executing" | "attention" | "confirmed_stopped"; ownerUserId?: string | null; resolvedBy?: string; resolvedAt?: string; reason?: string; detectedAt?: string };
+export const fileWatcherStatusSchema = z.object({
+  backend: z.enum(["fsevents", "fsnotify", "scan", "none"]),
+  state: z.enum(["running", "degraded", "unavailable"]),
+  reason: z.enum(["polling", "watch_error", "start_failed", "coverage_incomplete", "root_changed"]).optional(),
+  observedAt: z.iso.datetime(),
+});
 export type RuntimeStatus = {
   kind: "cloud" | "local"; online: boolean; capabilities: RuntimeCapabilities | null;
+  fileWatcher: z.infer<typeof fileWatcherStatusSchema> | null;
 };
 export type RuntimeSessionRecoveryStatus = {
   pending: boolean;

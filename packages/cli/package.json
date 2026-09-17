@@ -19,6 +19,8 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "verify:sandboxd": "node --import tsx scripts/verify-sandboxd-release.ts",
+    "prepublishOnly": "pnpm verify:sandboxd",
     "test": "node ../../scripts/test/run.mjs 'tests/**/*.test.ts'",
     "test:runtime": "node --import tsx --test tests/runtime-*.integration.ts",
     "test:runtime:native": "node --import tsx tests/runtime-native.smoke.ts",

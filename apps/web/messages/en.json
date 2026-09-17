@@ -1,5 +1,10 @@
 {
 	"runtime_harness": "Harness",
+	"runtime_file_watcher": "File monitoring",
+	"runtime_watcher_running": "Active",
+	"runtime_watcher_degraded": "Degraded",
+	"runtime_watcher_unavailable": "Unavailable",
+	"runtime_watcher_unknown": "Unknown",
 	"runtime_online": "Online",
 	"runtime_offline": "Offline",
 	"runtime_session_attention": "This local execution disconnected with an unknown result. Reconnect the Runtime to recover it, or confirm it has stopped.",

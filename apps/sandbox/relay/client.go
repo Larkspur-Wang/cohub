@@ -20,6 +20,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
+	"github.com/cohub/apps/sandbox/filewatch"
 )
 
 // SessionServer is satisfied by ws.Server; it serves one protocol session over a
@@ -77,9 +78,10 @@ var reconnectDelays = []time.Duration{
 // Client maintains the control connection and lets the runtime publish watcher
 // events over it. The zero value is not usable; construct with NewClient.
 type Client struct {
-	opts Options
-	mu   sync.Mutex
-	conn *websocket.Conn // active control connection, nil when disconnected
+	opts          Options
+	mu            sync.Mutex
+	conn          *websocket.Conn // active control connection, nil when disconnected
+	watcherStatus func() filewatch.Status
 }
 
 type relayConfigError struct {
@@ -136,7 +138,18 @@ func (c *Client) SetServer(server SessionServer) {
 	c.opts.Server = server
 }
 
-// PublishEvent sends a watcher event (fs.changed / ports.changed) over the
+// SetWatcherStatus must be called before Run.
+func (c *Client) SetWatcherStatus(status func() filewatch.Status) {
+	c.watcherStatus = status
+}
+
+func (c *Client) publishWatcherStatus() {
+	if c.watcherStatus != nil {
+		c.PublishEvent("watcher.status", c.watcherStatus())
+	}
+}
+
+// PublishEvent sends a watcher event (fs.changed / ports.changed / watcher.status) over the
 // active control connection. It is a no-op (drops the event) when the control
 // connection is down; the gateway/web recover via the watcher's resync frame
 // on reconnect. Safe for concurrent use.
@@ -258,6 +271,7 @@ func (c *Client) connectControl(ctx context.Context) error {
 		}
 		switch frame.Type {
 		case "registered":
+			c.publishWatcherStatus()
 			opts.Logger.Info("relay registered", slog.String("spaceId", opts.SpaceID))
 			if opts.OnRegistered != nil {
 				opts.OnRegistered()
@@ -273,7 +287,7 @@ func (c *Client) connectControl(ctx context.Context) error {
 		case "ping":
 			_ = wsjson.Write(ctx, conn, controlFrame{Type: "pong"})
 		case "pong":
-			// keepalive ack
+			c.publishWatcherStatus()
 		default:
 			opts.Logger.Warn("unknown control frame", slog.String("type", frame.Type))
 		}
