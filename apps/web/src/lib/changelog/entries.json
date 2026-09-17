@@ -1,5 +1,22 @@
 [
 	{
+		"version": "2.52",
+		"date": "2026-09-17",
+		"tags": ["v2.52.0"],
+		"highlights": [
+			"**App management for builders**: Apps are governed by a single `app.manage` permission granted to `host` and `builder`, so Space builders can create Apps, publish versions, change config, and read stats without host-only Space settings. App detail responses now report the real `publisher`, which the Cohub bar and authorize dialog credit instead of always showing the Space owner, and deletion is scoped to hosts (any App) or the App's own publisher.",
+			"**Event-driven Runtime recovery**: The per-minute recovery sweep and the message delivery outbox are replaced by Session-scoped reconciliation. The local Runtime reports pending executions in bounded `runtime.recovery` batches after connecting, Gateway peer disconnects and uncertain transports enqueue recovery for that Session, and stop confirmation moves into the affected Chat — more than 64 pending Sessions can no longer break a connection.",
+			"**Completion model registry**: Model resolution is extracted into `CompletionModelRegistry`, which keeps hidden models resolvable by explicit id while excluding them from implicit defaults and provider fallbacks, fixing hidden models that had become unreachable at runtime. The model picker also reveals a hidden model when it is the current selection.",
+			"**Runtime status probe policy**: Space runtime status now sits behind a freshness/backoff policy — a missing route is retried rarely, denials and transient errors back off, and focus/mount bursts collapse into a single request — removing needless polling without delaying the first screen.",
+			"**App authoring contract**: `client.auth.authorize({ target, scopes })` with explicit account, Space, or Space-picker targets is now the documented consent path and reports the authoritative target, `client.desktop.reportResult()` replaces the deprecated `client.ui` alias, and the deprecated `context.space` vocabulary plus unused `work.json` manifests are gone."
+		],
+		"fixes": [
+			"Published HTML assets were cached as immutable, so redeploys served stale pages; HTML now revalidates with a three-day cache while other work assets stay immutable.",
+			"The `0065` `harness_index` migration was not idempotent and could fail on re-run; it is now safe to apply repeatedly.",
+			"Deprecated `context.space` and `client.ui` leftovers were swept from example Apps, the SDK README, and the runtime guide, whose init recipe guarded on `ctx.space.id` (empty in broker mode) and now checks `ctx.app.id`."
+		]
+	},
+	{
 		"version": "2.51",
 		"date": "2026-09-17",
 		"tags": ["v2.51.0"],
