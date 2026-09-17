@@ -19,11 +19,9 @@ import {
 	TextCursorInput,
 	Trash2,
 } from "lucide-svelte";
-import AudioPlayer from "$lib/components/AudioPlayer.svelte";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
+import FileContentPreview from "$lib/components/FileContentPreview.svelte";
 import type { FileViewMode } from "$lib/components/file-diff-view";
-import ImageViewer from "$lib/components/ImageViewer.svelte";
-import MarkdownView from "$lib/components/MarkdownView.svelte";
 import type { PreviewCaptureTarget } from "$lib/features/preview-mark";
 import PreviewMarkHost from "$lib/features/preview-mark/ui/PreviewMarkHost.svelte";
 import { getLocale } from "$lib/i18n/locale.svelte";
@@ -77,7 +75,6 @@ type Props = {
 	activeFsReadonly: boolean;
 	canEditFiles: boolean;
 	inlineFileCopied: boolean;
-	inlineFileExt: string;
 	inlineFileIsImage: boolean;
 	inlineFileIsVideo: boolean;
 	inlineFileIsAudio: boolean;
@@ -138,7 +135,6 @@ let {
 	activeFsReadonly,
 	canEditFiles,
 	inlineFileCopied,
-	inlineFileExt,
 	inlineFileIsImage,
 	inlineFileIsVideo,
 	inlineFileIsAudio,
@@ -175,49 +171,16 @@ let {
 
 const locale = $derived(getLocale());
 
-const loadCodeEditorModule = createLazyModuleLoader(
-	() => import("$lib/components/CodeEditor.svelte"),
-);
-const loadRenderedFilePreviewModule = createLazyModuleLoader(
-	() => import("$lib/components/RenderedFilePreview.svelte"),
-);
 const loadFileDiffViewModule = createLazyModuleLoader(
 	() => import("$lib/components/FileDiffView.svelte"),
 );
-const loadPdfPreviewModule = createLazyModuleLoader(
-	() => import("$lib/components/PdfPreview.svelte"),
-);
-const loadCsvPreviewModule = createLazyModuleLoader(
-	() => import("$lib/components/CsvPreview.svelte"),
-);
-
-const showDiffMode = $derived(!activeFsReadonly && inlineFileIsText);
-// Bump to force #await to re-subscribe after a cleared lazy-import failure.
-let codeEditorLoadAttempt = $state(0);
-let htmlPreviewLoadAttempt = $state(0);
 let fileDiffLoadAttempt = $state(0);
-let pdfPreviewLoadAttempt = $state(0);
-let csvPreviewLoadAttempt = $state(0);
-const codeEditorModulePromise = $derived.by(() => {
-	codeEditorLoadAttempt;
-	return loadCodeEditorModule();
-});
-const htmlPreviewModulePromise = $derived.by(() => {
-	htmlPreviewLoadAttempt;
-	return loadRenderedFilePreviewModule();
-});
 const fileDiffModulePromise = $derived.by(() => {
 	fileDiffLoadAttempt;
 	return loadFileDiffViewModule();
 });
-const pdfPreviewModulePromise = $derived.by(() => {
-	pdfPreviewLoadAttempt;
-	return loadPdfPreviewModule();
-});
-const csvPreviewModulePromise = $derived.by(() => {
-	csvPreviewLoadAttempt;
-	return loadCsvPreviewModule();
-});
+
+const showDiffMode = $derived(!activeFsReadonly && inlineFileIsText);
 let imageMarkOpen = $state(false);
 let htmlMarkOpen = $state(false);
 let htmlMarkTarget: PreviewCaptureTarget | null = $state(null);
@@ -310,6 +273,7 @@ const primaryDownload = $derived(
 	hasResponse && (inlineFileIsVideo || inlineFileIsAudio || inlineFileIsPdf),
 );
 const canManageFile = $derived(canEditFiles && !activeFsReadonly);
+const canEditContent = $derived(canEditFiles && !activeFsReadonly);
 
 const headerActions = $derived.by((): PreviewHeaderAction[] => {
 	const list: PreviewHeaderAction[] = [];
@@ -497,73 +461,8 @@ $effect(() => {
 	{/if}
 {/snippet}
 
-{#snippet MarkdownFilePreview()}
-	{#if inlineFile?.response}
-		<MarkdownView
-			source={inlineFile.draft}
-			variant="document"
-			baseFilePath={inlineFile.response.path}
-			onOpenFile={onOpenLinkedInlineFile}
-			{resolveWorkspaceAsset}
-		/>
-	{/if}
-{/snippet}
-
-{#snippet HtmlFilePreview()}
-	{#if inlineFile?.response}
-		{#await htmlPreviewModulePromise then previewModule}
-			{@const LazyRenderedFilePreview = previewModule.default}
-			<LazyRenderedFilePreview
-				name={inlineFile.response.name}
-				source={inlineFile.draft}
-				path={inlineFile.response.path}
-				spaceId={inlineFileSpaceId}
-				readonly={activeFsReadonly}
-				app={inlineFileApp}
-				bind:markTarget={htmlMarkTarget}
-			/>
-		{:catch}
-			{@render LazyLoadError(m.preview_failed({}, { locale }), () => {
-				htmlPreviewLoadAttempt += 1;
-			})}
-		{/await}
-	{/if}
-{/snippet}
-
-{#snippet CsvFilePreview()}
-	{#if inlineFile?.response}
-		{#await csvPreviewModulePromise then previewModule}
-			{@const LazyCsvPreview = previewModule.default}
-			<LazyCsvPreview source={inlineFile.draft} name={inlineFile.response.name} />
-		{:catch}
-			{@render LazyLoadError(m.preview_failed({}, { locale }), () => {
-				csvPreviewLoadAttempt += 1;
-			})}
-		{/await}
-	{/if}
-{/snippet}
-
-{#snippet PdfFilePreview()}
-	{#if inlineFile?.response}
-		{#await pdfPreviewModulePromise then previewModule}
-			{@const LazyPdfPreview = previewModule.default}
-			<LazyPdfPreview
-				name={inlineFile.response.name}
-				url={inlineFile.response.delivery === "url" ? (inlineFile.response.url ?? null) : null}
-				base64={inlineFile.response.delivery === "url" ? null : inlineFile.response.content}
-				version={`${inlineFile.response.path}:${inlineFile.response.size}:${inlineFile.response.mtimeMs}`}
-				{isMobile}
-			/>
-		{:catch}
-			{@render LazyLoadError(m.pdf_preview_failed({}, { locale }), () => {
-				pdfPreviewLoadAttempt += 1;
-			})}
-		{/await}
-	{/if}
-{/snippet}
-
-{#snippet TextFileBody()}
-	{#if inlineFileViewMode === "diff" && showDiffMode}
+{#snippet DiffBody()}
+	<div class="flex min-h-0 flex-1 flex-col overflow-hidden">
 		{#await fileDiffModulePromise then diffModule}
 			{@const LazyFileDiffView = diffModule.default}
 			<LazyFileDiffView
@@ -576,37 +475,16 @@ $effect(() => {
 				fileDiffLoadAttempt += 1;
 			})}
 		{/await}
-	{:else if inlineFileViewMode === "preview" && inlineFileHasRenderedPreview}
-		{#if inlineFileIsMarkdown}
-			{@render MarkdownFilePreview()}
-		{:else if inlineFileIsCsv}
-			{@render CsvFilePreview()}
-		{:else}
-			{@render HtmlFilePreview()}
-		{/if}
-	{:else if inlineFile}
-		{#await codeEditorModulePromise then editorModule}
-			{@const LazyCodeEditor = editorModule.default}
-			{@const editorPath = inlineFile?.path}
-			<LazyCodeEditor
-				value={inlineFile?.draft ?? ""}
-				language={inlineFileExt}
-				allowDrawerSwipe={isMobile}
-				initialPosition={inlineFile?.position ?? null}
-				onInput={(v) => {
-					if (editorPath) onUpdateInlineFileDraft(editorPath, v);
-				}}
-				onVisibleLinesChange={(range) => {
-					if (editorPath) onVisibleLinesChange?.(editorPath, range);
-				}}
-				readonly={!canEditFiles || activeFsReadonly}
-			/>
-		{:catch}
-			{@render LazyLoadError(m.inline_editor_failed({}, { locale }), () => {
-				codeEditorLoadAttempt += 1;
-			})}
-		{/await}
-	{/if}
+	</div>
+{/snippet}
+
+{#snippet PreviewNotAvailable()}
+	{@render FileOpenFallback({
+		title: m.preview_not_available({}, { locale }),
+		detail: m.inline_preview_not_available_detail({}, { locale }),
+		variant: "neutral",
+		showRetry: false,
+	})}
 {/snippet}
 
 <div class="inline-file-preview relative flex h-full min-w-0 flex-col bg-bg-content">
@@ -658,52 +536,36 @@ $effect(() => {
 	{:else if inlineFile?.response}
 		{@render SoftFailBanner()}
 		{@render SyncIssueBanner()}
-		{#if hasUsableText}
-			<div class="flex-1 min-h-0 overflow-hidden">
-				{@render TextFileBody()}
-			</div>
-		{:else if inlineFileIsImage && inlineFileDataUrl}
-			<div class="relative flex min-h-0 flex-1 p-4">
-				<ImageViewer
-					src={inlineFileDataUrl}
-					alt={inlineFile.response.name}
-					bind:zoom={inlineFileZoom}
-					bind:panX={inlineFilePanX}
-					bind:panY={inlineFilePanY}
-					bind:dragging={inlineFileDragging}
-					showControls
-					class="rounded-md"
-				/>
-			</div>
-		{:else if inlineFileIsVideo && inlineFileDataUrl}
-			<div class="flex flex-1 items-center justify-center p-4">
-				<video src={inlineFileDataUrl} controls playsinline preload="metadata" class="max-h-full max-w-full rounded-md">
-					<track kind="captions" />
-				</video>
-			</div>
-		{:else if inlineFileIsAudio && inlineFileDataUrl}
-			<div class="flex flex-1 items-center justify-center p-4">
-				<div class="w-full max-w-md">
-					<AudioPlayer
-						src={inlineFileDataUrl}
-						title={inlineFile.response.name}
-						subtitle={formatFileSize(inlineFile.response.size)}
-						downloadUrl={inlineFileDownloadUrl}
-						downloadName={inlineFileDownloadName}
-					/>
-				</div>
-			</div>
-		{:else if inlineFileIsPdf && hasUsableMedia}
-			<div class="min-h-0 flex-1">
-				{@render PdfFilePreview()}
-			</div>
+		{#if inlineFileIsText && inlineFileViewMode === "diff" && showDiffMode}
+			{@render DiffBody()}
 		{:else}
-			{@render FileOpenFallback({
-				title: m.preview_not_available({}, { locale }),
-				detail: m.inline_preview_not_available_detail({}, { locale }),
-				variant: "neutral",
-				showRetry: false,
-			})}
+			<FileContentPreview
+				file={inlineFile.response}
+				source={inlineFile.draft}
+				render={inlineFileViewMode === "preview" ? "preview" : "source"}
+				readonly={!canEditContent}
+				{isMobile}
+				allowDrawerSwipe={isMobile}
+				downloadUrl={inlineFileDownloadUrl}
+				downloadName={inlineFileDownloadName}
+				spaceId={inlineFileSpaceId}
+				app={inlineFileApp}
+				bind:markTarget={htmlMarkTarget}
+				initialPosition={inlineFile.position}
+				{resolveWorkspaceAsset}
+				onOpenFile={onOpenLinkedInlineFile}
+				onInput={(value) => onUpdateInlineFileDraft(inlineFile.path, value)}
+				onVisibleLinesChange={(range) =>
+					onVisibleLinesChange?.(inlineFile.path, range)}
+				bind:imageZoom={inlineFileZoom}
+				bind:imagePanX={inlineFilePanX}
+				bind:imagePanY={inlineFilePanY}
+				bind:imageDragging={inlineFileDragging}
+			>
+				{#snippet fallback()}
+					{@render PreviewNotAvailable()}
+				{/snippet}
+			</FileContentPreview>
 		{/if}
 	{:else}
 		<div class="flex flex-1 items-center justify-center text-xs text-text-tertiary">{m.inline_no_file_selected({}, { locale })}</div>

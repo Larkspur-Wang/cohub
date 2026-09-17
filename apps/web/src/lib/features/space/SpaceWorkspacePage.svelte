@@ -800,7 +800,6 @@ const inlineFileIsHtml = $derived(fileWorkspace.inlineFileIsHtml);
 const inlineFileHasRenderedPreview = $derived(
 	fileWorkspace.inlineFileHasRenderedPreview,
 );
-const inlineFileExt = $derived(fileWorkspace.inlineFileExt);
 const inlineFileIsImage = $derived(fileWorkspace.inlineFileIsImage);
 const inlineFileIsVideo = $derived(fileWorkspace.inlineFileIsVideo);
 const inlineFileIsAudio = $derived(fileWorkspace.inlineFileIsAudio);
@@ -2914,7 +2913,6 @@ const spaceFileDomainProps = $derived.by<
 	inlineFileIsCsv,
 	inlineFileIsHtml,
 	inlineFileCopied,
-	inlineFileExt,
 	inlineFileIsImage,
 	inlineFileIsVideo,
 	inlineFileIsAudio,

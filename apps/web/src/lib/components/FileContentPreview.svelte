@@ -146,7 +146,7 @@ function formatSize(bytes: number) {
 	</div>
 {/snippet}
 
-<div class="flex h-full min-h-0 min-w-0 flex-col bg-bg-content">
+<div class="flex min-h-0 min-w-0 flex-1 flex-col bg-bg-content">
 	{#if model.kind === "markdown" && rich}
 		<div class="flex min-h-0 flex-1 flex-col">
 			<MarkdownView

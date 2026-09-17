@@ -157,8 +157,10 @@ $effect(() => {
 	}
 
 	.file-content {
+		display: flex;
 		min-height: 0;
 		flex: 1;
+		flex-direction: column;
 	}
 
 	@media (min-width: 640px) {
