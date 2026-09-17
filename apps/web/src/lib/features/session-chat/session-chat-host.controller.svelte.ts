@@ -1669,14 +1669,17 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			refreshSessionsListQueuedForce ||= force;
 			return refreshSessionsListInFlight;
 		}
+		// Pin the request identity: a space switch mid-flight must never fetch,
+		// cache, or apply another space's sessions.
+		const requestSpaceId = spaceId;
 		const run = (async () => {
 			try {
 				const requestStartedAt = Date.now();
 				let backgroundRefreshApplied = false;
 				const sessions = await fetchSessionListWithCache(
-					spaceId,
+					requestSpaceId,
 					async () => {
-						const result = await sdk.space(spaceId).sessions.list({
+						const result = await sdk.space(requestSpaceId).sessions.list({
 							includeForks: true,
 						});
 						return {
@@ -1690,6 +1693,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 						onBackgroundRefresh: force
 							? undefined
 							: (freshSessions) => {
+									if (spaceId !== requestSpaceId) return;
 									backgroundRefreshApplied = true;
 									applySessionsSnapshot(freshSessions, {
 										authoritative: true,
@@ -1698,6 +1702,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 								},
 					},
 				);
+				if (spaceId !== requestSpaceId) return;
 				if (force || !backgroundRefreshApplied) {
 					applySessionsSnapshot(sessions, {
 						authoritative: force,

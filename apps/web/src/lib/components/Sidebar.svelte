@@ -1048,6 +1048,9 @@ async function loadMoreSessionsForSpace(spaceId: string) {
 			cursor,
 			includeForks: true,
 		});
+		// A space switch resets `sessions`/`sessionsPageInfo`; drop this page unless
+		// the request still belongs to the space on screen.
+		if (spaceId !== currentSpaceId) return;
 		const moreSessions = result.sessions ?? [];
 		const nextPageInfo = result.pageInfo ?? {
 			hasMore: false,
