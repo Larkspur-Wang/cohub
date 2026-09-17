@@ -360,11 +360,7 @@ const headerActions = $derived.by((): PreviewHeaderAction[] => {
 			id: "label",
 			label: m.inline_label_as({}, { locale }),
 			icon: ListTree,
-			run: (event) =>
-				onLabelFile(
-					activeActionPath,
-					event.currentTarget as HTMLElement | null,
-				),
+			run: (_event, anchor) => onLabelFile(activeActionPath, anchor),
 		});
 		list.push({
 			id: "reference",
@@ -657,7 +653,6 @@ $effect(() => {
 				<PreviewPdf
 					page={pdfControls.page}
 					pageCount={pdfControls.pageCount}
-					scale={pdfControls.scale}
 					fitWidth={pdfControls.fitWidth}
 					onGoToPage={(page) => pdfControls?.goToPage(page)}
 					onZoomIn={() => pdfControls?.zoomIn()}
@@ -697,7 +692,7 @@ $effect(() => {
 		{@render SoftFailBanner()}
 		{@render SyncIssueBanner()}
 		{#if hasUsableText}
-			<div class="flex-1 min-h-0">
+			<div class="flex-1 min-h-0 overflow-hidden">
 				{@render TextFileBody()}
 			</div>
 		{:else if inlineFileIsImage && inlineFileDataUrl}

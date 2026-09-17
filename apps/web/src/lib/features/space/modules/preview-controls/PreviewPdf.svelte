@@ -1,13 +1,14 @@
 <script lang="ts">
-import { FileText, Minus, MoveHorizontal, Plus } from "lucide-svelte";
+import { FileText, MoveHorizontal, ZoomIn, ZoomOut } from "lucide-svelte";
 import { getLocale } from "$lib/i18n/locale.svelte";
 import { m } from "$lib/paraglide/messages.js";
 import PreviewControl from "../PreviewControl.svelte";
+import PreviewGroup from "./PreviewGroup.svelte";
+import PreviewIconButton from "./PreviewIconButton.svelte";
 
 const {
 	page,
 	pageCount,
-	scale,
 	fitWidth,
 	onGoToPage,
 	onZoomIn,
@@ -17,7 +18,6 @@ const {
 }: {
 	page: number;
 	pageCount: number;
-	scale: number;
 	fitWidth: boolean;
 	onGoToPage: (page: number) => void;
 	onZoomIn: () => void;
@@ -62,63 +62,54 @@ function commit() {
 	/>
 {/snippet}
 
-{#snippet Zoom()}
-	<button type="button" class="pdf-btn" title={m.inline_zoom_out({}, { locale })} aria-label={m.inline_zoom_out({}, { locale })} onclick={onZoomOut}>
-		<Minus class="h-3.5 w-3.5" />
-	</button>
-	<span class="pdf-scale">{Math.round(scale * 100)}%</span>
-	<button type="button" class="pdf-btn" title={m.inline_zoom_in({}, { locale })} aria-label={m.inline_zoom_in({}, { locale })} onclick={onZoomIn}>
-		<Plus class="h-3.5 w-3.5" />
-	</button>
+{#snippet ZoomButtons()}
+	<PreviewIconButton icon={ZoomOut} label={m.inline_zoom_out({}, { locale })} onclick={onZoomOut} />
+	<PreviewIconButton icon={ZoomIn} label={m.inline_zoom_in({}, { locale })} onclick={onZoomIn} />
+	<span class="pdf-divider" aria-hidden="true"></span>
+	<PreviewIconButton
+		icon={MoveHorizontal}
+		label={m.inline_fit_width({}, { locale })}
+		active={fitWidth}
+		onclick={onFitWidth}
+	/>
 {/snippet}
 
-<PreviewControl icon={FileText} label={m.preview_pages({}, { locale })} {compact} menuWidth={212}>
+<PreviewControl icon={FileText} label={m.preview_pages({}, { locale })} {compact} menuWidth={200}>
 	{#snippet inline()}
-		<div class="pdf" role="group" aria-label={m.preview_pages({}, { locale })}>
+		<div class="pdf-inline">
 			{@render PageInput()}
 			<span class="pdf-total">/ {pageCount}</span>
-			<span class="pdf-divider"></span>
-			{@render Zoom()}
+			<PreviewGroup label={m.preview_zoom({}, { locale })}>
+				{@render ZoomButtons()}
+			</PreviewGroup>
 		</div>
 	{/snippet}
-	{#snippet menu({ close }: { close: () => void })}
+	{#snippet menu()}
 		<div class="pdf-menu">
 			<div class="pdf-menu-row">
 				{@render PageInput()}
 				<span class="pdf-total">/ {pageCount}</span>
 			</div>
 			<div class="pdf-menu-row">
-				{@render Zoom()}
-				<button
-					type="button"
-					class="pdf-btn"
-					class:active={fitWidth}
-					title={m.inline_fit_width({}, { locale })}
-					aria-label={m.inline_fit_width({}, { locale })}
-					aria-pressed={fitWidth}
-					onclick={() => {
-						onFitWidth();
-						close();
-					}}
-				>
-					<MoveHorizontal class="h-3.5 w-3.5" />
-				</button>
+				<PreviewGroup label={m.preview_zoom({}, { locale })}>
+					{@render ZoomButtons()}
+				</PreviewGroup>
 			</div>
 		</div>
 	{/snippet}
 </PreviewControl>
 
 <style>
-	.pdf {
+	.pdf-inline {
 		display: inline-flex;
 		align-items: center;
-		gap: 2px;
+		gap: 6px;
 		min-width: 0;
 	}
 
 	.pdf-input {
 		width: 2.5rem;
-		height: 1.5rem;
+		height: 1.75rem;
 		border: 1px solid var(--border-subtle);
 		border-radius: 6px;
 		background: var(--bg-input);
@@ -133,62 +124,29 @@ function commit() {
 		outline: none;
 	}
 
-	.pdf-total,
-	.pdf-scale {
+	.pdf-total {
 		flex-shrink: 0;
 		color: var(--text-tertiary);
 		font-size: 11px;
 		font-variant-numeric: tabular-nums;
 	}
 
-	.pdf-scale {
-		min-width: 2.5rem;
-		text-align: center;
-	}
-
 	.pdf-divider {
 		width: 1px;
 		height: 1rem;
-		margin-inline: 3px;
+		margin-inline: 2px;
 		background: var(--border-subtle);
-	}
-
-	.pdf-btn {
-		display: inline-flex;
-		height: 1.5rem;
-		min-width: 1.5rem;
-		align-items: center;
-		justify-content: center;
-		gap: 5px;
-		border: 0;
-		border-radius: 4px;
-		background: transparent;
-		padding: 0 4px;
-		color: var(--text-tertiary);
-		font-size: 11px;
-		cursor: pointer;
-		transition: background-color 120ms ease, color 120ms ease;
-	}
-
-	.pdf-btn:hover {
-		background: var(--bg-hover);
-		color: var(--text-secondary);
-	}
-
-	.pdf-btn.active {
-		background: var(--bg-hover-strong);
-		color: var(--text-secondary);
 	}
 
 	.pdf-menu {
 		display: flex;
 		flex-direction: column;
-		gap: 4px;
+		gap: 6px;
 	}
 
 	.pdf-menu-row {
 		display: flex;
 		align-items: center;
-		gap: 4px;
+		gap: 6px;
 	}
 </style>
