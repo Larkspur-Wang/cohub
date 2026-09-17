@@ -6,7 +6,7 @@ import type {
 	RenderTask,
 } from "pdfjs-dist";
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-import { untrack } from "svelte";
+import { onDestroy, onMount, untrack } from "svelte";
 import { getLocale } from "$lib/i18n/locale.svelte";
 import { m } from "$lib/paraglide/messages.js";
 
@@ -78,6 +78,30 @@ const renderedScales = new Map<number, number>();
 /** Content-space top offset of each page, so scrolling never measures the DOM. */
 let pageOffsets: number[] = [];
 let mountVersion = $state(0);
+
+// Keep the control bar out of the reader's way: it shows on first paint, on
+// pointer / scroll activity, and for keyboard focus, then fades when idle.
+const CONTROLS_IDLE_MS = 1800;
+let controlsRevealed = $state(true);
+let controlsIdleTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleControlsIdle() {
+	if (controlsIdleTimer) clearTimeout(controlsIdleTimer);
+	controlsIdleTimer = setTimeout(() => {
+		controlsRevealed = false;
+		controlsIdleTimer = null;
+	}, CONTROLS_IDLE_MS);
+}
+
+function noteControlsActivity() {
+	controlsRevealed = true;
+	scheduleControlsIdle();
+}
+
+onMount(scheduleControlsIdle);
+onDestroy(() => {
+	if (controlsIdleTimer) clearTimeout(controlsIdleTimer);
+});
 
 const sourceKey = $derived(
 	`${version}:${url ?? `inline:${base64?.length ?? 0}`}`,
@@ -538,11 +562,16 @@ $effect(() => {
 	class="pdf-root relative h-full min-h-0 w-full overflow-hidden bg-bg-primary"
 	role="region"
 	aria-label={`PDF preview: ${name}`}
+	onpointermove={noteControlsActivity}
+	onpointerdown={noteControlsActivity}
 >
 	<div
 		bind:this={viewportElement}
 		class="h-full overflow-auto overscroll-contain px-2 py-2 sm:px-4 sm:py-4"
-		onscroll={updateVisiblePages}
+		onscroll={() => {
+			updateVisiblePages();
+			noteControlsActivity();
+		}}
 	>
 		<div
 			bind:this={pagesElement}
@@ -606,7 +635,12 @@ $effect(() => {
 	{/if}
 
 	{#if pageCount > 0 && !loading && !passwordPrompt && !error}
-		<div class="pdf-controls" role="group" aria-label={m.preview_pages({}, { locale })}>
+		<div
+			class="pdf-controls"
+			data-revealed={controlsRevealed}
+			role="group"
+			aria-label={m.preview_pages({}, { locale })}
+		>
 			<input
 				class="pdf-controls-input"
 				type="text"
@@ -691,14 +725,14 @@ $effect(() => {
 		box-shadow: 0 8px 20px
 			color-mix(in srgb, var(--overlay-scrim-strong) 14%, transparent);
 		backdrop-filter: blur(12px);
-		/* Idle: stay out of the document's way; reveal on hover or keyboard focus. */
+		/* Idle: stay out of the document's way; revealed by activity or focus. */
 		opacity: 0;
 		pointer-events: none;
 		transition: opacity 160ms ease;
 	}
 
-	.pdf-root:hover .pdf-controls,
-	.pdf-root:focus-within .pdf-controls {
+	.pdf-controls[data-revealed="true"],
+	.pdf-controls:focus-within {
 		opacity: 1;
 		pointer-events: auto;
 	}
@@ -770,9 +804,6 @@ $effect(() => {
 	@media (pointer: coarse) {
 		.pdf-controls {
 			bottom: calc(12px + env(safe-area-inset-bottom, 0px));
-			/* Touch has no hover: keep the bar visible. */
-			opacity: 1;
-			pointer-events: auto;
 		}
 		.pdf-controls-btn {
 			height: 1.75rem;
