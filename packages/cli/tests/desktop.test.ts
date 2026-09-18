@@ -1,7 +1,21 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, test } from "node:test";
+import { resolveCohubEnvironment } from "@neta-art/cohub";
 import { Command } from "commander";
-import { registerDesktop, registerLegacyUi, resolveOpenSurface } from "../src/commands/desktop.js";
+import { registerDesktop, registerLegacyUi, resolveOpenSurface, resolveOptionalSpaceId } from "../src/commands/desktop.js";
+
+const temporaryRoots: string[] = [];
+
+function jwt(payload: Record<string, unknown>): string {
+  return `header.${Buffer.from(JSON.stringify(payload)).toString("base64url")}.sig`;
+}
+
+afterEach(async () => {
+  await Promise.all(temporaryRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+});
 
 function createProgram(): { desktop: Command; open: Command } {
   const program = new Command("cohub")
@@ -22,6 +36,31 @@ function renderHelp(command: Command): string {
   command.outputHelp();
   return text;
 }
+
+test("desktop open uses the current directory binding without falling back to Home", async () => {
+  const root = await mkdtemp(join(tmpdir(), "cohub-desktop-binding-"));
+  temporaryRoots.push(root);
+  const bindingsPath = join(root, "runtime-spaces.json");
+  const previousToken = process.env.COHUB_EXECUTION_TOKEN;
+  const previousSpace = process.env.COHUB_SPACE_ID;
+  process.env.COHUB_EXECUTION_TOKEN = jwt({ actorUserId: "user-alice" });
+  delete process.env.COHUB_SPACE_ID;
+  try {
+    await writeFile(bindingsPath, `${JSON.stringify({
+      version: 1,
+      bindings: [{ root, key: `${resolveCohubEnvironment()}:user-alice`, spaceId: "space-runtime" }],
+    })}\n`);
+    const { open } = createProgram();
+    assert.equal(await resolveOptionalSpaceId(open, { cwd: root, bindingsPath }), "space-runtime");
+    await rm(bindingsPath);
+    assert.equal(await resolveOptionalSpaceId(open, { cwd: root, bindingsPath }), undefined);
+  } finally {
+    if (previousToken === undefined) delete process.env.COHUB_EXECUTION_TOKEN;
+    else process.env.COHUB_EXECUTION_TOKEN = previousToken;
+    if (previousSpace === undefined) delete process.env.COHUB_SPACE_ID;
+    else process.env.COHUB_SPACE_ID = previousSpace;
+  }
+});
 
 test("opening and calling an app is one command", () => {
   const { desktop, open } = createProgram();

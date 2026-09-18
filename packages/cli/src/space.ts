@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { resolveCohubEnvironment } from "@neta-art/cohub";
 import { readAuthSession } from "./auth.js";
 import { createClient } from "./client.js";
+import { getRuntimeSpaceBinding } from "./runtime/space-binding.js";
 import { error, handleHttp } from "./output.js";
 
 const CONFIG_DIR = join(homedir(), ".config", "cohub");
@@ -50,7 +51,7 @@ export function identityKeyFrom(input: {
   return sub ? `${input.env}:${sub}` : null;
 }
 
-function identityKey(): string | null {
+export function currentIdentityKey(): string | null {
   const session = readAuthSession();
   return identityKeyFrom({
     env: resolveCohubEnvironment(),
@@ -112,7 +113,7 @@ export function explicitSpace(program: Command): string | null {
  */
 export function resolveDefaultSpace(): Promise<string | null> {
   defaultSpacePromise ??= (async () => {
-    const key = identityKey();
+    const key = currentIdentityKey();
     if (key) {
       const cached = readDefaultSpaceCache(CACHE_PATH, key);
       if (cached) return cached;
@@ -132,10 +133,32 @@ export function missingSpaceError(): never {
 }
 
 /**
- * Target space for a command: explicit `-s`/`COHUB_SPACE_ID` first, then the
- * user's home space. Exits with guidance when neither is available; request
- * failures go through the shared HTTP error handler.
+ * Resolve a Space from an optional explicit target, the current directory
+ * binding, and finally the user's Home Space.
  */
+export async function resolveBoundSpace(
+  options: { cwd?: string; bindingsPath?: string } = {},
+): Promise<string | null> {
+  const bound = await getRuntimeSpaceBinding(
+    options.cwd ?? process.cwd(),
+    currentIdentityKey(),
+    options.bindingsPath,
+  ).catch(handleHttp);
+  return bound?.spaceId ?? null;
+}
+
+export async function resolveSpaceTarget(
+  target?: string | null,
+  options: { cwd?: string; bindingsPath?: string } = {},
+): Promise<string> {
+  const explicit = target?.trim() || process.env.COHUB_SPACE_ID?.trim() || null;
+  if (explicit) return explicit;
+
+  return (await resolveBoundSpace(options))
+    ?? (await resolveDefaultSpace().catch(handleHttp))
+    ?? missingSpaceError();
+}
+
 export async function resolveSpace(program: Command): Promise<string> {
-  return explicitSpace(program) ?? (await resolveDefaultSpace().catch(handleHttp)) ?? missingSpaceError();
+  return resolveSpaceTarget(explicitSpace(program));
 }

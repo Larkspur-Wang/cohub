@@ -6,17 +6,26 @@ A Space has one local Runtime connection. Users select a Harness, not a machine.
 
 ```bash
 cohub auth login
-cohub runtime up ./project --harness pi --harness codex
-cohub runtime up ./project --space <space-id> --harness codex
+cd ./project
+cohub runtime up --harness pi --harness codex
+cohub runtime up --harness codex # reuses the same Space
 cohub spaces prompt "Continue" --harness codex
-cohub runtime status --space <space-id>
+cohub runtime status
+
+# To bind this directory to another local Runtime explicitly:
+cohub runtime up --space <space-id> --harness codex
 ```
 
-`runtime up` replaces `sandbox up`. It supervises the workspace bridge and the
-Harness connection. Node.js 24+ is required. Pi and Codex must already be installed and authenticated
-locally. `--pi` and `--codex` override executable paths. Repeated `--harness`
-options and comma-separated values are accepted. `--yes` accepts the explicit
-local execution consent for non-interactive startup.
+`runtime up` replaces `sandbox up`. When `--space` is omitted, the CLI remembers
+the Space for the canonical directory, account, and environment in
+`~/.config/cohub/runtime-spaces.json`. The first start creates and records a local
+Space; later starts reuse it. An explicit `--space` or `COHUB_SPACE_ID` overrides
+and updates the directory binding.
+
+It supervises the workspace bridge and the Harness connection. Node.js 24+ is required.
+Pi and Codex must already be installed and authenticated locally. `--pi` and `--codex`
+override executable paths. Repeated `--harness` options and comma-separated values are
+accepted. `--yes` accepts the explicit local execution consent for non-interactive startup.
 
 ## Diagnostics
 
