@@ -72,7 +72,8 @@ cohub -s <spaceId> spaces invites revoke <code> --yes
 cohub -s <spaceId> run -- git status
 ```
 
-Many space-scoped commands need a target Space:
+Many space-scoped commands need a target Space. Without an explicit target, commands
+also use the Space remembered for the current directory before falling back to Home:
 
 ```bash
 cohub -s <spaceId> spaces prompt "message" --json
@@ -95,6 +96,11 @@ streaming. Local executables and credentials are required. `sandbox up` has been
 removed. Reconnection and result reconciliation are automatic; no recovery command is needed.
 When a result genuinely cannot be determined, the affected Chat offers an explicit stop
 confirmation. See [Runtime details](../../docs/local-runtime.md).
+
+When `--space` is omitted, Runtime remembers a Space for the canonical local directory,
+account, and environment in `~/.config/cohub/runtime-spaces.json`. The first start creates
+and records a local Space; later starts reuse it. An explicit `--space` or `COHUB_SPACE_ID`
+overrides and updates the directory binding.
 
 ## Chats and prompts
 

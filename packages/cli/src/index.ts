@@ -39,7 +39,7 @@ program
   .summary("Work with Cohub from your terminal")
   .description("Send prompts, manage Space files, and publish public output.")
   .version(VERSION, "-v, --version", "Show version")
-  .option("-s, --space <id>", "Target Space ID (defaults to your Home space)")
+  .option("-s, --space <id>", "Target Space ID")
   .option("--json", "Print machine-readable JSON when supported")
   .helpOption("-h, --help", "Show help")
   .addHelpText("after", `
@@ -70,7 +70,7 @@ Common commands:
   cohub generate "A calm lake at sunrise" --model <model> --output lake.png
 
 Target space:
-  -s <space-id>, then COHUB_SPACE_ID, then your Home space
+  -s <space-id>, then COHUB_SPACE_ID, then the current directory Runtime binding, then Home
 
 Environment:
   COHUB_SPACE_ID         Target Space ID when -s is omitted

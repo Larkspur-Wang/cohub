@@ -13,6 +13,7 @@ import {
 import type { Command } from "commander";
 import { createClient } from "../client.js";
 import { error, handleHttp, json as outJson, jsonRequested, ok } from "../output.js";
+import { resolveBoundSpace } from "../space.js";
 import { getAppByRef } from "../app-ref.js";
 
 export { resolveOpenSurface };
@@ -32,15 +33,24 @@ type OpenTarget =
       surface?: DesktopSurface;
     };
 
-/** Optional disambiguation for file:// vs app:// — do not fall back to Home. */
-function optionalSpaceId(command: Command): string | undefined {
+/**
+ * Optional disambiguation for file:// vs app://. Unlike ordinary
+ * Space-scoped commands, an unbound directory must not fall back to Home:
+ * the plain target should remain eligible for App resolution.
+ */
+export async function resolveOptionalSpaceId(
+  command: Command,
+  options: { cwd?: string; bindingsPath?: string } = {},
+): Promise<string | undefined> {
   let current: Command | null = command;
   while (current) {
     const opts = current.opts() as Record<string, unknown>;
     if (typeof opts.space === "string" && opts.space.trim()) return opts.space.trim();
     current = current.parent ?? null;
   }
-  return process.env.COHUB_SPACE_ID?.trim() || undefined;
+  const fromEnvironment = process.env.COHUB_SPACE_ID?.trim();
+  if (fromEnvironment) return fromEnvironment;
+  return (await resolveBoundSpace(options)) ?? undefined;
 }
 
 function parseFilePath(value: string): string {
@@ -136,7 +146,7 @@ async function resolveOpenTarget(
   if (hasFileScheme(value)) return { kind: "file", path: parseFilePath(value) };
   if (hasAppScheme(value)) return resolveAppTarget(client, value);
 
-  const spaceId = optionalSpaceId(command);
+  const spaceId = await resolveOptionalSpaceId(command);
   if (spaceId) {
     try {
       await client.space(spaceId).files.read(value);
@@ -245,7 +255,7 @@ const OPEN_NOTES = `
 Notes:
   - Use file:// and app:// to make the target explicit; the legacy work://
     scheme is still accepted.
-  - A plain target checks the current Space for a file before resolving an app.
+  - A plain target checks the explicit Space or current directory Runtime binding for a file before resolving an app; it does not fall back to Home.
   - Opening a window is idempotent; repeating it re-activates the same tab.
   - --as picks the surface: window (a preview tab) or overlay (a transparent
     layer above the workspace). Without it, an App published with

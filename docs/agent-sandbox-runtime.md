@@ -34,7 +34,7 @@ turns a user's local folder into the sandbox of a Space:
   - Once control is established, the gateway is the single status reporter: ready + `wsEndpoint`; disconnect -> stopped(disconnected)
   - The data channel pipes frames transparently; the gateway does not parse RPC
 - When `space_sandboxes.provider = "local"`, the controller short-circuits provision / idle-destroy / recover
-- CLI: `cohub runtime up <dir>` creates/binds the Space and supervises the Workspace bridge and local Harness
+- CLI: `cohub runtime up <dir>` creates and remembers the directory's Space on first use, then reuses it on later starts, while supervising the Workspace bridge and local Harness
 
 ### Binary distribution
 

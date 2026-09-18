@@ -7,7 +7,8 @@ import type { Command } from "commander";
 import { requireAccessToken } from "../auth.js";
 import { createClient } from "../client.js";
 import { error, json as outJson, jsonRequested } from "../output.js";
-import { resolveSpace } from "../space.js";
+import { currentIdentityKey, explicitSpace, resolveSpace } from "../space.js";
+import { canonicalRuntimeRoot, resolveRuntimeSpace } from "../runtime/space-binding.js";
 import { discoverHarnesses } from "../runtime/harness.js";
 import { serveRuntime } from "../runtime/connection.js";
 import { RuntimeSessionStore } from "../runtime/session-store.js";
@@ -38,8 +39,9 @@ export function registerRuntime(program: Command) {
       const stop = () => controller.abort();
       process.once("SIGINT", stop); process.once("SIGTERM", stop);
       try {
-        const root = resolve(dir ?? process.cwd());
-        if (!(await stat(root)).isDirectory()) throw new Error("Workspace is not a directory");
+        const requestedRoot = resolve(dir ?? process.cwd());
+        if (!(await stat(requestedRoot)).isDirectory()) throw new Error("Workspace is not a directory");
+        const root = await canonicalRuntimeRoot(requestedRoot);
         const harnesses = parseRuntimeHarnesses(options.harness);
         if (!options.yes) {
           if (!process.stdin.isTTY) throw new Error("Use --yes to authorize local execution");
@@ -51,10 +53,21 @@ export function registerRuntime(program: Command) {
         }
         const capabilities = await discoverHarnesses(harnesses, options, root);
         const client = createClient();
-        const requested = options.space?.trim() || (program.opts().space as string | undefined)?.trim();
-        const spaceId = requested || (await client.spaces.create({ name: resolveLocalSpaceName(root, options.name), config: { sandbox: { provider: "local" } } })).space.id;
-        const sandbox = (await client.space(spaceId).sandbox.get()).sandbox;
-        if (sandbox?.provider !== "local") throw new Error("Space does not have a local Runtime");
+        const requested = options.space?.trim() || explicitSpace(program);
+        const validateLocalRuntime = async (spaceId: string) => {
+          const sandbox = (await client.space(spaceId).sandbox.get()).sandbox;
+          if (sandbox?.provider !== "local") throw new Error("Space does not have a local Runtime");
+        };
+        const { spaceId } = await resolveRuntimeSpace({
+          root,
+          identityKey: currentIdentityKey(),
+          explicitSpaceId: requested,
+          createSpace: async () => (await client.spaces.create({
+            name: resolveLocalSpaceName(root, options.name),
+            config: { sandbox: { provider: "local" } },
+          })).space.id,
+          validateSpace: validateLocalRuntime,
+        });
         const binary = await ensureSandboxdBinary();
         const wsBase = resolveWebsocketUrl({ url: process.env.COHUB_WS_URL });
         const url = new URL(wsBase); url.pathname = "/runtime/relay";

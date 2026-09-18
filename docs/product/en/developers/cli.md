@@ -42,7 +42,8 @@ ENV=dev cohub spaces ls
 | `--json` | Machine-readable output |
 | `-h, --help` | Command help |
 
-Many workflows need a Space:
+Many workflows need a Space. Without an explicit target, the CLI uses the Space
+remembered for the current directory before falling back to Home:
 
 ```bash
 cohub -s <spaceId> spaces get
@@ -144,14 +145,24 @@ Commands only ever reach the frontend instance that originated the current work,
 resolved from request provenance. They cannot target another user, and there is
 no DOM access or script evaluation.
 
-### Local Sandbox
+### Local Runtime
 
-Expose a local folder as the Space Sandbox:
+Expose a local folder as the Space Runtime:
 
 ```bash
-cohub runtime up ./my-project
+cd ./my-project
+
+# The first run creates and remembers the directory's Space.
+cohub runtime up
+
+# Later runs reuse it instead of creating another Space.
+cohub runtime up
 cohub runtime status
 ```
+
+Bindings are scoped by local directory, account, and environment, and stored in
+`~/.config/cohub/runtime-spaces.json`. Omitting `--space` reads the binding;
+an explicit `--space` or `COHUB_SPACE_ID` overrides and updates it.
 
 ### Boards
 

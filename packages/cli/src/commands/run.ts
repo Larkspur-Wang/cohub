@@ -1,7 +1,7 @@
 import type { TaskRunDetailResponse } from "@neta-art/cohub";
 import { createClient } from "../client.js";
 import { error, handleHttp, json as outJson, spinner } from "../output.js";
-import { missingSpaceError, resolveDefaultSpace } from "../space.js";
+import { resolveSpaceTarget } from "../space.js";
 
 type RunCliOptions = {
   spaceId: string;
@@ -65,7 +65,10 @@ function parseSpaceId(tokens: string[]): string | undefined {
   return undefined;
 }
 
-async function parseRunCliOptions(argv: string[]): Promise<RunCliOptions> {
+export async function parseRunCliOptions(
+  argv: string[],
+  spaceOptions: { cwd?: string; bindingsPath?: string } = {},
+): Promise<RunCliOptions> {
   const runIndex = topLevelRunIndex(argv);
   if (runIndex < 0) return error("Invalid invocation", "Use `cohub run [options] <command>`");
 
@@ -136,7 +139,7 @@ async function parseRunCliOptions(argv: string[]): Promise<RunCliOptions> {
     return error("No command", "Pass --command <shell command>, or use `--` followed by the command.");
   }
 
-  const spaceId = explicitSpaceId || (await resolveDefaultSpace().catch(handleHttp)) || missingSpaceError();
+  const spaceId = await resolveSpaceTarget(explicitSpaceId, spaceOptions);
   return { spaceId, json, async, command };
 }
 
@@ -158,7 +161,7 @@ Examples:
   cohub -s <spaceId> run -- git status -sb
 
 Notes:
-  - Without -s or COHUB_SPACE_ID, the command targets your Home space.
+  - Without -s or COHUB_SPACE_ID, the command uses the current directory Runtime binding, then Home.
   - Use --command for commands that contain leading flags, or use -- before the shell command.
   - The command runs in /workspace.
 `);
