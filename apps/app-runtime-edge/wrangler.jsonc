@@ -5,7 +5,7 @@
   "compatibility_date": "2026-09-18",
   "workers_dev": false,
   "preview_urls": false,
-  "build": { "command": "node scripts/build.mts --runtime-only" },
+  "build": { "command": "node scripts/build.mts" },
   "rules": [{ "type": "Text", "globs": ["**/*.js.txt"], "fallthrough": true }],
   "vars": { "COHUB_ENV": "dev" },
   "routes": [

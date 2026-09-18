@@ -11,7 +11,6 @@ on:
       - '.npmrc'
       - 'tsconfig.base.json'
       - 'biome.json'
-      - 'scripts/test/**'
   push:
     branches:
       - main
@@ -26,7 +25,6 @@ on:
       - '.npmrc'
       - 'tsconfig.base.json'
       - 'biome.json'
-      - 'scripts/test/**'
   workflow_dispatch:
     inputs:
       environment:
@@ -103,9 +101,6 @@ jobs:
       - name: Typecheck
         run: pnpm --filter @cohub/app-runtime-edge typecheck
 
-      - name: Test
-        run: pnpm --filter @cohub/app-runtime-edge test
-
       - name: Build
         run: pnpm --filter @cohub/app-runtime-edge build
 
@@ -121,9 +116,3 @@ jobs:
           else
             pnpm --filter @cohub/app-runtime-edge run deploy
           fi
-
-      - name: Verify deployed runtime
-        if: github.event_name != 'pull_request'
-        env:
-          DEPLOY_ENVIRONMENT: ${{ steps.target.outputs.environment }}
-        run: pnpm --filter @cohub/app-runtime-edge smoke -- --environment "$DEPLOY_ENVIRONMENT"

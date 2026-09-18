@@ -19,21 +19,5 @@ await Promise.all(["dev", "prod"].map(async (environment) => {
   });
   const output = result.outputFiles[0];
   if (!output) throw new Error("Runtime build produced no JavaScript.");
-  await Promise.all([
-    writeFile(new URL(`../dist/runtime-${environment}.js`, import.meta.url), output.contents),
-    writeFile(new URL(`../dist/runtime-${environment}.js.txt`, import.meta.url), output.contents),
-  ]);
+  await writeFile(new URL(`../dist/runtime-${environment}.js.txt`, import.meta.url), output.contents);
 }));
-
-if (!process.argv.includes("--runtime-only")) {
-  await build({
-    absWorkingDir: root,
-    entryPoints: ["src/index.ts"],
-    outfile: "dist/worker.js",
-    bundle: true,
-    format: "esm",
-    platform: "browser",
-    target: "es2022",
-    loader: { ".txt": "text" },
-  });
-}

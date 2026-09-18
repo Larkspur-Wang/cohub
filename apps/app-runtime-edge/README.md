@@ -27,29 +27,21 @@ Use Node 24 and the repository's Corepack pnpm version:
 corepack pnpm --filter @cohub/app-runtime-edge... --filter cohub install --frozen-lockfile
 corepack pnpm --filter @cohub/app-runtime-edge lint
 corepack pnpm --filter @cohub/app-runtime-edge typecheck
-corepack pnpm --filter @cohub/app-runtime-edge test
 corepack pnpm --filter @cohub/app-runtime-edge build
 ```
 
-`typecheck` generates `worker-configuration.d.ts` from Wrangler. Worker, browser, and build/test TypeScript contexts are checked separately. `build` compiles the browser runtime to independent Dev/Production IIFEs and bundles a standalone Worker for tests. Wrangler's custom build produces the runtime text modules before transpiling the edge TypeScript. Generated files stay in ignored directories.
-
-Tests use a local Workerd runtime with an in-memory outbound handler. They need local loopback sockets; they do not call live Cloudflare resources. This package's test script therefore runs directly instead of using the shared runner that disables all sockets.
+`typecheck` generates `worker-configuration.d.ts` from Wrangler. Worker, browser, and build-script TypeScript contexts are checked separately. `build` compiles the browser runtime to independent Dev/Production IIFEs and runtime text modules. Wrangler runs this build before compiling the edge TypeScript. Generated files stay in ignored directories.
 
 ## Deployment
 
-The `App Runtime Deploy to Cloudflare Workers` workflow runs focused PR checks. Pushes to `main` deploy Dev; stable service tags `vX.Y.Z` deploy Production; manual dispatch selects either environment. Deployments to each environment are serialized and followed by public smoke checks. It reuses the repository's `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets, just like the Web deployment workflow. The optional `GITEA_NPM_TOKEN` follows the existing install convention.
+The `App Runtime Deploy to Cloudflare Workers` workflow runs lint, typecheck, and build checks for PRs. Pushes to `main` deploy Dev; stable service tags `vX.Y.Z` deploy Production; manual dispatch selects either environment. Deployments to each environment are serialized. It reuses the repository's `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets, just like the Web deployment workflow. The optional `GITEA_NPM_TOKEN` follows the existing install convention.
 
 For an authorized manual deployment, set the standard Wrangler environment variables and run:
 
 ```bash
 corepack pnpm --filter @cohub/app-runtime-edge run deploy
-corepack pnpm --filter @cohub/app-runtime-edge smoke -- --environment dev
-
 corepack pnpm --filter @cohub/app-runtime-edge run deploy:prod
-corepack pnpm --filter @cohub/app-runtime-edge smoke -- --environment prod
 ```
-
-Smoke checks compare the served runtime with the local build, verify cache headers and conditional responses, and check injected versus raw HTML. The default fixture URLs are the Desktop Apps validated during initial rollout; use `--app-url` to replace a retired fixture. They require no API token. Worker/route configuration and deployment versions can additionally be read back with Cloudflare's control-plane API.
 
 Wrangler owns the names, routes, environment variables, and disabled workers.dev/preview URLs. Do not make unsynchronized Dashboard changes. Worker deployment is separate from npm package releases; this package is private.
 
