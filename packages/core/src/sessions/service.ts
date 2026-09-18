@@ -212,7 +212,12 @@ export function createSessionServices(input: {
     meta: Record<string, unknown>;
   }) {
     const userContent = sanitizePostgresJsonValue(turnInput.userContent);
-    const meta = sanitizePostgresJsonValue(turnInput.meta);
+    const requestId = getRequestId();
+    const turnMeta: Record<string, unknown> = {
+      ...turnInput.meta,
+      ...(requestId && typeof turnInput.meta.requestId !== "string" ? { requestId } : {}),
+    };
+    const meta = sanitizePostgresJsonValue(turnMeta);
     const userText = deriveMessagePreviewText({ content: userContent }) || null;
     const model = typeof meta.model === "string" && meta.model.trim() ? meta.model.trim() : null;
     const provider = typeof meta.provider === "string" && meta.provider.trim() ? meta.provider.trim() : null;

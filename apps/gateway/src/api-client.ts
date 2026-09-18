@@ -405,6 +405,7 @@ export const reportLocalSandboxStatus = async (input: {
   wsEndpoint?: string | null;
   hostname?: string | null;
   gatewayNodeId?: string | null;
+  runtimeId?: string | null;
 }): Promise<void> => {
   const response = await fetch(`${gatewayConfig.apiBaseUrl}/internal/gateway/local-sandbox/status`, {
     method: "POST",

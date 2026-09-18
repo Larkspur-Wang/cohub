@@ -4,6 +4,7 @@ import type { RuntimeSessionStore, NativeSession } from "./session-store.js";
 import { codexModelCatalog } from "./model-catalog.js";
 import { codexTokenTotals, codexUsage, subtractCodexTokens } from "./codex-usage.js";
 import { downloadPublicImage } from "../safe-remote-image.js";
+import { serializeDiagnosticError, type RuntimeDiagnostics, type RuntimeDiagnosticContext } from "./diagnostics.js";
 
 export type HarnessOptions = { pi?: string; codex?: string };
 export type HarnessResult = { state: NativeSession; event: Extract<RuntimeExecutionEvent, { type: "turn.end" }> };
@@ -52,8 +53,8 @@ function createAbortEscalation(rpc: JsonRpcProcess, signal: AbortSignal, interru
 }
 
 /** Native files stay authoritative; archival failure only degrades cross-host resume. */
-async function finishHarnessTurn(store: RuntimeSessionStore, state: NativeSession, message: RuntimeMessage, resume: HarnessResult["event"]["resume"], turnId: string): Promise<HarnessResult> {
-  const archive = await store.archive(state, turnId).catch((error) => { console.error("Native archive unavailable; local files retained:", error); return null; });
+async function finishHarnessTurn(store: RuntimeSessionStore, state: NativeSession, message: RuntimeMessage, resume: HarnessResult["event"]["resume"], turnId: string, diagnosticContext?: RuntimeDiagnosticContext): Promise<HarnessResult> {
+  const archive = await store.archive(state, turnId, diagnosticContext).catch((error) => { console.error("Native archive unavailable; local files retained:", error); return null; });
   return { state, event: { type: "turn.end", message, resume, archive } };
 }
 
@@ -88,7 +89,7 @@ export async function discoverHarnesses(harnesses: ("pi" | "codex")[], options: 
   return { harnesses, models };
 }
 
-export async function executePi(input: RuntimeTurnInput, options: HarnessOptions, cwd: string, store: RuntimeSessionStore, emit: (event: RuntimeExecutionEvent) => void, signal: AbortSignal): Promise<HarnessResult> {
+export async function executePi(input: RuntimeTurnInput, options: HarnessOptions, cwd: string, store: RuntimeSessionStore, emit: (event: RuntimeExecutionEvent) => void, signal: AbortSignal, diagnostics?: RuntimeDiagnostics, diagnosticContext?: RuntimeDiagnosticContext): Promise<HarnessResult> {
   if (input.accessMode === "read_only") throw new Error("Pi cannot enforce read-only access; select Cohub or Codex");
   signal.throwIfAborted();
   const { state, resume } = await store.prepare(input, cwd, signal);
@@ -98,6 +99,12 @@ export async function executePi(input: RuntimeTurnInput, options: HarnessOptions
   let currentContent: ContentBlock[] = [];
   let last: RuntimeMessage = { ordinal: 0, content: [] };
   const abortEscalation = createAbortEscalation(rpc, signal, () => { void rpc.request("abort").catch(() => undefined); });
+  const stopFailureLogging = diagnostics
+    ? rpc.onFailure((error) => diagnostics.log("error", "harness.rpc_process_failed", { error: serializeDiagnosticError(error) }, { ...diagnosticContext, component: "harness" }))
+    : () => undefined;
+  const stopTimeoutLogging = diagnostics
+    ? rpc.onTimeout((method, timeoutMs) => diagnostics.log("error", "harness.rpc_timeout", { method, timeoutMs }, { ...diagnosticContext, component: "harness" }))
+    : () => undefined;
   try {
     if (input.model) {
       let provider = input.provider;
@@ -170,10 +177,18 @@ export async function executePi(input: RuntimeTurnInput, options: HarnessOptions
     last = { ...last, stopReason: signal.aborted ? "aborted" : "error", errorMessage: signal.aborted ? null : error instanceof Error ? error.message : String(error) };
   } finally {
     abortEscalation.clear();
+    stopFailureLogging();
+    stopTimeoutLogging();
     await rpc.close();
   }
   if (signal.aborted) last = { ...last, stopReason: "aborted" };
-  return finishHarnessTurn(store, state, last, resume, input.turnId);
+  return finishHarnessTurn(store, state, last, resume, input.turnId, {
+    component: "harness",
+    sessionId: input.sessionId,
+    turnId: input.turnId,
+    harness: "pi",
+    traceContext: input.traceContext,
+  });
 }
 
 export function codexItemContent(item: JsonRecord): ContentBlock[] {
@@ -190,11 +205,17 @@ export function codexItemContent(item: JsonRecord): ContentBlock[] {
   ];
 }
 
-export async function executeCodex(input: RuntimeTurnInput, options: HarnessOptions, cwd: string, store: RuntimeSessionStore, emit: (event: RuntimeExecutionEvent) => void, signal: AbortSignal): Promise<HarnessResult> {
+export async function executeCodex(input: RuntimeTurnInput, options: HarnessOptions, cwd: string, store: RuntimeSessionStore, emit: (event: RuntimeExecutionEvent) => void, signal: AbortSignal, diagnostics?: RuntimeDiagnostics, diagnosticContext?: RuntimeDiagnosticContext): Promise<HarnessResult> {
   signal.throwIfAborted();
   const { state, resume } = await store.prepare(input, cwd, signal);
   signal.throwIfAborted();
   const rpc = new JsonRpcProcess(options.codex || "codex", ["app-server", "--listen", "stdio://"], cwd, "codex", runtimeEnvironment(input));
+  const stopFailureLogging = diagnostics
+    ? rpc.onFailure((error) => diagnostics.log("error", "harness.rpc_process_failed", { error: serializeDiagnosticError(error) }, { ...diagnosticContext, component: "harness" }))
+    : () => undefined;
+  const stopTimeoutLogging = diagnostics
+    ? rpc.onTimeout((method, timeoutMs) => diagnostics.log("error", "harness.rpc_timeout", { method, timeoutMs }, { ...diagnosticContext, component: "harness" }))
+    : () => undefined;
   let nativeTurnId: string | null = null;
   let ordinal = -1;
   const ordinals = new Map<string, number>();
@@ -330,9 +351,17 @@ export async function executeCodex(input: RuntimeTurnInput, options: HarnessOpti
     final = { ...latestMessage(), stopReason: signal.aborted ? "aborted" : "error", errorMessage: signal.aborted ? null : error instanceof Error ? error.message : String(error) };
   } finally {
     abortEscalation.clear();
+    stopFailureLogging();
+    stopTimeoutLogging();
     await rpc.close();
   }
   if (signal.aborted) final = { ...final, stopReason: "aborted" };
   if (usage) final = { ...final, usage };
-  return finishHarnessTurn(store, state, final, resume, input.turnId);
+  return finishHarnessTurn(store, state, final, resume, input.turnId, {
+    component: "harness",
+    sessionId: input.sessionId,
+    turnId: input.turnId,
+    harness: "codex",
+    traceContext: input.traceContext,
+  });
 }

@@ -91,7 +91,7 @@ export async function exchangeRuntimeTurn(options: RuntimeExchangeOptions): Prom
               clearTimeout(phaseTimer);
               if (options.recovery) {
                 const { spaceId, sessionId, turnId, harness } = options.input;
-                send({ type: "turn.recover", requestId, execution: { spaceId, sessionId, turnId, harness } });
+                send({ type: "turn.recover", requestId, execution: { spaceId, sessionId, turnId, harness }, traceContext: options.input.traceContext });
                 phaseTimer = setTimeout(() => finish(new RuntimeExecutionUncertainError("Runtime result is not available yet")), ackMs);
               } else send({ type: "turn.start", requestId, resumeOnly: started, input: options.input });
               started = true;

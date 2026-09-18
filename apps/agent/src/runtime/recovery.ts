@@ -44,7 +44,12 @@ async function recoverOrphanTurn(input: { spaceId: string; turn: typeof sessionT
   const { turn, lock } = input;
   try {
     const batch = await loadClaimedTurnBatch({ ...turn, intent: turn.intent ?? "followup" });
-    await executeRemoteHarnessTurn({ spaceId: input.spaceId, sessionId: turn.sessionId, batch, actorUserId: turn.userUuid, harness: input.harness, accessMode: "read_only", recovery: true, abortSignal: lock.signal, leaseSignal: lock.signal });
+    const meta = turnMeta(turn);
+    const context = meta?.context && typeof meta.context === "object" && !Array.isArray(meta.context)
+      ? meta.context as Record<string, unknown>
+      : null;
+    const requestId = typeof context?.requestId === "string" ? context.requestId : null;
+    await executeRemoteHarnessTurn({ spaceId: input.spaceId, sessionId: turn.sessionId, batch, actorUserId: turn.userUuid, harness: input.harness, accessMode: "read_only", recovery: true, requestId, abortSignal: lock.signal, leaseSignal: lock.signal });
     return "recovered";
   } catch (error) {
     if (!(error instanceof RuntimeResultUnavailableError)) {

@@ -1,6 +1,7 @@
 import { BillingAccessBlockedError, COHUB_BILLING_FEATURES, billingOperations } from "@cohub/billing";
 import { DEFAULT_SANDBOX_SPEC_ID, SANDBOX_SPECS, getSandboxSpecRank, isSandboxSpecId, type SandboxSpecId } from "@cohub/sandbox-controller";
 import { createLogger } from "@cohub/infra/logging";
+import { getCurrentRequestId } from "@cohub/infra/tracing";
 import { Hono, type Context } from "hono";
 import type { ContentBlock } from "@cohub/protocol/core";
 import { fileWatcherStatusSchema, getDefaultSpaceModsForEnv, harnessSchema, isLocalHarness, runtimeStopConfirmationSchema } from "@cohub/protocol";
@@ -97,7 +98,6 @@ import { validatePromptModel } from "../../llm/models.js";
 
 const logger = createLogger({ serviceName: "cohub-api" });
 const getSpaceSaveCheckpointLockKey = (spaceId: string) => `cohub:space:${spaceId}:save-checkpoint`;
-
 const router = new Hono();
 router.route("/:id/runtime/archives", runtimeArchivesRouter);
 const { CronExpressionParser } = cronParser;
@@ -1829,7 +1829,7 @@ router.get("/:id/runtime", async (c) => {
       if (parsed.success) fileWatcher = parsed.data;
     } catch { /* Invalid telemetry never affects Runtime availability. */ }
   }
-  return c.json({ kind: sandbox?.provider ?? "cloud", online: Boolean(registration), capabilities: registration?.capabilities ?? null, fileWatcher });
+  return c.json({ kind: sandbox?.provider ?? "cloud", online: Boolean(registration), runtimeId: registration?.runtimeId ?? null, capabilities: registration?.capabilities ?? null, fileWatcher });
 });
 
 router.get("/:id/sessions/:sessionId/runtime", async (c) => {
@@ -2049,7 +2049,7 @@ router.post("/:id/prompt", async (c) => {
         intent: promptIntent,
         accessMode,
         env: promptEnv,
-        context: { kind: "public_api", auth: await getPromptAuthContext(c, spaceId) },
+        context: { kind: "public_api", requestId: getCurrentRequestId(), auth: await getPromptAuthContext(c, spaceId) },
       }, {}, requestedModel && requestedProvider
         ? { prevalidatedModel: { provider: requestedProvider, model: requestedModel } }
         : {});

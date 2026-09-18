@@ -113,7 +113,11 @@ func main() {
 		return
 	}
 
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	var handler slog.Handler = slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})
+	if *localMode || strings.EqualFold(strings.TrimSpace(os.Getenv("COHUB_LOG_FORMAT")), "json") {
+		handler = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})
+	}
+	logger := slog.New(handler)
 
 	if *localMode {
 		runLocal(logger, *localSpace, *localRoot, *localRelay)
@@ -317,6 +321,15 @@ func runLocal(logger *slog.Logger, spaceID, root, relayURL string) {
 		os.Exit(1)
 	}
 
+	runtimeID := strings.TrimSpace(os.Getenv("COHUB_RUNTIME_ID"))
+	if runtimeID != "" {
+		logger = logger.With(
+			slog.String("component", "sandboxd"),
+			slog.String("runtimeId", runtimeID),
+			slog.String("spaceId", cfg.SpaceID),
+		)
+	}
+
 	state := &prepareState{status: "ready"}
 	hostname, _ := os.Hostname()
 
@@ -328,6 +341,7 @@ func runLocal(logger *slog.Logger, spaceID, root, relayURL string) {
 		RelayURL:     cfg.RelayURL,
 		Token:        cfg.RelayToken,
 		SpaceID:      cfg.SpaceID,
+		RuntimeID:    runtimeID,
 		OnRegistered: func() { requestFSResync() },
 		Logger:       logger,
 	})

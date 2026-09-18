@@ -56,6 +56,7 @@ Common commands:
   cohub completion "Summarize AGENTS.md" --system-prompt AGENTS.md --stream
   cohub run -- git status
   cohub runtime up ./my-project
+  cohub runtime logs --follow
   cohub search "release notes"
   cohub -s <space-id> boards inspect <board-id>
   cohub -s <space-id> spaces turns ls --author others
@@ -77,6 +78,7 @@ Environment:
   COHUB_EXECUTION_TOKEN  Use this token instead of the stored Logto session
   ENV=dev                Use the development Cohub environment
   HTTPS_PROXY            Honored for API and uploads (also HTTP_PROXY, NO_PROXY)
+  Runtime logs            ~/.local/state/cohub/runtime/<space-id>/diagnostics
 `);
 
 registerAuth(program);

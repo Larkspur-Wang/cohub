@@ -6,6 +6,7 @@ import { runtimeRegistrationKey, parseRuntimeRegistration, type RuntimeExecution
 import { redis, sendOutput } from "../redis.js";
 import { env } from "../env.js";
 import { logger } from "../logger.js";
+import { getActiveTraceIdentifiers } from "@cohub/infra/tracing";
 import { getSpaceSandbox } from "../api.js";
 import { persistAssistantMessage, persistBatchUserMessages } from "../persistence.js";
 import { createRuntimeStream } from "../stream/runtime-stream.js";
@@ -36,7 +37,7 @@ export async function markRuntimeRecovery(turnId: string, recovery: RuntimeRecov
 export async function executeRemoteHarnessTurn(input: {
   spaceId: string; sessionId: string; batch: ClaimedTurnBatch; actorUserId: string | null;
   accessMode: PromptAccessMode; requestedThinkingLevel?: string | null;
-  harness: "pi" | "codex"; provider?: string | null; model?: string | null; abortSignal: AbortSignal;
+  harness: "pi" | "codex"; provider?: string | null; model?: string | null; requestId?: string | null; abortSignal: AbortSignal;
   recovery?: boolean;
   leaseSignal?: AbortSignal;
 }): Promise<void> {
@@ -60,6 +61,7 @@ export async function executeRemoteHarnessTurn(input: {
   if (!user || !first || user.turnId !== input.batch.ownerTurn.id) throw new Error("Invalid Runtime batch / Runtime 批次无效");
   const userMessageId = user.userMessageId;
   const beforeSequence = first.turnSeq;
+  const traceIdentifiers = getActiveTraceIdentifiers(input.requestId?.trim() || user.turnId);
   const context = await loadRuntimeContext({ spaceId: input.spaceId, sessionId: input.sessionId, beforeSequence, headOnly: true, harness: input.harness });
   await persistBatchUserMessages({ spaceId: input.spaceId, sessionId: input.sessionId, batch: input.batch });
   const command: RuntimeTurnInput = {
@@ -67,8 +69,25 @@ export async function executeRemoteHarnessTurn(input: {
     harness: input.harness, messages: users.map((message, index) => ({ turnId: message.turnId, userMessageId: message.userMessageId,
       userId: input.batch.turns[index]?.userUuid ?? null, content: message.content })),
     context, provider: input.provider, model: input.model,
-    thinkingLevel: input.requestedThinkingLevel, accessMode: input.accessMode,
+    thinkingLevel: input.requestedThinkingLevel,
+    requestId: traceIdentifiers.requestId,
+    traceContext: {
+      requestId: traceIdentifiers.requestId,
+      traceId: traceIdentifiers.traceId,
+      spanId: traceIdentifiers.spanId,
+      traceparent: traceIdentifiers.traceparent,
+    },
+    accessMode: input.accessMode,
   };
+  logger.info("[Runtime] dispatching local turn", {
+    spaceId: input.spaceId,
+    sessionId: input.sessionId,
+    turnId: user.turnId,
+    harness: input.harness,
+    runtimeId: registration.runtimeId ?? null,
+    requestId: traceIdentifiers.requestId,
+    traceId: traceIdentifiers.traceId,
+  });
   const stream = createRuntimeStream({ spaceId: input.spaceId, sessionId: input.sessionId, turnId: user.turnId, userMessageId }, sendOutput, (error) => logger.warn("[Runtime] stream delivery failed; persistence continues", error));
   const committed = new Set<number>();
   let finalRevision: string | null = null;

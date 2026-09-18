@@ -45,6 +45,7 @@ export class JsonRpcProcess {
   private pending = new Map<string, { resolve: (value: JsonRecord) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
   private listeners = new Set<(event: JsonRecord) => void>();
   private failureListeners = new Set<(error: Error) => void>();
+  private timeoutListeners = new Set<(method: string, timeoutMs: number) => void>();
   private failure: Error | null = null;
   private nextId = 0;
   private stderr = "";
@@ -91,7 +92,11 @@ export class JsonRpcProcess {
     if (this.failure) return Promise.reject(this.failure);
     const id = String(++this.nextId);
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => { this.pending.delete(id); reject(new Error(`${method} timed out`)); }, timeoutMs);
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        for (const listener of this.timeoutListeners) listener(method, timeoutMs);
+        reject(new Error(`${method} timed out`));
+      }, timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
       try { this.write(this.mode === "pi" ? { ...params, id, type: method } : { id, method, params }); }
       catch (error) { clearTimeout(timer); this.pending.delete(id); reject(error); }
@@ -103,6 +108,10 @@ export class JsonRpcProcess {
     if (this.failure) queueMicrotask(() => { if (this.failure && this.failureListeners.has(listener)) listener(this.failure); });
     return () => this.failureListeners.delete(listener);
   }
+  onTimeout(listener: (method: string, timeoutMs: number) => void) {
+    this.timeoutListeners.add(listener);
+    return () => this.timeoutListeners.delete(listener);
+  }
   close(): Promise<void> {
     this.closing ??= this.closeProcessGroup();
     return this.closing;
@@ -113,7 +122,7 @@ export class JsonRpcProcess {
     } finally {
       this.child.stdin.destroy(); this.child.stdout.destroy(); this.child.stderr.destroy();
       this.fail(new Error("RPC process closed"));
-      this.listeners.clear(); this.failureListeners.clear();
+      this.listeners.clear(); this.failureListeners.clear(); this.timeoutListeners.clear();
     }
     await this.closed;
   }

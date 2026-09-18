@@ -18,6 +18,24 @@ locally. `--pi` and `--codex` override executable paths. Repeated `--harness`
 options and comma-separated values are accepted. `--yes` accepts the explicit
 local execution consent for non-interactive startup.
 
+## Diagnostics
+
+The Runtime writes redacted, ordered JSONL diagnostics under
+`~/.local/state/cohub/runtime/<space-id>/diagnostics/`. Network, WebSocket,
+Harness, archive and sandboxd lifecycle failures include `runtimeId`,
+`connectionId`, `requestId`, `sessionId` / `turnId`, and when available the
+server `traceparent` / `traceId`.
+
+```bash
+cohub runtime logs --space <space-id>
+cohub runtime logs --space <space-id> --follow
+cohub runtime logs --space <space-id> --json
+```
+
+Diagnostics stay on the local machine and are never uploaded automatically. Use
+`runtime logs` or `runtime logs --json` to inspect or export them. Prompts, tool
+arguments, file contents and credentials are not recorded.
+
 ## Shared Pipeline
 
 ```text

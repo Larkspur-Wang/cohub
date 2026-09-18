@@ -16,7 +16,7 @@ import { codexArchiveTotals, codexTokenTotals, codexUsage, subtractCodexTokens }
 test("Runtime CLI exposes only the up and status commands", () => {
   const program = new Command();
   registerRuntime(program);
-  assert.deepEqual(program.commands[0]?.commands.map((command) => command.name()), ["up", "status"]);
+  assert.deepEqual(program.commands[0]?.commands.map((command) => command.name()), ["up", "status", "logs"]);
 });
 
 const spaceId = "11111111-1111-4111-8111-111111111111";

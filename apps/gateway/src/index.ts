@@ -1004,7 +1004,7 @@ async function main() {
     });
   });
 
-  runtimeWss.on("connection", handleRuntimeConnection);
+  runtimeWss.on("connection", (socket, request) => handleRuntimeConnection(socket, request));
   asrWss.on("connection", handleAsrWebSocketConnection);
   relayControlWss.on("connection", (socket, request) => void handleRelayControlConnection(socket, request));
   relayDataWss.on("connection", (socket, request) => handleRelayDataConnection(socket, request));

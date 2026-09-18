@@ -88,7 +88,13 @@ cohub runtime up ./project --harness pi --harness codex
 cohub runtime up ./project --space <spaceId> --harness codex
 cohub -s <spaceId> spaces prompt "Continue" --harness codex
 cohub runtime status --space <spaceId>
+cohub runtime logs --space <spaceId> --follow
 ```
+
+Runtime diagnostics stay as redacted JSONL under the local Runtime state directory and
+are never uploaded automatically. Use `runtime logs --json` to export a failure report;
+events carry the local `runtimeId` plus server `requestId` / `traceparent` when a turn has
+reached the Agent trace.
 
 The Runtime uses WebSockets, native Pi RPC / Codex app-server, and existing cloud
 streaming. Local executables and credentials are required. `sandbox up` has been

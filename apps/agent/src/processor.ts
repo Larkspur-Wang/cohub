@@ -910,6 +910,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
             harness: requestedHarness,
             provider: typeof ownerMeta.provider === "string" ? ownerMeta.provider : null,
             model: typeof ownerMeta.model === "string" ? ownerMeta.model : null,
+            requestId,
             abortSignal: remoteController.signal,
             leaseSignal: lock.signal,
           });

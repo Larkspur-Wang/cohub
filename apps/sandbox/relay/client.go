@@ -39,6 +39,8 @@ type Options struct {
 	Token string
 	// SpaceID identifies the space this sandbox serves.
 	SpaceID string
+	// RuntimeID identifies one local `runtime up` process across reconnects.
+	RuntimeID string
 	// Server serves each opened data channel.
 	Server       SessionServer
 	OnRegistered func()
@@ -51,13 +53,14 @@ type Options struct {
 // gateway republishes to space subscribers, so the web file tree stays live
 // even when no agent is attached.
 type controlFrame struct {
-	Type    string          `json:"type"`
-	SpaceID string          `json:"spaceId,omitempty"`
-	Token   string          `json:"token,omitempty"`
-	Channel string          `json:"channel,omitempty"`
-	Message string          `json:"message,omitempty"`
-	Status  int             `json:"status,omitempty"`
-	Payload json.RawMessage `json:"payload,omitempty"`
+	Type      string          `json:"type"`
+	SpaceID   string          `json:"spaceId,omitempty"`
+	RuntimeID string          `json:"runtimeId,omitempty"`
+	Token     string          `json:"token,omitempty"`
+	Channel   string          `json:"channel,omitempty"`
+	Message   string          `json:"message,omitempty"`
+	Status    int             `json:"status,omitempty"`
+	Payload   json.RawMessage `json:"payload,omitempty"`
 }
 
 const (
@@ -115,6 +118,18 @@ func (e *relayAuthError) Unwrap() error {
 func isFatalRelayError(err error) bool {
 	var authErr *relayAuthError
 	return errors.As(err, &authErr)
+}
+
+func relayErrorStatus(err error) int {
+	var authErr *relayAuthError
+	if errors.As(err, &authErr) {
+		return authErr.status
+	}
+	var configErr *relayConfigError
+	if errors.As(err, &configErr) {
+		return configErr.status
+	}
+	return 0
 }
 
 func controlRejection(status int, message string) error {
@@ -198,7 +213,15 @@ func (c *Client) Run(ctx context.Context) error {
 			return err
 		}
 		if err != nil {
-			opts.Logger.Warn("relay control connection ended", slog.String("error", err.Error()))
+			attrs := []any{
+				slog.String("error", err.Error()),
+				slog.Int("attempt", attempt+1),
+				slog.Duration("connectionAge", time.Since(start)),
+			}
+			if status := relayErrorStatus(err); status != 0 {
+				attrs = append(attrs, slog.Int("status", status))
+			}
+			opts.Logger.Warn("relay control connection ended", attrs...)
 		}
 		// A connection that stayed up for a while resets the backoff.
 		if time.Since(start) > time.Minute {
@@ -231,10 +254,20 @@ func (c *Client) connectControl(ctx context.Context) error {
 	dialCtx, cancel := context.WithTimeout(ctx, dialTimeout)
 	defer cancel()
 
+	dialStarted := time.Now()
 	conn, response, err := websocket.Dial(dialCtx, controlURL(opts.RelayURL), &websocket.DialOptions{
 		HTTPHeader: http.Header{"Authorization": {"Bearer " + opts.Token}},
 	})
 	if err != nil {
+		attrs := []any{slog.String("error", err.Error()), slog.Duration("duration", time.Since(dialStarted))}
+		if response != nil {
+			attrs = append(attrs, slog.Int("status", response.StatusCode))
+		}
+		if response != nil {
+			opts.Logger.Warn("relay control dial failed", attrs...)
+		} else {
+			opts.Logger.Debug("relay control dial failed", attrs...)
+		}
 		if response != nil && response.StatusCode == http.StatusUnauthorized {
 			return &relayAuthError{status: response.StatusCode, err: err}
 		}
@@ -248,7 +281,7 @@ func (c *Client) connectControl(ctx context.Context) error {
 	// caps this side too). Data channels keep their own larger limit.
 	conn.SetReadLimit(1024 * 1024)
 
-	if err := wsjson.Write(ctx, conn, controlFrame{Type: "register", SpaceID: opts.SpaceID, Token: opts.Token}); err != nil {
+	if err := wsjson.Write(ctx, conn, controlFrame{Type: "register", SpaceID: opts.SpaceID, RuntimeID: opts.RuntimeID, Token: opts.Token}); err != nil {
 		return fmt.Errorf("send register: %w", err)
 	}
 
@@ -318,16 +351,21 @@ func controlPingLoop(ctx context.Context, conn *websocket.Conn, cancel context.C
 // serves it with the standard protocol. Each channel is independent; the
 // gateway pipes it transparently to one waiting cloud peer (agent, worker…).
 func openDataChannel(ctx context.Context, opts Options, channel string) {
+	dialStarted := time.Now()
 	dialCtx, cancel := context.WithTimeout(ctx, dialTimeout)
-	conn, _, err := websocket.Dial(dialCtx, dataURL(opts.RelayURL, channel), &websocket.DialOptions{
+	conn, response, err := websocket.Dial(dialCtx, dataURL(opts.RelayURL, channel), &websocket.DialOptions{
 		HTTPHeader: http.Header{"Authorization": {"Bearer " + opts.Token}},
 	})
 	cancel()
 	if err != nil {
-		opts.Logger.Warn("relay data channel dial failed", slog.String("channel", channel), slog.String("error", err.Error()))
+		attrs := []any{slog.String("channel", channel), slog.String("error", err.Error()), slog.Duration("duration", time.Since(dialStarted))}
+		if response != nil {
+			attrs = append(attrs, slog.Int("status", response.StatusCode))
+		}
+		opts.Logger.Warn("relay data channel dial failed", attrs...)
 		return
 	}
-	opts.Logger.Info("relay data channel opened", slog.String("channel", channel))
+	opts.Logger.Info("relay data channel opened", slog.String("channel", channel), slog.Duration("duration", time.Since(dialStarted)))
 	opts.Server.ServeDialedConn(ctx, conn, "relay:"+channel)
 }
 

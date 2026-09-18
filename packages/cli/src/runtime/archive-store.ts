@@ -39,7 +39,11 @@ export async function atomicRuntimeJson(path: string, value: unknown) {
 export class RuntimeArchiveStore {
   private flushing: Promise<void> | null = null;
   private readonly capturing = new Map<string, Promise<HarnessArchive>>();
+  private errorReporter: ((error: unknown, index?: HarnessArchiveIndex) => void) | null = null;
   constructor(readonly root: string, private readonly transport?: ArchiveTransport) {}
+  setErrorReporter(reporter: ((error: unknown, index?: HarnessArchiveIndex) => void) | null): void {
+    this.errorReporter = reporter;
+  }
   async pendingCount() {
     const pending = new Set<string>();
     for (const directory of ["pending", "captures"]) {
@@ -181,7 +185,10 @@ export class RuntimeArchiveStore {
         await rm(join(this.root, "pending", `${index.turnId}.json`), { force: true });
         queue.push(...children.get(index.turnId) ?? []);
       } catch (error) {
-        if (!signal.aborted) console.error("Archive pending; native segments retained:", error);
+        if (!signal.aborted) {
+          this.errorReporter?.(error, index);
+          console.error("Archive pending; native segments retained:", error);
+        }
       }
     }
   }

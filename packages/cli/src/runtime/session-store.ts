@@ -6,6 +6,7 @@ import { contextToPiMessages, RUNTIME_RECOVERY_BATCH_SIZE, selectRuntimeContextM
 import { RuntimeArchiveStore, checksumNativeFile, atomicRuntimeJson as atomicJson, type ArchiveTransport } from "./archive-store.js";
 import type { CodexTokenTotals } from "./codex-usage.js";
 import { importNativeArchive, readCodexArchiveTotals } from "./native-archive.js";
+import { serializeDiagnosticError, type RuntimeDiagnosticContext, type RuntimeDiagnostics } from "./diagnostics.js";
 
 export class ContextRequiredError extends Error {
   constructor(message: string, readonly historyOnly = false) { super(message); }
@@ -35,9 +36,19 @@ export class RuntimeSessionStore {
   readonly root: string;
   readonly archives: RuntimeArchiveStore;
   private archiveFlush: Promise<void> | null = null;
+  private diagnostics: RuntimeDiagnostics | null = null;
   constructor(spaceId: string, stateRoot = join(homedir(), ".local", "state", "cohub", "runtime"), transport?: ArchiveTransport) {
     this.root = join(stateRoot, spaceId);
     this.archives = new RuntimeArchiveStore(join(this.root, "archives"), transport);
+  }
+  setDiagnostics(diagnostics: RuntimeDiagnostics): void {
+    this.diagnostics = diagnostics;
+    this.archives.setErrorReporter((error, index) => diagnostics.log("warn", "archive.upload_pending", { error: serializeDiagnosticError(error) }, {
+      component: "archive",
+      sessionId: index?.sessionId,
+      turnId: index?.turnId,
+      harness: index?.harness,
+    }));
   }
   private statePath(input: Pick<RuntimeTurnInput, "sessionId" | "harness">) { return join(this.root, input.harness, `${input.sessionId}.json`); }
   async *pendingExecutionBatches(): AsyncGenerator<RuntimePendingExecution[]> {
@@ -56,6 +67,7 @@ export class RuntimeSessionStore {
             batch = [];
           }
         } catch (error) {
+          this.diagnostics?.log("error", "runtime.session_state_unreadable", { path: join(directory, name), error: serializeDiagnosticError(error) });
           console.error(`Runtime session state unreadable: ${join(directory, name)}`, error);
         }
       }
@@ -100,8 +112,12 @@ export class RuntimeSessionStore {
             receipt, reason: error.message, failedAt: new Date().toISOString(),
           });
           await rm(join(captures, name), { force: true });
+          this.diagnostics?.log("error", "archive.capture_unavailable", { reason: error.message, receipt: true }, { component: "archive" });
           console.error("Archive capture unavailable; receipt retained:", error.message);
-        } else console.error("Archive capture pending:", error);
+        } else {
+          this.diagnostics?.log("warn", "archive.capture_pending", { error: serializeDiagnosticError(error) }, { component: "archive" });
+          console.error("Archive capture pending:", error);
+        }
       }
     }
     await this.archives.flush(signal);
@@ -181,6 +197,7 @@ export class RuntimeSessionStore {
         return { state, resume: "restored" };
       } catch (error) {
         signal?.throwIfAborted();
+        this.diagnostics?.log("warn", "archive.restore_failed", { error: serializeDiagnosticError(error) }, { component: "archive" });
         console.error("Native archive unavailable; rebuilding from durable history:", error);
       }
     }
@@ -232,12 +249,17 @@ export class RuntimeSessionStore {
       return { state: saved.state, events: saved.events.map((event) => runtimeEventSchema.parse(event)) };
     } catch (error) { if (missing(error)) return null; throw error; }
   }
-  async archive(state: NativeSession, turnId: string): Promise<HarnessArchive | null> {
+  async archive(state: NativeSession, turnId: string, diagnosticContext: RuntimeDiagnosticContext = {}): Promise<HarnessArchive | null> {
     if (!state.path) return null;
     state.archivePendingTurnId = turnId;
-    const reference = await this.archives.stage(state, turnId);
-    state.archivePendingTurnId = undefined;
-    return reference;
+    try {
+      const reference = await this.archives.stage(state, turnId);
+      state.archivePendingTurnId = undefined;
+      return reference;
+    } catch (error) {
+      this.diagnostics?.log("warn", "archive.capture_failed", { error: serializeDiagnosticError(error) }, { ...diagnosticContext, component: "archive", turnId, harness: state.harness });
+      throw error;
+    }
   }
   async acknowledge(state: NativeSession, turnId: string, revision: string) {
     if (state.pendingTurnId !== turnId) throw new Error("Runtime acknowledgement identity mismatch");

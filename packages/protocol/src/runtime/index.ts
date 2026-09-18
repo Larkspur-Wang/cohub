@@ -45,6 +45,14 @@ export type RuntimeContext = {
   settledTurnIds?: string[];
 };
 
+/** Trace identifiers carried to a local Runtime without carrying credentials. */
+export type RuntimeTraceContext = {
+  requestId?: string;
+  traceId?: string | null;
+  spanId?: string | null;
+  traceparent?: string | null;
+};
+
 export const runtimeCapabilitiesSchema = z.object({
   harnesses: z.array(z.enum(["pi", "codex"])).min(1).max(2),
   models: z.array(z.object({
@@ -63,6 +71,7 @@ export const runtimePendingExecutionSchema = z.object({
 export type RuntimePendingExecution = z.infer<typeof runtimePendingExecutionSchema>;
 export const runtimeRegistrationSchema = z.object({
   connectionId: z.string().uuid(),
+  runtimeId: z.string().uuid().optional(),
   endpoint: z.url({ protocol: /^wss?$/ }),
   ownerUserId: z.string().min(1),
   capabilities: runtimeCapabilitiesSchema,
@@ -77,6 +86,14 @@ export function parseRuntimeRegistration(raw: string): RuntimeRegistration | nul
 export const runtimeReadySchema = z.object({ type: z.literal("runtime.ready"), connectionId: z.string().uuid() });
 
 export type RuntimeExecutionIdentity = { spaceId: string; sessionId: string; turnId: string; harness: LocalHarness };
+
+const runtimeTraceContextSchema = z.object({
+  requestId: z.string().regex(/^[a-zA-Z0-9._:-]{1,128}$/).optional(),
+  traceId: z.string().regex(/^[0-9a-f]{32}$/i).nullable().optional(),
+  spanId: z.string().regex(/^[0-9a-f]{16}$/i).nullable().optional(),
+  traceparent: z.string().regex(/^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/i).nullable().optional(),
+}).strict();
+
 export type RuntimeRecoveryState = { state: "executing" | "attention" | "confirmed_stopped"; ownerUserId?: string | null; resolvedBy?: string; resolvedAt?: string; reason?: string; detectedAt?: string };
 export const fileWatcherStatusSchema = z.object({
   backend: z.enum(["fsevents", "fsnotify", "scan", "none"]),
@@ -85,7 +102,7 @@ export const fileWatcherStatusSchema = z.object({
   observedAt: z.iso.datetime(),
 });
 export type RuntimeStatus = {
-  kind: "cloud" | "local"; online: boolean; capabilities: RuntimeCapabilities | null;
+  kind: "cloud" | "local"; online: boolean; runtimeId?: string | null; capabilities: RuntimeCapabilities | null;
   fileWatcher: z.infer<typeof fileWatcherStatusSchema> | null;
 };
 export type RuntimeSessionRecoveryStatus = {
@@ -117,6 +134,8 @@ export type RuntimeTurnInput = {
   provider?: string | null;
   model?: string | null;
   thinkingLevel?: string | null;
+  requestId?: string | null;
+  traceContext?: RuntimeTraceContext;
   accessMode: "read_only" | "full_access";
 };
 
@@ -182,12 +201,14 @@ const runtimeContextSchema = z.object({ complete: z.boolean().optional(), revisi
 })), archive: harnessArchiveSchema.nullable().optional(), resolvedTurnIds: z.array(id).max(2).optional(), settledTurnIds: z.array(id).max(2).optional() });
 
 export const runtimeCommandSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("turn.recover"), requestId: id, execution: z.object({ spaceId: id, sessionId: id, turnId: id, harness: z.enum(["pi", "codex"]) }) }),
+  z.object({ type: z.literal("turn.recover"), requestId: id, execution: z.object({ spaceId: id, sessionId: id, turnId: id, harness: z.enum(["pi", "codex"]) }), traceContext: runtimeTraceContextSchema.optional() }),
   z.object({ type: z.literal("turn.start"), requestId: id, resumeOnly: z.boolean().optional(), input: z.object({
     spaceId: id, sessionId: id, turnId: id, userMessageId: id, harness: z.enum(["pi", "codex"]),
     messages: z.array(z.object({ turnId: id, userMessageId: id, userId: z.string().nullable(), content })).min(1).max(RUNTIME_MAX_BATCH_MESSAGES),
     context: runtimeContextSchema,
     provider: z.string().nullable().optional(), model: z.string().nullable().optional(), thinkingLevel: z.string().nullable().optional(),
+    requestId: z.string().regex(/^[a-zA-Z0-9._:-]{1,128}$/).nullable().optional(),
+    traceContext: runtimeTraceContextSchema.optional(),
     accessMode: z.enum(["read_only", "full_access"]),
   }).refine((input) => {
     const owner = input.messages.at(-1);

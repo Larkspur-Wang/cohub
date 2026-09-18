@@ -69,6 +69,9 @@ function show() {
   </div>
   <div class="p-4 text-sm">
     <div class="flex items-center justify-between gap-3"><span>{label}</span><span class="text-text-muted">{status?.capabilities?.harnesses.join(" / ") ?? ""}</span></div>
+    {#if status?.runtimeId}
+      <div class="mt-3 flex items-start justify-between gap-3"><span class="shrink-0">Runtime ID / 运行时 ID</span><code class="min-w-0 break-all text-right font-mono text-[11px] text-text-muted">{status.runtimeId}</code></div>
+    {/if}
     <div class="mt-3 flex flex-wrap items-center justify-between gap-3"><span>{m.runtime_file_watcher({}, { locale })}</span><span class="text-text-muted">{watcherLabel}{watcher ? ` · ${watcher.backend}` : ""}</span></div>
   </div>
 </Sheet>
