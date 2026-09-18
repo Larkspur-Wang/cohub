@@ -53,6 +53,7 @@ import {
 	getRequestedThinkingLevel,
 	type ModelThinkingLevel,
 } from "$lib/model-catalog";
+import { m } from "$lib/paraglide/messages.js";
 import {
 	uploadChatAttachmentFile,
 	uploadChatAttachmentImage,
@@ -2944,6 +2945,14 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		clearComposerError();
 	}
 
+	function canUseHarness(harness: "cohub" | "pi" | "codex") {
+		if (harness === "cohub") return true;
+		return Boolean(
+			runtimeCatalog?.online &&
+				runtimeCatalog.capabilities?.harnesses.includes(harness),
+		);
+	}
+
 	function setComposerMode(mode: "agent" | "create") {
 		if (sending || composerMode === mode) return;
 		composerSelection =
@@ -2995,8 +3004,13 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			!(options.hasSpace?.() ?? Boolean(spaceId))
 		)
 			return;
-		composer.sending = true;
 		const harness = composerHarness;
+		// Fail closed: a disconnected Runtime must never dispatch a local turn.
+		if (!canUseHarness(harness)) {
+			setComposerError(m.runtime_harness_unavailable());
+			return;
+		}
+		composer.sending = true;
 		const model = harness === "cohub" ? activeSessionModel : localModel;
 		clearComposerError();
 		// Snapshot identity for the whole send pipeline (multi-space host safe).

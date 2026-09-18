@@ -16,6 +16,7 @@ import {
 } from "lucide-svelte";
 import { onMount } from "svelte";
 import ComposerModelTrigger from "$lib/components/composer/ComposerModelTrigger.svelte";
+import ComposerSelect from "$lib/components/composer/ComposerSelect.svelte";
 import ComposerSubmitButton from "$lib/components/composer/ComposerSubmitButton.svelte";
 import ComposerSurface from "$lib/components/composer/ComposerSurface.svelte";
 import { mediaLightbox } from "$lib/components/media-lightbox.svelte";
@@ -104,6 +105,8 @@ type Props = {
 	onharnesschange?: (harness: Harness) => void;
 	harnesses?: Harness[];
 	localRuntime?: boolean;
+	/** Whether the Space's local Runtime is connected; local harnesses are unavailable when false. */
+	runtimeOnline?: boolean;
 	onharnessopen?: () => void;
 	localModels?: SelectedModel[];
 	localModel?: SelectedModel | null;
@@ -149,6 +152,7 @@ let {
 	onharnesschange,
 	harnesses = ["cohub"],
 	localRuntime = false,
+	runtimeOnline = true,
 	onharnessopen,
 	localModels = [],
 	localModel = null,
@@ -175,6 +179,42 @@ const locale = $derived(getLocale());
 const composerPlaceholder = $derived(
 	placeholder || m.composer_placeholder({}, { locale }),
 );
+
+const harnessOptions = $derived(
+	[...new Set([...harnesses, harness])].map((item) => ({
+		value: item,
+		label: harnessLabels[item],
+		disabled: !harnesses.includes(item),
+	})),
+);
+const harnessTitle = $derived(
+	harness === "cohub"
+		? m.runtime_cloud({}, { locale })
+		: localRuntime && !runtimeOnline
+			? m.runtime_offline({}, { locale })
+			: m.runtime_local({}, { locale }),
+);
+const localModelValue = $derived(
+	localModel ? JSON.stringify([localModel.provider, localModel.id]) : "",
+);
+const localModelOptions = $derived([
+	{ value: "", label: m.runtime_default_model({}, { locale }) },
+	...localModels.map((model) => ({
+		value: JSON.stringify([model.provider, model.id]),
+		label: model.name ?? model.id,
+	})),
+]);
+const localModelTitle = $derived(
+	localModel?.name ?? localModel?.id ?? m.runtime_default_model({}, { locale }),
+);
+
+function selectLocalModel(raw: string) {
+	onlocalmodelchange?.(
+		localModels.find(
+			(model) => JSON.stringify([model.provider, model.id]) === raw,
+		) ?? null,
+	);
+}
 
 let textareaEl = $state<HTMLTextAreaElement | null>(null);
 let mentionMirrorEl = $state<HTMLDivElement | null>(null);
@@ -1540,17 +1580,26 @@ $effect(() => {
 							{/if}
 
 							{#if onharnesschange && mode === "agent" && (localRuntime || harnesses.length > 1 || harness !== "cohub")}
-								<select class="h-8 w-20 shrink-0 rounded border border-border-subtle bg-bg-primary px-1 text-xs text-text-secondary" title={harness === "cohub" ? m.runtime_cloud({}, { locale }) : m.runtime_local({}, { locale })} aria-label={m.runtime_harness({}, { locale })} value={harness} disabled={disabled || sending} onfocus={() => onharnessopen?.()} onchange={(event) => onharnesschange?.(event.currentTarget.value as Harness)}>
-									{#each [...new Set([...harnesses, harness])] as item}
-										<option value={item} disabled={!harnesses.includes(item)}>{harnessLabels[item]}</option>
-									{/each}
-								</select>
+								<ComposerSelect
+									value={harness}
+									options={harnessOptions}
+									online={localRuntime ? runtimeOnline : undefined}
+									onchange={(next) => onharnesschange?.(next as Harness)}
+									onopen={onharnessopen}
+									disabled={disabled || sending}
+									ariaLabel={m.runtime_harness({}, { locale })}
+									title={harnessTitle}
+								/>
 							{/if}
 							{#if mode === "agent" && harness !== "cohub"}
-								<select class="h-8 max-w-40 min-w-0 rounded border border-border-subtle bg-bg-primary px-1 text-xs text-text-secondary" title={localModel?.name ?? localModel?.id ?? m.runtime_default_model({}, { locale })} aria-label={m.runtime_model({}, { locale })} value={localModel ? JSON.stringify([localModel.provider, localModel.id]) : ""} disabled={disabled || sending} onchange={(event) => onlocalmodelchange?.(localModels.find((model) => JSON.stringify([model.provider, model.id]) === event.currentTarget.value) ?? null)}>
-									<option value="">{m.runtime_default_model({}, { locale })}</option>
-									{#each localModels as model}<option value={JSON.stringify([model.provider, model.id])}>{model.name ?? model.id}</option>{/each}
-								</select>
+								<ComposerSelect
+									value={localModelValue}
+									options={localModelOptions}
+									onchange={selectLocalModel}
+									disabled={disabled || sending || !runtimeOnline}
+									ariaLabel={m.runtime_model({}, { locale })}
+									title={localModelTitle}
+								/>
 							{/if}
 
 							{#if onModelSelect}

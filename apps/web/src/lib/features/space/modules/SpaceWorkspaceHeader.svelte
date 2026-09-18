@@ -161,7 +161,7 @@ function handleSessionRenameKeydown(event: KeyboardEvent) {
 </script>
 
 {#snippet HeaderActions()}
-	<SpaceRuntimeStatus spaceId={context.spaceId} />
+	<SpaceRuntimeStatus spaceId={context.spaceId} canManage={context.space?.access?.permissions.includes("sandbox.manage") === true} />
 	{#if context.activeSessionId && context.canManageSessionAccess}
 		<button
 			type="button"

@@ -8,11 +8,16 @@ import {
 } from "./runtime-status-policy";
 
 const statuses = $state<Record<string, RuntimeStatus>>({});
+const fetchedAt = $state<Record<string, number>>({});
 const pending = new Map<string, Promise<RuntimeStatus | null>>();
 const freshness = new Map<string, RuntimeStatusFreshness>();
 
 export const cachedRuntimeStatus = (spaceId: string) =>
 	statuses[spaceId] ?? null;
+
+/** Epoch ms of the last successful status fetch for a Space, if any. */
+export const cachedRuntimeStatusFetchedAt = (spaceId: string) =>
+	fetchedAt[spaceId] ?? null;
 
 function freshnessFor(spaceId: string) {
 	let current = freshness.get(spaceId);
@@ -49,6 +54,7 @@ export function refreshRuntimeStatus(
 		.getRuntime()
 		.then((status) => {
 			statuses[spaceId] = status;
+			fetchedAt[spaceId] = Date.now();
 			state.lastSuccessAt = Date.now();
 			state.retryAt = 0;
 			return status as RuntimeStatus | null;

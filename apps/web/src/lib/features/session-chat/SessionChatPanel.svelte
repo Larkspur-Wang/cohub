@@ -438,6 +438,7 @@ async function handleDraftDrop(event: DragEvent) {
 					harness={host.composerHarness}
 					onharnesschange={host.setComposerHarness}
 					harnesses={host.runtimeCatalog?.kind === "local" ? ["cohub", ...(host.runtimeCatalog.capabilities?.harnesses ?? [])] : ["cohub"]}
+					runtimeOnline={host.runtimeCatalog?.online ?? false}
 					onharnessopen={host.loadRuntimeCatalog}
 					localRuntime={host.runtimeCatalog?.kind === "local"}
 					localModels={host.runtimeCatalog?.capabilities?.models.filter((model) => model.harness === host.composerHarness) ?? []}
