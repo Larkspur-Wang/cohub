@@ -30,15 +30,17 @@ export type CohubContext = {
 export const COHUB_ENVIRONMENTS = {
   prod: {
     apiBaseUrl: "https://api.cohub.live",
+    webBaseUrl: "https://cohub.live",
     websocketUrl: "wss://gateway.cohub.live/ws",
     voiceInputWebsocketUrl: "wss://gateway.cohub.live/asr/ws",
   },
   dev: {
     apiBaseUrl: "https://api-dev.cohub.live",
+    webBaseUrl: "https://dev.cohub.live",
     websocketUrl: "wss://gateway-dev.cohub.live/ws",
     voiceInputWebsocketUrl: "wss://gateway-dev.cohub.live/asr/ws",
   },
-} as const satisfies Record<CohubEnvironment, { apiBaseUrl: string; websocketUrl: string; voiceInputWebsocketUrl: string }>;
+} as const satisfies Record<CohubEnvironment, { apiBaseUrl: string; webBaseUrl: string; websocketUrl: string; voiceInputWebsocketUrl: string }>;
 
 const readProcessEnv = (): Record<string, string | undefined> | undefined => {
   const runtime = globalThis as typeof globalThis & {
@@ -147,6 +149,9 @@ export const resolveApiBaseUrl = (options: {
   if (options.baseUrl) return normalizeBaseUrl(options.baseUrl);
   return COHUB_ENVIRONMENTS[resolveCohubEnvironment(options.env)].apiBaseUrl;
 };
+
+export const resolveWebBaseUrl = (options: { env?: CohubEnvironment } = {}) =>
+  COHUB_ENVIRONMENTS[resolveCohubEnvironment(options.env)].webBaseUrl;
 
 export const resolveWebsocketUrl = (options: {
   url?: string;

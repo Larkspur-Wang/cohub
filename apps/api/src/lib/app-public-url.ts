@@ -1,3 +1,4 @@
+import { createCohubAppOrigin } from "@cohub/protocol";
 import { config } from "../config.js";
 
 export function getWorkPublicOrigin() {
@@ -13,4 +14,20 @@ export function createAppPublicUrl(input: {
 }): string | null {
   if (input.status !== undefined && input.status !== "published") return null;
   return `${getWorkPublicOrigin()}/${encodeURIComponent(input.ownerUsername)}/${encodeURIComponent(input.spaceSlug)}/w/${encodeURIComponent(input.appSlug)}`;
+}
+
+export function createAppStandaloneUrl(input: {
+  appId: string;
+  status: string;
+  visibility: string;
+  targetType: string;
+  contentKind: string | null | undefined;
+}): string | null {
+  if (
+    input.status !== "published" ||
+    input.visibility !== "public" ||
+    (input.targetType !== "file" && input.targetType !== "directory") ||
+    input.contentKind !== "web"
+  ) return null;
+  return createCohubAppOrigin(input.appId, config.env);
 }

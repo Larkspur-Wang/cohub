@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import { CohubClient } from "../src/client.js";
 import {
+	createOriginAppResolver,
 	createSlugAppIdResolver,
 	createAppRuntime,
 	AppRuntimeApi,
+	OriginBrokerTransport,
 	ParentBridgeTransport,
 	PopupBrokerTransport,
 	resolveAppTransport,
@@ -22,6 +24,26 @@ afterEach(() => {
 	globalThis.window = originalWindow;
 	globalThis.document = originalDocument;
 	globalThis.localStorage = originalLocalStorage;
+});
+
+test("origin broker never restores or persists localStorage tokens or grants", async () => {
+	const store: Record<string, string> = {
+		"cohub:app-token:app-1": "old",
+		"cohub:app-auth-grants:app-1": JSON.stringify([{ scopes: ["file.view"] }]),
+	};
+	globalThis.localStorage = {
+		getItem: (key: string) => store[key] ?? null,
+		setItem: (key: string, value: string) => { store[key] = value; },
+		removeItem: (key: string) => { delete store[key]; },
+	} as Storage;
+	const runtime = createAppRuntime(new OriginBrokerTransport("https://cohub.live", async () => ({
+		id: "app-1", slug: "demo", url: "https://app.example",
+		homeSpace: { id: "space-1", name: null }, appScopes: [],
+	})), "app-1");
+	assert.equal(await runtime.getAccessToken(), null);
+	assert.equal(store["cohub:app-token:app-1"], undefined);
+	assert.equal(store["cohub:app-auth-grants:app-1"], undefined);
+	runtime.dispose();
 });
 
 test("broker reuses fresh tokens in memory without restoring or persisting another account", async () => {
@@ -589,6 +611,168 @@ test("PopupBrokerTransport answers checkout-state locally without opening a popu
 	assert.equal(result?.status, null);
 });
 
+test("OriginBrokerTransport clears a cached token when the broker viewer changes", async () => {
+	let messageHandler: ((event: MessageEvent) => void) | null = null;
+	let opens = 0;
+	const popup = {
+		closed: false,
+		close() { this.closed = true; },
+		postMessage(message: Record<string, unknown>) {
+			queueMicrotask(() => messageHandler?.({
+				source: popup,
+				origin: "https://cohub.live",
+				data: { type: "cohub.app.token.result", requestId: message.requestId, token: `token-${opens}` },
+			} as MessageEvent));
+		},
+	};
+	globalThis.window = {
+		location: { origin: "https://app.example" },
+		parent: {} as Window,
+		open: () => {
+			opens++;
+			popup.closed = false;
+			queueMicrotask(() => messageHandler?.({
+				source: popup,
+				origin: "https://cohub.live",
+				data: { type: "cohub.app.broker.ready", authorizationVersion: 2, viewer: { userUuid: opens === 1 ? "user-a" : "user-b" } },
+			} as MessageEvent));
+			return popup;
+		},
+		addEventListener: (_type: string, handler: (event: MessageEvent) => void) => { messageHandler = handler; },
+		removeEventListener: () => { messageHandler = null; },
+	} as unknown as Window & typeof globalThis;
+	const runtime = createAppRuntime(new OriginBrokerTransport("https://cohub.live", async () => ({
+		id: "app-1",
+		slug: "demo",
+		url: "https://app.example",
+		homeSpace: { id: "space-1", name: null },
+		appScopes: [],
+	})));
+	assert.equal(await runtime.getAccessToken(), "token-1");
+	assert.equal(await runtime.getAccessToken({ forceRefresh: true }), "token-2");
+	assert.equal(opens, 2);
+	runtime.dispose();
+});
+
+test("OriginBrokerTransport proxies the resolved broker viewer identity", async () => {
+	let messageHandler: ((event: MessageEvent) => void) | null = null;
+	const popup = {
+		closed: false,
+		close() { this.closed = true; },
+		postMessage(message: Record<string, unknown>) {
+			queueMicrotask(() => messageHandler?.({
+				source: popup,
+				origin: "https://cohub.live",
+				data: { type: "cohub.app.token.result", requestId: message.requestId, token: "broker-token" },
+			} as MessageEvent));
+		},
+	};
+	globalThis.window = {
+		location: { origin: "https://app.example" },
+		parent: {} as Window,
+		open: () => {
+			queueMicrotask(() => messageHandler?.({
+				source: popup,
+				origin: "https://cohub.live",
+				data: { type: "cohub.app.broker.ready", authorizationVersion: 2, viewer: { userUuid: "user-a" } },
+			} as MessageEvent));
+			return popup;
+		},
+		addEventListener: (_type: string, handler: (event: MessageEvent) => void) => { messageHandler = handler; },
+		removeEventListener: () => { messageHandler = null; },
+	} as unknown as Window & typeof globalThis;
+	const transport = new OriginBrokerTransport("https://cohub.live", async () => ({
+		id: "app-1",
+		slug: "demo",
+		url: "https://app.example",
+		homeSpace: { id: "space-1", name: null },
+		appScopes: [],
+	}));
+	await transport.request({ type: "cohub.app.token" });
+	assert.equal(transport.getViewerIdentity?.(), "user-a");
+});
+
+test("PopupBrokerTransport rejects malformed structured authorization responses", async () => {
+	let messageHandler: ((event: MessageEvent) => void) | null = null;
+	const popup = {
+		closed: false,
+		close() { this.closed = true; },
+		postMessage(message: Record<string, unknown>) {
+			queueMicrotask(() => messageHandler?.({
+				source: popup,
+				origin: "https://cohub.run",
+				data: {
+					type: "cohub.app.authorize.result",
+					requestId: message.requestId,
+					token: "token-1",
+					result: { status: "granted" },
+				},
+			} as MessageEvent));
+		},
+	};
+	globalThis.window = {
+		location: { origin: "https://my-work.example" },
+		open: () => {
+			queueMicrotask(() => messageHandler?.({
+				source: popup,
+				origin: "https://cohub.run",
+				data: { type: "cohub.app.broker.ready", authorizationVersion: 2 },
+			} as MessageEvent));
+			return popup;
+		},
+		addEventListener: (_type: string, handler: (event: MessageEvent) => void) => { messageHandler = handler; },
+		removeEventListener: () => { messageHandler = null; },
+	} as unknown as Window & typeof globalThis;
+	const transport = new PopupBrokerTransport({ brokerOrigin: "https://cohub.run", appId: "work-1" });
+	await assert.rejects(
+		() => transport.request({ type: "cohub.app.authorize.v2" }, { timeoutMs: 1_000 }),
+		(error: unknown) => error instanceof Error && "code" in error && error.code === "invalid_response",
+	);
+});
+
+test("PopupBrokerTransport rejects a granted authorization without a token", async () => {
+	let messageHandler: ((event: MessageEvent) => void) | null = null;
+	const popup = {
+		closed: false,
+		close() { this.closed = true; },
+		postMessage(message: Record<string, unknown>) {
+			queueMicrotask(() => messageHandler?.({
+				source: popup,
+				origin: "https://cohub.run",
+				data: {
+					type: "cohub.app.authorize.result",
+					requestId: message.requestId,
+					result: {
+						status: "granted",
+						requestedTarget: { kind: "account" },
+						target: { kind: "account" },
+						resolution: "requested",
+						grant: { id: "grant", spaceId: "space", scopes: ["user.space.list"], expiresAt: null },
+					},
+				},
+			} as MessageEvent));
+		},
+	};
+	globalThis.window = {
+		location: { origin: "https://my-work.example" },
+		open: () => {
+			queueMicrotask(() => messageHandler?.({
+				source: popup,
+				origin: "https://cohub.run",
+				data: { type: "cohub.app.broker.ready", authorizationVersion: 2 },
+			} as MessageEvent));
+			return popup;
+		},
+		addEventListener: (_type: string, handler: (event: MessageEvent) => void) => { messageHandler = handler; },
+		removeEventListener: () => { messageHandler = null; },
+	} as unknown as Window & typeof globalThis;
+	const transport = new PopupBrokerTransport({ brokerOrigin: "https://cohub.run", appId: "work-1" });
+	await assert.rejects(
+		() => transport.request({ type: "cohub.app.authorize.v2" }, { timeoutMs: 1_000 }),
+		(error: unknown) => error instanceof Error && "code" in error && error.code === "invalid_response",
+	);
+});
+
 test("PopupBrokerTransport rejects when popup is blocked", async () => {
 	const windowMock = {
 		location: { origin: "https://my-work.example" },
@@ -715,6 +899,116 @@ test("resolveAppTransport auto-detects broker when standalone with config", () =
 		appId: "work-1",
 	});
 	assert.ok(transport instanceof PopupBrokerTransport);
+});
+
+test("resolveAppTransport discovers standalone Apps by origin", async () => {
+	const windowMock = {
+		location: { origin: "https://app.example" },
+	};
+	windowMock.parent = windowMock as unknown as Window;
+	globalThis.window = windowMock as unknown as Window & typeof globalThis;
+	const transport = resolveAppTransport(
+		undefined,
+		undefined,
+		async () => ({
+			id: "app-1",
+			slug: "demo",
+			url: "https://app.example",
+			homeSpace: { id: "space-1", name: "Studio" },
+			appScopes: ["file.view"],
+		}),
+		"https://cohub.live",
+	);
+	assert.ok(transport instanceof OriginBrokerTransport);
+	const context = await createAppRuntime(transport).context();
+	assert.equal(context?.mode, "broker");
+	assert.deepEqual(context?.app.homeSpace, { id: "space-1", name: "Studio" });
+	assert.deepEqual(context?.permissions?.appScopes, ["file.view"]);
+	assert.deepEqual(context?.shell, {
+		surface: "broker",
+		space: null,
+		session: null,
+		turn: null,
+	});
+});
+
+test("CohubClient does not resolve standalone origin during construction", () => {
+	const windowMock = { location: { origin: "https://cohub.live" } };
+	windowMock.parent = windowMock as unknown as Window;
+	globalThis.window = windowMock as unknown as Window & typeof globalThis;
+	let requests = 0;
+	const client = new CohubClient({
+		fetch: async () => {
+			requests++;
+			return new Response(null, { status: 404 });
+		},
+	});
+	assert.equal(requests, 0);
+	client.dispose();
+});
+
+test("CohubClient resolves a dev standalone App without runtime configuration", async () => {
+	const appId = "550e8400-e29b-41d4-a716-446655440000";
+	const origin = `${appId}.apps-dev.cohub.live`;
+	const windowMock = { location: { origin: `https://${origin}` } };
+	windowMock.parent = windowMock as unknown as Window;
+	globalThis.window = windowMock as unknown as Window & typeof globalThis;
+	const calls: Array<{ url: string; init?: RequestInit }> = [];
+	const client = new CohubClient({
+		env: "dev",
+		fetch: async (input, init) => {
+			calls.push({ url: String(input), init });
+			return Response.json({
+				app: { id: appId, slug: "demo", spaceId: "space-1", appScopes: ["file.view"] },
+				space: { id: "space-1", name: "Studio" },
+				standaloneUrl: `https://${origin}`,
+			});
+		},
+	});
+
+	const context = await client.context();
+	assert.equal(context?.app.id, appId);
+	assert.equal(context?.mode, "broker");
+	assert.equal(calls[0]?.url, "https://api-dev.cohub.live/api/apps/by-origin");
+	assert.equal(calls[0]?.init?.credentials, "omit");
+	client.dispose();
+});
+
+test("createOriginAppResolver does not cache transport failures", async () => {
+	let attempts = 0;
+	const resolver = createOriginAppResolver({
+		apiBaseUrl: "https://api.cohub.live",
+		origin: () => "https://app.example",
+		fetch: async () => {
+			attempts++;
+			if (attempts === 1) throw new Error("offline");
+			return new Response(null, { status: 404 });
+		},
+	});
+	assert.equal(await resolver(), null);
+	assert.equal(await resolver(), null);
+	assert.equal(attempts, 2);
+});
+
+test("OriginBrokerTransport resolves lazily and retries a failed lookup", async () => {
+	let attempts = 0;
+	const transport = new OriginBrokerTransport("https://cohub.live", async () => {
+		attempts++;
+		return attempts === 1
+			? null
+			: {
+					id: "app-1",
+					slug: "demo",
+					url: "https://app.example",
+					homeSpace: { id: "space-1", name: null },
+					appScopes: [],
+				};
+	});
+	assert.equal(attempts, 0);
+	assert.equal(await createAppRuntime(transport).context(), null);
+	const context = await createAppRuntime(transport).context();
+	assert.equal(context?.app.id, "app-1");
+	assert.equal(attempts, 2);
 });
 
 // --- Token persistence tests ---

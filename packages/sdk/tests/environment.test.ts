@@ -6,6 +6,7 @@ import {
 	getCohubContext,
 	resolveApiBaseUrl,
 	resolveVoiceInputWebsocketUrl,
+	resolveWebBaseUrl,
 	resolveWebsocketUrl,
 } from "../dist/index.js";
 
@@ -83,10 +84,12 @@ test("a Space target does not change a local runtime", () => {
 test("production uses cohub.live endpoints by default", () => {
 	assert.deepEqual(COHUB_ENVIRONMENTS.prod, {
 		apiBaseUrl: "https://api.cohub.live",
+		webBaseUrl: "https://cohub.live",
 		websocketUrl: "wss://gateway.cohub.live/ws",
 		voiceInputWebsocketUrl: "wss://gateway.cohub.live/asr/ws",
 	});
 	assert.equal(resolveApiBaseUrl({ env: "prod" }), "https://api.cohub.live");
+	assert.equal(resolveWebBaseUrl({ env: "prod" }), "https://cohub.live");
 	assert.equal(resolveWebsocketUrl({ env: "prod" }), "wss://gateway.cohub.live/ws");
 	assert.equal(
 		resolveVoiceInputWebsocketUrl({ env: "prod" }),
@@ -97,10 +100,12 @@ test("production uses cohub.live endpoints by default", () => {
 test("development uses cohub.live endpoints", () => {
 	assert.deepEqual(COHUB_ENVIRONMENTS.dev, {
 		apiBaseUrl: "https://api-dev.cohub.live",
+		webBaseUrl: "https://dev.cohub.live",
 		websocketUrl: "wss://gateway-dev.cohub.live/ws",
 		voiceInputWebsocketUrl: "wss://gateway-dev.cohub.live/asr/ws",
 	});
 	assert.equal(resolveApiBaseUrl({ env: "dev" }), "https://api-dev.cohub.live");
+	assert.equal(resolveWebBaseUrl({ env: "dev" }), "https://dev.cohub.live");
 	assert.equal(resolveWebsocketUrl({ env: "dev" }), "wss://gateway-dev.cohub.live/ws");
 	assert.equal(
 		resolveVoiceInputWebsocketUrl({ env: "dev" }),

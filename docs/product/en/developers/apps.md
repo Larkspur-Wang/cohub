@@ -16,10 +16,10 @@ call, and what authorization it needs. For the full runtime reference, see the
 `createCohubClient()` needs no token inside an App — the host provides
 short-lived auth. Runtime APIs only work inside a **published** App.
 
-- **Bridge mode** — the App runs in a Cohub iframe (default).
-- **Broker mode** — the App is opened standalone; the SDK falls back to a
-  popup broker. Pass `app: { brokerOrigin, appId }` (or the slug triple) to
-  `createCohubClient` to enable it.
+- **Bridge mode** — the App runs in a Cohub iframe.
+- **Broker mode** — the App is opened from its registered standalone URL and
+  uses a popup broker. The SDK discovers both modes automatically from the same
+  `createCohubClient({ env })` initialization.
 
 ```ts
 import { createCohubClient } from "@neta-art/cohub";
@@ -30,7 +30,9 @@ if (!ctx?.app?.id) throw new Error("Not inside a published app");
 ```
 
 `env` matters in the browser: an app served from a dev host must pass
-`env: "dev"`, or it will silently call production.
+`env: "dev"`, or it will silently call production. Published public `file` and
+`directory` Apps also receive a direct URL at `<app-id>.apps.cohub.live`
+(production) or `<app-id>.apps-dev.cohub.live` (development).
 
 ## Authorization
 

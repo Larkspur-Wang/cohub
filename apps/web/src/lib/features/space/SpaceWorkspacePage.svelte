@@ -1730,6 +1730,7 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 					spaceId,
 					app: published.app,
 					version: published.version,
+					standaloneUrl: published.standaloneUrl,
 				});
 			}
 		} else if (payload.type === "label.assignments.updated") {

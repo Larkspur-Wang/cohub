@@ -1,13 +1,14 @@
+import {
+	COHUB_APP_HOST_SUFFIXES,
+	type CohubAppEnvironment,
+} from "@cohub/protocol";
+
 /**
  * Origin allowlist for the app auth broker (§8.1 of the plan).
  *
- * This is the real security boundary that prevents unrelated third-party sites
- * from impersonating an arbitrary appId to mint a visitor's restricted app
- * session token. The broker validates the opener's origin against this list
- * before processing any request.
- *
- * For now this is a hardcoded list (Cohub public domain + neta.art + localhost).
- * Author-configurable per-app origins are a future enhancement (§8.1 placeholder).
+ * Compatibility allowlist for older explicitly configured broker clients.
+ * New standalone Apps use the authoritative Origin → App resolver instead;
+ * managed App hostnames are deliberately excluded from this fallback.
  */
 
 const EXACT_ALLOWED_ORIGINS = new Set<string>([
@@ -55,4 +56,29 @@ export function isAllowedAppOrigin(origin: string): boolean {
 	} catch {
 		return false;
 	}
+}
+
+/** Managed standalone hosts must never bypass their authoritative App binding. */
+export function isLegacyAppOriginAllowed(
+	origin: string,
+	environment: CohubAppEnvironment,
+): boolean {
+	try {
+		const hostname = new URL(origin).hostname.toLowerCase();
+		const managedSuffixes = [
+			COHUB_APP_HOST_SUFFIXES[environment],
+			...Object.values(COHUB_APP_HOST_SUFFIXES).filter(
+				(suffix) => suffix !== COHUB_APP_HOST_SUFFIXES[environment],
+			),
+		];
+		if (
+			managedSuffixes.some(
+				(suffix) => hostname === suffix || hostname.endsWith(`.${suffix}`),
+			)
+		)
+			return false;
+	} catch {
+		return false;
+	}
+	return isAllowedAppOrigin(origin);
 }
