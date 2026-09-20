@@ -430,11 +430,11 @@ async function connect(options: ConnectOptions): Promise<"retry" | "fatal" | "co
         if (saved) for (const event of saved.events) send({ type: "runtime.event", requestId: frame.requestId, event });
         return;
       }
-      const requestContext = async (executionSignal: AbortSignal, historyOnly = false) => {
+      const requestContext = async (executionSignal: AbortSignal) => {
         const signal = AbortSignal.any([executionSignal, disconnected.signal]);
         signal.throwIfAborted();
         const pendingTurnIds = await options.store.pendingTurnIds(frame.input.sessionId);
-        log("debug", "runtime.context_requested", { historyOnly, pendingTurnCount: pendingTurnIds.length }, context);
+        log("debug", "runtime.context_requested", { pendingTurnCount: pendingTurnIds.length }, context);
         return new Promise<RuntimeContext>((resolve, reject) => {
           const abort = () => {
             clearTimeout(timeout);
@@ -450,7 +450,7 @@ async function connect(options: ConnectOptions): Promise<"retry" | "fatal" | "co
             resolve(nextContext);
           });
           try {
-            send({ type: "runtime.event", requestId: frame.requestId, event: { type: "context.required", pendingTurnIds, ...(historyOnly ? { historyOnly: true } : {}) } });
+            send({ type: "runtime.event", requestId: frame.requestId, event: { type: "context.required", pendingTurnIds } });
           } catch {
             abort();
           }
@@ -518,7 +518,7 @@ async function connect(options: ConnectOptions): Promise<"retry" | "fatal" | "co
               break;
             } catch (error) {
               if (!(error instanceof ContextRequiredError) || retry >= 2) throw error;
-              frame.input.context = await requestContext(controller.signal, error.historyOnly);
+              frame.input.context = await requestContext(controller.signal);
             }
           }
           await options.store.recordResult(execution.result.state, frame.requestId, [...durableEvents, execution.result.event]);

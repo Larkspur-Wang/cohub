@@ -29,8 +29,7 @@ for await (const line of lines) {
     writeFileSync(thread.path, `${[JSON.stringify(header), ...data.slice(1)].join("\n")}\n`);
     respond(input, { thread, model: "test", modelProvider: "fixture" });
   } else if (input.method === "thread/resume") {
-    if (input.params.path) throw new Error("Restored paths must use thread/fork");
-    const path = join(process.cwd(), `native-${input.params.threadId}.jsonl`);
+    const path = input.params.path || join(process.cwd(), `native-${input.params.threadId}.jsonl`);
     const header = JSON.parse(readFileSync(path, "utf8").split("\n")[0]);
     thread = { id: header.payload.id, path };
     respond(input, { thread, model: "test", modelProvider: "fixture" });

@@ -146,7 +146,8 @@ export function registerRuntime(program: Command) {
           })).space.id,
           validateSpace: validateLocalRuntime,
         });
-        const store = new RuntimeSessionStore(spaceId, undefined, client.space(spaceId));
+        const spaceClient = client.space(spaceId);
+        const store = new RuntimeSessionStore(spaceId, { projectionSource: spaceClient });
         const runtimeId = randomUUID();
         const diagnostics = new RuntimeDiagnostics({ root: store.root, spaceId, runtimeId });
         store.setDiagnostics(diagnostics);
@@ -231,9 +232,11 @@ export function registerRuntime(program: Command) {
     });
   runtime.command("status").description("Runtime status").option("-s, --space <id>", "Target Space").action(async (options: { space?: string }) => {
     const spaceId = options.space?.trim() || await resolveSpace(program);
-    const store = new RuntimeSessionStore(spaceId);
+    const client = createClient();
+    const spaceClient = client.space(spaceId);
+    const store = new RuntimeSessionStore(spaceId, { projectionSource: spaceClient });
     const [status, pendingLocalArchives, failedLocalArchives] = await Promise.all([
-      createClient().space(spaceId).getRuntime(),
+      spaceClient.getRuntime(),
       store.archives.pendingCount(),
       store.archives.failedCaptureCount(),
     ]);
@@ -253,7 +256,7 @@ export function registerRuntime(program: Command) {
     .option("--json", "Print raw diagnostic events")
     .action(async (options: { space?: string; limit?: string; follow?: boolean; json?: boolean }) => {
       const spaceId = options.space?.trim() || await resolveSpace(program);
-      const store = new RuntimeSessionStore(spaceId);
+      const store = new RuntimeSessionStore(spaceId, { projectionSource: createClient().space(spaceId) });
       const limit = Number(options.limit ?? "100");
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > 10_000) return error("Invalid diagnostic limit", "Use an integer between 1 and 10000 / 使用 1 到 10000 之间的整数");
       const asJson = jsonRequested(options);

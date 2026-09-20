@@ -116,7 +116,7 @@ export async function executeRemoteHarnessTurn(input: {
         input.leaseSignal?.throwIfAborted();
         if (input.recovery && !["message.commit", "turn.end"].includes(event.type)) throw new Error("Recovery cannot execute or request context");
         if (event.type === "context.required") {
-          send({ type: "session.context", requestId, context: await loadRuntimeContext({ spaceId: input.spaceId, sessionId: input.sessionId, beforeSequence, harness: input.harness, pendingTurnIds: event.pendingTurnIds, historyOnly: event.historyOnly }) });
+          send({ type: "session.context", requestId, context: await loadRuntimeContext({ spaceId: input.spaceId, sessionId: input.sessionId, beforeSequence, harness: input.harness, pendingTurnIds: event.pendingTurnIds }) });
           return;
         }
         if (["message.start", "text.delta", "content.replace"].includes(event.type)) {

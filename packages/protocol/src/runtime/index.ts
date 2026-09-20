@@ -4,6 +4,23 @@ import type { Usage } from "../core/usage.js";
 import { contentBlockSchema } from "../core/content-schema.js";
 import { harnessArchiveSchema, type HarnessArchive } from "./archive.js";
 export * from "./archive.js";
+export {
+  fingerprintProjectionTurns,
+  isProjectionCompaction,
+  projectNativeMessageMeta,
+  projectNativeSession,
+  serializeProjection,
+  trimProjectionTurnsToCompaction,
+  serializeProjectionRecords,
+  type CanonicalProjectionMessage,
+  type CanonicalProjectionTurn,
+  type NativeProjection,
+  type ProjectionCursor,
+  type ProjectionInput,
+  type ProjectionRecord,
+  type ProjectionTarget,
+  type ProjectionWarning,
+} from "./projection.js";
 export { contextToPiMessages, selectRuntimeContextMessages, type ContextProjectionOptions } from "./context.js";
 
 export const RUNTIME_PROTOCOL_VERSION = 1 as const;
@@ -155,7 +172,7 @@ export type RuntimeExecutionEvent =
   | { type: "content.replace"; ordinal: number; content: ContentBlock[] }
   | { type: "message.commit"; message: RuntimeMessage }
   | { type: "turn.end"; message: RuntimeMessage; archive?: HarnessArchive | null; resume: "native" | "restored" | "handoff" | "new" }
-  | { type: "context.required"; pendingTurnIds?: string[]; historyOnly?: boolean }
+  | { type: "context.required"; pendingTurnIds?: string[] }
   | { type: "turn.acknowledged" }
   | { type: "turn.error"; message: string; uncertain?: boolean };
 
@@ -181,7 +198,7 @@ export const runtimeEventSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("content.replace"), ordinal, content }),
   z.object({ type: z.literal("message.commit"), message: runtimeMessageSchema }),
   z.object({ type: z.literal("turn.end"), message: runtimeMessageSchema, archive: harnessArchiveSchema.nullable().optional(), resume: z.enum(["native", "restored", "handoff", "new"]) }),
-  z.object({ type: z.literal("context.required"), pendingTurnIds: z.array(id).max(2).optional(), historyOnly: z.boolean().optional() }),
+  z.object({ type: z.literal("context.required"), pendingTurnIds: z.array(id).max(2).optional() }),
   z.object({ type: z.literal("turn.acknowledged") }),
   z.object({ type: z.literal("turn.error"), message: z.string().max(16_384), uncertain: z.boolean().optional() }),
 ]);

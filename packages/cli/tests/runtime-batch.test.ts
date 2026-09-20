@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { TestRuntimeSessionStore } from "./fixtures/runtime-projection-source.js";
 import { randomUUID } from "node:crypto";
 import { chmod, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -7,7 +8,6 @@ import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import type { RuntimeTurnInput } from "@neta-art/cohub";
 import { executePi, executeCodex } from "../src/runtime/harness.js";
-import { RuntimeSessionStore } from "../src/runtime/session-store.js";
 
 function input(harness: "pi" | "codex"): RuntimeTurnInput {
   const messages = ["Alice", "Bob", "Charlie"].map((userId, index) => ({
@@ -41,7 +41,7 @@ for (const harness of ["pi", "codex"] as const) test(`${harness}: multiple autho
     const binary = fileURLToPath(new URL(`./fixtures/runtime-${harness}.mjs`, import.meta.url));
     await chmod(binary, 0o755);
     const turn = input(harness);
-    const store = new RuntimeSessionStore(turn.spaceId, join(root, "state"));
+    const store = new TestRuntimeSessionStore(turn.spaceId, join(root, "state"));
     const run = harness === "pi" ? executePi : executeCodex;
     const result = await run(turn, { [harness]: binary }, root, store, () => {}, new AbortController().signal);
     const rows = (await readFile(result.state.path, "utf8")).trim().split("\n").map((line) => JSON.parse(line));

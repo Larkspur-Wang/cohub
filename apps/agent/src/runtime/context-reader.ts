@@ -4,7 +4,7 @@ import { sessionMessages, sessionTurns, sessionTurnSegments, spaceSessions } fro
 import { harnessArchiveIndexSchema, isLocalHarness, selectRuntimeContextMessages, type HarnessKind, type RuntimeContext, type RuntimeContextMessage } from "@cohub/protocol";
 import type { db } from "../db.js";
 
-type ContextInput = { spaceId: string; sessionId: string; beforeSequence?: number; throughTurnId?: string; harness?: HarnessKind; headOnly?: boolean; historyOnly?: boolean; pendingTurnIds?: string[] };
+type ContextInput = { spaceId: string; sessionId: string; beforeSequence?: number; throughTurnId?: string; harness?: HarnessKind; headOnly?: boolean; pendingTurnIds?: string[] };
 type ContextDatabase = Pick<typeof db, "select">;
 const asMeta = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
 const UNSETTLED_TURN_STATUSES = new Set(["running", "abort_requested"]);
@@ -48,7 +48,7 @@ export function createRuntimeContextReader(database: ContextDatabase) {
       result.resolvedTurnIds = settled.filter((turn) => turn.recoveryState === "confirmed_stopped").map((turn) => turn.id);
       result.settledTurnIds = settled.filter((turn) => turn.recoveryState !== "confirmed_stopped").map((turn) => turn.id);
     }
-    if (!input.historyOnly && input.harness && isLocalHarness(input.harness) && lastTurn?.sessionId === input.sessionId
+    if (input.harness && isLocalHarness(input.harness) && lastTurn?.sessionId === input.sessionId
       && lastTurn.archiveStatus === "ready" && lastTurn.recoveryState !== "confirmed_stopped") {
       const index = harnessArchiveIndexSchema.safeParse(lastTurn.harnessIndex);
       if (index.success && index.data.harness === input.harness && index.data.sessionId === input.sessionId && index.data.turnId === lastTurn.id) {

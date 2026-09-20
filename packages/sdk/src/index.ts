@@ -1,13 +1,15 @@
 export {
   RUNTIME_PROTOCOL_VERSION, RUNTIME_MAX_FRAME_BYTES, RUNTIME_RECOVERY_BATCH_SIZE, runtimeCommandSchema, runtimeEventSchema, runtimeReadySchema,
   contextToPiMessages, selectRuntimeContextMessages, isLocalHarness, resolveHarness,
+  fingerprintProjectionTurns, isProjectionCompaction, projectNativeMessageMeta, projectNativeSession, serializeProjection, serializeProjectionRecords, trimProjectionTurnsToCompaction,
   RUNTIME_ARCHIVE_SEGMENT_BYTES, harnessArchiveIndexSchema, validateArchiveBoundary,
 } from "@cohub/protocol";
 export type {
-  HarnessKind, LocalHarness, RuntimeCapabilities, RuntimeCommand, RuntimeContext, RuntimePendingExecution,
+  ContentBlock, HarnessKind, LocalHarness, RuntimeCapabilities, RuntimeCommand, RuntimeContext, RuntimePendingExecution,
   RuntimeContextMessage, RuntimeTurnInput, RuntimeTurnUserMessage, RuntimeMessage, RuntimeExecutionEvent, HarnessArchive,
+  CanonicalProjectionMessage, CanonicalProjectionTurn, NativeProjection, ProjectionCursor, ProjectionInput, ProjectionRecord, ProjectionTarget, ProjectionWarning,
   RuntimeStatus, RuntimeSessionRecoveryStatus, RuntimeStopConfirmation, HarnessArchiveIndex, RuntimeArchiveSegment, RuntimeArchiveUpload, RuntimeArchivePage,
-  RuntimeTraceContext,
+  RuntimeTraceContext, MessageToolCallsFile, SessionTurnRecord, StoredIntermediateMessage, StoredToolCall, TurnIntermediateMessagesFile,
 } from "@cohub/protocol";
 export { CohubHttpClient, createHttpClient } from "./http.js";
 export { BillingApi } from "./apis/billing.js";

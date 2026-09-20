@@ -686,10 +686,10 @@ class SessionTurnsClient {
 
   private async getIntermediate(turnId: string, messagesObjectKey?: string | null, options?: { fetch?: Fetch; signal?: AbortSignal }) {
     const objectKey = messagesObjectKey === undefined
-      ? (await this.get(turnId, options?.fetch)).turn.intermediateIndex?.messagesObjectKey
+      ? (await this.get(turnId, options)).turn.intermediateIndex?.messagesObjectKey
       : messagesObjectKey;
     if (!objectKey) return null;
-    const { urls } = await this.signedUrls(turnId, [objectKey], options?.fetch);
+    const { urls } = await this.signedUrls(turnId, [objectKey], options);
     const url = urls[objectKey];
     if (!url) throw new Error("Missing signed URL for intermediate messages");
     return fetchTurnObject<TurnIntermediateMessagesFile>(url, options?.fetch, options?.signal);
@@ -707,7 +707,7 @@ class SessionTurnsClient {
         toolCalls,
       };
     }
-    const { urls } = await this.signedUrls(turnId, [message.toolCallsObjectKey], options?.fetch);
+    const { urls } = await this.signedUrls(turnId, [message.toolCallsObjectKey], options);
     const url = urls[message.toolCallsObjectKey];
     if (!url) throw new Error("Missing signed URL for tool calls");
     return fetchTurnObject<MessageToolCallsFile>(url, options?.fetch, options?.signal);
@@ -719,8 +719,10 @@ class SessionTurnsClient {
       limit?: number;
       direction?: "older" | "newer";
     },
-    customFetch?: Fetch,
+    request?: Fetch | { fetch?: Fetch; signal?: AbortSignal },
   ) {
+    const customFetch = typeof request === "function" ? request : request?.fetch;
+    const signal = typeof request === "function" ? undefined : request?.signal;
     const params = new URLSearchParams();
     if (options?.cursor !== undefined) params.set("cursor", String(options.cursor));
     if (options?.limit !== undefined) params.set("limit", String(options.limit));
@@ -728,7 +730,7 @@ class SessionTurnsClient {
     const query = params.toString();
     return this.transport.request<SessionTurnsPaginatedResponse>(
       `/api/sessions/${this.sessionId}/turns${query ? `?${query}` : ""}`,
-      { fetch: customFetch },
+      { fetch: customFetch, signal },
     );
   }
 
@@ -777,14 +779,18 @@ class SessionTurnsClient {
     );
   }
 
-  get(turnId: string, customFetch?: Fetch) {
+  get(turnId: string, request?: Fetch | { fetch?: Fetch; signal?: AbortSignal }) {
+    const customFetch = typeof request === "function" ? request : request?.fetch;
+    const signal = typeof request === "function" ? undefined : request?.signal;
     return this.transport.request<SessionTurnResponse>(
       `/api/sessions/${this.sessionId}/turns/${turnId}`,
-      { fetch: customFetch },
+      { fetch: customFetch, signal },
     );
   }
 
-  signedUrls(turnId: string, objectKeys: string[], customFetch?: Fetch) {
+  signedUrls(turnId: string, objectKeys: string[], request?: Fetch | { fetch?: Fetch; signal?: AbortSignal }) {
+    const customFetch = typeof request === "function" ? request : request?.fetch;
+    const signal = typeof request === "function" ? undefined : request?.signal;
     return this.transport.request<SessionTurnSignedUrlsResponse>(
       `/api/sessions/${this.sessionId}/turns/${turnId}/signed-urls`,
       {
@@ -792,6 +798,7 @@ class SessionTurnsClient {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ objectKeys }),
         fetch: customFetch,
+        signal,
       },
     );
   }

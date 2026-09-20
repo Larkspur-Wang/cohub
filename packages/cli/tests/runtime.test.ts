@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { TestRuntimeSessionStore } from "./fixtures/runtime-projection-source.js";
 import { test } from "node:test";
 import { chmod, mkdtemp, mkdir, readFile, readdir, rename, rm, appendFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -7,7 +8,6 @@ import { fileURLToPath } from "node:url";
 import type { RuntimeTurnInput, RuntimeExecutionEvent } from "@neta-art/cohub";
 import { JsonLineDecoder } from "../src/runtime/json-rpc.js";
 import { archiveStorageFixture } from "./fixtures/runtime-archive-storage.js";
-import { RuntimeSessionStore } from "../src/runtime/session-store.js";
 import { discoverHarnesses, executePi, executeCodex } from "../src/runtime/harness.js";
 import { Command } from "commander";
 import { parseRuntimeHarnesses, registerRuntime } from "../src/commands/runtime.js";
@@ -52,8 +52,9 @@ test("Runtime harness flags accept repeated and comma-separated values", () => {
 test("local projection verifies native data and refuses to overwrite external or unconfirmed history", async () => {
   const root = await mkdtemp(join(tmpdir(), "cohub-runtime-store-"));
   try {
-    const store = new RuntimeSessionStore(spaceId, root);
+    const store = new TestRuntimeSessionStore(spaceId, root);
     const turn = input("pi");
+    store.projectionSource.addTurn(sessionId, previousTurn, { userContent: [{ type: "text", text: "historical fact" }] });
     const first = await store.prepare(turn, root);
     assert.equal(first.resume, "handoff");
     await store.started(first.state, turnId);
@@ -64,7 +65,8 @@ test("local projection verifies native data and refuses to overwrite external or
     assert.equal((await store.prepare(next, root)).resume, "native");
     const before = await readFile(first.state.path, "utf8");
     await appendFile(first.state.path, "external modification\n");
-    await assert.rejects(() => store.prepare(next, root), /changed outside/);
+    const rebuilt = await store.prepare(next, root);
+    assert.notEqual(rebuilt.state.path, first.state.path);
     assert.equal(await readFile(first.state.path, "utf8"), `${before}external modification\n`);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
@@ -72,7 +74,7 @@ test("local projection verifies native data and refuses to overwrite external or
 test("Runtime inventory streams every pending Session execution in bounded batches", async () => {
   const root = await mkdtemp(join(tmpdir(), "cohub-runtime-inventory-"));
   try {
-    const store = new RuntimeSessionStore(spaceId, root);
+    const store = new TestRuntimeSessionStore(spaceId, root);
     assert.deepEqual(await Array.fromAsync(store.pendingExecutionBatches()), []);
     const expected = [];
     for (let index = 0; index < 65; index++) {
@@ -91,7 +93,7 @@ test("Runtime inventory streams every pending Session execution in bounded batch
 test("result receipts replay only the same execution and retain one snapshot per Session/Harness", async () => {
   const root = await mkdtemp(join(tmpdir(), "cohub-runtime-receipt-"));
   try {
-    const store = new RuntimeSessionStore(spaceId, root);
+    const store = new TestRuntimeSessionStore(spaceId, root);
     const turn = input("pi");
     const { state } = await store.prepare(turn, root);
     const event: RuntimeExecutionEvent = { type: "turn.end", message: { ordinal: 0, content: [{ type: "text", text: "saved result" }], stopReason: "stop" }, resume: "new" };
@@ -110,15 +112,18 @@ test("result receipts replay only the same execution and retain one snapshot per
     assert.equal((await readdir(join(store.root, "results"))).length, 1);
     await rm(prepared.state.path);
     await store.acknowledge(prepared.state, next.turnId, "three");
-    await assert.rejects(() => store.prepare({ ...next, context: { complete: false, revision: "three", throughTurnId: next.turnId, messages: [] } }, root), /context/i);
+    const rebuilt = await store.prepare({ ...next, context: { complete: false, revision: "three", throughTurnId: next.turnId, messages: [] } }, root);
+    assert.notEqual(rebuilt.state.path, prepared.state.path);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 test("terminal local projections retire with or without a receipt, while active turns still block", async () => {
   const root = await mkdtemp(join(tmpdir(), "cohub-runtime-round-trip-"));
   try {
-    const store = new RuntimeSessionStore(spaceId, root);
+    const store = new TestRuntimeSessionStore(spaceId, root);
     const turn = input("pi");
+    store.projectionSource.addTurn(sessionId, turnId, { sequence: 1, assistantContent: [{ type: "text", text: "A complete" }] });
+    store.projectionSource.addTurn(sessionId, previousTurn, { sequence: 2, assistantContent: [{ type: "text", text: "B complete" }] });
     const first = await store.prepare(turn, root);
     await store.started(first.state, turnId);
     const terminal: RuntimeExecutionEvent = { type: "turn.end", message: { ordinal: 0, content: [{ type: "text", text: "A complete" }] }, resume: "handoff" };
@@ -136,17 +141,19 @@ test("terminal local projections retire with or without a receipt, while active 
 
     // A killed turn leaves only a started marker; the server still terminalizes it, so the
     // projection must retire instead of blocking this Harness forever.
-    const orphanStore = new RuntimeSessionStore(crypto.randomUUID(), root);
+    const orphanStore = new TestRuntimeSessionStore(crypto.randomUUID(), root);
     const orphanSession = crypto.randomUUID();
     const orphan = await orphanStore.prepare({ ...turn, sessionId: orphanSession }, root);
     await orphanStore.started(orphan.state, turnId);
+    orphanStore.projectionSource.addTurn(orphanSession, turnId, { sequence: 1, assistantContent: [{ type: "text", text: "A complete" }] });
+    orphanStore.projectionSource.addTurn(orphanSession, previousTurn, { sequence: 2, assistantContent: [{ type: "text", text: "B complete" }] });
     const orphanRebuilt = await orphanStore.prepare({ ...settledWithReceipt, sessionId: orphanSession }, root);
     assert.equal(orphanRebuilt.resume, "handoff");
     assert.notEqual(orphanRebuilt.state.path, orphan.state.path);
     assert.equal((await readdir(join(orphanStore.root, "retired"))).length, 1);
 
     // While the server still considers the turn active, nothing may silently continue.
-    const activeStore = new RuntimeSessionStore(crypto.randomUUID(), root);
+    const activeStore = new TestRuntimeSessionStore(crypto.randomUUID(), root);
     const activeSession = crypto.randomUUID();
     const active = await activeStore.prepare({ ...turn, sessionId: activeSession }, root);
     await activeStore.started(active.state, turnId);
@@ -159,7 +166,7 @@ test("terminal local projections retire with or without a receipt, while active 
 test("failed acknowledgement writes retain the pending in-memory state for retry", async () => {
   const root = await mkdtemp(join(tmpdir(), "cohub-runtime-ack-write-"));
   try {
-    const store = new RuntimeSessionStore(spaceId, root);
+    const store = new TestRuntimeSessionStore(spaceId, root);
     const { state } = await store.prepare(input("pi"), root);
     await store.started(state, turnId);
     const before = structuredClone(state);
@@ -180,13 +187,14 @@ test("failed acknowledgement writes retain the pending in-memory state for retry
 test("confirmed Runtime resolution preserves the old pending projection and materializes server history", async () => {
   const root = await mkdtemp(join(tmpdir(), "cohub-runtime-resolved-"));
   try {
-    const store = new RuntimeSessionStore(spaceId, root);
+    const store = new TestRuntimeSessionStore(spaceId, root);
     const turn = input("pi");
     const { state } = await store.prepare(turn, root);
     await store.started(state, turnId);
     const original = await readFile(state.path, "utf8");
     const next = { ...turn, turnId: previousTurn, context: { complete: false, revision: "resolved", throughTurnId: turnId, messages: [] } };
     await assert.rejects(() => store.prepare(next, root), /resolution is required/);
+    store.projectionSource.addTurn(sessionId, turnId, { assistantContent: [{ type: "system_note", note_type: "info", text: "Prior effects unknown; do not replay" }] });
     const restored = await store.prepare({ ...next, context: { ...next.context, complete: true, resolvedTurnIds: [turnId], messages: [{ id: "resolution", turnId, role: "system", content: [{ type: "system_note", note_type: "info", text: "Prior effects unknown; do not replay" }] }] } }, root);
     assert.equal(restored.resume, "handoff");
     assert.notEqual(restored.state.path, state.path);
@@ -201,7 +209,7 @@ test("confirmed Runtime resolution preserves the old pending projection and mate
 test("a confirmed stop overrides a completed local result and rebuilds from durable history", async () => {
   const root = await mkdtemp(join(tmpdir(), "cohub-runtime-resolved-receipt-"));
   try {
-    const store = new RuntimeSessionStore(spaceId, root);
+    const store = new TestRuntimeSessionStore(spaceId, root);
     const turn = input("pi");
     const first = await store.prepare(turn, root);
     await store.started(first.state, turnId);
@@ -209,7 +217,7 @@ test("a confirmed stop overrides a completed local result and rebuilds from dura
     await store.recordResult(first.state, crypto.randomUUID(), [terminal]);
     // The server never durably recorded this outcome, so the native projection must not be resumed.
     const rebuilt = await store.prepare({ ...turn, turnId: previousTurn, context: { complete: true, revision: "resolved", throughTurnId: turnId, resolvedTurnIds: [turnId], messages: [] } }, root);
-    assert.equal(rebuilt.resume, "new");
+    assert.equal(rebuilt.resume, "handoff");
     assert.notEqual(rebuilt.state.path, first.state.path);
     const retired = await readdir(join(store.root, "retired"));
     assert.equal(retired.length, 1);
@@ -223,12 +231,13 @@ test("a confirmed stop overrides a completed local result and rebuilds from dura
 test("changing Workspace requires a fresh projection instead of running in an old cwd", async () => {
   const root = await mkdtemp(join(tmpdir(), "cohub-runtime-cwd-"));
   try {
-    const store = new RuntimeSessionStore(spaceId, root);
+    const store = new TestRuntimeSessionStore(spaceId, root);
     const turn = input("pi");
     const { state } = await store.prepare(turn, root);
     await store.started(state, turnId);
     await store.acknowledge(state, turnId, "two");
-    await assert.rejects(() => store.prepare({ ...turn, context: { complete: false, revision: "two", throughTurnId: turnId, messages: [] } }, join(root, "another-workspace")), /context/i);
+    const moved = await store.prepare({ ...turn, context: { complete: false, revision: "two", throughTurnId: turnId, messages: [] } }, join(root, "another-workspace"));
+    assert.notEqual(moved.state.path, state.path);
     assert.equal(JSON.parse((await readFile(state.path, "utf8")).split("\n")[0]).cwd, root);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
@@ -243,8 +252,9 @@ for (const harness of ["pi", "codex"] as const) {
       const options = { [harness]: binary };
       const catalog = await discoverHarnesses([harness], options, root);
       assert.equal(catalog.models[0]?.id, "test");
-      const store = new RuntimeSessionStore(spaceId, join(root, "state"), storage.transport);
+      const store = new TestRuntimeSessionStore(spaceId, join(root, "state"), storage.transport);
       const turn = input(harness);
+      store.projectionSource.addTurn(sessionId, previousTurn, { userContent: [{ type: "text", text: "historical fact" }] });
       const events: RuntimeExecutionEvent[] = [];
       const run = harness === "pi" ? executePi : executeCodex;
       const first = await run(turn, options, root, store, (event) => events.push(event), new AbortController().signal);
@@ -267,7 +277,7 @@ for (const harness of ["pi", "codex"] as const) {
       assert.equal(second.event.resume, "native");
       assert.equal(second.state.nativeSessionId, first.state.nativeSessionId);
       const original = await readFile(first.state.path, "utf8");
-      const coldStore = new RuntimeSessionStore(spaceId, join(root, "cold"), storage.transport);
+      const coldStore = new TestRuntimeSessionStore(spaceId, join(root, "cold"), storage.transport);
       const restored = await run({ ...next, context: { ...next.context, complete: false, messages: [], archive: first.event.archive } }, options, root, coldStore, () => {}, new AbortController().signal);
       assert.equal(restored.event.resume, "restored");
       if (harness === "pi") assert.equal(restored.state.nativeSessionId, first.state.nativeSessionId);
