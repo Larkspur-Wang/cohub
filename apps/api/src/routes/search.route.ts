@@ -532,7 +532,7 @@ router.get("/", async (c) => {
       matched_field AS "matchedField",
       updated_at AS "updatedAt",
       viewer_relation AS "viewerRelation",
-      CASE WHEN ${isLongQuery} AND text_score >= 0.9 THEN 0 ELSE viewer_tier END AS effective_tier,
+      CASE WHEN ${isLongQuery} AND text_score >= 0.9 THEN 0 ELSE viewer_tier END AS "effectiveTier",
       text_score AS "textScore",
       recency_score AS "recencyScore",
       type_priority_score AS "typePriorityScore",
@@ -543,7 +543,7 @@ router.get("/", async (c) => {
       label_resource_ref AS "labelResourceRef",
       (text_score * 0.68 + recency_score * 0.16 + type_priority_score * 0.05 + membership_priority_score * 0.11) AS score
     FROM scored
-    ORDER BY effective_tier ASC, score DESC, membership_priority_score DESC, text_score DESC, type_priority_score DESC, updated_at DESC
+    ORDER BY "effectiveTier" ASC, score DESC, membership_priority_score DESC, text_score DESC, type_priority_score DESC, updated_at DESC
     LIMIT ${limit}
   `);
     });
