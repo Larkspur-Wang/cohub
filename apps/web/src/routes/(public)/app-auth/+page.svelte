@@ -3,12 +3,13 @@ import type { AppPublicOwnerRecord, AppRecord } from "@neta-art/cohub";
 import { AlertTriangle, Loader2, ShieldCheck } from "lucide-svelte";
 import { onDestroy, onMount } from "svelte";
 import { page } from "$app/state";
-import { PUBLIC_API_ORIGIN, PUBLIC_COHUB_ENV } from "$env/static/public";
+import { PUBLIC_API_ORIGIN } from "$env/static/public";
 import { getAuthToken, signInWithRedirectPath } from "$lib/auth";
 import { readAppCheckoutState } from "$lib/components/app/app-checkout-state";
 import AppAuthorizeDialog from "$lib/features/app/AppAuthorizeDialog.svelte";
 import { isLegacyAppOriginAllowed } from "$lib/features/app/app-origin-allowlist";
 import { createAppBridgeHost } from "$lib/features/app/bridge-host.svelte";
+import { standaloneAppHostTemplate } from "$lib/features/app/standalone-app-host";
 import type { Locale } from "$lib/i18n/locale";
 import { getLocale } from "$lib/i18n/locale.svelte";
 import { m } from "$lib/paraglide/messages.js";
@@ -87,9 +88,9 @@ async function init() {
 		return;
 	}
 	const originResolved = await loadAppByOrigin();
-	const environment = PUBLIC_COHUB_ENV === "prod" ? "prod" : "dev";
 	originAccepted =
-		originResolved || isLegacyAppOriginAllowed(openerOrigin, environment);
+		originResolved ||
+		isLegacyAppOriginAllowed(openerOrigin, standaloneAppHostTemplate);
 	if (!originAccepted) {
 		fail(m.app_auth_origin_denied({}, { locale }));
 		return;

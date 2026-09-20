@@ -1,6 +1,7 @@
-import { type CohubAppEnvironment, isCohubAppHostname } from "@cohub/protocol";
+import { isCohubAppHostname } from "@cohub/protocol";
 import type { Handle } from "@sveltejs/kit";
-import { PUBLIC_API_ORIGIN, PUBLIC_COHUB_ENV } from "$env/static/public";
+import { PUBLIC_API_ORIGIN } from "$env/static/public";
+import { standaloneAppHostTemplate } from "$lib/features/app/standalone-app-host";
 import { resolvePublicLocale } from "$lib/i18n/public-locale";
 import {
 	isPublicSharePath,
@@ -31,9 +32,10 @@ function resolveHtmlLang(pathname: string, html: string): string {
 
 /** Set <html lang> for SSR / prerendered HTML (client nav handled in pages). */
 export const handle: Handle = async ({ event, resolve }) => {
-	const environment: CohubAppEnvironment =
-		PUBLIC_COHUB_ENV === "prod" ? "prod" : "dev";
-	if (isCohubAppHostname(event.url.hostname, environment)) {
+	if (
+		standaloneAppHostTemplate &&
+		isCohubAppHostname(event.url.hostname, standaloneAppHostTemplate)
+	) {
 		return serveStandaloneApp({
 			request: event.request,
 			url: event.url,

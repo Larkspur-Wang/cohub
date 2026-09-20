@@ -20,27 +20,25 @@ describe("isAllowedAppOrigin", () => {
 
 	it("never lets managed App hosts fall back to the legacy allowlist", () => {
 		const appId = "550e8400-e29b-41d4-a716-446655440000";
+		const template = "{id}.apps.cohub.live";
 		assert.equal(
-			isLegacyAppOriginAllowed(`https://${appId}.apps.cohub.live`, "prod"),
+			isLegacyAppOriginAllowed(`https://${appId}.apps.cohub.live`, template),
 			false,
 		);
+		// Non-App hosts in the same subtree still use the legacy allowlist.
 		assert.equal(
-			isLegacyAppOriginAllowed(`https://${appId}.apps-dev.cohub.live`, "dev"),
-			false,
+			isLegacyAppOriginAllowed("https://www.apps.cohub.live", template),
+			true,
 		);
+		assert.equal(isLegacyAppOriginAllowed("https://neta.art", template), true);
+	});
+
+	it("keeps the legacy allowlist while standalone origins are disabled", () => {
+		const appId = "550e8400-e29b-41d4-a716-446655440000";
 		assert.equal(
-			isLegacyAppOriginAllowed(`https://${appId}.apps-dev.cohub.live`, "prod"),
-			false,
+			isLegacyAppOriginAllowed(`https://${appId}.apps.cohub.live`, null),
+			true,
 		);
-		assert.equal(
-			isLegacyAppOriginAllowed(`https://${appId}.apps.cohub.live`, "dev"),
-			false,
-		);
-		assert.equal(
-			isLegacyAppOriginAllowed("https://invalid.apps.cohub.live", "prod"),
-			false,
-		);
-		assert.equal(isLegacyAppOriginAllowed("https://neta.art", "prod"), true);
 	});
 
 	it("rejects insecure and lookalike Cohub origins", () => {

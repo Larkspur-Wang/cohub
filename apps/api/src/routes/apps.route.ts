@@ -599,7 +599,10 @@ const publicVersionSummary = (
 router.get("/by-origin", async (c) => {
   const requestedOrigin = c.req.query("origin")?.trim() || c.req.header("origin")?.trim();
   const recordView = c.req.query("view") === "1";
-  const appId = resolveCohubAppOrigin(requestedOrigin, config.env);
+  const hostTemplate = config.appStandaloneHostTemplate;
+  const appId = hostTemplate
+    ? resolveCohubAppOrigin(requestedOrigin, hostTemplate)
+    : null;
   if (!appId) return c.json({ message: "app origin not found", code: "app_origin_not_found" }, 404);
   const app = await getAppById(appId);
   if (app?.status !== "published" || requiresSpaceAppAccess(app)) {

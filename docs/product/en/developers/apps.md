@@ -31,8 +31,10 @@ if (!ctx?.app?.id) throw new Error("Not inside a published app");
 
 `env` matters in the browser: an app served from a dev host must pass
 `env: "dev"`, or it will silently call production. Published public `file` and
-`directory` Apps also receive a direct URL at `<app-id>.apps.cohub.live`
-(production) or `<app-id>.apps-dev.cohub.live` (development).
+`directory` Apps may also be opened directly at their standalone origin, which
+substitutes the App id into the deployment's standalone host template (for
+example `<app-id>.apps.example.com`). Standalone origins are opt-in deployment
+configuration; without a template, Apps have no direct URL.
 
 ## Authorization
 

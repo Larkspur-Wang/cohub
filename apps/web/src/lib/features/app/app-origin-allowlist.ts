@@ -1,7 +1,4 @@
-import {
-	COHUB_APP_HOST_SUFFIXES,
-	type CohubAppEnvironment,
-} from "@cohub/protocol";
+import { type CohubAppHostTemplate, isCohubAppHostname } from "@cohub/protocol";
 
 /**
  * Origin allowlist for the app auth broker (§8.1 of the plan).
@@ -61,24 +58,17 @@ export function isAllowedAppOrigin(origin: string): boolean {
 /** Managed standalone hosts must never bypass their authoritative App binding. */
 export function isLegacyAppOriginAllowed(
 	origin: string,
-	environment: CohubAppEnvironment,
+	standaloneAppHostTemplate: CohubAppHostTemplate | null,
 ): boolean {
-	try {
-		const hostname = new URL(origin).hostname.toLowerCase();
-		const managedSuffixes = [
-			COHUB_APP_HOST_SUFFIXES[environment],
-			...Object.values(COHUB_APP_HOST_SUFFIXES).filter(
-				(suffix) => suffix !== COHUB_APP_HOST_SUFFIXES[environment],
-			),
-		];
-		if (
-			managedSuffixes.some(
-				(suffix) => hostname === suffix || hostname.endsWith(`.${suffix}`),
+	if (standaloneAppHostTemplate) {
+		try {
+			if (
+				isCohubAppHostname(new URL(origin).hostname, standaloneAppHostTemplate)
 			)
-		)
+				return false;
+		} catch {
 			return false;
-	} catch {
-		return false;
+		}
 	}
 	return isAllowedAppOrigin(origin);
 }

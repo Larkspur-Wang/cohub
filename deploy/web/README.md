@@ -7,10 +7,19 @@
   - `CLOUDFLARE_API_TOKEN`
   - `CLOUDFLARE_ACCOUNT_ID`
 - 已确认 API 可访问
-- `cohub.live` Zone 已配置代理状态的 `*.apps.cohub.live` 与 `*.apps-dev.cohub.live` DNS 记录
-- Cloudflare 已为 `*.apps.cohub.live` 与 `*.apps-dev.cohub.live` 配置有效的 wildcard TLS 证书
 
-> Worker 路由已写入对应 Wrangler 配置，并启用 `assets.run_worker_first`，确保 App 路径不会被 Cohub 自身的同名静态资源截获。DNS 与 wildcard TLS 是独立的 Cloudflare Zone 配置，必须在首次部署 standalone App 域名前完成。
+> 主域名的 Worker 路由已写入对应 Wrangler 配置，并启用 `assets.run_worker_first`。独立域名位于其它 Zone，其 Worker 通配路由在部署侧创建（不写入仓库）。
+
+## App 独立域名（可选）
+
+已发布公开 App 的独立域名由部署配置决定，未配置时该功能关闭（API 不返回独立地址，App 也无法从独立域名打开）。
+
+| 位置 | 配置 | 说明 |
+|------|------|------|
+| API | `APP_STANDALONE_HOST_TEMPLATE` | 见 `deploy/api/*`；`{id}` 代入 App ID，如 `{id}.apps.example.com` |
+| Web | `PUBLIC_APP_STANDALONE_HOST_TEMPLATE` | 构建期注入，取值自 GitHub Variable `APP_STANDALONE_HOST_TEMPLATE_DEV` / `APP_STANDALONE_HOST_TEMPLATE_PROD` |
+
+启用独立域名还需在目标 Zone 完成：代理状态的通配 DNS 记录（如 `*.apps.example.com`）、覆盖该通配的 TLS 证书（Universal SSL 仅覆盖一级通配，二级通配需另行签发），以及指向 `cohub-web-dev` / `cohub-web` 的 Worker 通配路由。
 
 ## 环境配置
 

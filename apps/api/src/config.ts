@@ -1,4 +1,8 @@
 import { resolveLogtoEndpoint } from "@cohub/identity";
+import {
+  parseCohubAppHostTemplate,
+  type CohubAppHostTemplate,
+} from "@cohub/protocol";
 
 export type AppConfig = {
   logtoEndpoint: string;
@@ -65,6 +69,11 @@ export type AppConfig = {
   sandboxPublicDomains: string[];
   /** Host suffixes accepted for app content port URLs (security boundary). */
   allowedAppContentHostSuffixes: string[];
+  /**
+   * Hostname template for published App standalone origins, e.g.
+   * `{id}.apps.example.com`. Unset disables standalone origins entirely.
+   */
+  appStandaloneHostTemplate: CohubAppHostTemplate | null;
   /** Author email for checkpoint git commits. */
   checkpointGitAuthorEmail: string;
   /** Optional deployment-level Meta promotion provider configuration. */
@@ -239,6 +248,9 @@ export const config: AppConfig = {
     // Same APP_*-first policy as the asset CDN base URL above.
     process.env.APP_CONTENT_HOST_SUFFIXES ?? process.env.WORK_CONTENT_HOST_SUFFIXES,
     [".cohub.live", ".cohub.run"],
+  ),
+  appStandaloneHostTemplate: parseCohubAppHostTemplate(
+    process.env.APP_STANDALONE_HOST_TEMPLATE,
   ),
   checkpointGitAuthorEmail: process.env.CHECKPOINT_GIT_AUTHOR_EMAIL?.trim() || "noreply@cohub.live",
   metaPromotionPixelId: process.env.COHUB_META_PIXEL_ID?.trim() || undefined,

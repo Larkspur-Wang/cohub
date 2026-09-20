@@ -441,12 +441,11 @@ const client = createCohubClient({
 
 ### Automatic standalone mode
 
-Every published public `file` or `directory` App has a direct standalone URL:
-
-```text
-prod  https://<app-id>.apps.cohub.live
-dev   https://<app-id>.apps-dev.cohub.live
-```
+Published public `file` and `directory` Apps may also be opened at a standalone
+URL: the deployment's standalone host template with the App id substituted, for
+example `https://<app-id>.apps.example.com`. Standalone origins are opt-in
+against deployment configuration; without a template, Apps have no standalone
+URL.
 
 The same client initialization works in the Cohub iframe and at this direct
 URL. The SDK first uses the parent bridge when embedded; at a top-level page it

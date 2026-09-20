@@ -29,8 +29,9 @@ if (!ctx?.app?.id) throw new Error("Not inside a published app");
 ```
 
 浏览器中 `env` 很重要：dev 域名上的 App 必须显式传 `env: "dev"`，否则会静默
-调用生产环境。已发布的公开 `file` / `directory` App 还会获得独立地址：生产环境为
-`<app-id>.apps.cohub.live`，开发环境为 `<app-id>.apps-dev.cohub.live`。
+调用生产环境。已发布的公开 `file` / `directory` App 还可能拥有独立地址：把 App ID
+代入部署配置的独立域名模板（例如 `<app-id>.apps.example.com`）。独立域名是部署侧
+可选配置，未配置模板时 App 没有独立地址。
 
 ## 授权
 

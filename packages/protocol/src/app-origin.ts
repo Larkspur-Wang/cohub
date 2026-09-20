@@ -1,49 +1,96 @@
 import { isUuid } from "./identifiers.js";
 
-export type CohubAppEnvironment = "prod" | "dev";
+/**
+ * Placeholder replaced with the App id in a standalone App hostname template,
+ * for example `{id}.apps.example.com`.
+ */
+export const COHUB_APP_HOST_TOKEN = "{id}";
 
-export const COHUB_APP_HOST_SUFFIXES = {
-  prod: "apps.cohub.live",
-  dev: "apps-dev.cohub.live",
-} as const satisfies Record<CohubAppEnvironment, string>;
+/**
+ * Hostname template for published App standalone origins, supplied by
+ * deployment configuration. Standalone origins are opt-in: without a template
+ * no App has one, and origin-to-App resolution is disabled.
+ */
+export type CohubAppHostTemplate = string;
+
+const HOSTNAME_RE =
+	/^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
+const PROBE_APP_ID = "00000000-0000-4000-8000-000000000000";
+
+function splitTemplate(
+	template: string,
+): { prefix: string; suffix: string } | null {
+	const parts = template.split(COHUB_APP_HOST_TOKEN);
+	if (parts.length !== 2) return null;
+	const [prefix, suffix] = parts;
+	return prefix === undefined || suffix === undefined
+		? null
+		: { prefix, suffix };
+}
+
+/**
+ * Normalizes deployment configuration into a hostname template. Returns null
+ * when the value is absent or is not a single-`{id}` valid hostname.
+ */
+export function parseCohubAppHostTemplate(
+	value: string | null | undefined,
+): CohubAppHostTemplate | null {
+	const template = value?.trim().toLowerCase();
+	if (!template) return null;
+	const parts = splitTemplate(template);
+	if (!parts) return null;
+	const probe = `${parts.prefix}${PROBE_APP_ID}${parts.suffix}`;
+	return HOSTNAME_RE.test(probe) ? template : null;
+}
 
 export function createCohubAppHostname(
-  appId: string,
-  environment: CohubAppEnvironment,
+	appId: string,
+	template: CohubAppHostTemplate,
 ): string {
-  return `${appId}.${COHUB_APP_HOST_SUFFIXES[environment]}`;
+	return template.replace(COHUB_APP_HOST_TOKEN, appId.toLowerCase());
 }
 
 export function createCohubAppOrigin(
-  appId: string,
-  environment: CohubAppEnvironment,
+	appId: string,
+	template: CohubAppHostTemplate,
 ): string {
-  return `https://${createCohubAppHostname(appId, environment)}`;
+	return `https://${createCohubAppHostname(appId, template)}`;
+}
+
+/** Resolves the App id from a managed standalone hostname, or null. */
+export function resolveCohubAppIdFromHostname(
+	hostname: string,
+	template: CohubAppHostTemplate,
+): string | null {
+	const parts = splitTemplate(template);
+	if (!parts) return null;
+	const host = hostname.trim().toLowerCase();
+	if (!host.startsWith(parts.prefix) || !host.endsWith(parts.suffix)) return null;
+	const end = host.length - parts.suffix.length;
+	if (end <= parts.prefix.length) return null;
+	const appId = host.slice(parts.prefix.length, end);
+	return isUuid(appId) ? appId : null;
 }
 
 export function isCohubAppHostname(
-  hostname: string,
-  environment: CohubAppEnvironment,
+	hostname: string,
+	template: CohubAppHostTemplate,
 ): boolean {
-  const suffix = COHUB_APP_HOST_SUFFIXES[environment];
-  const normalized = hostname.trim().toLowerCase();
-  if (!normalized.endsWith(`.${suffix}`)) return false;
-  return isUuid(normalized.slice(0, -(suffix.length + 1)));
+	return resolveCohubAppIdFromHostname(hostname, template) !== null;
 }
 
-/** Resolves only Cohub-owned standalone origins. Custom domains can be added behind the same API later. */
+/** Resolves only managed standalone origins, e.g. `https://<id>.apps.example.com`. */
 export function resolveCohubAppOrigin(
-  origin: string | null | undefined,
-  environment: CohubAppEnvironment,
+	origin: string | null | undefined,
+	template: CohubAppHostTemplate,
 ): string | null {
-  if (!origin) return null;
-  try {
-    const url = new URL(origin);
-    if (url.protocol !== "https:" || url.port || url.origin !== origin) return null;
-    if (!isCohubAppHostname(url.hostname, environment)) return null;
-    const suffix = COHUB_APP_HOST_SUFFIXES[environment];
-    return url.hostname.slice(0, -(suffix.length + 1)).toLowerCase();
-  } catch {
-    return null;
-  }
+	if (!origin) return null;
+	try {
+		const url = new URL(origin);
+		if (url.protocol !== "https:" || url.port || url.origin !== origin)
+			return null;
+		return resolveCohubAppIdFromHostname(url.hostname, template);
+	} catch {
+		return null;
+	}
 }

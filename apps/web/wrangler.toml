@@ -3,9 +3,8 @@ main = ".svelte-kit/cloudflare/_worker.js"
 compatibility_date = "2025-03-05"
 compatibility_flags = ["nodejs_compat"]
 
-[[routes]]
-pattern = "*.apps-dev.cohub.live/*"
-zone_name = "cohub.live"
+# Standalone App host routes are deployment-specific (a separate zone), so they
+# are configured outside the repository; see deploy/web/README.md.
 
 [assets]
 directory = ".svelte-kit/cloudflare/assets"

@@ -85,6 +85,8 @@ jobs:
         run: |
           echo "PUBLIC_COHUB_ENV=${{ steps.env.outputs.env }}" > .env
           if [[ "${{ steps.env.outputs.env }}" == "prod" ]]; then
+            # Hostname template for published App standalone origins; empty disables them.
+            echo "PUBLIC_APP_STANDALONE_HOST_TEMPLATE=${{ vars.APP_STANDALONE_HOST_TEMPLATE_PROD }}" >> .env
             echo "PUBLIC_API_ORIGIN=https://api.cohub.live" >> .env
             echo "PUBLIC_GATEWAY_ORIGIN=https://gateway.cohub.live" >> .env
             echo "PUBLIC_PREVIEW_ORIGIN=https://preview.cohub.live" >> .env
@@ -94,6 +96,8 @@ jobs:
             echo "PUBLIC_LOGTO_API_RESOURCE=https://api.talesofai" >> .env
             echo "PUBLIC_MARKETPLACE_APP_ID=98aa1727-a20d-42ac-bd19-674664d010e4" >> .env
           else
+            # Hostname template for published App standalone origins; empty disables them.
+            echo "PUBLIC_APP_STANDALONE_HOST_TEMPLATE=${{ vars.APP_STANDALONE_HOST_TEMPLATE_DEV }}" >> .env
             echo "PUBLIC_API_ORIGIN=https://api-dev.cohub.live" >> .env
             echo "PUBLIC_GATEWAY_ORIGIN=https://gateway-dev.cohub.live" >> .env
             echo "PUBLIC_PREVIEW_ORIGIN=https://preview-dev.cohub.live" >> .env
