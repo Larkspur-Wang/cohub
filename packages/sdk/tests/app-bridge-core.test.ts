@@ -493,6 +493,163 @@ test("authorize opens consent dialog for non-owner without prior grant", async (
 	assert.equal(state.pendingAuth?.reason, "need to read prompts");
 });
 
+test("Shell Space read-only scopes are authorized without opening the dialog", async () => {
+	const originalFetch = globalThis.fetch;
+	const requests: Array<{ url: string; headers: Record<string, string>; body: Record<string, unknown> }> = [];
+	globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+		requests.push({
+			url: String(url),
+			headers: (init?.headers ?? {}) as Record<string, string>,
+			body: JSON.parse(String(init?.body)) as Record<string, unknown>,
+		});
+		return jsonResponse({
+			token: "shell-token",
+			grant: {
+				id: "grant-1",
+				spaceId: "shell-space",
+				scopes: ["space.view", "file.view", "file.view.filtered", "session.view", "taskrun.view", "checkpoint.view"],
+				expiresAt: null,
+			},
+		});
+	}) as typeof fetch;
+	try {
+		const config = makeConfig({
+			shell: {
+				surface: "workspace",
+				space: { id: "shell-space", name: "Shell Space" },
+				session: null,
+				turn: null,
+			},
+		});
+		const core = createAppBridgeCore(config);
+
+		await core.handleMessage(
+			messageEvent({
+				type: "cohub.app.authorize",
+				requestId: "shell-read",
+				scopes: ["space.view", "file.view", "file.view.filtered", "session.view", "taskrun.view", "checkpoint.view"],
+			}),
+		);
+
+		assert.equal(core.getState().authOpen, false);
+		assert.equal(config.replies.length, 1);
+		assert.equal(config.replies[0]?.payload.token, "shell-token");
+		assert.deepEqual(config.replies[0]?.payload.space, { id: "shell-space", name: "Shell Space" });
+		// Deciding to skip the dialog is Host-side; the request itself stays an
+		// ordinary authorize call. `silent` tells the server it may only renew a
+		// live grant, so a revoked consent can never come back without the dialog.
+		assert.equal(requests.length, 1);
+		assert.match(requests[0]?.url ?? "", /\/api\/apps\/work_123\/authorize$/);
+		assert.equal(requests[0]?.body.silent, true);
+		assert.equal(requests[0]?.body.spaceId, "shell-space");
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
+test("Embedded Shell requests authorize without opening a dialog", async () => {
+	const originalFetch = globalThis.fetch;
+	globalThis.fetch = (async () =>
+		jsonResponse({
+			token: "embedded-token",
+			grant: { id: "grant-2", spaceId: "shell-space", scopes: ["file.view"], expiresAt: null },
+		})) as typeof fetch;
+	try {
+		const config = makeConfig({
+			shell: {
+				surface: "embed",
+				space: { id: "shell-space", name: "Shell Space" },
+				session: null,
+				turn: null,
+			},
+		});
+		const core = createAppBridgeCore(config);
+		await core.handleMessage(messageEvent({
+			type: "cohub.app.authorize",
+			requestId: "embedded-read",
+			scopes: ["file.view"],
+		}));
+		assert.equal(core.getState().authOpen, false);
+		assert.equal(config.replies[0]?.payload.token, "embedded-token");
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
+test("Shell silent path falls back to the dialog when the grant was revoked", async () => {
+	const originalFetch = globalThis.fetch;
+	globalThis.fetch = (async (url: unknown) =>
+		String(url).endsWith("/authorize")
+			? new Response(JSON.stringify({ message: "grant was revoked; viewer consent is required again", code: "consent_required" }), { status: 403 })
+			: jsonResponse([])) as typeof fetch;
+	try {
+		const config = makeConfig({
+			shell: {
+				surface: "workspace",
+				space: { id: "shell-space", name: "Shell Space" },
+				session: null,
+				turn: null,
+			},
+		});
+		const core = createAppBridgeCore(config);
+		await core.handleMessage(
+			messageEvent({ type: "cohub.app.authorize", requestId: "shell-revoked", scopes: ["file.view"] }),
+		);
+		// The server refused to revive the revoked grant, so the viewer is asked
+		// again instead of receiving a silent token.
+		assert.equal(core.getState().authOpen, true);
+		assert.equal(config.replies.length, 0);
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
+test("Shell auto-authorization does not cover other targets or side-effect scopes", async () => {
+	const originalFetch = globalThis.fetch;
+	const urls: string[] = [];
+	globalThis.fetch = (async (url: unknown) => {
+		urls.push(String(url));
+		if (String(url).endsWith("/api/spaces")) return jsonResponse([{ id: "shell-space", name: "Shell Space" }]);
+		return jsonResponse({ token: "should-not-authorize" });
+	}) as typeof fetch;
+	try {
+		const config = makeConfig({
+			shell: {
+				surface: "workspace",
+				space: { id: "shell-space", name: "Shell Space" },
+				session: null,
+				turn: null,
+			},
+		});
+		const core = createAppBridgeCore(config);
+
+		await core.handleMessage(
+			messageEvent({
+				type: "cohub.app.authorize",
+				requestId: "other-space",
+				spaceId: "other-space",
+				scopes: ["file.view"],
+			}),
+		);
+		assert.equal(core.getState().authOpen, true);
+		assert.equal(urls.some((url) => url.endsWith("/authorize")), false);
+
+		core.cancelAuth();
+		await core.handleMessage(
+			messageEvent({
+				type: "cohub.app.authorize",
+				requestId: "side-effect",
+				spaceId: "shell-space",
+				scopes: ["file.view", "session.prompt.readonly"],
+			}),
+		);
+		assert.equal(core.getState().authOpen, true);
+		assert.equal(urls.some((url) => url.endsWith("/authorize")), false);
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
 const jsonResponse = (body: unknown) =>
 	new Response(JSON.stringify(body), { status: 200 });
 

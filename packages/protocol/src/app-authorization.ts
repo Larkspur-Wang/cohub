@@ -6,6 +6,26 @@ export const appAuthorizationTargetSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("pick-space") }),
 ]);
 
+/**
+ * Read-only permissions the trusted Shell may grant without opening consent.
+ * This is a Host-side rule: the Shell compares the request against the Space
+ * it is actually showing, and the API still checks the viewer's real Space
+ * permissions because it never learns whether consent was interactive.
+ */
+export const APP_SILENT_SHELL_SCOPES = [
+  "space.view",
+  "file.view",
+  "file.view.filtered",
+  "session.view",
+  "taskrun.view",
+  "checkpoint.view",
+] as const;
+
+const APP_SILENT_SHELL_SCOPE_SET = new Set<string>(APP_SILENT_SHELL_SCOPES);
+
+export const isAppSilentShellScope = (scope: string): boolean =>
+  APP_SILENT_SHELL_SCOPE_SET.has(scope);
+
 export const appAuthorizationRequestSchema = z.object({
   target: appAuthorizationTargetSchema,
   scopes: z.array(z.string().min(1)).min(1).max(128),

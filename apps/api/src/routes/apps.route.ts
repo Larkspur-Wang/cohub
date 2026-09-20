@@ -1252,6 +1252,30 @@ router.post("/:id/session", async (c) => {
   return c.json({ token, expiresIn: APP_SESSION_TTL_SECONDS, ...wrapAppRecord(wire, serializeApp(app)) });
 });
 
+function buildAppAuthorizationPayload(
+  app: typeof apps.$inferSelect,
+  user: AuthUser,
+  grant: typeof appViewerGrants.$inferSelect,
+) {
+  const scopes = normalizePermissionScopes(grant.scopes as string[]);
+  return {
+    token: createAppSessionToken({
+      userUuid: user.uuid,
+      appId: app.id,
+      spaceId: app.spaceId,
+      appScopes: app.appScopes as Permission[],
+      viewerScopes: scopes,
+    }),
+    expiresIn: APP_SESSION_TTL_SECONDS,
+    grant: {
+      id: grant.id,
+      spaceId: grant.spaceId,
+      scopes,
+      expiresAt: grant.expiresAt?.toISOString() ?? null,
+    },
+  };
+}
+
 router.post("/:id/authorize", async (c) => {
   if (getExecutionPrincipal(c)?.source === APP_ACTION_EXECUTION_SOURCE) return authzDenied(c);
   const user = useAccountPrincipal(c);
@@ -1297,18 +1321,7 @@ router.post("/:id/authorize", async (c) => {
     if (existing?.revokedAt) return c.json({ message: "grant was revoked; viewer consent is required again", code: "consent_required" }, 403);
     const renewed = await renewViewerGrant({ existing, requested });
     if (renewed) {
-      const renewedScopes = normalizePermissionScopes(renewed.scopes as string[]);
-      return c.json({
-        token: createAppSessionToken({
-          userUuid: user.uuid,
-          appId: app.id,
-          spaceId: app.spaceId,
-          appScopes: app.appScopes as Permission[],
-          viewerScopes: renewedScopes,
-        }),
-        expiresIn: APP_SESSION_TTL_SECONDS,
-        grant: { id: renewed.id, spaceId: targetSpaceId, scopes: renewedScopes, expiresAt: renewed.expiresAt?.toISOString() ?? null },
-      });
+      return c.json(buildAppAuthorizationPayload(app, user, renewed));
     }
     if (user.uuid !== app.userUuid) {
       return c.json({ message: "grant is no longer active; viewer consent is required again", code: "consent_required" }, 403);
@@ -1343,18 +1356,7 @@ router.post("/:id/authorize", async (c) => {
   }
   if (!grant) return c.json({ message: "failed to create grant" }, 500);
 
-  const token = createAppSessionToken({
-    userUuid: user.uuid,
-    appId: app.id,
-    spaceId: app.spaceId,
-    appScopes: app.appScopes as Permission[],
-    viewerScopes: normalizePermissionScopes(grant.scopes),
-  });
-  return c.json({
-    token,
-    expiresIn: APP_SESSION_TTL_SECONDS,
-    grant: { id: grant.id, spaceId: targetSpaceId, scopes: normalizePermissionScopes(grant.scopes), expiresAt: expiresAt.toISOString() },
-  });
+  return c.json(buildAppAuthorizationPayload(app, user, grant));
 });
 
 // ── Viewer grants: list + revoke (the viewer's own consents) ─────────────────

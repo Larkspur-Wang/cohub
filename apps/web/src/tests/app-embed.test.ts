@@ -116,6 +116,35 @@ test("ignores messages from other origins, non-parent frames, or embed ids", () 
 	}
 });
 
+test("an embedded page still asks its embedder for authorization-relevant hints only", () => {
+	const page = mountPage();
+	try {
+		page.deliver({
+			...envelope,
+			type: "attach",
+			embedId: "embed-1",
+			embedder: { appId: APP_ID },
+			shell: {
+				space: { id: SPACE_ID, name: "Studio" },
+				session: null,
+				turn: null,
+			},
+		});
+		assert.deepEqual(page.states.at(-1)?.shell, {
+			space: { id: SPACE_ID, name: "Studio" },
+			session: null,
+			turn: null,
+		});
+		// The embed channel carries navigation hints and window intents only. It
+		// must never carry anything that could be mistaken for an authorization
+		// fact, so no proof or token ever crosses it.
+		const types = page.posted.map((entry) => entry.message.type);
+		assert.deepEqual(types, ["attach.request"]);
+	} finally {
+		page.dispose();
+	}
+});
+
 test("relays close only once attached", () => {
 	const page = mountPage();
 	try {

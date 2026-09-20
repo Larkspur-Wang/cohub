@@ -78,6 +78,7 @@ export function connectAppEmbed(
 		if (changed && state && changed.embedId === state.embedId) {
 			state = { ...state, shell: changed.shell };
 			onState(state);
+			return;
 		}
 	};
 

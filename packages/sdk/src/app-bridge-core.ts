@@ -1,4 +1,11 @@
-import { appAuthorizationRequestSchema, appAuthorizationGrantSchema, type AppAuthorizationRequest, type AppAuthorizationGrant, type AppAuthorizationResult } from "@cohub/protocol";
+import {
+	appAuthorizationRequestSchema,
+	appAuthorizationGrantSchema,
+	isAppSilentShellScope,
+	type AppAuthorizationRequest,
+	type AppAuthorizationGrant,
+	type AppAuthorizationResult,
+} from "@cohub/protocol";
 import { PERMISSIONS, isUserLevelPermission, type CreateSpaceInput, type Permission, type SpaceBootstrapSource } from "./types.js";
 import type { AppRecord } from "./apis/apps.js";
 import type {
@@ -275,7 +282,7 @@ class AppAuthorizationError extends Error {
 }
 
 const isDefinitiveAuthorizationFailure = (error: unknown) =>
-	error instanceof AppAuthorizationError && [401, 403, 404].includes(error.status);
+	error instanceof AppAuthorizationError && [401, 403, 404].includes(error.status) && error.code !== "host_unavailable";
 
 /** A grant the server rejected (revoked / not found) — safe to drop from cache. */
 const isGrantRejection = (error: unknown) =>
@@ -766,8 +773,10 @@ export function createAppBridgeCore(
 			throw new AppLoginRedirect();
 		}
 		const authorizingViewer = await getViewerUuid();
-		const response = await fetch(
-			`${apiOrigin}/api/apps/${app.id}/authorize`,
+		let response: Response;
+		try {
+			response = await fetch(
+				`${apiOrigin}/api/apps/${app.id}/authorize`,
 			{
 				method: "POST",
 				signal: timeoutSignal(AUTHORIZE_TIMEOUT_MS),
@@ -781,8 +790,15 @@ export function createAppBridgeCore(
 					...(options?.silent ? { silent: true } : {}),
 					...(incremental ? { scopeMode: "extend" } : {}),
 				}),
-			},
-		);
+				},
+			);
+		} catch (error) {
+			throw new AppAuthorizationError(
+				error instanceof DOMException && error.name === "TimeoutError" ? "Authorization request timed out." : "Authorization request failed.",
+				503,
+				"host_unavailable",
+			);
+		}
 		const payload = await response.json().catch(() => null) as {
 			token?: unknown;
 			grant?: { id?: unknown; spaceId?: unknown; scopes?: unknown; expiresAt?: unknown } | null;
@@ -830,6 +846,61 @@ export function createAppBridgeCore(
 			if (!isAuthFailure(error)) throw error;
 			return authorize(scopes, spaceId, { silent: true, forceRefreshToken: true });
 		}
+	}
+
+	/**
+	 * Silently renews the approved read-only scopes on the current Shell Space.
+	 *
+	 * Deciding that a request needs no dialog is the Host's job: it compares the
+	 * target against the Space it is actually showing. That check only decides
+	 * *whether to ask*; the server still decides *what may be granted* through
+	 * the silent path, so a revoked consent can never come back on its own.
+	 */
+	const shellAuthorizationInFlight = new Map<string, Promise<{ token: string; spaceId: string; scopes: Permission[] }>>();
+	const shellAuthorizationCache = new Map<string, { result: { token: string; spaceId: string; scopes: Permission[] }; expiresAt: number }>();
+	const SHELL_AUTH_CACHE_MS = 30_000;
+
+	async function authorizeShellSilently(scopes: Permission[], spaceId: string) {
+		const shellContext = config.getShell?.() ?? config.shell;
+		const shell = shellContext?.space ?? null;
+		if (!shellContext || authorizationContext.surface === "broker" || !shell || shell.id !== spaceId) {
+			throw new AppAuthorizationError("Shell authorization is unavailable for this surface.", 403, "consent_required");
+		}
+		const viewerUuid = await getViewerUuid();
+		if (!viewerUuid) {
+			await startSignIn();
+			throw new AppLoginRedirect();
+		}
+		const cacheKey = `${viewerUuid}:${app.id}:${spaceId}:${[...scopes].sort().join(",")}`;
+		const cached = shellAuthorizationCache.get(cacheKey);
+		if (cached && cached.expiresAt > Date.now()) return cached.result;
+		if (cached) shellAuthorizationCache.delete(cacheKey);
+		const pending = shellAuthorizationInFlight.get(cacheKey);
+		if (pending) return pending;
+		// `silent` keeps the server in charge of consent state: it renews a live
+		// grant that still covers these scopes and never creates, widens, or
+		// revives one. A revoked or expired grant therefore stays revoked until
+		// the viewer consents again in the dialog.
+		const request = authorize(scopes, spaceId, { silent: true });
+		shellAuthorizationInFlight.set(cacheKey, request);
+		try {
+			const result = await request;
+			shellAuthorizationCache.set(cacheKey, { result, expiresAt: Date.now() + SHELL_AUTH_CACHE_MS });
+			return result;
+		} finally {
+			shellAuthorizationInFlight.delete(cacheKey);
+		}
+	}
+
+	/**
+	 * Reads the Shell Space supplied by the current Host. Invocation context is
+	 * deliberately excluded: an App may be opened from one Space while the Shell
+	 * shows another; the Host/Shell broker remains the authorization authority.
+	 */
+	function resolveShellSpace() {
+		const shell = config.getShell?.() ?? config.shell;
+		if (!shell || shell.surface === "broker") return null;
+		return shell.space;
 	}
 
 	/**
@@ -1421,10 +1492,50 @@ export function createAppBridgeCore(
 					return;
 				}
 
-				// Resolve the target before any silent reuse, so a legacy home-space
-				// cache entry cannot silently re-authorize the app author's Space.
-				// Space-bound requests carry the viewer's Spaces so the consent dialog
-				// can show — and let them change — the target Space. Account-only
+				const shellSpace = resolveShellSpace();
+				const shellTargetId = spaceId ?? shellSpace?.id;
+				const shellAutoAuthorization =
+					!alwaysAsk &&
+					!selectSpace &&
+					Boolean(shellTargetId && (!spaceId || shellSpace?.id === spaceId)) &&
+					scopes.every(isAppSilentShellScope);
+				if (shellAutoAuthorization && shellTargetId) {
+					try {
+						const result = await authorizeShellSilently(scopes, shellTargetId);
+						if (state.pendingAuth !== reserved) return;
+						const viewer = await getViewerUuid();
+						setGrantedAppScopes(viewer, app.id, result.scopes, result.spaceId);
+						replyPendingAuth(
+							reserved,
+							authorizeResult(
+								result.token,
+								result.spaceId,
+								shellSpace?.name ?? null,
+							),
+						);
+						resetDialogState();
+						safeNotify();
+						return;
+					} catch (error) {
+						if (error instanceof AppLoginRedirect) throw error;
+						if (!isDefinitiveAuthorizationFailure(error)) {
+							replyPendingAuth(reserved, {
+								type: "cohub.app.error",
+								message: error instanceof Error ? error.message : "Authorization failed.",
+							});
+							resetDialogState();
+							safeNotify();
+							return;
+						}
+						// A revoked grant or a permission mismatch falls back to the
+						// existing interactive flow; it never bypasses server checks.
+					}
+				}
+
+				// Resolve the target before any remaining silent reuse, so a legacy
+				// home-space cache entry cannot silently re-authorize the app author's
+				// Space. Space-bound requests carry the viewer's Spaces so the consent
+				// dialog can show — and let them change — the target Space. Account-only
 				// requests need no Space and no picker.
 				const spaceLevel =
 					Boolean(spaceId) ||

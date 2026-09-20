@@ -80,14 +80,6 @@ export type AppBridgeHost = {
 	cancelAuth: () => void;
 };
 
-/**
- * Svelte 5 reactive wrapper around the framework-agnostic
- * {@link createAppBridgeCore}. Binds the core's dialog state to `$state`
- * runes so Svelte templates can react to authorize/purchase dialog changes,
- * while delegating all message handling, token minting, and API calls to the
- * shared core. Both the iframe host (AppSurface) and the standalone broker
- * page compose this with their own transport-specific reply.
- */
 export function createAppBridgeHost(
 	config: AppBridgeHostConfig,
 ): AppBridgeHost {

@@ -67,7 +67,7 @@ These runtime-only APIs form the foundation; everything else is standard SDK:
 | API | What it does | Returns |
 |---|---|---|
 | `client.context()` | Asks the host for the App's identity | `{ app, space, viewer?, invocation?, shell?, permissions, capabilities?, mode? }` or `null` |
-| `client.auth.authorize({ target, scopes, reason?, alwaysAsk?, fallback? })` | Requests consent for an account, a Space, or a viewer-picked Space; silent when a grant already covers the scopes | `{ status: "granted", requestedTarget, target, resolution, grant }` \| `{ status: "cancelled" }` \| `{ status: "denied", code }` |
+| `client.auth.authorize({ target, scopes, reason?, alwaysAsk?, fallback? })` | Requests consent for an account, a Space, or a viewer-picked Space; also silently grants approved read-only scopes on the trusted Shell Space | `{ status: "granted", requestedTarget, target, resolution, grant }` \| `{ status: "cancelled" }` \| `{ status: "denied", code }` |
 | `client.auth.request()` / `requestSpace()` / `requestCreateSpace()` | Legacy entry points, kept for older Apps | original shapes (`boolean`, `{ granted, space }`) |
 | `client.context().permissions.viewerGrants` | Render the viewer's current per-space grants | `{ spaceId, scopes }[]` |
 | `client.app.commerce.*` / `client.app.realtime.*` | Commerce and realtime, bound to the app's runtime identity | (see below) |
@@ -242,9 +242,17 @@ requested Space.
 
 ### Requesting viewer grants
 
-Consent must be requested **from a user gesture** (a button click). It is
-silent when an existing grant already covers the scopes — the dialog only
-opens when something new is needed:
+Normal consent must be requested **from a user gesture** (a button click).
+A request whose explicit target is the trusted `ctx.shell.space.id` is also
+silent for the read-only Shell scopes `space.view`, `file.view`,
+`file.view.filtered`, `session.view`, `taskrun.view`, and `checkpoint.view`.
+The Host decides this by comparing the request against the Space it is actually
+showing, and the server still checks the viewer's current permission on that
+Space. The API keeps its single `authorize` endpoint and is not told whether
+consent was interactive, so there is no flag to trust or forge. Broker surfaces
+keep the interactive flow. A Shell hosting an embedded App applies the same rule
+on its behalf. Existing grants are read without extending their expiry. Any other target, mixed scope set, `pick-space`,
+account data, writes, or actions keeps the interactive flow:
 
 ```js
 // 1. Target a known Space. The result names the Space that was actually
@@ -516,10 +524,11 @@ const activeSpace = client.space(consent.target.spaceId);
 const result = await activeSpace.prompt({ content: [{ type: "text", text: "Hello" }] });
 ```
 
-> **`auth.authorize()` must be called from a user gesture** (click handler).
-> Browsers block popups (broker mode) and some consent flows (bridge mode)
-> when triggered programmatically without user activation. Do not call it on
-> page load. It is safe to call repeatedly: covered scopes renew silently.
+> **Normal interactive `auth.authorize()` calls must use a user gesture** (click
+> handler). The approved Shell read-only path may run during initialization in
+> bridge mode. Broker mode has no trusted Shell Space, so it keeps the normal
+> popup and gesture requirements. `alwaysAsk: true` always returns to the
+> interactive flow.
 
 ---
 

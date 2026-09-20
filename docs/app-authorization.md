@@ -18,6 +18,31 @@ if (result.status === "granted" && result.target.kind === "space") {
 }
 ```
 
+A request for the trusted Shell Space is silent when the target is exactly
+`ctx.shell.space.id` and every scope is in the read-only Shell allowlist:
+`space.view`, `file.view`, `file.view.filtered`, `session.view`,
+`taskrun.view`, and `checkpoint.view`. This still checks the viewer's current
+Space permissions on the server.
+
+Deciding that a request needs no dialog is the Host's job: it compares the target
+against the Space it is actually showing. The API keeps its single `authorize`
+endpoint and never learns whether consent was interactive, so there is no
+"silent" flag to trust or forge. A Shell that hosts an embedded App applies the
+same rule on that App's behalf, so embeds authorize the same way. Existing
+grants are read without extending their 14-day expiry. `alwaysAsk`, `pick-space`, account targets, Space creation, non-Shell
+targets, and any mixed request keep the interactive flow.
+
+对于可信 Shell Space，当目标正好是 `ctx.shell.space.id`，且所有权限都属于只读
+白名单 `space.view`、`file.view`、`file.view.filtered`、`session.view`、
+`taskrun.view`、`checkpoint.view` 时，授权可以静默完成。服务端仍会检查访客当前
+在该 Space 上的真实权限。
+
+是否需要弹窗由 Host 判断：它把请求目标与自己正在展示的 Space 做比对。API 保持单一
+的 `authorize` 端点，不感知同意过程是交互还是静默，因此不存在可被伪造的「静默」
+标记。承载嵌入 App 的 Shell 对该 App 适用同一规则，嵌入场景因此以相同方式完成授权。
+已有 grant 仅被读取，不会滚动延长 14 天有效期。`alwaysAsk`、`pick-space`、账户目标、创建 Space、非 Shell
+目标，以及混合请求仍然使用交互式授权。
+
 - Targets: `{ kind: "account" }`, `{ kind: "space", spaceId }`, or `{ kind: "pick-space" }`. Account targets accept only account-level scopes. Context identifiers are not authorization.
 - 目标为账户、指定 Space 或选取 Space。账户目标只接受账户级权限；上下文中的 ID 不代表授权。
 - Success returns `requestedTarget`, the actual `target`, `resolution` (`requested`, `selected`, `fallback`), and the server's `grant` (`id`, `spaceId`, `scopes`, `expiresAt`). The grant's `spaceId` remains a storage association for account grants, not a Space permission.
@@ -29,9 +54,12 @@ if (result.status === "granted" && result.target.kind === "space") {
 
 ## Login / 登录
 
-Call interactive authorization from a user action. The Host resolves the viewer before loading Spaces. A logged-out viewer starts login, not an empty Space picker or an error. The complete local return path includes query and hash and is sanitized by the existing auth helper.
+Normal interactive authorization should be requested from a user action. The Shell read-only path above may run without a user gesture because it is limited to the trusted current Shell Space. The Host resolves the viewer before loading Spaces. A logged-out viewer starts login, not an empty Space picker or an error. The complete local return path includes query and hash and is sanitized by the existing auth helper.
 
-从用户操作触发交互式授权。Host 在加载 Space 前确认登录状态；未登录进入登录，不展示空列表或授权错误。回跳保留 query 和 hash，并复用已有安全路径校验。
+普通交互式授权应由用户操作触发。上面的 Shell 只读授权因为严格限制在可信的当前
+Shell Space，可以不依赖用户手势静默执行。Host 会在加载 Space 前确认访客身份；未
+登录访客进入登录流程，而不是看到空的 Space 选择器或错误。完整的回跳路径会保留
+query 和 hash，并复用现有的安全路径校验。
 
 A short-lived, per-App, tab-local intent can restore consent after full-page login when the App asks for context. It stores no tokens or bootstrap credentials. A full-page redirect destroys the original Promise: reload the App context and request again to consume the resulting grant. Create-Space flows require a fresh action after login and are not automatically replayed.
 

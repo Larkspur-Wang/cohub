@@ -89,25 +89,39 @@ let activePromotionKey = "";
  */
 let embed = $state<AppEmbedState | null>(null);
 let embedder = $state<{ appId: string; slug: string } | null>(null);
-let embedConnection: AppEmbedConnection | null = null;
+let embedConnection = $state<AppEmbedConnection | null>(null);
+
+/**
+ * Shell hints arrive over postMessage and are only navigation context. They
+ * become usable only once the embedder proved it is the App served from that
+ * frame origin, so an unrelated page cannot hand this one a fabricated Space
+ * and have it treated as a current Shell.
+ */
+const trustedEmbed = $derived(embed && embedder ? embed : null);
 
 const shell = $derived<AppRuntimeShellContext | undefined>(
-	embed
+	trustedEmbed
 		? {
 				surface: "embed",
-				...(embed.shell ?? { space: null, session: null, turn: null }),
+				...(trustedEmbed.shell ?? { space: null, session: null, turn: null }),
 			}
 		: undefined,
 );
 const invocation = $derived<AppRuntimeInvocationContext | undefined>(
-	embed
+	trustedEmbed
 		? {
 				surface: "page",
 				source: "embed",
 				...(embedder ? { embedder } : {}),
-				...(embed.shell?.space ? { spaceId: embed.shell.space.id } : {}),
-				...(embed.shell?.session ? { sessionId: embed.shell.session.id } : {}),
-				...(embed.shell?.turn ? { turnId: embed.shell.turn.id } : {}),
+				...(trustedEmbed?.shell?.space
+					? { spaceId: trustedEmbed.shell.space.id }
+					: {}),
+				...(trustedEmbed?.shell?.session
+					? { sessionId: trustedEmbed.shell.session.id }
+					: {}),
+				...(trustedEmbed?.shell?.turn
+					? { turnId: trustedEmbed.shell.turn.id }
+					: {}),
 			}
 		: undefined,
 );
