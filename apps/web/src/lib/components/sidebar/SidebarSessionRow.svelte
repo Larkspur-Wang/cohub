@@ -201,7 +201,7 @@ const hoverPaddingClass = $derived.by(() => {
 		left: calc(0.35rem + var(--fork-indent, 0px) - 7px);
 		top: 0.35rem;
 		bottom: 0.35rem;
-		width: 1px;
+		width: 2px;
 		background: var(--session-fork-line);
 		opacity: 0.8;
 		pointer-events: none;
