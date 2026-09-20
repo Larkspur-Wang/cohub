@@ -11,7 +11,7 @@
 
 ## Git commit
 
-Add `Cohub-Session: https://cohub.live/spaces/${COHUB_SPACE_ID}/sessions/${COHUB_SESSION_ID}` as a footer, if the environment variables are set.
+Add `Cohub Session: https://cohub.live/spaces/${COHUB_SPACE_ID}/sessions/${COHUB_SESSION_ID}` as a footer, if the environment variables are set.
 
 ## Release Workflow
 
