@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
+import { TestRuntimeSessionStore } from "./fixtures/runtime-projection-source.js";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { HarnessArchive, RuntimeContextMessage, RuntimeExecutionEvent, RuntimeTurnInput } from "@neta-art/cohub";
 import { executeCodex, executePi } from "../src/runtime/harness.js";
-import { RuntimeSessionStore } from "../src/runtime/session-store.js";
 import { archiveStorageFixture } from "./fixtures/runtime-archive-storage.js";
 
 // Explicit opt-in: callers provide isolated, configured native homes and model credentials.
@@ -26,7 +26,7 @@ for (const original of ["pi", "codex"] as const) {
   const spaceId = randomUUID(), sessionId = randomUUID();
   const marker = `CANARY_${randomUUID().slice(0, 8)}`;
   const storage = await archiveStorageFixture();
-  let store = new RuntimeSessionStore(spaceId, join(root, "state"), storage.transport);
+  let store = new TestRuntimeSessionStore(spaceId, join(root, "state"), storage.transport);
   const history: RuntimeContextMessage[] = [];
   let archive: HarnessArchive | null | undefined;
   let revision = "initial";
@@ -75,7 +75,7 @@ for (const original of ["pi", "codex"] as const) {
     const tool = await run(original, "tool", `Create cohub-smoke.txt in the current working directory, containing exactly ${marker}. Use a tool. Then reply TOOL_OK.`, true);
     assert(tool.toolBlocks > 0, "native tools must appear in public messages");
     assert.equal((await readFile(join(root, "cohub-smoke.txt"), "utf8")).trim(), marker);
-    store = new RuntimeSessionStore(spaceId, join(root, "restored"), storage.transport);
+    store = new TestRuntimeSessionStore(spaceId, join(root, "restored"), storage.transport);
     const restored = await run(original, "archive", "Without tools, what is the exact marker I asked you to remember?");
     assert.equal(restored.resume, "restored");
     assert(restored.output.includes(marker));

@@ -243,10 +243,12 @@ export async function executeCodex(input: RuntimeTurnInput, options: HarnessOpti
       ...(input.accessMode === "read_only" ? { sandbox: "read-only" } : {}),
     };
     const opened = resume === "native"
-      ? await rpc.request("thread/resume", { ...threadOptions, threadId: state.nativeSessionId, excludeTurns: true })
+      ? await rpc.request("thread/resume", { ...threadOptions, threadId: state.nativeSessionId, path: state.path, excludeTurns: true })
       : resume === "restored"
         ? await rpc.request("thread/fork", { ...threadOptions, threadId: state.nativeSessionId, path: state.path, excludeTurns: true })
-        : await rpc.request("thread/start", threadOptions);
+        : resume === "handoff"
+          ? await rpc.request("thread/resume", { ...threadOptions, threadId: state.nativeSessionId, path: state.path, excludeTurns: true })
+          : await rpc.request("thread/start", threadOptions);
     const thread = record(opened.thread);
     if (typeof thread.id !== "string" || typeof thread.path !== "string") throw new Error("Codex did not provide a durable native thread");
     state.nativeSessionId = thread.id;

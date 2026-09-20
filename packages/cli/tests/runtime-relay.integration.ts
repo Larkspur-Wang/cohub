@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { TestRuntimeSessionStore } from "./fixtures/runtime-projection-source.js";
 import { test } from "node:test";
 import { createServer } from "node:http";
 import { mkdtemp, chmod, readFile, rm } from "node:fs/promises";
@@ -17,7 +18,6 @@ import type { ContentBlock } from "@cohub/protocol/core";
 import { WebsocketClient } from "../../sdk/src/websocket.js";
 import type { ChannelEnvelope } from "@cohub/protocol/realtime";
 import { serveRuntime } from "../src/runtime/connection.js";
-import { RuntimeSessionStore } from "../src/runtime/session-store.js";
 
 for (const deliveredBeforeFailure of [false, true]) test(`failed publication resynchronizes SDK with a keyframe (${deliveredBeforeFailure})`, async () => {
   const identity = { spaceId: crypto.randomUUID(), sessionId: crypto.randomUUID(), turnId: crypto.randomUUID(), userMessageId: crypto.randomUUID() };
@@ -104,7 +104,7 @@ for (const harness of ["pi", "codex"] as const) for (const disconnect of ["all",
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const address = server.address(); assert(address && typeof address !== "string"); port = address.port;
     const controller = new AbortController();
-    const store = new RuntimeSessionStore(spaceId, join(root, "state"));
+    const store = new TestRuntimeSessionStore(spaceId, join(root, "state"));
     const acknowledge = store.acknowledge.bind(store);
     let failAcknowledgement = disconnect === "ack-error";
     store.acknowledge = async (...args) => {

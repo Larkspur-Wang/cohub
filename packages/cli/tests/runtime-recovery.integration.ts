@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { TestRuntimeSessionStore } from "./fixtures/runtime-projection-source.js";
 import { test } from "node:test";
 import { createServer } from "node:http";
 import { mkdtemp, chmod, readFile, rm } from "node:fs/promises";
@@ -10,7 +11,6 @@ import type { RuntimeRegistration, RuntimeTurnInput } from "@cohub/protocol";
 import { createRuntimeRelay } from "../../../apps/gateway/src/relay/runtime-relay.js";
 import { exchangeRuntimeTurn, RuntimeExecutionUncertainError } from "../../../apps/agent/src/runtime/exchange.js";
 import { serveRuntime } from "../src/runtime/connection.js";
-import { RuntimeSessionStore } from "../src/runtime/session-store.js";
 
 for (const harness of ["pi", "codex"] as const) test(`${harness}: cold Runtime restart recovers after the original exchange expires, without a Harness executable`, { timeout: 20_000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), "cohub-runtime-recover-"));
@@ -41,7 +41,7 @@ for (const harness of ["pi", "codex"] as const) test(`${harness}: cold Runtime r
   }));
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address(); assert(address && typeof address !== "string"); port = address.port;
-  const store = new RuntimeSessionStore(spaceId, join(root, "state"));
+  const store = new TestRuntimeSessionStore(spaceId, join(root, "state"));
   let controller = new AbortController();
   const start = (binary: string) => serveRuntime({ spaceId, cwd: root, url: `ws://127.0.0.1:${port}/runtime`, capabilities: { harnesses: [harness], models: [] }, harnesses: { [harness]: binary }, token: async () => "token", signal: controller.signal, store, onReady: () => onReady() });
   let ready = new Promise<void>((resolve) => { onReady = resolve; });

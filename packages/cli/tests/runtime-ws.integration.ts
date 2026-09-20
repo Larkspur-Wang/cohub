@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { TestRuntimeSessionStore } from "./fixtures/runtime-projection-source.js";
 import { test } from "node:test";
 import { mkdtemp, chmod, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -6,12 +7,11 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import { serveRuntime } from "../src/runtime/connection.js";
-import { RuntimeSessionStore } from "../src/runtime/session-store.js";
 
 test("Runtime starts and reports more than 64 pending Sessions in bounded recovery frames", { timeout: 20_000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), "cohub-runtime-recovery-batches-"));
   const spaceId = crypto.randomUUID();
-  const store = new RuntimeSessionStore(spaceId, join(root, "state"));
+  const store = new TestRuntimeSessionStore(spaceId, join(root, "state"));
   const stateDirectory = join(store.root, "pi");
   await mkdir(stateDirectory, { recursive: true });
   const expected = Array.from({ length: 65 }, () => ({ sessionId: crypto.randomUUID(), turnId: crypto.randomUUID(), harness: "pi" as const }));
@@ -52,8 +52,8 @@ test("Runtime starts and reports more than 64 pending Sessions in bounded recove
   }
 });
 
-for (const harness of ["pi", "codex"] as const) for (const resolved of [false, true]) for (const archiveUnavailable of [false, true]) {
-  test(`${harness} WebSocket execution restores context and ${resolved ? "retires a confirmed execution" : "acknowledges native resume"} (archive fallback: ${archiveUnavailable})`,  { timeout: 20_000 }, async () => {
+for (const harness of ["pi", "codex"] as const) for (const resolved of [false, true]) {
+  test(`${harness} WebSocket execution ${resolved ? "retires a confirmed execution" : "acknowledges native resume"}`,  { timeout: 20_000 }, async () => {
     const root = await mkdtemp(join(tmpdir(), "cohub-runtime-ws-"));
     const binary = fileURLToPath(new URL(`./fixtures/runtime-${harness}.mjs`, import.meta.url));
     await chmod(binary, 0o755);
@@ -67,6 +67,8 @@ for (const harness of ["pi", "codex"] as const) for (const resolved of [false, t
     const previousId = crypto.randomUUID();
     const ids = [crypto.randomUUID(), crypto.randomUUID()];
     const turns = [crypto.randomUUID(), crypto.randomUUID()];
+    const store = new TestRuntimeSessionStore(spaceId, join(root, "state"));
+    store.projectionSource.addTurn(sessionId, previousId, { userContent: [{ type: "text", text: "historical fact" }] });
     let round = 0;
     let contextRequests = 0;
     let deltas = 0;
@@ -90,13 +92,7 @@ for (const harness of ["pi", "codex"] as const) for (const resolved of [false, t
             if (event.type === "context.required") {
               contextRequests++;
               if (resolved && round === 1) assert.deepEqual(event.pendingTurnIds, [turns[0]], "only the actual pending projection is queried");
-              if (archiveUnavailable && round === 0 && contextRequests === 1) {
-                assert.notEqual(event.historyOnly, true);
-                send({ type: "session.context", requestId: value.requestId, context: { complete: false, revision: "one", throughTurnId: previousId, messages: [], archive: { sessionId, turnId: previousId, harness } } });
-                return;
-              }
-              if (archiveUnavailable && round === 0) assert.equal(event.historyOnly, true, "failed archive requests DB history once before execution");
-              send({ type: "session.context", requestId: value.requestId, context: { complete: true, revision: round === 0 ? "one" : "two", throughTurnId: round === 0 ? previousId : turns[0], ...(resolved && round === 1 ? { resolvedTurnIds: [turns[0]] } : {}), messages: [{ id: "history", turnId: previousId, role: "user", content: [{ type: "text", text: "historical fact" }] }] } });
+              send({ type: "session.context", requestId: value.requestId, context: { complete: true, revision: round === 0 ? "one" : "two", throughTurnId: round === 0 ? previousId : turns[0], ...(resolved && round === 1 ? { resolvedTurnIds: [turns[0]] } : {}), messages: [] } });
             }
             if (event.type === "text.delta") deltas++;
             if (event.type === "turn.error") throw new Error(event.message);
@@ -108,7 +104,12 @@ for (const harness of ["pi", "codex"] as const) for (const resolved of [false, t
                 assert(event.message.content.some((block: { type: string; text?: string }) => block.type === "text" && block.text?.includes(expected)));
               }
               resumes.push(event.resume);
-              if (resolved && round === 0) { round++; start(); return; }
+              if (resolved && round === 0) {
+                store.projectionSource.addTurn(sessionId, turns[0], { assistantContent: [{ type: "text", text: "completed" }] });
+                round++;
+                start();
+                return;
+              }
               send({ type: "turn.ack", requestId: value.requestId, revision: round === 0 ? "two" : "three", turnId: turns[round] });
             }
             if (event.type === "turn.acknowledged") {
@@ -119,11 +120,11 @@ for (const harness of ["pi", "codex"] as const) for (const resolved of [false, t
         });
       });
     });
-    const running = serveRuntime({ spaceId, cwd: root, url: `ws://127.0.0.1:${address.port}`, capabilities: { harnesses: [harness], models: [] }, harnesses: { [harness]: binary }, token: async () => "fixture-token", signal: controller.signal, store: new RuntimeSessionStore(spaceId, join(root, "state")), onReady: () => {} });
+    const running = serveRuntime({ spaceId, cwd: root, url: `ws://127.0.0.1:${address.port}`, capabilities: { harnesses: [harness], models: [] }, harnesses: { [harness]: binary }, token: async () => "fixture-token", signal: controller.signal, store, onReady: () => {} });
     void running.catch(rejectFailure);
     try {
       await completed;
-      assert.equal(contextRequests, (resolved ? 2 : 1) + Number(archiveUnavailable));
+      assert.equal(contextRequests, resolved ? 1 : 0);
       assert.deepEqual(resumes, ["handoff", resolved ? "handoff" : "native"]);
     } finally {
       controller.abort();

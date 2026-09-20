@@ -1,16 +1,22 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, open, readFile, readdir, rm } from "node:fs/promises";
+import { mkdir, open, readFile, readdir, rename, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { contextToPiMessages, RUNTIME_RECOVERY_BATCH_SIZE, selectRuntimeContextMessages, runtimeEventSchema, type RuntimeExecutionEvent, type HarnessArchive, type RuntimePendingExecution, type RuntimeTurnInput } from "@neta-art/cohub";
+import { RUNTIME_RECOVERY_BATCH_SIZE, runtimeEventSchema, serializeProjectionRecords, type RuntimeExecutionEvent, type HarnessArchive, type RuntimePendingExecution, type RuntimeTurnInput } from "@neta-art/cohub";
 import { RuntimeArchiveStore, checksumNativeFile, atomicRuntimeJson as atomicJson, type ArchiveTransport } from "./archive-store.js";
 import type { CodexTokenTotals } from "./codex-usage.js";
 import { importNativeArchive, readCodexArchiveTotals } from "./native-archive.js";
 import { serializeDiagnosticError, type RuntimeDiagnosticContext, type RuntimeDiagnostics } from "./diagnostics.js";
+import type { SessionTurnProjectionClient } from "./turn-projection.js";
+import { ProjectionStore, rebindProjectionNativeSession } from "./projection-store.js";
 
-export class ContextRequiredError extends Error {
-  constructor(message: string, readonly historyOnly = false) { super(message); }
-}
+export class ContextRequiredError extends Error {}
+
+export type RuntimeSessionStoreOptions = {
+  stateRoot?: string;
+  archiveTransport?: ArchiveTransport;
+  projectionSource: SessionTurnProjectionClient;
+};
 
 export type NativeSession = {
   version: 1;
@@ -26,10 +32,29 @@ export type NativeSession = {
   resultChecksum?: string;
   archivePendingTurnId?: string;
   codexTokenTotals?: CodexTokenTotals;
+  projectionVersion?: 1;
+  sourceSequence?: number | null;
+  sourceTurnId?: string | null;
+  sourceFingerprint?: string | null;
+  nativeLeafId?: string | null;
 };
-const checksum = (data: string) => createHash("sha256").update(data).digest("hex");
+const checksum = (data: string | Buffer) => createHash("sha256").update(data).digest("hex");
 const missing = (error: unknown) => (error as NodeJS.ErrnoException)?.code === "ENOENT";
 class CaptureUnavailableError extends Error {}
+
+function piSessionDirectory(cwd: string): string {
+  const custom = process.env.PI_CODING_AGENT_SESSION_DIR?.trim();
+  if (custom) return custom;
+  const agentDir = process.env.PI_CODING_AGENT_DIR?.trim() || join(homedir(), ".pi", "agent");
+  const safePath = `--${cwd.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;
+  return join(agentDir, "sessions", safePath);
+}
+
+function codexSessionPath(id: string): string {
+  const timestamp = new Date().toISOString().replace(/\.\d{3}Z$/, "").replaceAll(":", "-");
+  const root = process.env.CODEX_HOME?.trim() || join(homedir(), ".codex");
+  return join(root, "sessions", timestamp.slice(0, 4), timestamp.slice(5, 7), timestamp.slice(8, 10), `rollout-${timestamp}-${id}.jsonl`);
+}
 
 /** Local references are hints validated against actual native files, never cloud existence claims. */
 export class RuntimeSessionStore {
@@ -37,9 +62,12 @@ export class RuntimeSessionStore {
   readonly archives: RuntimeArchiveStore;
   private archiveFlush: Promise<void> | null = null;
   private diagnostics: RuntimeDiagnostics | null = null;
-  constructor(spaceId: string, stateRoot = join(homedir(), ".local", "state", "cohub", "runtime"), transport?: ArchiveTransport) {
-    this.root = join(stateRoot, spaceId);
-    this.archives = new RuntimeArchiveStore(join(this.root, "archives"), transport);
+  private readonly nativeWrites = new Map<string, Promise<void>>();
+  private readonly projectionStore: ProjectionStore;
+  constructor(spaceId: string, options: RuntimeSessionStoreOptions) {
+    this.root = join(options.stateRoot ?? join(homedir(), ".local", "state", "cohub", "runtime"), spaceId);
+    this.archives = new RuntimeArchiveStore(join(this.root, "archives"), options.archiveTransport);
+    this.projectionStore = new ProjectionStore(options.projectionSource);
   }
   setDiagnostics(diagnostics: RuntimeDiagnostics): void {
     this.diagnostics = diagnostics;
@@ -51,6 +79,141 @@ export class RuntimeSessionStore {
     }));
   }
   private statePath(input: Pick<RuntimeTurnInput, "sessionId" | "harness">) { return join(this.root, input.harness, `${input.sessionId}.json`); }
+  private nativePath(input: Pick<RuntimeTurnInput, "sessionId" | "harness">, nativeSessionId: string, cwd: string) {
+    if (input.harness === "pi") return join(piSessionDirectory(cwd), `${nativeSessionId}.jsonl`);
+    return codexSessionPath(nativeSessionId);
+  }
+  private async withNativeWrite(path: string, write: () => Promise<void>) {
+    const previous = this.nativeWrites.get(path) ?? Promise.resolve();
+    const current = previous.catch(() => undefined).then(write);
+    this.nativeWrites.set(path, current);
+    try { await current; }
+    finally { if (this.nativeWrites.get(path) === current) this.nativeWrites.delete(path); }
+  }
+  private async syncParentDirectory(path: string) {
+    if (process.platform === "win32") return;
+    const directory = await open(dirname(path), "r");
+    try { await directory.sync(); } finally { await directory.close(); }
+  }
+  private async writeNativeFile(path: string, data: string) {
+    await this.withNativeWrite(path, async () => {
+      await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+      const temporary = `${path}.${randomUUID()}.projection`;
+      try {
+        const file = await open(temporary, "wx", 0o600);
+        try { await file.writeFile(data, "utf8"); await file.sync(); }
+        finally { await file.close(); }
+        await rename(temporary, path);
+        await this.syncParentDirectory(path);
+      } finally { await rm(temporary, { force: true }); }
+    });
+  }
+  private async appendNativeFile(path: string, data: string, expectedChecksum?: string | null) {
+    if (!data) return;
+    await this.withNativeWrite(path, async () => {
+      const file = await open(path, "r+", 0o600);
+      try {
+        const bytes = await file.readFile();
+        if (expectedChecksum && checksum(bytes) !== expectedChecksum) throw new Error("Native session changed outside Cohub; original data was preserved");
+        const prefix = bytes.length > 0 && bytes.at(-1) !== 10 ? "\n" : "";
+        await file.write(`${prefix}${data}`, bytes.length, "utf8");
+        await file.sync();
+      } finally { await file.close(); }
+      await this.syncParentDirectory(path);
+    });
+  }
+  private async lastNativeRecordId(path: string): Promise<string | null> {
+    const file = await open(path, "r");
+    try {
+      let position = (await file.stat()).size;
+      let tail = "";
+      while (position > 0) {
+        const size = Math.min(position, 64 * 1024);
+        position -= size;
+        const chunk = Buffer.alloc(size);
+        await file.read(chunk, 0, size, position);
+        tail = chunk.toString("utf8") + tail;
+        const candidate = tail.trimEnd();
+        const newline = candidate.lastIndexOf("\n");
+        if (newline >= 0) {
+          const record = JSON.parse(candidate.slice(newline + 1)) as { id?: unknown };
+          return typeof record.id === "string" ? record.id : null;
+        }
+      }
+      const record = JSON.parse(tail.trim()) as { id?: unknown };
+      return typeof record.id === "string" ? record.id : null;
+    } finally { await file.close(); }
+  }
+  private reportProjectionWarnings(input: RuntimeTurnInput, warnings: Array<{ sourceMessageId: string; sourceTurnId: string; reason: string }>) {
+    if (warnings.length === 0) return;
+    this.diagnostics?.log("warn", "runtime.projection_loss", { warningCount: warnings.length, warnings: warnings.slice(0, 100), truncated: warnings.length > 100 }, { component: "projection", sessionId: input.sessionId, turnId: input.turnId, harness: input.harness });
+  }
+  private async syncNativeProjection(input: RuntimeTurnInput, cwd: string, previous: NativeSession | null, signal?: AbortSignal): Promise<{ state: NativeSession; resume: "native" | "handoff" | "new" }> {
+    const existing = previous && (previous.checksum.length > 0 || previous.sourceSequence != null || previous.pendingTurnId != null) ? previous : null;
+    const projection = await this.projectionStore.project({
+      spaceId: input.spaceId,
+      sessionId: input.sessionId,
+      turnId: input.turnId,
+      nativeSessionId: existing?.nativeSessionId ?? randomUUID(),
+      cwd,
+      provider: input.provider,
+      target: input.harness,
+      throughTurnId: input.context.throughTurnId,
+      cursor: existing ? {
+        throughSequence: existing.sourceSequence ?? null,
+        throughTurnId: existing.sourceTurnId ?? null,
+        sourceFingerprint: existing.sourceFingerprint ?? null,
+      } : null,
+    }, signal);
+    if (existing && projection.append && projection.turns.length === 0) return { state: existing, resume: "native" };
+    const replacing = existing !== null && !projection.append;
+    const id = replacing || !existing ? randomUUID() : existing.nativeSessionId;
+    const path = replacing || !existing ? this.nativePath(input, id, cwd) : existing.path;
+    const materialized = replacing ? rebindProjectionNativeSession(projection, id) : projection;
+    this.reportProjectionWarnings(input, materialized.projection.warnings);
+    const turns = materialized.turns;
+    const next: NativeSession = {
+      ...(replacing || !existing ? { version: 1, sessionId: input.sessionId, harness: input.harness, nativeSessionId: id, path, cwd, throughTurnId: null, revision: input.context.revision, checksum: "", pendingTurnId: null } : existing),
+      projectionVersion: 1,
+      nativeSessionId: id,
+      path,
+      cwd,
+      sourceSequence: materialized.cursor.throughSequence,
+      sourceTurnId: materialized.cursor.throughTurnId,
+      sourceFingerprint: materialized.cursor.sourceFingerprint,
+      throughTurnId: input.context.throughTurnId,
+      revision: input.context.revision,
+    };
+    const serialized = serializeProjectionRecords(materialized.projection.records);
+    if (input.harness === "codex" && turns.length === 0 && !existing) return { state: next, resume: "new" };
+    if (materialized.append && existing) {
+      let suffix = serialized;
+      let leafId = existing.nativeLeafId ?? null;
+      if (input.harness === "pi") {
+        leafId = await this.lastNativeRecordId(existing.path);
+        if (leafId) {
+          let rebound = false;
+          const records = materialized.projection.records.map((entry) => {
+            if (rebound || !("parentId" in entry.record)) return entry;
+            rebound = true;
+            return { ...entry, record: { ...entry.record, parentId: leafId } };
+          });
+          suffix = serializeProjectionRecords(records);
+        }
+      }
+      await this.appendNativeFile(existing.path, suffix, existing.checksum);
+      const projectedLeaf = materialized.projection.records.at(-1)?.record.id;
+      if (typeof projectedLeaf === "string") leafId = projectedLeaf;
+      next.nativeLeafId = leafId;
+    } else {
+      await this.writeNativeFile(path, serialized);
+      const projectedLeaf = materialized.projection.records.at(-1)?.record.id;
+      next.nativeLeafId = typeof projectedLeaf === "string" ? projectedLeaf : null;
+    }
+    next.checksum = await checksumNativeFile(path);
+    if (existing) await atomicJson(this.statePath(next), next);
+    return { state: next, resume: existing ? "handoff" : (turns.length ? "handoff" : "new") };
+  }
   async *pendingExecutionBatches(): AsyncGenerator<RuntimePendingExecution[]> {
     let batch: RuntimePendingExecution[] = [];
     for (const harness of ["pi", "codex"] as const) {
@@ -170,25 +333,29 @@ export class RuntimeSessionStore {
     }
     if (previous) {
       try {
-        if (await checksumNativeFile(previous.path) !== previous.checksum) throw new Error("Native session changed outside Cohub; original data was preserved");
+        const nativeChecksum = await checksumNativeFile(previous.path);
+        if (nativeChecksum !== previous.checksum) {
+          this.diagnostics?.log("warn", "runtime.projection_rebuilt", { reason: "native file changed outside Cohub" }, { component: "projection", sessionId: input.sessionId, turnId: input.turnId, harness: input.harness });
+          return await this.syncNativeProjection(input, cwd, null, signal);
+        }
         if (previous.archivePendingTurnId) {
           await this.archives.stage(previous, previous.archivePendingTurnId);
           previous.archivePendingTurnId = undefined;
           await atomicJson(this.statePath(previous), previous);
         }
         if (input.harness === "codex" && !previous.codexTokenTotals) previous.codexTokenTotals = await readCodexArchiveTotals(previous.path);
-        if (previous.cwd === cwd && previous.throughTurnId === input.context.throughTurnId && previous.revision === input.context.revision) return { state: previous, resume: "native" };
+        return await this.syncNativeProjection(input, cwd, previous?.cwd === cwd ? previous : null, signal);
       } catch (error) { if (!missing(error)) throw error; }
     }
-    if (input.context.complete === false && !input.context.archive) throw new ContextRequiredError("Full context is required to materialize this session");
     const id = randomUUID();
-    const path = join(this.root, input.harness, `${id}.jsonl`);
+    const path = this.nativePath(input, id, cwd);
     const archive = input.context.archive;
     const restore = archive?.harness === input.harness && archive.sessionId === input.sessionId && archive.turnId === input.context.throughTurnId;
     const rawPath = join(this.root, "archives", "restored", `${id}.jsonl`);
     const state: NativeSession = {
       version: 1, harness: input.harness, sessionId: input.sessionId, nativeSessionId: id,
       path, cwd, throughTurnId: input.context.throughTurnId, revision: input.context.revision, checksum: "", pendingTurnId: null,
+      projectionVersion: 1, sourceSequence: null, sourceTurnId: null, sourceFingerprint: null,
     };
     if (restore) {
       try {
@@ -201,40 +368,13 @@ export class RuntimeSessionStore {
         console.error("Native archive unavailable; rebuilding from durable history:", error);
       }
     }
-    if (input.context.complete === false) throw new ContextRequiredError("Database history is required after archive recovery failed", true);
-    let data: string | null = null;
-    if (input.harness === "pi") {
-      const entries: Record<string, unknown>[] = [{ type: "session", version: 3, id, cwd, timestamp: new Date().toISOString() }];
-      let parentId: string | null = null;
-      const history = selectRuntimeContextMessages(input.context.messages);
-      const summary = history[0]?.role === "system" ? history[0].content.find((block) => block.type === "system_note" && block.note_type === "compacted") : undefined;
-      let compaction: Record<string, unknown> | undefined;
-      if (summary?.type === "system_note") {
-        parentId = randomUUID().slice(0, 8);
-        compaction = { type: "compaction", id: parentId, parentId: null, timestamp: new Date().toISOString(), summary: summary.text,
-          firstKeptEntryId: "", tokensBefore: (history[0]?.meta?.compaction as { tokensBefore?: number } | undefined)?.tokensBefore ?? 0 };
-        entries.push(compaction);
-      }
-      for (const message of contextToPiMessages(history)) {
-        const entryId = randomUUID().slice(0, 8);
-        if (compaction && !compaction.firstKeptEntryId) compaction.firstKeptEntryId = entryId;
-        entries.push({ type: "message", id: entryId, parentId, timestamp: new Date().toISOString(), message });
-        parentId = entryId;
-      }
-      data = `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`;
-    }
-    if (data != null) {
-      await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-      const file = await open(path, "wx", 0o600);
-      try { await file.writeFile(data); await file.sync(); } finally { await file.close(); }
-      state.checksum = checksum(data);
-    }
-    return { state, resume: input.context.messages.length ? "handoff" : "new" };
+    return await this.syncNativeProjection(input, cwd, state, signal);
   }
   async started(state: NativeSession, turnId: string) { state.pendingTurnId = turnId; state.resultChecksum = undefined; await atomicJson(this.statePath(state), state); }
   private resultPath(state: Pick<NativeSession, "sessionId" | "harness">) { return join(this.root, "results", `${state.sessionId}.${state.harness}.json`); }
   async recordResult(state: NativeSession, requestId: string, events: RuntimeExecutionEvent[]) {
     if (!state.pendingTurnId) throw new Error("Cannot record a result for an idle native session");
+    if (state.harness === "pi") state.nativeLeafId = await this.lastNativeRecordId(state.path);
     state.resultChecksum = await checksumNativeFile(state.path);
     if (state.archivePendingTurnId) await atomicJson(join(this.archives.root, "captures", `${state.archivePendingTurnId}.json`), state);
     await atomicJson(this.resultPath(state), { requestId, state, events });
@@ -265,7 +405,14 @@ export class RuntimeSessionStore {
     if (state.pendingTurnId !== turnId) throw new Error("Runtime acknowledgement identity mismatch");
     const currentChecksum = await checksumNativeFile(state.path).catch((error) => { if (missing(error)) return state.resultChecksum ?? state.checksum; throw error; });
     if (state.resultChecksum && currentChecksum !== state.resultChecksum) throw new Error("Native data changed before acknowledgement; files preserved");
-    const acknowledged: NativeSession = { ...state, checksum: currentChecksum, pendingTurnId: null, resultChecksum: undefined, throughTurnId: turnId, revision };
+    let sourceSequence = state.sourceSequence ?? null;
+    let sourceTurnId = state.sourceTurnId ?? null;
+    let sourceFingerprint = state.sourceFingerprint ?? null;
+    const projectionCursor = await this.projectionStore.cursorForTurn(state.sessionId, turnId);
+    sourceSequence = projectionCursor.throughSequence;
+    sourceTurnId = projectionCursor.throughTurnId;
+    sourceFingerprint = projectionCursor.sourceFingerprint;
+    const acknowledged: NativeSession = { ...state, checksum: currentChecksum, pendingTurnId: null, resultChecksum: undefined, throughTurnId: turnId, revision, sourceSequence, sourceTurnId, sourceFingerprint };
     await atomicJson(this.statePath(state), acknowledged);
     Object.assign(state, acknowledged);
   }

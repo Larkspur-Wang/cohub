@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { TestRuntimeSessionStore } from "./fixtures/runtime-projection-source.js";
 import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, writeFile, readFile, rm, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -6,7 +7,6 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { RuntimeArchiveStore } from "../src/runtime/archive-store.js";
 import { RUNTIME_ARCHIVE_SEGMENT_BYTES, type RuntimeTurnInput } from "@neta-art/cohub";
-import { ContextRequiredError, RuntimeSessionStore } from "../src/runtime/session-store.js";
 import { archiveStorageFixture } from "./fixtures/runtime-archive-storage.js";
 
 for (const harness of ["pi", "codex"] as const) test(`${harness}: append, equal-size rewrite and growing rewrite restore exact bytes`, async () => {
@@ -94,7 +94,7 @@ for (const failure of ["changed", "missing", "malformed"] as const) test(`irreco
   const root = await mkdtemp(join(tmpdir(), "archive-quarantine-"));
   const logs = t.mock.method(console, "error", () => {});
   try {
-    const store = new RuntimeSessionStore(randomUUID(), root);
+    const store = new TestRuntimeSessionStore(randomUUID(), root);
     const turnId = randomUUID(), userMessageId = randomUUID();
     const { state } = await store.prepare({ spaceId: randomUUID(), sessionId: randomUUID(), turnId, userMessageId, harness: "pi",
       messages: [{ turnId, userMessageId, userId: "author", content: [{ type: "text", text: "request" }] }], accessMode: "full_access",
@@ -128,7 +128,7 @@ test("failed capture is retried after restart without a new model turn", async (
   const storage = await archiveStorageFixture();
   try {
     const spaceId = randomUUID(), sessionId = randomUUID(), turnId = randomUUID(), userMessageId = randomUUID();
-    const store = new RuntimeSessionStore(spaceId, root, storage.transport);
+    const store = new TestRuntimeSessionStore(spaceId, root, storage.transport);
     const { state } = await store.prepare({ spaceId, sessionId, turnId, userMessageId, harness: "pi", messages: [{ turnId, userMessageId, userId: "author", content: [{ type: "text", text: "request" }] }], accessMode: "full_access",
       context: { revision: "r", throughTurnId: null, messages: [] } }, root);
     await store.started(state, turnId);
@@ -136,7 +136,7 @@ test("failed capture is retried after restart without a new model turn", async (
     await assert.rejects(store.archive(state, turnId), /capture failure/);
     await store.recordResult(state, randomUUID(), [{ type: "turn.end", message: { ordinal: 0, content: [{ type: "text", text: "done" }] }, resume: "new", archive: null }]);
     await store.acknowledge(state, turnId, "completed");
-    const restarted = new RuntimeSessionStore(spaceId, root, storage.transport);
+    const restarted = new TestRuntimeSessionStore(spaceId, root, storage.transport);
     assert.equal(await restarted.archives.pendingCount(), 1);
     const stage = restarted.archives.stage.bind(restarted.archives);
     restarted.archives.stage = async () => { throw Object.assign(new Error("temporary IO failure"), { code: "EIO" }); };
@@ -150,10 +150,10 @@ test("failed capture is retried after restart without a new model turn", async (
   } finally { await storage.close(); await rm(root, { recursive: true, force: true }); }
 });
 
-for (const harness of ["pi", "codex"] as const) test(`${harness}: failed native recovery requests DB history, preserves originals and respects abort`, async () => {
+for (const harness of ["pi", "codex"] as const) test(`${harness}: failed archive recovery rebuilds from Turn API and preserves originals`, async () => {
   const root = await mkdtemp(join(tmpdir(), "archive-fallback-"));
   try {
-    const store = new RuntimeSessionStore(randomUUID(), root);
+    const store = new TestRuntimeSessionStore(randomUUID(), root);
     const sessionId = randomUUID(), priorTurnId = randomUUID(), turnId = randomUUID(), userMessageId = randomUUID();
     const turn: RuntimeTurnInput = { spaceId: randomUUID(), sessionId, turnId, userMessageId, harness, messages: [{ turnId, userMessageId, userId: "author", content: [{ type: "text", text: "continue" }] }], accessMode: "full_access",
       context: { complete: false, revision: "r", throughTurnId: priorTurnId, messages: [], archive: { sessionId, turnId: priorTurnId, harness } } };
@@ -164,9 +164,8 @@ for (const harness of ["pi", "codex"] as const) test(`${harness}: failed native 
       rawFiles.push(target);
       throw new Error("checksum mismatch");
     };
-    await assert.rejects(store.prepare(turn, root), (error: unknown) => error instanceof ContextRequiredError && error.historyOnly);
-    const full = { ...turn, context: { ...turn.context, complete: true, messages: [{ id: "db", turnId: priorTurnId, role: "user" as const, content: [{ type: "text" as const, text: "historical DB fact" }] }] } };
-    const result = await store.prepare(full, root);
+    store.projectionSource.addTurn(sessionId, priorTurnId, { userContent: [{ type: "text", text: "historical DB fact" }] });
+    const result = await store.prepare(turn, root);
     assert.equal(result.resume, "handoff");
     if (harness === "pi") assert.match(await readFile(result.state.path, "utf8"), /historical DB fact/);
     for (const raw of rawFiles) assert.equal(await readFile(raw, "utf8"), "corrupt native archive");
@@ -176,20 +175,22 @@ for (const harness of ["pi", "codex"] as const) test(`${harness}: failed native 
       return { version: 1, sessionId, turnId: priorTurnId, harness, nativeFormat: harness === "pi" ? "pi.jsonl" : "codex.rollout",
         nativeSessionId: randomUUID(), parentTurnId: null, segments: [], sha256: "a".repeat(64), sizeBytes: 21 };
     };
-    assert.equal((await store.prepare(full, root)).resume, "handoff", "a valid transport with an invalid native header also falls back");
+    assert.equal((await store.prepare(turn, root)).resume, "handoff", "an invalid native header also rebuilds from Turn API");
     const controller = new AbortController();
     store.archives.restore = async () => { controller.abort(new Error("cancelled")); controller.signal.throwIfAborted(); throw new Error("unreachable"); };
-    await assert.rejects(store.prepare(full, root, controller.signal), /cancelled/);
+    await assert.rejects(store.prepare(turn, root, controller.signal), /cancelled/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test("Local Pi handoff retains compaction-only context as a native boundary", async () => {
+test("Pi projection retains a durable compaction Turn as a native boundary", async () => {
   const root = await mkdtemp(join(tmpdir(), "pi-compaction-"));
   try {
-    const store = new RuntimeSessionStore(randomUUID(), root);
+    const store = new TestRuntimeSessionStore(randomUUID(), root);
     const turnId = randomUUID(), userMessageId = randomUUID();
-    const { state } = await store.prepare({ spaceId: randomUUID(), sessionId: randomUUID(), turnId, userMessageId, harness: "pi", messages: [{ turnId, userMessageId, userId: "author", content: [{ type: "text", text: "continue" }] }], accessMode: "full_access",
-      context: { revision: "r", throughTurnId: randomUUID(), messages: [{ id: "summary", turnId: randomUUID(), role: "system", content: [{ type: "system_note", note_type: "compacted", text: "remember this" }] }] } }, root);
+    const sessionId = randomUUID(), compactTurnId = randomUUID();
+    store.projectionSource.addTurn(sessionId, compactTurnId, { intent: "compact", assistantContent: [{ type: "system_note", note_type: "compacted", text: "remember this" }] });
+    const { state } = await store.prepare({ spaceId: randomUUID(), sessionId, turnId, userMessageId, harness: "pi", messages: [{ turnId, userMessageId, userId: "author", content: [{ type: "text", text: "continue" }] }], accessMode: "full_access",
+      context: { revision: "r", throughTurnId: compactTurnId, messages: [{ id: "summary", turnId: compactTurnId, role: "system", content: [{ type: "system_note", note_type: "compacted", text: "remember this" }] }] } }, root);
     const rows = (await readFile(state.path, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
     assert.equal(rows[1].type, "compaction"); assert.equal(rows[1].summary, "remember this");
     assert.equal(rows.filter((row) => row.type === "message").length, 0);

@@ -194,8 +194,6 @@ test("native archive resume returns only a reference while Cloud and handoff sti
   const head = await load({ ...identity, throughTurnId: identity.turnId, harness: "pi", headOnly: true });
   assert.deepEqual(head.archive, native.archive, "the initial head request already includes a ready archive");
   assert.equal(head.messages.length, 0); assert.equal(head.complete, false);
-  const fallback = await load({ ...identity, throughTurnId: identity.turnId, harness: "pi", historyOnly: true });
-  assert.equal(fallback.archive, undefined); assert.equal(fallback.messages.length, 1); assert.equal(fallback.complete, true);
   const cloud = await load({ ...identity, throughTurnId: identity.turnId });
   assert.equal(cloud.archive, undefined); assert.equal(cloud.messages.length, 1);
   const handoff = await load({ ...identity, throughTurnId: identity.turnId, harness: "codex" });

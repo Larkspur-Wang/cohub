@@ -35,7 +35,7 @@ mock.module("../runtime/exchange.js", { exports: {
     assert(runtimeCommandSchema.safeParse({ type: "turn.start", requestId: options.input.turnId, input: options.input }).success);
     const sent: Array<{ type: string; turnId?: string }> = [];
     const send = (command: unknown) => { sent.push(command as typeof sent[number]); };
-    if (!options.recovery) await options.event({ type: "context.required", historyOnly: true }, send, options.input.turnId);
+    if (!options.recovery) await options.event({ type: "context.required" }, send, options.input.turnId);
     await options.event({ type: "turn.end", resume: "native", message: { ordinal: 0, content: [{ type: "text", text: "combined result" }] },
       archive: { sessionId: options.input.sessionId, turnId: options.input.turnId, harness: options.input.harness } }, send, options.input.turnId);
     assert.equal(sent.at(-1)?.type, "turn.ack"); assert.equal(sent.at(-1)?.turnId, options.input.turnId);
