@@ -16,9 +16,9 @@ Agent 暴露方法，以及销售商品。
 在 App 内，`createCohubClient()` 无需 token — 宿主提供短时鉴权。Runtime API
 只在**已发布**的 App 中可用。
 
-- **Bridge 模式** — App 运行在 Cohub iframe 中（默认）。
-- **Broker 模式** — App 作为独立页面打开；SDK 回退到 popup broker。给
-  `createCohubClient` 传入 `app: { brokerOrigin, appId }`（或 slug 三元组）即可启用。
+- **Bridge 模式** — App 运行在 Cohub iframe 中。
+- **Broker 模式** — App 从已注册的独立地址打开，通过 popup broker 授权。两种模式使用同一套
+  `createCohubClient({ env })` 初始化，SDK 会自动识别。
 
 ```ts
 import { createCohubClient } from "@neta-art/cohub";
@@ -29,7 +29,8 @@ if (!ctx?.app?.id) throw new Error("Not inside a published app");
 ```
 
 浏览器中 `env` 很重要：dev 域名上的 App 必须显式传 `env: "dev"`，否则会静默
-调用生产环境。
+调用生产环境。已发布的公开 `file` / `directory` App 还会获得独立地址：生产环境为
+`<app-id>.apps.cohub.live`，开发环境为 `<app-id>.apps-dev.cohub.live`。
 
 ## 授权
 

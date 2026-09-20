@@ -1,7 +1,7 @@
 # Cohub App Runtime Guide
 
-This guide explains the Cohub SDK in a published App iframe or an explicitly
-configured standalone broker. New Apps should use `auth.authorize()`; see the
+This guide explains the Cohub SDK in a published App iframe or a registered
+standalone origin. New Apps should use `auth.authorize()`; see the
 [authorization contract](../../../docs/app-authorization.md). Legacy APIs below
 retain their original return types. Read this before building any
 App that calls Cohub capabilities from browser-side JavaScript.
@@ -72,8 +72,8 @@ These runtime-only APIs form the foundation; everything else is standard SDK:
 | `client.context().permissions.viewerGrants` | Render the viewer's current per-space grants | `{ spaceId, scopes }[]` |
 | `client.app.commerce.*` / `client.app.realtime.*` | Commerce and realtime, bound to the app's runtime identity | (see below) |
 
-> **Runtime requirement.** Use a published App iframe or explicitly configure
-> a broker. A standalone page without broker configuration has no runtime.
+> **Runtime requirement.** Use a published App iframe or a standalone origin
+> registered with Cohub. The SDK discovers the transport automatically.
 > Initialize `context()` before using APIs to discover Host capabilities.
 
 `client.app.onContextChanged(listener)` pushes a fresh context whenever the
@@ -117,19 +117,18 @@ The App is accessed as a standalone page (`window.parent === window`), e.g.
 a direct static-asset URL not wrapped in the Cohub iframe. The SDK opens a
 **popup window** to a Cohub auth-broker page to obtain tokens.
 
-- `client.context()` is **answered locally** by the SDK: it reports
-  `mode: "broker"`, `space.id` is an **empty string `""`**, and viewer grants
-  are unavailable (empty). Broker tokens stay in memory and are never restored
-  from or written to `localStorage`.
-- `client.auth.authorize()` opens a popup to
-  `${brokerOrigin}/app-auth?app=${appId}`.
+- `client.context()` is **answered locally** by the SDK after anonymously
+  resolving the page Origin. It has the same shape as bridge context, including
+  App identity, Home Space, capabilities and App scopes. `shell.surface` is
+  `"broker"`; there is no active shell Space, session or turn.
+- `client.auth.authorize()` opens the environment's trusted Cohub broker.
+- Broker tokens stay in memory and are never restored from or written to
+  `localStorage`.
 
-> **Broker mode requires configuration.** You must pass `app: { brokerOrigin,
-> appId }` — or `app: { brokerOrigin, ownerUsername, spaceSlug, appSlug }`
-> when the appId isn't known yet — to `createCohubClient` for broker mode to
-> activate. Without it, a standalone page gets `ParentBridgeTransport` which
-> has no parent to talk to, so `context()` returns `null`. See
-> [Initialization recipe](#4-initialization-recipe).
+> **No mode configuration is required.** `createCohubClient({ env })` uses
+> bridge inside the Cohub shell and broker on a registered standalone Origin.
+> Unregistered pages receive `null` from `context()`. Explicit `app` transport
+> options remain available for legacy integrations and local debugging.
 
 ### Detecting the mode at runtime
 
@@ -440,54 +439,23 @@ const client = createCohubClient({
 });
 ```
 
-### Broker mode configuration (standalone pages only)
+### Automatic standalone mode
 
-If the App may be accessed as a standalone page (not inside the Cohub
-iframe), pass the `app` option so the SDK can fall back to broker mode:
+Every published public `file` or `directory` App has a direct standalone URL:
 
-```js
-const client = createCohubClient({
-  env: isDevApp ? "dev" : "prod",
-  app: {
-    brokerOrigin: isDevApp ? "https://dev.cohub.live" : "https://cohub.live",
-    appId: "<your-published-app-id>",
-  },
-});
+```text
+prod  https://<app-id>.apps.cohub.live
+dev   https://<app-id>.apps-dev.cohub.live
 ```
 
-When inside the Cohub iframe, the SDK auto-detects bridge mode and ignores
-broker config. When standalone, it uses broker mode. **One codebase, both
-deployments.**
+The same client initialization works in the Cohub iframe and at this direct
+URL. The SDK first uses the parent bridge when embedded; at a top-level page it
+anonymously resolves `window.location.origin` and selects the trusted broker.
+The resolver returns identity only and never returns a token.
 
-#### Broker mode without a pre-known appId
-
-The `appId` is only generated at publish time, so you often cannot hardcode
-it while writing the App. In standalone deployments you can omit `appId` and
-instead pass the App's public **slug triple**. The SDK resolves the appId at
-runtime via the public `apps.getBySlug` API (anonymous, no auth required),
-caches it, and starts broker mode with it.
-
-All three values are known before publishing:
-
-- `appSlug` — the slug you chose when creating the App.
-- `ownerUsername` — the space owner's username (`cohub auth whoami`).
-- `spaceSlug` — the space's slug (`cohub spaces get <spaceId>`).
-
-```js
-const client = createCohubClient({
-  env: isDevApp ? "dev" : "prod",
-  app: {
-    brokerOrigin: isDevApp ? "https://dev.cohub.live" : "https://cohub.live",
-    ownerUsername,
-    spaceSlug,
-    appSlug,
-  },
-});
-```
-
-Either `appId` or the full slug triple is enough to activate broker mode. If
-you pass both, the explicit `appId` wins and no lookup is performed. Inside
-the Cohub iframe both are ignored (bridge mode).
+Explicit `app: { brokerOrigin, appId }` and slug-triple configuration remains
+supported for older externally hosted Apps, but new Apps should not declare a
+mode or hardcode their App id.
 
 ### Standard initialization sequence
 
@@ -495,8 +463,8 @@ the Cohub iframe both are ignored (bridge mode).
 // 1. Create client (env is mandatory in the browser)
 const client = createCohubClient({ env: isDevApp ? "dev" : "prod" });
 
-// 2. Get runtime context (and keep it fresh). `app` is present in bridge and
-//    broker mode; a Space id is only reported by the bridge.
+// 2. Get runtime context (and keep it fresh). `app` and its Home Space are
+//    present in bridge and broker mode; shell location exists only when hosted.
 const ctx = await client.context();
 if (!ctx?.app?.id) {
   throw new Error("Not running inside a published app.");
@@ -1295,9 +1263,8 @@ Before publishing your App, verify each item:
 - [ ] **`subscribeGeneration` errors are not silently swallowed** — if the
   stream fails, surface it; a silent fallback to polling will also 403 if
   `session.view` is missing.
-- [ ] **Broker mode**: if the App may be accessed standalone, pass
-  `app: { brokerOrigin, appId }` and call `auth.authorize()` before any other
-  API call (to avoid user-activation exhaustion).
+- [ ] **Broker mode**: initialize `context()` early so Origin discovery is warm,
+  then call `auth.authorize()` from a user action before protected API calls.
 - [ ] **Space has a slug and owner has a username** before publishing — the
   API rejects Apps when either is missing.
 - [ ] **Model ids are not hardcoded** — use `client.models.listMultimodal()`

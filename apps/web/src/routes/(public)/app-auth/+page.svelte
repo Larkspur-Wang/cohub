@@ -3,15 +3,16 @@ import type { AppPublicOwnerRecord, AppRecord } from "@neta-art/cohub";
 import { AlertTriangle, Loader2, ShieldCheck } from "lucide-svelte";
 import { onDestroy, onMount } from "svelte";
 import { page } from "$app/state";
-import { PUBLIC_API_ORIGIN } from "$env/static/public";
+import { PUBLIC_API_ORIGIN, PUBLIC_COHUB_ENV } from "$env/static/public";
 import { getAuthToken, signInWithRedirectPath } from "$lib/auth";
 import { readAppCheckoutState } from "$lib/components/app/app-checkout-state";
 import AppAuthorizeDialog from "$lib/features/app/AppAuthorizeDialog.svelte";
-import { isAllowedAppOrigin } from "$lib/features/app/app-origin-allowlist";
+import { isLegacyAppOriginAllowed } from "$lib/features/app/app-origin-allowlist";
 import { createAppBridgeHost } from "$lib/features/app/bridge-host.svelte";
 import type { Locale } from "$lib/i18n/locale";
 import { getLocale } from "$lib/i18n/locale.svelte";
 import { m } from "$lib/paraglide/messages.js";
+import { authStore } from "$lib/stores/auth.svelte";
 
 type BrokerState = "loading" | "need-login" | "ready" | "error";
 
@@ -31,6 +32,7 @@ let errorMessage = $state("");
 let locale: Locale = $derived(getLocale());
 let appDetail = $state<AppDetail | null>(null);
 let host = $state<ReturnType<typeof createAppBridgeHost> | null>(null);
+let originAccepted = false;
 
 // The validated origin of the opener window, confirmed from the actual
 // MessageEvent (not just the URL param). Used as targetOrigin for replies.
@@ -56,6 +58,18 @@ async function loadAppDetail(token: string): Promise<AppDetail | null> {
 	return { app: json.app, owner: json.owner, spaceName };
 }
 
+async function loadAppByOrigin(): Promise<boolean> {
+	const response = await fetch(
+		`${PUBLIC_API_ORIGIN ?? ""}/api/apps/by-origin?origin=${encodeURIComponent(openerOrigin)}`,
+		{ headers: { Accept: "application/json" } },
+	).catch(() => null);
+	if (!response?.ok) return false;
+	const json = (await response.json()) as Partial<AppDetail> & {
+		space?: { name?: unknown } | null;
+	};
+	return json.app?.id === appId;
+}
+
 async function init() {
 	if (!appId) {
 		fail(m.app_auth_invalid_entry({}, { locale }));
@@ -66,8 +80,17 @@ async function init() {
 		return;
 	}
 
-	// Validate the destination before starting login or posting any progress.
-	if (!openerOrigin || !isAllowedAppOrigin(openerOrigin)) {
+	// New standalone Apps use the authoritative Origin → App resolver. Keep the
+	// old host allowlist only for existing explicitly configured broker clients.
+	if (!openerOrigin) {
+		fail(m.app_auth_origin_denied({}, { locale }));
+		return;
+	}
+	const originResolved = await loadAppByOrigin();
+	const environment = PUBLIC_COHUB_ENV === "prod" ? "prod" : "dev";
+	originAccepted =
+		originResolved || isLegacyAppOriginAllowed(openerOrigin, environment);
+	if (!originAccepted) {
 		fail(m.app_auth_origin_denied({}, { locale }));
 		return;
 	}
@@ -93,7 +116,11 @@ async function init() {
 		return;
 	}
 
-	// 2. Load work metadata.
+	await authStore.ensureLoaded();
+	const brokerViewerUuid = authStore.userUuid;
+
+	// Managed origins were validated before login; load the full broker detail
+	// only after the viewer session is available.
 	const detail = await loadAppDetail(token);
 	if (!detail) {
 		fail(m.app_auth_unavailable({}, { locale }));
@@ -133,7 +160,11 @@ async function init() {
 
 	// 5. Ready handshake: tell the opener we're ready to receive the request.
 	window.opener.postMessage(
-		{ type: "cohub.app.broker.ready", authorizationVersion: 2 },
+		{
+			type: "cohub.app.broker.ready",
+			authorizationVersion: 2,
+			viewer: brokerViewerUuid ? { userUuid: brokerViewerUuid } : null,
+		},
 		validatedOpenerOrigin ?? openerOrigin,
 	);
 	// Older published Work SDKs wait for the pre-rename handshake name.
@@ -145,8 +176,8 @@ async function init() {
 
 function onMessage(event: MessageEvent) {
 	if (!window.opener || event.source !== window.opener) return;
-	// Validate the real opener origin against the allowlist.
-	if (!isAllowedAppOrigin(event.origin)) return;
+	// The query origin, authoritative binding, and real sender must all agree.
+	if (!originAccepted || event.origin !== openerOrigin) return;
 	// Use the verified origin for replies.
 	validatedOpenerOrigin = event.origin;
 	if (!host) return;

@@ -37,8 +37,8 @@ export type { BuildSpaceInvitePathInput, BuildSpacePathInput } from "./apis/invi
 export type { ReferenceResourceSelector } from "./apis/references.js";
 export type { AppAuthorizationRequest } from "./app-runtime.js";
 export type { AppAuthorizationResult, AppAuthorizationTarget, AppAuthorizationGrant } from "@cohub/protocol";
-export { ParentBridgeTransport, PopupBrokerTransport, AppRuntimeError, AppRuntimeApi, createSlugAppIdResolver, createAppRuntime, resolveAppTransport } from "./app-runtime.js";
-export type { AppContextChangedListener, AppDiagnostic, AppDiagnosticListener, AppIdResolver, AppRuntimeInvocationContext, AppRuntimeModeConfig, AppRuntimeRequestOptions, AppRuntimeShellContext, AppRuntimeTransport, AppRuntimeConfigureRequest, AppRuntimeAnchor, AppRuntimeRect } from "./app-runtime.js";
+export { ParentBridgeTransport, PopupBrokerTransport, OriginBrokerTransport, AppRuntimeError, AppRuntimeApi, createOriginAppResolver, createSlugAppIdResolver, createAppRuntime, resolveAppTransport } from "./app-runtime.js";
+export type { AppContextChangedListener, AppDiagnostic, AppDiagnosticListener, AppIdResolver, AppRuntimeAppResolver, AppRuntimeResolvedApp, AppRuntimeInvocationContext, AppRuntimeModeConfig, AppRuntimeRequestOptions, AppRuntimeShellContext, AppRuntimeTransport, AppRuntimeConfigureRequest, AppRuntimeAnchor, AppRuntimeRect } from "./app-runtime.js";
 export { attachAppEmbed } from "./app-embed.js";
 export type { AppEmbedAttachOptions, AppEmbedHandle, AppEmbedShell } from "./app-embed.js";
 export type { AppNavigationCall, AppNavigationLaunch, AppNavigationOpenMessage, AppNavigationOpenResponse, AppNavigationTarget } from "@cohub/protocol/app-navigation";
@@ -111,6 +111,7 @@ export {
   resolveExecutionAppId,
   resolveExecutionToken,
   resolveVoiceInputWebsocketUrl,
+  resolveWebBaseUrl,
   resolveWebsocketUrl,
 } from "./environment.js";
 export type { CohubClientOptions, Fetch, HttpTraceContext, UnauthorizedContext } from "./transport.js";

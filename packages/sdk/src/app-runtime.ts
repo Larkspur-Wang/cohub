@@ -9,7 +9,7 @@ import {
   type AppNavigationCall,
   parseAppNavigationOpenResponse,
 } from "@cohub/protocol/app-navigation";
-import type { CreateSpaceInput, Permission } from "./types.js";
+import { PERMISSIONS, type CreateSpaceInput, type Permission } from "./types.js";
 import { appAuthorizationRequestSchema, appAuthorizationResultSchema, type AppAuthorizationRequest as ProtocolAuthorizationRequest, type AppAuthorizationResult } from "@cohub/protocol";
 export type { AppAuthorizationResult } from "@cohub/protocol";
 export type AppAuthorizationRequest = Omit<ProtocolAuthorizationRequest, "scopes"> & { scopes: Permission[] };
@@ -119,6 +119,10 @@ export type AppDiagnostic = {
 export type AppDiagnosticListener = (diagnostic: AppDiagnostic) => void;
 
 export interface AppRuntimeTransport {
+  /** Broker transports never persist bearer tokens or consent caches. */
+  readonly memoryOnly?: boolean;
+  /** Current broker viewer, when the broker has completed a session exchange. */
+  readonly getViewerIdentity?: () => string | null | undefined;
   request<T>(
     message: Record<string, unknown>,
     options?: AppRuntimeRequestOptions,
@@ -306,37 +310,70 @@ export class ParentBridgeTransport implements AppRuntimeTransport {
  * without opening a popup — the app already knows its own appId, and
  * checkout state is not available on the app's own origin in broker mode.
  */
+export type AppRuntimeResolvedApp = {
+  id: string;
+  slug: string;
+  url: string | null;
+  homeSpace: { id: string; name: string | null };
+  appScopes: Permission[];
+};
+
+export type AppRuntimeAppResolver = () => Promise<AppRuntimeResolvedApp | null>;
+
 export class PopupBrokerTransport implements AppRuntimeTransport {
   readonly supportsNavigation = false;
+  readonly memoryOnly = true;
   private readonly brokerOrigin: string;
   private readonly appId?: string;
   private readonly getAppId?: () => Promise<string | null>;
+  private readonly app?: AppRuntimeResolvedApp;
+  private readonly getApp?: AppRuntimeAppResolver;
+  private viewerGrants: AppRuntimeGrantSummary[] = [];
+  private viewerIdentity: string | null | undefined;
+
+  getViewerIdentity() {
+    return this.viewerIdentity;
+  }
+
+  private observeViewerIdentity(next: string | null | undefined) {
+    if (next !== undefined && this.viewerIdentity !== undefined && next !== this.viewerIdentity) {
+      this.viewerGrants = [];
+    }
+    if (next !== undefined) this.viewerIdentity = next;
+  }
 
   constructor(config: {
     brokerOrigin: string;
     /** Explicit app id. When absent, {@link getAppId} is used to resolve it. */
     appId?: string;
-    /**
-     * Lazily resolves the app id at runtime (e.g. via the public
-     * `apps.getBySlug` reverse lookup). Used in standalone deployments where
-     * the appId is not known at code-authoring time. The resolver is expected
-     * to cache its own result.
-     */
     getAppId?: () => Promise<string | null>;
+    /** Complete identity discovered from the standalone page origin. */
+    app?: AppRuntimeResolvedApp;
+    getApp?: AppRuntimeAppResolver;
   }) {
     this.brokerOrigin = config.brokerOrigin;
     this.appId = config.appId;
     this.getAppId = config.getAppId;
-    // Warm the appId cache eagerly so that a click-triggered popup does not
-    // have to await a network round-trip (which would break the browser's
-    // transient user-activation and get the popup blocked).
-    if (!this.appId && this.getAppId) void this.getAppId();
+    this.app = config.app;
+    this.getApp = config.getApp;
+    // Warm origin/slug discovery while the page is idle. A later click can
+    // then open the popup without losing the browser's user activation.
+    if (!this.app && this.getApp) void this.getApp();
+    else if (!this.appId && this.getAppId) void this.getAppId();
   }
 
-  private resolveAppId(): Promise<string | null> {
-    if (this.appId) return Promise.resolve(this.appId);
-    if (this.getAppId) return this.getAppId();
-    return Promise.resolve(null);
+  private async resolveApp(): Promise<AppRuntimeResolvedApp | null> {
+    if (this.app) return this.app;
+    const resolved = await this.getApp?.();
+    if (resolved) return resolved;
+    const appId = this.appId ?? await this.getAppId?.() ?? null;
+    return appId
+      ? { id: appId, slug: "", url: null, homeSpace: { id: "", name: null }, appScopes: [] }
+      : null;
+  }
+
+  private async resolveAppId(): Promise<string | null> {
+    return (await this.resolveApp())?.id ?? null;
   }
 
   async request<T>(
@@ -346,14 +383,32 @@ export class PopupBrokerTransport implements AppRuntimeTransport {
     // Non-interactive messages are answered locally to avoid popping up a
     // window for data the app already has (or cannot have).
     if (message.type === "cohub.app.context") {
-      const appId = await this.resolveAppId();
+      const app = await this.resolveApp();
+      if (!app) return null;
+      const viewerScopes = Array.from(new Set(this.viewerGrants.flatMap((grant) => grant.scopes)));
       return {
         type: "cohub.app.context.result",
         context: {
+          capabilities: { authorization: 2, serverGrants: true },
           mode: "broker",
-          app: { id: appId ?? "", slug: "", url: null },
-          space: { id: "" },
-          permissions: { scopes: [], appScopes: [], viewerScopes: [] },
+          app: {
+            id: app.id,
+            slug: app.slug,
+            url: app.url,
+            homeSpace: { ...app.homeSpace },
+          },
+          space: { id: app.homeSpace.id, name: app.homeSpace.name },
+          ...(this.viewerIdentity !== undefined
+            ? { viewer: this.viewerIdentity ? { userUuid: this.viewerIdentity } : null }
+            : {}),
+          invocation: { surface: "broker", source: "route" },
+          shell: { surface: "broker", space: null, session: null, turn: null },
+          permissions: {
+            scopes: Array.from(new Set([...app.appScopes, ...viewerScopes])),
+            appScopes: [...app.appScopes],
+            viewerScopes,
+            viewerGrants: this.viewerGrants.map((grant) => ({ ...grant, scopes: [...grant.scopes] })),
+          },
         },
       } as T;
     }
@@ -387,7 +442,7 @@ export class PopupBrokerTransport implements AppRuntimeTransport {
       const appOrigin = window.location.origin;
       const brokerUrl = `${this.brokerOrigin}/app-auth?app=${encodeURIComponent(appId)}&origin=${encodeURIComponent(appOrigin)}`;
 
-      const popup = window.open(brokerUrl, "cohub-app-auth", "popup,width=480,height=640");
+      const popup = window.open(brokerUrl, `cohub-app-auth-${appId}`, "popup,width=480,height=640");
       if (!popup) {
         reject(new Error("Failed to open authorization window. Please allow popups for this site."));
         return;
@@ -431,6 +486,14 @@ export class PopupBrokerTransport implements AppRuntimeTransport {
 
         // Handshake: broker signals it's ready to receive the actual request.
         if (data.type === "cohub.app.broker.ready" && !ready) {
+          const brokerViewer = (data as { viewer?: { userUuid?: unknown } | null }).viewer;
+          this.observeViewerIdentity(
+            brokerViewer === null
+              ? null
+              : typeof brokerViewer?.userUuid === "string"
+                ? brokerViewer.userUuid
+                : undefined,
+          );
           if (message.type === "cohub.app.authorize.v2" && (data as { authorizationVersion?: number }).authorizationVersion !== 2) {
             finish(() => reject(new AppRuntimeError("unsupported", "This host does not support structured authorization.")));
             return;
@@ -452,6 +515,29 @@ export class PopupBrokerTransport implements AppRuntimeTransport {
           if (data.type === "cohub.app.error") {
             reject(new AppRuntimeError((data as { code?: string }).code ?? "request_failed", (data as { message: string }).message, requestId));
             return;
+          }
+
+          const rawResult = (data as { result?: unknown }).result;
+          if (message.type === "cohub.app.authorize.v2") {
+            const parsedResult = appAuthorizationResultSchema.safeParse(rawResult);
+            if (!parsedResult.success) {
+              reject(new AppRuntimeError("invalid_response", "Invalid authorization result.", requestId));
+              return;
+            }
+            const authorization = parsedResult.data;
+            if (authorization.status === "granted") {
+              const token = (data as { token?: unknown }).token;
+              if (typeof token !== "string" || !token) {
+                reject(new AppRuntimeError("invalid_response", "Authorization token is missing.", requestId));
+                return;
+              }
+              const knownScopes = new Set<string>(PERMISSIONS);
+              const scopes = authorization.grant.scopes.filter(
+                (scope): scope is Permission => knownScopes.has(scope),
+              );
+              const existing = this.viewerGrants.filter((grant) => grant.spaceId !== authorization.grant.spaceId);
+              this.viewerGrants = [...existing, { spaceId: authorization.grant.spaceId, scopes }];
+            }
           }
           resolve(data as T);
         });
@@ -677,7 +763,7 @@ export class AppRuntimeApi {
   }
 
   private readStoredToken(): string | null {
-    if (this.transport instanceof PopupBrokerTransport) {
+    if (this.transport.memoryOnly) {
       this.writeStoredToken(null);
       return null;
     }
@@ -690,7 +776,7 @@ export class AppRuntimeApi {
   }
 
   private writeStoredToken(token: string | null) {
-    if (this.transport instanceof PopupBrokerTransport) token = null;
+    if (this.transport.memoryOnly) token = null;
     if (!this.tokenStorageKey || typeof localStorage === "undefined") return;
     try {
       if (token) localStorage.setItem(this.tokenStorageKey, token);
@@ -701,6 +787,16 @@ export class AppRuntimeApi {
   }
 
   private readStoredGrants(): AppRuntimeAuthorizedGrant[] | null {
+    if (this.transport.memoryOnly) {
+      if (this.grantsStorageKey && typeof localStorage !== "undefined") {
+        try {
+          localStorage.removeItem(this.grantsStorageKey);
+        } catch {
+          // ignore storage failures
+        }
+      }
+      return null;
+    }
     if (!this.grantsStorageKey || typeof localStorage === "undefined") return null;
     try {
       const raw = localStorage.getItem(this.grantsStorageKey);
@@ -714,6 +810,7 @@ export class AppRuntimeApi {
   }
 
   private writeStoredGrants(grants: AppRuntimeAuthorizedGrant[] | null) {
+    if (this.transport.memoryOnly) return;
     if (!this.grantsStorageKey || typeof localStorage === "undefined") return;
     try {
       if (grants && grants.length > 0) localStorage.setItem(this.grantsStorageKey, JSON.stringify(grants));
@@ -725,13 +822,13 @@ export class AppRuntimeApi {
 
   private serverGrants = false;
   private viewerIdentity: string | null | undefined;
-  private identityVersion = 0;
-  private contextUnsubscribe: (() => void) | null = null;
 
-  private observeContext(context: AppRuntimeContext) {
-    if (context.capabilities?.serverGrants) this.serverGrants = true;
-    if (context.viewer === undefined) return;
-    const viewer = context.viewer?.userUuid ?? null;
+  private observeTransportIdentity() {
+    const viewer = this.transport.getViewerIdentity?.();
+    if (viewer !== undefined) this.observeViewer(viewer);
+  }
+
+  private observeViewer(viewer: string | null) {
     if (this.viewerIdentity !== undefined && viewer !== this.viewerIdentity) {
       this.identityVersion++;
       this.token = null;
@@ -741,8 +838,17 @@ export class AppRuntimeApi {
     }
     this.viewerIdentity = viewer;
   }
+  private identityVersion = 0;
+  private contextUnsubscribe: (() => void) | null = null;
+
+  private observeContext(context: AppRuntimeContext) {
+    if (context.capabilities?.serverGrants) this.serverGrants = true;
+    if (context.viewer === undefined) return;
+    this.observeViewer(context.viewer?.userUuid ?? null);
+  }
 
   async context() {
+    this.observeTransportIdentity();
     const response = await this.transport.request<{ context: AppRuntimeContext }>(
       { type: "cohub.app.context" },
       { timeoutMs: 8_000, retryIntervalMs: 250 },
@@ -854,6 +960,7 @@ export class AppRuntimeApi {
 
   async getAccessToken(options?: { forceRefresh?: boolean }) {
     await this.ensureStorageKeys();
+    this.observeTransportIdentity();
     const identityVersion = this.identityVersion;
     // Broker tokens are intentionally memory-only, but still valid for this
     // runtime instance. Reopening a popup for every API call breaks non-click
@@ -883,14 +990,16 @@ export class AppRuntimeApi {
             { type: "cohub.app.authorize", scopes: grant.scopes, spaceId: grant.spaceId },
             { timeoutMs: 120_000 },
           );
-          if (identityVersion !== this.identityVersion) return null;
+          this.observeTransportIdentity();
+          if (identityVersion !== this.identityVersion && !this.transport.memoryOnly) return null;
           const token = response?.token ?? null;
           if (!token) continue; // denied — drop this consent, keep the others
           this.token = token;
           next = recordConsent(next, responseSpaceId(response?.space?.id) ?? grant.spaceId, grant.scopes);
           refreshed = true;
         } catch {
-          if (identityVersion !== this.identityVersion) return null;
+          this.observeTransportIdentity();
+          if (identityVersion !== this.identityVersion && !this.transport.memoryOnly) return null;
           // Transient failure — keep the consent untouched.
           next = recordConsent(next, grant.spaceId, grant.scopes);
         }
@@ -908,7 +1017,8 @@ export class AppRuntimeApi {
       { type: "cohub.app.token", forceRefresh: Boolean(options?.forceRefresh) },
       { timeoutMs: 20_000 },
     );
-    if (identityVersion !== this.identityVersion) return null;
+    this.observeTransportIdentity();
+    if (identityVersion !== this.identityVersion && !this.transport.memoryOnly) return null;
     this.token = response?.token ?? null;
     this.writeStoredToken(this.token);
     return this.token;
@@ -928,7 +1038,8 @@ export class AppRuntimeApi {
       { type: "cohub.app.authorize.v2", ...parsed.data },
       { timeoutMs: 120_000 },
     );
-    if (identityVersion !== this.identityVersion) throw new AppRuntimeError("session_changed", "The signed-in account changed. Please try again.");
+    this.observeTransportIdentity();
+    if (identityVersion !== this.identityVersion && !this.transport.memoryOnly) throw new AppRuntimeError("session_changed", "The signed-in account changed. Please try again.");
     if (!response) throw new AppRuntimeError("host_timeout", "Authorization host did not respond. It may not support structured authorization.");
     const result = appAuthorizationResultSchema.safeParse(response.result);
     if (!result.success) throw new AppRuntimeError("invalid_response", "Invalid authorization result.");
@@ -955,10 +1066,12 @@ export class AppRuntimeApi {
    */
   async requestAuthorization(input: { scopes: Permission[]; reason?: string; spaceId?: string; alwaysAsk?: boolean }) {
     await this.ensureStorageKeys();
+    this.observeTransportIdentity();
     const response = await this.transport.request<{ token: string | null; space?: { id?: unknown } | null }>(
       { type: "cohub.app.authorize", scopes: input.scopes, reason: input.reason, spaceId: input.spaceId, alwaysAsk: input.alwaysAsk },
       { timeoutMs: 120_000 },
     );
+    this.observeTransportIdentity();
     const token = response?.token ?? null;
     // A denial leaves any existing token untouched — it stays valid until it
     // expires, and only a successful consent replaces it.
@@ -980,10 +1093,12 @@ export class AppRuntimeApi {
    */
   async requestSpaceAuthorization(input: { scopes: Permission[]; reason?: string; alwaysAsk?: boolean }): Promise<AppRuntimeAuthorizationResult> {
     await this.ensureStorageKeys();
+    this.observeTransportIdentity();
     const response = await this.transport.request<{ token: string | null; space?: { id?: unknown; name?: unknown } | null }>(
       { type: "cohub.app.authorize", scopes: input.scopes, reason: input.reason, selectSpace: true, alwaysAsk: input.alwaysAsk },
       { timeoutMs: 120_000 },
     );
+    this.observeTransportIdentity();
     const token = response?.token ?? null;
     const spaceId = typeof response?.space?.id === "string" ? response.space.id : null;
     const spaceName = typeof response?.space?.name === "string" ? response.space.name : null;
@@ -1016,10 +1131,12 @@ export class AppRuntimeApi {
     reason?: string;
   }): Promise<AppRuntimeAuthorizationResult> {
     await this.ensureStorageKeys();
+    this.observeTransportIdentity();
     const response = await this.transport.request<{ token: string | null; space?: { id?: unknown; name?: unknown } | null }>(
       { type: "cohub.app.authorize", scopes: input.scopes, reason: input.reason, createSpace: input.space },
       { timeoutMs: 120_000 },
     );
+    this.observeTransportIdentity();
     const token = response?.token ?? null;
     const spaceId = typeof response?.space?.id === "string" ? response.space.id : null;
     const spaceName = typeof response?.space?.name === "string" ? response.space.name : null;
@@ -1084,6 +1201,107 @@ export type AppRuntimeModeConfig = {
 /** Lazily resolves an app's public id, e.g. via slug reverse lookup. */
 export type AppIdResolver = () => Promise<string | null>;
 
+/** Resolves complete App identity from the browser's current standalone origin. */
+export function createOriginAppResolver(deps: {
+  apiBaseUrl: string;
+  fetch?: typeof globalThis.fetch;
+  origin?: () => string | null;
+}): AppRuntimeAppResolver {
+  let cached: Promise<AppRuntimeResolvedApp | null> | null = null;
+  return () => {
+    if (cached) return cached;
+    const run = (async (): Promise<AppRuntimeResolvedApp | null> => {
+      const doFetch = deps.fetch ?? globalThis.fetch;
+      const origin = deps.origin?.() ?? (typeof window !== "undefined" ? window.location.origin : null);
+      if (typeof doFetch !== "function" || !origin) return null;
+      const response = await doFetch(`${deps.apiBaseUrl}/api/apps/by-origin`, {
+        credentials: "omit",
+        headers: { Accept: "application/json" },
+      });
+      if (response.status === 404) return null;
+      if (!response.ok) throw new Error(`getByOrigin failed: ${response.status}`);
+      const data = await response.json() as {
+        app?: { id?: unknown; slug?: unknown; spaceId?: unknown; appScopes?: unknown };
+        space?: { id?: unknown; name?: unknown };
+      } | null;
+      const app = data?.app;
+      const space = data?.space;
+      if (
+        typeof app?.id !== "string" ||
+        typeof app.slug !== "string" ||
+        typeof app.spaceId !== "string" ||
+        typeof space?.id !== "string" ||
+        space.id !== app.spaceId
+      ) return null;
+      const knownScopes = new Set<string>(PERMISSIONS);
+      const appScopes = Array.isArray(app.appScopes)
+        ? app.appScopes.filter((scope): scope is Permission => typeof scope === "string" && knownScopes.has(scope))
+        : [];
+      return {
+        id: app.id,
+        slug: app.slug,
+        url: origin,
+        homeSpace: {
+          id: space.id,
+          name: typeof space.name === "string" ? space.name : null,
+        },
+        appScopes,
+      };
+    })().catch(() => {
+      cached = null;
+      return null;
+    });
+    cached = run;
+    return run;
+  };
+}
+
+/**
+ * Defers standalone origin discovery until the runtime is first used.
+ * Apps should initialize `context()` before click-triggered authorization so
+ * discovery does not consume the browser's transient user activation.
+ */
+export class OriginBrokerTransport implements AppRuntimeTransport {
+  readonly supportsNavigation = false;
+  readonly memoryOnly = true;
+  private transport: Promise<PopupBrokerTransport | null> | null = null;
+  private resolvedTransport: PopupBrokerTransport | null = null;
+
+  getViewerIdentity() {
+    return this.resolvedTransport?.getViewerIdentity();
+  }
+
+  constructor(
+    private readonly brokerOrigin: string,
+    private readonly resolveApp: AppRuntimeAppResolver,
+  ) {}
+
+  private resolveTransport() {
+    if (this.transport) return this.transport;
+    const attempt = this.resolveApp()
+      .then((app) =>
+        app ? new PopupBrokerTransport({ brokerOrigin: this.brokerOrigin, app }) : null,
+      )
+      .then((transport) => {
+        this.resolvedTransport = transport;
+        return transport;
+      })
+      .catch(() => null);
+    this.transport = attempt;
+    void attempt.then((transport) => {
+      // A transient resolver failure is represented as null and is not cached
+      // by the resolver. Let a later context/auth request retry it.
+      if (!transport && this.transport === attempt) this.transport = null;
+    });
+    return attempt;
+  }
+
+  async request<T>(message: Record<string, unknown>, options?: AppRuntimeRequestOptions) {
+    const transport = await this.resolveTransport();
+    return transport?.request<T>(message, options) ?? null;
+  }
+}
+
 /**
  * Builds a memoized appId resolver that reverse-looks-up the appId from the
  * public slug triple via `GET /api/apps/by-slug/:username/:spaceSlug/:appSlug`
@@ -1121,13 +1339,14 @@ export function createSlugAppIdResolver(deps: {
 }
 
 /**
- * Resolves the appropriate transport based on the app mode configuration.
- * Auto-detection: inside an iframe → bridge; standalone with broker config →
- * broker; otherwise → bridge (returns null for non-app contexts).
+ * Resolves the appropriate transport. Iframes use the parent bridge;
+ * standalone pages use explicit legacy configuration or Origin discovery.
  */
 export function resolveAppTransport(
   config?: AppRuntimeModeConfig,
   appIdResolver?: AppIdResolver,
+  originAppResolver?: AppRuntimeAppResolver,
+  defaultBrokerOrigin?: string,
 ): AppRuntimeTransport {
   const explicitMode = config?.mode;
   const brokerOrigin = config?.brokerOrigin;
@@ -1148,10 +1367,13 @@ export function resolveAppTransport(
     // Inside an iframe → bridge mode
     return new ParentBridgeTransport();
   }
-  // Standalone: use broker if configured, otherwise fall back to bridge
-  // (which returns null when there is no parent — the SDK simply isn't in an
-  // app runtime context).
-  return hasBrokerConfig ? createBroker() : new ParentBridgeTransport();
+  if (hasBrokerConfig) return createBroker();
+  if (originAppResolver && defaultBrokerOrigin) {
+    return new OriginBrokerTransport(defaultBrokerOrigin, originAppResolver);
+  }
+  // Direct transport consumers without client environment configuration keep
+  // the legacy null-context behavior.
+  return new ParentBridgeTransport();
 }
 
 export const createAppRuntime = (

@@ -35,6 +35,7 @@ const SDK_SOURCES = [
 
 /** Web-side direct calls (SSR + broker page) that bypass the SDK. */
 const WEB_DIRECT_PATHS = [
+  "/api/apps/by-origin",
   "/api/apps/by-slug/:p/:p/:p",
   "/api/apps/:p/public",
 ];

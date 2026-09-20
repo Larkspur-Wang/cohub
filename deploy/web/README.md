@@ -7,6 +7,10 @@
   - `CLOUDFLARE_API_TOKEN`
   - `CLOUDFLARE_ACCOUNT_ID`
 - 已确认 API 可访问
+- `cohub.live` Zone 已配置代理状态的 `*.apps.cohub.live` 与 `*.apps-dev.cohub.live` DNS 记录
+- Cloudflare 已为 `*.apps.cohub.live` 与 `*.apps-dev.cohub.live` 配置有效的 wildcard TLS 证书
+
+> Worker 路由已写入对应 Wrangler 配置，并启用 `assets.run_worker_first`，确保 App 路径不会被 Cohub 自身的同名静态资源截获。DNS 与 wildcard TLS 是独立的 Cloudflare Zone 配置，必须在首次部署 standalone App 域名前完成。
 
 ## 环境配置
 

@@ -83,6 +83,9 @@ const appFormSubmitting = $derived(appDetailController.formSubmitting);
 const appFormError = $derived(appDetailController.formError);
 const appCopiedId = $derived(appDetailController.copiedId);
 const appCopiedPublicRoute = $derived(appDetailController.copiedPublicRoute);
+const standaloneUrl = $derived(appDetailController.standaloneUrl);
+let copiedStandaloneUrl = $state(false);
+let copiedStandaloneTimer: ReturnType<typeof setTimeout> | null = null;
 const appVersions = $derived(appDetailController.versions);
 const appVersionsLoading = $derived(appDetailController.versionsLoading);
 const appVersionsError = $derived(appDetailController.versionsError);
@@ -129,8 +132,26 @@ onMount(() => {
 		window.removeEventListener(APPS_CHANGED_EVENT, handleWorksChanged);
 });
 
+async function copyStandaloneUrl() {
+	if (!standaloneUrl) return;
+	try {
+		await navigator.clipboard.writeText(standaloneUrl);
+		copiedStandaloneUrl = true;
+		if (copiedStandaloneTimer) clearTimeout(copiedStandaloneTimer);
+		copiedStandaloneTimer = setTimeout(() => {
+			copiedStandaloneUrl = false;
+			copiedStandaloneTimer = null;
+		}, 1500);
+	} catch (cause) {
+		appDetailController.setError(
+			cause instanceof Error ? cause.message : "Failed to copy standalone URL",
+		);
+	}
+}
+
 onDestroy(() => {
 	appDetailController.dispose();
+	if (copiedStandaloneTimer) clearTimeout(copiedStandaloneTimer);
 });
 </script>
 
@@ -183,6 +204,12 @@ onDestroy(() => {
               <PanelRight class="h-3.5 w-3.5" />
               <span>Open</span>
             </button>
+          {/if}
+          {#if standaloneUrl}
+            <a href={standaloneUrl} target="_blank" rel="noopener" class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] bg-bg-elevated px-3 py-2 text-[12px] font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary sm:w-auto">
+              <ExternalLink class="h-3.5 w-3.5" />
+              <span>{m.app_view_open_standalone({}, { locale })}</span>
+            </a>
           {/if}
           {#if publicRoute && appDetail.status === 'published'}
             <a href={publicRoute} target="_blank" rel="noopener" class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] bg-bg-elevated px-3 py-2 text-[12px] font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary sm:w-auto">
@@ -348,6 +375,18 @@ onDestroy(() => {
             </section>
           </div>
           <aside class="space-y-5 text-[13px]">
+            {#if standaloneUrl}
+              <div class="space-y-2">
+                <div class="flex items-center justify-between gap-3">
+                  <div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">{m.app_view_standalone_url({}, { locale })}</div>
+                  <button type="button" class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[5px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary" onclick={() => void copyStandaloneUrl()} title={copiedStandaloneUrl ? m.app_view_url_copied({}, { locale }) : m.app_view_copy_url({}, { locale })} aria-label={copiedStandaloneUrl ? m.app_view_url_copied({}, { locale }) : m.app_view_copy_url({}, { locale })}>
+                    {#if copiedStandaloneUrl}<Check class="h-3.5 w-3.5 text-success-soft" />{:else}<Copy class="h-3.5 w-3.5" />{/if}
+                  </button>
+                </div>
+                <div class="rounded-[6px] bg-bg-elevated/30 px-3 py-2 font-mono text-[12px] text-text-secondary break-all">{standaloneUrl}</div>
+              </div>
+              <div class="h-px bg-border-subtle/70"></div>
+            {/if}
             {#if publicRoute && appDetail.status === 'published'}
               <div class="space-y-2">
                 <div class="flex items-center justify-between gap-3">

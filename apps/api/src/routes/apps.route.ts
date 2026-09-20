@@ -29,7 +29,7 @@ import {
 import { hasPermission, resolveUserSpacePermissions } from "../permissions.js";
 import { createAppSessionToken, APP_SESSION_TTL_SECONDS, APP_VIEWER_GRANT_TTL_SECONDS } from "../app-sessions.js";
 import { getSandboxPublicEndpoints } from "../sandbox-public-network.js";
-import type { AppArtifactDescriptor, AppVersionSource } from "@cohub/protocol";
+import { resolveCohubAppOrigin, type AppArtifactDescriptor, type AppVersionSource } from "@cohub/protocol";
 import { APP_ACTION_EXECUTION_SOURCE } from "@cohub/protocol/task";
 import { SANDBOX_PUBLIC_PORTS } from "@cohub/protocol/ports";
 import { config, isHostAllowedBySuffix } from "../config.js";
@@ -46,7 +46,7 @@ import {
 import { createLogger } from "@cohub/infra/logging";
 import { billingOperations, COHUB_BILLING_FEATURES } from "@cohub/billing";
 import { featureGateResponse } from "../lib/feature-gate.js";
-import { createAppPublicUrl } from "../lib/app-public-url.js";
+import { createAppPublicUrl, createAppStandaloneUrl } from "../lib/app-public-url.js";
 import { applyRequestSourceToMeta, getRequestSource } from "../lib/request-source.js";
 import { dispatchAppVersionPublished } from "../app-events.js";
 import { resolveAppVersionSources } from "../app-version-source.js";
@@ -530,6 +530,52 @@ async function getPublishedAppContent(app: typeof apps.$inferSelect) {
   return getAppVersionContent(app, await getAppCurrentVersion(app));
 }
 
+async function getPublishedAppPublicIdentity(app: typeof apps.$inferSelect) {
+  const [row] = await db
+    .select({
+      owner: { userUuid: userProfiles.userUuid, username: userProfiles.username, displayName: userProfiles.displayName, avatarUrl: userProfiles.avatarUrl },
+      space: spaces,
+    })
+    .from(spaces)
+    .innerJoin(userProfiles, eq(userProfiles.userUuid, spaces.userUuid))
+    .where(eq(spaces.id, app.spaceId))
+    .limit(1);
+  if (!row?.owner.username || !row.space.slug) return null;
+  return {
+    app: wrapAppRecord(wire, serializeApp(app)),
+    space: { id: row.space.id, slug: row.space.slug, name: row.space.name, userUuid: row.space.userUuid, publicProfile: getSpacePublicProfile(row.space) },
+    owner: { ...row.owner, username: row.owner.username },
+  };
+}
+
+async function getStandaloneAppDetail(app: typeof apps.$inferSelect) {
+  const content = await getPublishedAppContent(app);
+  return {
+    ...wrapAppRecord(wire, serializeApp(app)),
+    space: { id: app.spaceId },
+    standaloneUrl: createAppStandaloneUrl({ appId: app.id, status: app.status, visibility: app.visibility, targetType: content?.targetType ?? app.targetType, contentKind: content?.kind }),
+    content,
+  };
+}
+
+async function getPublicAppDetail(app: typeof apps.$inferSelect) {
+  const identity = await getPublishedAppPublicIdentity(app);
+  if (!identity) return null;
+  const [content, totalViews, publisher] = await Promise.all([
+    getPublishedAppContent(app),
+    getAppTotalViews(app.id),
+    resolveAppPublisher(app.userUuid),
+  ]);
+  return {
+    ...identity,
+    publisher,
+    publicUrl: createAppPublicUrl({ ownerUsername: identity.owner.username, spaceSlug: identity.space.slug, appSlug: app.slug, status: app.status }),
+    standaloneUrl: createAppStandaloneUrl({ appId: app.id, status: app.status, visibility: app.visibility, targetType: content?.targetType ?? app.targetType, contentKind: content?.kind }),
+    content,
+    totalViews,
+  };
+}
+
 /** Read `?cohub_v=` as a positive integer version number. */
 function readRequestedVersion(c: Context): { version: number | null; invalid: boolean } {
   const raw = c.req.query("cohub_v");
@@ -548,6 +594,25 @@ const publicVersionSummary = (
   contentKind: version.contentKind,
   source,
   createdAt: version.createdAt?.toISOString() ?? null,
+});
+
+router.get("/by-origin", async (c) => {
+  const requestedOrigin = c.req.query("origin")?.trim() || c.req.header("origin")?.trim();
+  const recordView = c.req.query("view") === "1";
+  const appId = resolveCohubAppOrigin(requestedOrigin, config.env);
+  if (!appId) return c.json({ message: "app origin not found", code: "app_origin_not_found" }, 404);
+  const app = await getAppById(appId);
+  if (app?.status !== "published" || requiresSpaceAppAccess(app)) {
+    return c.json({ message: "app origin not found", code: "app_origin_not_found" }, 404);
+  }
+  const detail = await getStandaloneAppDetail(app);
+  if (detail?.content?.kind !== "web") {
+    return c.json({ message: "app origin not found", code: "app_origin_not_found" }, 404);
+  }
+  if (recordView) recordResolvedAppView(c, app, "web");
+  c.header("Cache-Control", recordView ? "no-store" : PUBLIC_APP_HTTP_CACHE);
+  c.header("Vary", "Origin");
+  return c.json(detail);
 });
 
 router.get("/by-slug/:username/:spaceSlug/:appSlug", async (c) => {
@@ -599,6 +664,7 @@ router.get("/by-slug/:username/:spaceSlug/:appSlug", async (c) => {
     owner: { ...row.owner, username: row.owner.username },
     publisher: await resolveAppPublisher(row.app.userUuid),
     publicUrl: createAppPublicUrl({ ownerUsername: row.owner.username, spaceSlug: row.space.slug, appSlug: row.app.slug, status: row.app.status }),
+    standaloneUrl: createAppStandaloneUrl({ appId: row.app.id, status: row.app.status, visibility: row.app.visibility, targetType: content?.targetType ?? row.app.targetType, contentKind: content?.kind }),
     content,
     version: version ? publicVersionSummary(version, null) : null,
     totalViews,
@@ -669,33 +735,10 @@ router.get("/:id/public", async (c) => {
   const app = await getAppById(id);
   if (app?.status !== "published") return c.json({ message: "app not found" }, 404);
   if (requiresSpaceAppAccess(app) && !(await hasPermission(user, "space.view", { spaceId: app.spaceId }))) return authzDenied(c);
-  const [row] = await db
-    .select({
-      owner: { userUuid: userProfiles.userUuid, username: userProfiles.username, displayName: userProfiles.displayName, avatarUrl: userProfiles.avatarUrl },
-      space: spaces,
-    })
-    .from(spaces)
-    .innerJoin(userProfiles, eq(userProfiles.userUuid, spaces.userUuid))
-    .where(eq(spaces.id, app.spaceId))
-    .limit(1);
-  if (!row) return c.json({ message: "app not found" }, 404);
-  if (!row.owner.username || !row.space.slug) return c.json({ message: "app public identity is incomplete" }, 409);
+  const detail = await getPublicAppDetail(app);
+  if (!detail) return c.json({ message: "app public identity is incomplete" }, 409);
   recordResolvedAppView(c, app, "web");
-  const space = { id: row.space.id, slug: row.space.slug, name: row.space.name, userUuid: row.space.userUuid, publicProfile: getSpacePublicProfile(row.space) };
-  // Content matches what the by-slug page already serves for the same access
-  // model, so an in-workspace preview can render a Work reached by public url.
-  const [content, totalViews] = await Promise.all([
-    getPublishedAppContent(app),
-    getAppTotalViews(app.id),
-  ]);
-  return c.json({
-    ...wrapAppRecord(wire, serializeApp(app)),
-    space,
-    owner: { ...row.owner, username: row.owner.username },
-    publisher: await resolveAppPublisher(app.userUuid),
-    content,
-    totalViews,
-  });
+  return c.json(detail);
 });
 
 router.get("/:id/stats", async (c) => {
@@ -742,6 +785,7 @@ router.get("/:id", async (c) => {
     owner: { ...row.owner, username: row.owner.username },
     publisher: await resolveAppPublisher(app.userUuid),
     publicUrl: createAppPublicUrl({ ownerUsername: row.owner.username, spaceSlug: row.space.slug, appSlug: app.slug, status: app.status }),
+    standaloneUrl: createAppStandaloneUrl({ appId: app.id, status: app.status, visibility: app.visibility, targetType: content?.targetType ?? app.targetType, contentKind: content?.kind }),
     content,
     totalViews,
   });
@@ -838,6 +882,15 @@ router.post("/", async (c) => {
       await cleanupAppAssets(assetKey, { appId: "new", spaceId, reason: "create_slug_conflict" });
       return c.json({ message: "slug already exists" }, 409);
     }
+    const standaloneUrl = result.version
+      ? createAppStandaloneUrl({
+          appId: result.app.id,
+          status: result.app.status,
+          visibility: result.app.visibility,
+          targetType: result.version.targetType,
+          contentKind: result.version.contentKind,
+        })
+      : null;
     if (result.version) {
       const source = (
         await resolveAppVersionSources({ versions: [result.version], spaceId, user })
@@ -845,6 +898,7 @@ router.post("/", async (c) => {
       await dispatchAppVersionPublished({
         app: serializeAppRecord(result.app, "canonical"),
         version: serializeAppVersionRecord(result.version, "canonical", source),
+        standaloneUrl,
         previousVersionId: null,
         actorUserId: user.uuid,
         source: getRequestSource(c),
@@ -856,7 +910,10 @@ router.post("/", async (c) => {
         });
       });
     }
-    return c.json(wrapAppRecord(wire, serializeApp(result.app)), 201);
+    return c.json({
+      ...wrapAppRecord(wire, serializeApp(result.app)),
+      standaloneUrl,
+    }, 201);
   } catch (error) {
     await cleanupAppAssets(assetKey, { appId: "new", spaceId, reason: "create_failed" });
     throw error;
@@ -938,7 +995,17 @@ async function updateApp(
     throw error;
   });
   if (!app) return c.json({ message: "slug already exists" }, 409);
-  return c.json(wrapAppRecord(wire, serializeApp(app)));
+  const currentVersion = await getAppCurrentVersion(app);
+  return c.json({
+    ...wrapAppRecord(wire, serializeApp(app)),
+    standaloneUrl: createAppStandaloneUrl({
+      appId: app.id,
+      status: app.status,
+      visibility: app.visibility,
+      targetType: currentVersion?.targetType ?? app.targetType,
+      contentKind: currentVersion?.contentKind,
+    }),
+  });
 }
 
 async function publishAppVersion(
@@ -1011,9 +1078,17 @@ async function publishAppVersion(
     const source = (
       await resolveAppVersionSources({ versions: [result.version], spaceId: current.spaceId, user: options.actor })
     ).get(result.version.id) ?? null;
+    const standaloneUrl = createAppStandaloneUrl({
+      appId: result.app.id,
+      status: result.app.status,
+      visibility: result.app.visibility,
+      targetType: result.version.targetType,
+      contentKind: result.version.contentKind,
+    });
     await dispatchAppVersionPublished({
       app: serializeAppRecord(result.app, "canonical"),
       version: serializeAppVersionRecord(result.version, "canonical", source),
+      standaloneUrl,
       previousVersionId: result.previousVersionId,
       actorUserId: options.actor.uuid,
       source: getRequestSource(c),
@@ -1026,6 +1101,7 @@ async function publishAppVersion(
     });
     return c.json({
       ...wrapAppRecord(wire, serializeApp(result.app)),
+      standaloneUrl,
       version: serializeAppVersion(result.version, source),
     });
   } catch (error) {

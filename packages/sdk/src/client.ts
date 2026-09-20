@@ -30,9 +30,11 @@ import {
   resolveApiBaseUrl,
   resolveExecutionAppId,
   resolveExecutionToken,
+  resolveWebBaseUrl,
   resolveWebsocketUrl,
 } from "./environment.js";
 import {
+  createOriginAppResolver,
   createSlugAppIdResolver,
   createAppRuntime,
   resolveAppTransport,
@@ -111,7 +113,16 @@ export class CohubClient {
             appSlug: appRuntime.appSlug,
           })
         : undefined;
-    const appTransport = resolveAppTransport(appRuntime, appIdResolver);
+    const originAppResolver = createOriginAppResolver({
+      apiBaseUrl,
+      fetch: options.fetch,
+    });
+    const appTransport = resolveAppTransport(
+      appRuntime,
+      appIdResolver,
+      originAppResolver,
+      resolveWebBaseUrl({ env: options.env }),
+    );
     this.appRuntime = createAppRuntime(appTransport, appRuntime?.appId, appIdResolver);
     const executionToken = resolveExecutionToken();
     const getAccessToken = options.getAccessToken

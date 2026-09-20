@@ -6,7 +6,7 @@
 
 | Secret | 说明 |
 | --- | --- |
-| `CLOUDFLARE_API_TOKEN` | Cloudflare API Token（需要 Workers Scripts 编辑权限） |
+| `CLOUDFLARE_API_TOKEN` | Cloudflare API Token（需要 Workers Scripts 与 Workers Routes 编辑权限，以及 `cohub.live` Zone 读取权限） |
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare Account ID |
 
 ## 2) Web 构建环境变量
