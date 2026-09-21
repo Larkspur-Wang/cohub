@@ -190,7 +190,7 @@ export const config: AppConfig = {
   homeBootstrapCheckpointId: process.env.HOME_BOOTSTRAP_CHECKPOINT_ID?.trim() || undefined,
   sandboxImage:
     process.env.SANDBOX_IMAGE ?? getDefaultSandboxImage(env),
-  sandboxImagePullSecret: process.env.SANDBOX_IMAGE_PULL_SECRET?.trim() || undefined,
+  sandboxImagePullSecret: (process.env.SANDBOX_IMAGE_PULL_SECRET ?? "gitea-registry").trim() || undefined,
   sandboxNodeSelector: parseSandboxNodeSelector(process.env.SANDBOX_NODE_SELECTOR),
   sandboxTolerations: parseSandboxTolerations(process.env.SANDBOX_TOLERATIONS),
   bullmqRedisUrl:

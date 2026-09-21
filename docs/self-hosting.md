@@ -66,9 +66,9 @@ Real environment values are intentionally not committed.
 
 Example values use placeholder registries/domains. Point image repositories at your own builds; official sandbox images may still use `git.talesofai.com/talesofai/cohub-sandbox:...`.
 
-For private Sandbox images, explicitly set `SANDBOX_IMAGE_PULL_SECRET` on the API to an existing Secret in the Sandbox namespace. Public images need no setting. Gitea mirror credentials never select an image pull Secret. Existing deployments using `gitea-registry` must set `SANDBOX_IMAGE_PULL_SECRET=gitea-registry` before upgrading.
+`SANDBOX_IMAGE_PULL_SECRET` on the API is independent of Gitea mirror credentials. When unset, it keeps the legacy `gitea-registry` default, so existing deployments need no configuration change. Set it to another existing Secret in the Sandbox namespace to override, or explicitly set `SANDBOX_IMAGE_PULL_SECRET=` for public images to omit `imagePullSecrets`. Whitespace-only values also omit the Secret.
 
-私有 Sandbox 镜像需在 API 中显式设置 `SANDBOX_IMAGE_PULL_SECRET`，对应 Secret 必须存在于 Sandbox 命名空间；公开镜像无需配置。此设置与 Gitea 镜像凭据无关。原先使用 `gitea-registry` 的部署，升级前需显式设置 `SANDBOX_IMAGE_PULL_SECRET=gitea-registry`。
+API 的 `SANDBOX_IMAGE_PULL_SECRET` 与 Gitea 镜像凭据无关。未设置时沿用 `gitea-registry`，现有部署无需补配置；非空时使用 Sandbox 命名空间中的指定 Secret。公开镜像可显式设置 `SANDBOX_IMAGE_PULL_SECRET=`，不生成 `imagePullSecrets`；仅含空白的值同样视为空。
 
 ## Auth
 
