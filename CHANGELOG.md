@@ -4,6 +4,19 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v2.53 — 2026-09-21
+
+- **Cloudflare App runtime**: a new edge Worker injects a lightweight runtime bootstrap into published Apps without altering artifact bytes, with per-environment routing, ETag/conditional caching, and a dedicated Cloudflare deploy workflow; standalone Apps also gain automatic broker authorization and per-deployment origin templates.
+- **Native harness session projection**: durable Session Turns are projected incrementally into Pi and Codex native history — bounded, compaction-aware, and cursor-validated — so a resumed local Runtime continues from the exact conversation instead of replaying it.
+- **Local Runtime diagnostics**: redacted, machine-local JSONL logs with bounded rotation, `cohub runtime logs --json/--follow`, sandboxd output capture, and a stable `runtimeId` with request/trace correlation across Agent, Gateway, API, and Web.
+- **Native sandbox file monitoring**: a macOS FSEvents backend with a bounded scanner fallback, unified backend-neutral watcher events, and file-monitoring health surfaced in Runtime status and archive validation.
+- **Local Runtime memory & status UI**: Runtime remembers a Space per canonical directory, account, and environment so repeated `cohub runtime up` reuses the same Space, while the composer harness picker and header status become pills, a status chip, and an info popover with fail-closed offline handling.
+
+### Bug Fixes
+
+- Keep session lists scoped to their Space: a mid-flight Space switch could fetch one Space's sessions under another's cache key and append stale pages; requests now pin their Space and every result apply is guarded.
+- Return search `effectiveTier` as camelCase so relevance tiers reach the client; `/api/search` aliased the column as `effective_tier`, leaving every response `effectiveTier: null` and pushing exact matches behind fuzzy local results.
+
 ## v2.52 — 2026-09-17
 
 - **App management for builders**: Apps are governed by a single `app.manage` permission granted to `host` and `builder`, so Space builders can create Apps, publish versions, change config, and read stats without host-only Space settings. App detail responses now report the real `publisher`, which the Cohub bar and authorize dialog credit instead of always showing the Space owner, and deletion is scoped to hosts (any App) or the App's own publisher.
