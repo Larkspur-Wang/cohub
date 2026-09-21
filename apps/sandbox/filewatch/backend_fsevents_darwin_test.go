@@ -20,10 +20,7 @@ func TestFSEventsBoundedFDAndBackpressureClose(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	before, err := os.ReadDir("/dev/fd")
-	if err != nil {
-		t.Fatal(err)
-	}
+	before := countOpenFDs(t)
 	backend, _, err := newFSEventsBackend(root, slog.Default())
 	if err != nil {
 		t.Fatal(err)
@@ -35,12 +32,9 @@ func TestFSEventsBoundedFDAndBackpressureClose(t *testing.T) {
 	}
 	// Do not consume output: shutdown must survive a full downstream queue.
 	time.Sleep(time.Second)
-	after, err := os.ReadDir("/dev/fd")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(after)-len(before) > 64 {
-		t.Errorf("FD count grew with files: %d -> %d", len(before), len(after))
+	after := countOpenFDs(t)
+	if after-before > 64 {
+		t.Errorf("FD count grew with files: %d -> %d", before, after)
 	}
 	closed := make(chan struct{})
 	go func() { _ = backend.close(); close(closed) }()
@@ -67,6 +61,7 @@ func TestFSEventsSkipsSpecialFiles(t *testing.T) {
 		t.Fatal("native test silently fell back")
 	}
 	waitForResync(t, batches)
+	waitQuiet(t, batches, 700*time.Millisecond)
 
 	pipe := filepath.Join(root, "pipe")
 	if err := syscall.Mkfifo(pipe, 0o600); err != nil {
@@ -117,6 +112,49 @@ func drainFor(t *testing.T, batches <-chan Batch, window time.Duration, inspect 
 	}
 }
 
+// waitQuiet blocks until no batch arrives for a full window. The native backend
+// emits an initial catch-up resync shortly after Start (in addition to the
+// watcher's own startup resync), and any change enqueued while that resync is
+// still pending is superseded by it. Tests wait for quiescence before triggering
+// the change they want to observe. The window must exceed the FSEvents latency
+// plus the watcher debounce (250ms + 250ms).
+func waitQuiet(t *testing.T, batches <-chan Batch, window time.Duration) {
+	t.Helper()
+	timer := time.NewTimer(window)
+	defer timer.Stop()
+	for {
+		select {
+		case <-batches:
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			timer.Reset(window)
+		case <-timer.C:
+			return
+		}
+	}
+}
+
+// countOpenFDs lists the process file descriptors without stat-ing each entry.
+// /dev/fd entries can vanish between readdir and lstat, and Go's ReadDir turns
+// that race into an EBADF error; Readdirnames is a pure directory read.
+func countOpenFDs(t *testing.T) int {
+	t.Helper()
+	dir, err := os.Open("/dev/fd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dir.Close()
+	names, err := dir.Readdirnames(-1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return len(names)
+}
+
 func TestFSEventsFlags(t *testing.T) {
 	for _, flags := range []fsevents.EventFlags{fsevents.MustScanSubDirs, fsevents.UserDropped, fsevents.KernelDropped, fsevents.RootChanged, fsevents.ItemRenamed, fsevents.ItemCreated | fsevents.ItemRemoved, fsevents.Mount, fsevents.Unmount} {
 		if !mapFSEvent("/workspace", fsevents.Event{Path: "/workspace/file", Flags: flags}).resync {
@@ -144,6 +182,7 @@ func TestFSEventsNativeWriteAndClose(t *testing.T) {
 		t.Fatal("native test silently fell back")
 	}
 	waitForResync(t, batches)
+	waitQuiet(t, batches, 700*time.Millisecond)
 	if err := os.WriteFile(filepath.Join(root, "native.txt"), []byte("content"), 0600); err != nil {
 		t.Fatal(err)
 	}
