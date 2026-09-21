@@ -6,6 +6,9 @@ All notable changes to Cohub are documented in this file.
 
 ## v2.53 — 2026-09-21
 
+- **Native file monitoring**: Pinned the bundled `sandboxd` to `v2.53.1`, the first published release with native FSEvents file-monitoring backends and the `runtimeId` control frame, so `cohub runtime up` serves a current daemon instead of the stale `v1.82.4` build.
+- **Stricter release integrity**: Sandbox archive validation now requires every published pin to ship `cohub-sandboxd` alongside `LICENSE` and `NOTICE`, retiring support for the legacy binary-only archive shape.
+- **Resilient changelog pipeline**: Patch releases now merge into their minor's existing entry — newest highlights and fixes lead, earlier notes are preserved and deduplicated, and tags are unioned — instead of overwriting the previous content.
 - **Clone-safe App bridge**: The SDK deep-copies the nested invocation context (including `embedder`) before it crosses the App bridge, and the web host posts bridge payloads through a guarded helper that only sends structured-clone-safe data — so a reactive value leaking into a payload can no longer fail `postMessage` or take down the host's message handler.
 - **Cloudflare App runtime**: a new edge Worker injects a lightweight runtime bootstrap into published Apps without altering artifact bytes, with per-environment routing, ETag/conditional caching, and a dedicated Cloudflare deploy workflow; standalone Apps also gain automatic broker authorization and per-deployment origin templates.
 - **Native harness session projection**: durable Session Turns are projected incrementally into Pi and Codex native history — bounded, compaction-aware, and cursor-validated — so a resumed local Runtime continues from the exact conversation instead of replaying it.
@@ -15,6 +18,7 @@ All notable changes to Cohub are documented in this file.
 
 ### Bug Fixes
 
+- `cohub runtime up` no longer exhausts file descriptors on macOS, where the outdated `v1.82.4` daemon was still being downloaded and run.
 - Keep session lists scoped to their Space: a mid-flight Space switch could fetch one Space's sessions under another's cache key and append stale pages; requests now pin their Space and every result apply is guarded.
 - Return search `effectiveTier` as camelCase so relevance tiers reach the client; `/api/search` aliased the column as `effective_tier`, leaving every response `effectiveTier: null` and pushing exact matches behind fuzzy local results.
 - Fixed `GET /api/apps/:id/public` double-wrapping the app record, which made id-addressed public/share links report the app as missing; the identity now stays flat on both the canonical (`app`) and legacy (`work`) mounts.
