@@ -11,8 +11,10 @@ import { bindAllActiveSpaceChannelsToGateway, handleInboundEvent, resolveChannel
 import { hasPermission } from "../../permissions.js";
 import { ensureInternalRequest, getOptionalAuth, getAppSessionPrincipal, requireValidId } from "../../lib/middleware.js";
 import { getSpaceById } from "../../space-sessions.js";
-import { getSpaceSandboxBySpaceId, updateSpaceSandbox } from "../../space-sandboxes.js";
-import { normalizeSandboxLifecycleStatus, normalizeSandboxRuntimeStatus } from "@cohub/sandbox-controller";
+import { getSpaceSandboxBySpaceId } from "../../space-sandboxes.js";
+import { reportLocalRuntimeStatus, type LocalRuntimeStatusReport } from "../../lib/sandbox/local-runtime-status.js";
+import { runtimeWorkspaceKey } from "@cohub/protocol";
+import { redisCommandClient } from "../../redis.js";
 import {
   PublicAssetConfigError,
   PublicAssetValidationError,
@@ -297,55 +299,12 @@ router.post("/local-sandbox/status", async (c) => {
   const forbidden = ensureInternalRequest(c);
   if (forbidden) return forbidden;
 
-  const body = await c.req.json<{
-    spaceId?: string;
-    status?: "ready" | "stopped";
-    wsEndpoint?: string | null;
-    hostname?: string | null;
-    gatewayNodeId?: string | null;
-    runtimeId?: string | null;
-  }>().catch(() => null);
+  const body = await c.req.json<LocalRuntimeStatusReport>().catch(() => null);
   const spaceId = typeof body?.spaceId === "string" ? body.spaceId.trim() : "";
-  if (!spaceId || !requireValidId(spaceId)) return c.json({ ok: false, message: "spaceId is required" }, 400);
-  const status = body?.status === "ready" ? "ready" : "stopped";
-
-  const sandbox = await getSpaceSandboxBySpaceId(spaceId);
-  if (sandbox?.provider !== "local") {
-    return c.json({ ok: false, message: "local sandbox not found" }, 404);
-  }
-
-  const prevMeta = (sandbox.meta as Record<string, unknown> | null) ?? {};
-  const now = new Date();
-  if (status === "ready") {
-    const wsEndpoint = typeof body?.wsEndpoint === "string" ? body.wsEndpoint.trim() : "";
-    await updateSpaceSandbox({
-      spaceId,
-      status: normalizeSandboxLifecycleStatus("ready"),
-      runtimeStatus: normalizeSandboxRuntimeStatus("ready"),
-      reportedAt: now,
-      lastHeartbeatAt: now,
-      lastActivityAt: now,
-      stoppedAt: null,
-      stopReason: null,
-      meta: {
-        ...prevMeta,
-        kind: "local",
-        wsEndpoint: wsEndpoint || null,
-        hostname: body?.hostname ?? null,
-        gatewayNodeId: body?.gatewayNodeId ?? null,
-        runtimeId: body?.runtimeId ?? null,
-      },
-    });
-  } else {
-    await updateSpaceSandbox({
-      spaceId,
-      status: "stopped",
-      runtimeStatus: normalizeSandboxRuntimeStatus("error"),
-      stoppedAt: now,
-      stopReason: "disconnected",
-      meta: { ...prevMeta, wsEndpoint: null },
-    });
-  }
+  if (!body || !requireValidId(spaceId)) return c.json({ ok: false, message: "spaceId is required" }, 400);
+  if (!["ready", "stopped"].includes(body.status)) return c.json({ ok: false, message: "Invalid status / 状态无效" }, 400);
+  const found = await reportLocalRuntimeStatus(db, { ...body, spaceId }, () => redisCommandClient.get(runtimeWorkspaceKey(spaceId)));
+  if (!found) return c.json({ ok: false, message: "local sandbox not found" }, 404);
 
   return c.json({ ok: true });
 });

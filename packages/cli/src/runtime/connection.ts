@@ -35,10 +35,11 @@ export type RuntimeConnectionOptions = {
   url: string;
   capabilities: RuntimeCapabilities;
   harnesses: HarnessOptions;
-  token: () => Promise<string>;
+  token: (forceRefresh?: boolean) => Promise<string>;
   signal: AbortSignal;
   store: RuntimeSessionStore;
   onReady: () => void;
+  onDisconnected?: () => void;
   runtimeId?: string;
   diagnostics?: RuntimeDiagnostics;
   leaseConflictTimeoutMs?: number;
@@ -60,7 +61,7 @@ export async function serveRuntime(options: RuntimeConnectionOptions) {
   const flush = () => options.store.flushArchives(uploadSignal).catch((error) => {
     if (!uploadSignal.aborted) {
       log("warn", "archive.flush_failed", { error: serializeDiagnosticError(error) });
-      console.error("Archive pending:", error);
+      // The diagnostic sink handles terminal presentation and throttling.
     }
   });
   const timer = setInterval(() => {
@@ -76,20 +77,29 @@ export async function serveRuntime(options: RuntimeConnectionOptions) {
   try {
     while (!options.signal.aborted) {
       attempt += 1;
-      const outcome = await connect({
-        ...options,
-        runtimeId,
-        attempt,
-        onReady: () => {
-          backoff = 500;
-          attempt = 0;
-          conflictSince = null;
-          options.onReady();
-          void flush();
-        },
-      });
+      let readyAt = 0;
+      let outcome: "retry" | "fatal" | "conflict";
+      try {
+        outcome = await connect({
+          ...options,
+          runtimeId,
+          attempt,
+          onReady: () => {
+            readyAt = Date.now();
+            conflictSince = null;
+            options.onReady();
+            void flush();
+          },
+        });
+      } catch (error) {
+        if (options.signal.aborted) return;
+        log("warn", "runtime.connection_failed", { error: serializeDiagnosticError(error) });
+        outcome = "retry";
+      }
+      options.onDisconnected?.();
       if (options.signal.aborted) return;
-      if (outcome === "fatal") throw new Error("Runtime connection rejected");
+      if (outcome === "fatal") throw new Error("Runtime connection rejected / Runtime 连接被拒绝，请检查权限或升级 CLI");
+      if (readyAt && Date.now() - readyAt >= 60_000) { backoff = 500; attempt = 0; }
       if (outcome === "conflict") {
         conflictSince ??= Date.now();
         if (Date.now() - conflictSince >= (options.leaseConflictTimeoutMs ?? 90_000)) {
@@ -101,8 +111,8 @@ export async function serveRuntime(options: RuntimeConnectionOptions) {
         delayMs: backoff,
         outcome,
       });
-      await delay(backoff, undefined, { signal: options.signal }).catch(() => undefined);
-      backoff = Math.min(10_000, backoff * 2);
+      await delay(backoff / 2 + Math.random() * backoff / 2, undefined, { signal: options.signal }).catch(() => undefined);
+      backoff = Math.min(30_000, backoff * 2);
     }
   } finally {
     clearInterval(timer);
@@ -154,7 +164,7 @@ async function connect(options: ConnectOptions): Promise<"retry" | "fatal" | "co
   try {
     currentToken = await options.token();
   } catch (error) {
-    log("error", "runtime.auth_token_failed", { error: serializeDiagnosticError(error) });
+    log("warn", error instanceof Error && error.name === "AuthRequiredError" ? "runtime.auth_required" : "runtime.auth_token_failed", { error: serializeDiagnosticError(error) });
     throw error;
   }
 
@@ -169,6 +179,7 @@ async function connect(options: ConnectOptions): Promise<"retry" | "fatal" | "co
   let connectionId: string | null = null;
   let fatal = false;
   let conflict = false;
+  let unauthorized = false;
   let readyTimer: ReturnType<typeof setTimeout>;
 
   const send = (frame: unknown) => {
@@ -237,10 +248,11 @@ async function connect(options: ConnectOptions): Promise<"retry" | "fatal" | "co
 
   const closed = new Promise<void>((resolve) => {
     socket.addEventListener("close", (event) => {
-      fatal = [4400, 4401, 4403].includes(event.code);
+      unauthorized = event.code === 4401;
+      fatal = [4400, 4403].includes(event.code);
       conflict = event.code === 4409;
       disconnected.abort();
-      log(fatal || conflict ? "error" : "warn", "runtime.websocket.closed", {
+      log(options.signal.aborted ? "debug" : fatal || conflict ? "error" : "warn", "runtime.websocket.closed", {
         code: event.code,
         reason: event.reason,
         durationMs: Date.now() - connectedAt,
@@ -248,7 +260,7 @@ async function connect(options: ConnectOptions): Promise<"retry" | "fatal" | "co
         fatal,
         conflict,
       }, { connectionId });
-      if (!options.signal.aborted) console.error(`Runtime disconnected (${event.code}): ${event.reason}`);
+      options.onDisconnected?.();
       for (const execution of active.values()) {
         log("error", "runtime.execution_transport_lost", {
           code: event.code,
@@ -351,7 +363,7 @@ async function connect(options: ConnectOptions): Promise<"retry" | "fatal" | "co
             revision: frame.revision,
             error: serializeDiagnosticError(error),
           }, context);
-          console.error("Runtime acknowledgement failed; result retained:", error);
+          // Keep the receipt; the next reconciliation can retry acknowledgement.
           active.delete(frame.requestId);
           send({ type: "runtime.event", requestId: frame.requestId, event: { type: "turn.error", message: "Local acknowledgement failed; result retained" } });
           return;
@@ -403,7 +415,7 @@ async function connect(options: ConnectOptions): Promise<"retry" | "fatal" | "co
           } catch (error) {
             if (!recovery.controller.signal.aborted) {
               log("error", "runtime.recovery_failed", { error: serializeDiagnosticError(error) }, context);
-              console.error("Runtime recovery failed; original files retained:", error);
+              // Original files and receipts remain available for reconciliation.
               try {
                 send({ type: "runtime.event", requestId: frame.requestId, event: { type: "turn.error", uncertain: true, message: "Result unavailable; files retained" } });
               } catch {
@@ -555,5 +567,6 @@ async function connect(options: ConnectOptions): Promise<"retry" | "fatal" | "co
     clearInterval(heartbeat);
     options.signal.removeEventListener("abort", stop);
   }
+  if (unauthorized && !options.signal.aborted) await options.token(true);
   return fatal ? "fatal" : conflict ? "conflict" : "retry";
 }

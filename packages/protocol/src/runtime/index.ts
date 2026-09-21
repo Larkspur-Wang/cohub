@@ -30,6 +30,23 @@ export const RUNTIME_MAX_BATCH_MESSAGES = 64;
 export const RUNTIME_MAX_BATCH_INPUT_BYTES = 2 * 1024 * 1024;
 export const RUNTIME_RECOVERY_BATCH_SIZE = 64;
 export const runtimeRegistrationKey = (spaceId: string) => `runtime:space:${spaceId}`;
+export const runtimeWorkspaceKey = (spaceId: string) => `runtime:workspace:${spaceId}`;
+export const runtimeWorkspaceSchema = z.object({
+  runtimeId: z.string().uuid(),
+  connectionId: z.string().uuid(),
+  observedAt: z.iso.datetime(),
+});
+export function runtimeWorkspaceStatus(runtimeId: string | null | undefined, raw: string | null, now = Date.now()): { online: boolean; observedAt: string | null } {
+  if (!runtimeId || !raw) return { online: false, observedAt: null };
+  try {
+    const parsed = runtimeWorkspaceSchema.safeParse(JSON.parse(raw));
+    if (parsed.success && parsed.data.runtimeId === runtimeId) {
+      const age = now - Date.parse(parsed.data.observedAt);
+      return { online: age >= -5000 && age < 60_000, observedAt: parsed.data.observedAt };
+    }
+  } catch { /* Untrusted telemetry must fail closed. */ }
+  return { online: false, observedAt: null };
+}
 export const harnessSchema = z.enum(["cohub", "pi", "codex"]);
 export type HarnessKind = z.infer<typeof harnessSchema>;
 export type LocalHarness = Exclude<HarnessKind, "cohub">;
@@ -121,6 +138,9 @@ export const fileWatcherStatusSchema = z.object({
 export type RuntimeStatus = {
   kind: "cloud" | "local"; online: boolean; runtimeId?: string | null; capabilities: RuntimeCapabilities | null;
   fileWatcher: z.infer<typeof fileWatcherStatusSchema> | null;
+  /** Authoritative file-bridge lease; absent on older servers. */
+  workspace?: { online: boolean; observedAt: string | null };
+  observedAt?: string;
 };
 export type RuntimeSessionRecoveryStatus = {
   pending: boolean;

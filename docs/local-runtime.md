@@ -11,6 +11,10 @@ cohub runtime up --harness pi --harness codex
 cohub runtime up --harness codex # reuses the same Space
 cohub spaces prompt "Continue" --harness codex
 cohub runtime status
+cohub runtime up -d                 # background; returns a startup summary
+cohub runtime logs --level warn -f  # warnings/errors only
+cohub runtime down                  # retains Space, bindings and native files
+cohub runtime up -n --name project-next # explicitly request another Space
 
 # To bind this directory to another local Runtime explicitly:
 cohub runtime up --space <space-id> --harness codex
@@ -19,13 +23,70 @@ cohub runtime up --space <space-id> --harness codex
 `runtime up` replaces `sandbox up`. When `--space` is omitted, the CLI remembers
 the Space for the canonical directory, account, and environment in
 `~/.config/cohub/runtime-spaces.json`. The first start creates and records a local
-Space; later starts reuse it. An explicit `--space` or `COHUB_SPACE_ID` overrides
-and updates the directory binding.
+Space after prompting for a name; later starts offer reuse as the default. `-n` is
+now the boolean shorthand for `--new`, not `--name`. Naming uses `--name <name>`.
+Even with `-n`, interactive startup shows an existing binding and recommends reuse.
+An explicit `--space` or `COHUB_SPACE_ID` overrides and updates the directory binding.
+
+普通使用只需 `cohub runtime up`：首次提示创建及命名，后续优先复用。
+`-n` 是 `--new` 的简写，`--name` 单独指定名称。已有绑定时仍提示优先复用。
+`--yes` accepts defaults and local execution consent; with explicit `--new`, it creates
+another Space. Stop the old instance before rebinding its directory.
+
+A durable local creation receipt prevents replay after an ambiguous remote response.
+If creation succeeded but its ID was not received, inspect your Spaces and use `--space <id>`;
+do not automatically create a replacement. 原始创建回执会保留，结果未知时不会自动重建。
 
 It supervises the workspace bridge and the Harness connection. Node.js 24+ is required.
-Pi and Codex must already be installed and authenticated locally. `--pi` and `--codex`
-override executable paths. Repeated `--harness` options and comma-separated values are
+Pi and Codex must already be installed and authenticated locally. Without `--harness`,
+startup discovers installed Pi/Codex executables on PATH (or explicit executable overrides).
+Capability/authentication failures remain explicit; it never silently switches executors.
+`--pi` and `--codex` override executable paths. Repeated `--harness` options and comma-separated values are
 accepted. `--yes` accepts the explicit local execution consent for non-interactive startup.
+
+## Lifecycle / 生命周期
+
+Foreground and detached startup share one supervisor. Readiness requires both the
+Harness registration and the file bridge. Network failures retry indefinitely with
+bounded, jittered backoff; transient credential refresh errors do not terminate the Runtime.
+The supervisor restarts a failed bridge without restarting model/tool work. A new login
+must match the original account. Protocol, permission and persistent lease conflicts
+fail explicitly rather than stealing another Runtime.
+
+Sandbox status reports serialize on the existing database row. Ready checks the current
+file-bridge lease while holding that lock; stopped checks the recorded connection identity.
+No additional persistent counter or clock ordering is needed. A lease lookup failure leaves
+the stored state untouched, while live availability continues to follow the expiring lease.
+
+Sandbox 状态上报按数据库行串行处理：就绪状态核验当前文件桥接租约，停止状态核验连接身份。
+不增加永久计数器，也不依赖机器时钟排序；租约查询失败时不覆盖已有记录，实时可用性仍由租约决定。
+
+`up -d` detaches from the terminal, not from supervision. It returns the Space link,
+directory, PID and log directory. After 30 seconds without readiness, it returns the
+actual starting/reconnecting state with exit code 2; the background process keeps trying.
+A compatible existing instance is reused. `down` uses private authenticated local IPC,
+not an unchecked PID signal. It refuses unconfirmed work unless `--yes` is supplied;
+this only stops the process, never resolves an uncertain server-side turn.
+
+前台与后台共用监督器；两条连接均成功才显示就绪。后台启动未就绪时如实返回状态，
+进程继续重试。`down --yes` 允许停止包含未确认执行的进程，但不代替服务端的停止确认。
+`status` and `logs` use the directory binding, never silently fall back to Home.
+Local status and diagnostics remain available when the server cannot be reached.
+
+The new sandboxd accepts refreshed credentials on an inherited private pipe and emits
+structured lifecycle events on a separate pipe. **Release Gateway/API first, then publish
+sandboxd and update the CLI binary pin only after its CDN artifacts exist.** The current
+published binary remains supported: readiness is checked through the API and an exited
+bridge is restarted with fresh credentials. It cannot use the new managed-pipe behavior
+until the updated binary is published (or selected with `COHUB_SANDBOXD_BIN`).
+
+新 sandboxd 发布前保留兼容路径，不修改为尚未发布的版本号。后台运行不承诺开机自启；
+OS 级托管与断网继续执行任务属于后续阶段，当前仍保留断连中止及结果对账的安全边界。
+
+Web reuses the shared model selector for local catalogs, with a Harness default option.
+The header distinguishes ready, limited, offline and stale/unknown status. Runtime lifecycle
+changes invalidate the existing status cache over the shared realtime room; old snapshots
+may populate labels/models, never authorize a local turn.
 
 ## Diagnostics
 
@@ -38,8 +99,13 @@ server `traceparent` / `traceId`.
 ```bash
 cohub runtime logs --space <space-id>
 cohub runtime logs --space <space-id> --follow
-cohub runtime logs --space <space-id> --json
+cohub runtime logs --space <space-id> --level debug --json
 ```
+
+Foreground output shows lifecycle changes and redacted warnings/errors, coalescing repeated
+failures without suppressing file diagnostics. `--verbose` includes detailed terminal events.
+JSON results go to stdout; progress and warnings go to stderr. 前台直接提示断连、恢复及错误，
+完整诊断保留在本地；后台退出终端后请使用 `logs --follow` 查看。
 
 Diagnostics stay on the local machine and are never uploaded automatically. Use
 `runtime logs` or `runtime logs --json` to inspect or export them. Prompts, tool

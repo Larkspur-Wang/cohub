@@ -187,7 +187,6 @@ export class RuntimeArchiveStore {
       } catch (error) {
         if (!signal.aborted) {
           this.errorReporter?.(error, index);
-          console.error("Archive pending; native segments retained:", error);
         }
       }
     }

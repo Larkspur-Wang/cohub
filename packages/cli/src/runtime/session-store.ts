@@ -231,7 +231,6 @@ export class RuntimeSessionStore {
           }
         } catch (error) {
           this.diagnostics?.log("error", "runtime.session_state_unreadable", { path: join(directory, name), error: serializeDiagnosticError(error) });
-          console.error(`Runtime session state unreadable: ${join(directory, name)}`, error);
         }
       }
     }
@@ -276,10 +275,8 @@ export class RuntimeSessionStore {
           });
           await rm(join(captures, name), { force: true });
           this.diagnostics?.log("error", "archive.capture_unavailable", { reason: error.message, receipt: true }, { component: "archive" });
-          console.error("Archive capture unavailable; receipt retained:", error.message);
         } else {
           this.diagnostics?.log("warn", "archive.capture_pending", { error: serializeDiagnosticError(error) }, { component: "archive" });
-          console.error("Archive capture pending:", error);
         }
       }
     }
@@ -365,7 +362,6 @@ export class RuntimeSessionStore {
       } catch (error) {
         signal?.throwIfAborted();
         this.diagnostics?.log("warn", "archive.restore_failed", { error: serializeDiagnosticError(error) }, { component: "archive" });
-        console.error("Native archive unavailable; rebuilding from durable history:", error);
       }
     }
     return await this.syncNativeProjection(input, cwd, state, signal);

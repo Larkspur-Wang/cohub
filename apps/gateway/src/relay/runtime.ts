@@ -4,6 +4,7 @@ import { authorizeLocalSandbox } from "../api-client.js";
 import { gatewayConfig } from "../config.js";
 import { redisCommandClient } from "../redis.js";
 import { createRuntimeRecoveryLifecycle, createRuntimeRelay } from "./runtime-relay.js";
+import { publishRuntimeChanged } from "./status.js";
 
 const recoveryQueue = createAgentTurnsQueue(gatewayConfig.bullmqRedisUrl, "cohub-gateway-runtime");
 const recovery = createRuntimeRecoveryLifecycle({
@@ -24,10 +25,15 @@ const relay = createRuntimeRelay({
     return `ws://${host}:${gatewayConfig.port}/internal/runtime-relay/${spaceId}?connection=${connectionId}`;
   },
   authorize: (authToken, spaceId) => authorizeLocalSandbox({ authToken, spaceId }),
-  claim: async (spaceId, record) => await redisCommandClient.set(runtimeRegistrationKey(spaceId), JSON.stringify(record), "EX", 40, "NX") === "OK",
+  claim: async (spaceId, record) => {
+    const claimed = await redisCommandClient.set(runtimeRegistrationKey(spaceId), JSON.stringify(record), "EX", 40, "NX") === "OK";
+    if (claimed) await publishRuntimeChanged(spaceId).catch(() => undefined);
+    return claimed;
+  },
   renew: async (spaceId, record) => await redisCommandClient.eval("if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('EXPIRE', KEYS[1], 40) else return 0 end", 1, runtimeRegistrationKey(spaceId), JSON.stringify(record)) === 1,
   release: async (spaceId, record) => {
-    await redisCommandClient.eval("if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end", 1, runtimeRegistrationKey(spaceId), JSON.stringify(record));
+    const released = await redisCommandClient.eval("if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end", 1, runtimeRegistrationKey(spaceId), JSON.stringify(record));
+    if (released === 1) await publishRuntimeChanged(spaceId).catch(() => undefined);
   },
 });
 
