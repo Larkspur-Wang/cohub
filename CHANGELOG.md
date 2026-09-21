@@ -6,6 +6,7 @@ All notable changes to Cohub are documented in this file.
 
 ## v2.53 — 2026-09-21
 
+- **Clone-safe App bridge**: The SDK deep-copies the nested invocation context (including `embedder`) before it crosses the App bridge, and the web host posts bridge payloads through a guarded helper that only sends structured-clone-safe data — so a reactive value leaking into a payload can no longer fail `postMessage` or take down the host's message handler.
 - **Cloudflare App runtime**: a new edge Worker injects a lightweight runtime bootstrap into published Apps without altering artifact bytes, with per-environment routing, ETag/conditional caching, and a dedicated Cloudflare deploy workflow; standalone Apps also gain automatic broker authorization and per-deployment origin templates.
 - **Native harness session projection**: durable Session Turns are projected incrementally into Pi and Codex native history — bounded, compaction-aware, and cursor-validated — so a resumed local Runtime continues from the exact conversation instead of replaying it.
 - **Local Runtime diagnostics**: redacted, machine-local JSONL logs with bounded rotation, `cohub runtime logs --json/--follow`, sandboxd output capture, and a stable `runtimeId` with request/trace correlation across Agent, Gateway, API, and Web.
@@ -16,6 +17,8 @@ All notable changes to Cohub are documented in this file.
 
 - Keep session lists scoped to their Space: a mid-flight Space switch could fetch one Space's sessions under another's cache key and append stale pages; requests now pin their Space and every result apply is guarded.
 - Return search `effectiveTier` as camelCase so relevance tiers reach the client; `/api/search` aliased the column as `effective_tier`, leaving every response `effectiveTier: null` and pushing exact matches behind fuzzy local results.
+- Fixed `GET /api/apps/:id/public` double-wrapping the app record, which made id-addressed public/share links report the app as missing; the identity now stays flat on both the canonical (`app`) and legacy (`work`) mounts.
+- Made the macOS FSEvents watcher tests deterministic by waiting for watcher quiescence before triggering changes and counting file descriptors via `Readdirnames`, removing flaky timeouts and `EBADF` races.
 
 ## v2.52 — 2026-09-17
 
