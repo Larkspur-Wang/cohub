@@ -32,12 +32,10 @@ test("archive validation rejects links and directories before extraction", async
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test("sandboxd archives accept the current and native-release shapes", () => {
-  assert(validSandboxdArchiveEntries(["cohub-sandboxd"]));
-  assert.equal(validSandboxdArchiveEntries(["cohub-sandboxd"], "v1.82.5"), false);
+test("sandboxd archives must ship the binary with its notices", () => {
   assert(validSandboxdArchiveEntries(["cohub-sandboxd", "LICENSE", "NOTICE"]));
   assert(validSandboxdArchiveEntries(["NOTICE", "cohub-sandboxd", "LICENSE"]));
-  for (const entries of [[], ["LICENSE"], ["cohub-sandboxd", "LICENSE"], ["cohub-sandboxd", "LICENSE", "../NOTICE"], ["cohub-sandboxd", "LICENSE", "/NOTICE"], ["cohub-sandboxd", "LICENSE", "NOTICE", "extra"], ["cohub-sandboxd", "LICENSE", "LICENSE"]]) {
+  for (const entries of [[], ["cohub-sandboxd"], ["LICENSE"], ["cohub-sandboxd", "LICENSE"], ["cohub-sandboxd", "LICENSE", "../NOTICE"], ["cohub-sandboxd", "LICENSE", "/NOTICE"], ["cohub-sandboxd", "LICENSE", "NOTICE", "extra"], ["cohub-sandboxd", "LICENSE", "LICENSE"]]) {
     assert.equal(validSandboxdArchiveEntries(entries), false);
   }
 });

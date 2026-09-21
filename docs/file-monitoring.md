@@ -31,6 +31,6 @@ Overflow, ambiguous renames and coalesced create/remove flags request a resync. 
 2. Validate FD stability with a large flat directory, atomic saves, rename/move, symlink boundaries, shutdown during event bursts and sleep/wake on macOS.
 3. Deploy Gateway, Agent/sandbox-client and Web together with the single `sandbox-watch` event source.
 4. Publish Darwin CGO artifacts from macOS runners and Linux artifacts from Linux. Verify archive/checksum/download on a clean CLI cache.
-5. Only after CDN publication succeeds, bump CLI `SANDBOXD_VERSION` with a changeset. Until then, validation accepts the current `v1.82.4` binary-only pin and the new archive shape; any later pin requires the notice-bearing archive.
+5. Only after CDN publication succeeds, bump CLI `SANDBOXD_VERSION` with a changeset. Every published pin must now be a notice-bearing archive (`cohub-sandboxd`, `LICENSE`, `NOTICE`); the retired binary-only `v1.82.4` shape is rejected.
 
-发布前必须完成 Go/race、macOS 双架构原生运行和大目录 FD 测试；Gateway、Agent/sandbox-client 和 Web 统一使用 `sandbox-watch`，同步发布。CDN 制品和全新缓存下载验证成功后，才能更新 CLI 版本 pin；后续版本必须使用带许可证文件的新归档。
+发布前必须完成 Go/race、macOS 双架构原生运行和大目录 FD 测试；Gateway、Agent/sandbox-client 和 Web 统一使用 `sandbox-watch`，同步发布。CDN 制品和全新缓存下载验证成功后，才能更新 CLI 版本 pin；现行所有版本都必须使用带 `LICENSE`/`NOTICE` 的归档，旧的单二进制形状一律拒绝。

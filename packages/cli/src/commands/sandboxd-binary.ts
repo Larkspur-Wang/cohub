@@ -15,7 +15,12 @@ import { Readable } from "node:stream";
 // published by .github/workflows/sandbox-binaries-build.yml. Only bump it AFTER
 // that tag's publish-cdn job has succeeded, otherwise `runtime up` 404s on the
 // default download.
-export const SANDBOXD_VERSION = "v1.82.4";
+//
+// v2.53.1 is the first published tag with the native FSEvents file-monitoring
+// backends and the `runtimeId` control frame (earlier `v2.52.0` predates them,
+// and the old sandbox-only `v1.x` line stopped at `v1.82.4`). Running anything
+// older keeps exhausting file descriptors on macOS.
+export const SANDBOXD_VERSION = "v2.53.1";
 
 const BINARY_NAME = "cohub-sandboxd";
 
@@ -108,14 +113,13 @@ const fetchText = (url: string, accept: string): Promise<string> =>
     return (await response.text()).trim();
   });
 
-// v1.82.4 is already public as a binary-only archive. The native watcher
-// release adds the two notices; the old shape is accepted only for this pin.
-const CURRENT_BINARY_ONLY_VERSION = "v1.82.4";
-export function validSandboxdArchiveEntries(entries: string[], version = SANDBOXD_VERSION): boolean {
-  const binaryOnly = version === CURRENT_BINARY_ONLY_VERSION && entries.length === 1 && entries[0] === BINARY_NAME;
-  const expected = [BINARY_NAME, "LICENSE", "NOTICE"];
-  const withNotices = entries.length === expected.length && expected.every((entry) => entries.includes(entry));
-  return binaryOnly || withNotices;
+// Every published release ships the binary alongside its LICENSE and NOTICE.
+const EXPECTED_ARCHIVE_ENTRIES = [BINARY_NAME, "LICENSE", "NOTICE"];
+export function validSandboxdArchiveEntries(entries: string[]): boolean {
+  return (
+    entries.length === EXPECTED_ARCHIVE_ENTRIES.length &&
+    EXPECTED_ARCHIVE_ENTRIES.every((entry) => entries.includes(entry))
+  );
 }
 
 // Reject unexpected paths before extracting the checksum-verified release.
@@ -138,9 +142,9 @@ const listTarGz = (archivePath: string, verbose = false): Promise<string[]> =>
     );
   });
 
-export async function validateSandboxdArchive(archivePath: string, version = SANDBOXD_VERSION): Promise<string[]> {
+export async function validateSandboxdArchive(archivePath: string): Promise<string[]> {
   const entries = await listTarGz(archivePath);
-  if (!validSandboxdArchiveEntries(entries, version)) {
+  if (!validSandboxdArchiveEntries(entries)) {
     throw new SandboxdDownloadError(`Unexpected sandbox archive contents: ${entries.join(", ") || "(empty)"}`);
   }
   const details = await listTarGz(archivePath, true);
@@ -214,7 +218,7 @@ const downloadAndVerify = async (version: string, target: Target): Promise<strin
       throw new SandboxdDownloadError(`Checksum mismatch for ${name} (expected ${expected}, got ${actual})`);
     }
 
-    const entries = await validateSandboxdArchive(archivePath, version);
+    const entries = await validateSandboxdArchive(archivePath);
     await extractTarGz(archivePath, tempDir);
     for (const entry of entries) {
       if (!(await isSafeArchiveFile(join(tempDir, entry)))) {
