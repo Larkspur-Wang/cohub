@@ -10,9 +10,7 @@ import {
 	bracketMatching,
 	foldGutter,
 	foldKeymap,
-	HighlightStyle,
 	indentOnInput,
-	syntaxHighlighting,
 } from "@codemirror/language";
 import { highlightSelectionMatches, searchKeymap } from "@codemirror/search";
 import {
@@ -34,8 +32,11 @@ import {
 	lineNumbers,
 	rectangularSelection,
 } from "@codemirror/view";
-import { tags as t } from "@lezer/highlight";
 import { onDestroy, onMount } from "svelte";
+import {
+	getCodeEditorTheme,
+	withLanguageHighlights,
+} from "$lib/code-editor-highlight";
 import {
 	isDarkTheme,
 	isResolvedTheme,
@@ -156,191 +157,13 @@ async function reconfigureLanguage(lang: string) {
 	const extension = await getLanguageExtension(lang);
 	if (!view || loadId !== languageLoadId) return;
 	view.dispatch({
-		effects: langConf.reconfigure(extension),
+		effects: langConf.reconfigure(withLanguageHighlights(lang, extension)),
 	});
 }
 
 function isMobile(): boolean {
 	if (typeof window === "undefined") return false;
 	return window.innerWidth < 640;
-}
-
-type EditorPalette = {
-	background: string;
-	foreground: string;
-	muted: string;
-	selection: string;
-	activeLine: string;
-	keyword: string;
-	atom: string;
-	string: string;
-	definition: string;
-	variable: string;
-	comment: string;
-	invalid: string;
-};
-
-const EDITOR_PALETTES: Record<ResolvedTheme, EditorPalette> = {
-	dark: {
-		background: "var(--bg-code)",
-		foreground: "var(--text-reading)",
-		muted: "var(--text-tertiary)",
-		selection: "color-mix(in srgb, var(--brand) 24%, transparent)",
-		activeLine: "color-mix(in srgb, var(--bg-hover-strong) 42%, transparent)",
-		keyword: "oklch(76% 0.12 300)",
-		atom: "oklch(76% 0.14 70)",
-		string: "oklch(76% 0.11 155)",
-		definition: "oklch(75% 0.1 230)",
-		variable: "var(--text-reading)",
-		comment: "var(--text-placeholder)",
-		invalid: "var(--error-400)",
-	},
-	light: {
-		background: "var(--bg-code)",
-		foreground: "var(--text-reading)",
-		muted: "var(--text-tertiary)",
-		selection: "color-mix(in srgb, var(--brand) 16%, transparent)",
-		activeLine: "color-mix(in srgb, var(--bg-hover-strong) 50%, transparent)",
-		keyword: "oklch(44% 0.15 300)",
-		atom: "oklch(45% 0.14 65)",
-		string: "oklch(42% 0.12 150)",
-		definition: "oklch(45% 0.13 235)",
-		variable: "var(--text-reading)",
-		comment: "var(--text-placeholder)",
-		invalid: "var(--error-500)",
-	},
-	"solarized-dark": {
-		background: "#002b36",
-		foreground: "#93a1a1",
-		muted: "#586e75",
-		selection: "#073642",
-		activeLine: "color-mix(in srgb, #073642 72%, transparent)",
-		keyword: "#6c71c4",
-		atom: "#b58900",
-		string: "#2aa198",
-		definition: "#268bd2",
-		variable: "#93a1a1",
-		comment: "#586e75",
-		invalid: "#dc322f",
-	},
-	"solarized-light": {
-		background: "#fdf6e3",
-		foreground: "#657b83",
-		muted: "#93a1a1",
-		selection: "#eee8d5",
-		activeLine: "color-mix(in srgb, #eee8d5 76%, transparent)",
-		keyword: "#6c71c4",
-		atom: "#b58900",
-		string: "#2aa198",
-		definition: "#268bd2",
-		variable: "#657b83",
-		comment: "#93a1a1",
-		invalid: "#dc322f",
-	},
-	"neta-studio": {
-		background: "var(--bg-code)",
-		foreground: "var(--text-reading)",
-		muted: "var(--text-tertiary)",
-		selection: "color-mix(in srgb, var(--brand) 24%, transparent)",
-		activeLine: "color-mix(in srgb, var(--bg-hover-strong) 42%, transparent)",
-		keyword: "oklch(82% 0.09 300)",
-		atom: "oklch(84% 0.09 190)",
-		string: "oklch(80% 0.08 150)",
-		definition: "oklch(80% 0.08 205)",
-		variable: "var(--text-reading)",
-		comment: "var(--text-placeholder)",
-		invalid: "var(--error-400)",
-	},
-};
-
-function getThemeExtension(theme: ResolvedTheme): Extension {
-	const palette = EDITOR_PALETTES[theme];
-	const dark = isDarkTheme(theme);
-
-	return [
-		EditorView.theme(
-			{
-				"&": {
-					backgroundColor: palette.background,
-					color: palette.foreground,
-					fontSize: getEditorFont(),
-					fontFamily: "var(--font-mono, monospace)",
-				},
-				"&.cm-focused": {
-					outline: "none",
-				},
-				".cm-scroller": {
-					overflow: "auto",
-				},
-				".cm-gutters": {
-					backgroundColor: "transparent",
-					borderRight: "1px solid var(--border-subtle)",
-					color: palette.muted,
-				},
-				".cm-activeLineGutter": {
-					backgroundColor: "transparent",
-					color: palette.foreground,
-				},
-				".cm-content": {
-					padding: "12px 0",
-					caretColor: "var(--brand)",
-				},
-				".cm-line": {
-					padding: "0 8px",
-				},
-				".cm-selectionBackground, &.cm-focused .cm-selectionBackground": {
-					backgroundColor: palette.selection,
-				},
-				".cm-activeLine": {
-					backgroundColor: palette.activeLine,
-				},
-				".cm-cursor": {
-					borderLeftColor: "var(--brand)",
-				},
-			},
-			{ dark },
-		),
-		syntaxHighlighting(
-			HighlightStyle.define([
-				{ tag: t.keyword, color: palette.keyword },
-				{
-					tag: [t.atom, t.bool, t.number, t.constant(t.variableName)],
-					color: palette.atom,
-				},
-				{
-					tag: [t.string, t.special(t.string), t.regexp],
-					color: palette.string,
-				},
-				{
-					tag: [
-						t.definition(t.variableName),
-						t.definition(t.function(t.variableName)),
-					],
-					color: palette.definition,
-				},
-				{
-					tag: [t.variableName, t.propertyName, t.attributeName],
-					color: palette.variable,
-				},
-				{
-					tag: [t.comment, t.lineComment, t.blockComment],
-					color: palette.comment,
-					fontStyle: "italic",
-				},
-				{
-					tag: [t.heading, t.strong],
-					color: palette.foreground,
-					fontWeight: "600",
-				},
-				{
-					tag: [t.link, t.url],
-					color: palette.definition,
-					textDecoration: "underline",
-				},
-				{ tag: t.invalid, color: palette.invalid },
-			]),
-		),
-	];
 }
 
 function getEditorFont(): string {
@@ -353,16 +176,22 @@ function resolveTheme(): ResolvedTheme {
 	return isResolvedTheme(attr) ? attr : "dark";
 }
 
-function reconfigureTheme(theme = resolveTheme()) {
-	if (!view || theme === currentTheme) return;
-	currentTheme = theme;
+// Only the light/dark flag lives in JS now; colors are CSS variables, so a
+// theme switch needs no palette rebuild unless the light/dark mode flips.
+function syncEditorTheme() {
+	if (!view) return;
+	const dark = isDarkTheme(resolveTheme());
+	if (dark === currentDark) return;
+	currentDark = dark;
 	view.dispatch({
-		effects: themeConf.reconfigure(getThemeExtension(theme)),
+		effects: themeConf.reconfigure(
+			getCodeEditorTheme({ dark, fontSize: getEditorFont() }),
+		),
 	});
 }
 
 let currentLanguage = $derived(language);
-let currentTheme = $state(resolveTheme());
+let currentDark = $state(isDarkTheme(resolveTheme()));
 
 $effect(() => {
 	if (!view) return;
@@ -371,7 +200,7 @@ $effect(() => {
 
 $effect(() => {
 	if (!view) return;
-	reconfigureTheme();
+	syncEditorTheme();
 });
 
 $effect(() => {
@@ -436,8 +265,7 @@ $effect(() => {
 onMount(() => {
 	if (!container) return;
 
-	const theme = resolveTheme();
-	currentTheme = theme;
+	currentDark = isDarkTheme(resolveTheme());
 	lastExternal = value;
 	syncing = true;
 
@@ -469,7 +297,9 @@ onMount(() => {
 					indentWithTab,
 				]),
 				langConf.of([]),
-				themeConf.of(getThemeExtension(theme)),
+				themeConf.of(
+					getCodeEditorTheme({ dark: currentDark, fontSize: getEditorFont() }),
+				),
 				readOnlyConf.of([
 					EditorView.editable.of(!readonly),
 					EditorState.readOnly.of(readonly),
@@ -499,7 +329,7 @@ onMount(() => {
 	queueMicrotask(() => reportVisibleLines(view));
 	void reconfigureLanguage(language);
 
-	const themeObserver = new MutationObserver(() => reconfigureTheme());
+	const themeObserver = new MutationObserver(() => syncEditorTheme());
 	themeObserver.observe(document.documentElement, {
 		attributeFilter: ["data-theme"],
 	});
