@@ -32,7 +32,7 @@ Sends the tag range to a Cohub agent (via `cohub spaces prompt`), which:
 - Auto-retries up to 3 times on validation errors
 - Saves failed attempts to `.changelog-draft/` for manual recovery
 
-If the same minor already exists in `entries.json`, generate **replaces** highlights/fixes and merges tags.
+If a tag for the same minor already exists in `entries.json`, the new highlights and fixes are **merged** into that entry (newest first, deduplicated) and tags are unioned, so a patch release keeps the minor's earlier notes. Re-generating a tag that is already recorded replaces that entry's content instead.
 
 ### Render CHANGELOG.md
 

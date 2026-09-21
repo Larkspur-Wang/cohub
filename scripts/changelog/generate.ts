@@ -170,13 +170,46 @@ export async function generateEntry(
 	);
 }
 
-/** Insert or update an entry. If version exists, replaces content and merges tags. */
+/** Union two ordered lists, keeping the first occurrence of each item. */
+export function mergeStrings(primary: string[], secondary: string[]): string[] {
+	const seen = new Set(primary);
+	const merged = [...primary];
+	for (const item of secondary) {
+		if (seen.has(item)) continue;
+		seen.add(item);
+		merged.push(item);
+	}
+	return merged;
+}
+
+/** Fold a freshly generated entry into an existing one for the same minor. */
+export function mergeEntry(
+	previous: ChangelogEntry,
+	entry: ChangelogEntry,
+): ChangelogEntry {
+	// A patch release records a new tag against an existing minor, but the agent
+	// only analysed the diff since the previous tag. Merge its output so the
+	// minor's earlier highlights and fixes survive; newest entries lead.
+	entry.highlights = mergeStrings(entry.highlights, previous.highlights);
+	const fixes = mergeStrings(entry.fixes ?? [], previous.fixes ?? []);
+	if (fixes.length > 0) entry.fixes = fixes;
+	else delete entry.fixes;
+	return entry;
+}
+
+/**
+ * Insert or update an entry. A new tag for an existing minor merges into it;
+ * re-generating a tag that is already recorded replaces the entry wholesale.
+ */
 export function upsertEntry(entry: ChangelogEntry): void {
+	if (entry.fixes?.length === 0) delete entry.fixes;
 	const entries = readEntries();
 	const existing = entries.findIndex((e) => e.version === entry.version);
 	if (existing >= 0) {
-		entry.tags = [...new Set([...entries[existing].tags, ...entry.tags])];
-		entries[existing] = entry;
+		const previous = entries[existing];
+		const isNewRelease = entry.tags.some((tag) => !previous.tags.includes(tag));
+		entry.tags = [...new Set([...previous.tags, ...entry.tags])];
+		entries[existing] = isNewRelease ? mergeEntry(previous, entry) : entry;
 	} else {
 		entries.push(entry);
 	}
