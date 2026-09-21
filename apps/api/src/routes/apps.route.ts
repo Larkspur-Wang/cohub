@@ -542,7 +542,10 @@ async function getPublishedAppPublicIdentity(app: typeof apps.$inferSelect) {
     .limit(1);
   if (!row?.owner.username || !row.space.slug) return null;
   return {
-    app: wrapAppRecord(wire, serializeApp(app)),
+    // Spread the wire-wrapped record so the identity stays flat (`app` on the
+    // canonical mount, `work` on the legacy one) — nesting it under `app` here
+    // would double-wrap the record once the caller spreads this object back.
+    ...wrapAppRecord(wire, serializeApp(app)),
     space: { id: row.space.id, slug: row.space.slug, name: row.space.name, userUuid: row.space.userUuid, publicProfile: getSpacePublicProfile(row.space) },
     owner: { ...row.owner, username: row.owner.username },
   };
