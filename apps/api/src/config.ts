@@ -17,6 +17,7 @@ export type AppConfig = {
   /** Optional checkpoint to bootstrap first-time Home spaces from; blank when unset. */
   homeBootstrapCheckpointId?: string;
   sandboxImage: string;
+  sandboxImagePullSecret?: string;
   sandboxNodeSelector: Record<string, string>;
   sandboxTolerations: SandboxToleration[];
   bullmqRedisUrl: string;
@@ -189,6 +190,7 @@ export const config: AppConfig = {
   homeBootstrapCheckpointId: process.env.HOME_BOOTSTRAP_CHECKPOINT_ID?.trim() || undefined,
   sandboxImage:
     process.env.SANDBOX_IMAGE ?? getDefaultSandboxImage(env),
+  sandboxImagePullSecret: process.env.SANDBOX_IMAGE_PULL_SECRET?.trim() || undefined,
   sandboxNodeSelector: parseSandboxNodeSelector(process.env.SANDBOX_NODE_SELECTOR),
   sandboxTolerations: parseSandboxTolerations(process.env.SANDBOX_TOLERATIONS),
   bullmqRedisUrl:

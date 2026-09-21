@@ -13,7 +13,7 @@ Typical production shape:
 - **Sandbox**: per-space runtime (Kubernetes)
 - **Gateway**: external channels (Discord, Telegram, Feishu, WeChat, ...)
 - **Postgres** + **Redis**
-- **Gitea** (or compatible Git host) for space/checkpoint repos
+- **Local Git storage** for Space/Checkpoint repositories; optional Gitea-compatible mirror
 - **S3-compatible object storage** for session/public/work assets
 - **OIDC provider** (Logto or compatible) for user auth
 
@@ -26,6 +26,14 @@ cp apps/web/.env.example apps/web/.env
 # fill required values, especially DATABASE_URL / REDIS_URL / OIDC settings
 pnpm dev
 ```
+
+## Checkpoint storage
+
+Checkpoint content is stored in the local Git repository under `SPACE_SYSTEM_ROOT`; Postgres stores checkpoint metadata and commit hashes. Gitea is optional and only mirrors completed repositories when `GITEA_BASE_URL` and `GITEA_TOKEN` are both configured. Leave both unset for a self-hosted deployment without Gitea.
+
+Git mirror authentication uses a temporary child-process HTTP header, not a credential-bearing remote URL. This prevents new tokens from being stored in `.git/config` or passed in command arguments; it does not isolate credentials from privileged or same-user processes. A legacy `cohub` remote is removed when that repository is mirrored again. Repositories no longer mirrored and older backups are not automatically scrubbed; audit them and rotate exposed credentials separately.
+
+Git 镜像通过子进程的临时 HTTP Header 认证，不再将 Token 写入 remote URL、`.git/config` 或命令参数；这不提供对特权或同用户进程的凭据隔离。再次镜像时会移除旧 `cohub` remote；已停用镜像的仓库及历史备份不会自动清理，需单独审计并轮换已暴露凭据。
 
 ## Billing
 
@@ -57,6 +65,10 @@ Real environment values are intentionally not committed.
 ## Images
 
 Example values use placeholder registries/domains. Point image repositories at your own builds; official sandbox images may still use `git.talesofai.com/talesofai/cohub-sandbox:...`.
+
+For private Sandbox images, explicitly set `SANDBOX_IMAGE_PULL_SECRET` on the API to an existing Secret in the Sandbox namespace. Public images need no setting. Gitea mirror credentials never select an image pull Secret. Existing deployments using `gitea-registry` must set `SANDBOX_IMAGE_PULL_SECRET=gitea-registry` before upgrading.
+
+私有 Sandbox 镜像需在 API 中显式设置 `SANDBOX_IMAGE_PULL_SECRET`，对应 Secret 必须存在于 Sandbox 命名空间；公开镜像无需配置。此设置与 Gitea 镜像凭据无关。原先使用 `gitea-registry` 的部署，升级前需显式设置 `SANDBOX_IMAGE_PULL_SECRET=gitea-registry`。
 
 ## Auth
 

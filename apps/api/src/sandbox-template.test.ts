@@ -1,6 +1,24 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import test from "node:test";
+import { promisify } from "node:util";
 import { renderSandboxPodTemplate } from "./sandbox-template.js";
+
+test("sandbox image pull secret is explicit and independent of Gitea", async () => {
+  const templateUrl = new URL("./sandbox-template.ts", import.meta.url).href;
+  for (const secret of [undefined, "", "   ", " registry-secret "]) {
+    const env: NodeJS.ProcessEnv = { ...process.env, GITEA_BASE_URL: "https://git.example.com", GITEA_TOKEN: "test-only-token" };
+    delete env.SANDBOX_IMAGE_PULL_SECRET;
+    if (secret !== undefined) env.SANDBOX_IMAGE_PULL_SECRET = secret;
+    const { stdout } = await promisify(execFile)(process.execPath, [
+      "--import", "tsx", "--input-type=module", "-e",
+      `import { renderSandboxPodTemplate } from ${JSON.stringify(templateUrl)};
+       const pod = renderSandboxPodTemplate({ SPACE_ID: "space-1", USER_ID: "user-1" });
+       console.log(JSON.stringify(pod.spec.imagePullSecrets ?? null));`,
+    ], { env });
+    assert.deepEqual(JSON.parse(stdout), secret?.trim() ? [{ name: "registry-secret" }] : null);
+  }
+});
 
 test("sandbox pod mounts search index storage without extra provisioning", () => {
   const pod = renderSandboxPodTemplate({
