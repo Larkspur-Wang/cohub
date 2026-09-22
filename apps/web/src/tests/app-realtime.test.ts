@@ -101,6 +101,25 @@ test("upsertAppSnapshot ignores older and stale same-version snapshots", () => {
 	);
 });
 
+test("upsertAppSnapshot floats an updated app back to the top", () => {
+	const older = { ...app(1, "2026-07-20T01:00:00.000Z"), id: "work-2" };
+	const current = app(2, "2026-07-20T02:00:00.000Z");
+	// The touched app sits at the bottom before the update arrives.
+	assert.deepEqual(
+		upsertAppSnapshot([older, current], app(3, "2026-07-20T03:00:00.000Z")).map(
+			(item) => item.id,
+		),
+		["work-1", "work-2"],
+	);
+
+	// A brand-new app is the most recently updated, so it leads the list.
+	const fresh = { ...app(1, "2026-07-20T09:00:00.000Z"), id: "work-3" };
+	assert.deepEqual(
+		upsertAppSnapshot([older, current], fresh).map((item) => item.id),
+		["work-3", "work-1", "work-2"],
+	);
+});
+
 test("isNewerAppSnapshot accepts a different app regardless of version", () => {
 	const current = app(5, "2026-07-20T05:00:00.000Z");
 	const other: AppRecord = {

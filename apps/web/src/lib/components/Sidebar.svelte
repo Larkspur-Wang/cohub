@@ -46,6 +46,8 @@ import { onMount, tick, untrack } from "svelte";
 import { goto } from "$app/navigation";
 import { page } from "$app/state";
 import { floatNear } from "$lib/actions/portal";
+import { appDisplayTitle, appIconUrl } from "$lib/app-page-meta";
+import { sortAppsByRecentUpdate } from "$lib/app-sort";
 import { logtoClient } from "$lib/auth";
 import { handleUnauthorizedError } from "$lib/auth-redirect";
 import { clearAllIndexedDbCache } from "$lib/cache/clear";
@@ -55,6 +57,7 @@ import ChannelProviderIcon from "$lib/components/ChannelProviderIcon.svelte";
 import NewLabelPopover from "$lib/components/NewLabelPopover.svelte";
 import SidebarFlyout from "$lib/components/SidebarFlyout.svelte";
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
+import SidebarAppRow from "$lib/components/sidebar/SidebarAppRow.svelte";
 import SidebarCheckpointRow from "$lib/components/sidebar/SidebarCheckpointRow.svelte";
 import SidebarFallbackResourceRow from "$lib/components/sidebar/SidebarFallbackResourceRow.svelte";
 import SidebarFileRow from "$lib/components/sidebar/SidebarFileRow.svelte";
@@ -70,7 +73,6 @@ import {
 	type LabelAssignableCohubResource,
 	setCohubResourceDragData,
 } from "$lib/drag/cohub-resource-drag";
-import { pointerDragSource } from "$lib/drag/pointer-drag.svelte";
 import {
 	APPS_CHANGED_EVENT,
 	type AppsChangedDetail,
@@ -744,6 +746,7 @@ function getTaskRunMeta(run: TaskRunRecord) {
 
 function handleAppDragStart(event: DragEvent, app: AppRecord) {
 	const href = currentSpaceId ? buildSpaceAppRoute(currentSpaceId, app.id) : "";
+	const icon = appIconUrl(app.meta);
 	setCohubResourceDragData(event.dataTransfer, {
 		version: 1,
 		resources: [
@@ -751,8 +754,9 @@ function handleAppDragStart(event: DragEvent, app: AppRecord) {
 				type: "app",
 				ref: app.slug,
 				appId: app.id,
-				title: app.slug,
+				title: appDisplayTitle(app.meta, app.slug),
 				href,
+				...(icon ? { icon } : {}),
 			},
 		],
 		origin: { kind: "sidebar-session-list" },
@@ -760,18 +764,20 @@ function handleAppDragStart(event: DragEvent, app: AppRecord) {
 }
 
 function appPointerDragPayload(app: AppRecord) {
+	const icon = appIconUrl(app.meta);
 	return {
 		origin: "apps-sidebar" as const,
 		items: [
 			{
 				type: "app" as const,
 				path: "",
-				name: app.slug,
+				name: appDisplayTitle(app.meta, app.slug),
 				appId: app.id,
 				appRef: app.slug,
 				appUrl: currentSpaceId
 					? buildSpaceAppRoute(currentSpaceId, app.id)
 					: "",
+				...(icon ? { icon } : {}),
 			},
 		],
 	};
@@ -2385,7 +2391,9 @@ async function loadAppsForSpace(spaceId: string, force = false) {
 	try {
 		const result = await sdk.apps.listBySpace(spaceId);
 		if (spaceId === currentSpaceId) {
-			apps = appsBuffer.apply(result.apps ?? []);
+			// The API serves newest-updated-first; sorting again keeps a realtime
+			// snapshot replayed mid-request in its right place.
+			apps = sortAppsByRecentUpdate(appsBuffer.apply(result.apps ?? []));
 		}
 	} catch (error) {
 		console.warn("[sidebar] Failed to load apps", { spaceId, error });
@@ -3859,11 +3867,15 @@ $effect(() => {
 	{:else}
 		<div class="space-y-[2px]">
 			{#each apps.slice(0, sidebarFlyoutPreviewLimit) as app (app.id)}
-				{@const manageHref = currentSpaceId ? buildSpaceAppRoute(currentSpaceId, app.id) : "#"}
-				{@const isActive = activeApp?.id === app.id}
-				<a href={manageHref} draggable={!isMobile} use:pointerDragSource={{ enabled: isMobile, getPayload: () => appPointerDragPayload(app) }} ondragstart={(event) => handleAppDragStart(event, app)} class="sidebar-flyout-item flex items-center gap-2 rounded-[var(--sidebar-item-radius)] px-1.5 py-1.5 text-[13px] {isActive ? 'bg-[var(--sidebar-item-active-bg)] font-medium text-[var(--sidebar-item-active-fg)]' : 'text-text-tertiary hover:bg-[var(--sidebar-item-hover-bg)] hover:text-text-secondary'}" onclick={(e) => { e.preventDefault(); void handleNavigateToApp(app.id); }}>
-					<div class="min-w-0 flex-1"><div class="truncate font-mono leading-tight">{app.slug}</div></div>
-				</a>
+				<SidebarAppRow
+					{app}
+					href={currentSpaceId ? buildSpaceAppRoute(currentSpaceId, app.id) : "#"}
+					active={activeApp?.id === app.id}
+					{isMobile}
+					getPayload={() => appPointerDragPayload(app)}
+					onDragStart={handleAppDragStart}
+					onNavigate={(id) => void handleNavigateToApp(id)}
+				/>
 			{/each}
 		</div>
 	{/if}
@@ -4283,34 +4295,30 @@ $effect(() => {
               {:else}
                 <div class="space-y-[2px] mt-1">
                   {#each apps as app (app.id)}
-                    {@const manageHref = currentSpaceId ? buildSpaceAppRoute(currentSpaceId, app.id) : "#"}
-                    {@const isActive = activeApp?.id === app.id}
-                    <a
-                      href={manageHref}
-                      draggable={!isMobile}
-                      use:pointerDragSource={{ enabled: isMobile, getPayload: () => appPointerDragPayload(app) }}
-                      ondragstart={(event) => handleAppDragStart(event, app)}
-                      class="flex items-center gap-2 rounded-[var(--sidebar-item-radius)] px-1.5 py-1.5 text-[13px] transition-colors duration-100 {isActive ? 'bg-[var(--sidebar-item-active-bg)] font-medium text-[var(--sidebar-item-active-fg)]' : 'text-text-tertiary hover:bg-[var(--sidebar-item-hover-bg)] hover:text-text-secondary'}"
-                      onclick={(e) => { e.preventDefault(); void handleNavigateToApp(app.id); }}
-                    >
-                      <div class="min-w-0 flex-1">
-                        <div class="truncate font-mono leading-tight">{app.slug}</div>
-                      </div>
-                    </a>
+                    <SidebarAppRow
+                      {app}
+                      href={currentSpaceId ? buildSpaceAppRoute(currentSpaceId, app.id) : "#"}
+                      active={activeApp?.id === app.id}
+                      {isMobile}
+                      getPayload={() => appPointerDragPayload(app)}
+                      onDragStart={handleAppDragStart}
+                      onNavigate={(id) => void handleNavigateToApp(id)}
+                    />
                   {/each}
                 </div>
               {/if}
             {:else if activeApp}
-              {@const manageHref = currentSpaceId ? buildSpaceAppRoute(currentSpaceId, activeApp.id) : "#"}
-              <a
-                href={manageHref}
-                class="mt-1 flex items-center gap-2 rounded-[var(--sidebar-item-radius)] bg-[var(--sidebar-item-active-bg)] px-1.5 py-1.5 text-[13px] font-medium text-[var(--sidebar-item-active-fg)] transition-colors duration-100"
-                onclick={(e) => { e.preventDefault(); void handleNavigateToApp(activeApp.id); }}
-              >
-                <div class="min-w-0 flex-1">
-                  <div class="truncate font-mono leading-tight">{activeApp.slug}</div>
-                </div>
-              </a>
+              <div class="mt-1">
+                <SidebarAppRow
+                  app={activeApp}
+                  href={currentSpaceId ? buildSpaceAppRoute(currentSpaceId, activeApp.id) : "#"}
+                  active
+                  {isMobile}
+                  getPayload={() => appPointerDragPayload(activeApp)}
+                  onDragStart={handleAppDragStart}
+                  onNavigate={(id) => void handleNavigateToApp(id)}
+                />
+              </div>
             {/if}
           </div>
 

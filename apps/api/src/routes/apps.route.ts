@@ -727,7 +727,13 @@ router.get("/space/:spaceId", async (c) => {
   const spaceId = c.req.param("spaceId");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
   if (!(await hasPermission(user, "space.view", { spaceId }))) return authzDenied(c);
-  const rows = await db.select().from(apps).where(eq(apps.spaceId, spaceId));
+  const rows = await db
+    .select()
+    .from(apps)
+    .where(eq(apps.spaceId, spaceId))
+    // Matches `v2_idx_apps_space_updated` exactly; see space-sessions.ts for
+    // the same `desc nulls last` spelling that lets btree serve the order.
+    .orderBy(sql`${apps.updatedAt} desc nulls last`, desc(apps.createdAt));
   return c.json(wrapAppRecords(wire, rows.map(serializeApp)));
 });
 

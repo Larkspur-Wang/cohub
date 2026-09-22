@@ -32,6 +32,7 @@ import {
 	isBlockingAccessState,
 } from "$lib/access/access-state";
 import { appDisplayTitle } from "$lib/app-page-meta";
+import { sortAppsByRecentUpdate } from "$lib/app-sort";
 import type {
 	BoardAutomationActivity,
 	BoardCollaboratorProfile,
@@ -839,7 +840,8 @@ $effect(() => {
 			if (token !== previewAppsToken) return;
 			// Replay what realtime delivered mid-request instead of dropping the
 			// response, which would hide every other app until the next reload.
-			previewApps = previewAppsBuffer.apply(apps);
+			// The API serves newest-updated-first, so sort the replay the same way.
+			previewApps = sortAppsByRecentUpdate(previewAppsBuffer.apply(apps));
 			previewAppsLoadedFor = currentSpaceId;
 		} catch {
 			if (token !== previewAppsToken) return;
