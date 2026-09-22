@@ -48,7 +48,7 @@ import {
 } from "./board-awareness-admission.js";
 import { markChannelDegraded, touchChannelOutbound } from "./channel-health.js";
 import { handleAsrWebSocketConnection } from "./asr/session.js";
-import { handleRelayControlConnection, handleRelayDataConnection, handleRelayPeerConnection } from "./relay/index.js";
+import { handleRelayControlConnection, handleRelayDataConnection, handleRelayDataForwardConnection, handleRelayPeerConnection } from "./relay/index.js";
 import { closeRuntimeRelay, handleRuntimeConnection, handleRuntimePeer } from "./relay/runtime.js";
 import {
   createPubSubRedisClient,
@@ -988,6 +988,17 @@ async function main() {
       }
       relayPeerWss.handleUpgrade(request, socket, head, (websocket) => {
         handleRelayPeerConnection(websocket, request, spaceId);
+      });
+      return;
+    }
+
+    // Cross-replica forward of a runner data dial toward the pod holding the
+    // pending peer. Same upgrade surface as the data route; the worker-secret
+    // gate lives in the handler itself.
+    const forwardChannel = /^\/internal\/sandbox-relay-forward\/([0-9a-f-]{36})$/.exec(pathname)?.[1];
+    if (forwardChannel) {
+      relayDataWss.handleUpgrade(request, socket, head, (websocket) => {
+        handleRelayDataForwardConnection(websocket, request);
       });
       return;
     }
