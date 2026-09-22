@@ -1,5 +1,19 @@
 # @neta-art/cohub-cli
 
+## 8.0.1
+
+### Patch Changes
+
+- eecee2b: Process-group cleanup treats EPERM on an emptied group as the normal end state on every platform, probes Windows trees through leader liveness, backs off snapshot polling, and never lets a cleanup failure mask a finished native result. A completed native Turn whose receipt was lost is rebuilt from native bytes on recovery, and serve-path archive uploads resume through the Space transport again.
+  
+  进程组清理在所有平台将空组的 EPERM 视为正常终态，Windows 通过组长存活性确认进程树，轮询快照退避，且清理失败不再掩盖已完成的原生结果；回执丢失但原生侧已完成的 Turn 会从原生字节重建结果，serve 路径的归档上传恢复经由 Space 传输层落地。
+- 1aa68f2: Runtime reconnects retake their own lease deterministically (same runtimeId replaces the stale entry instead of waiting out the TTL) and control-plane heartbeats are decoupled from lease I/O, so a slow authorize or Redis renew can never starve the client into a timeout.
+  
+  Runtime 重连可确定性接管自己的租约（同一 runtimeId 直接替换过期条目而非等待 TTL），控制面心跳与租约 I/O 解耦，慢速 authorize 或 Redis 续租不会再让客户端活活饿到超时。
+- 3e0fe28: Bundle `sandboxd` `v2.54.1`, a diagnostics-only follow-up that keeps the same wire protocol: relay data-channel pairing now outlives the runner's dial timeout, sandbox dial failures distinguish a timeout from an explicit rejection, and teardown-time websocket write failures log at debug instead of warn. No new capability is required, so older binaries stay usable through the compatibility readiness/restart path.
+  
+  内置 `sandboxd` 升级至 `v2.54.1`——保持同一线协议的纯诊断增强：中继数据通道配对不再受运行器拨号超时限制，sandbox 拨号失败可区分超时与显式拒绝，拆除阶段的 websocket 写失败由 warn 降为 debug。不引入新能力，较旧二进制仍走兼容的就绪检查／重启路径。
+
 ## 8.0.0
 
 ### Major Changes
