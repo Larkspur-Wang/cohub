@@ -40,7 +40,9 @@ type PendingPeer = {
 };
 
 const CONTROL_MAX_MESSAGE_BYTES = 1024 * 1024;
-const DATA_PAIR_TIMEOUT_MS = 15_000;
+// Beyond the runner's 15s dial timeout, so a slow-but-successful dial can still pair
+// instead of finding its peer already retired.
+const DATA_PAIR_TIMEOUT_MS = 20_000;
 
 const runnersBySpace = new Map<string, RegisteredRunner>();
 const pendingPeers = new Map<string, PendingPeer>();

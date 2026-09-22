@@ -69,16 +69,6 @@ export function createRuntimeRelay(deps: RuntimeRelayDependencies) {
       if (!current || closed || ticking) return;
       ticking = true;
       try {
-        if (Date.now() - lastHeartbeat > interval * 3) {
-          logger.warn("runtime.control.heartbeat_timeout", {
-            spaceId: current.spaceId,
-            runtimeId: current.record.runtimeId,
-            connectionId: current.record.connectionId,
-            heartbeatAgeMs: Date.now() - lastHeartbeat,
-          });
-          socket.terminate();
-          return;
-        }
         if (Date.now() - authorizedAt >= 60_000) {
           const auth = await deps.authorize(token, current.spaceId);
           if (!auth.ok) {
@@ -98,12 +88,32 @@ export function createRuntimeRelay(deps: RuntimeRelayDependencies) {
           socket.close(4409, "Runtime lease lost");
           return;
         }
-        send(socket, { type: "runtime.heartbeat" });
       } finally { ticking = false; }
     }
+    // Liveness is decoupled from lease I/O: heartbeats go out from their own loop, so a
+    // slow authorize or Redis renew can never starve the client into a timeout. The
+    // heartbeat-timeout check still guards against a dead transport.
     const heartbeat = setInterval(() => {
+      if (!current || closed) return;
+      if (Date.now() - lastHeartbeat > interval * 3) {
+        logger.warn("runtime.control.heartbeat_timeout", {
+          spaceId: current.spaceId,
+          runtimeId: current.record.runtimeId,
+          connectionId: current.record.connectionId,
+          heartbeatAgeMs: Date.now() - lastHeartbeat,
+        });
+        socket.terminate();
+        return;
+      }
+      try {
+        send(socket, { type: "runtime.heartbeat" });
+      } catch (error) {
+        logger.warn("runtime.control.heartbeat_send_failed", { spaceId: current.spaceId, runtimeId: current.record.runtimeId, error });
+      }
+    }, interval);
+    const lease = setInterval(() => {
       void tick().catch((error) => {
-        logger.error("runtime.control.heartbeat_failed", { spaceId: current?.spaceId, runtimeId: current?.record.runtimeId, error });
+        logger.error("runtime.control.lease_tick_failed", { spaceId: current?.spaceId, runtimeId: current?.record.runtimeId, error });
         socket.close(1011, "Runtime lease unavailable");
       });
     }, interval);
@@ -190,7 +200,7 @@ export function createRuntimeRelay(deps: RuntimeRelayDependencies) {
       socket.terminate();
     });
     socket.once("close", (code, reason) => {
-      closed = true; clearTimeout(handshake); clearInterval(heartbeat);
+      closed = true; clearTimeout(handshake); clearInterval(heartbeat); clearInterval(lease);
       if (!current) {
         logger.debug("runtime.control.closed", { code, reason: reason.toString(), durationMs: Date.now() - connectedAt });
         return;
