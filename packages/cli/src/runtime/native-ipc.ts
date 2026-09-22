@@ -23,7 +23,7 @@ const parse = (raw: string): NativeIpcRequest => {
   const value = JSON.parse(raw) as NativeIpcRequest;
   if (value?.type !== "native.capture" || !["pi", "codex"].includes(value.harness)
     || typeof value.cwd !== "string" || typeof value.path !== "string" || typeof value.nativeSessionId !== "string") {
-    throw new Error("Invalid native daemon request / 原生 Daemon 请求无效");
+    throw new Error("Invalid native daemon request");
   }
   return value;
 };
@@ -38,14 +38,14 @@ export async function nativeDaemonSocketFor(cwd: string): Promise<string | null>
 
 export async function requestNativeDaemon(input: Omit<NativeIpcRequest, "type">): Promise<NativeIpcResponse> {
   const path = await nativeDaemonSocketFor(input.cwd);
-  if (!path) return { ok: false, message: "Native Runtime is not bound / 原生 Runtime 未绑定" };
+  if (!path) return { ok: false, message: "Native Runtime is not bound" };
   return new Promise((resolve, reject) => {
     const socket = createConnection(path);
     let buffer = "";
-    const timer = setTimeout(() => { socket.destroy(); reject(new Error("Native Runtime daemon timed out / 原生 Runtime Daemon 超时")); }, 15_000);
+    const timer = setTimeout(() => { socket.destroy(); reject(new Error("Native Runtime daemon timed out")); }, 15_000);
     const finish = (error?: Error, result?: NativeIpcResponse) => {
       clearTimeout(timer); socket.destroy();
-      if (error) reject(error); else resolve(result ?? { ok: false, message: "Empty daemon response / Daemon 返回为空" });
+      if (error) reject(error); else resolve(result ?? { ok: false, message: "Empty daemon response" });
     };
     socket.once("error", (error) => finish(error));
     socket.on("data", (chunk) => {

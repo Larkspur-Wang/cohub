@@ -84,33 +84,33 @@ export class NativeSyncStore {
   private cloudBindingPath(id: string) { return join(this.root, "bindings", `${id}.json`); }
   async binding() {
     const value = await readJson<NativeBinding>(this.bindingPath());
-    if (value?.version !== 1 || value.identity !== this.options.identity || value.spaceId !== this.options.spaceId || value.nativeSessionId !== this.options.nativeSessionId || value.instanceKey !== this.options.instanceKey || value.harness !== this.options.harness) throw new Error("Native binding mismatch / 原生关联不匹配");
+    if (value?.version !== 1 || value.identity !== this.options.identity || value.spaceId !== this.options.spaceId || value.nativeSessionId !== this.options.nativeSessionId || value.instanceKey !== this.options.instanceKey || value.harness !== this.options.harness) throw new Error("Native binding mismatch");
     return value;
   }
   private async initialize(path: string, transcript: NativeTranscript) {
     const existing = await readJson<NativeBinding>(this.bindingPath());
     if (existing) {
       const binding = await this.binding();
-      if (binding.path !== path) throw new Error("Native path changed; original binding retained / 原生路径已变化，原关联已保留");
+      if (binding.path !== path) throw new Error("Native path changed; original binding retained");
       return binding;
     }
     const managed = await findRuntimeNativeSession(this.options.runtimeRoot, this.options.harness, transcript.nativeSessionId, path);
     let throughBytes = 0;
     const anchors: NativeBinding["anchors"] = [];
     if (managed) {
-      if (managed.pendingTurnId) throw new Error("Reconcile the managed Turn before native continuation / 请先确认 Runtime 中尚未确认的 Turn");
+      if (managed.pendingTurnId) throw new Error("Reconcile the managed Turn before native continuation");
       if (managed.throughTurnId) {
         const index = await readJson<HarnessArchiveIndex>(join(this.options.runtimeRoot, "archives", "versions", `${managed.throughTurnId}.json`));
         if (index) {
           const parsed = harnessArchiveIndexSchema.parse(index);
           const checksum = createHash("sha256");
           for await (const bytes of createReadStream(path, { end: parsed.sizeBytes - 1 })) checksum.update(bytes);
-          if (checksum.digest("hex") !== parsed.sha256) throw new Error("Runtime history prefix changed / Runtime 历史前缀已变化");
+          if (checksum.digest("hex") !== parsed.sha256) throw new Error("Runtime history prefix changed");
           throughBytes = parsed.sizeBytes;
         } else {
           const checksum = createHash("sha256");
           for await (const bytes of createReadStream(path)) checksum.update(bytes);
-          if (checksum.digest("hex") !== managed.checksum) throw new Error("Cannot identify the last complete Runtime Turn / 无法识别 Runtime 最后一个完整 Turn");
+          if (checksum.digest("hex") !== managed.checksum) throw new Error("Cannot identify the last complete Runtime Turn");
           throughBytes = (await stat(path)).size;
           anchors.push({ turnId: managed.throughTurnId, sizeBytes: throughBytes, sha256: managed.checksum });
         }
@@ -134,12 +134,12 @@ export class NativeSyncStore {
     return binding;
   }
   async capture(path: string, transcript: NativeTranscript) {
-    if (transcript.nativeSessionId !== this.options.nativeSessionId) throw new Error("Native session identity mismatch / 原生会话身份不匹配");
+    if (transcript.nativeSessionId !== this.options.nativeSessionId) throw new Error("Native session identity mismatch");
     await withRuntimeSpaceBindingsLock(async () => {
       const binding = await this.initialize(path, transcript);
       if (binding.throughBytes > 0) {
         const anchor = binding.anchors.find((entry) => entry.sizeBytes === binding.throughBytes);
-        if (!anchor || transcript.prefixes.get(binding.throughBytes) !== anchor.sha256) throw new Error("Runtime history prefix changed; original binding retained / Runtime 历史前缀已变化，原关联已保留");
+        if (!anchor || transcript.prefixes.get(binding.throughBytes) !== anchor.sha256) throw new Error("Runtime history prefix changed; original binding retained");
       }
       let parentKey: string | null = null;
       let parentCloudTurnId = binding.throughTurnId;
@@ -148,7 +148,7 @@ export class NativeSyncStore {
         if (turn.startBytes < binding.throughBytes) {
           // Native offsets only validate whole-Turn archive checkpoints; they never become cloud fork anchors.
           const matches = (binding.anchors ?? []).filter((anchor) => anchor.sizeBytes >= turn.contentEndBytes && turn.boundaries[anchor.sizeBytes] === anchor.sha256);
-          if (new Set(matches.map((anchor) => anchor.turnId)).size > 1) throw new Error("Ambiguous Runtime Turn boundary / Runtime Turn 边界不明确");
+          if (new Set(matches.map((anchor) => anchor.turnId)).size > 1) throw new Error("Ambiguous Runtime Turn boundary");
           parentCloudTurnId = matches[0]?.turnId ?? null;
           knownBoundary = matches.length > 0;
           parentKey = null;
@@ -160,12 +160,12 @@ export class NativeSyncStore {
           parentKey = null;
           continue;
         }
-        if (!parentKey && !knownBoundary) throw new Error("Native continuation is not at a complete Runtime Turn boundary / 原生续聊不在完整 Runtime Turn 边界上");
+        if (!parentKey && !knownBoundary) throw new Error("Native continuation is not at a complete Runtime Turn boundary");
         const turnId = this.turnId(turn.key);
         const old = await readJson<NativeTurnReceipt>(this.receiptPath(turnId));
         if (old?.result) {
           if (turn.contentEndBytes < (old.contentEndBytes ?? old.endBytes) || JSON.stringify(turn.userContent) !== JSON.stringify(old.userContent) || turn.result && JSON.stringify(nativeTurnCompleteSchema.parse(turn.result)) !== JSON.stringify(old.result)) {
-            throw new Error("Native branch is inside a settled Turn; only whole-Turn forks are supported / 原生分支位于已结束的 Turn 内，仅支持完整 Turn 分支");
+            throw new Error("Native branch is inside a settled Turn; only whole-Turn forks are supported");
           }
           parentKey = turn.key;
           continue;
@@ -174,7 +174,7 @@ export class NativeSyncStore {
         const receipt: NativeTurnReceipt = { version: 1, turnId, key: turn.key, parentKey, parentCloudTurnId: parentKey ? null : parentCloudTurnId,
           userContent: turn.userContent, startedAt: turn.startedAt, endBytes: turn.endBytes, contentEndBytes: turn.contentEndBytes, result,
           ...(!result ? { progress: nativeTurnProgressSchema.parse({ revision: turn.endBytes, messages: turn.messages }) } : {}) };
-        if (old && (JSON.stringify(old.userContent) !== JSON.stringify(receipt.userContent) || old.parentKey !== receipt.parentKey)) throw new Error("Native Turn changed; original receipt retained / 原生 Turn 已变化，原回执已保留");
+        if (old && (JSON.stringify(old.userContent) !== JSON.stringify(receipt.userContent) || old.parentKey !== receipt.parentKey)) throw new Error("Native Turn changed; original receipt retained");
         // Capture immutable native bytes before publishing the completed receipt. Subsequent Turns may change the source.
         if (result) await this.archives.stage({ sessionId: binding.originSessionId, harness: binding.harness, nativeSessionId: binding.nativeSessionId, path, sizeBytes: turn.endBytes, expectedChecksum: turn.sha256 }, turnId);
         if (JSON.stringify(old) !== JSON.stringify(receipt)) {
@@ -198,7 +198,7 @@ export class NativeSyncStore {
         await rm(join(this.root, "pending", name), { force: true });
         continue;
       }
-      if (receipt?.version !== 1 || receipt.turnId !== this.turnId(receipt.key)) throw new Error("Native receipt is corrupt; original retained / 原生回执损坏，原件已保留");
+      if (receipt?.version !== 1 || receipt.turnId !== this.turnId(receipt.key)) throw new Error("Native receipt is corrupt; original retained");
       receipts.push(receipt);
     }
     return receipts.sort((a, b) => a.endBytes - b.endBytes || a.turnId.localeCompare(b.turnId));
@@ -236,7 +236,7 @@ export class NativeSyncStore {
             if (!predecessor || !await visit(predecessor)) return false;
             parent = await readJson<NativeTurnBinding>(this.acknowledgementPath(parentId));
           }
-          if (!parent) throw new Error("Parent binding is missing / 父 Turn 关联缺失");
+          if (!parent) throw new Error("Parent binding is missing");
         }
         let request = await readJson<NativeTurnStart>(this.requestPath(receipt.turnId));
         if (!request) {
@@ -246,9 +246,9 @@ export class NativeSyncStore {
         }
         let remote = await readJson<NativeTurnBinding>(this.cloudBindingPath(receipt.turnId));
         if (!remote) {
-          if (!transport.startNativeTurn) throw new Error("Native Runtime WS is unavailable / 原生 Runtime WS 不可用");
+          if (!transport.startNativeTurn) throw new Error("Native Runtime WS is unavailable");
           remote = await transport.startNativeTurn(request, { signal });
-          if (remote.turnId !== receipt.turnId) throw new Error("Server Turn identity mismatch / 服务端 Turn 身份不匹配");
+          if (remote.turnId !== receipt.turnId) throw new Error("Server Turn identity mismatch");
           await atomicRuntimeJson(this.cloudBindingPath(receipt.turnId), remote);
         }
         if (!receipt.result) {
@@ -266,7 +266,7 @@ export class NativeSyncStore {
           }
           return false;
         }
-        if (!transport.completeNativeTurn) throw new Error("Native Runtime WS is unavailable / 原生 Runtime WS 不可用");
+        if (!transport.completeNativeTurn) throw new Error("Native Runtime WS is unavailable");
         // Artifact retries back off: the terminal state is durable, so hammering the completion
         // endpoint every flush cycle (5s) while object storage is down only adds load.
         const backoffPath = join(this.root, "backoff", `${receipt.turnId}.json`);
@@ -277,7 +277,7 @@ export class NativeSyncStore {
           // Terminal state is durable; only the artifact snapshot is missing. Keep the receipt pending
           // and retry on the next flush cycle (>= 30s) until artifacts persist.
           await atomicRuntimeJson(backoffPath, { at: Date.now() });
-          throw new Error("Native artifacts are pending; completion replays later / 原生产物待生成，稍后重放完成请求");
+          throw new Error("Native artifacts are pending; completion replays later");
         }
         await rm(backoffPath, { force: true });
         await atomicRuntimeJson(this.acknowledgementPath(receipt.turnId), remote);
@@ -312,7 +312,7 @@ export class NativeSyncStore {
   }
   private async cloudArchive(index: HarnessArchiveIndex): Promise<HarnessArchiveIndex> {
     const binding = await readJson<NativeTurnBinding>(this.acknowledgementPath(index.turnId));
-    if (!binding) throw new Error("Native Turn result is not confirmed / 原生 Turn 结果尚未确认");
+    if (!binding) throw new Error("Native Turn result is not confirmed");
     if (index.parentTurnId) {
       const parent = await readJson<NativeTurnBinding>(this.acknowledgementPath(index.parentTurnId));
       if (parent?.sessionId === binding.sessionId) return { ...index, sessionId: binding.sessionId };
@@ -321,7 +321,7 @@ export class NativeSyncStore {
       const visited = new Set([index.turnId]);
       let parentId: string | null = index.parentTurnId;
       while (parentId) {
-        if (visited.has(parentId)) throw new Error("Cyclic native archive / 原生归档存在循环");
+        if (visited.has(parentId)) throw new Error("Cyclic native archive");
         visited.add(parentId);
         const previous = harnessArchiveIndexSchema.parse(await readJson(join(this.archives.root, "versions", `${parentId}.json`)));
         segments.unshift(...previous.segments); parentId = previous.parentTurnId;

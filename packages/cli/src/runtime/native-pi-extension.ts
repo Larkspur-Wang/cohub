@@ -18,7 +18,7 @@ export default function cohubNativeExtension(pi: PiExtension) {
   let timer: ReturnType<typeof setInterval> | undefined;
   const report = (error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
-    if (message !== lastError) context?.ui.notify(`Cohub sync pending / Cohub 待同步: ${message}`, "warning");
+    if (message !== lastError) context?.ui.notify(`Cohub sync pending: ${message}`, "warning");
     lastError = message;
   };
   const capture = (ctx: PiContext, settled = false) => {

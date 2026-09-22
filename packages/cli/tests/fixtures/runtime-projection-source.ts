@@ -95,7 +95,7 @@ export class TestRuntimeSessionStore extends RuntimeSessionStore {
   readonly projectionSource: RuntimeProjectionSourceFixture;
 
   constructor(spaceId: string, stateRoot?: string, transport?: ArchiveTransport, source = runtimeProjectionSource()) {
-    super(spaceId, { stateRoot, archiveTransport: transport, projectionSource: source });
+    super(spaceId, { stateRoot, archiveTransport: transport ?? null, projectionSource: source });
     this.projectionSource = source;
   }
 }

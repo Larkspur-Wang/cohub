@@ -21,7 +21,7 @@ function alive(pid: number) {
 async function readRecord(directory: string): Promise<InstanceRecord | null> {
   try {
     const value = JSON.parse(await readFile(join(directory, "owner.json"), "utf8")) as InstanceRecord;
-    if (!Number.isSafeInteger(value.pid) || typeof value.nonce !== "string" || typeof value.socket !== "string") throw new Error("Invalid Runtime instance record / Runtime 实例记录无效");
+    if (!Number.isSafeInteger(value.pid) || typeof value.nonce !== "string" || typeof value.socket !== "string") throw new Error("Invalid Runtime instance record");
     return value;
   } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return null; throw error; }
 }
@@ -29,7 +29,7 @@ async function readRecord(directory: string): Promise<InstanceRecord | null> {
 function request(record: InstanceRecord, action: "status" | "stop", force = false): Promise<RuntimeSummary> {
   return new Promise((resolve, reject) => {
     const socket = createConnection(record.socket);
-    const timer = setTimeout(() => { socket.destroy(); reject(new Error("Runtime control timed out / Runtime 控制连接超时")); }, 3000);
+    const timer = setTimeout(() => { socket.destroy(); reject(new Error("Runtime control timed out")); }, 3000);
     let buffer = "";
     let settled = false;
     const finish = (error?: Error, value?: RuntimeSummary) => {
@@ -39,7 +39,7 @@ function request(record: InstanceRecord, action: "status" | "stop", force = fals
     };
     socket.on("connect", () => socket.write(`${JSON.stringify({ nonce: record.nonce, action, force })}\n`));
     socket.on("error", (error) => finish(error));
-    socket.on("close", () => finish(new Error("Runtime control closed / Runtime 控制连接已关闭")));
+    socket.on("close", () => finish(new Error("Runtime control closed")));
     socket.on("data", (chunk) => {
       buffer += chunk.toString();
       if (buffer.length > 64 * 1024) { finish(new Error("Runtime response too large")); return; }
@@ -47,7 +47,7 @@ function request(record: InstanceRecord, action: "status" | "stop", force = fals
       try {
         const response = JSON.parse(buffer.slice(0, buffer.indexOf("\n")));
         if (response.error) finish(new Error(response.error));
-        else if (response.nonce !== record.nonce || response.status?.pid !== record.pid) finish(new Error("Runtime identity changed / Runtime 身份已变化"));
+        else if (response.nonce !== record.nonce || response.status?.pid !== record.pid) finish(new Error("Runtime identity changed"));
         else finish(undefined, response.status);
       } catch (error) { finish(error instanceof Error ? error : new Error(String(error))); }
     });
@@ -70,7 +70,7 @@ export async function requestRuntimeInstance(directory: string, action: "status"
 export async function ownRuntimeInstance(directory: string, status: () => RuntimeSummary, stop: (force: boolean) => Promise<void>) {
   await mkdir(directory, { recursive: true, mode: 0o700 });
   return withRuntimeSpaceBindingsLock(async () => {
-    if (await requestRuntimeInstance(directory)) throw new Error("Runtime already running; use status / Runtime 已在运行，请使用 status");
+    if (await requestRuntimeInstance(directory)) throw new Error("Runtime already running; use status");
     const socketPath = process.platform === "win32"
       ? `\\\\.\\pipe\\cohub-${createHash("sha256").update(directory).digest("hex").slice(0, 24)}`
       : join(directory, "control.sock");

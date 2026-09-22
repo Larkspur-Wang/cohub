@@ -31,7 +31,7 @@ const text = (value: unknown) => typeof value === "string" ? value : "";
 const list = (value: unknown): unknown[] => Array.isArray(value) ? value : [];
 const iso = (value: unknown) => {
   const date = new Date(typeof value === "number" || typeof value === "string" ? value : 0);
-  if (!Number.isFinite(date.getTime())) throw new Error("Invalid native timestamp / 原生时间无效");
+  if (!Number.isFinite(date.getTime())) throw new Error("Invalid native timestamp");
   return date.toISOString();
 };
 
@@ -44,8 +44,8 @@ export async function readNativeTranscript(path: string, harness: "pi" | "codex"
   const append = (bytes: Buffer) => {
     if (!bytes.length) return;
     fragments.push(bytes); pendingBytes += bytes.length; checksum.update(bytes);
-    if (pendingBytes > 32 * 1024 * 1024) throw new Error("Native record is too large / 原生记录过大");
-    if (offset + pendingBytes > 128 * 1024 * 1024) throw new Error("Native transcript exceeds the capture limit; original retained / 原生记录超出采集上限，原件已保留");
+    if (pendingBytes > 32 * 1024 * 1024) throw new Error("Native record is too large");
+    if (offset + pendingBytes > 128 * 1024 * 1024) throw new Error("Native transcript exceeds the capture limit; original retained");
   };
   for await (const chunk of createReadStream(path)) {
     let start = 0;
@@ -61,29 +61,29 @@ export async function readNativeTranscript(path: string, harness: "pi" | "codex"
       if (line.length) {
         let value: JsonRecord;
         try { value = record(JSON.parse(line.toString("utf8"))); }
-        catch { throw new Error("Invalid native JSON record; original retained / 原生 JSON 记录无效，原件已保留"); }
+        catch { throw new Error("Invalid native JSON record; original retained"); }
         lines.push({ value, startBytes, endBytes: offset, sha256 });
       }
       start = end + 1;
     }
     append(chunk.subarray(start));
   }
-  if (!lines.length) throw new Error("Native transcript is empty / 原生记录为空");
+  if (!lines.length) throw new Error("Native transcript is empty");
   return { ...(harness === "pi" ? parsePiTranscript(lines, options) : parseCodexTranscript(lines)), prefixes };
 }
 
 function parsePiTranscript(lines: Line[], options: { settled?: boolean; leafId?: string | null }): Omit<NativeTranscript, "prefixes"> {
   const header = lines[0]?.value ?? {};
-  if (header.type !== "session" || !text(header.id)) throw new Error("Invalid Pi session / Pi 会话无效");
+  if (header.type !== "session" || !text(header.id)) throw new Error("Invalid Pi session");
   const entries = new Map(lines.slice(1).filter((line) => text(line.value.id)).map((line) => [text(line.value.id), line]));
   const branch: Line[] = [];
   let leaf = options.leafId ?? (lines.length > 1 ? text(lines.at(-1)?.value.id) : "");
   const visited = new Set<string>();
   while (leaf) {
-    if (visited.has(leaf)) throw new Error("Cyclic Pi history / Pi 历史存在循环");
+    if (visited.has(leaf)) throw new Error("Cyclic Pi history");
     visited.add(leaf);
     const entry = entries.get(leaf);
-    if (!entry) throw new Error("Pi parent history is missing / Pi 父历史缺失");
+    if (!entry) throw new Error("Pi parent history is missing");
     branch.push(entry); leaf = text(entry.value.parentId);
   }
   branch.reverse();
@@ -123,7 +123,7 @@ function parsePiTranscript(lines: Line[], options: { settled?: boolean; leafId?:
         usage: record(message.usage), stopReason: text(message.stopReason) || null, errorMessage: text(message.errorMessage) || null });
     } else if (current && message.role === "toolResult") {
       const assistant = messages.at(-1);
-      if (!assistant) throw new Error("Pi tool result has no assistant Turn / Pi 工具结果缺少所属 Turn");
+      if (!assistant) throw new Error("Pi tool result has no assistant Turn");
       assistant.content.push({ type: "tool_result", tool_use_id: text(message.toolCallId), content: typeof message.content === "string" ? message.content : piContent(message.content), is_error: Boolean(message.isError) });
     }
     if (current) { current.endBytes = line.endBytes; current.contentEndBytes = line.endBytes; current.sha256 = line.sha256; current.boundaries[line.endBytes] = line.sha256; }
@@ -147,8 +147,8 @@ function codexContent(value: unknown): ContentBlock[] {
 function parseCodexTranscript(lines: Line[]): Omit<NativeTranscript, "prefixes"> {
   const header = lines[0]?.value ?? {};
   const metadata = record(header.payload);
-  if (header.type !== "session_meta" || !text(metadata.id)) throw new Error("Invalid Codex session / Codex 会话无效");
-  if (metadata.history_base || metadata.fork_source) throw new Error("Codex history references another rollout; retain the original and materialize its full history first / Codex 历史引用其他记录，请保留原件并先导出完整历史");
+  if (header.type !== "session_meta" || !text(metadata.id)) throw new Error("Invalid Codex session");
+  if (metadata.history_base || metadata.fork_source) throw new Error("Codex history references another rollout; retain the original and materialize its full history first");
   const turns: NativeTranscriptTurn[] = [];
   let current: NativeTranscriptTurn | null = null;
   let messages: NativeTurnMessage[] = [];
@@ -168,7 +168,7 @@ function parseCodexTranscript(lines: Line[]): Omit<NativeTranscript, "prefixes">
     if (entry.type === "event_msg" && ["turn_started", "task_started"].includes(text(payload.type))) {
       if (current) turns.push(current);
       current = { key: text(payload.turn_id), parentKey: turns.at(-1)?.key ?? null, userContent: [], messages: [], startedAt: iso(entry.timestamp), startBytes: line.startBytes, endBytes: line.endBytes, contentEndBytes: line.endBytes, boundaries: {}, sha256: line.sha256, result: null };
-      if (!current.key) throw new Error("Codex Turn identity is missing / Codex Turn 身份缺失");
+      if (!current.key) throw new Error("Codex Turn identity is missing");
       messages = current.messages; userFromResponse = false;
     }
     if (entry.type === "token_usage_record") {
@@ -214,7 +214,7 @@ function parseCodexTranscript(lines: Line[]): Omit<NativeTranscript, "prefixes">
       userFromResponse = true;
     }
     if (entry.type === "event_msg" && ["turn_complete", "task_complete", "turn_aborted"].includes(text(payload.type))) {
-      if (payload.turn_id && payload.turn_id !== current.key) throw new Error("Codex Turn boundary mismatch / Codex Turn 边界不匹配");
+      if (payload.turn_id && payload.turn_id !== current.key) throw new Error("Codex Turn boundary mismatch");
       if (!messages.length && text(payload.last_agent_message)) messages.push({ content: [{ type: "text", text: text(payload.last_agent_message) }], model, provider });
       const errorMessage = text(record(payload.error).message);
       const status = payload.type === "turn_aborted" ? "interrupted" : errorMessage ? "failed" : "completed";

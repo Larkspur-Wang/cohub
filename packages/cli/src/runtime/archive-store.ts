@@ -40,7 +40,9 @@ export class RuntimeArchiveStore {
   private flushing: Promise<void> | null = null;
   private readonly capturing = new Map<string, Promise<HarnessArchive>>();
   private errorReporter: ((error: unknown, index?: HarnessArchiveIndex) => void) | null = null;
-  constructor(readonly root: string, private readonly transport?: ArchiveTransport) {}
+  constructor(readonly root: string, private readonly transport?: ArchiveTransport | null) {}
+  /** Distinguishes "no transport configured" from transient upload failures. */
+  get hasTransport(): boolean { return this.transport != null; }
   setErrorReporter(reporter: ((error: unknown, index?: HarnessArchiveIndex) => void) | null): void {
     this.errorReporter = reporter;
   }

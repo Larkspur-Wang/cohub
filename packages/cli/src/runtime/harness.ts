@@ -4,6 +4,7 @@ import { delimiter, join, resolve, win32 } from "node:path";
 import type { ContentBlock, RuntimeCapabilities, RuntimeExecutionEvent, RuntimeMessage, RuntimeTurnInput } from "@neta-art/cohub";
 import { JsonRpcProcess, record, type JsonRecord } from "./json-rpc.js";
 import type { RuntimeSessionStore, NativeSession } from "./session-store.js";
+import { ProcessCleanupUncertainError } from "./process-group.js";
 import { codexModelCatalog } from "./model-catalog.js";
 import { codexTokenTotals, codexUsage, subtractCodexTokens } from "./codex-usage.js";
 import { downloadPublicImage } from "../safe-remote-image.js";
@@ -37,7 +38,7 @@ export async function installedHarnesses(cwd: string, options: HarnessOptions, p
   }));
   return found.filter((name): name is "pi" | "codex" => name !== null);
 }
-export type HarnessResult = { state: NativeSession; event: Extract<RuntimeExecutionEvent, { type: "turn.end" }> };
+export type HarnessResult = { state: NativeSession; event: Extract<RuntimeExecutionEvent, { type: "turn.end" }>; uncertainCleanup?: { processGroupId: number; error: string } };
 const runtimeEnvironment = (input: RuntimeTurnInput) => ({ COHUB_SPACE_ID: input.spaceId, COHUB_SESSION_ID: input.sessionId, COHUB_TURN_ID: input.turnId });
 const array = (value: unknown): unknown[] => Array.isArray(value) ? value : [];
 const text = (value: unknown) => typeof value === "string" ? value : "";
@@ -89,6 +90,19 @@ async function finishHarnessTurn(store: RuntimeSessionStore, state: NativeSessio
   return { state, event: { type: "turn.end", message, resume, archive } };
 }
 
+/** Close the RPC process. An unconfirmable cleanup degrades the result to uncertain, never masks it. */
+async function closeHarness(rpc: JsonRpcProcess, executionError: string | null | undefined): Promise<HarnessResult["uncertainCleanup"]> {
+  return rpc.close().then(
+    () => undefined,
+    (cleanupError: unknown) => {
+      const processGroupId = rpc.processGroupId;
+      if (!(cleanupError instanceof ProcessCleanupUncertainError) || processGroupId == null) throw cleanupError;
+      const detail = executionError ? `; execution error: ${executionError}` : "";
+      return { processGroupId, error: `${cleanupError.message}${detail}` };
+    },
+  );
+}
+
 export async function discoverHarnesses(harnesses: ("pi" | "codex")[], options: HarnessOptions, cwd: string): Promise<RuntimeCapabilities> {
   const models: RuntimeCapabilities["models"] = [];
   await Promise.all(harnesses.map(async (harness) => {
@@ -130,6 +144,7 @@ export async function executePi(input: RuntimeTurnInput, options: HarnessOptions
   let currentContent: ContentBlock[] = [];
   let last: RuntimeMessage = { ordinal: 0, content: [] };
   const abortEscalation = createAbortEscalation(rpc, signal, () => { void rpc.request("abort").catch(() => undefined); });
+  let uncertainCleanup: HarnessResult["uncertainCleanup"];
   const stopFailureLogging = diagnostics
     ? rpc.onFailure((error) => diagnostics.log("error", "harness.rpc_process_failed", { error: serializeDiagnosticError(error) }, { ...diagnosticContext, component: "harness" }))
     : () => undefined;
@@ -210,16 +225,16 @@ export async function executePi(input: RuntimeTurnInput, options: HarnessOptions
     abortEscalation.clear();
     stopFailureLogging();
     stopTimeoutLogging();
-    await rpc.close();
+    uncertainCleanup = await closeHarness(rpc, last.errorMessage);
   }
   if (signal.aborted) last = { ...last, stopReason: "aborted" };
-  return finishHarnessTurn(store, state, last, resume, input.turnId, {
+  return { ...await finishHarnessTurn(store, state, last, resume, input.turnId, {
     component: "harness",
     sessionId: input.sessionId,
     turnId: input.turnId,
     harness: "pi",
     traceContext: input.traceContext,
-  });
+  }), ...(uncertainCleanup ? { uncertainCleanup } : {}) };
 }
 
 export function codexItemContent(item: JsonRecord): ContentBlock[] {
@@ -265,6 +280,7 @@ export async function executeCodex(input: RuntimeTurnInput, options: HarnessOpti
   const abortEscalation = createAbortEscalation(rpc, signal, () => {
     if (nativeTurnId) void rpc.request("turn/interrupt", { threadId: state.nativeSessionId, turnId: nativeTurnId }).catch(() => undefined);
   });
+  let uncertainCleanup: HarnessResult["uncertainCleanup"];
   try {
     await initializeCodex(rpc);
     const threadOptions = {
@@ -386,15 +402,15 @@ export async function executeCodex(input: RuntimeTurnInput, options: HarnessOpti
     abortEscalation.clear();
     stopFailureLogging();
     stopTimeoutLogging();
-    await rpc.close();
+    uncertainCleanup = await closeHarness(rpc, final.errorMessage);
   }
   if (signal.aborted) final = { ...final, stopReason: "aborted" };
   if (usage) final = { ...final, usage };
-  return finishHarnessTurn(store, state, final, resume, input.turnId, {
+  return { ...await finishHarnessTurn(store, state, final, resume, input.turnId, {
     component: "harness",
     sessionId: input.sessionId,
     turnId: input.turnId,
     harness: "codex",
     traceContext: input.traceContext,
-  });
+  }), ...(uncertainCleanup ? { uncertainCleanup } : {}) };
 }

@@ -42,7 +42,7 @@ export async function runRuntime(config: RuntimeLaunch, onState: (status: Runtim
   process.once("SIGINT", stop); process.once("SIGTERM", stop);
   const client = createClient();
   const space = client.space(config.spaceId);
-  const store = new RuntimeSessionStore(config.spaceId, { projectionSource: space });
+  const store = new RuntimeSessionStore(config.spaceId, { projectionSource: space, archiveTransport: space });
   const consoleSink = config.background ? undefined : createDiagnosticConsole(config.verbose);
   const diagnostics = new RuntimeDiagnostics({
     root: store.root, spaceId: config.spaceId, runtimeId: randomUUID(),
@@ -74,10 +74,10 @@ export async function runRuntime(config: RuntimeLaunch, onState: (status: Runtim
   let tokenInFlight: Promise<string> | null = null;
   const token = (forceRefresh = false) => {
     tokenInFlight ??= (async () => {
-      if (currentIdentityKey() !== config.identity) throw new AuthRequiredError("Runtime account changed; sign in to the original account / Runtime 账号已变化，请登录原账号");
+      if (currentIdentityKey() !== config.identity) throw new AuthRequiredError("Runtime account changed; sign in to the original account");
       const value = await resolveAccessToken({ forceRefresh });
       if (!value) throw new AuthRequiredError();
-      if (currentIdentityKey() !== config.identity) throw new AuthRequiredError("Runtime account changed / Runtime 账号已变化");
+      if (currentIdentityKey() !== config.identity) throw new AuthRequiredError("Runtime account changed");
       return value;
     })().finally(() => { tokenInFlight = null; });
     return tokenInFlight;
@@ -85,7 +85,7 @@ export async function runRuntime(config: RuntimeLaunch, onState: (status: Runtim
   try {
     closeInstance = await ownRuntimeInstance(runtimeInstanceDirectory(config.identity, config.spaceId), () => status, async (force) => {
       if (!force) for await (const batch of store.pendingExecutionBatches()) {
-        if (batch.length) throw new Error("Unconfirmed executions remain. Use down --yes to stop; results and files are retained / 尚有未确认执行，使用 down --yes 停止；结果和文件会保留");
+        if (batch.length) throw new Error("Unconfirmed executions remain. Use down --yes to stop; results and files are retained");
       }
       update({ state: "stopping" });
       setTimeout(stop, 30);

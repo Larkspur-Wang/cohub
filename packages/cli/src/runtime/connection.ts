@@ -100,7 +100,7 @@ export async function serveRuntime(options: RuntimeConnectionOptions) {
       }
       options.onDisconnected?.();
       if (options.signal.aborted) return;
-      if (outcome === "fatal") throw new Error("Runtime connection rejected / Runtime 连接被拒绝，请检查权限或升级 CLI");
+      if (outcome === "fatal") throw new Error("Runtime connection rejected; check permissions or upgrade the CLI");
       if (readyAt && Date.now() - readyAt >= 60_000) { backoff = 500; attempt = 0; }
       if (outcome === "conflict") {
         conflictSince ??= Date.now();
@@ -202,9 +202,10 @@ async function connect(options: ConnectOptions): Promise<"retry" | "fatal" | "co
     }
     socket.send(data);
   };
-  const stop = () => {
+  const closeTransport = () => socket.close();
+  const shutdown = () => {
     for (const execution of active.values()) execution.controller.abort();
-    socket.close();
+    closeTransport();
   };
   const sendNative = (event: NativeRuntimeEvent) => new Promise<unknown>((resolve, reject) => {
     if (!nativeChannelReady || !connectionId) { reject(new Error("Runtime native channel is unavailable")); return; }
@@ -214,7 +215,7 @@ async function connect(options: ConnectOptions): Promise<"retry" | "fatal" | "co
     try { send({ type: "runtime.native", requestId, event }); }
     catch (error) { clearTimeout(timer); nativePending.delete(requestId); reject(error instanceof Error ? error : new Error(String(error))); }
   });
-  options.signal.addEventListener("abort", stop, { once: true });
+  options.signal.addEventListener("abort", shutdown, { once: true });
 
   const heartbeat = setInterval(() => {
     const heartbeatAgeMs = Date.now() - lastHeartbeat;
@@ -223,12 +224,7 @@ async function connect(options: ConnectOptions): Promise<"retry" | "fatal" | "co
         ageMs: heartbeatAgeMs,
         activeExecutions: active.size,
       }, { connectionId });
-      for (const execution of active.values()) {
-        log("error", "runtime.execution_heartbeat_timeout", {
-          ageMs: heartbeatAgeMs,
-        }, executionContext(connectionId, execution));
-      }
-      stop();
+      closeTransport();
     } else if (connectionId) {
       try {
         send({ type: "runtime.heartbeat" });
@@ -236,7 +232,7 @@ async function connect(options: ConnectOptions): Promise<"retry" | "fatal" | "co
         log("warn", "runtime.heartbeat_send_failed", {
           error: serializeDiagnosticError(error),
         }, { connectionId });
-        stop();
+        closeTransport();
       }
       void options.token().then((next) => {
         if (next !== currentToken) {
@@ -248,12 +244,12 @@ async function connect(options: ConnectOptions): Promise<"retry" | "fatal" | "co
             log("warn", "runtime.auth_refresh_send_failed", {
               error: serializeDiagnosticError(error),
             }, { connectionId });
-            stop();
+            closeTransport();
           }
         }
       }).catch((error) => {
         log("warn", "runtime.auth_refresh_failed", { error: serializeDiagnosticError(error) }, { connectionId });
-        stop();
+        closeTransport();
       });
     }
   }, 10_000);
@@ -276,12 +272,13 @@ async function connect(options: ConnectOptions): Promise<"retry" | "fatal" | "co
       for (const pending of nativePending.values()) { clearTimeout(pending.timer); pending.reject(new Error("Runtime native channel disconnected")); }
       nativePending.clear();
       options.onDisconnected?.();
+      const executionMustStop = options.signal.aborted || fatal || conflict;
       for (const execution of active.values()) {
-        log("error", "runtime.execution_transport_lost", {
+        log(executionMustStop ? "error" : "warn", executionMustStop ? "runtime.execution_transport_invalidated" : "runtime.execution_transport_detached", {
           code: event.code,
           reason: event.reason,
         }, executionContext(connectionId, execution));
-        execution.controller.abort();
+        if (executionMustStop) execution.controller.abort();
       }
       resolve();
     }, { once: true });
@@ -310,7 +307,7 @@ async function connect(options: ConnectOptions): Promise<"retry" | "fatal" | "co
       });
     } catch (error) {
       log("error", "runtime.hello_failed", { error: serializeDiagnosticError(error) });
-      stop();
+      closeTransport();
     }
   });
   socket.addEventListener("message", (event) => {
@@ -322,6 +319,9 @@ async function connect(options: ConnectOptions): Promise<"retry" | "fatal" | "co
         log("error", "runtime.protocol.invalid_json", { error: serializeDiagnosticError(error) }, { connectionId });
         throw error;
       }
+      // Any inbound frame proves the transport is live; heartbeat frames are one case.
+      lastHeartbeat = Date.now();
+
 
       if (raw.type === "runtime.ready") {
         const frame = runtimeReadySchema.parse(raw);
@@ -349,7 +349,6 @@ async function connect(options: ConnectOptions): Promise<"retry" | "fatal" | "co
       }
       if (!connectionId) throw new Error("Runtime handshake is incomplete");
       if (raw.type === "runtime.heartbeat") {
-        lastHeartbeat = Date.now();
         return;
       }
       if (raw.type === "runtime.native.result") {
@@ -529,7 +528,14 @@ async function connect(options: ConnectOptions): Promise<"retry" | "fatal" | "co
       const durableEvents: RuntimeExecutionEvent[] = [];
       const emit = (value: RuntimeExecutionEvent) => {
         if (value.type === "message.commit") durableEvents.push(value);
-        send({ type: "runtime.event", requestId: frame.requestId, event: value });
+        // Streaming is best-effort. A detached transport must not cancel local model or tool work;
+        // durable commits and the final result are replayed after reconnect.
+        if (disconnected.signal.aborted || socket.readyState !== WebSocket.OPEN || socket.bufferedAmount > RUNTIME_MAX_FRAME_BYTES) return;
+        try {
+          send({ type: "runtime.event", requestId: frame.requestId, event: value });
+        } catch (error) {
+          if (!disconnected.signal.aborted && socket.readyState === WebSocket.OPEN) throw error;
+        }
       };
       execution.promise = (async () => {
         try {
@@ -558,7 +564,11 @@ async function connect(options: ConnectOptions): Promise<"retry" | "fatal" | "co
               frame.input.context = await requestContext(controller.signal);
             }
           }
-          await options.store.recordResult(execution.result.state, frame.requestId, [...durableEvents, execution.result.event]);
+          await options.store.recordResult(execution.result.state, frame.requestId, [...durableEvents, execution.result.event],
+            execution.result.uncertainCleanup ? { uncertainCleanup: execution.result.uncertainCleanup } : undefined);
+          if (execution.result.uncertainCleanup) {
+            log("warn", "runtime.turn_cleanup_pending", { cleanup: execution.result.uncertainCleanup.error }, context);
+          }
           emit(execution.result.event);
         } catch (error) {
           log("error", "runtime.turn_failed", {
@@ -575,7 +585,7 @@ async function connect(options: ConnectOptions): Promise<"retry" | "fatal" | "co
       })();
     })().catch((error) => {
       log("error", "runtime.protocol_error", { error: serializeDiagnosticError(error) }, { connectionId });
-      stop();
+      closeTransport();
     });
   });
 
@@ -583,14 +593,14 @@ async function connect(options: ConnectOptions): Promise<"retry" | "fatal" | "co
     log("error", "runtime.handshake_timeout", { timeoutMs: 15_000 }, { connectionId });
     socket.close(4408, "Runtime handshake timed out");
   }, 15_000);
-  if (options.signal.aborted) stop();
+  if (options.signal.aborted) shutdown();
   try {
     await closed;
     await Promise.allSettled([...active.values()].map((entry) => entry.promise));
   } finally {
     clearTimeout(readyTimer);
     clearInterval(heartbeat);
-    options.signal.removeEventListener("abort", stop);
+    options.signal.removeEventListener("abort", shutdown);
   }
   if (unauthorized && !options.signal.aborted) await options.token(true);
   return fatal ? "fatal" : conflict ? "conflict" : "retry";

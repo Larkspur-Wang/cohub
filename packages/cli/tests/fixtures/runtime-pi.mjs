@@ -24,9 +24,13 @@ for await (const line of lines) {
     const answer = data.includes("historical") ? "history retained" : "new session";
     send({ type: "message_update", assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: answer } });
     const message = { role: "assistant", content: [{ type: "text", text: `你好 ${answer}` }], provider: "fixture", model: "test", stopReason: "stop" };
-    appendFileSync(path, `${JSON.stringify({ type: "message", id: "assistant-fixture", parentId: "user-fixture", message })}\n`);
-    send({ type: "turn_end", message, toolResults: [] });
-    send({ type: "agent_end", willRetry: false });
-    send({ type: "agent_settled" });
+    const finish = () => {
+      appendFileSync(path, `${JSON.stringify({ type: "message", id: "assistant-fixture", parentId: "user-fixture", message })}\n`);
+      send({ type: "turn_end", message, toolResults: [] });
+      send({ type: "agent_end", willRetry: false });
+      send({ type: "agent_settled" });
+    };
+    if (input.message.includes("slow transport test")) setTimeout(finish, 250);
+    else finish();
   } else respond();
 }

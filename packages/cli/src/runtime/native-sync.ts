@@ -16,9 +16,9 @@ export const nativeSyncConfigPath = (runtimeRoot: string, identity: string) => j
 export function nativeArchiveTransport(spaceId: string, identity: string): Pick<NativeSyncTransport, "prepareRuntimeArchive" | "commitRuntimeArchive" | "getRuntimeArchive"> {
   const client = createClient().space(spaceId);
   const guard = async <T>(task: () => Promise<T>): Promise<T> => {
-    if (currentIdentityKey() !== identity) throw new Error("Native sync account changed / 原生同步账号已变化");
+    if (currentIdentityKey() !== identity) throw new Error("Native sync account changed");
     const result = await task();
-    if (currentIdentityKey() !== identity) throw new Error("Native sync account changed / 原生同步账号已变化");
+    if (currentIdentityKey() !== identity) throw new Error("Native sync account changed");
     return result;
   };
   return {
@@ -31,7 +31,7 @@ export function nativeArchiveTransport(spaceId: string, identity: string): Pick<
 export async function readNativeSyncConfig(runtimeRoot: string, identity: string): Promise<NativeSyncConfig | null> {
   try {
     const config = JSON.parse(await readFile(nativeSyncConfigPath(runtimeRoot, identity), "utf8")) as NativeSyncConfig;
-    if (config.version !== 1 || config.identity !== identity || !Array.isArray(config.harnesses)) throw new Error("Invalid native sync configuration / 原生同步配置无效");
+    if (config.version !== 1 || config.identity !== identity || !Array.isArray(config.harnesses)) throw new Error("Invalid native sync configuration");
     return config;
   } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return null; throw error; }
 }
@@ -51,7 +51,7 @@ export async function captureNativeSession(input: { harness: "pi" | "codex"; cwd
   if (!config || config.root !== root || config.spaceId !== space.spaceId || !config.harnesses.includes(input.harness)) return null;
   const path = await canonicalRuntimeRoot(input.path);
   const transcript = await readNativeTranscript(path, input.harness, input);
-  if (await canonicalRuntimeRoot(transcript.cwd) !== root || input.nativeSessionId && transcript.nativeSessionId !== input.nativeSessionId) throw new Error("Native transcript belongs to another project or Session / 原生记录属于其他项目或会话");
+  if (await canonicalRuntimeRoot(transcript.cwd) !== root || input.nativeSessionId && transcript.nativeSessionId !== input.nativeSessionId) throw new Error("Native transcript belongs to another project or Session");
   const key = JSON.stringify([identity, space.spaceId, input.harness, transcript.nativeSessionId, path]);
   let store = nativeStores.get(key);
   if (!store) {
@@ -62,7 +62,7 @@ export async function captureNativeSession(input: { harness: "pi" | "codex"; cwd
     if (!store) {
       const managed = await findRuntimeNativeSession(runtimeRoot, input.harness, transcript.nativeSessionId, path);
       const managedPath = managed ? await canonicalRuntimeRoot(managed.path).catch((error) => { if ((error as NodeJS.ErrnoException).code === "ENOENT") return null; throw error; }) : null;
-      if (candidates.length && managedPath !== path) throw new Error("Native path changed; original bindings retained / 原生路径已变化，原关联已保留");
+      if (candidates.length && managedPath !== path) throw new Error("Native path changed; original bindings retained");
       // Restored Pi working copies can share a native ID. Existing Cohub sidecars disambiguate them.
       store = new NativeSyncStore({ runtimeRoot, spaceId: space.spaceId, identity, harness: input.harness, nativeSessionId: transcript.nativeSessionId,
         instanceKey: managedPath === path ? path : undefined, transport });

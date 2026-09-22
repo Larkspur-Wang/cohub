@@ -42,6 +42,8 @@ export function harnessEnvironment(): NodeJS.ProcessEnv {
 
 export class JsonRpcProcess {
   private child: ChildProcessWithoutNullStreams;
+  /** Process-group id of the harness process, for deferred cleanup confirmation. */
+  get processGroupId(): number | null { return this.child.pid ?? null; }
   private pending = new Map<string, { resolve: (value: JsonRecord) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
   private listeners = new Set<(event: JsonRecord) => void>();
   private failureListeners = new Set<(error: Error) => void>();

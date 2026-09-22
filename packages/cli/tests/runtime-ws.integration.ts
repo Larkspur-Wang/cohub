@@ -52,6 +52,70 @@ test("Runtime starts and reports more than 64 pending Sessions in bounded recove
   }
 });
 
+test("Runtime finishes local work after its transport disconnects and replays the durable result", { timeout: 20_000 }, async () => {
+  const root = await mkdtemp(join(tmpdir(), "cohub-runtime-detached-"));
+  const binary = fileURLToPath(new URL("./fixtures/runtime-pi.mjs", import.meta.url));
+  await chmod(binary, 0o755);
+  const server = new WebSocketServer({ port: 0, host: "127.0.0.1" });
+  await new Promise<void>((resolve) => server.once("listening", resolve));
+  const address = server.address(); assert(address && typeof address !== "string");
+  const controller = new AbortController();
+  const spaceId = crypto.randomUUID(), sessionId = crypto.randomUUID(), turnId = crypto.randomUUID(), recoverRequestId = crypto.randomUUID();
+  const store = new TestRuntimeSessionStore(spaceId, join(root, "state"));
+  let connections = 0;
+  let rejectFailure: (error: unknown) => void = () => {};
+  const completed = new Promise<void>((resolve, reject) => {
+    rejectFailure = reject;
+    server.on("connection", (socket) => {
+      const connection = ++connections;
+      const send = (value: unknown) => socket.send(JSON.stringify(value));
+      socket.on("message", (raw) => {
+        try {
+          const frame = JSON.parse(raw.toString());
+          if (frame.type === "runtime.hello") {
+            send({ type: "runtime.ready", connectionId: crypto.randomUUID() });
+            if (connection === 1) send({ type: "turn.start", requestId: turnId, input: {
+              spaceId, sessionId, turnId, userMessageId: turnId, harness: "pi", accessMode: "full_access",
+              messages: [{ turnId, userMessageId: turnId, userId: "author", content: [{ type: "text", text: "slow transport test" }] }],
+              context: { complete: true, revision: "initial", throughTurnId: null, messages: [] },
+            } });
+            return;
+          }
+          if (connection === 1 && frame.type === "runtime.event" && frame.event?.type === "text.delta") {
+            socket.terminate();
+            return;
+          }
+          if (connection > 1 && frame.type === "runtime.recovery") {
+            assert.deepEqual(frame.executions, [{ sessionId, turnId, harness: "pi" }]);
+            send({ type: "turn.recover", requestId: recoverRequestId, execution: { spaceId, sessionId, turnId, harness: "pi" } });
+            return;
+          }
+          if (connection > 1 && frame.type === "runtime.event" && frame.requestId === recoverRequestId) {
+            if (frame.event.type === "turn.error") throw new Error(frame.event.message);
+            if (frame.event.type === "turn.end") {
+              assert.equal(frame.event.message.stopReason, "stop", "transport loss must not abort local execution");
+              assert(frame.event.message.content.some((block: { type: string; text?: string }) => block.type === "text" && block.text?.includes("new session")));
+              send({ type: "turn.ack", requestId: frame.requestId, revision: "completed", turnId });
+            }
+            if (frame.event.type === "turn.acknowledged") resolve();
+          }
+        } catch (error) { reject(error); controller.abort(); }
+      });
+    });
+  });
+  const running = serveRuntime({ spaceId, cwd: root, url: `ws://127.0.0.1:${address.port}`, capabilities: { harnesses: ["pi"], models: [] }, harnesses: { pi: binary }, token: async () => "fixture-token", signal: controller.signal, store, onReady: () => {} });
+  void running.catch(rejectFailure);
+  try {
+    await completed;
+    assert(connections >= 2);
+  } finally {
+    controller.abort(); await running;
+    for (const socket of server.clients) socket.terminate();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 for (const harness of ["pi", "codex"] as const) for (const resolved of [false, true]) {
   test(`${harness} WebSocket execution ${resolved ? "retires a confirmed execution" : "acknowledges native resume"}`,  { timeout: 20_000 }, async () => {
     const root = await mkdtemp(join(tmpdir(), "cohub-runtime-ws-"));

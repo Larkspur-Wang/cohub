@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { TestRuntimeSessionStore } from "./fixtures/runtime-projection-source.js";
 import { test } from "node:test";
-import { chmod, mkdtemp, mkdir, readFile, readdir, rename, rm, appendFile } from "node:fs/promises";
-import { join } from "node:path";
+import { createHash } from "node:crypto";
+import { chmod, mkdtemp, mkdir, readFile, readdir, rename, rm, appendFile, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import type { RuntimeTurnInput, RuntimeExecutionEvent } from "@neta-art/cohub";
@@ -12,6 +13,8 @@ import { discoverHarnesses, executePi, executeCodex } from "../src/runtime/harne
 import { Command } from "commander";
 import { parseRuntimeHarnesses, registerRuntime } from "../src/commands/runtime.js";
 import { codexArchiveTotals, codexTokenTotals, codexUsage, subtractCodexTokens } from "../src/runtime/codex-usage.js";
+
+const jsonl = (value: unknown) => `${JSON.stringify(value)}\n`;
 
 test("Runtime CLI exposes the complete lifecycle without legacy sandbox commands", () => {
   const program = new Command();
@@ -240,6 +243,73 @@ test("changing Workspace requires a fresh projection instead of running in an ol
     assert.notEqual(moved.state.path, state.path);
     assert.equal(JSON.parse((await readFile(state.path, "utf8")).split("\n")[0]).cwd, root);
   } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("receipt-less recovery rebuilds a completed Turn from native bytes without a receipt", async () => {
+  const root = await mkdtemp(join(tmpdir(), "cohub-runtime-reconstruct-"));
+  const storage = await archiveStorageFixture();
+  try {
+    const store = new TestRuntimeSessionStore(spaceId, root, storage.transport);
+    const nativeSessionId = crypto.randomUUID();
+    const path = join(root, "codex", `${nativeSessionId}.jsonl`);
+    await mkdir(dirname(path), { recursive: true });
+    const turn = input("codex");
+    const state = {
+      version: 1 as const, harness: "codex" as const, sessionId, nativeSessionId, path,
+      throughTurnId: previousTurn, revision: "one", checksum: "", pendingTurnId: null,
+    };
+    const prefix = [
+      { type: "session_meta", payload: { id: nativeSessionId, cwd: root } },
+      { type: "event_msg", payload: { type: "turn_started", turn_id: "prior" } },
+      { type: "event_msg", payload: { type: "turn_complete", turn_id: "prior" } },
+    ];
+    await writeFile(path, prefix.map(jsonl).join(""));
+    // started() pins the pre-Turn byte boundary via the prefix checksum.
+    state.checksum = createHash("sha256").update(prefix.map(jsonl).join("")).digest("hex");
+    await store.started(state, turnId);
+    const suffix = [
+      { type: "event_msg", payload: { type: "turn_started", turn_id: "current" } },
+      { type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "question" }] } },
+      { type: "response_item", payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "native answer" }] } },
+      { type: "event_msg", payload: { type: "turn_complete", turn_id: "current" } },
+    ];
+    await appendFile(path, suffix.map(jsonl).join(""));
+    const recovered = await store.recoverResult(turn);
+    assert(recovered, "a completed native Turn must be reconstructed without a receipt");
+    const final = recovered.events.at(-1);
+    assert.equal(final?.type, "turn.end");
+    assert.equal(final.message.content.some((block) => block.type === "text" && block.text === "native answer"), true);
+    // The reconstructed receipt replays identically and is idempotent.
+    assert.deepEqual((await store.recoverResult(turn))?.events.map(({ type }) => type), recovered.events.map(({ type }) => type));
+    await store.acknowledge(recovered.state, turnId, "two");
+    assert.equal(recovered.state.pendingTurnId, null);
+  } finally { await storage.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+test("receipt-less recovery stays null for ambiguous or interrupted Turns", async () => {
+  const root = await mkdtemp(join(tmpdir(), "cohub-runtime-reconstruct-no-"));
+  const storage = await archiveStorageFixture();
+  try {
+    const store = new TestRuntimeSessionStore(spaceId, root, storage.transport);
+    const nativeSessionId = crypto.randomUUID();
+    const path = join(root, "codex", `${nativeSessionId}.jsonl`);
+    await mkdir(dirname(path), { recursive: true });
+    const header = jsonl({ type: "session_meta", payload: { id: nativeSessionId, cwd: root } });
+    await writeFile(path, header);
+    const turn = input("codex");
+    for (const suffix of [
+      [jsonl({ type: "event_msg", payload: { type: "turn_started", turn_id: "open" } })],
+      [jsonl({ type: "event_msg", payload: { type: "turn_started", turn_id: "a" } }), jsonl({ type: "event_msg", payload: { type: "turn_aborted", turn_id: "a" } })],
+    ]) {
+      const state = {
+        version: 1 as const, harness: "codex" as const, sessionId, nativeSessionId, path,
+        throughTurnId: previousTurn, revision: "one", checksum: createHash("sha256").update(header).digest("hex"), pendingTurnId: null,
+      };
+      await appendFile(path, suffix.join(""));
+      await store.started(state, turnId);
+      assert.equal(await store.recoverResult(turn), null);
+    }
+  } finally { await storage.close(); await rm(root, { recursive: true, force: true }); }
 });
 
 for (const harness of ["pi", "codex"] as const) {

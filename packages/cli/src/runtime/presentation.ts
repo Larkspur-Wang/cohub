@@ -8,26 +8,28 @@ export const runtimeWebUrl = (spaceId: string) =>
   `https://${resolveCohubEnvironment() === "prod" ? "" : "dev."}cohub.live/spaces/${spaceId}`;
 
 const messages: Record<string, string> = {
-  "runtime.ready": "Harness connected / Harness 已连接",
-  "runtime.available": "Runtime ready / Runtime 已就绪",
-  "runtime.websocket.closed": "Connection lost; reconnecting / 连接中断，正在重连",
-  "runtime.heartbeat_timeout": "Connection timed out; reconnecting / 连接超时，正在重连",
-  "runtime.auth_token_failed": "Cannot obtain credentials; retrying / 暂时无法获取凭证，正在重试",
-  "runtime.auth_required": "Sign in with cohub auth login / 请运行 cohub auth login 登录",
-  "runtime.stopped": "Runtime stopped / Runtime 已停止",
-  "runtime.failed": "Runtime needs attention / Runtime 需要处理",
-  "runtime.turn_failed": "Turn failed; local files retained / 执行失败，本地文件已保留",
-  "runtime.connection_failed": "Connection attempt failed; retrying / 连接失败，将继续重试",
-  "runtime.execution_transport_lost": "Execution disconnected; outcome needs reconciliation / 执行连接中断，结果待确认",
-  "archive.upload_pending": "Archive upload pending; local data retained / 归档待上传，本地数据已保留",
-  "native.sync_pending": "Native sync pending; local records retained / 原生同步待处理，本地记录已保留",
-  "archive.capture_pending": "Archive capture pending / 归档待处理",
-  "archive.capture_unavailable": "Archive unavailable; original receipt retained / 归档不可用，原始回执已保留",
-  "archive.restore_failed": "Native restore unavailable; using saved history / 原生恢复不可用，使用已保存历史",
-  "sandboxd.process_exit": "File bridge stopped; restarting / 文件桥接已退出，正在重启",
-  "sandboxd.download": "Preparing file bridge / 正在准备文件桥接",
-  "sandboxd.connected": "File bridge connected / 文件桥接已连接",
-  "sandboxd.disconnected": "File bridge disconnected; reconnecting / 文件桥接已断开，正在重连",
+  "runtime.ready": "Harness connected",
+  "runtime.available": "Runtime ready",
+  "runtime.websocket.closed": "Connection lost; reconnecting",
+  "runtime.heartbeat_timeout": "Connection timed out; reconnecting",
+  "runtime.auth_token_failed": "Cannot obtain credentials; retrying",
+  "runtime.auth_required": "Sign in with cohub auth login",
+  "runtime.stopped": "Runtime stopped",
+  "runtime.failed": "Runtime needs attention",
+  "runtime.turn_failed": "Turn failed; local files retained",
+  "runtime.turn_cleanup_pending": "Turn result saved; tool cleanup still unconfirmed",
+  "runtime.connection_failed": "Connection attempt failed; retrying",
+  "runtime.execution_transport_detached": "Execution continues locally; result replays after reconnect",
+  "runtime.execution_transport_invalidated": "Execution interrupted; outcome needs reconciliation",
+  "archive.upload_pending": "Archive upload pending; local data retained",
+  "native.sync_pending": "Native sync pending; local records retained",
+  "archive.capture_pending": "Archive capture pending",
+  "archive.capture_unavailable": "Archive unavailable; original receipt retained",
+  "archive.restore_failed": "Native restore unavailable; using saved history",
+  "sandboxd.process_exit": "File bridge stopped; restarting",
+  "sandboxd.download": "Preparing file bridge",
+  "sandboxd.connected": "File bridge connected",
+  "sandboxd.disconnected": "File bridge disconnected; reconnecting",
 };
 
 export function formatDiagnostic(event: RuntimeDiagnostic, verbose = false): string {
@@ -51,7 +53,7 @@ export function createDiagnosticConsole(verbose = false, write = (line: string) 
     }
     if (last.size >= 256) last.delete(last.keys().next().value ?? "");
     last.set(key, { at: now, suppressed: 0 });
-    const repeated = previous?.suppressed ? ` (+${previous.suppressed} repeated / 重复)` : "";
+    const repeated = previous?.suppressed ? ` (+${previous.suppressed} repeated)` : "";
     write(`${formatDiagnostic(event, verbose).trimEnd()}${repeated}\n`);
   };
 }
@@ -73,19 +75,19 @@ export type RuntimeSummary = {
 export function printRuntimeSummary(summary: RuntimeSummary, json = false, reused = false) {
   const value = { ...summary, url: runtimeWebUrl(summary.spaceId), reused };
   if (json) { process.stdout.write(`${JSON.stringify(value, null, 2)}\n`); return; }
-  const label = summary.state === "ready" ? "Runtime ready / Runtime 已就绪" : `Runtime ${summary.state} / Runtime 尚未就绪`;
-  process.stdout.write(`\n${label}${reused ? " · reused / 已复用" : ""}\n\n`);
+  const label = summary.state === "ready" ? "Runtime ready" : `Runtime ${summary.state}`;
+  process.stdout.write(`\n${label}${reused ? " · reused" : ""}\n\n`);
   const rows = [
-    ["Space / 空间", summary.spaceId],
-    ["URL / 链接", value.url],
-    ["Directory / 目录", summary.root],
+    ["Space", summary.spaceId],
+    ["URL", value.url],
+    ["Directory", summary.root],
     ["Harness", summary.harnesses.join(" · ")],
-    ["Mode / 模式", summary.background ? "Background / 后台" : "Foreground / 前台"],
+    ["Mode", summary.background ? "Background" : "Foreground"],
     ["PID", String(summary.pid)],
-    ["Logs / 日志", summary.diagnosticsPath],
+    ["Logs", summary.diagnosticsPath],
   ];
   for (const [name, text] of rows) process.stdout.write(`  ${name}  ${text}\n`);
   process.stdout.write(`\n  cohub runtime logs --space ${summary.spaceId} --follow\n  cohub runtime down --space ${summary.spaceId}\n`);
-  if (!summary.background && !reused) process.stdout.write("  Ctrl+C to stop / 按 Ctrl+C 停止\n");
+  if (!summary.background && !reused) process.stdout.write("  Ctrl+C to stop\n");
   process.stdout.write("\n");
 }

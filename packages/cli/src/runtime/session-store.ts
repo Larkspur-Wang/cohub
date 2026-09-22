@@ -9,12 +9,16 @@ import { importNativeArchive, readCodexArchiveTotals } from "./native-archive.js
 import { serializeDiagnosticError, type RuntimeDiagnosticContext, type RuntimeDiagnostics } from "./diagnostics.js";
 import type { SessionTurnProjectionClient } from "./turn-projection.js";
 import { ProjectionStore, rebindProjectionNativeSession } from "./projection-store.js";
+import { confirmQuiescentProcessGroup } from "./process-group.js";
+import { readNativeTranscript, type NativeTranscript } from "./native-transcript.js";
+import type { RuntimeMessage } from "@neta-art/cohub";
 
 export class ContextRequiredError extends Error {}
 
 export type RuntimeSessionStoreOptions = {
   stateRoot?: string;
-  archiveTransport?: ArchiveTransport;
+  /** Explicit, so a serve path can never silently lose archive uploads. */
+  archiveTransport: ArchiveTransport | null;
   projectionSource: SessionTurnProjectionClient;
 };
 
@@ -57,7 +61,7 @@ export async function findRuntimeNativeSession(root: string, harness: "pi" | "co
     }
     if (exact.length === 1) return exact[0] ?? null;
   }
-  if (matches.length > 1) throw new Error("Native Session has ambiguous Runtime bindings / 原生会话存在多个 Runtime 关联");
+  if (matches.length > 1) throw new Error("Native Session has ambiguous Runtime bindings");
   return matches[0] ?? null;
 }
 
@@ -264,6 +268,9 @@ export class RuntimeSessionStore {
     return this.archiveFlush;
   }
   private async flushArchiveOutbox(signal: AbortSignal) {
+    if (!this.archives.hasTransport && await this.archives.pendingCount() > 0) {
+      this.diagnostics?.log("debug", "archive.transport_absent", { note: "captures stay local" }, { component: "archive" });
+    }
     const captures = join(this.archives.root, "captures");
     const names = await readdir(captures).catch((error) => { if (missing(error)) return []; throw error; });
     for (const name of names) {
@@ -398,22 +405,76 @@ export class RuntimeSessionStore {
   }
   async started(state: NativeSession, turnId: string) { state.pendingTurnId = turnId; state.resultChecksum = undefined; await atomicJson(this.statePath(state), state); }
   private resultPath(state: Pick<NativeSession, "sessionId" | "harness">) { return join(this.root, "results", `${state.sessionId}.${state.harness}.json`); }
-  async recordResult(state: NativeSession, requestId: string, events: RuntimeExecutionEvent[]) {
+  async recordResult(state: NativeSession, requestId: string | null, events: RuntimeExecutionEvent[], options?: { uncertainCleanup?: { processGroupId: number; error: string } }) {
     if (!state.pendingTurnId) throw new Error("Cannot record a result for an idle native session");
     if (state.harness === "pi") state.nativeLeafId = await this.lastNativeRecordId(state.path);
     state.resultChecksum = await checksumNativeFile(state.path);
     if (state.archivePendingTurnId) await atomicJson(join(this.archives.root, "captures", `${state.archivePendingTurnId}.json`), state);
-    await atomicJson(this.resultPath(state), { requestId, state, events });
+    await atomicJson(this.resultPath(state), { requestId, state, events, ...(options?.uncertainCleanup ? { uncertainCleanup: options.uncertainCleanup } : {}) });
     await atomicJson(this.statePath(state), state);
   }
   async recoverResult(input: Pick<RuntimeTurnInput, "sessionId" | "harness" | "turnId">, requestId?: string): Promise<{ state: NativeSession; events: RuntimeExecutionEvent[] } | null> {
     try {
-      const saved = JSON.parse(await readFile(this.resultPath(input), "utf8")) as { requestId: string; state: NativeSession; events: unknown[] };
+      const saved = JSON.parse(await readFile(this.resultPath(input), "utf8")) as { requestId: string | null; state: NativeSession; events: unknown[]; uncertainCleanup?: { processGroupId: number; error: string; confirmedAt?: string } };
       if (saved.state.sessionId !== input.sessionId || saved.state.harness !== input.harness) throw new Error("Runtime result identity mismatch");
-      if (saved.state.pendingTurnId !== input.turnId) return null;
-      if (requestId && saved.requestId !== requestId) throw new Error("Runtime result execution identity mismatch");
+      if (saved.state.pendingTurnId !== input.turnId) return this.reconstructResult(input);
+      if (requestId && saved.requestId != null && saved.requestId !== requestId) throw new Error("Runtime result execution identity mismatch");
+      // A quiescent process group upgrades the receipt to confirmed; a live one stays uncertain.
+      if (saved.uncertainCleanup && !saved.uncertainCleanup.confirmedAt) {
+        if (!(await confirmQuiescentProcessGroup(saved.uncertainCleanup.processGroupId))) return null;
+        saved.uncertainCleanup.confirmedAt = new Date().toISOString();
+        await atomicJson(this.resultPath(input), saved);
+      }
       return { state: saved.state, events: saved.events.map((event) => runtimeEventSchema.parse(event)) };
-    } catch (error) { if (missing(error)) return null; throw error; }
+    } catch (error) { if (missing(error)) return this.reconstructResult(input); throw error; }
+  }
+  /**
+   * Receipt-less recovery: the native file is the authority. When a Turn completed but no
+   * receipt survived (a crash between native completion and recordResult), rebuild the
+   * result from transcript bytes appended after the Turn started, without ever rewriting
+   * native data. Anything ambiguous stays unrecovered.
+   */
+  private async reconstructResult(input: Pick<RuntimeTurnInput, "sessionId" | "harness" | "turnId">): Promise<{ state: NativeSession; events: RuntimeExecutionEvent[] } | null> {
+    const statePath = this.statePath(input);
+    let state: NativeSession;
+    try { state = JSON.parse(await readFile(statePath, "utf8")) as NativeSession; }
+    catch (error) { if (missing(error)) return null; throw error; }
+    if (state.sessionId !== input.sessionId || state.harness !== input.harness || state.pendingTurnId !== input.turnId) return null;
+    let transcript: NativeTranscript;
+    try { transcript = await readNativeTranscript(state.path, state.harness, { settled: state.harness === "pi" }); }
+    catch { return null; }
+    // The Turn must start at the byte boundary the file had when the Turn began.
+    const boundary = state.checksum
+      ? [...transcript.prefixes].find(([, sha]) => sha === state.checksum)?.[0]
+      : 0;
+    if (boundary === undefined) return null;
+    const turns = transcript.turns.filter((turn) => turn.startBytes >= boundary);
+    const completed = turns.length === 1 ? turns[0] : null;
+    const result = completed?.result ?? null;
+    // An interrupted Turn may still be executing in a surviving native process.
+    if (!completed || !result || result.status === "interrupted") return null;
+    const messages = result.messages.filter((message) => message.content.length);
+    if (!messages.length) return null;
+    const last = messages.at(-1) as (typeof messages)[number];
+    const asRuntimeMessage = (message: (typeof messages)[number], ordinal: number): RuntimeMessage => ({
+      ordinal,
+      content: message.content,
+      ...(message.provider != null ? { provider: message.provider } : {}),
+      ...(message.model != null ? { model: message.model } : {}),
+      ...(message.usage != null ? { usage: message.usage } : {}),
+      ...(message.stopReason != null ? { stopReason: message.stopReason } : {}),
+      ...(message.errorMessage != null ? { errorMessage: message.errorMessage } : {}),
+    });
+    const events: RuntimeExecutionEvent[] = messages.slice(0, -1).map((message, index) => ({ type: "message.commit", message: asRuntimeMessage(message, index + 1) }) as const);
+    const archive = await this.archive(state, input.turnId, { component: "recovery", sessionId: input.sessionId, turnId: input.turnId, harness: input.harness }).catch(() => null);
+    const final: RuntimeExecutionEvent = { type: "turn.end", message: asRuntimeMessage(last, messages.length), archive, resume: "native" };
+    await this.recordResult(state, null, [...events, final]);
+    this.diagnostics?.log("warn", "runtime.result_reconstructed", {
+      startBytes: completed.startBytes,
+      messageCount: messages.length,
+      status: result.status,
+    }, { component: "recovery", sessionId: input.sessionId, turnId: input.turnId, harness: input.harness });
+    return { state, events: [...events, final] };
   }
   async archive(state: NativeSession, turnId: string, diagnosticContext: RuntimeDiagnosticContext = {}): Promise<HarnessArchive | null> {
     if (!state.path) return null;

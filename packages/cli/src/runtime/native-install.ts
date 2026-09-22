@@ -23,7 +23,7 @@ export function codexNativeHookBlock(node: string, hook: string) {
 async function installText(path: string, update: (existing: string | null) => string) {
   await withRuntimeSpaceBindingsLock(async () => {
     const info = await lstat(path).catch((error) => { if (missing(error)) return null; throw error; });
-    if (info && (!info.isFile() || info.isSymbolicLink())) throw new Error(`Refusing to replace a non-regular file / 不覆盖非普通文件: ${path}`);
+    if (info && (!info.isFile() || info.isSymbolicLink())) throw new Error(`Refusing to replace a non-regular file: ${path}`);
     const original = info ? await readFile(path, "utf8") : null;
     const next = update(original);
     if (next === original) return;
@@ -38,7 +38,7 @@ async function installText(path: string, update: (existing: string | null) => st
       const file = await open(temporary, "wx", info?.mode ?? 0o600);
       try { await file.writeFile(next); await file.sync(); } finally { await file.close(); }
       const current = await readFile(path, "utf8").catch((error) => { if (missing(error)) return null; throw error; });
-      if (current !== original) throw new Error(`Configuration changed during installation / 安装期间配置已变化: ${path}`);
+      if (current !== original) throw new Error(`Configuration changed during installation: ${path}`);
       await rename(temporary, path);
       const directory = await open(dirname(path), "r");
       try { await directory.sync(); } finally { await directory.close(); }
@@ -51,8 +51,8 @@ export async function verifyNativeSyncSupport(harnesses: ("pi" | "codex")[], cwd
     const { stdout } = await promisify(execFile)(executables[harness] || harness, harness === "pi" ? ["--version"] : ["features", "list"], { cwd, encoding: "utf8", timeout: 15_000, maxBuffer: 1024 * 1024 });
     if (harness === "pi") {
       const version = /\b(\d+)\.(\d+)\.(\d+)\b/.exec(stdout);
-      if (!version || Number(version[1]) === 0 && (Number(version[2]) < 85 || Number(version[2]) === 85 && Number(version[3]) < 1)) throw new Error("Native sync requires Pi 0.85.1+ / 原生同步需要 Pi 0.85.1 或更高版本");
-    } else if (!/^hooks\s+stable\s+true\s*$/m.test(stdout)) throw new Error("Install a Codex version with stable Hooks and enable hooks first / 请安装支持稳定 Hooks 的 Codex 版本并启用 Hooks");
+      if (!version || Number(version[1]) === 0 && (Number(version[2]) < 85 || Number(version[2]) === 85 && Number(version[3]) < 1)) throw new Error("Native sync requires Pi 0.85.1+");
+    } else if (!/^hooks\s+stable\s+true\s*$/m.test(stdout)) throw new Error("Install a Codex version with stable Hooks and enable hooks first");
   }
 }
 
@@ -65,24 +65,24 @@ export async function installNativeSync(input: { root: string; spaceId: string; 
   const hook = fileURLToPath(new URL(import.meta.url.endsWith(".ts") ? "./native-codex-hook.ts" : "./native-codex-hook.js", import.meta.url));
   if (!input.disabled) for (const harness of input.harnesses) {
     if (harness === "pi") {
-      const content = `// Cohub native Turn sync / Cohub 原生 Turn 同步\nexport { default } from ${JSON.stringify(extension.href)};\n`;
+      const content = `// Cohub native Turn sync\nexport { default } from ${JSON.stringify(extension.href)};\n`;
       await installText(join(process.env.PI_CODING_AGENT_DIR?.trim() || join(homedir(), ".pi", "agent"), "extensions", "cohub.ts"), (existing) => {
-        if (existing !== null && existing !== content) throw new Error("Pi Cohub extension already exists; preserve it and review manually / Pi Cohub 扩展已存在，请保留并手动核对");
+        if (existing !== null && existing !== content) throw new Error("Pi Cohub extension already exists; preserve it and review manually");
         return content;
       });
     } else {
       const block = codexNativeHookBlock(process.execPath, hook);
       await installText(join(process.env.CODEX_HOME?.trim() || join(homedir(), ".codex"), "config.toml"), (existing) => {
         if (existing?.includes(block)) return existing;
-        if (existing?.includes(START) || existing?.includes(END)) throw new Error("Codex Cohub hook block differs; preserve it and review manually / Codex Cohub Hook 配置不同，请保留并手动核对");
-        if (existing && /^\s*hooks\s*=/m.test(existing)) throw new Error("Inline Codex hooks require manual merging / 内联 Codex Hooks 需要手动合并");
+        if (existing?.includes(START) || existing?.includes(END)) throw new Error("Codex Cohub hook block differs; preserve it and review manually");
+        if (existing && /^\s*hooks\s*=/m.test(existing)) throw new Error("Inline Codex hooks require manual merging");
         return `${existing ?? ""}${existing?.endsWith("\n") ? "\n" : "\n\n"}${block}`;
       });
     }
   }
   await withRuntimeSpaceBindingsLock(async () => {
     const previous = await readNativeSyncConfig(runtimeRoot, input.identity);
-    if (previous && previous.root !== input.root) throw new Error("Space native sync belongs to another directory / 此 Space 原生同步属于其他目录");
+    if (previous && previous.root !== input.root) throw new Error("Space native sync belongs to another directory");
     const harnesses = new Set(previous?.harnesses ?? []);
     for (const harness of input.harnesses) { if (input.disabled) harnesses.delete(harness); else harnesses.add(harness); }
     const config: NativeSyncConfig = { version: 1, identity: input.identity, spaceId: input.spaceId, root: input.root, harnesses: [...harnesses] };
