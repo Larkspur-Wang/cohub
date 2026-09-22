@@ -16,11 +16,13 @@ import { Readable } from "node:stream";
 // that tag's publish-cdn job has succeeded, otherwise `runtime up` 404s on the
 // default download.
 //
-// v2.53.1 is the first published tag with the native FSEvents file-monitoring
-// backends and the `runtimeId` control frame (earlier `v2.52.0` predates them,
-// and the old sandbox-only `v1.x` line stopped at `v1.82.4`). Running anything
-// older keeps exhausting file descriptors on macOS.
-export const SANDBOXD_VERSION = "v2.53.1";
+// v2.54.0 is the first published tag with the private managed Runtime control
+// pipe (`COHUB_RUNTIME_MANAGED` over fd 3), so `runtime up` reads connection
+// state from the daemon instead of polling the API every five seconds. It also
+// carries the optional workspace-search runner download. v2.53.1 already has
+// the native FSEvents backends and the `runtimeId` control frame, and older
+// releases stay usable through the compatibility readiness/restart path.
+export const SANDBOXD_VERSION = "v2.54.0";
 
 const BINARY_NAME = "cohub-sandboxd";
 
