@@ -165,6 +165,7 @@ jobs:
           # 前端指向 preview 后端；登录用 dev Logto（用户数据在 dev 库）
           cat > .env <<EOF
           PUBLIC_COHUB_ENV=dev
+          PUBLIC_APP_STANDALONE_HOST_TEMPLATE=${{ vars.APP_STANDALONE_HOST_TEMPLATE_DEV }}
           PUBLIC_API_ORIGIN=https://${{ env.API_HOSTNAME }}
           PUBLIC_GATEWAY_ORIGIN=https://${{ env.GATEWAY_HOSTNAME }}
           PUBLIC_PREVIEW_ORIGIN=https://preview-dev.cohub.live
@@ -323,6 +324,9 @@ jobs:
           GITEA_MANAGED_EMAIL_DOMAIN: "$(get_cm GITEA_MANAGED_EMAIL_DOMAIN)"
           WEB_ORIGIN: "${{ env.WEB_URL }}"
           SANDBOX_IMAGE: "$(get_cm SANDBOX_IMAGE)"
+          SANDBOX_SEARCH_ENABLED: "$(get_cm SANDBOX_SEARCH_ENABLED)"
+          SANDBOX_SEARCH_VERSION: "$(get_cm SANDBOX_SEARCH_VERSION)"
+          SANDBOX_SEARCH_CDN_BASE_URL: "$(get_cm SANDBOX_SEARCH_CDN_BASE_URL)"
           SPACE_STORAGE_ROOT: "$(get_cm SPACE_STORAGE_ROOT)"
           SPACE_SYSTEM_ROOT: "$(get_cm SPACE_SYSTEM_ROOT)"
           SPACE_STORAGE_PVC: "${SPACE_STORAGE_PVC}"
