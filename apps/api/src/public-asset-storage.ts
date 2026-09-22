@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { AVATAR_MAX_FILE_BYTES, UPLOAD_MAX_FILE_BYTES } from "@cohub/protocol";
 import { config } from "./config.js";
-import { redisCommandClient } from "./redis.js";
 import {
   buildChatAttachmentPublicUrl,
   createUserUploadPutUrl,
@@ -80,18 +80,6 @@ const CHAT_MIME_EXTENSIONS: Record<string, string> = {
   "video/webm": "webm",
 };
 
-const MAX_AVATAR_BYTES = 4 * 1024 * 1024;
-/**
- * Chat durable object (any file). Public URL; UUID-unguessable.
- * Body goes directly to object storage via presign. Align with the Space upload single-file cap.
- */
-export const MAX_CHAT_ATTACHMENT_BYTES = 1024 * 1024 * 1024;
-/** Avatar-only abuse guard. */
-const AVATAR_RATE_LIMIT_WINDOW_SECONDS = 60 * 60;
-const AVATAR_RATE_LIMIT_MAX = 60;
-/** Chat attachment durable uploads — looser than avatar. */
-const CHAT_ATTACHMENT_RATE_LIMIT_WINDOW_SECONDS = 60 * 60;
-const CHAT_ATTACHMENT_RATE_LIMIT_MAX = 300;
 
 export class PublicAssetConfigError extends Error {
   override name = "PublicAssetConfigError";
@@ -246,7 +234,7 @@ export const assertPublicAssetUploadFile = (input: {
     if (file.filename != null && (typeof file.filename !== "string" || file.filename.length > 255)) {
       throw new PublicAssetValidationError("invalid filename");
     }
-    if (file.size > MAX_CHAT_ATTACHMENT_BYTES) {
+    if (file.size > UPLOAD_MAX_FILE_BYTES) {
       throw new PublicAssetValidationError("chat attachment is too large");
     }
     return;
@@ -255,33 +243,7 @@ export const assertPublicAssetUploadFile = (input: {
   if (!IMAGE_MIME_TYPES.has(file.mimeType)) {
     throw new PublicAssetValidationError("avatar images must be WebP, JPEG, PNG, or GIF");
   }
-  if (file.size > MAX_AVATAR_BYTES) throw new PublicAssetValidationError("avatar image is too large");
-};
-
-export const consumePublicAssetUploadQuota = async (
-  userUuid: string,
-  purpose: PublicAssetPurpose = "user_avatar",
-  entryCount = 1,
-) => {
-  const n = Math.max(0, Math.floor(entryCount));
-  if (n <= 0) return;
-  if (purpose === "chat_attachment" || purpose === "app_source") {
-    const key = `${purpose}_upload:${userUuid}`;
-    const next = await redisCommandClient.incrby(key, n);
-    if (next === n) await redisCommandClient.expire(key, CHAT_ATTACHMENT_RATE_LIMIT_WINDOW_SECONDS);
-    if (next > CHAT_ATTACHMENT_RATE_LIMIT_MAX) {
-      await redisCommandClient.decrby(key, n).catch(() => undefined);
-      throw new PublicAssetValidationError("too many uploads, please try again later");
-    }
-    return;
-  }
-  const key = `public_asset_upload:${userUuid}`;
-  const next = await redisCommandClient.incrby(key, n);
-  if (next === n) await redisCommandClient.expire(key, AVATAR_RATE_LIMIT_WINDOW_SECONDS);
-  if (next > AVATAR_RATE_LIMIT_MAX) {
-    await redisCommandClient.decrby(key, n).catch(() => undefined);
-    throw new PublicAssetValidationError("too many image uploads, please try again later");
-  }
+  if (file.size > AVATAR_MAX_FILE_BYTES) throw new PublicAssetValidationError("avatar image is too large");
 };
 
 const createChatAttachmentPutPlan = (input: {

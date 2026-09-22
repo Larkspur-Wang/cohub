@@ -3,13 +3,14 @@ import { Hono } from "hono";
 import { hasPermission } from "../permissions.js";
 import { authzDenied, requireValidId, useAuth } from "../lib/middleware.js";
 import {
-  consumePublicAssetUploadQuota,
   createPublicAssetUploadPlan,
   PublicAssetConfigError,
   PublicAssetValidationError,
   type CreatePublicAssetUploadInput,
 } from "../public-asset-storage.js";
 import { UserUploadConfigError } from "../user-upload-storage.js";
+import { redisCommandClient } from "../redis.js";
+import { consumeUploadQuota, UploadRateLimitError } from "../upload-quota.js";
 
 
 const logger = createLogger({ serviceName: "cohub-api" });
@@ -48,9 +49,13 @@ router.post("/uploads", async (c) => {
       sessionId: body.sessionId,
       file: body.file,
     });
-    await consumePublicAssetUploadQuota(user.uuid, body.purpose);
+    await consumeUploadQuota(redisCommandClient, user.uuid, { entryCount: 1 });
     return c.json(plan);
   } catch (error) {
+    if (error instanceof UploadRateLimitError) {
+      c.header("Retry-After", String(error.retryAfterSeconds));
+      return c.json({ message: error.message, retryAfterSeconds: error.retryAfterSeconds }, 429);
+    }
     if (error instanceof PublicAssetValidationError) {
       const status = error.message.startsWith("too many") ? 429 : 400;
       return c.json({ message: error.message }, status as never);

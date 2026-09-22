@@ -2,7 +2,8 @@ import { context, trace, SpanStatusCode } from "@opentelemetry/api";
 import { boards, apps } from "@cohub/db";
 import { createLogger } from "@cohub/infra/logging";
 import { getTracer, extractTrace } from "@cohub/infra/tracing/propagator";
-import { GATEWAY_ATTACHMENT_MAX_BYTES, gatewayInboundEventSchema, type GatewayInboundEvent } from "@cohub/protocol/gateway";
+import { gatewayInboundEventSchema, type GatewayInboundEvent } from "@cohub/protocol/gateway";
+import { UPLOAD_MAX_BATCH_BYTES, UPLOAD_MAX_FILE_BYTES } from "@cohub/protocol";
 import { parseRealtimeRoom } from "@cohub/protocol/realtime";
 import { dispatchSpacePresenceUpdated } from "../../realtime-events.js";
 import { getSpacePresenceSnapshot } from "../../space-presence.js";
@@ -18,7 +19,6 @@ import { redisCommandClient } from "../../redis.js";
 import {
   PublicAssetConfigError,
   PublicAssetValidationError,
-  consumePublicAssetUploadQuota,
   createInternalPublicAssetUploadPlan,
   isAllowedPublicAssetDownloadUrl,
 } from "../../public-asset-storage.js";
@@ -43,16 +43,15 @@ import {
   beginSpaceUploadComplete,
   buildSpaceUploadObjectKey,
   cancelSpaceUploadComplete,
-  consumeSpaceUploadQuota,
   createPresignedGetUrl,
   createPresignedPutUrl,
   createSpaceUploadId,
   deleteSpaceUploadManifest,
   getSpaceUploadManifest,
   saveSpaceUploadManifest,
-  SpaceUploadRateLimitError,
   type SpaceUploadManifestEntry,
 } from "../../space-upload-storage.js";
+import { consumeUploadQuota, UploadRateLimitError } from "../../upload-quota.js";
 import { enqueueSandboxUploadFilesJob } from "../../sandbox-bash-queue.js";
 import { db } from "../../db/index.js";
 import { eq } from "drizzle-orm";
@@ -462,8 +461,12 @@ router.post("/attachments/plan", async (c) => {
   }
   // Rate-limit durable image plans after validation (same quota as web chat_attachment).
   try {
-    await consumePublicAssetUploadQuota(resolved.userId, "chat_attachment", imagePlans.length);
+    await consumeUploadQuota(redisCommandClient, resolved.userId, { entryCount: imagePlans.length });
   } catch (error) {
+    if (error instanceof UploadRateLimitError) {
+      c.header("Retry-After", String(error.retryAfterSeconds));
+      return c.json({ message: error.message }, 429);
+    }
     if (error instanceof PublicAssetValidationError) {
       return c.json({ message: error.message }, error.message.startsWith("too many") ? 429 : 400);
     }
@@ -479,7 +482,7 @@ router.post("/attachments/plan", async (c) => {
     for (const file of files) {
       if (!/^[a-zA-Z0-9_-]{1,80}$/.test(file.id) || seenFileIds.has(file.id)) return c.json({ message: "file ids must be unique safe strings" }, 400);
       seenFileIds.add(file.id);
-      if (!Number.isSafeInteger(file.size) || file.size < 0 || file.size > GATEWAY_ATTACHMENT_MAX_BYTES) return c.json({ message: "file too large" }, 413);
+      if (!Number.isSafeInteger(file.size) || file.size < 0 || file.size > UPLOAD_MAX_FILE_BYTES) return c.json({ message: "file too large" }, 413);
       const relativePath = safeUploadPath(file.relativePath?.trim() || file.name);
       if (!relativePath) return c.json({ message: "invalid upload path" }, 400);
       if (seenRelativePaths.has(relativePath)) return c.json({ message: "duplicate upload path" }, 400);
@@ -498,9 +501,13 @@ router.post("/attachments/plan", async (c) => {
   // Space materialize quota after file entry validation.
   if (fileEntries.length > 0) {
     try {
-      await consumeSpaceUploadQuota(resolved.userId, fileEntries.length);
+      await consumeUploadQuota(redisCommandClient, resolved.userId, {
+        entryCount: fileEntries.length,
+        totalBytes: fileEntries.reduce((sum, file) => sum + file.size, 0),
+      });
     } catch (error) {
-      if (error instanceof SpaceUploadRateLimitError) {
+      if (error instanceof UploadRateLimitError) {
+        c.header("Retry-After", String(error.retryAfterSeconds));
         return c.json({ message: error.message }, 429);
       }
       throw error;
@@ -584,14 +591,14 @@ router.post("/attachments/materialize", async (c) => {
       if (!relativePath) return c.json({ message: "invalid upload path" }, 400);
       if (seenPaths.has(relativePath)) return c.json({ message: "duplicate upload path" }, 400);
       seenPaths.add(relativePath);
-      if (!Number.isSafeInteger(file.size) || file.size < 0 || file.size > GATEWAY_ATTACHMENT_MAX_BYTES) {
+      if (!Number.isSafeInteger(file.size) || file.size < 0 || file.size > UPLOAD_MAX_FILE_BYTES) {
         return c.json({ message: "file too large" }, 413);
       }
       if (typeof file.downloadUrl !== "string" || !isAllowedPublicAssetDownloadUrl(file.downloadUrl)) {
         return c.json({ message: "invalid download url" }, 400);
       }
       totalBytes += file.size;
-      if (totalBytes > 2 * 1024 * 1024 * 1024) return c.json({ message: "upload too large" }, 413);
+      if (totalBytes > UPLOAD_MAX_BATCH_BYTES) return c.json({ message: "upload too large" }, 413);
       prepared.push({
         id: typeof file.id === "string" ? file.id : null,
         relativePath,
@@ -603,7 +610,10 @@ router.post("/attachments/materialize", async (c) => {
     }
 
     if (userId) {
-      await consumeSpaceUploadQuota(userId, prepared.length);
+      await consumeUploadQuota(redisCommandClient, userId, {
+        entryCount: prepared.length,
+        totalBytes: prepared.reduce((sum, file) => sum + file.size, 0),
+      });
     }
 
     const uploadId = createSpaceUploadId();
@@ -638,7 +648,8 @@ router.post("/attachments/materialize", async (c) => {
 
     return c.json({ ok: true, uploaded: result.uploaded, pathById });
   } catch (error) {
-    if (error instanceof SpaceUploadRateLimitError) {
+    if (error instanceof UploadRateLimitError) {
+      c.header("Retry-After", String(error.retryAfterSeconds));
       return c.json({ message: error.message }, 429);
     }
     logger.error("[GatewayAttachment] failed to materialize remote files", error, { spaceId });
