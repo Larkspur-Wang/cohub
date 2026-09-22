@@ -75,7 +75,7 @@ const space = client.space(consent.target.spaceId);
 ```
 
 Call it from a user gesture, never on page load. Full contract:
-[app-authorization.md](https://github.com/talesofai/cohub/blob/main/docs/app-authorization.md).
+[docs/developers/apps](https://cohub.live/docs/developers/apps).
 
 ## Publish
 
