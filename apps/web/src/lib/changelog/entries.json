@@ -2,8 +2,13 @@
 	{
 		"version": "2.54",
 		"date": "2026-09-22",
-		"tags": ["v2.54.0"],
+		"tags": ["v2.54.0", "v2.54.1"],
 		"highlights": [
+			"**Local Runtime lifecycle**: `cohub runtime up` now supports supervised foreground/background execution, private local status and stop controls, persistent network recovery, redacted terminal warnings, and explicit Space reuse/new prompts. `-n` becomes the boolean alias for `--new`, `--name <name>` names a new Space, Runtime status reports file-bridge availability, and SDK runtime-status requests accept an `AbortSignal`.",
+			"**Native Turn sync**: native Pi and Codex conversations now connect to ordinary Cohub Chats with durable per-Turn receipts, automatic whole-Turn forks on conflicting continuations, and verified native archives, reusing the existing realtime progress and continuation APIs. Adds `cohub runtime attach` / `detach`, project-scoped upload consent, capability checks, and native sync diagnostics.",
+			"**Detached-transport execution**: losing the Runtime transport no longer aborts local model or tool work. A detached connection keeps executing, downgrades streaming to best-effort, and replays the durable result over the reconciling reconnect, so a flaky network cannot discard a Turn that already completed locally.",
+			"**Managed Runtime control pipe**: the CLI bundles sandboxd v2.54.0, the first runner with the private managed Runtime control pipe, so `cohub runtime up` reads connection lifecycle events directly from the daemon instead of polling the API every five seconds. Older binaries stay usable through the compatibility readiness/restart path.",
+			"**Consolidated App development reference**: App docs are unified into one bilingual, scenario-first guide with a single API-to-scope authorization map (including previously undocumented `space.completion` / `streamCompletion`), a sample index, and an owner-funded App Action example. The SDK npm package drops the duplicated `app-runtime-guide.md` and links to the docs site instead.",
 			"**Supervised Local Runtime**: `cohub runtime up` now runs foreground or background (`-d`) under a shared supervisor, with authenticated local IPC for `status` and `down`, bounded jittered retries on network and credential failures, crash-restart that never replays model or tool work, redacted terminal warnings, and explicit Space reuse/new prompts (`-n` is now the boolean alias for `--new`; use `--name` to name a Space).",
 			"**Native Pi/Codex Turn sync**: native terminal conversations now flow into ordinary Cohub Chats and Turns through a single local Runtime Daemon. Per-turn durable receipts replay without re-running models or tools, conflicting continuations fork at complete Turn boundaries via the standard session-fork machinery, native archives are verified and reused, and `cohub runtime attach`/`detach` authorize project-scoped uploads. Pi/Codex integrations talk only to the Daemon's private IPC and never hold Cohub credentials.",
 			"**Optional workspace search**: cloud sandboxes bootstrap a checksum-verified `cohub-search` binary downloaded asynchronously without blocking the main runtime, with `latest.json` pointer promotion and signed-release tooling so the feature stays opt-in and non-fatal when unavailable.",
@@ -11,6 +16,10 @@
 			"**Runtime status UX and reliability**: web adds an explicit Harness picker and reused model selector, reporting ready/limited/offline/unknown Runtime state with fail-closed local caching. Server-side status reports serialize on the database row and verify the active lease or connection identity first, so stale reports cannot overwrite current state."
 		],
 		"fixes": [
+			"Runtime reconnects now retake their own lease deterministically — the same runtimeId replaces a stale entry instead of waiting out the 40s TTL — and control-plane heartbeats are decoupled from lease I/O, so a slow authorize or Redis renew can no longer starve the client into a timeout.",
+			"Relay data-channel pairing now outlives the runner's dial timeout, and sandbox dial failures distinguish timeouts from rejections; teardown-time websocket write failures drop from warn to debug.",
+			"Process-group cleanup treats EPERM on an emptied group as the normal end state on every platform, probes Windows trees through leader liveness, and backs off snapshot polling; a cleanup failure no longer masks an already-finished native result.",
+			"Receipt-less recovery rebuilds a completed native Turn from native transcript bytes without rewriting native data, and serve-path archive uploads resume through the Space transport again.",
 			"Preserve the default `gitea-registry` sandbox image pull secret when `SANDBOX_IMAGE_PULL_SECRET` is unset; explicit empty values omit `imagePullSecrets` and nonempty values override independently of mirror credentials.",
 			"Reordered or delayed sandbox status reports can no longer resurrect a stopped local Runtime connection, and file-bridge authorization is re-verified per connection.",
 			"Checkpoint Git pushes no longer persist credentials in the remote URL, and command output redacts secrets."
