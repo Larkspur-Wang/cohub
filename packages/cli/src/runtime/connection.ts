@@ -8,6 +8,7 @@ import {
   type RuntimeCapabilities,
   type RuntimeContext,
   type RuntimeExecutionEvent,
+  type NativeRuntimeEvent,
 } from "@neta-art/cohub";
 import { executeCodex, executePi, type HarnessOptions, type HarnessResult } from "./harness.js";
 import { ProcessCleanupUncertainError } from "./process-group.js";
@@ -43,6 +44,7 @@ export type RuntimeConnectionOptions = {
   runtimeId?: string;
   diagnostics?: RuntimeDiagnostics;
   leaseConflictTimeoutMs?: number;
+  onNativeChannel?: (send: (event: NativeRuntimeEvent) => Promise<unknown>) => void;
 };
 
 export async function serveRuntime(options: RuntimeConnectionOptions) {
@@ -181,6 +183,8 @@ async function connect(options: ConnectOptions): Promise<"retry" | "fatal" | "co
   let conflict = false;
   let unauthorized = false;
   let readyTimer: ReturnType<typeof setTimeout>;
+  const nativePending = new Map<string, { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
+  let nativeChannelReady = false;
 
   const send = (frame: unknown) => {
     if (socket.readyState !== WebSocket.OPEN || socket.bufferedAmount > RUNTIME_MAX_FRAME_BYTES) {
@@ -202,6 +206,14 @@ async function connect(options: ConnectOptions): Promise<"retry" | "fatal" | "co
     for (const execution of active.values()) execution.controller.abort();
     socket.close();
   };
+  const sendNative = (event: NativeRuntimeEvent) => new Promise<unknown>((resolve, reject) => {
+    if (!nativeChannelReady || !connectionId) { reject(new Error("Runtime native channel is unavailable")); return; }
+    const requestId = randomUUID();
+    const timer = setTimeout(() => { nativePending.delete(requestId); reject(new Error("Native Runtime event timed out")); }, 30_000);
+    nativePending.set(requestId, { resolve, reject, timer });
+    try { send({ type: "runtime.native", requestId, event }); }
+    catch (error) { clearTimeout(timer); nativePending.delete(requestId); reject(error instanceof Error ? error : new Error(String(error))); }
+  });
   options.signal.addEventListener("abort", stop, { once: true });
 
   const heartbeat = setInterval(() => {
@@ -260,6 +272,9 @@ async function connect(options: ConnectOptions): Promise<"retry" | "fatal" | "co
         fatal,
         conflict,
       }, { connectionId });
+      nativeChannelReady = false;
+      for (const pending of nativePending.values()) { clearTimeout(pending.timer); pending.reject(new Error("Runtime native channel disconnected")); }
+      nativePending.clear();
       options.onDisconnected?.();
       for (const execution of active.values()) {
         log("error", "runtime.execution_transport_lost", {
@@ -318,6 +333,8 @@ async function connect(options: ConnectOptions): Promise<"retry" | "fatal" | "co
           connectionId,
           durationMs: Date.now() - connectedAt,
         }, { connectionId });
+        nativeChannelReady = true;
+        options.onNativeChannel?.(sendNative);
         options.onReady();
         let recoveryBatch = 0;
         for await (const executions of options.store.pendingExecutionBatches()) {
@@ -333,6 +350,14 @@ async function connect(options: ConnectOptions): Promise<"retry" | "fatal" | "co
       if (!connectionId) throw new Error("Runtime handshake is incomplete");
       if (raw.type === "runtime.heartbeat") {
         lastHeartbeat = Date.now();
+        return;
+      }
+      if (raw.type === "runtime.native.result") {
+        const result = raw as { requestId?: string; result?: unknown; error?: string };
+        const pending = result.requestId ? nativePending.get(result.requestId) : null;
+        if (!pending) return;
+        clearTimeout(pending.timer); nativePending.delete(result.requestId ?? "");
+        if (result.error) pending.reject(new Error(result.error)); else pending.resolve(result.result);
         return;
       }
 

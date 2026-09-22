@@ -16,7 +16,7 @@ import { codexArchiveTotals, codexTokenTotals, codexUsage, subtractCodexTokens }
 test("Runtime CLI exposes the complete lifecycle without legacy sandbox commands", () => {
   const program = new Command();
   registerRuntime(program);
-  assert.deepEqual(program.commands[0]?.commands.map((command) => command.name()), ["up", "status", "down", "logs"]);
+  assert.deepEqual(program.commands[0]?.commands.map((command) => command.name()), ["up", "attach", "detach", "status", "down", "logs"]);
 });
 
 const spaceId = "11111111-1111-4111-8111-111111111111";

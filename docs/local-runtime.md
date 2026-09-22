@@ -44,6 +44,92 @@ Capability/authentication failures remain explicit; it never silently switches e
 `--pi` and `--codex` override executable paths. Repeated `--harness` options and comma-separated values are
 accepted. `--yes` accepts the explicit local execution consent for non-interactive startup.
 
+## Native clients / 原生客户端
+
+```bash
+cohub runtime up -d --harness pi --harness codex
+cohub runtime attach --harness pi --harness codex
+# Reload Pi or restart Codex; review native extension / hook trust prompts.
+# 重载 Pi 或重启 Codex，并审核原生扩展 / Hook 信任提示。
+pi
+codex
+cohub runtime status --json
+cohub runtime detach --harness pi --harness codex
+```
+
+`attach` installs a user-level Pi extension / Codex hook block, but enables collection only
+for the explicitly bound directory, account and environment. It confirms uploading opened
+conversations (including existing history), tool output and original session archives to the
+Space. These may contain sensitive data and follow the Space's access policy. Credentials,
+configuration files and Codex's private SQLite database are never collected. Existing native
+configuration is backed up; conflicting managed blocks and symlinks are not overwritten.
+`--yes` accepts this upload consent; it never bypasses native hook trust.
+
+`attach` 安装用户级集成，但仅采集明确绑定的目录、账号和环境。上传范围包含打开的对话、
+已有历史、工具输出和原始会话归档，可能含敏感数据，遵循 Space 权限。不会采集认证文件、
+配置或 Codex 私有 SQLite 数据库。原有配置会备份，冲突配置及符号链接不会被覆盖。
+`--yes` 仅确认上传授权，不绕过原生 Hook 信任检查。
+
+The local Runtime Supervisor is the single per-binding Daemon. Pi Extensions and Codex Hooks
+connect only to its private local socket; they do not hold Cohub tokens or open API connections.
+The Daemon owns one authenticated Runtime WebSocket, native receipts, archive outbox and native
+Turn routing. Native start / progress / completion events use that WebSocket; presigned HTTP is
+used only for archive bytes. A Plugin process can disappear without losing the local receipt.
+
+原生客户端由每个绑定对应的 Local Runtime Daemon 统一管理。Pi Extension 和 Codex Hook 只连接
+本机私有 IPC，不持有 Cohub Token，也不直接连接 API。Daemon 统一持有认证后的 Runtime WS、
+Turn 回执、归档 outbox 和原生 Turn 路由。原生 Turn 的开始、进度和完成走 WS，HTTP 只上传归档
+字节。插件进程退出不会丢失本地回执。
+
+Native executions use ordinary Cohub Chats and Turns, including existing stream snapshots,
+intermediate history, usage, native archives and continuation. Native work never waits for the
+cloud queue or network. Per-Turn local receipts precede delivery; reconnect replays receipts,
+never models or tools. An atomic Session-row operation appends at the supplied settled Turn
+or creates a standard Turn fork if the cloud has advanced, is executing or has queued work.
+An empty local history starts a separate root when there is no Turn to fork. Forked archives
+start a new baseline rather than referring to another Session's archive chain.
+
+原生执行进入普通 Chat / Turn，复用现有进度展示、历史、用量、归档和继续执行能力。
+本地执行不等待云端队列或网络；逐 Turn 回执持久化后补传，重连不重跑模型或工具。
+云端已前进、正在执行或存在排队任务时，从本地已确认的完整 Turn 自动分支；没有父 Turn
+的空历史则创建独立会话。分支归档使用新基线，不跨 Session 串接增量归档链。
+
+Existing Runtime Session / Turn sidecars and raw projection metadata seed the native binding.
+The native client's file remains its own: subsequent Runtime execution rebuilds or restores a
+separate projection, never writes into the interactive client's file. Turn forks do **not**
+isolate workspace files; parallel branches may still edit the same project directory.
+
+复用现有 Runtime 的 Session / Turn 关联与历史投影元数据。Runtime 继续执行时使用独立
+原生文件，不覆盖交互式客户端的记录。Turn 分支不隔离工作目录，并行分支仍可能修改相同文件。
+
+Boundaries:
+- Pi requires 0.85.1+ with `agent_settled`; Codex requires enabled stable Hooks. Startup capability
+  checks fail explicitly. Pi 0.86.1 and Codex 0.155.1 smoke tests use a deterministic loopback model fixture.
+- Progress follows durable native messages, not every token. Codex hooks only register local watches;
+  the existing Runtime supervisor reads flushed Turn boundaries and retries uploads every five seconds.
+- Ephemeral sessions without a durable transcript are not collected. A native file belonging to an
+  unconfirmed managed Runtime execution cannot be adopted; finish or reconcile that execution first.
+- Only whole-Turn anchors are supported. Pi intra-Turn rewinds and Codex rollouts referencing missing
+  parent history fail explicitly with originals retained; they are never silently rounded to another anchor.
+- Native-only UI / direct-shell records do not become separate Agent Turns. Their original bytes remain
+  local and are included in subsequent Turn archives; the bridge does not invent message-level anchors.
+  原生 UI / 直接 Shell 记录不另建 Agent Turn，原件保留在本地并随后续 Turn 归档，不虚构 message 级锚点。
+- Capture currently reads at most 128 MiB per transcript; API receipts are limited to 32 MiB. Limits
+  retain originals and surface diagnostics instead of truncating data.
+- Pi can honor a remote abort while its extension is connected. Codex hooks are not a remote control
+  channel; stop an active native Codex run in its terminal. Unknown outcomes retain the existing explicit
+  stop-confirmation boundary. Completed Chats can continue through the regular Runtime.
+- `detach` pauses collection and future uploads, preserving receipts, files and cloud history. In-flight
+  requests may finish. `down` stops the Runtime supervisor, not independently launched native clients.
+
+边界：只支持完整 Turn 分支，不新增 message 级锚点。消息随原生持久记录更新，不保证逐 token。
+无法识别的中途分支、缺失父历史和超限记录会明确报错并保留原件。Pi 扩展在线时可接收停止请求；
+Codex Hooks 不提供远程控制，运行中的原生任务需在终端停止，结果未知时仍须明确确认。
+`detach` 暂停后续采集和上传，不删除数据；`down` 不终止用户独立启动的原生客户端。
+
+Deploy API before the updated CLI and restart an older Runtime before `attach`. No DB migration is needed.
+先部署 API，再更新 CLI；接入前重启旧 Runtime。无需数据库迁移。
+
 ## Lifecycle / 生命周期
 
 Foreground and detached startup share one supervisor. Readiness requires both the
@@ -126,8 +212,9 @@ Object storage -> CLI presigned GET -> verified native restore
 Cloud native session <- DB context (no harness archive)
 ```
 
-There are no HTTP polling/claim/result endpoints. The outbound local connection
-uses `/runtime/relay`; internal Agent peers use `/internal/runtime-relay/:spaceId`.
+Managed execution has no HTTP polling/claim/result endpoints. Native-client receipts use
+`/api/spaces/:id/runtime/native-turns` for ingestion only; they never dispatch or replay model/tool work.
+The outbound managed connection uses `/runtime/relay`; internal Agent peers use `/internal/runtime-relay/:spaceId`.
 The existing workspace relay remains responsible for files and processes.
 
 The same Session lock and queue serialize Cloud and Local execution. At claim time,
@@ -254,6 +341,7 @@ pnpm --filter @cohub/agent test:runtime
 pnpm --filter @neta-art/cohub-cli test
 pnpm --filter @neta-art/cohub-cli test:runtime
 RUNTIME_TEST_DB_HOME=/path/to/isolated-db pnpm --filter @cohub/api test:runtime:archives
+RUNTIME_TEST_DB_HOME=/path/to/isolated-db pnpm --filter @cohub/api test:runtime:native-sync
 ```
 
 `test:runtime` uses loopback WebSockets and fixture RPC processes, never real
@@ -265,6 +353,17 @@ No production-bucket writes are performed by the automated tests.
 Deploy Worker, API, Gateway and every Agent instance
 before enabling the updated Web/CLI. Worker must understand local usage before local
 results arrive, so they cannot be charged as cloud executions.
+
+Native plugin smoke tests use isolated homes, the published JS layout, and a deterministic
+loopback model fixture. They do not read real credentials or contact a Cohub server.
+原生插件冒烟测试使用隔离目录与本地模型桩，不读取真实凭证、不连接 Cohub 服务端。
+
+```bash
+# Build protocol, SDK and CLI first / 先构建 protocol、SDK 和 CLI
+COHUB_NATIVE_PI_BIN=/path/to/pi \
+COHUB_NATIVE_CODEX_BIN=/path/to/codex \
+pnpm --filter @neta-art/cohub-cli test:runtime:plugins
+```
 
 For opt-in real-model testing, prepare an isolated directory containing `home/`,
 `pi/` and `codex/`, with native authentication/configuration. This test makes model

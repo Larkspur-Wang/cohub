@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, open, readFile, readdir, rename, rm } from "node:fs/promises";
+import { mkdir, open, readFile, readdir, realpath, rename, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { RUNTIME_RECOVERY_BATCH_SIZE, runtimeEventSchema, serializeProjectionRecords, type RuntimeExecutionEvent, type HarnessArchive, type RuntimePendingExecution, type RuntimeTurnInput } from "@neta-art/cohub";
@@ -38,6 +38,29 @@ export type NativeSession = {
   sourceFingerprint?: string | null;
   nativeLeafId?: string | null;
 };
+/** Reverse lookup for native clients; the existing Runtime state remains authoritative. */
+export async function findRuntimeNativeSession(root: string, harness: "pi" | "codex", nativeSessionId: string, path?: string): Promise<NativeSession | null> {
+  const directory = join(root, harness);
+  const names = await readdir(directory).catch((error) => { if ((error as NodeJS.ErrnoException).code === "ENOENT") return []; throw error; });
+  const matches: NativeSession[] = [];
+  for (const name of names) {
+    if (!name.endsWith(".json")) continue;
+    const state = JSON.parse(await readFile(join(directory, name), "utf8")) as NativeSession;
+    if (state.version === 1 && state.harness === harness && state.nativeSessionId === nativeSessionId) matches.push(state);
+  }
+  if (path && matches.length) {
+    const canonical = await realpath(path);
+    const exact: NativeSession[] = [];
+    for (const state of matches) {
+      const candidate = await realpath(state.path).catch((error) => { if ((error as NodeJS.ErrnoException).code === "ENOENT") return null; throw error; });
+      if (candidate === canonical) exact.push(state);
+    }
+    if (exact.length === 1) return exact[0] ?? null;
+  }
+  if (matches.length > 1) throw new Error("Native Session has ambiguous Runtime bindings / 原生会话存在多个 Runtime 关联");
+  return matches[0] ?? null;
+}
+
 const checksum = (data: string | Buffer) => createHash("sha256").update(data).digest("hex");
 const missing = (error: unknown) => (error as NodeJS.ErrnoException)?.code === "ENOENT";
 class CaptureUnavailableError extends Error {}
@@ -327,6 +350,13 @@ export class RuntimeSessionStore {
           throw new Error(`Local turn ${pending} has unconfirmed results; reconcile it before continuing`);
         }
       }
+    }
+    if (previous) {
+      const previousPath = previous.path;
+      const canonical = await realpath(previousPath).catch((error) => { if (missing(error)) return previousPath; throw error; });
+      const externallyOwned = await readFile(join(this.root, "native-owners", `${checksum(canonical)}.json`), "utf8").then(() => true).catch((error) => { if (missing(error)) return false; throw error; });
+      // Interactive clients own their native files, including symlink aliases. Use an independent projection.
+      if (externallyOwned) previous = null;
     }
     if (previous) {
       try {

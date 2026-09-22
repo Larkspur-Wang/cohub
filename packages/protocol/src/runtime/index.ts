@@ -3,7 +3,9 @@ import type { ContentBlock } from "../core/content.js";
 import type { Usage } from "../core/usage.js";
 import { contentBlockSchema } from "../core/content-schema.js";
 import { harnessArchiveSchema, type HarnessArchive } from "./archive.js";
+import { nativeRuntimeEventSchema } from "./native.js";
 export * from "./archive.js";
+export * from "./native.js";
 export {
   fingerprintProjectionTurns,
   isProjectionCompaction,
@@ -228,8 +230,10 @@ export const runtimeClientFrameSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("runtime.heartbeat") }),
   z.object({ type: z.literal("runtime.auth"), token: z.string().min(1).max(16_384) }),
   z.object({ type: z.literal("runtime.event"), requestId: id, event: runtimeEventSchema }),
+  z.object({ type: z.literal("runtime.native"), requestId: id, event: nativeRuntimeEventSchema }),
 ]);
 export type RuntimeClientFrame = z.infer<typeof runtimeClientFrameSchema>;
+export const runtimeNativeResultSchema = z.object({ type: z.literal("runtime.native.result"), requestId: id, result: z.unknown(), error: z.string().optional() }).strict();
 
 const runtimeContextSchema = z.object({ complete: z.boolean().optional(), revision: z.string(), throughTurnId: id.nullable(), messages: z.array(z.object({
   id: z.string(), turnId: id, role: z.enum(["user", "assistant", "system"]), content,

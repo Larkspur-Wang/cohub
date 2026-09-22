@@ -5,6 +5,7 @@ import { gatewayConfig } from "../config.js";
 import { redisCommandClient } from "../redis.js";
 import { createRuntimeRecoveryLifecycle, createRuntimeRelay } from "./runtime-relay.js";
 import { publishRuntimeChanged } from "./status.js";
+import { forwardNativeRuntimeEvent } from "../native-runtime-client.js";
 
 const recoveryQueue = createAgentTurnsQueue(gatewayConfig.bullmqRedisUrl, "cohub-gateway-runtime");
 const recovery = createRuntimeRecoveryLifecycle({
@@ -19,6 +20,7 @@ const recovery = createRuntimeRecoveryLifecycle({
 });
 const relay = createRuntimeRelay({
   recover: recovery.recover,
+  nativeEvent: (spaceId, ownerUserId, requestId, event) => forwardNativeRuntimeEvent({ spaceId, ownerUserId, requestId, event }),
   secret: gatewayConfig.workerSecret,
   endpoint: (spaceId, connectionId) => {
     const host = gatewayConfig.podIp.includes(":") ? `[${gatewayConfig.podIp}]` : gatewayConfig.podIp;

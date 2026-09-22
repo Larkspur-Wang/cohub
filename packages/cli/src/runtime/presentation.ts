@@ -20,6 +20,7 @@ const messages: Record<string, string> = {
   "runtime.connection_failed": "Connection attempt failed; retrying / 连接失败，将继续重试",
   "runtime.execution_transport_lost": "Execution disconnected; outcome needs reconciliation / 执行连接中断，结果待确认",
   "archive.upload_pending": "Archive upload pending; local data retained / 归档待上传，本地数据已保留",
+  "native.sync_pending": "Native sync pending; local records retained / 原生同步待处理，本地记录已保留",
   "archive.capture_pending": "Archive capture pending / 归档待处理",
   "archive.capture_unavailable": "Archive unavailable; original receipt retained / 归档不可用，原始回执已保留",
   "archive.restore_failed": "Native restore unavailable; using saved history / 原生恢复不可用，使用已保存历史",
@@ -66,6 +67,7 @@ export type RuntimeSummary = {
   workspaceConnected: boolean;
   diagnosticsPath: string;
   background: boolean;
+  nativeSync?: boolean;
 };
 
 export function printRuntimeSummary(summary: RuntimeSummary, json = false, reused = false) {

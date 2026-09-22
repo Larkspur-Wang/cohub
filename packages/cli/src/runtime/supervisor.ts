@@ -14,6 +14,9 @@ import { RuntimeDiagnostics, serializeDiagnosticError, type RuntimeDiagnostic, t
 import { ownRuntimeInstance, runtimeInstanceDirectory } from "./instance.js";
 import { createDiagnosticConsole, type RuntimeSummary } from "./presentation.js";
 import { RuntimeSessionStore } from "./session-store.js";
+import { captureNativeSession, flushNativeSessions, nativeWebSocketTransport } from "./native-sync.js";
+import type { NativeRuntimeEvent } from "@neta-art/cohub";
+import { serveNativeDaemon } from "./native-ipc.js";
 
 export type RuntimeLaunch = {
   spaceId: string;
@@ -51,6 +54,7 @@ export async function runRuntime(config: RuntimeLaunch, onState: (status: Runtim
     pid: process.pid, harnesses: config.harnesses, background: config.background,
     state: "starting", harnessConnected: false, workspaceConnected: false,
     diagnosticsPath: diagnostics.directory,
+    nativeSync: true,
   };
   let hasBeenReady = false;
   const update = (patch: Partial<RuntimeSummary>) => {
@@ -64,6 +68,9 @@ export async function runRuntime(config: RuntimeLaunch, onState: (status: Runtim
   };
   let closeInstance: (() => Promise<void>) | undefined;
   let bridgeTask: Promise<void> | undefined;
+  let nativeSyncTask: Promise<void> | undefined;
+  let closeNativeDaemon: (() => Promise<void>) | undefined;
+  let nativeSend: ((event: NativeRuntimeEvent) => Promise<unknown>) | null = null;
   let tokenInFlight: Promise<string> | null = null;
   const token = (forceRefresh = false) => {
     tokenInFlight ??= (async () => {
@@ -190,11 +197,25 @@ export async function runRuntime(config: RuntimeLaunch, onState: (status: Runtim
       }
     };
     bridgeTask = runBridge();
+    closeNativeDaemon = await serveNativeDaemon({ runtimeRoot: store.root, handle: async (request) => ({
+      store: await captureNativeSession(request),
+    }) });
+    nativeSyncTask = (async () => {
+      const report = (error: unknown) => diagnostics.log("warn", "native.sync_pending", { error: serializeDiagnosticError(error) });
+      while (!signal.aborted) {
+        try {
+          if (nativeSend) await flushNativeSessions(config.spaceId, config.identity, signal, report, nativeWebSocketTransport(config.spaceId, config.identity, nativeSend));
+        }
+        catch (error) { if (!signal.aborted) report(error); }
+        await delay(5000, undefined, { signal }).catch(() => undefined);
+      }
+    })();
     await serveRuntime({
       spaceId: config.spaceId, cwd: config.root, url: url.toString(), capabilities,
       harnesses: config.executables, runtimeId: status.runtimeId, diagnostics, token, signal, store,
       onReady: () => update({ harnessConnected: true }),
-      onDisconnected: () => update({ harnessConnected: false }),
+      onDisconnected: () => { nativeSend = null; update({ harnessConnected: false }); },
+      onNativeChannel: (send) => { nativeSend = send; },
     });
   } catch (error) {
     if (!signal.aborted) {
@@ -205,7 +226,8 @@ export async function runRuntime(config: RuntimeLaunch, onState: (status: Runtim
   } finally {
     controller.abort();
     try {
-      await bridgeTask;
+      await Promise.all([bridgeTask, nativeSyncTask]);
+      await closeNativeDaemon?.();
     } finally {
       try {
         await diagnostics.close();

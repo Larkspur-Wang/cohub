@@ -84,6 +84,28 @@ COHUB_SPACE_ID=<spaceId> cohub spaces prompt "message" --json
 
 Connect one local workspace to a Space and select Pi or Codex per turn.
 
+To keep using native terminals with ordinary Cohub Chats / Turns:
+使用原生终端，并同步到普通 Cohub Chat / Turn：
+
+```bash
+cohub runtime up -d --harness pi --harness codex
+cohub runtime attach --harness pi --harness codex
+# Reload Pi / restart Codex and approve its hook trust prompt.
+# 重载 Pi / 重启 Codex，并审核 Hook 信任提示。
+cohub runtime detach --harness pi --harness codex # Pause; retain data / 暂停，保留数据
+```
+
+`attach` explicitly authorizes this project's opened conversation history and raw native archives.
+The Runtime Supervisor is the single local Daemon: Pi / Codex integrations use its private IPC,
+while native Turn events use the existing Runtime WebSocket. Configuration is backed up, existing
+Runtime bindings are reused, and competing continuations fork at complete Turns without blocking native work. Requires Pi 0.85.1+ or Codex with stable
+Hooks enabled. User-level integrations remain inert outside opted-in directories. See
+[boundaries and privacy](../../docs/local-runtime.md#native-clients--原生客户端).
+
+`attach` 明确授权上传当前项目打开的对话历史与原生归档；复用现有绑定，配置修改前备份。
+冲突时按完整 Turn 分支，不阻塞本地执行。用户级集成在未授权目录中不会采集数据。
+
+
 ```bash
 cohub runtime up ./project --harness pi --harness codex
 cohub runtime up ./project --space <spaceId> --harness codex
