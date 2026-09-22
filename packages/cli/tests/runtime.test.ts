@@ -10,6 +10,8 @@ import type { RuntimeTurnInput, RuntimeExecutionEvent } from "@neta-art/cohub";
 import { JsonLineDecoder } from "../src/runtime/json-rpc.js";
 import { archiveStorageFixture } from "./fixtures/runtime-archive-storage.js";
 import { discoverHarnesses, executePi, executeCodex } from "../src/runtime/harness.js";
+import { askNativeSyncConsent, nativeSyncSatisfied } from "../src/runtime/native-attach.js";
+import { formatNativeSync } from "../src/runtime/presentation.js";
 import { Command } from "commander";
 import { parseRuntimeHarnesses, registerRuntime } from "../src/commands/runtime.js";
 import { codexArchiveTotals, codexTokenTotals, codexUsage, subtractCodexTokens } from "../src/runtime/codex-usage.js";
@@ -19,7 +21,40 @@ const jsonl = (value: unknown) => `${JSON.stringify(value)}\n`;
 test("Runtime CLI exposes the complete lifecycle without legacy sandbox commands", () => {
   const program = new Command();
   registerRuntime(program);
-  assert.deepEqual(program.commands[0]?.commands.map((command) => command.name()), ["up", "attach", "detach", "status", "down", "logs"]);
+  assert.deepEqual(program.commands[0]?.commands.map((command) => command.name()), ["up", "detach", "status", "down", "logs"]);
+});
+
+test("native sync consent and idempotence decide installation without blocking startup", async () => {
+  const satisfied = { version: 1 as const, identity: "i", spaceId: "s", root: "/a", harnesses: ["pi" as const] };
+  assert.equal(nativeSyncSatisfied(satisfied, { spaceId: "s", root: "/a", harnesses: ["pi"] }), true);
+  assert.equal(nativeSyncSatisfied({ ...satisfied, harnesses: [] }, { spaceId: "s", root: "/a", harnesses: ["pi"] }), false);
+  assert.equal(nativeSyncSatisfied(null, { spaceId: "s", root: "/a", harnesses: ["pi"] }), false);
+  assert.equal(nativeSyncSatisfied({ ...satisfied, root: "/b" }, { spaceId: "s", root: "/a", harnesses: ["pi"] }), false);
+  const yes = await askNativeSyncConsent(["pi", "codex"], async () => "");
+  const no = await askNativeSyncConsent(["pi"], async () => "n");
+  assert.equal(yes, true);
+  assert.equal(no, false);
+});
+
+test("runtime status native sync block shows enablement and pending work per Harness", () => {
+  assert.equal(formatNativeSync(null, []), "Native sync  off · run cohub runtime up to enable\n");
+  assert.equal(formatNativeSync({ version: 1, identity: "i", spaceId: "s", root: "/a", harnesses: [] }, []), "Native sync  off · run cohub runtime up to enable\n");
+  const enabled = formatNativeSync({ version: 1 as const, identity: "i", spaceId: "s", root: "/a", harnesses: ["pi", "codex"] }, []);
+  assert.equal(enabled, "Native sync  enabled · pi, codex\n  No native chats captured yet\n");
+  const busy = formatNativeSync({ version: 1 as const, identity: "i", spaceId: "s", root: "/a", harnesses: ["pi"] }, [
+    { harness: "pi", nativeSessionId: "12345678-1111-4111-8111-111111111111", sessionId: null, pendingTurns: 2, pendingArchives: 1 },
+    { harness: "pi", nativeSessionId: "87654321-2222-4222-8222-222222222222", sessionId: null, pendingTurns: 0, pendingArchives: 0 },
+  ]);
+  assert.equal(busy, "Native sync  enabled · pi\n  pi    12345678  2 Turns · 1 archives pending\n  pi    87654321  0 Turns · 0 archives pending\n");
+  assert.ok(!busy.includes("Up to date"));
+  const idle = formatNativeSync({ version: 1 as const, identity: "i", spaceId: "s", root: "/a", harnesses: ["pi"] }, [
+    { harness: "pi", nativeSessionId: "12345678-1111-4111-8111-111111111111", sessionId: null, pendingTurns: 0, pendingArchives: 0 },
+  ]);
+  assert.ok(idle.includes("Up to date"));
+  assert.equal(
+    formatNativeSync(null, [], "Unexpected token in JSON"),
+    "Native sync  unknown — Unexpected token in JSON · fix or remove the config, then runtime up\n",
+  );
 });
 
 const spaceId = "11111111-1111-4111-8111-111111111111";

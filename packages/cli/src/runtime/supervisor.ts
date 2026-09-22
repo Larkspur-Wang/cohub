@@ -54,7 +54,6 @@ export async function runRuntime(config: RuntimeLaunch, onState: (status: Runtim
     pid: process.pid, harnesses: config.harnesses, background: config.background,
     state: "starting", harnessConnected: false, workspaceConnected: false,
     diagnosticsPath: diagnostics.directory,
-    nativeSync: true,
   };
   let hasBeenReady = false;
   const update = (patch: Partial<RuntimeSummary>) => {

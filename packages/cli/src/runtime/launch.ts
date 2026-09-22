@@ -11,6 +11,7 @@ import { createClient } from "../client.js";
 import { currentIdentityKey, explicitSpace } from "../space.js";
 import { canonicalRuntimeRoot, getRuntimeSpaceBinding, resolveRuntimeSpace } from "./space-binding.js";
 import { requestRuntimeInstance, runtimeInstanceDirectory } from "./instance.js";
+import { ensureNativeSync } from "./native-attach.js";
 import type { RuntimeDiagnostic } from "./diagnostics.js";
 import { createDiagnosticConsole, printRuntimeSummary, runtimeWebUrl, type RuntimeSummary } from "./presentation.js";
 import { runRuntime, type RuntimeLaunch } from "./supervisor.js";
@@ -79,6 +80,9 @@ export async function runtimeUp(program: Command, dir: string | undefined, optio
       if (existing.root !== root || options.harness.length && [...existing.harnesses].sort().join() !== [...harnesses].sort().join() || options.pi || options.codex) {
         throw new Error("Runtime is running with a different configuration. Use down first");
       }
+      // `up` is the single idempotent entry: a reused instance adopts its running
+      // Harnesses (unless explicitly overridden) and completes native sync setup.
+      await ensureNativeSync({ root, spaceId: existing.spaceId, identity, harnesses: options.harness.length ? harnesses : parseRuntimeHarnesses(existing.harnesses), yes: options.yes, executables: { pi: options.pi, codex: options.codex } });
       printRuntimeSummary(existing, options.json, true);
       return;
     }
@@ -103,8 +107,8 @@ export async function runtimeUp(program: Command, dir: string | undefined, optio
       if (binding && createNew && !options.name) name = `${name}-${randomUUID().slice(0, 6)}`;
       if (!requested && (!binding || createNew)) name = (await rl.question(`Space name [${name}]: `)).trim() || name;
       process.stderr.write(`\nDirectory  ${root}\n${requested ? `Space  ${runtimeWebUrl(requested)}\n` : ""}`);
-      const answer = await rl.question("Collaborators can execute as your OS user, beyond this folder. Allow? [y/N] ");
-      if (!/^y(es)?$/i.test(answer.trim())) return;
+      const answer = await rl.question("Collaborators can execute as your OS user, beyond this folder. Allow? [Y/n] ");
+      if (/^n(o)?$/i.test(answer.trim())) return;
     } finally { rl.close(); }
   }
   if (options.yes && createNew && binding && !options.name) name = `${name}-${randomUUID().slice(0, 6)}`;
@@ -123,6 +127,8 @@ export async function runtimeUp(program: Command, dir: string | undefined, optio
       if (sandbox?.provider !== "local") throw new Error("Space does not have a local Runtime");
     },
   });
+  // Consent (or --yes) precedes any user-level integration install; failure never blocks startup.
+  await ensureNativeSync({ root, spaceId, identity, harnesses, yes: options.yes, executables: { pi: options.pi, codex: options.codex } });
   const config: RuntimeLaunch = { spaceId, root, identity, harnesses, capabilities, executables: { pi: options.pi, codex: options.codex }, background: Boolean(options.detach), verbose: options.verbose };
   const existing = await requestRuntimeInstance(runtimeInstanceDirectory(identity, spaceId));
   if (existing) {

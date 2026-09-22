@@ -1,4 +1,5 @@
 import { resolveCohubEnvironment } from "@neta-art/cohub";
+import type { NativeSyncConfig } from "./native-sync.js";
 import type { RuntimeDiagnostic, RuntimeDiagnosticLevel } from "./diagnostics.js";
 
 export const diagnosticLevels: RuntimeDiagnosticLevel[] = ["debug", "info", "warn", "error"];
@@ -69,7 +70,6 @@ export type RuntimeSummary = {
   workspaceConnected: boolean;
   diagnosticsPath: string;
   background: boolean;
-  nativeSync?: boolean;
 };
 
 export function printRuntimeSummary(summary: RuntimeSummary, json = false, reused = false) {
@@ -90,4 +90,19 @@ export function printRuntimeSummary(summary: RuntimeSummary, json = false, reuse
   process.stdout.write(`\n  cohub runtime logs --space ${summary.spaceId} --follow\n  cohub runtime down --space ${summary.spaceId}\n`);
   if (!summary.background && !reused) process.stdout.write("  Ctrl+C to stop\n");
   process.stdout.write("\n");
+}
+
+export type NativeSessionStatus = { harness: "pi" | "codex"; nativeSessionId: string; sessionId: string | null; pendingTurns: number; pendingArchives: number };
+
+/** `runtime status` native sync block: installation state plus per-Harness pending work. */
+export function formatNativeSync(config: NativeSyncConfig | null, sessions: NativeSessionStatus[], error: string | null = null): string {
+  if (error) return `Native sync  unknown — ${error} · fix or remove the config, then runtime up\n`;
+  if (!config?.harnesses.length) return "Native sync  off · run cohub runtime up to enable\n";
+  const lines = [`Native sync  enabled · ${config.harnesses.join(", ")}`];
+  for (const session of sessions) {
+    lines.push(`  ${session.harness.padEnd(5)} ${session.nativeSessionId.slice(0, 8)}  ${session.pendingTurns} Turns · ${session.pendingArchives} archives pending`);
+  }
+  if (!sessions.length) lines.push("  No native chats captured yet");
+  else if (sessions.every((session) => !session.pendingTurns && !session.pendingArchives)) lines.push("  Up to date");
+  return `${lines.join("\n")}\n`;
 }
