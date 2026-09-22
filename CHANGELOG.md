@@ -4,6 +4,20 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v2.54 — 2026-09-22
+
+- **Supervised Local Runtime**: `cohub runtime up` now runs foreground or background (`-d`) under a shared supervisor, with authenticated local IPC for `status` and `down`, bounded jittered retries on network and credential failures, crash-restart that never replays model or tool work, redacted terminal warnings, and explicit Space reuse/new prompts (`-n` is now the boolean alias for `--new`; use `--name` to name a Space).
+- **Native Pi/Codex Turn sync**: native terminal conversations now flow into ordinary Cohub Chats and Turns through a single local Runtime Daemon. Per-turn durable receipts replay without re-running models or tools, conflicting continuations fork at complete Turn boundaries via the standard session-fork machinery, native archives are verified and reused, and `cohub runtime attach`/`detach` authorize project-scoped uploads. Pi/Codex integrations talk only to the Daemon's private IPC and never hold Cohub credentials.
+- **Optional workspace search**: cloud sandboxes bootstrap a checksum-verified `cohub-search` binary downloaded asynchronously without blocking the main runtime, with `latest.json` pointer promotion and signed-release tooling so the feature stays opt-in and non-fatal when unavailable.
+- **Optional, hardened checkpoint mirrors**: local checkpoint storage no longer depends on Gitea, so it works with no mirror configured. Mirror credentials are validated at startup, Git pushes authenticate with temporary headers instead of persisted remote credentials, checkpoint metadata merges atomically, and sandbox image pull secrets are configured explicitly.
+- **Runtime status UX and reliability**: web adds an explicit Harness picker and reused model selector, reporting ready/limited/offline/unknown Runtime state with fail-closed local caching. Server-side status reports serialize on the database row and verify the active lease or connection identity first, so stale reports cannot overwrite current state.
+
+### Bug Fixes
+
+- Preserve the default `gitea-registry` sandbox image pull secret when `SANDBOX_IMAGE_PULL_SECRET` is unset; explicit empty values omit `imagePullSecrets` and nonempty values override independently of mirror credentials.
+- Reordered or delayed sandbox status reports can no longer resurrect a stopped local Runtime connection, and file-bridge authorization is re-verified per connection.
+- Checkpoint Git pushes no longer persist credentials in the remote URL, and command output redacts secrets.
+
 ## v2.53 — 2026-09-21
 
 - **Native file monitoring**: Pinned the bundled `sandboxd` to `v2.53.1`, the first published release with native FSEvents file-monitoring backends and the `runtimeId` control frame, so `cohub runtime up` serves a current daemon instead of the stale `v1.82.4` build.
