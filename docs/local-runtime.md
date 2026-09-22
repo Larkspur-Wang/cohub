@@ -48,27 +48,31 @@ accepted. `--yes` accepts the explicit local execution consent for non-interacti
 
 ```bash
 cohub runtime up -d --harness pi --harness codex
-cohub runtime attach --harness pi --harness codex
-# Reload Pi or restart Codex; review native extension / hook trust prompts.
-# 重载 Pi 或重启 Codex，并审核原生扩展 / Hook 信任提示。
+# Answer the native sync consent (default yes), then reload Pi or restart Codex
+# and review its hook trust prompt.
+# 确认原生同步授权（默认 yes），重载 Pi / 重启 Codex，并审核原生 Hook 信任提示。
 pi
 codex
-cohub runtime status --json
+cohub runtime status
 cohub runtime detach --harness pi --harness codex
 ```
 
-`attach` installs a user-level Pi extension / Codex hook block, but enables collection only
-for the explicitly bound directory, account and environment. It confirms uploading opened
-conversations (including existing history), tool output and original session archives to the
-Space. These may contain sensitive data and follow the Space's access policy. Credentials,
-configuration files and Codex's private SQLite database are never collected. Existing native
-configuration is backed up; conflicting managed blocks and symlinks are not overwritten.
-`--yes` accepts this upload consent; it never bypasses native hook trust.
+`up` installs native sync by default after one explicit consent (default yes; `--yes` accepts
+it non-interactively). It installs a user-level Pi extension / Codex hook block, but enables
+collection only for the explicitly bound directory, account and environment. The consent confirms
+uploading opened conversations (including existing history), tool output and original session
+archives to the Space. These may contain sensitive data and follow the Space's access policy.
+Credentials, configuration files and Codex's private SQLite database are never collected. Existing
+native configuration is backed up; conflicting managed blocks and symlinks are not overwritten.
+Declining or a capability failure (for example Pi older than 0.85.1) keeps the Runtime running
+without native sync. `up` is idempotent: an already-enabled configuration is skipped silently,
+and after `detach` the next `up` asks again.
 
-`attach` 安装用户级集成，但仅采集明确绑定的目录、账号和环境。上传范围包含打开的对话、
-已有历史、工具输出和原始会话归档，可能含敏感数据，遵循 Space 权限。不会采集认证文件、
-配置或 Codex 私有 SQLite 数据库。原有配置会备份，冲突配置及符号链接不会被覆盖。
-`--yes` 仅确认上传授权，不绕过原生 Hook 信任检查。
+`up` 安装用户级集成前单独确认一次（默认 yes；`--yes` 非交互直接授权），仅采集明确绑定的
+目录、账号和环境。上传范围包含打开的对话、已有历史、工具输出和原始会话归档，可能含
+敏感数据，遵循 Space 权限。不会采集认证文件、配置或 Codex 私有 SQLite 数据库。原有配置
+会备份，冲突配置及符号链接不会被覆盖。拒绝或能力不满足（如 Pi 低于 0.85.1）时 Runtime
+照常运行，仅无原生同步。`up` 幂等：已启用则静默跳过，`detach` 后下次 `up` 再询问。
 
 The local Runtime Supervisor is the single per-binding Daemon. Pi Extensions and Codex Hooks
 connect only to its private local socket; they do not hold Cohub tokens or open API connections.
@@ -127,8 +131,9 @@ Boundaries:
 Codex Hooks 不提供远程控制，运行中的原生任务需在终端停止，结果未知时仍须明确确认。
 `detach` 暂停后续采集和上传，不删除数据；`down` 不终止用户独立启动的原生客户端。
 
-Deploy API before the updated CLI and restart an older Runtime before `attach`. No DB migration is needed.
-先部署 API，再更新 CLI；接入前重启旧 Runtime。无需数据库迁移。
+Deploy API before the updated CLI and restart an older Runtime before enabling native sync.
+No DB migration is needed.
+先部署 API，再更新 CLI；启用原生同步前重启旧 Runtime。无需数据库迁移。
 
 ## Lifecycle / 生命周期
 

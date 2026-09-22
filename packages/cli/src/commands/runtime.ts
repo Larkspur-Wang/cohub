@@ -1,5 +1,4 @@
 import { setTimeout as delay } from "node:timers/promises";
-import { createInterface } from "node:readline/promises";
 import type { Command } from "commander";
 import { createClient } from "../client.js";
 import { json as outJson, jsonRequested } from "../output.js";
@@ -7,9 +6,10 @@ import { currentIdentityKey } from "../space.js";
 import { resolveRuntimeTarget, runtimeUp, parseRuntimeHarnesses, type RuntimeUpOptions } from "../runtime/launch.js";
 import { canonicalRuntimeRoot, getRuntimeSpaceBinding } from "../runtime/space-binding.js";
 import { installNativeSync } from "../runtime/native-install.js";
+import { readNativeSyncConfig } from "../runtime/native-sync.js";
 import { listNativeSyncStores } from "../runtime/native-sync-store.js";
 import { requestRuntimeInstance, runtimeInstanceDirectory } from "../runtime/instance.js";
-import { atLeastLevel, diagnosticLevels, formatDiagnostic, printRuntimeSummary } from "../runtime/presentation.js";
+import { atLeastLevel, diagnosticLevels, formatDiagnostic, formatNativeSync, printRuntimeSummary } from "../runtime/presentation.js";
 import { RuntimeSessionStore } from "../runtime/session-store.js";
 import { readRuntimeDiagnosticEvents, RuntimeDiagnosticReader, runtimeDiagnosticsDirectory, serializeDiagnosticError, type RuntimeDiagnosticLevel } from "../runtime/diagnostics.js";
 
@@ -32,7 +32,7 @@ export function registerRuntime(program: Command) {
     .option("--harness <name>", "Pi or Codex; repeatable", (value: string, previous: string[]) => [...previous, value], [])
     .option("--pi <path>", "Pi executable")
     .option("--codex <path>", "Codex executable")
-    .option("-y, --yes", "Accept defaults and authorize local execution")
+    .option("-y, --yes", "Accept defaults and authorize local execution and native sync")
     .option("--verbose", "Show diagnostic details")
     .option("--json", "JSON output")
     .action(async (dir: string | undefined, options: RuntimeUpOptions) => {
@@ -40,39 +40,23 @@ export function registerRuntime(program: Command) {
       catch (cause) { reportFailure(cause); }
     });
 
-  for (const action of ["attach", "detach"] as const) runtime.command(action)
-    .description(action === "attach" ? "Sync native Pi / Codex Turns" : "Pause native sync; retain all receipts")
+  runtime.command("detach")
+    .description("Pause native sync; retain all receipts")
     .option("-s, --space <id>", "Target Space")
     .option("--harness <name>", "Pi or Codex; repeatable", (value: string, previous: string[]) => [...previous, value], [])
-    .option("--pi <path>", "Pi executable for capability checks")
-    .option("--codex <path>", "Codex executable for capability checks")
-    .option("-y, --yes", "Authorize project conversation and native archive uploads")
     .option("--json", "JSON output")
-    .action(async (options: TargetOptions & { harness: string[]; yes?: boolean; pi?: string; codex?: string }) => {
+    .action(async (options: TargetOptions & { harness: string[] }) => {
       try {
         const spaceId = await resolveRuntimeTarget(program, options.space);
         const identity = currentIdentityKey();
         if (!identity) throw new Error("Sign in first");
         const root = await canonicalRuntimeRoot(process.cwd());
-        if (action === "attach" && (await getRuntimeSpaceBinding(root, identity))?.spaceId !== spaceId) throw new Error("Bind this directory with runtime up --space first");
+        if ((await getRuntimeSpaceBinding(root, identity))?.spaceId !== spaceId) throw new Error("Bind this directory with runtime up first");
         const instance = await requestRuntimeInstance(runtimeInstanceDirectory(identity, spaceId));
-        if (action === "attach" && (!instance || instance.root !== root)) throw new Error("Start this directory's Runtime first: cohub runtime up -d");
-        if (action === "attach" && !instance?.nativeSync) throw new Error("Restart the Runtime with this CLI before attaching");
         const harnesses = parseRuntimeHarnesses(options.harness.length ? options.harness : instance?.harnesses ?? ["pi", "codex"]);
-        if (action === "attach" && harnesses.some((harness) => !instance?.harnesses.includes(harness))) throw new Error("Enable these Harnesses with runtime up first");
-        if (action === "attach" && !options.yes) {
-          if (!process.stdin.isTTY) throw new Error("Use --yes to authorize native sync");
-          const rl = createInterface({ input: process.stdin, output: process.stderr });
-          try {
-            const answer = await rl.question(`Install user-level ${harnesses.join(" / ")} integration and upload this project's opened conversations, tool output and raw archives to this Space? History may contain secrets. [y/N] `);
-            if (!/^y(es)?$/i.test(answer.trim())) return;
-          } finally { rl.close(); }
-        }
-        const result = await installNativeSync({ root, spaceId, identity, harnesses, disabled: action === "detach", executables: { pi: options.pi, codex: options.codex } });
-        if (jsonRequested(options)) outJson(result);
-        else process.stdout.write(action === "attach"
-          ? `Native sync enabled. Reload Pi or restart Codex and review its hook trust prompt.\n${result.configPath}\n`
-          : "Native sync paused; all local records retained\n");
+        const result = await installNativeSync({ root, spaceId, identity, harnesses, disabled: true });
+        if (jsonRequested(options)) outJson({ ...result, enabled: false });
+        else process.stdout.write("Native sync paused; all local records retained\n");
       } catch (cause) { reportFailure(cause); }
     });
 
@@ -92,13 +76,15 @@ export function registerRuntime(program: Command) {
           identity ? listNativeSyncStores(store.root, spaceId, identity) : [],
         ]);
         const nativeSessions = await Promise.all(nativeStores.map((native) => native.status()));
-        const result = { ...remote.value, spaceId, local, remote: remote.value, remoteError: remote.error, diagnosticsPath: runtimeDiagnosticsDirectory(store.root), pendingLocalArchives, failedLocalArchives, nativeSessions };
+        // A corrupt native sync config must never take down the whole status report.
+        const nativeSync = identity ? await readNativeSyncConfig(store.root, identity).then((config) => ({ config, error: null as string | null }), (error: unknown) => ({ config: null, error: serializeDiagnosticError(error).message })) : { config: null, error: null as string | null };
+        const result = { ...remote.value, spaceId, local, remote: remote.value, remoteError: remote.error, diagnosticsPath: runtimeDiagnosticsDirectory(store.root), pendingLocalArchives, failedLocalArchives, nativeSync: nativeSync.config, nativeSyncError: nativeSync.error, nativeSessions };
         if (jsonRequested(options)) outJson(result);
         else {
           if (local) printRuntimeSummary(local);
           else process.stdout.write(`Local process  Not running\nSpace  ${spaceId}\nLogs  ${result.diagnosticsPath}\n`);
           process.stdout.write(`Server  ${remote.error ? `Unknown — ${remote.error}` : remote.value?.online ? "Harness connected" : "Offline"}\nArchives  ${pendingLocalArchives} pending · ${failedLocalArchives} failed\n`);
-          if (nativeSessions.length) process.stdout.write(`Native chats  ${nativeSessions.length} · ${nativeSessions.reduce((sum, session) => sum + session.pendingTurns, 0)} Turns pending · ${nativeSessions.reduce((sum, session) => sum + session.pendingArchives, 0)} archives pending\n`);
+          process.stdout.write(formatNativeSync(nativeSync.config, nativeSessions, nativeSync.error));
         }
       } catch (cause) { reportFailure(cause); }
     });
