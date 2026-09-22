@@ -1,5 +1,20 @@
 # @neta-art/cohub
 
+## 8.21.0
+
+### Minor Changes
+
+- 60371eb: Local Runtime now supports supervised foreground/background execution, private local status/stop controls, persistent network recovery, redacted terminal warnings, and explicit Space reuse/new prompts. `-n` is now the boolean alias for `--new`; use `--name <name>` to name a new Space. Runtime status includes file-bridge availability and accepts an AbortSignal in the SDK.
+  
+  Local Runtime 支持前后台监督运行、本地状态与停止控制、持续网络恢复、脱敏终端告警，以及明确的 Space 复用／创建交互。`-n` 改为 `--new` 的布尔简写，命名请使用 `--name <name>`。Runtime 状态新增文件桥接可用性，SDK 状态请求支持 AbortSignal。
+  
+  Deploy the compatible Gateway/API before the CLI. Publish the updated sandboxd artifacts before updating the binary pin; older binaries use the compatibility readiness/restart path.
+  
+  先部署兼容的 Gateway/API，再发布 CLI。更新 sandboxd 二进制固定版本前必须先发布对应产物；旧版二进制使用兼容的就绪检查及重启路径。
+- c95a0f8: Connect native Pi and Codex conversations to ordinary Cohub Chats with durable Turn receipts, automatic whole-Turn forks on conflicting continuations, verified native archives, and existing realtime progress and continuation APIs. Add `cohub runtime attach` / `detach`, project-scoped upload consent, capability checks, and native sync diagnostics.
+  
+  将原生 Pi / Codex 对话接入普通 Cohub Chat：逐 Turn 持久回执、冲突时自动按完整 Turn 分支、校验归档，并复用现有实时进度和继续执行接口。新增 `cohub runtime attach` / `detach`、项目级上传授权、能力检查和同步诊断。
+
 ## 8.20.1
 
 ### Patch Changes
