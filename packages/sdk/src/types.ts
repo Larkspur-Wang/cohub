@@ -539,6 +539,7 @@ export type BillingConversionIntent = {
   primaryAction: {
     label: string;
     action: "open_billing_conversion";
+    href?: string;
   };
   source: string;
 };
